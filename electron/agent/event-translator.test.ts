@@ -20,6 +20,16 @@ test("text part.updated → messageDelta carrying cumulative text", () => {
   ])
 })
 
+test("text part.updated forwards streaming delta when cumulative text is unavailable", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: { part: { id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "" }, delta: "Hi" },
+  })
+  assert.deepEqual(out, [
+    { event: "messageDelta", data: { sessionId: "s1", messageId: "m1", partId: "p1", text: "", delta: "Hi" } },
+  ])
+})
+
 test("tool part pending → toolCallStarted", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",

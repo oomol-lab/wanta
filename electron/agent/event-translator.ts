@@ -81,7 +81,7 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
       if (!part) {
         return []
       }
-      return translatePart(part)
+      return translatePart(part, typeof props.delta === "string" ? props.delta : undefined)
     }
     case "session.idle": {
       const sessionID = (props as { sessionID?: string }).sessionID
@@ -115,12 +115,19 @@ interface OpencodePart {
   }
 }
 
-function translatePart(part: OpencodePart): ChatEmit[] {
+function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
   if (part.type === "text") {
+    const data: MessageDeltaEvent = {
+      sessionId: part.sessionID,
+      messageId: part.messageID,
+      partId: part.id,
+      text: part.text ?? "",
+      ...(delta === undefined ? {} : { delta }),
+    }
     return [
       {
         event: "messageDelta",
-        data: { sessionId: part.sessionID, messageId: part.messageID, partId: part.id, text: part.text ?? "" },
+        data,
       },
     ]
   }

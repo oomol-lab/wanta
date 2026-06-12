@@ -25,6 +25,8 @@ export interface MessageDeltaEvent {
   partId: string
   /** 该文本 part 的当前累计全文（非增量片段；渲染层按 partId 替换）。 */
   text: string
+  /** OpenCode 流式增量；某些 provider 在最终事件前不会持续更新 text。 */
+  delta?: string
 }
 export interface ToolCallStartedEvent {
   sessionId: string

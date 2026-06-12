@@ -1,17 +1,11 @@
 import type { AuthorizationInfo, ChatMessage, ChatMessagePart, ToolStatus } from "../../../electron/chat/common"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
-import type { ToolUIPart } from "ai"
+import type { ChatStatus, ToolUIPart } from "ai"
 
 import { AlertTriangle, Plug, Sparkles } from "lucide-react"
 import * as React from "react"
-import {
-  Conversation,
-  ConversationContent,
-  ConversationEmptyState,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation"
-import { Loader } from "@/components/ai-elements/loader"
+import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import {
   PromptInput,
@@ -21,15 +15,16 @@ import {
   PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
-import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
+import { cn } from "@/lib/utils"
 
 interface ChatAreaProps {
-  sessionTitle: string
   messages: ChatMessage[]
-  isGenerating: boolean
+  status: ChatStatus
+  showEmptyState: boolean
   error: string | null
   disabled: boolean
   placeholder: string
@@ -157,6 +152,10 @@ function ToolStep({ part, onAuthorize }: { part: ChatMessagePart; onAuthorize: (
   )
 }
 
+function isRenderablePart(part: ChatMessagePart): boolean {
+  return part.kind === "tool" || Boolean(part.text)
+}
+
 function MessageBubble({
   message,
   onAuthorize,
@@ -177,10 +176,14 @@ function MessageBubble({
       </Message>
     )
   }
+  const visibleParts = message.parts.filter(isRenderablePart)
+  if (visibleParts.length === 0) {
+    return null
+  }
   return (
     <Message from="assistant">
       <MessageContent>
-        {message.parts.map((part) =>
+        {visibleParts.map((part) =>
           part.kind === "text" ? (
             part.text ? (
               <MessageResponse key={part.partId}>{part.text}</MessageResponse>
@@ -194,10 +197,25 @@ function MessageBubble({
   )
 }
 
+function AssistantPendingMessage() {
+  const t = useT()
+  return (
+    <Message from="assistant">
+      <MessageContent>
+        <div className="py-0.5" role="status" aria-live="polite">
+          <Shimmer as="span" className="oo-text-caption" duration={1}>
+            {t("chat.thinking")}
+          </Shimmer>
+        </div>
+      </MessageContent>
+    </Message>
+  )
+}
+
 export function ChatArea({
-  sessionTitle,
   messages,
-  isGenerating,
+  status,
+  showEmptyState,
   error,
   disabled,
   placeholder,
@@ -207,6 +225,12 @@ export function ChatArea({
 }: ChatAreaProps) {
   const t = useT()
   const [draft, setDraft] = React.useState("")
+  const hasMessages = messages.length > 0
+  const isSubmitted = status === "submitted"
+  const isGenerating = status === "submitted" || status === "streaming"
+  const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant")
+  const showPendingMessage =
+    isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false)
 
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
   // 的 onClick），避免生成中按回车误中止流。
@@ -219,74 +243,73 @@ export function ChatArea({
     setDraft("")
   }
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 px-1">
-        <span className="oo-text-title truncate">{sessionTitle || t("chat.defaultTitle")}</span>
-        {isGenerating && <Loader className="text-muted-foreground" size={14} />}
-      </div>
+  const errorBanner = error ? (
+    <div className="oo-error flex items-center gap-2">
+      <AlertTriangle className="size-4" />
+      {error}
+    </div>
+  ) : null
 
+  const promptInput = (
+    <PromptInput onSubmit={handleSubmit} className={cn(hasMessages && "shrink-0")}>
+      <PromptInputBody>
+        <PromptInputTextarea
+          value={draft}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+      </PromptInputBody>
+      <PromptInputToolbar>
+        <PromptInputTools />
+        <PromptInputSubmit
+          status={isGenerating ? status : undefined}
+          disabled={isSubmitted ? true : status === "streaming" ? false : disabled || draft.trim().length === 0}
+          aria-label={status === "streaming" ? t("aria.stop") : t("aria.send")}
+          onClick={
+            status === "streaming"
+              ? (e) => {
+                  e.preventDefault()
+                  onStop()
+                }
+              : undefined
+          }
+        />
+      </PromptInputToolbar>
+    </PromptInput>
+  )
+
+  if (showEmptyState && !hasMessages && !isGenerating) {
+    return (
+      <div className="grid h-full min-h-0 place-items-center px-1 py-6">
+        <div className="flex w-full max-w-[48rem] -translate-y-[6vh] flex-col gap-4">
+          <div className="flex flex-col items-center gap-3 px-4 text-center">
+            <Sparkles className="size-8 text-muted-foreground" />
+            <h2 className="oo-text-title max-w-2xl">{t("chat.emptyTitle")}</h2>
+          </div>
+          {errorBanner}
+          {promptInput}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col pb-6">
       <Conversation className="min-h-0 flex-1">
-        <ConversationContent data-selectable="true" className="min-h-full gap-4 px-0 py-2">
-          {messages.length === 0 ? (
-            <ConversationEmptyState
-              className="h-full"
-              icon={<Sparkles className="size-8" />}
-              title={t("chat.emptyTitle")}
-            />
-          ) : (
-            messages.map((message) => <MessageBubble key={message.id} message={message} onAuthorize={onAuthorize} />)
-          )}
+        <ConversationContent data-selectable="true" className="mx-auto min-h-full w-full max-w-[48rem] gap-4 px-0 py-2">
+          {messages.map((message) => (
+            <MessageBubble key={message.id} message={message} onAuthorize={onAuthorize} />
+          ))}
+          {showPendingMessage && <AssistantPendingMessage />}
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
 
-      {messages.length === 0 && (
-        <Suggestions className="mb-2 px-1">
-          <Suggestion
-            suggestion={t("chat.emptyExample")}
-            disabled={disabled}
-            onClick={(text) => {
-              onSend(text)
-              setDraft("")
-            }}
-          />
-        </Suggestions>
-      )}
-
-      {error && (
-        <div className="oo-error mb-2 flex items-center gap-2">
-          <AlertTriangle className="size-4" />
-          {error}
-        </div>
-      )}
-
-      <PromptInput onSubmit={handleSubmit} className="shrink-0">
-        <PromptInputBody>
-          <PromptInputTextarea
-            value={draft}
-            disabled={disabled}
-            placeholder={placeholder}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </PromptInputBody>
-        <PromptInputToolbar>
-          <PromptInputTools />
-          <PromptInputSubmit
-            status={isGenerating ? "streaming" : undefined}
-            disabled={isGenerating ? false : disabled || draft.trim().length === 0}
-            aria-label={isGenerating ? t("aria.stop") : t("aria.send")}
-            onClick={
-              isGenerating
-                ? (e) => {
-                    e.preventDefault()
-                    onStop()
-                  }
-                : undefined
-            }
-          />
-        </PromptInputToolbar>
-      </PromptInput>
+      <div className="mx-auto flex w-full max-w-[48rem] flex-col gap-2">
+        {errorBanner}
+        {promptInput}
+      </div>
     </div>
   )
 }

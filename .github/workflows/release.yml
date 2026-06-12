@@ -1,13 +1,21 @@
 name: Release Build
 
 # 签名/公证/上传全部依赖 CI secrets（单机无法完成）。secret/vars 名照搬 oo-desktop。
-# 注：相比 oo-desktop 精简了 release-size.ts 体积统计与 oomol/workflows CDN 刷新（按需再加）。
+# 韧性步骤（OIDC 重试、rclone 缓存、Windows npm ci 重试与自动更新产物校验、release-size
+# 体积统计、富 Release notes、CDN 缓存刷新）与 oo-desktop 对齐；仅按 Lumo 适配：
+# 标准 GitHub runner（非 blacksmith 池）、产物名 Lumo-*、OSS 前缀 release/apps/lumo、
+# 安装期注入 OO_SKIP_BINARY_DOWNLOAD（oo 二进制由 build:* 内的 prepare:binaries 构建时下载）。
 
 on:
   workflow_dispatch:
     inputs:
+      expected_version:
+        description: "预期版本号 (e.g. 1.2.3, 留空则自动递增)"
+        required: false
+        type: string
+        default: ""
       version_bump:
-        description: "自增版本位置"
+        description: "自增版本位置 (仅在未指定预期版本号时生效)"
         required: true
         type: choice
         options: [patch, minor, major]
@@ -37,16 +45,30 @@ jobs:
       - name: Compute version
         id: version
         run: |
+          EXPECTED="${{ inputs.expected_version }}"
           BUMP="${{ inputs.version_bump }}"
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          LATEST_TAG=${LATEST_TAG:-v0.0.0}
-          CURRENT="${LATEST_TAG#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          case "$BUMP" in
-            major) VERSION="$((MAJOR+1)).0.0" ;;
-            minor) VERSION="$MAJOR.$((MINOR+1)).0" ;;
-            patch) VERSION="$MAJOR.$MINOR.$((PATCH+1))" ;;
-          esac
+
+          if [ -n "$EXPECTED" ]; then
+            # 去掉可能带的 v 前缀，校验 X.Y.Z 格式。
+            EXPECTED="${EXPECTED#v}"
+            if ! echo "$EXPECTED" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::Invalid version format: $EXPECTED (expected: X.Y.Z)"
+              exit 1
+            fi
+            VERSION="$EXPECTED"
+          else
+            LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+            LATEST_TAG=${LATEST_TAG:-v0.0.0}
+            CURRENT="${LATEST_TAG#v}"
+            echo "Latest tag: $LATEST_TAG (version: $CURRENT)"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+            case "$BUMP" in
+              major) VERSION="$((MAJOR+1)).0.0" ;;
+              minor) VERSION="$MAJOR.$((MINOR+1)).0" ;;
+              patch) VERSION="$MAJOR.$MINOR.$((PATCH+1))" ;;
+            esac
+          fi
+
           if git rev-parse "v$VERSION" >/dev/null 2>&1; then
             echo "::error::Tag v$VERSION already exists"; exit 1
           fi
@@ -111,8 +133,42 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.ACCESS_REPO }}
 
-      - name: Configure Alibaba Cloud credentials (OIDC)
-        id: aliyun
+      # 从本地构建产物采集 installer + app-bundle 体积，写成小 JSON 元数据，供
+      # create-release job 渲染进 Release notes，无需重新下载数百 MiB 的安装包。
+      - name: Collect macOS release size metadata
+        run: |
+          node --experimental-strip-types scripts/release-size.ts collect \
+            --platform darwin \
+            --arch arm64 \
+            --version "$VERSION" \
+            --release-dir "release/$VERSION" \
+            --out "release/$VERSION/release-size-darwin-arm64.json"
+
+      - name: Upload macOS release size metadata
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-size-darwin-arm64
+          path: release/${{ env.VERSION }}/release-size-darwin-arm64.json
+          if-no-files-found: error
+          retention-days: 7
+
+      # OIDC ID token 获取偶发在 VM runner 上以 "Client network socket disconnected
+      # before secure TLS connection was established" 失败。单次重试即可吸收瞬时抖动；
+      # 两次都失败时 job 仍会抛出第二次的错误并照常失败。
+      - name: Configure Alibaba Cloud CLI
+        id: aliyun_credentials
+        uses: aliyun/configure-aliyun-credentials-action@v1.1.0
+        with:
+          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
+          role-session-name: github-action-session
+          role-session-expiration: 1800
+          audience: https://github.com/oomol
+        continue-on-error: true
+
+      - name: Configure Alibaba Cloud CLI (retry)
+        id: aliyun_credentials_retry
+        if: steps.aliyun_credentials.outcome == 'failure'
         uses: aliyun/configure-aliyun-credentials-action@v1.1.0
         with:
           role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
@@ -121,17 +177,33 @@ jobs:
           role-session-expiration: 1800
           audience: https://github.com/oomol
 
-      - name: Setup + configure rclone
-        env:
-          ALICLOUD_ACCESS_KEY_ID: ${{ steps.aliyun.outputs.aliyun-access-key-id }}
-          ALICLOUD_ACCESS_KEY_SECRET: ${{ steps.aliyun.outputs.aliyun-access-key-secret }}
-          ALICLOUD_SECURITY_TOKEN: ${{ steps.aliyun.outputs.aliyun-security-token }}
+      - name: Cache rclone
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/bin/rclone
+          key: rclone-${{ runner.os }}-${{ runner.arch }}-${{ env.PINNED_RCLONE_VERSION }}
+
+      - name: Setup rclone
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.local/bin" ~/.config/rclone
-          curl -fsSL "https://downloads.rclone.org/${PINNED_RCLONE_VERSION}/rclone-${PINNED_RCLONE_VERSION}-osx-arm64.zip" -o /tmp/rclone.zip
-          unzip -j /tmp/rclone.zip "rclone-${PINNED_RCLONE_VERSION}-osx-arm64/rclone" -d "$HOME/.local/bin"
-          chmod +x "$HOME/.local/bin/rclone"
+          if [ ! -x "$HOME/.local/bin/rclone" ]; then
+            mkdir -p "$HOME/.local/bin"
+            curl -fsSL "https://downloads.rclone.org/${PINNED_RCLONE_VERSION}/rclone-${PINNED_RCLONE_VERSION}-osx-arm64.zip" -o /tmp/rclone.zip
+            unzip -j /tmp/rclone.zip "rclone-${PINNED_RCLONE_VERSION}-osx-arm64/rclone" -d "$HOME/.local/bin"
+            chmod +x "$HOME/.local/bin/rclone"
+          fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configure rclone for OSS
+        env:
+          # 读取重试成功的那次输出 —— 被跳过/失败步骤的 output 是空串，GitHub Actions
+          # 表达式 `||` 会在空串上回退到另一侧。
+          ALICLOUD_ACCESS_KEY_ID: ${{ steps.aliyun_credentials.outputs.aliyun-access-key-id || steps.aliyun_credentials_retry.outputs.aliyun-access-key-id }}
+          ALICLOUD_ACCESS_KEY_SECRET: ${{ steps.aliyun_credentials.outputs.aliyun-access-key-secret || steps.aliyun_credentials_retry.outputs.aliyun-access-key-secret }}
+          ALICLOUD_SECURITY_TOKEN: ${{ steps.aliyun_credentials.outputs.aliyun-security-token || steps.aliyun_credentials_retry.outputs.aliyun-security-token }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.config/rclone
           cat > ~/.config/rclone/rclone.conf <<EOF
           [oss]
           type = s3
@@ -146,7 +218,7 @@ jobs:
       - name: Upload macOS artifacts to OSS
         run: |
           set -euo pipefail
-          "$HOME/.local/bin/rclone" copy "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/darwin/arm64/" \
+          rclone copy "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/darwin/arm64/" \
             --include "Lumo-${VERSION}.dmg" --include "Lumo-${VERSION}.dmg.blockmap" \
             --include "Lumo-${VERSION}.zip" --include "Lumo-${VERSION}.zip.blockmap" \
             --include "latest-mac.yml" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
@@ -171,9 +243,17 @@ jobs:
         run: |
           echo "VERSION=${{ needs.compute-version.outputs.version }}" >> $GITHUB_ENV
           npm version "${{ needs.compute-version.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      # 自托管 Windows runner 上 npm ci 偶发网络/锁文件抖动；重试 3 次、每次重试前
+      # 清掉 node_modules，避免半装状态污染下一次安装。
       - name: Install dependencies
-        shell: bash
-        run: npm ci
+        uses: nick-fields/retry@v4
+        with:
+          max_attempts: 3
+          timeout_minutes: 15
+          shell: bash
+          command: npm ci
+          on_retry_command: rm -rf node_modules
         env:
           npm_config_audit: "false"
           npm_config_fund: "false"
@@ -181,13 +261,73 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
           # oo 二进制由后续 build:* 里的 prepare:binaries 在构建时下载，无需 postinstall 重复拉取。
           OO_SKIP_BINARY_DOWNLOAD: "1"
+
       - name: Build (signtool via electron-builder certificateSha1)
         run: npm run build:win
         env:
           NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
           GH_TOKEN: ${{ secrets.ACCESS_REPO }}
-      - name: Configure Alibaba Cloud credentials (OIDC)
-        id: aliyun
+
+      # 硬防 electron-builder 未来行为漂移。NSIS 自动更新器消费 latest.yml + Setup.exe
+      # + Setup.exe.blockmap；任一不变量回归即让 release 大声失败。
+      - name: Verify Windows auto-update artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_DIR="release/${VERSION}"
+          YML="${RELEASE_DIR}/latest.yml"
+
+          if [ ! -f "$YML" ]; then
+            echo "::error::latest.yml was not produced at $YML"
+            ls -la "$RELEASE_DIR" || true
+            exit 1
+          fi
+
+          # `grep -Fq`（定长匹配）使 $VERSION 里的点被字面匹配——正则 `.` 会接受
+          # 像 Lumo-1x2x3-Setup.exe 这类病态文件名。
+          if ! grep -Fq "Lumo-${VERSION}-Setup.exe" "$YML"; then
+            echo "::error::latest.yml does not reference Lumo-${VERSION}-Setup.exe"
+            cat "$YML"
+            exit 1
+          fi
+
+          # Lumo 的 win target 只有 nsis（无 zip）。NSIS 自动更新器只消费 latest.yml +
+          # Setup.exe + Setup.exe.blockmap，从不读 Setup.zip。若日后误给 electron-builder
+          # 加回 win zip target、让 latest.yml 引到 Setup.zip，这里大声失败拦住回归。
+          if grep -Fq "Lumo-${VERSION}-Setup.zip" "$YML"; then
+            echo "::error::latest.yml unexpectedly references Setup.zip (Windows builds nsis only)"
+            cat "$YML"
+            exit 1
+          fi
+
+          BLOCKMAP="${RELEASE_DIR}/Lumo-${VERSION}-Setup.exe.blockmap"
+          if [ ! -f "$BLOCKMAP" ]; then
+            echo "::error::Differential-update blockmap missing: $BLOCKMAP"
+            ls -la "$RELEASE_DIR" || true
+            exit 1
+          fi
+
+      - name: Collect Windows release size metadata
+        shell: bash
+        run: |
+          node --experimental-strip-types scripts/release-size.ts collect \
+            --platform win32 \
+            --arch x64 \
+            --version "$VERSION" \
+            --release-dir "release/$VERSION" \
+            --out "release/$VERSION/release-size-win32-x64.json"
+
+      - name: Upload Windows release size metadata
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-size-win32-x64
+          path: release/${{ env.VERSION }}/release-size-win32-x64.json
+          if-no-files-found: error
+          retention-days: 7
+
+      # 见 release-mac 处同名步骤的说明；自托管 Windows runner 同样观测到该 OIDC TLS 抖动。
+      - name: Configure Alibaba Cloud CLI
+        id: aliyun_credentials
         uses: aliyun/configure-aliyun-credentials-action@v1.1.0
         with:
           role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
@@ -195,19 +335,39 @@ jobs:
           role-session-name: github-action-session
           role-session-expiration: 1800
           audience: https://github.com/oomol
-      - name: Setup + configure rclone + upload
+        continue-on-error: true
+
+      - name: Configure Alibaba Cloud CLI (retry)
+        id: aliyun_credentials_retry
+        if: steps.aliyun_credentials.outcome == 'failure'
+        uses: aliyun/configure-aliyun-credentials-action@v1.1.0
+        with:
+          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
+          role-session-name: github-action-session
+          role-session-expiration: 1800
+          audience: https://github.com/oomol
+
+      - name: Setup rclone
         shell: bash
-        env:
-          ALICLOUD_ACCESS_KEY_ID: ${{ steps.aliyun.outputs.aliyun-access-key-id }}
-          ALICLOUD_ACCESS_KEY_SECRET: ${{ steps.aliyun.outputs.aliyun-access-key-secret }}
-          ALICLOUD_SECURITY_TOKEN: ${{ steps.aliyun.outputs.aliyun-security-token }}
         run: |
           set -euo pipefail
-          mkdir -p "$HOME/.local/bin" "$HOME/.config/rclone"
           if [ ! -x "$HOME/.local/bin/rclone.exe" ]; then
+            mkdir -p "$HOME/.local/bin"
             curl -fsSL "https://downloads.rclone.org/${PINNED_RCLONE_VERSION}/rclone-${PINNED_RCLONE_VERSION}-windows-amd64.zip" -o /tmp/rclone.zip
             unzip -j /tmp/rclone.zip "rclone-${PINNED_RCLONE_VERSION}-windows-amd64/rclone.exe" -d "$HOME/.local/bin"
           fi
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Configure rclone for OSS
+        shell: bash
+        env:
+          ALICLOUD_ACCESS_KEY_ID: ${{ steps.aliyun_credentials.outputs.aliyun-access-key-id || steps.aliyun_credentials_retry.outputs.aliyun-access-key-id }}
+          ALICLOUD_ACCESS_KEY_SECRET: ${{ steps.aliyun_credentials.outputs.aliyun-access-key-secret || steps.aliyun_credentials_retry.outputs.aliyun-access-key-secret }}
+          ALICLOUD_SECURITY_TOKEN: ${{ steps.aliyun_credentials.outputs.aliyun-security-token || steps.aliyun_credentials_retry.outputs.aliyun-security-token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.config/rclone"
           cat > "$HOME/.config/rclone/rclone.conf" <<EOF
           [oss]
           type = s3
@@ -218,7 +378,13 @@ jobs:
           region = ${OSS_REGION}
           session_token = ${ALICLOUD_SECURITY_TOKEN}
           EOF
-          "$HOME/.local/bin/rclone.exe" copy "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/win32/x64/" \
+
+      - name: Upload Windows artifacts to OSS
+        shell: bash
+        run: |
+          set -euo pipefail
+          rclone --config "$HOME/.config/rclone/rclone.conf" copy \
+            "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/win32/x64/" \
             --include "Lumo-${VERSION}-Setup.exe" --include "Lumo-${VERSION}-Setup.exe.blockmap" \
             --include "latest.yml" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
 
@@ -231,21 +397,89 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Create tag + release
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "lts/*"
+
+      # 拉取各平台 build job 上传的全部 release-size-* 元数据（都是小 JSON，绝不在此
+      # 重新下载大安装包）。render 在缺任一必需平台元数据时快速失败。
+      - name: Download release size metadata
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-size-*
+          path: /tmp/release-size-metadata
+          merge-multiple: true
+
+      - name: Create tag and release
         env:
           GITHUB_TOKEN: ${{ secrets.ACCESS_REPO }}
         run: |
+          set -euo pipefail
           VERSION="${{ needs.compute-version.outputs.version }}"
           TAG="v${VERSION}"
           OSS_BASE="https://static.oomol.com/${OSS_PREFIX}"
+
+          # 由 build job 元数据渲染 Downloads 表；缺元数据/版本不一致/渲染错误都会让
+          # release 失败——绝不发出缺了半张体积表的 Release note。
+          SIZE_TABLE=$(node --experimental-strip-types scripts/release-size.ts render \
+            --metadata-dir /tmp/release-size-metadata \
+            --oss-base "$OSS_BASE" \
+            --version "$VERSION")
+
           git tag "$TAG"
           git push origin "$TAG"
+
+          # 找上一个 tag：版本降序列表里取当前 tag 的下一个。
+          PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | awk "found{print;exit} /^${TAG//./\\.}\$/{found=1}")
+          PREV_TAG=${PREV_TAG:-""}
+          if [ -n "$PREV_TAG" ]; then
+            AUTO_NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="$TAG" \
+              -f previous_tag_name="$PREV_TAG" \
+              --jq '.body' 2>/dev/null || echo "")
+          else
+            AUTO_NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="$TAG" \
+              --jq '.body' 2>/dev/null || echo "")
+          fi
+
           {
+            echo "## Downloads"
+            echo ""
+            echo "$SIZE_TABLE"
+            echo ""
+            echo "## Latest Downloads"
+            echo ""
+            echo "- [Lumo macOS ARM64](https://app-downloads.oomol.com/lumo/darwin/arm64)"
+            echo "- [Lumo Windows x64](https://app-downloads.oomol.com/lumo/win32/x64)"
+            echo ""
             echo "## Auto Update"
             echo ""
             echo "| Platform | Update URL |"
             echo "|----------|-----------|"
             echo "| macOS | \`${OSS_BASE}/darwin/arm64/latest-mac.yml\` |"
             echo "| Windows | \`${OSS_BASE}/win32/x64/latest.yml\` |"
+            echo ""
+            echo "$AUTO_NOTES"
           } > /tmp/release-notes.md
+
           gh release create "$TAG" --title "$TAG" --latest --notes-file /tmp/release-notes.md
+
+  # Release 发布后刷新 release 目录的 DCDN 缓存，使自动更新客户端无需等 CDN TTL 过期即可
+  # 看到新的 latest-mac.yml / latest.yml。复用 oomol/workflows 共享 workflow——
+  # 见 https://github.com/oomol/workflows 的入参定义。
+  refresh-cdn-cache:
+    needs: [create-release]
+    permissions:
+      contents: read
+      id-token: write
+    uses: oomol/workflows/.github/workflows/refresh-cdn-cache.yml@main
+    with:
+      domain: static.oomol.com
+      # 只刷两个自动更新指针文件。版本化产物（Lumo-${VERSION}.dmg / -Setup.exe 及其
+      # .blockmap）住在每次 release 不可变的版本戳 URL 上，永不会被服务为陈旧内容。
+      files: |
+        /release/apps/lumo/darwin/arm64/latest-mac.yml
+        /release/apps/lumo/win32/x64/latest.yml
+      # Lumo 用标准 GitHub runner；共享 workflow 默认即 ubuntu-latest，这里显式指定。
+      runs-on: ubuntu-latest

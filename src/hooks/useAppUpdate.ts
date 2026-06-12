@@ -1,4 +1,4 @@
-import type { AppUpdateState, UpdateChannel } from "../../electron/update/common"
+import type { AppUpdateState, UpdateChannel } from "../../electron/update/common.ts"
 
 import * as React from "react"
 import { useUpdateService } from "@/components/AppContext"

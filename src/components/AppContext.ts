@@ -3,7 +3,7 @@ import type { ChatService } from "../../electron/chat/common"
 import type { ConnectionsService } from "../../electron/connections/common"
 import type { SessionService } from "../../electron/session/common"
 import type { SettingsService } from "../../electron/settings/common"
-import type { UpdateService } from "../../electron/update/common"
+import type { UpdateService } from "../../electron/update/common.ts"
 import type { ConnectionClientService } from "@oomol/connection"
 
 import * as React from "react"

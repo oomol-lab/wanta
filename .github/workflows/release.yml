@@ -542,14 +542,16 @@ jobs:
           # 上一个 tag 在打当前 tag 之前取，且按渠道选择：stable 对比上一个 stable
           # （changelog 跨越中间所有 beta，正式版 notes 完整）；beta 按时间取最近一个
           # tag（增量 notes）。git 的 -v:refname 对 prerelease 后缀排序不符合 semver，
-          # 不能用于跨渠道比较。
+          # 不能用于跨渠道比较。creatordate 只对 annotated tag 等于打 tag 时间
+          # （lightweight tag 会退化为所指提交的 committerdate，回溯发布时会选错上一版），
+          # 因此本 workflow 一律打 annotated tag（见下方 git tag -a）。
           if [ "$CHANNEL" = "stable" ]; then
             PREV_TAG=$(git tag -l 'v*' | grep -v -- '-' | sort -V | tail -1 || true)
           else
             PREV_TAG=$(git tag -l 'v*' --sort=-creatordate | head -1 || true)
           fi
 
-          git tag "$TAG"
+          git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
 
           if [ -n "$PREV_TAG" ]; then

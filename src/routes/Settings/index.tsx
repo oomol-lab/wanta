@@ -1,4 +1,4 @@
-import type { UpdateChannel } from "../../../electron/update/common"
+import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { Locale } from "@/i18n/i18n"
 

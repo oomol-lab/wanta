@@ -5,17 +5,29 @@ name: Release Build
 # 体积统计、富 Release notes、CDN 缓存刷新）与 oo-desktop 对齐；仅按 Lumo 适配：
 # 标准 GitHub runner（非 blacksmith 池）、产物名 Lumo-*、OSS 前缀 release/apps/lumo、
 # 安装期注入 OO_SKIP_BINARY_DOWNLOAD（oo 二进制由 build:* 内的 prepare:binaries 构建时下载）。
+#
+# 双渠道（Lumo 相对 oo-desktop 的 deliberate divergence，见 docs/key-decisions.md §10）：
+# stable 发 X.Y.Z（latest*.yml，gh release --latest），beta 发 X.Y.Z-beta.N（beta*.yml，
+# --prerelease）。同一 OSS 目录下两套渠道指针并存；electron-builder 的
+# generateUpdatesFilesForAllChannels 让 stable 构建同步刷新 beta*.yml（beta 用户立即收敛）。
+# 版本计算在 scripts/release-version.ts（含 stable bump 过滤 beta tag 的关键防护）。
 
 on:
   workflow_dispatch:
     inputs:
+      channel:
+        description: "发布渠道"
+        required: true
+        type: choice
+        options: [stable, beta]
+        default: stable
       expected_version:
-        description: "预期版本号 (e.g. 1.2.3, 留空则自动递增)"
+        description: "预期版本号 (stable: 1.2.3 / beta: 1.2.3-beta.1, 留空则自动计算)"
         required: false
         type: string
         default: ""
       version_bump:
-        description: "自增版本位置 (仅在未指定预期版本号时生效)"
+        description: "自增版本位置 (仅 stable 且未指定预期版本号时生效)"
         required: true
         type: choice
         options: [patch, minor, major]
@@ -25,6 +37,11 @@ permissions:
   contents: write
   id-token: write
   packages: read
+
+# 串行化发布：并发 dispatch 会算出同一版本号并竞写同一批 OSS 对象/渠道指针。
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   NODE_OPTIONS: "--max-old-space-size=8192"
@@ -37,43 +54,63 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.VERSION }}
+      channel: ${{ steps.version.outputs.CHANNEL }}
+      refresh_beta: ${{ steps.version.outputs.REFRESH_BETA }}
+      cdn_files: ${{ steps.version.outputs.CDN_FILES }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "lts/*"
       - name: Compute version
         id: version
+        # 用户输入经 env 传递（不直接插值进脚本体，防 shell 注入/引号破碎）。
+        env:
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_EXPECTED: ${{ inputs.expected_version }}
+          INPUT_BUMP: ${{ inputs.version_bump }}
         run: |
-          EXPECTED="${{ inputs.expected_version }}"
-          BUMP="${{ inputs.version_bump }}"
+          set -euo pipefail
+          CHANNEL="$INPUT_CHANNEL"
 
-          if [ -n "$EXPECTED" ]; then
-            # 去掉可能带的 v 前缀，校验 X.Y.Z 格式。
-            EXPECTED="${EXPECTED#v}"
-            if ! echo "$EXPECTED" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "::error::Invalid version format: $EXPECTED (expected: X.Y.Z)"
-              exit 1
-            fi
-            VERSION="$EXPECTED"
-          else
-            LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
-            LATEST_TAG=${LATEST_TAG:-v0.0.0}
-            CURRENT="${LATEST_TAG#v}"
-            echo "Latest tag: $LATEST_TAG (version: $CURRENT)"
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-            case "$BUMP" in
-              major) VERSION="$((MAJOR+1)).0.0" ;;
-              minor) VERSION="$MAJOR.$((MINOR+1)).0" ;;
-              patch) VERSION="$MAJOR.$MINOR.$((PATCH+1))" ;;
-            esac
-          fi
+          # 版本计算在 scripts/release-version.ts（纯函数 + vitest 覆盖）：stable 自动 bump
+          # 过滤全部 beta tag（bash 算术遇 v1.0.1-beta.2 会爆炸的地雷在脚本里有回归用例）；
+          # beta 基线 = max(最新 stable 的 patch+1, 既存 beta 最高基线)，N 按基线递增；
+          # 显式版本有防回退校验。输出 JSON：{"version":..., "refreshBeta":...}。
+          RESULT=$(git tag -l 'v*' | node --experimental-strip-types scripts/release-version.ts \
+            --channel "$CHANNEL" \
+            --expected "$INPUT_EXPECTED" \
+            --bump "$INPUT_BUMP")
+          VERSION=$(echo "$RESULT" | jq -r '.version')
+          REFRESH_BETA=$(echo "$RESULT" | jq -r '.refreshBeta')
 
           if git rev-parse "v$VERSION" >/dev/null 2>&1; then
             echo "::error::Tag v$VERSION already exists"; exit 1
           fi
+
+          # CDN 待刷新的渠道指针清单。stable 构建经 generateUpdatesFilesForAllChannels
+          # 同时刷新 beta*.yml（beta 用户立即收敛到正式版）；唯一例外 REFRESH_BETA=false——
+          # 本次 stable 低于既存 beta 基线（手动抬过基线后的 hotfix），跳过 beta 指针防倒退。
+          {
+            echo "CDN_FILES<<CDN_EOF"
+            if [ "$CHANNEL" = "stable" ]; then
+              echo "/release/apps/lumo/darwin/arm64/latest-mac.yml"
+              echo "/release/apps/lumo/win32/x64/latest.yml"
+            fi
+            if [ "$REFRESH_BETA" = "true" ]; then
+              echo "/release/apps/lumo/darwin/arm64/beta-mac.yml"
+              echo "/release/apps/lumo/win32/x64/beta.yml"
+            fi
+            echo "CDN_EOF"
+          } >> "$GITHUB_OUTPUT"
+
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "::notice::Release version: $VERSION"
+          echo "CHANNEL=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "REFRESH_BETA=$REFRESH_BETA" >> "$GITHUB_OUTPUT"
+          echo "::notice::Release version: $VERSION (channel: $CHANNEL, refresh beta pointer: $REFRESH_BETA)"
 
   release-mac:
     needs: compute-version
@@ -83,6 +120,8 @@ jobs:
       PINNED_RCLONE_VERSION: v1.69.1
       OSS_ENDPOINT: https://oss-accelerate.aliyuncs.com
       OSS_REGION: cn-hangzhou
+      CHANNEL: ${{ needs.compute-version.outputs.channel }}
+      REFRESH_BETA: ${{ needs.compute-version.outputs.refresh_beta }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v5
@@ -132,6 +171,45 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLEID_PASS }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.ACCESS_REPO }}
+
+      # 对齐 win 侧的产物硬校验：mac 自动更新器消费 <channel>-mac.yml + zip + zip.blockmap。
+      # stable 构建经 generateUpdatesFilesForAllChannels 同时产出 beta-mac.yml，两个指针都校验；
+      # 任一缺失/指错版本都让 release 在上传前大声失败。
+      - name: Verify macOS auto-update artifacts
+        run: |
+          set -euo pipefail
+          # 枚举守卫：outputs plumbing 回归（拼错输出名→空串）必须大声失败——
+          # 空串会让 stable 静默漏传 beta 指针、让 beta 在 bash≥4.4 上空 include 上传。
+          case "$CHANNEL" in stable|beta) ;; *) echo "::error::CHANNEL must be stable|beta, got '$CHANNEL'"; exit 1;; esac
+          case "$REFRESH_BETA" in true|false) ;; *) echo "::error::REFRESH_BETA must be true|false, got '$REFRESH_BETA'"; exit 1;; esac
+          RELEASE_DIR="release/${VERSION}"
+          YMLS=()
+          if [ "$CHANNEL" = "stable" ]; then
+            YMLS+=("latest-mac.yml")
+          fi
+          if [ "$REFRESH_BETA" = "true" ]; then
+            YMLS+=("beta-mac.yml")
+          fi
+          for NAME in "${YMLS[@]}"; do
+            YML="${RELEASE_DIR}/${NAME}"
+            if [ ! -f "$YML" ]; then
+              echo "::error::${NAME} was not produced at $YML"
+              ls -la "$RELEASE_DIR" || true
+              exit 1
+            fi
+            # `grep -Fq`（定长匹配）使 $VERSION 里的点被字面匹配。
+            if ! grep -Fq "Lumo-${VERSION}.zip" "$YML"; then
+              echo "::error::${NAME} does not reference Lumo-${VERSION}.zip"
+              cat "$YML"
+              exit 1
+            fi
+          done
+          BLOCKMAP="${RELEASE_DIR}/Lumo-${VERSION}.zip.blockmap"
+          if [ ! -f "$BLOCKMAP" ]; then
+            echo "::error::Differential-update blockmap missing: $BLOCKMAP"
+            ls -la "$RELEASE_DIR" || true
+            exit 1
+          fi
 
       # 从本地构建产物采集 installer + app-bundle 体积，写成小 JSON 元数据，供
       # create-release job 渲染进 Release notes，无需重新下载数百 MiB 的安装包。
@@ -218,10 +296,20 @@ jobs:
       - name: Upload macOS artifacts to OSS
         run: |
           set -euo pipefail
+          # 渠道指针按渠道收紧 include 白名单：beta 发布绝不触碰 latest-mac.yml——
+          # 这份白名单就是 stable 指针的保护栏；stable 同步刷新 beta-mac.yml（见 builder 配置），
+          # 除非 REFRESH_BETA=false（本次 stable 低于既存 beta 基线，跳过防指针倒退）。
+          YML_INCLUDES=()
+          if [ "$CHANNEL" = "stable" ]; then
+            YML_INCLUDES+=(--include "latest-mac.yml")
+          fi
+          if [ "$REFRESH_BETA" = "true" ]; then
+            YML_INCLUDES+=(--include "beta-mac.yml")
+          fi
           rclone copy "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/darwin/arm64/" \
             --include "Lumo-${VERSION}.dmg" --include "Lumo-${VERSION}.dmg.blockmap" \
             --include "Lumo-${VERSION}.zip" --include "Lumo-${VERSION}.zip.blockmap" \
-            --include "latest-mac.yml" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
+            "${YML_INCLUDES[@]}" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
 
   release-win:
     needs: compute-version
@@ -231,6 +319,8 @@ jobs:
       PINNED_RCLONE_VERSION: v1.69.1
       OSS_ENDPOINT: https://oss-cn-hangzhou.aliyuncs.com
       OSS_REGION: cn-hangzhou
+      CHANNEL: ${{ needs.compute-version.outputs.channel }}
+      REFRESH_BETA: ${{ needs.compute-version.outputs.refresh_beta }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v5
@@ -268,37 +358,50 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
           GH_TOKEN: ${{ secrets.ACCESS_REPO }}
 
-      # 硬防 electron-builder 未来行为漂移。NSIS 自动更新器消费 latest.yml + Setup.exe
+      # 硬防 electron-builder 未来行为漂移。NSIS 自动更新器消费 <channel>.yml + Setup.exe
       # + Setup.exe.blockmap；任一不变量回归即让 release 大声失败。
+      # stable 构建经 generateUpdatesFilesForAllChannels 同时产出 beta.yml，两个指针都校验。
       - name: Verify Windows auto-update artifacts
         shell: bash
         run: |
           set -euo pipefail
+          # 枚举守卫：见 mac 侧同名步骤说明。
+          case "$CHANNEL" in stable|beta) ;; *) echo "::error::CHANNEL must be stable|beta, got '$CHANNEL'"; exit 1;; esac
+          case "$REFRESH_BETA" in true|false) ;; *) echo "::error::REFRESH_BETA must be true|false, got '$REFRESH_BETA'"; exit 1;; esac
           RELEASE_DIR="release/${VERSION}"
-          YML="${RELEASE_DIR}/latest.yml"
-
-          if [ ! -f "$YML" ]; then
-            echo "::error::latest.yml was not produced at $YML"
-            ls -la "$RELEASE_DIR" || true
-            exit 1
+          YMLS=()
+          if [ "$CHANNEL" = "stable" ]; then
+            YMLS+=("latest.yml")
+          fi
+          if [ "$REFRESH_BETA" = "true" ]; then
+            YMLS+=("beta.yml")
           fi
 
-          # `grep -Fq`（定长匹配）使 $VERSION 里的点被字面匹配——正则 `.` 会接受
-          # 像 Lumo-1x2x3-Setup.exe 这类病态文件名。
-          if ! grep -Fq "Lumo-${VERSION}-Setup.exe" "$YML"; then
-            echo "::error::latest.yml does not reference Lumo-${VERSION}-Setup.exe"
-            cat "$YML"
-            exit 1
-          fi
+          for NAME in "${YMLS[@]}"; do
+            YML="${RELEASE_DIR}/${NAME}"
+            if [ ! -f "$YML" ]; then
+              echo "::error::${NAME} was not produced at $YML"
+              ls -la "$RELEASE_DIR" || true
+              exit 1
+            fi
 
-          # Lumo 的 win target 只有 nsis（无 zip）。NSIS 自动更新器只消费 latest.yml +
-          # Setup.exe + Setup.exe.blockmap，从不读 Setup.zip。若日后误给 electron-builder
-          # 加回 win zip target、让 latest.yml 引到 Setup.zip，这里大声失败拦住回归。
-          if grep -Fq "Lumo-${VERSION}-Setup.zip" "$YML"; then
-            echo "::error::latest.yml unexpectedly references Setup.zip (Windows builds nsis only)"
-            cat "$YML"
-            exit 1
-          fi
+            # `grep -Fq`（定长匹配）使 $VERSION 里的点被字面匹配——正则 `.` 会接受
+            # 像 Lumo-1x2x3-Setup.exe 这类病态文件名。
+            if ! grep -Fq "Lumo-${VERSION}-Setup.exe" "$YML"; then
+              echo "::error::${NAME} does not reference Lumo-${VERSION}-Setup.exe"
+              cat "$YML"
+              exit 1
+            fi
+
+            # Lumo 的 win target 只有 nsis（无 zip）。NSIS 自动更新器只消费 yml +
+            # Setup.exe + Setup.exe.blockmap，从不读 Setup.zip。若日后误给 electron-builder
+            # 加回 win zip target、让 yml 引到 Setup.zip，这里大声失败拦住回归。
+            if grep -Fq "Lumo-${VERSION}-Setup.zip" "$YML"; then
+              echo "::error::${NAME} unexpectedly references Setup.zip (Windows builds nsis only)"
+              cat "$YML"
+              exit 1
+            fi
+          done
 
           BLOCKMAP="${RELEASE_DIR}/Lumo-${VERSION}-Setup.exe.blockmap"
           if [ ! -f "$BLOCKMAP" ]; then
@@ -383,10 +486,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # 同 mac 侧：include 白名单按渠道收紧，beta 发布绝不触碰 latest.yml；
+          # REFRESH_BETA=false 时 stable 跳过 beta.yml（防指针倒退）。
+          YML_INCLUDES=()
+          if [ "$CHANNEL" = "stable" ]; then
+            YML_INCLUDES+=(--include "latest.yml")
+          fi
+          if [ "$REFRESH_BETA" = "true" ]; then
+            YML_INCLUDES+=(--include "beta.yml")
+          fi
           rclone --config "$HOME/.config/rclone/rclone.conf" copy \
             "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/win32/x64/" \
             --include "Lumo-${VERSION}-Setup.exe" --include "Lumo-${VERSION}-Setup.exe.blockmap" \
-            --include "latest.yml" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
+            "${YML_INCLUDES[@]}" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
 
   create-release:
     needs: [compute-version, release-mac, release-win]
@@ -416,6 +528,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ needs.compute-version.outputs.version }}"
+          CHANNEL="${{ needs.compute-version.outputs.channel }}"
           TAG="v${VERSION}"
           OSS_BASE="https://static.oomol.com/${OSS_PREFIX}"
 
@@ -426,12 +539,19 @@ jobs:
             --oss-base "$OSS_BASE" \
             --version "$VERSION")
 
+          # 上一个 tag 在打当前 tag 之前取，且按渠道选择：stable 对比上一个 stable
+          # （changelog 跨越中间所有 beta，正式版 notes 完整）；beta 按时间取最近一个
+          # tag（增量 notes）。git 的 -v:refname 对 prerelease 后缀排序不符合 semver，
+          # 不能用于跨渠道比较。
+          if [ "$CHANNEL" = "stable" ]; then
+            PREV_TAG=$(git tag -l 'v*' | grep -v -- '-' | sort -V | tail -1 || true)
+          else
+            PREV_TAG=$(git tag -l 'v*' --sort=-creatordate | head -1 || true)
+          fi
+
           git tag "$TAG"
           git push origin "$TAG"
 
-          # 找上一个 tag：版本降序列表里取当前 tag 的下一个。
-          PREV_TAG=$(git tag -l 'v*' --sort=-v:refname | awk "found{print;exit} /^${TAG//./\\.}\$/{found=1}")
-          PREV_TAG=${PREV_TAG:-""}
           if [ -n "$PREV_TAG" ]; then
             AUTO_NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes \
               -f tag_name="$TAG" \
@@ -443,43 +563,58 @@ jobs:
               --jq '.body' 2>/dev/null || echo "")
           fi
 
+          if [ "$CHANNEL" = "stable" ]; then
+            MAC_YML="latest-mac.yml"
+            WIN_YML="latest.yml"
+          else
+            MAC_YML="beta-mac.yml"
+            WIN_YML="beta.yml"
+          fi
+
           {
             echo "## Downloads"
             echo ""
             echo "$SIZE_TABLE"
             echo ""
-            echo "## Latest Downloads"
-            echo ""
-            echo "- [Lumo macOS ARM64](https://app-downloads.oomol.com/lumo/darwin/arm64)"
-            echo "- [Lumo Windows x64](https://app-downloads.oomol.com/lumo/win32/x64)"
-            echo ""
+            # app-downloads.oomol.com 重定向器只跟踪 stable，beta notes 不放该区块。
+            if [ "$CHANNEL" = "stable" ]; then
+              echo "## Latest Downloads"
+              echo ""
+              echo "- [Lumo macOS ARM64](https://app-downloads.oomol.com/lumo/darwin/arm64)"
+              echo "- [Lumo Windows x64](https://app-downloads.oomol.com/lumo/win32/x64)"
+              echo ""
+            fi
             echo "## Auto Update"
             echo ""
             echo "| Platform | Update URL |"
             echo "|----------|-----------|"
-            echo "| macOS | \`${OSS_BASE}/darwin/arm64/latest-mac.yml\` |"
-            echo "| Windows | \`${OSS_BASE}/win32/x64/latest.yml\` |"
+            echo "| macOS | \`${OSS_BASE}/darwin/arm64/${MAC_YML}\` |"
+            echo "| Windows | \`${OSS_BASE}/win32/x64/${WIN_YML}\` |"
             echo ""
             echo "$AUTO_NOTES"
           } > /tmp/release-notes.md
 
-          gh release create "$TAG" --title "$TAG" --latest --notes-file /tmp/release-notes.md
+          # beta 标记为 prerelease，绝不抢仓库 Latest；stable 显式 --latest。
+          if [ "$CHANNEL" = "stable" ]; then
+            gh release create "$TAG" --title "$TAG" --latest --notes-file /tmp/release-notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --prerelease --notes-file /tmp/release-notes.md
+          fi
 
   # Release 发布后刷新 release 目录的 DCDN 缓存，使自动更新客户端无需等 CDN TTL 过期即可
   # 看到新的 latest-mac.yml / latest.yml。复用 oomol/workflows 共享 workflow——
   # 见 https://github.com/oomol/workflows 的入参定义。
   refresh-cdn-cache:
-    needs: [create-release]
+    needs: [compute-version, create-release]
     permissions:
       contents: read
       id-token: write
     uses: oomol/workflows/.github/workflows/refresh-cdn-cache.yml@main
     with:
       domain: static.oomol.com
-      # 只刷两个自动更新指针文件。版本化产物（Lumo-${VERSION}.dmg / -Setup.exe 及其
-      # .blockmap）住在每次 release 不可变的版本戳 URL 上，永不会被服务为陈旧内容。
-      files: |
-        /release/apps/lumo/darwin/arm64/latest-mac.yml
-        /release/apps/lumo/win32/x64/latest.yml
+      # 只刷自动更新渠道指针文件（清单由 compute-version 按渠道计算：stable 刷
+      # latest*+beta* 共 4 个，beta 只刷 beta* 两个）。版本化产物（Lumo-${VERSION}.dmg /
+      # -Setup.exe 及其 .blockmap）住在每次 release 不可变的版本戳 URL 上，永不陈旧。
+      files: ${{ needs.compute-version.outputs.cdn_files }}
       # Lumo 用标准 GitHub runner；共享 workflow 默认即 ubuntu-latest，这里显式指定。
       runs-on: ubuntu-latest

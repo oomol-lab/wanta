@@ -22,7 +22,7 @@ import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstan
 import { SessionServiceImpl } from "./session/node.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
-import { setupAutoUpdater } from "./update/node.ts"
+import { UpdateServiceImpl } from "./update/node.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(dirname, "..")
@@ -71,6 +71,10 @@ const authService = new AuthServiceImpl(authManager)
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
 })
+// 更新渠道（stable/beta）持久化在同一 settings.json；服务内部仅打包态联网。
+const updateService = new UpdateServiceImpl({
+  store: settingsStore,
+})
 
 registerProtocolClient(protocolScheme)
 const { initialUrl, isLocked } = requestProtocolSingleInstanceLock(protocolScheme, { enabled: app.isPackaged })
@@ -85,6 +89,7 @@ server.registerService(sessionService)
 server.registerService(connectionsService)
 server.registerService(settingsService)
 server.registerService(authService)
+server.registerService(updateService)
 settingsService.applyStartupTheme()
 
 if (isLocked) {
@@ -103,7 +108,10 @@ if (isLocked) {
 
   app.whenReady().then(() => {
     createMainWindow()
-    setupAutoUpdater()
+    // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
+    void updateService.checkForAppUpdate().catch((error: unknown) => {
+      console.warn("[lumo] startup update check failed:", error)
+    })
 
     const account = authManager.activeAccount()
     if (account) {

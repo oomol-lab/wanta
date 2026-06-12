@@ -74,3 +74,10 @@
 - **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② `LUMO_PERMISSION = { edit: "allow", bash: "allow", webfetch: "allow", external_directory: "allow" }` 同时下发 agent 级与根级；③ 系统提示词整段重写为双能力（connector 三工具 + 本地工具）——只放开工具不改提示词，模型仍会自我拒绝。
 - **理由（关键约束）**：permission 取值 `ask | allow | deny`，但 `event-translator.ts` 未处理 `permission.updated` 事件（无确认 UI），设 `ask` 会让会话静默挂死 → 只能 allow/deny 二选一。`external_directory: "allow"` 让 read/glob/list 越出私有 scratch cwd 访问真实文件系统（bash 本就不受限）；**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），用提示词引导绝对路径/`~` 代替。
 - **后果**：当前安全姿态是**模型拥有无确认的任意 shell / 文件读写 / 网络访问**，这是已知且接受的取舍。若将来要"危险操作前确认"，需监听 `permission.updated` 并做确认弹窗（明确列为可选后续工作，未做）。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器三工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。前端无需改动（工具渲染有 default 分支）。
+
+## 10. Beta/Stable 双发行渠道
+
+- **背景**：需要每日构建走 beta 渠道、正式发布走 stable，用户可在设置里双向切换（默认 stable）。oo-desktop 是单渠道（仅 latest\*.yml），无先例可抄——这是相对 §1 镜像策略的 deliberate divergence（比照 Bearer 头 / i18n 先例）。
+- **决策**：用 electron-updater generic provider 的原生渠道机制——beta 版本号 `X.Y.Z-beta.N`（基线 = max(最新 stable 的 patch+1, 既存 beta 最高基线)，由 `scripts/release-version.ts` 计算并带防回退校验），electron-builder 自动产出 `beta*.yml` 与 `latest*.yml` 同目录并存；客户端渠道 = `用户设置 ?? 自身版本推导`，经 `setFeedURL` 的 `channel` 字段选择指针文件。开 `generateUpdatesFilesForAllChannels`：stable 构建同步刷新 `beta*.yml`，beta 用户在正式版发布后立即收敛（唯一例外：stable 低于既存 beta 基线时 CI 跳过 beta 指针，防倒退）。
+- **理由（三个关键约束）**：① patch+1 是唯一安全基线——它是下一个正式版的最小可能值，保证任何未来 stable 都大于在售 beta，收敛不依赖预测下个版本号；② **不用 `autoUpdater.channel` setter**——它会静默把 `allowDowngrade` 置 true（electron-updater AppUpdater 源码），与"beta 切回 stable 默认等下一个正式版、绝不自动降级"冲突，故渠道走 `setFeedURL` 配置并显式 `allowDowngrade=false`；③ 立即降级被否——electron-updater 对降级后的数据兼容（opencode sidecar 会话/存储 schema 由新版写入）无任何保护，等待收敛是官方对齐（roll-forward）的安全路径。
+- **后果**：发布纪律变重——rclone include 白名单按渠道收紧（beta 绝不触碰 `latest*.yml`）、CDN 刷新清单按渠道计算、mac/win 各有渠道 yml 硬校验；generic provider 缺渠道 yml 是硬错（无回退），`beta*.yml` 在两个平台目录必须常在；stable 自动 bump 必须过滤 beta tag（bash 算术遇 `-beta` 即爆，已固化为 release-version.ts 回归用例）；`electron-builder`/`electron-updater` 因渠道行为版本敏感而精确钉死。

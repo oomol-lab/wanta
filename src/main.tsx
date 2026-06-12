@@ -6,6 +6,7 @@ import { ChatService } from "../electron/chat/common"
 import { ConnectionsService } from "../electron/connections/common"
 import { SessionService } from "../electron/session/common"
 import { SettingsService } from "../electron/settings/common"
+import { UpdateService } from "../electron/update/common"
 import { App } from "@/App"
 import { AppContext } from "@/components/AppContext"
 
@@ -27,9 +28,12 @@ const sessionService = client.use(SessionService)
 const connectionsService = client.use(ConnectionsService)
 const settingsService = client.use(SettingsService)
 const authService = client.use(AuthService)
+const updateService = client.use(UpdateService)
 
 createRoot(rootElement).render(
-  <AppContext.Provider value={{ chatService, sessionService, connectionsService, settingsService, authService }}>
+  <AppContext.Provider
+    value={{ chatService, sessionService, connectionsService, settingsService, authService, updateService }}
+  >
     <App />
   </AppContext.Provider>,
 )

@@ -14,6 +14,11 @@
     provider: "generic",
     url: "",
   },
+  // 双渠道（stable/beta）：generic provider 由版本号 prerelease 段自动推导渠道
+  // （1.2.3-beta.1 → beta*.yml；detectUpdateChannel 默认开启）。此开关让 stable 构建
+  // 同时刷新 beta*.yml，beta 用户在正式版发布后立即收敛到 stable，无需等下一个 beta。
+  // 多产出的 alpha*.yml 不在 CI 上传清单内，自然丢弃。
+  generateUpdatesFilesForAllChannels: true,
   protocols: [
     {
       name: "lumo",

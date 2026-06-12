@@ -76,16 +76,19 @@ electron/
   chat/    common,node        聊天契约 + SSE 事件桥
   connections/ common,node,summary(+test)           连接器面板（见 §6）
   session/ common,node        会话 CRUD（代理 AgentManager，sessionsChanged 广播）
-  settings/ common,node,store(+test)                仅 themeSource（system|light|dark）；不存凭证（R8）
-  update/  node.ts            electron-updater generic feed = static.<ep>/release/apps/lumo/<plat>/<arch>；
-                              仅打包态；autoDownload=false；ESM 下须 updaterPkg.autoUpdater 静态 default import
+  settings/ common,node,store(+test)                themeSource + updateChannel；原子写；不存凭证（R8）
+  update/  common,node,channel(+test)               UpdateService：检查/下载/安装/渠道切换 + appUpdateStateChanged；
+                              generic feed = static.<ep>/release/apps/lumo/<plat>/<arch>；仅打包态；autoDownload=false
+                              （设置页 UI 显式触发）；渠道经 setFeedURL channel 字段（勿用 channel setter——
+                              会静默置 allowDowngrade）+ 显式 allowDowngrade=false；404 容忍限次重试；
+                              ESM 下须 updaterPkg.autoUpdater 静态 default import
 src/
   main.tsx App.tsx            入口 / AuthGate
   components/app-shell/       AppShell 三栏 + 内部 Route state（"chat"|"settings"）
   components/ai-elements/     vendored 裁剪版（code-block conversation loader message prompt-input suggestion task tool）
   components/ui/              shadcn 基件（button badge input textarea dialog scroll-area collapsible input-group split-view）
   routes/  Chat/ Connections/ Login/ Settings/
-  hooks/   useChat useSessions useConnections useAuth
+  hooks/   useChat useSessions useConnections useAuth useAppUpdate
   i18n/    自研轻量 i18n（zh-CN 基准 + en，localStorage key lumo.locale）
   index.css                   Tailwind v4 单文件主题（CSS variables；含 @source streamdown）
 ```

@@ -3,6 +3,7 @@ import type { ChatService } from "../../electron/chat/common"
 import type { ConnectionsService } from "../../electron/connections/common"
 import type { SessionService } from "../../electron/session/common"
 import type { SettingsService } from "../../electron/settings/common"
+import type { UpdateService } from "../../electron/update/common.ts"
 import type { ConnectionClientService } from "@oomol/connection"
 
 import * as React from "react"
@@ -13,6 +14,7 @@ export interface AppContextValue {
   connectionsService: ConnectionClientService<ConnectionsService>
   settingsService: ConnectionClientService<SettingsService>
   authService: ConnectionClientService<AuthService>
+  updateService: ConnectionClientService<UpdateService>
 }
 
 export const AppContext = React.createContext<AppContextValue | null>(null)
@@ -43,4 +45,8 @@ export function useSettingsService(): ConnectionClientService<SettingsService> {
 
 export function useAuthService(): ConnectionClientService<AuthService> {
   return useAppContext().authService
+}
+
+export function useUpdateService(): ConnectionClientService<UpdateService> {
+  return useAppContext().updateService
 }

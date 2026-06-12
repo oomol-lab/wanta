@@ -1,0 +1,233 @@
+import * as React from "react"
+import { storageKey } from "../../electron/branding.ts"
+
+export type Locale = "zh-CN" | "en"
+
+export const defaultLocale: Locale = "zh-CN"
+export const localeStorageKey = storageKey("locale")
+
+// 轻量 i18n：扁平 dot key + {var} 占位。zh-CN 为基准，en 镜像。
+const messages = {
+  "zh-CN": {
+    "common.cancel": "取消",
+    "common.submit": "提交",
+    "nav.settings": "设置",
+    "sidebar.newSession": "新建会话",
+    "sidebar.empty": "还没有会话，点上方“新建会话”开始。",
+    "chat.defaultTitle": "对话",
+    "chat.newSession": "新会话",
+    "chat.emptyTitle": "说出你的需求，Lumo 会调度 OOMOL 连接器完成。",
+    "chat.emptyExample": "例如：查 Hacker News 当前最热门的 3 条故事",
+    "chat.inputPlaceholder": "给 Lumo 发送消息…",
+    "chat.agentStarting": "Agent 启动中…",
+    "chat.authNeeded": "需要授权 {name} 才能继续",
+    "chat.authorize": "去授权",
+    "chat.toolSearch": "搜索连接器：{detail}",
+    "chat.toolInspect": "查看 {detail} 的参数",
+    "chat.toolCall": "调用 {detail}",
+    "chat.toolParams": "参数",
+    "chat.toolResult": "结果",
+    "connections.title": "连接",
+    "connections.search": "搜索 600+ 连接器…",
+    "connections.connect": "连接",
+    "connections.disconnect": "断开",
+    "connections.connected": "已连接",
+    "connections.waiting": "等待授权…",
+    "connections.unsupported": "暂不支持",
+    "connections.apiKeyPlaceholder": "粘贴 API key",
+    "connections.noMatch": "无匹配连接器",
+    "connections.none": "暂无连接",
+    "connections.more": "搜索以连接更多（共 {count} 个）",
+    "connections.notReady": "未登录，连接不可用。",
+    "connections.manage": "管理",
+    "connections.needsAttention": "需要处理",
+    "connections.filterAll": "全部",
+    "connections.filterConnected": "已连接",
+    "connections.reconnect": "重新连接",
+    "connections.addAccount": "添加账号",
+    "connections.noAccount": "暂无连接账号",
+    "connections.alias": "别名",
+    "connections.aliasEmpty": "未设置别名",
+    "connections.aliasPlaceholder": "设置别名",
+    "connections.statusLabel": "状态",
+    "connections.authLabel": "鉴权",
+    "connections.active": "活跃",
+    "connections.default": "默认",
+    "connections.defaultOn": "已启用",
+    "connections.setDefault": "设为默认",
+    "connections.updatedAt": "更新于",
+    "connections.appId": "应用 ID",
+    "connections.executions": "执行记录",
+    "connections.interfaces": "接口",
+    "connections.noData": "暂无数据",
+    "connections.homepage": "官网",
+    "connections.copy": "复制",
+    "connections.copied": "已复制",
+    "connections.note": "备注",
+    "connections.notePlaceholder": "备注",
+    "connections.noteHelp": "可选，用于在连接列表中备注该连接。",
+    "connections.connectTitle": "连接 {name} 账号",
+    "connections.loadFailed": "加载失败",
+    "connections.statusSuccess": "成功",
+    "connections.statusError": "失败",
+    "connections.authType.oauth2": "OAuth",
+    "connections.authType.api_key": "API Key",
+    "connections.authType.custom_credential": "自定义凭证",
+    "connections.authType.federated": "联合凭证",
+    "connections.authType.no_auth": "无需鉴权",
+    "login.subtitle": "在浏览器中登录 OOMOL 账号后即可开始使用。",
+    "login.button": "使用浏览器登录",
+    "login.waiting": "等待浏览器登录完成…",
+    "login.failed": "登录失败：{error}",
+    "settings.title": "设置",
+    "settings.theme": "主题",
+    "settings.themeSystem": "跟随系统",
+    "settings.themeLight": "浅色",
+    "settings.themeDark": "深色",
+    "settings.language": "语言",
+    "settings.account": "账号",
+    "settings.logout": "退出登录",
+    "aria.deleteSession": "删除会话",
+    "aria.send": "发送",
+    "aria.stop": "停止生成",
+    "aria.refresh": "刷新",
+    "aria.expandConnections": "展开连接面板",
+    "aria.collapseConnections": "收起连接面板",
+  },
+  en: {
+    "common.cancel": "Cancel",
+    "common.submit": "Submit",
+    "nav.settings": "Settings",
+    "sidebar.newSession": "New chat",
+    "sidebar.empty": "No chats yet — click “New chat” above to start.",
+    "chat.defaultTitle": "Chat",
+    "chat.newSession": "New chat",
+    "chat.emptyTitle": "Describe what you need; Lumo will orchestrate OOMOL connectors.",
+    "chat.emptyExample": "e.g. show the top 3 stories on Hacker News",
+    "chat.inputPlaceholder": "Message Lumo…",
+    "chat.agentStarting": "Agent starting…",
+    "chat.authNeeded": "{name} needs authorization to continue",
+    "chat.authorize": "Authorize",
+    "chat.toolSearch": "Searching connectors: {detail}",
+    "chat.toolInspect": "Inspecting {detail}",
+    "chat.toolCall": "Calling {detail}",
+    "chat.toolParams": "Parameters",
+    "chat.toolResult": "Result",
+    "connections.title": "Connections",
+    "connections.search": "Search 600+ connectors…",
+    "connections.connect": "Connect",
+    "connections.disconnect": "Disconnect",
+    "connections.connected": "Connected",
+    "connections.waiting": "Waiting for authorization…",
+    "connections.unsupported": "Unsupported",
+    "connections.apiKeyPlaceholder": "Paste API key",
+    "connections.noMatch": "No matching connector",
+    "connections.none": "No connections",
+    "connections.more": "Search to connect more ({count} total)",
+    "connections.notReady": "Sign in to use connections.",
+    "connections.manage": "Manage",
+    "connections.needsAttention": "Needs attention",
+    "connections.filterAll": "All",
+    "connections.filterConnected": "Connected",
+    "connections.reconnect": "Reconnect",
+    "connections.addAccount": "Add account",
+    "connections.noAccount": "No connected account",
+    "connections.alias": "Alias",
+    "connections.aliasEmpty": "No alias set",
+    "connections.aliasPlaceholder": "Set an alias",
+    "connections.statusLabel": "Status",
+    "connections.authLabel": "Auth",
+    "connections.active": "Active",
+    "connections.default": "Default",
+    "connections.defaultOn": "Enabled",
+    "connections.setDefault": "Set as default",
+    "connections.updatedAt": "Updated",
+    "connections.appId": "App ID",
+    "connections.executions": "Executions",
+    "connections.interfaces": "Actions",
+    "connections.noData": "No data",
+    "connections.homepage": "Website",
+    "connections.copy": "Copy",
+    "connections.copied": "Copied",
+    "connections.note": "Note",
+    "connections.notePlaceholder": "Note",
+    "connections.noteHelp": "Optional, used to label this connection in the list.",
+    "connections.connectTitle": "Connect {name} account",
+    "connections.loadFailed": "Failed to load",
+    "connections.statusSuccess": "Success",
+    "connections.statusError": "Error",
+    "connections.authType.oauth2": "OAuth",
+    "connections.authType.api_key": "API Key",
+    "connections.authType.custom_credential": "Custom credential",
+    "connections.authType.federated": "Federated",
+    "connections.authType.no_auth": "No auth",
+    "login.subtitle": "Sign in to your OOMOL account in the browser to get started.",
+    "login.button": "Sign in with browser",
+    "login.waiting": "Waiting for sign-in…",
+    "login.failed": "Sign-in failed: {error}",
+    "settings.title": "Settings",
+    "settings.theme": "Theme",
+    "settings.themeSystem": "System",
+    "settings.themeLight": "Light",
+    "settings.themeDark": "Dark",
+    "settings.language": "Language",
+    "settings.account": "Account",
+    "settings.logout": "Sign out",
+    "aria.deleteSession": "Delete chat",
+    "aria.send": "Send",
+    "aria.stop": "Stop",
+    "aria.refresh": "Refresh",
+    "aria.expandConnections": "Expand connections panel",
+    "aria.collapseConnections": "Collapse connections panel",
+  },
+} as const
+
+export type MessageKey = keyof (typeof messages)["zh-CN"]
+export type TranslateFn = (key: MessageKey, vars?: Record<string, string | number>) => string
+
+export interface I18nContextValue {
+  locale: Locale
+  setLocale: (locale: Locale) => void
+  t: TranslateFn
+}
+
+export const I18nContext = React.createContext<I18nContextValue | null>(null)
+
+export function isLocale(value: string | null): value is Locale {
+  return value === "zh-CN" || value === "en"
+}
+
+export function detectInitialLocale(): Locale {
+  // dev/screenshot 旁路（生产无此 env，无害）。
+  const override = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_LOCALE"]
+  if (isLocale(override ?? null)) {
+    return override as Locale
+  }
+  const stored = globalThis.localStorage?.getItem(localeStorageKey)
+  if (isLocale(stored)) {
+    return stored
+  }
+  return globalThis.navigator?.language?.startsWith("zh") ? "zh-CN" : "en"
+}
+
+export function translate(locale: Locale, key: MessageKey, vars?: Record<string, string | number>): string {
+  let text: string = messages[locale][key] ?? messages[defaultLocale][key] ?? key
+  if (vars) {
+    for (const [name, value] of Object.entries(vars)) {
+      text = text.replace(`{${name}}`, String(value))
+    }
+  }
+  return text
+}
+
+export function useI18n(): I18nContextValue {
+  const ctx = React.useContext(I18nContext)
+  if (!ctx) {
+    throw new Error("useI18n must be used within I18nProvider")
+  }
+  return ctx
+}
+
+export function useT(): TranslateFn {
+  return useI18n().t
+}

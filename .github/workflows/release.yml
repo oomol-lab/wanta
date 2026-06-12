@@ -1,0 +1,251 @@
+name: Release Build
+
+# 签名/公证/上传全部依赖 CI secrets（单机无法完成）。secret/vars 名照搬 oo-desktop。
+# 注：相比 oo-desktop 精简了 release-size.ts 体积统计与 oomol/workflows CDN 刷新（按需再加）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: "自增版本位置"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+  id-token: write
+  packages: read
+
+env:
+  NODE_OPTIONS: "--max-old-space-size=8192"
+  OSS_BUCKET: oomol-static-cn-prod
+  OSS_PREFIX: release/apps/lumo
+
+jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Compute version
+        id: version
+        run: |
+          BUMP="${{ inputs.version_bump }}"
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          LATEST_TAG=${LATEST_TAG:-v0.0.0}
+          CURRENT="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          case "$BUMP" in
+            major) VERSION="$((MAJOR+1)).0.0" ;;
+            minor) VERSION="$MAJOR.$((MINOR+1)).0" ;;
+            patch) VERSION="$MAJOR.$MINOR.$((PATCH+1))" ;;
+          esac
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists"; exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "::notice::Release version: $VERSION"
+
+  release-mac:
+    needs: compute-version
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      PINNED_RCLONE_VERSION: v1.69.1
+      OSS_ENDPOINT: https://oss-accelerate.aliyuncs.com
+      OSS_REGION: cn-hangzhou
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "lts/*"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@oomol"
+      - name: Set env + version
+        run: |
+          echo "VERSION=${{ needs.compute-version.outputs.version }}" >> $GITHUB_ENV
+          npm version "${{ needs.compute-version.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Import macOS signing certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          rm -f "$CERT_PATH"
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          npm_config_audit: "false"
+          npm_config_fund: "false"
+          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+          # oo 二进制由后续 build:* 里的 prepare:binaries 在构建时下载，无需 postinstall 重复拉取。
+          OO_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Build (sign + notarize)
+        run: npm run build:mac
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "true"
+          APPLE_ID: ${{ secrets.APPLEID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLEID_PASS }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.ACCESS_REPO }}
+
+      - name: Configure Alibaba Cloud credentials (OIDC)
+        id: aliyun
+        uses: aliyun/configure-aliyun-credentials-action@v1.1.0
+        with:
+          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
+          role-session-name: github-action-session
+          role-session-expiration: 1800
+          audience: https://github.com/oomol
+
+      - name: Setup + configure rclone
+        env:
+          ALICLOUD_ACCESS_KEY_ID: ${{ steps.aliyun.outputs.aliyun-access-key-id }}
+          ALICLOUD_ACCESS_KEY_SECRET: ${{ steps.aliyun.outputs.aliyun-access-key-secret }}
+          ALICLOUD_SECURITY_TOKEN: ${{ steps.aliyun.outputs.aliyun-security-token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin" ~/.config/rclone
+          curl -fsSL "https://downloads.rclone.org/${PINNED_RCLONE_VERSION}/rclone-${PINNED_RCLONE_VERSION}-osx-arm64.zip" -o /tmp/rclone.zip
+          unzip -j /tmp/rclone.zip "rclone-${PINNED_RCLONE_VERSION}-osx-arm64/rclone" -d "$HOME/.local/bin"
+          chmod +x "$HOME/.local/bin/rclone"
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [oss]
+          type = s3
+          provider = Alibaba
+          access_key_id = ${ALICLOUD_ACCESS_KEY_ID}
+          secret_access_key = ${ALICLOUD_ACCESS_KEY_SECRET}
+          endpoint = ${OSS_ENDPOINT}
+          region = ${OSS_REGION}
+          session_token = ${ALICLOUD_SECURITY_TOKEN}
+          EOF
+
+      - name: Upload macOS artifacts to OSS
+        run: |
+          set -euo pipefail
+          "$HOME/.local/bin/rclone" copy "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/darwin/arm64/" \
+            --include "Lumo-${VERSION}.dmg" --include "Lumo-${VERSION}.dmg.blockmap" \
+            --include "Lumo-${VERSION}.zip" --include "Lumo-${VERSION}.zip.blockmap" \
+            --include "latest-mac.yml" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
+
+  release-win:
+    needs: compute-version
+    runs-on: [self-hosted, Windows, x64]
+    timeout-minutes: 60
+    env:
+      PINNED_RCLONE_VERSION: v1.69.1
+      OSS_ENDPOINT: https://oss-cn-hangzhou.aliyuncs.com
+      OSS_REGION: cn-hangzhou
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "lts/*"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@oomol"
+      - name: Set env + version
+        shell: bash
+        run: |
+          echo "VERSION=${{ needs.compute-version.outputs.version }}" >> $GITHUB_ENV
+          npm version "${{ needs.compute-version.outputs.version }}" --no-git-tag-version --allow-same-version
+      - name: Install dependencies
+        shell: bash
+        run: npm ci
+        env:
+          npm_config_audit: "false"
+          npm_config_fund: "false"
+          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+          # oo 二进制由后续 build:* 里的 prepare:binaries 在构建时下载，无需 postinstall 重复拉取。
+          OO_SKIP_BINARY_DOWNLOAD: "1"
+      - name: Build (signtool via electron-builder certificateSha1)
+        run: npm run build:win
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PRIVATE_PACKAGE_PAT_READ }}
+          GH_TOKEN: ${{ secrets.ACCESS_REPO }}
+      - name: Configure Alibaba Cloud credentials (OIDC)
+        id: aliyun
+        uses: aliyun/configure-aliyun-credentials-action@v1.1.0
+        with:
+          role-to-assume: ${{ vars.ALIYUN_INTERNAL_ROLE }}
+          oidc-provider-arn: ${{ vars.ALIYUN_OIDC_PROVIDER }}
+          role-session-name: github-action-session
+          role-session-expiration: 1800
+          audience: https://github.com/oomol
+      - name: Setup + configure rclone + upload
+        shell: bash
+        env:
+          ALICLOUD_ACCESS_KEY_ID: ${{ steps.aliyun.outputs.aliyun-access-key-id }}
+          ALICLOUD_ACCESS_KEY_SECRET: ${{ steps.aliyun.outputs.aliyun-access-key-secret }}
+          ALICLOUD_SECURITY_TOKEN: ${{ steps.aliyun.outputs.aliyun-security-token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin" "$HOME/.config/rclone"
+          if [ ! -x "$HOME/.local/bin/rclone.exe" ]; then
+            curl -fsSL "https://downloads.rclone.org/${PINNED_RCLONE_VERSION}/rclone-${PINNED_RCLONE_VERSION}-windows-amd64.zip" -o /tmp/rclone.zip
+            unzip -j /tmp/rclone.zip "rclone-${PINNED_RCLONE_VERSION}-windows-amd64/rclone.exe" -d "$HOME/.local/bin"
+          fi
+          cat > "$HOME/.config/rclone/rclone.conf" <<EOF
+          [oss]
+          type = s3
+          provider = Alibaba
+          access_key_id = ${ALICLOUD_ACCESS_KEY_ID}
+          secret_access_key = ${ALICLOUD_ACCESS_KEY_SECRET}
+          endpoint = ${OSS_ENDPOINT}
+          region = ${OSS_REGION}
+          session_token = ${ALICLOUD_SECURITY_TOKEN}
+          EOF
+          "$HOME/.local/bin/rclone.exe" copy "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/win32/x64/" \
+            --include "Lumo-${VERSION}-Setup.exe" --include "Lumo-${VERSION}-Setup.exe.blockmap" \
+            --include "latest.yml" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
+
+  create-release:
+    needs: [compute-version, release-mac, release-win]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Create tag + release
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACCESS_REPO }}
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          TAG="v${VERSION}"
+          OSS_BASE="https://static.oomol.com/${OSS_PREFIX}"
+          git tag "$TAG"
+          git push origin "$TAG"
+          {
+            echo "## Auto Update"
+            echo ""
+            echo "| Platform | Update URL |"
+            echo "|----------|-----------|"
+            echo "| macOS | \`${OSS_BASE}/darwin/arm64/latest-mac.yml\` |"
+            echo "| Windows | \`${OSS_BASE}/win32/x64/latest.yml\` |"
+          } > /tmp/release-notes.md
+          gh release create "$TAG" --title "$TAG" --latest --notes-file /tmp/release-notes.md

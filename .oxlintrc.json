@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "react"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "import/consistent-type-specifier-style": ["error", "prefer-top-level"],
+    "react/exhaustive-deps": "off",
+    "react/only-export-components": "error",
+    "react/rules-of-hooks": "error"
+  },
+  "env": {
+    "builtin": true
+  },
+  "overrides": [
+    {
+      "files": ["src/components/ui/**", "src/components/ai-elements/**"],
+      "rules": {
+        "react/only-export-components": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist", "dist-electron", "node_modules", "release", ".electron-dist", ".lumo-dev"]
+}

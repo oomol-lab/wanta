@@ -1,0 +1,106 @@
+import type { ServiceName } from "@oomol/connection"
+
+import { serviceName } from "../branding.ts"
+
+export type ChatRole = "user" | "assistant"
+export type ToolStatus = "pending" | "running" | "completed" | "error"
+
+export interface AuthorizationInfo {
+  service: string
+  displayName: string
+  authUrl: string
+  /** 上游 connector 的真实错误报文（如 ES 的 security_exception）。授权提示旁透出，避免用户只看到“去授权”却不知原因。 */
+  message?: string
+}
+
+// ── ServerEvents 负载（R7 流式：主进程把 OpenCode SSE 转译为这些事件推给渲染层）──
+export interface MessageStartedEvent {
+  sessionId: string
+  messageId: string
+  role: ChatRole
+}
+export interface MessageDeltaEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+  /** 该文本 part 的当前累计全文（非增量片段；渲染层按 partId 替换）。 */
+  text: string
+}
+export interface ToolCallStartedEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+  callId: string
+  tool: string
+  input: Record<string, unknown>
+  status: "pending" | "running"
+}
+export interface ToolCallResultEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+  callId: string
+  tool: string
+  status: "completed" | "error"
+  output?: string
+  error?: string
+}
+export interface AuthorizationRequiredEvent {
+  sessionId: string
+  messageId: string
+  service: string
+  displayName: string
+  authUrl: string
+}
+export interface MessageCompletedEvent {
+  sessionId: string
+}
+export interface AgentErrorEvent {
+  sessionId?: string
+  message: string
+}
+
+// ── 规范化消息（切换会话时加载历史用）──
+export interface ChatMessagePart {
+  kind: "text" | "tool"
+  partId: string
+  text?: string
+  callId?: string
+  tool?: string
+  status?: ToolStatus
+  input?: Record<string, unknown>
+  output?: string
+  error?: string
+  authorization?: AuthorizationInfo
+}
+export interface ChatMessage {
+  id: string
+  role: ChatRole
+  parts: ChatMessagePart[]
+  createdAt: number
+}
+
+export interface SendMessageRequest {
+  sessionId: string
+  text: string
+}
+
+export type ChatService = typeof ChatService
+export const ChatService = serviceName("chat-service") as ServiceName<{
+  ServerEvents: {
+    messageStarted: MessageStartedEvent
+    messageDelta: MessageDeltaEvent
+    toolCallStarted: ToolCallStartedEvent
+    toolCallResult: ToolCallResultEvent
+    authorizationRequired: AuthorizationRequiredEvent
+    messageCompleted: MessageCompletedEvent
+    agentError: AgentErrorEvent
+  }
+  ClientInvokes: {
+    sendMessage(req: SendMessageRequest): Promise<void>
+    stopGeneration(sessionId: string): Promise<void>
+    getMessages(sessionId: string): Promise<ChatMessage[]>
+    /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
+    isReady(): Promise<boolean>
+  }
+}>

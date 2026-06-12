@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 120,
+  "semi": false,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "sortImports": {
+    "newlinesBetween": false,
+    "groups": [
+      "style",
+      ["type-builtin", "type-external", "type-internal", "type-parent", "type-sibling", "type-index"],
+      {
+        "newlinesBetween": true
+      },
+      ["value-builtin", "value-external"],
+      ["value-internal", "value-parent", "value-sibling", "value-index"],
+      "unknown"
+    ]
+  },
+  "sortTailwindcss": {
+    "stylesheet": "src/index.css",
+    "functions": ["cn", "clsx", "cva"]
+  },
+  "ignorePatterns": ["dist", "dist-electron", "node_modules", "release", ".electron-dist", ".lumo-dev"]
+}

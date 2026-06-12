@@ -1,0 +1,73 @@
+// @see - https://www.electron.build/configuration/configuration
+// 阶段 0：未签名本地包。图标 / extraResources（oo + opencode 二进制）/ 签名公证
+// 在后续阶段补齐；品牌标识与 electron/branding.ts 保持一致（R1）。
+{
+  $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  appId: "com.oomol.lumo",
+  asar: true,
+  productName: "Lumo",
+  directories: {
+    buildResources: "resources",
+    output: "release/${version}",
+  },
+  publish: {
+    provider: "generic",
+    url: "",
+  },
+  protocols: [
+    {
+      name: "lumo",
+      schemes: ["lumo"],
+    },
+  ],
+  files: ["dist", "dist-electron", "!**/*.{map,d.ts}"],
+  afterPack: "scripts/electron-builder-after-pack.cjs",
+  // 内置 oo + opencode 平台二进制（由 scripts/prepare-binaries.ts 在构建前复制到 resources/bin）。
+  // 运行时 app.isPackaged 走 process.resourcesPath/bin。
+  extraResources: [
+    {
+      from: "resources/bin",
+      to: "bin",
+    },
+  ],
+  mac: {
+    electronLanguages: ["en", "zh_CN"],
+    target: [
+      {
+        target: "dmg",
+        arch: ["arm64"],
+      },
+      {
+        target: "zip",
+        arch: ["arm64"],
+      },
+    ],
+    artifactName: "${productName}-${version}.${ext}",
+  },
+  win: {
+    electronLanguages: ["en-US", "zh-CN"],
+    target: [
+      {
+        target: "nsis",
+        arch: ["x64"],
+      },
+    ],
+    // Windows 代码签名（CI 自托管 runner + USB 证书；指纹为 CI 配置，本地不签名）。
+    signExts: [".exe", ".dll", ".node"],
+    signtoolOptions: {
+      certificateSha1: "9F84845385AA9282C764044D307EF4044B47E966",
+      signingHashAlgorithms: ["sha256"],
+    },
+    artifactName: "${productName}-${version}-Setup.${ext}",
+  },
+  nsis: {
+    oneClick: false,
+    perMachine: false,
+    allowToChangeInstallationDirectory: true,
+    deleteAppDataOnUninstall: false,
+  },
+  linux: {
+    target: ["AppImage"],
+    artifactName: "${productName}-${version}.${ext}",
+  },
+}

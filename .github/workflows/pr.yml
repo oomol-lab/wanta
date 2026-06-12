@@ -1,0 +1,55 @@
+name: Check Pull Request
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@oomol"
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          # 私有 @oomol/* 包来自 GitHub Packages；CI 用仓库 token 读取。
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 跳过 Electron 二进制下载（download-electron postinstall 也据此短路）。
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+          # 本 job 只做 lint/test/build:app，不打包，故无需下载 oo 二进制。
+          OO_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run format
+        run: npm run format
+
+      - name: Run ts-check
+        run: npm run ts-check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run build
+        run: npm run build

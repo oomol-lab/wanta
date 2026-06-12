@@ -1,0 +1,46 @@
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage
+*.lcov
+.nyc_output
+
+# Dependency directories
+node_modules/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# dotenv（.env.example 为提交的模板，不忽略）
+.env
+.env.test
+.env.local
+.env.*.local
+
+.DS_Store
+.idea
+
+# Build output
+dist
+dist-electron
+release
+
+# Locally downloaded Electron (dev) — produced by scripts/download-electron.ts
+.electron-dist
+
+# Locally downloaded oo binary (dev/build) — produced by scripts/download-oo.ts
+.oo-bin/
+
+# Bundled oo/opencode binaries staged by scripts/prepare-binaries.ts (not committed)
+resources/bin
+
+# Local dev scratch
+.lumo-dev/

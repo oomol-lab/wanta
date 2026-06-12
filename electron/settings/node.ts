@@ -1,0 +1,42 @@
+import type { AppSettings, SettingsService, ThemeSource } from "./common.ts"
+import type { SettingsStore } from "./store.ts"
+import type { IConnectionService } from "@oomol/connection"
+
+import { ConnectionService } from "@oomol/connection"
+import { nativeTheme } from "electron"
+import { SettingsService as SettingsServiceName } from "./common.ts"
+
+export interface SettingsServiceDeps {
+  store: SettingsStore
+}
+
+export class SettingsServiceImpl
+  extends ConnectionService<SettingsService>
+  implements IConnectionService<SettingsService>
+{
+  private readonly deps: SettingsServiceDeps
+
+  public constructor(deps: SettingsServiceDeps) {
+    super(SettingsServiceName)
+    this.deps = deps
+  }
+
+  /** 从持久化读取当前设置（含默认值兜底）。 */
+  public current(): AppSettings {
+    const persisted = this.deps.store.read()
+    const themeSource: ThemeSource =
+      persisted.themeSource === "light" || persisted.themeSource === "dark" ? persisted.themeSource : "system"
+    return { themeSource }
+  }
+
+  /** 启动时把持久化的 themeSource 应用到 nativeTheme（窗口背景一致）。 */
+  public applyStartupTheme(): void {
+    nativeTheme.themeSource = this.current().themeSource
+  }
+
+  public setThemeSource(source: ThemeSource): Promise<void> {
+    nativeTheme.themeSource = source
+    this.deps.store.write({ ...this.deps.store.read(), themeSource: source })
+    return Promise.resolve()
+  }
+}

@@ -1,0 +1,299 @@
+import type { AuthService, AuthState } from "./common.ts"
+import type { AuthAccount, AuthStore } from "./store.ts"
+import type { IConnectionService } from "@oomol/connection"
+
+import { ConnectionService } from "@oomol/connection"
+import { app, dialog, shell } from "electron"
+import { apiBaseUrl } from "../domain.ts"
+import {
+  extractOomolTokenFromCookies,
+  hubSigninUrl,
+  normalizeDefaultApiKey,
+  normalizeLoginProfile,
+  parseSigninCallback,
+} from "./browser-login.ts"
+import { AuthService as AuthServiceName } from "./common.ts"
+import { removeAccount, selectAccount, upsertAccount } from "./store.ts"
+
+export interface AuthManagerDeps {
+  store: AuthStore
+  /** deep-link 协议（生产 lumo / dev lumo-local，见 branding）。 */
+  protocolScheme: string
+  /** 凭证变化（登录 / 登出）后由 main 重新装配 agent + connector。 */
+  applyAccount: (account: AuthAccount | null) => Promise<void>
+}
+
+interface PendingLogin {
+  promise: Promise<AuthState>
+  resolve: (state: AuthState) => void
+  reject: (error: Error) => void
+  timeout: NodeJS.Timeout
+}
+
+const loginTimeoutMs = 10 * 60_000
+
+/**
+ * 浏览器登录的全部逻辑与凭证持有者。**不注册为 RPC service**：
+ * @oomol/connection 的 invoke 按方法名动态派发、无白名单，注册实例上的任何公开方法
+ * （包括返回 apiKey 的 activeAccount）都会暴露给渲染进程。凭证只能留在这里，
+ * 渲染层经 AuthServiceImpl（薄门面，仅 getAuthState/login/logout）访问。
+ */
+export class AuthManager {
+  private readonly deps: AuthManagerDeps
+  private pending: PendingLogin | undefined
+  private emitState: (state: AuthState) => Promise<void> = async () => {}
+
+  public constructor(deps: AuthManagerDeps) {
+    this.deps = deps
+  }
+
+  /** 由 AuthServiceImpl 在构造时绑定，把状态变化广播给渲染层。 */
+  public bindStateEmitter(emit: (state: AuthState) => Promise<void>): void {
+    this.emitState = emit
+  }
+
+  /** 生效账号（含 apiKey，仅主进程内部使用）。 */
+  public activeAccount(): AuthAccount | null {
+    return selectAccount(this.deps.store.read())
+  }
+
+  public getAuthState(): Promise<AuthState> {
+    return Promise.resolve(this.currentState())
+  }
+
+  /** 打开系统浏览器登录；promise 在 deep-link 回调完成后 resolve（agent 在后台启动）。 */
+  public async login(): Promise<AuthState> {
+    if (this.pending) {
+      return this.pending.promise
+    }
+
+    const pending = this.createPending()
+    this.pending = pending
+    try {
+      await shell.openExternal(hubSigninUrl(this.deps.protocolScheme))
+    } catch (error) {
+      this.rejectPending(error instanceof Error ? error : new Error(String(error)))
+      throw error
+    }
+    return pending.promise
+  }
+
+  public async logout(): Promise<AuthState> {
+    const account = this.activeAccount()
+    if (account) {
+      this.deps.store.write(removeAccount(this.deps.store.read(), account))
+      await this.deps.applyAccount(null)
+    }
+    const state = this.currentState()
+    await this.emitState(state)
+    return state
+  }
+
+  /** deep-link 入口：是登录回调则完成登录并返回 true，否则返回 false 交由其他处理。 */
+  public async completeBrowserLoginCallback(url: string): Promise<boolean> {
+    const authId = parseSigninCallback(url, this.deps.protocolScheme)
+    if (!authId) {
+      return false
+    }
+
+    const pendingAtStart = this.pending
+    try {
+      const account = await exchangeLogin(authId)
+      // 非本应用发起的回调（无 pending）：任何本地程序/网页都能构造 deep link 推送伪造 authID，
+      // 必须经用户确认才落盘，防止静默换号（login CSRF）。
+      if (!pendingAtStart && !(await confirmExternalLogin(account))) {
+        return true
+      }
+      const state = await this.adoptAccount(account)
+      if (this.pending === pendingAtStart) {
+        this.resolvePending(state)
+      }
+    } catch (error) {
+      const wrapped = error instanceof Error ? error : new Error(String(error))
+      console.error("[lumo] browser sign-in failed:", wrapped)
+      if (this.pending === pendingAtStart) {
+        this.rejectPending(wrapped)
+      }
+    }
+    return true
+  }
+
+  public dispose(): void {
+    this.rejectPending(new Error("Sign-in was cancelled."))
+  }
+
+  private currentState(): AuthState {
+    const account = this.activeAccount()
+    const updatedAt = new Date().toISOString()
+    if (!account) {
+      return { status: "unauthenticated", updatedAt }
+    }
+    return {
+      status: "authenticated",
+      account: { id: account.id, name: account.name },
+      updatedAt,
+    }
+  }
+
+  /** 落盘 + 广播 + 后台装配 agent（启动较慢，渲染层用既有 isReady 轮询显示"Agent 启动中"）。 */
+  private async adoptAccount(account: AuthAccount): Promise<AuthState> {
+    this.deps.store.write(upsertAccount(this.deps.store.read(), account))
+    const state = this.currentState()
+    await this.emitState(state)
+    void this.deps.applyAccount(account).catch((error: unknown) => {
+      console.error("[lumo] failed to start agent after sign-in:", error)
+    })
+    return state
+  }
+
+  private createPending(): PendingLogin {
+    let resolve!: (state: AuthState) => void
+    let reject!: (error: Error) => void
+    const promise = new Promise<AuthState>((innerResolve, innerReject) => {
+      resolve = innerResolve
+      reject = innerReject
+    })
+    const timeout = setTimeout(() => {
+      this.rejectPending(new Error("Sign-in timed out."))
+    }, loginTimeoutMs)
+    timeout.unref()
+    return { promise, resolve, reject, timeout }
+  }
+
+  private resolvePending(state: AuthState): void {
+    const pending = this.pending
+    if (!pending) {
+      return
+    }
+    clearTimeout(pending.timeout)
+    this.pending = undefined
+    pending.resolve(state)
+  }
+
+  private rejectPending(error: Error): void {
+    const pending = this.pending
+    if (!pending) {
+      return
+    }
+    clearTimeout(pending.timeout)
+    this.pending = undefined
+    pending.reject(error)
+  }
+}
+
+/** 渲染层可见的薄门面：仅暴露契约声明的三个方法，凭证与回调处理留在 AuthManager。 */
+export class AuthServiceImpl extends ConnectionService<AuthService> implements IConnectionService<AuthService> {
+  private readonly manager: AuthManager
+
+  public constructor(manager: AuthManager) {
+    super(AuthServiceName)
+    this.manager = manager
+    manager.bindStateEmitter(async (state) => {
+      await this.send("authStateChanged", state)
+    })
+  }
+
+  public getAuthState(): Promise<AuthState> {
+    return this.manager.getAuthState()
+  }
+
+  public login(): Promise<AuthState> {
+    return this.manager.login()
+  }
+
+  public logout(): Promise<AuthState> {
+    return this.manager.logout()
+  }
+
+  public override dispose(): void {
+    this.manager.dispose()
+    super.dispose()
+  }
+}
+
+/** 非应用发起的登录回调须经用户确认（dialog 需 app ready；回调可能先于 ready 到达）。 */
+async function confirmExternalLogin(account: AuthAccount): Promise<boolean> {
+  await app.whenReady()
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    message: `使用账号 "${account.name}" 登录？`,
+    detail: "收到来自浏览器的登录请求。如果这不是你发起的登录，请取消。",
+    buttons: ["登录", "取消"],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  return response === 0
+}
+
+/** authID → 会话 token → { apiKey, profile }。纯网络交换，无副作用。 */
+async function exchangeLogin(authId: string): Promise<AuthAccount> {
+  const api = apiBaseUrl
+  const token = await requestSigninWithAuthId(api, authId)
+  const [apiKey, profile] = await Promise.all([requestDefaultApiKey(api, token), requestLoginProfile(api, token)])
+  return { id: profile.id, name: profile.name, apiKey }
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const withGetSetCookie = headers as Headers & { getSetCookie?: () => string[] }
+  const setCookies = withGetSetCookie.getSetCookie?.()
+  if (setCookies && setCookies.length > 0) {
+    return setCookies
+  }
+  const single = headers.get("set-cookie")
+  return single ? [single] : []
+}
+
+function authRequestSignal(): AbortSignal {
+  return AbortSignal.timeout(15_000)
+}
+
+/** authID → 会话 token（来自 Set-Cookie 的 oomol-token，仅内存使用、不落盘）。 */
+async function requestSigninWithAuthId(api: string, authId: string): Promise<string> {
+  const response = await fetch(`${api}/v1/auth/auth_id`, {
+    method: "POST",
+    signal: authRequestSignal(),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ authID: authId }),
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to complete OOMOL sign-in: ${response.status}`)
+  }
+  const token = extractOomolTokenFromCookies(getSetCookieHeaders(response.headers))
+  if (!token) {
+    throw new Error("OOMOL sign-in did not return a session token.")
+  }
+  return token
+}
+
+/** 会话 token → 默认 api-key（即旧 OO_API_KEY 的等价物，唯一落盘凭证）。 */
+async function requestDefaultApiKey(api: string, token: string): Promise<string> {
+  const response = await fetch(`${api}/v1/users/default-api-key`, {
+    method: "GET",
+    signal: authRequestSignal(),
+    headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to get OOMOL API key: ${response.status}`)
+  }
+  const apiKey = normalizeDefaultApiKey((await response.json()) as { key?: unknown })
+  if (!apiKey) {
+    throw new Error("OOMOL API key response is invalid.")
+  }
+  return apiKey
+}
+
+async function requestLoginProfile(api: string, token: string): Promise<{ id: string; name: string }> {
+  const response = await fetch(`${api}/v1/users/profile`, {
+    method: "GET",
+    signal: authRequestSignal(),
+    headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    throw new Error(`Failed to get OOMOL profile: ${response.status}`)
+  }
+  const profile = normalizeLoginProfile((await response.json()) as Parameters<typeof normalizeLoginProfile>[0])
+  if (!profile) {
+    throw new Error("OOMOL profile response is invalid.")
+  }
+  return profile
+}

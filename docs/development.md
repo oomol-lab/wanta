@@ -1,0 +1,79 @@
+# 开发指南：环境、工作流、测试、打包与 CI
+
+> 相关：[architecture.md](architecture.md)（模块地图）· [conventions.md](conventions.md)（编码约定）
+
+## 1. 环境准备
+
+- **Node >= 22**（package.json engines；PR CI 钉 Node 24，release CI 用 `lts/*`——当前解析为 24）。npm + package-lock.json。
+- **私有包鉴权**：`@oomol/connection*` 来自 GitHub Packages（`.npmrc`：`@oomol:registry=https://npm.pkg.github.com`），本地需要带 `read:packages` 的 PAT（一般配在全局 `~/.npmrc`），否则 `npm install` 401。注意两种失败的严重性不同：私有包 401 发生在依赖解析阶段、**致命**；下面两个 postinstall 下载脚本才是 best-effort（仅 warn）——PAT 缺失时哪怕只看到一堆 warn 也不能继续，`@oomol/connection` 没装上 dev 起不来。
+- `npm install` 的 postinstall 串联两个 best-effort 脚本（失败仅 warn 不阻断）：
+  - `scripts/download-electron.ts` → 下载 dev 专用 Electron 副本到 `.electron-dist/` 并改写 macOS Info.plist 为 `com.oomol.lumo-local` / `lumo-local` scheme（dev deep-link 用）。`ELECTRON_SKIP_BINARY_DOWNLOAD=1` 跳过。
+  - `scripts/download-oo.ts` → 下载 oo 二进制到 `.oo-bin/`（版本锁定见 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION`；含 sha512 integrity 校验与 `chmod 0o755`）。`OO_SKIP_BINARY_DOWNLOAD=1` 跳过。
+
+## 2. .env 配置
+
+```bash
+cp .env.example .env.local   # .env.local 已 gitignore
+```
+
+- `LUMO_ENDPOINT`：endpoint 主域，缺省 `oomol.com`，对接开发环境改 `oomol.dev`。**读取规则**（`vite.config.ts` 的 `resolveOoEndpoint`）：dev 与 vitest 经 `loadEnv` 读 `.env(.local)`；**build 刻意不读文件**（防开发域名进发布包）；两种模式都尊重显式环境变量，内部联调包用 `LUMO_ENDPOINT=oomol.dev npm run build`。已知坑：`oomol.dev` 的 LLM 网关曾对 `oomol-chat` 返回 403 "Model disabled"（后端限制，非代码问题），dev endpoint 主要用于 connector 联调，聊天 403 时先怀疑网关侧。
+- `LUMO_OO_BIN`（可选，进程环境变量而非 .env 文件读取）：覆盖 oo 二进制路径，`LUMO_OO_BIN=/abs/path/to/oo npm run dev`。设置后 predev 守卫跳过检查。
+
+## 3. 日常开发
+
+```bash
+npm run dev    # predev 先跑 scripts/check-oo.ts（.oo-bin/oo 缺失则报错退出）
+               # vite dev server 端口 5273；vite-plugin-electron 同时拉起主进程
+```
+
+- `.electron-dist` 存在时 vite 自动设 `ELECTRON_OVERRIDE_DIST_PATH`，dev 用带 `lumo-local` scheme 的 Electron（菜单栏显示 dev 身份），浏览器登录回跳才能命中 dev 实例。
+- dev 的 userData 在 `~/Library/Application Support/lumo`（macOS）；agent 数据在其下 `agent/`（workspace / isolation / oo-store）。
+- 改动后质量门四件套：`npm run ts-check && npm run lint && npm run format && npm test`。
+
+## 4. 测试
+
+- `npm test` = `vitest run`；`vitest.config.ts` include `electron/**/*.test.ts`、`src/**/*.test.ts`、`scripts/**/*.test.ts`，environment node，并以与 vite 相同的 loadEnv 机制注入 `__OO_ENDPOINT__`（测试断言从 `ooEndpoint` 派生，勿写死具体域名，保证本地/CI 都确定性通过）。
+- 现有测试均为纯函数单测：`electron/agent/agent.test.ts`、`event-translator.test.ts`、`auth/browser-login.test.ts`、`auth/store.test.ts`、`connections/summary.test.ts`、`domain.test.ts`、`settings/store.test.ts`、`src/i18n/i18n.test.ts`、`scripts/oo-cli.test.ts`。
+- **真实运行验证**用 `.lumo-dev/` 下的手工 smoke 脚本（gitignore，不进打包、不被 lint/format/tsc 管）：`agent-smoke.ts`（headless 金路径）、`chat-stream-smoke.ts`、`connections-smoke.ts`、`r4-smoke.ts`、`system-probe.ts`（验证 body.system 是追加非覆盖）、`spike.mjs`。跑法：`OO_API_KEY=... node --experimental-strip-types .lumo-dev/xxx.ts`（smoke 脚本直接构造 AgentManager，不走浏览器登录）。**fresh clone 没有这些脚本**（仅存原开发机）：缺失时按 [architecture.md §2](architecture.md) 直接构造 `AgentManager` 自行编写（`electron/agent/` 是 electron-free 的）。
+- **UI 实机验证旁路**（dev 专用 env，生产无害）：`VITE_LUMO_SMOKE`（AppShell 就绪后自动发一条消息，`AppShell.tsx`）、`VITE_LUMO_ROUTE=settings`（直开设置页）、`VITE_LUMO_LOCALE`（强制 locale，`src/i18n/i18n.ts`）；配合 macOS `screencapture` 截图取证。
+- **已知验证缺口**（据会话记录从未实机跑通，排查时勿默认其已验证）：放开 tools 权限后的 bash 工具实调、ai-elements 迁移后的实机视觉效果（当时无显示器环境）、真实账号的浏览器登录回跳（需真人登录）。
+
+## 5. Lint / Format / 类型检查
+
+- `npm run lint` = `oxlint .`（`.oxlintrc.json`：correctness=error；`react/only-export-components` error，但 `src/components/ui/**` 与 `src/components/ai-elements/**` 两个 vendored 目录 override 关闭；ignorePatterns 含 `.lumo-dev`）。
+- `npm run format` = `oxfmt --check .`（`.oxfmtrc.json`：printWidth 120、**无分号**、双引号、trailingComma all、sortImports type 在前、sortTailwindcss 识别 cn/clsx/cva）。
+- `npm run ts-check` = `tsgo -p tsconfig.json`（TypeScript native preview，`@typescript/native-preview`）。tsconfig：strict、verbatimModuleSyntax、module Preserve、allowImportingTsExtensions、noEmit；include src/electron/scripts/vite.config.ts。
+
+## 6. 打包 / 签名 / 公证 / 自动更新
+
+```bash
+npm run build:mac     # = build:app + prepare:binaries + electron-builder --mac（另有 build:win / build:linux / build:electron）
+```
+
+- `scripts/prepare-binaries.ts`：把 opencode（`node_modules/opencode-ai/bin/opencode.exe`，所有平台固定此文件名）与 oo（`.oo-bin/`，缺失则现场下载）复制到 `resources/bin/` 并 chmod 755。
+- `electron-builder.json5`：appId `com.oomol.lumo`、asar、output `release/${version}`、protocols `lumo`、files 仅 dist + dist-electron（排除 map/d.ts，**不含 electron/ 源码与测试**）、extraResources `resources/bin → bin`（二进制不能进 asar）、afterPack `scripts/electron-builder-after-pack.cjs`（删约 20MB 的 LICENSES.chromium.html；用 .cjs 因 electron-builder require 不支持 .ts）。mac dmg+zip arm64；win nsis x64（signtool 证书指纹）；linux AppImage。
+- **签名/公证只能在 CI 完成**，本地只产未签名包（mac 证书、Apple ID、win USB 证书都在 CI secrets）。macOS 公证要求 app 内**每个可执行文件**都签名 + Hardened Runtime——`Resources/bin` 下的 oo 与 opencode 也在范围内；新增任何捆绑二进制（或改 extraResources 布局）须纳入签名/公证范围，否则公证会失败。
+- 自动更新（`electron/update/node.ts`）：electron-updater generic provider，feed = `https://static.<ep>/release/apps/lumo/<platform>/<arch>`；仅打包态；`autoDownload=false`、`autoInstallOnAppQuit=true`。
+
+## 7. CI（.github/workflows/）
+
+- **pr.yml**（PR → main，ubuntu，Node 24）：npm ci（`NODE_AUTH_TOKEN=GITHUB_TOKEN` 读私有 @oomol 包；设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1` + `OO_SKIP_BINARY_DOWNLOAD=1` 跳过二进制下载）→ lint → format → ts-check → test → build。
+- **release.yml**（workflow_dispatch，输入 version_bump patch/minor/major）：`compute-version`（按 git tag 自增，ubuntu）→ `release-mac`（macos-latest：导入证书、签名+公证、`npm version` 改写版本、build:mac、rclone 上传阿里云 OSS `oomol-static-cn-prod/release/apps/lumo`，OIDC）+ `release-win`（self-hosted Windows x64 runner + USB 证书；**勿依赖系统工具如 tar 存在**）→ `create-release`（打 tag + GitHub release）。无 linux 发布 job。secret 名照搬 oo-desktop（`MACOS_CERTIFICATE` / `MACOS_CERTIFICATE_PWD` / `APPLEID` / `APPLEID_PASS` / `APPLE_TEAM_ID` 等），勿自拟。
+
+## 8. 特殊目录速查（均 gitignore，除 resources/ 本身）
+
+| 目录 | 角色 | 产生者 |
+|---|---|---|
+| `.oo-bin/` | dev/打包共用的 oo 二进制落地点 | postinstall `scripts/download-oo.ts` |
+| `.electron-dist/` | dev 专用 Electron 副本（lumo-local scheme） | postinstall `scripts/download-electron.ts` |
+| `resources/bin/` | 打包前二进制中转（→ extraResources） | `scripts/prepare-binaries.ts` |
+| `.lumo-dev/` | 手工 smoke / 实验脚本，不进任何工具链 | 手写 |
+| `dist/` `dist-electron/` | vite 构建产物（renderer / main+preload） | `npm run build` |
+| `release/` | electron-builder 产物 | `npm run build:*` |
+
+## 9. 升级注意
+
+- 升级 oo：只改 `scripts/oo-cli.ts` 的 `OO_CLI_VERSION`（`.version` 标记触发重新下载）。oo 上游 tarball 内二进制无 +x，任何直接使用 node_modules 内该二进制的路径都必须自己 chmod——不要回退到 npm 依赖方案。
+- 升级 OpenCode：`opencode-ai` / `@opencode-ai/sdk` / `@opencode-ai/plugin` 三包**同版本**一起升，先在 `.lumo-dev/` 跑 smoke 验证（上游无 API 稳定承诺）。
+- `opencode-ai` 必须留在 **devDependencies**（仅构建期供 prepare-binaries 取二进制，运行时用 extraResources 副本）；放 dependencies 会把 ~100MB 平台二进制重复打进 app.asar——整理依赖时勿"修正"。
+- 升级 vendored ai-elements：对照 `.claude/skills/ai-elements/references/` 与 `skills-lock.json`，注意本仓库是裁剪版（见 [key-decisions.md §8](key-decisions.md)）。

@@ -21,5 +21,14 @@
     "stylesheet": "src/index.css",
     "functions": ["cn", "clsx", "cva"]
   },
-  "ignorePatterns": ["dist", "dist-electron", "node_modules", "release", ".electron-dist", ".lumo-dev"]
+  "ignorePatterns": [
+    ".agents",
+    ".claude",
+    "dist",
+    "dist-electron",
+    "node_modules",
+    "release",
+    ".electron-dist",
+    ".lumo-dev"
+  ]
 }

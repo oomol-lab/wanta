@@ -50,6 +50,17 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          # 安装步骤用 ELECTRON_SKIP_BINARY_DOWNLOAD=1 跳过下载 Electron 二进制，
+          # 因此 node_modules/electron/path.txt 不存在。现状 Lumo 的测试全是纯函数
+          # 单测（断言只碰 domain/config/store 等模块，无任何 electron 导入），不触发
+          # 该路径解析。但只要将来有人新增一个传递性 import 了 electron 的被测模块，
+          # 在纯 Node 下 `import "electron"` 会触发 stub 解析二进制路径，path.txt
+          # 缺失时它会现场下载 ~144MB（CI 冷缓存常失败 → ENOENT path.txt）。
+          # 预先设置 ELECTRON_OVERRIDE_DIST_PATH 让 electron stub 直接返回路径字符串、
+          # 不触发下载；Node 上下文中 electron 模块本就只是路径字符串，测试不依赖
+          # 真实 app，故该值指向何处不影响断言。零副作用的防御性兜底。
+          ELECTRON_OVERRIDE_DIST_PATH: ${{ github.workspace }}/.electron-dist
 
       - name: Run build
         run: npm run build

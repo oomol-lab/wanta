@@ -1,4 +1,6 @@
 import type { ChatAttachment, ChatMessage } from "../chat/common.ts"
+import type { ModelChoice } from "../models/common.ts"
+import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
@@ -7,7 +9,7 @@ import { randomBytes } from "node:crypto"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl } from "../domain.ts"
-import { buildOpencodeConfig, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
 import { buildOoEnv } from "./oo.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
@@ -21,6 +23,8 @@ export interface AgentManagerOptions {
   ooBinPath: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
   rootDir: string
+  /** 自定义 OpenAI-compatible 模型配置。apiKey 只进入 sidecar env config，不落到 OpenCode 文件。 */
+  customModels?: PersistedCustomModel[]
   /** 关闭 sidecar Basic Auth（默认开，随机口令）。 */
   disableServerAuth?: boolean
 }
@@ -33,6 +37,7 @@ export interface SendMessageResult {
 export interface PromptStreamingOptions {
   system?: string
   attachments?: ChatAttachment[]
+  model?: ModelChoice
 }
 
 interface RawSession {
@@ -77,14 +82,14 @@ export class AgentManager {
   }
 
   public async start(): Promise<void> {
-    const { apiKey, opencodeBinPath, ooBinPath, rootDir, disableServerAuth } = this.options
+    const { apiKey, opencodeBinPath, ooBinPath, rootDir, disableServerAuth, customModels } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
     const storeDir = path.join(rootDir, "oo-store")
 
     await ensureAgentWorkspace(workspaceDir)
 
-    const config = buildOpencodeConfig({ apiKey })
+    const config = buildOpencodeConfig({ apiKey, customModels })
     const ooEnv = buildOoEnv({ apiKey, storeDir, ooBinPath })
     const ooDir = path.dirname(ooBinPath)
     const env: Record<string, string> = {
@@ -188,7 +193,7 @@ export class AgentManager {
       path: { id: sessionId },
       body: {
         agent: LUMO_AGENT_NAME,
-        model: { providerID: LUMO_PROVIDER_ID, modelID: LUMO_MODEL_ID },
+        model: this.resolveModel(options.model),
         ...(tail ? { system: tail } : {}),
         parts: buildPromptParts(text, options.attachments),
       },
@@ -262,6 +267,17 @@ export class AgentManager {
     this.started = false
     this.sidecar?.dispose()
     this.sidecar = null
+  }
+
+  private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {
+    if (!choice || choice.kind === "builtin") {
+      return { providerID: LUMO_PROVIDER_ID, modelID: LUMO_MODEL_ID }
+    }
+    const model = this.options.customModels?.find((item) => item.id === choice.id)
+    if (!model) {
+      throw new Error("Selected custom model is no longer available.")
+    }
+    return { providerID: customProviderId(model.id), modelID: model.modelName }
   }
 }
 

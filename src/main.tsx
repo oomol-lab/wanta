@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import { AuthService } from "../electron/auth/common"
 import { ChatService } from "../electron/chat/common"
 import { ConnectionsService } from "../electron/connections/common"
+import { ModelsService } from "../electron/models/common"
 import { SessionService } from "../electron/session/common"
 import { SettingsService } from "../electron/settings/common"
 import { SkillService } from "../electron/skills/common"
@@ -28,6 +29,7 @@ const chatService = client.use(ChatService)
 const sessionService = client.use(SessionService)
 const connectionsService = client.use(ConnectionsService)
 const skillService = client.use(SkillService)
+const modelsService = client.use(ModelsService)
 const settingsService = client.use(SettingsService)
 const authService = client.use(AuthService)
 const updateService = client.use(UpdateService)
@@ -39,6 +41,7 @@ createRoot(rootElement).render(
       sessionService,
       connectionsService,
       skillService,
+      modelsService,
       settingsService,
       authService,
       updateService,

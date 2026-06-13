@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import { ooEndpoint } from "../domain.ts"
-import { buildOpencodeConfig, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
@@ -14,6 +14,28 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider (derived ba
   assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
   assert.equal(provider.options?.apiKey, "api-test")
   assert.ok(provider.models?.[LUMO_MODEL_ID])
+})
+
+test("buildOpencodeConfig wires custom openai-compatible providers without changing the default model", () => {
+  const config = buildOpencodeConfig({
+    apiKey: "api-test",
+    customModels: [
+      {
+        id: "custom-1",
+        providerName: "DeepSeek",
+        baseUrl: "https://api.deepseek.com/v1",
+        apiKey: "sk-custom",
+        modelName: "deepseek-chat",
+      },
+    ],
+  })
+  assert.equal(config.model, `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`)
+  const provider = config.provider?.[customProviderId("custom-1")]
+  assert.ok(provider)
+  assert.equal(provider.npm, "@ai-sdk/openai-compatible")
+  assert.equal(provider.options?.baseURL, "https://api.deepseek.com/v1")
+  assert.equal(provider.options?.apiKey, "sk-custom")
+  assert.equal(provider.models?.["deepseek-chat"]?.tool_call, true)
 })
 
 test("lumo agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {

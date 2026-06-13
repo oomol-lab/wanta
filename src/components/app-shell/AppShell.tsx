@@ -1,4 +1,5 @@
 import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common"
+import type { ModelChoice } from "../../../electron/models/common"
 import type { SessionInfo } from "../../../electron/session/common"
 import type { ChatStatus } from "ai"
 
@@ -6,6 +7,7 @@ import { Package, PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquareP
 import * as React from "react"
 import { buildSessionTitle } from "@/components/app-shell/session-title"
 import { useChatService } from "@/components/AppContext"
+import { Input } from "@/components/ui/input"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
@@ -24,6 +26,7 @@ interface PendingChatTransition {
   sessionId: string | null
   text: string
   attachments: ChatAttachment[]
+  model?: ModelChoice
   createdAt: number
 }
 
@@ -87,7 +90,7 @@ function SessionItem({
 
   if (editing) {
     return (
-      <input
+      <Input
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -105,7 +108,7 @@ function SessionItem({
             setEditing(false)
           }
         }}
-        className="oo-input-surface oo-text-control h-8 rounded-md border px-3 outline-none"
+        className="oo-text-control h-8"
       />
     )
   }
@@ -188,13 +191,13 @@ function SessionSearchOverlay({
         <div className="flex items-center gap-3">
           <div className="oo-session-search-input oo-text-title flex h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border px-3">
             <Search className="size-5 shrink-0 text-muted-foreground" />
-            <input
+            <Input
               ref={inputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("sidebar.searchPlaceholder")}
               aria-label={t("sidebar.searchPlaceholder")}
-              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+              className="h-10 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
             />
           </div>
           <button
@@ -291,6 +294,7 @@ export function AppShell() {
     service: string
     text: string
     attachments: ChatAttachment[]
+    model?: ModelChoice
   } | null>(null)
 
   // 轮询 agent 就绪（sidecar 异步启动，首启需拉起 opencode + provider）。
@@ -355,7 +359,7 @@ export function AppShell() {
       pendingRetry.current = null
       setSelectedService(null)
       setRoute("chat")
-      void send(pending.sessionId, pending.text, pending.attachments)
+      void send(pending.sessionId, pending.text, pending.attachments, { model: pending.model })
     }
   }, [connections.summary, send])
 
@@ -396,13 +400,13 @@ export function AppShell() {
     setRoute("chat")
   }
 
-  const handleSend = async (text: string, attachments: ChatAttachment[] = []): Promise<void> => {
+  const handleSend = async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
     setRoute("chat")
     let sessionId = activeSessionId
     const bridgeEmptySend = messagesLoaded && messages.length === 0
     const createdAt = Date.now()
     if (bridgeEmptySend) {
-      setPendingChatTransition({ sessionId, text, attachments, createdAt })
+      setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
     }
     if (!sessionId) {
       let info: SessionInfo
@@ -422,7 +426,7 @@ export function AppShell() {
       )
     }
     try {
-      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack" })
+      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack", model })
     } catch (error) {
       if (bridgeEmptySend) {
         setPendingChatTransition(null)
@@ -613,7 +617,7 @@ export function AppShell() {
                 initialSendPending={initialSendPending}
                 providers={connections.summary?.providers ?? []}
                 placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                onSend={(text, attachments) => void handleSend(text, attachments)}
+                onSend={(text, attachments, model) => void handleSend(text, attachments, model)}
                 onStop={() => activeSessionId && void stop(activeSessionId)}
                 onAuthorize={handleAuthorize}
               />

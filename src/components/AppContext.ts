@@ -1,6 +1,7 @@
 import type { AuthService } from "../../electron/auth/common"
 import type { ChatService } from "../../electron/chat/common"
 import type { ConnectionsService } from "../../electron/connections/common"
+import type { ModelsService } from "../../electron/models/common"
 import type { SessionService } from "../../electron/session/common"
 import type { SettingsService } from "../../electron/settings/common"
 import type { SkillService } from "../../electron/skills/common"
@@ -14,6 +15,7 @@ export interface AppContextValue {
   sessionService: ConnectionClientService<SessionService>
   connectionsService: ConnectionClientService<ConnectionsService>
   skillService: ConnectionClientService<SkillService>
+  modelsService: ConnectionClientService<ModelsService>
   settingsService: ConnectionClientService<SettingsService>
   authService: ConnectionClientService<AuthService>
   updateService: ConnectionClientService<UpdateService>
@@ -43,6 +45,10 @@ export function useConnectionsService(): ConnectionClientService<ConnectionsServ
 
 export function useSkillService(): ConnectionClientService<SkillService> {
   return useAppContext().skillService
+}
+
+export function useModelsService(): ConnectionClientService<ModelsService> {
+  return useAppContext().modelsService
 }
 
 export function useSettingsService(): ConnectionClientService<SettingsService> {

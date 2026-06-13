@@ -86,12 +86,15 @@ function normalizeServiceSlug(value: string): string {
 }
 
 function parseServiceFromCommand(command: string): string {
-  const connectorMatch = command.match(/(?:^|\s)(?:oo\s+)?connector\s+(?:schema|run)\s+([A-Za-z0-9_-]+)/)
-  if (connectorMatch?.[1]) {
-    return connectorMatch[1]
+  const serviceArg = String.raw`(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))`
+  const connectorMatch = command.match(
+    new RegExp(String.raw`(?:^|\s)(?:oo\s+)?connector\s+(?:schema|run)\s+` + serviceArg),
+  )
+  if (connectorMatch) {
+    return connectorMatch[1] ?? connectorMatch[2] ?? connectorMatch[3] ?? ""
   }
-  const providerFlagMatch = command.match(/(?:--provider|--service)\s+([A-Za-z0-9_-]+)/)
-  return providerFlagMatch?.[1] ?? ""
+  const providerFlagMatch = command.match(new RegExp(String.raw`(?:--provider|--service)\s+` + serviceArg))
+  return providerFlagMatch ? (providerFlagMatch[1] ?? providerFlagMatch[2] ?? providerFlagMatch[3] ?? "") : ""
 }
 
 function toolServiceSlug(part: ChatMessagePart): string {

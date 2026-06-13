@@ -5,6 +5,11 @@ import * as React from "react"
 import { useChatService } from "@/components/AppContext"
 
 type MessagesMap = Record<string, ChatMessage[]>
+type SendOptimisticMode = "before-ack" | "after-ack"
+
+interface SendOptions {
+  optimistic?: SendOptimisticMode
+}
 
 function upsertPart(parts: ChatMessagePart[], part: ChatMessagePart): ChatMessagePart[] {
   const index = parts.findIndex((p) => p.partId === part.partId)
@@ -43,12 +48,46 @@ function setTextPart(msgs: ChatMessage[], event: MessageDeltaEvent): ChatMessage
   })
 }
 
+function messageText(message: ChatMessage): string {
+  return message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text ?? "")
+    .join("")
+}
+
+function hasUserMessage(msgs: ChatMessage[], text: string): boolean {
+  return msgs.some((message) => message.role === "user" && messageText(message) === text)
+}
+
+function appendOptimisticUserMessage(msgs: ChatMessage[], text: string): ChatMessage[] {
+  if (hasUserMessage(msgs, text)) {
+    return msgs
+  }
+  return [
+    ...msgs,
+    {
+      id: `local-user-${Date.now()}`,
+      role: "user",
+      parts: [{ kind: "text", partId: "local", text }],
+      createdAt: Date.now(),
+    },
+  ]
+}
+
+function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+  const missingLocalUsers = current.filter(
+    (message) =>
+      message.role === "user" && message.id.startsWith("local-user-") && !hasUserMessage(fetched, messageText(message)),
+  )
+  return missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetched] : fetched
+}
+
 export interface UseChat {
   messages: ChatMessage[]
   status: ChatStatus
   messagesLoaded: boolean
   error: string | null
-  send: (sessionId: string, text: string) => Promise<void>
+  send: (sessionId: string, text: string, options?: SendOptions) => Promise<void>
   stop: (sessionId: string) => Promise<void>
 }
 
@@ -66,7 +105,7 @@ export function useChat(activeSessionId: string | null): UseChat {
     async (sessionId: string) => {
       try {
         const msgs = await chatService.invoke("getMessages", sessionId)
-        setMessagesMap((prev) => ({ ...prev, [sessionId]: msgs }))
+        setMessagesMap((prev) => ({ ...prev, [sessionId]: mergeFetchedMessages(prev[sessionId] ?? [], msgs) }))
       } catch (err) {
         console.error("[lumo] getMessages failed", err)
       }
@@ -138,20 +177,18 @@ export function useChat(activeSessionId: string | null): UseChat {
   }, [activeSessionId, reload])
 
   const send = React.useCallback(
-    async (sessionId: string, text: string) => {
+    async (sessionId: string, text: string, options: SendOptions = {}) => {
+      const optimistic = options.optimistic ?? "before-ack"
       setError(null)
       setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
-      patch(sessionId, (msgs) => [
-        ...msgs,
-        {
-          id: `local-user-${Date.now()}`,
-          role: "user",
-          parts: [{ kind: "text", partId: "local", text }],
-          createdAt: Date.now(),
-        },
-      ])
+      if (optimistic === "before-ack") {
+        patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text))
+      }
       try {
         await chatService.invoke("sendMessage", { sessionId, text })
+        if (optimistic === "after-ack") {
+          patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text))
+        }
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))
         setError(String(err))

@@ -39,15 +39,6 @@ function hasUserMessage(messages: ChatMessage[], text: string): boolean {
   return messages.some((message) => message.role === "user" && chatMessageText(message) === text)
 }
 
-function pendingUserMessage(pending: PendingChatTransition): ChatMessage {
-  return {
-    id: `pending-user-${pending.createdAt}`,
-    role: "user",
-    parts: [{ kind: "text", partId: "pending", text: pending.text }],
-    createdAt: pending.createdAt,
-  }
-}
-
 function SessionItem({
   session,
   active,
@@ -203,16 +194,21 @@ export function AppShell() {
     activeSessionId === pendingChatTransition.sessionId &&
     hasUserMessage(messages, pendingChatTransition.text),
   )
-  const displayedMessages =
-    pendingChatTransition && !pendingCaughtUp ? [pendingUserMessage(pendingChatTransition)] : messages
-  const displayedStatus: ChatStatus = pendingChatTransition && !pendingCaughtUp ? "submitted" : status
-  const showChatEmptyState = !activeSessionId && !pendingChatTransition
+  const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
+  const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
+  const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
       setPendingChatTransition(null)
     }
   }, [pendingCaughtUp])
+
+  React.useEffect(() => {
+    if (pendingChatTransition && status === "error") {
+      setPendingChatTransition(null)
+    }
+  }, [pendingChatTransition, status])
 
   const handleNewSession = (): void => {
     setActiveSessionId(null)
@@ -247,7 +243,7 @@ export function AppShell() {
       )
     }
     try {
-      await send(sessionId, text)
+      await send(sessionId, text, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack" })
     } catch (error) {
       if (bridgeEmptySend) {
         setPendingChatTransition(null)
@@ -376,11 +372,12 @@ export function AppShell() {
           ) : (
             <div className="h-full min-h-0 overflow-hidden px-4 pb-3">
               <ChatArea
-                messages={displayedMessages}
+                messages={initialSendPending ? [] : messages}
                 status={displayedStatus}
                 showEmptyState={showChatEmptyState}
                 error={error}
                 disabled={!ready}
+                initialSendPending={initialSendPending}
                 placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
                 onSend={(text) => void handleSend(text)}
                 onStop={() => activeSessionId && void stop(activeSessionId)}

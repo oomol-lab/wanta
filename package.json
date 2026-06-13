@@ -11,6 +11,7 @@
     "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts",
     "predev": "node --experimental-strip-types ./scripts/check-oo.ts",
     "dev": "vite",
+    "dev:no-electron": "vite --mode no-electron",
     "build": "npm run build:app",
     "ts-check": "tsgo -p tsconfig.json",
     "lint": "oxlint .",

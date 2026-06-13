@@ -99,6 +99,7 @@ export const PromptInputButton = ({ variant = "ghost", className, size, ...props
 
 export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
   status?: ChatStatus
+  visualStatus?: ChatStatus
 }
 
 export const PromptInputSubmit = ({
@@ -106,16 +107,18 @@ export const PromptInputSubmit = ({
   variant = "default",
   size = "icon-sm",
   status,
+  visualStatus,
   children,
   ...props
 }: PromptInputSubmitProps) => {
+  const iconStatus = visualStatus ?? status
   let Icon = <ArrowUpIcon className="size-4" />
 
-  if (status === "submitted") {
+  if (iconStatus === "submitted") {
     Icon = <Loader2Icon className="size-4 animate-spin" />
-  } else if (status === "streaming") {
+  } else if (iconStatus === "streaming") {
     Icon = <SquareIcon className="size-4" />
-  } else if (status === "error") {
+  } else if (iconStatus === "error") {
     Icon = <XIcon className="size-4" />
   }
 

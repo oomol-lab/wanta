@@ -27,6 +27,7 @@ interface ChatAreaProps {
   showEmptyState: boolean
   error: string | null
   disabled: boolean
+  initialSendPending: boolean
   placeholder: string
   onSend: (text: string) => void
   onStop: () => void
@@ -168,6 +169,9 @@ function MessageBubble({
       .filter((p) => p.kind === "text")
       .map((p) => p.text)
       .join("")
+    if (!text) {
+      return null
+    }
     return (
       <Message from="user">
         <MessageContent>
@@ -218,6 +222,7 @@ export function ChatArea({
   showEmptyState,
   error,
   disabled,
+  initialSendPending,
   placeholder,
   onSend,
   onStop,
@@ -230,13 +235,14 @@ export function ChatArea({
   const isGenerating = status === "submitted" || status === "streaming"
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant")
   const showPendingMessage =
-    isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false)
+    hasMessages &&
+    (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
 
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
   // 的 onClick），避免生成中按回车误中止流。
   const handleSubmit = (message: PromptInputMessage): void => {
     const text = message.text
-    if (!text || disabled) {
+    if (!text || disabled || initialSendPending) {
       return
     }
     onSend(text)
@@ -264,25 +270,38 @@ export function ChatArea({
         <PromptInputTools />
         <PromptInputSubmit
           status={isGenerating ? status : undefined}
-          disabled={isSubmitted ? true : status === "streaming" ? false : disabled || draft.trim().length === 0}
-          aria-label={status === "streaming" ? t("aria.stop") : t("aria.send")}
+          visualStatus={initialSendPending ? "streaming" : undefined}
+          disabled={
+            initialSendPending
+              ? false
+              : isSubmitted
+                ? true
+                : status === "streaming"
+                  ? false
+                  : disabled || draft.trim().length === 0
+          }
+          aria-label={initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")}
           onClick={
             status === "streaming"
               ? (e) => {
                   e.preventDefault()
                   onStop()
                 }
-              : undefined
+              : initialSendPending
+                ? (e) => {
+                    e.preventDefault()
+                  }
+                : undefined
           }
         />
       </PromptInputToolbar>
     </PromptInput>
   )
 
-  if (showEmptyState && !hasMessages && !isGenerating) {
+  if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
     return (
-      <div className="grid h-full min-h-0 place-items-center px-1 py-6">
-        <div className="flex w-full max-w-[48rem] -translate-y-[6vh] flex-col gap-4">
+      <div className="grid h-full min-h-0 animate-in place-items-center px-1 py-6 duration-200 fade-in">
+        <div className="flex w-full max-w-[48rem] -translate-y-[6vh] flex-col gap-4 transition-transform duration-300 ease-out">
           <div className="flex flex-col items-center gap-3 px-4 text-center">
             <Sparkles className="size-8 text-muted-foreground" />
             <h2 className="oo-text-title max-w-2xl">{t("chat.emptyTitle")}</h2>
@@ -295,7 +314,7 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col pb-6">
+    <div className="flex h-full min-h-0 animate-in flex-col pb-6 duration-300 fade-in slide-in-from-bottom-2">
       <Conversation className="min-h-0 flex-1">
         <ConversationContent data-selectable="true" className="mx-auto min-h-full w-full max-w-[48rem] gap-4 px-0 py-2">
           {messages.map((message) => (
@@ -306,7 +325,7 @@ export function ChatArea({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="mx-auto flex w-full max-w-[48rem] flex-col gap-2">
+      <div className="mx-auto flex w-full max-w-[48rem] flex-col gap-2 transition-transform duration-300 ease-out">
         {errorBanner}
         {promptInput}
       </div>

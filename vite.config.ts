@@ -68,9 +68,27 @@ function resolveOoEndpoint(command: string, mode: string): string {
   return "oomol.com"
 }
 
+function shouldAutoStartElectron(command: string, mode: string): boolean {
+  if (command === "build") {
+    return true
+  }
+
+  const explicit = process.env.LUMO_ELECTRON_AUTO_START?.trim().toLowerCase()
+  if (explicit) {
+    return !["0", "false", "no", "off"].includes(explicit)
+  }
+
+  return mode !== "no-electron"
+}
+
+function skipElectronStartup(): void {
+  console.log("[lumo] Electron auto-start disabled for this Vite dev session.")
+}
+
 export default defineConfig(({ command, mode }) => {
   // 全局唯一 endpoint，常量替换注入（App 层不可见、不可切换，见 electron/domain.ts）。
   const ooEndpoint = resolveOoEndpoint(command, mode)
+  const autoStartElectron = shouldAutoStartElectron(command, mode)
   const buildDefines = {
     __APP_COMMIT__: JSON.stringify(appCommit),
     __APP_VERSION__: JSON.stringify(appVersion),
@@ -90,6 +108,7 @@ export default defineConfig(({ command, mode }) => {
       electron({
         main: {
           entry: "electron/main.ts",
+          ...(autoStartElectron ? {} : { onstart: skipElectronStartup }),
           vite: {
             define: buildDefines,
             build: {
@@ -104,6 +123,7 @@ export default defineConfig(({ command, mode }) => {
         },
         preload: {
           input: path.join(dirname, "electron/preload.ts"),
+          ...(autoStartElectron ? {} : { onstart: skipElectronStartup }),
           vite: {
             define: buildDefines,
             build: {
@@ -119,6 +139,7 @@ export default defineConfig(({ command, mode }) => {
     ],
     server: {
       port: 5273,
+      strictPort: true,
     },
   }
 })

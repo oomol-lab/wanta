@@ -1,9 +1,11 @@
-import type { ChatMessage } from "../chat/common.ts"
+import type { ChatAttachment, ChatMessage } from "../chat/common.ts"
 import type { SessionInfo } from "../session/common.ts"
+import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 
 import { randomBytes } from "node:crypto"
 import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { connectorBaseUrl } from "../domain.ts"
 import { buildOpencodeConfig, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
@@ -26,6 +28,11 @@ export interface AgentManagerOptions {
 export interface SendMessageResult {
   sessionId: string
   messages: unknown
+}
+
+export interface PromptStreamingOptions {
+  system?: string
+  attachments?: ChatAttachment[]
 }
 
 interface RawSession {
@@ -175,15 +182,15 @@ export class AgentManager {
    * R4：默认每轮把"已授权 provider 清单"注入系统提示末尾（body.system 经实测追加在 agent.prompt 之后），
    * 让已授权 provider 跳过 discovery（但仍需 inspect_action 查 schema 再 call_action）。稳定前缀（人格/工具/契约）留在 agent.prompt 以利缓存。
    */
-  public async promptStreaming(sessionId: string, text: string, system?: string): Promise<void> {
-    const tail = system ?? (await this.buildAuthorizedSystem())
+  public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
+    const tail = options.system ?? (await this.buildAuthorizedSystem())
     const result = await this.client.session.promptAsync({
       path: { id: sessionId },
       body: {
         agent: LUMO_AGENT_NAME,
         model: { providerID: LUMO_PROVIDER_ID, modelID: LUMO_MODEL_ID },
         ...(tail ? { system: tail } : {}),
-        parts: [{ type: "text", text }],
+        parts: buildPromptParts(text, options.attachments),
       },
     })
     if (result.error) {
@@ -256,4 +263,30 @@ export class AgentManager {
     this.sidecar?.dispose()
     this.sidecar = null
   }
+}
+
+function buildPromptParts(
+  text: string,
+  attachments: ChatAttachment[] | undefined,
+): Array<TextPartInput | FilePartInput> {
+  const parts: Array<TextPartInput | FilePartInput> = []
+  for (const attachment of attachments ?? []) {
+    parts.push({
+      type: "file",
+      mime: attachment.mime || "application/octet-stream",
+      filename: attachment.name,
+      url: pathToFileUrl(attachment.path),
+      source: {
+        type: "file",
+        path: attachment.path,
+        text: { value: attachment.name, start: 0, end: attachment.name.length },
+      },
+    })
+  }
+  parts.push({ type: "text", text })
+  return parts
+}
+
+function pathToFileUrl(filePath: string): string {
+  return pathToFileURL(path.resolve(filePath)).toString()
 }

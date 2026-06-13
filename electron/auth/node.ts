@@ -1,5 +1,5 @@
 import type { AuthService, AuthState } from "./common.ts"
-import type { AuthAccount, AuthStore } from "./store.ts"
+import type { AuthAccount, AuthRuntimeAccount, AuthStore } from "./store.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -13,6 +13,7 @@ import {
   parseSigninCallback,
 } from "./browser-login.ts"
 import { AuthService as AuthServiceName } from "./common.ts"
+import { clearOomolSessionCookies, persistOomolSessionCookie } from "./session-cookie.ts"
 import { removeAccount, selectAccount, upsertAccount } from "./store.ts"
 
 export interface AuthManagerDeps {
@@ -20,7 +21,7 @@ export interface AuthManagerDeps {
   /** deep-link 协议（生产 lumo / dev lumo-local，见 branding）。 */
   protocolScheme: string
   /** 凭证变化（登录 / 登出）后由 main 重新装配 agent + connector。 */
-  applyAccount: (account: AuthAccount | null) => Promise<void>
+  applyAccount: (account: AuthRuntimeAccount | null) => Promise<void>
 }
 
 interface PendingLogin {
@@ -84,6 +85,9 @@ export class AuthManager {
       this.deps.store.write(removeAccount(this.deps.store.read(), account))
       await this.deps.applyAccount(null)
     }
+    await clearOomolSessionCookies().catch((error: unknown) => {
+      console.warn("[lumo] failed to clear session cookies:", error)
+    })
     const state = this.currentState()
     await this.emitState(state)
     return state
@@ -136,7 +140,10 @@ export class AuthManager {
   }
 
   /** 落盘 + 广播 + 后台装配 agent（启动较慢，渲染层用既有 isReady 轮询显示"Agent 启动中"）。 */
-  private async adoptAccount(account: AuthAccount): Promise<AuthState> {
+  private async adoptAccount(account: AuthRuntimeAccount): Promise<AuthState> {
+    if (account.sessionToken) {
+      await persistOomolSessionCookie(account.sessionToken)
+    }
     this.deps.store.write(upsertAccount(this.deps.store.read(), account))
     const state = this.currentState()
     await this.emitState(state)
@@ -212,7 +219,7 @@ export class AuthServiceImpl extends ConnectionService<AuthService> implements I
 }
 
 /** 非应用发起的登录回调须经用户确认（dialog 需 app ready；回调可能先于 ready 到达）。 */
-async function confirmExternalLogin(account: AuthAccount): Promise<boolean> {
+async function confirmExternalLogin(account: AuthRuntimeAccount): Promise<boolean> {
   await app.whenReady()
   const { response } = await dialog.showMessageBox({
     type: "question",
@@ -226,11 +233,11 @@ async function confirmExternalLogin(account: AuthAccount): Promise<boolean> {
 }
 
 /** authID → 会话 token → { apiKey, profile }。纯网络交换，无副作用。 */
-async function exchangeLogin(authId: string): Promise<AuthAccount> {
+async function exchangeLogin(authId: string): Promise<AuthRuntimeAccount> {
   const api = apiBaseUrl
   const token = await requestSigninWithAuthId(api, authId)
   const [apiKey, profile] = await Promise.all([requestDefaultApiKey(api, token), requestLoginProfile(api, token)])
-  return { id: profile.id, name: profile.name, apiKey }
+  return { id: profile.id, name: profile.name, apiKey, sessionToken: token }
 }
 
 function getSetCookieHeaders(headers: Headers): string[] {

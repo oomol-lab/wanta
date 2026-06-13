@@ -26,3 +26,6 @@ export const hubBaseUrl = `https://hub.${ooEndpoint}`
 
 /** 自动更新静态分发基址，如 `https://static.oomol.com`（路径段见 branding.updateFeedPath）。 */
 export const staticBaseUrl = `https://static.${ooEndpoint}`
+
+/** 语音转写服务基址。当前 Studio Chat 使用同一账号鉴权；域名仍由统一 endpoint 派生。 */
+export const voiceAsrBaseUrl = `https://chat-as-proxy-dev.${ooEndpoint}`

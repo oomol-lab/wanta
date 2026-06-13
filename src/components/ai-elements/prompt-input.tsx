@@ -1,7 +1,7 @@
 import type { ChatStatus } from "ai"
 import type { ComponentProps, FormEvent, FormEventHandler, HTMLAttributes, KeyboardEventHandler } from "react"
 
-import { CornerDownLeftIcon, Loader2Icon, SquareIcon, XIcon } from "lucide-react"
+import { ArrowUpIcon, Loader2Icon, SquareIcon, XIcon } from "lucide-react"
 import { Children, useState } from "react"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
@@ -24,7 +24,7 @@ export const PromptInput = ({ className, onSubmit, children, ...props }: PromptI
 
   return (
     <form className={cn("w-full", className)} onSubmit={handleSubmit} {...props}>
-      <InputGroup className="overflow-hidden">{children}</InputGroup>
+      <InputGroup className="oo-prompt-input-surface overflow-hidden rounded-[1.375rem]">{children}</InputGroup>
     </form>
   )
 }
@@ -33,6 +33,16 @@ export type PromptInputBodyProps = HTMLAttributes<HTMLDivElement>
 
 export const PromptInputBody = ({ className, ...props }: PromptInputBodyProps) => (
   <div className={cn("contents", className)} {...props} />
+)
+
+export type PromptInputAttachmentsProps = Omit<ComponentProps<typeof InputGroupAddon>, "align">
+
+export const PromptInputAttachments = ({ className, ...props }: PromptInputAttachmentsProps) => (
+  <InputGroupAddon
+    align="block-start"
+    className={cn("cursor-default justify-start px-4 pt-3 pb-1.5 select-text", className)}
+    {...props}
+  />
 )
 
 export type PromptInputTextareaProps = ComponentProps<typeof InputGroupTextarea>
@@ -66,7 +76,7 @@ export const PromptInputTextarea = ({
 
   return (
     <InputGroupTextarea
-      className={cn("field-sizing-content max-h-48 min-h-16", className)}
+      className={cn("field-sizing-content max-h-52 min-h-14 px-4 pt-3 pb-1.5", className)}
       name="message"
       onCompositionEnd={() => setIsComposing(false)}
       onCompositionStart={() => setIsComposing(true)}
@@ -80,7 +90,7 @@ export const PromptInputTextarea = ({
 export type PromptInputToolbarProps = Omit<ComponentProps<typeof InputGroupAddon>, "align">
 
 export const PromptInputToolbar = ({ className, ...props }: PromptInputToolbarProps) => (
-  <InputGroupAddon align="block-end" className={cn("justify-between gap-1", className)} {...props} />
+  <InputGroupAddon align="block-end" className={cn("justify-between gap-1 px-4 pt-0 pb-2.5", className)} {...props} />
 )
 
 export type PromptInputToolsProps = HTMLAttributes<HTMLDivElement>
@@ -99,6 +109,7 @@ export const PromptInputButton = ({ variant = "ghost", className, size, ...props
 
 export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
   status?: ChatStatus
+  visualStatus?: ChatStatus
 }
 
 export const PromptInputSubmit = ({
@@ -106,23 +117,25 @@ export const PromptInputSubmit = ({
   variant = "default",
   size = "icon-sm",
   status,
+  visualStatus,
   children,
   ...props
 }: PromptInputSubmitProps) => {
-  let Icon = <CornerDownLeftIcon className="size-4" />
+  const iconStatus = visualStatus ?? status
+  let Icon = <ArrowUpIcon className="size-4" />
 
-  if (status === "submitted") {
+  if (iconStatus === "submitted") {
     Icon = <Loader2Icon className="size-4 animate-spin" />
-  } else if (status === "streaming") {
+  } else if (iconStatus === "streaming") {
     Icon = <SquareIcon className="size-4" />
-  } else if (status === "error") {
+  } else if (iconStatus === "error") {
     Icon = <XIcon className="size-4" />
   }
 
   return (
     <InputGroupButton
       aria-label="Submit"
-      className={cn(className)}
+      className={cn("rounded-full", className)}
       size={size}
       type="submit"
       variant={variant}

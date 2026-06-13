@@ -48,7 +48,7 @@
   --traffic-light-space: 78px;
   --titlebar-control-offset: 5px;
   --window-control-right-space: 12px;
-  --sidebar-width: 192px;
+  --sidebar-width: 264px;
   --sidebar-collapsed-width: 79px;
   --sidebar-item-height: 36px;
   --sidebar-item-icon-size: 16px;
@@ -82,8 +82,16 @@
   --text-selection-foreground: var(--foreground);
   --input-focus-ring: color-mix(in oklab, var(--info) 46%, var(--border));
   --control-focus-ring: color-mix(in oklab, var(--foreground) 16%, var(--border));
-  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 28%, transparent);
+  --scrollbar-thumb: oklch(0.76 0.006 286);
+  --scrollbar-thumb-active: oklch(0.66 0.007 286);
+  --scrollbar-size: 9px;
+  --scrollbar-inset: 2px;
   --oo-input-surface: oklch(0.991 0.002 289);
+  --oo-prompt-input-surface: oklch(0.976 0.003 288);
+  --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --oo-prompt-input-shadow:
+    0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
+    0 8px 18px color-mix(in oklab, var(--foreground) 4%, transparent);
   --oo-search-surface: oklch(0.983 0.003 288);
   --oo-font-caption: 0.75rem;
   --oo-line-caption: 1.25rem;
@@ -169,8 +177,12 @@
   --text-selection-foreground: var(--foreground);
   --input-focus-ring: color-mix(in oklab, var(--info) 52%, var(--border));
   --control-focus-ring: color-mix(in oklab, var(--foreground) 18%, var(--border));
-  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 34%, transparent);
+  --scrollbar-thumb: oklch(0.48 0.006 272);
+  --scrollbar-thumb-active: oklch(0.58 0.007 272);
   --oo-input-surface: oklch(0.252 0.006 272);
+  --oo-prompt-input-surface: var(--oo-input-surface);
+  --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --oo-prompt-input-shadow: none;
   --oo-search-surface: oklch(0.213 0.004 265);
   --oo-content-surface: var(--background);
   --oo-chrome: var(--oo-content-surface);
@@ -269,19 +281,43 @@
   }
 
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border: 3px solid transparent;
+    background: transparent;
+    border: var(--scrollbar-inset) solid transparent;
     border-radius: 999px;
     background-clip: content-box;
+    transition: background-color 140ms ease-out;
   }
 
   ::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  * {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+
+  .is-scrolling::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    background-clip: content-box;
+  }
+
+  .is-scrolling {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  .is-scrolling::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-active);
+    background-clip: content-box;
+  }
+
+  .oo-scrollbar-gutter-auto {
+    scrollbar-gutter: auto !important;
   }
 }
 
@@ -341,7 +377,8 @@
   }
 
   .oo-sidebar-nav-label {
-    max-width: 7rem;
+    display: block;
+    max-width: 100%;
     transition:
       max-width 180ms cubic-bezier(0.2, 0, 0, 1),
       opacity 120ms ease-out,
@@ -367,6 +404,11 @@
   .oo-sidebar-nav-item:active {
     background: var(--sidebar-accent);
     color: var(--sidebar-accent-foreground);
+  }
+
+  .oo-sidebar-session-scroll {
+    scrollbar-gutter: auto;
+    scrollbar-width: thin;
   }
 
   .oo-toolbar {
@@ -442,6 +484,12 @@
 
   .oo-input-surface {
     background: var(--oo-input-surface);
+  }
+
+  .oo-prompt-input-surface {
+    border-color: var(--oo-prompt-input-border) !important;
+    background: var(--oo-prompt-input-surface);
+    box-shadow: var(--oo-prompt-input-shadow) !important;
   }
 
   .oo-search-surface {

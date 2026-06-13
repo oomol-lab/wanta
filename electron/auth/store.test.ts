@@ -25,6 +25,11 @@ test("upsertAccount inserts, replaces by id, and sets current", () => {
   assert.equal(auth.currentId, "u1")
 })
 
+test("upsertAccount never persists runtime sessionToken", () => {
+  const auth = upsertAccount({}, { ...acme, sessionToken: "oomol-token" })
+  assert.deepEqual(auth, { currentId: "u1", accounts: [acme] })
+})
+
 test("selectAccount picks current first, then the first account, else null", () => {
   const auth = upsertAccount(upsertAccount({}, other), acme) // currentId = u1
   assert.deepEqual(selectAccount(auth), acme)

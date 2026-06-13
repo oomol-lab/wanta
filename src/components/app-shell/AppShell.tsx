@@ -1,20 +1,11 @@
-import type { AuthorizationInfo } from "../../../electron/chat/common"
+import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common"
 import type { SessionInfo } from "../../../electron/session/common"
+import type { ChatStatus } from "ai"
 
-import {
-  MessageSquare,
-  MessageSquarePlus,
-  PanelRightClose,
-  PanelRightOpen,
-  Settings,
-  Sparkles,
-  Trash2,
-} from "lucide-react"
+import { Plug, Settings, SquarePen, Trash2 } from "lucide-react"
 import * as React from "react"
-import { branding } from "../../../electron/branding"
+import { buildSessionTitle } from "@/components/app-shell/session-title"
 import { useChatService } from "@/components/AppContext"
-import { Button } from "@/components/ui/button"
-import { SplitViewBody, SplitViewDesktopDetailPane, SplitViewListPane, SplitViewRoot } from "@/components/ui/split-view"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
@@ -24,7 +15,51 @@ import { ChatArea } from "@/routes/Chat"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
 
-type Route = "chat" | "settings"
+type Route = "chat" | "connections" | "settings"
+
+interface PendingChatTransition {
+  sessionId: string | null
+  text: string
+  attachments: ChatAttachment[]
+  createdAt: number
+}
+
+function initialRoute(): Route {
+  const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
+  return route === "settings" || route === "connections" ? route : "chat"
+}
+
+function chatMessageText(message: ChatMessage): string {
+  return message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text ?? "")
+    .join("")
+}
+
+function chatMessageAttachmentPaths(message: ChatMessage): string {
+  return message.parts
+    .filter((part) => part.kind === "attachment" && part.attachment)
+    .map((part) => part.attachment?.path ?? "")
+    .sort()
+    .join("\n")
+}
+
+function attachmentPaths(attachments: ChatAttachment[]): string {
+  return attachments
+    .map((attachment) => attachment.path)
+    .sort()
+    .join("\n")
+}
+
+function hasUserMessage(messages: ChatMessage[], text: string, attachments: ChatAttachment[] = []): boolean {
+  const expectedAttachments = attachmentPaths(attachments)
+  return messages.some(
+    (message) =>
+      message.role === "user" &&
+      chatMessageText(message) === text &&
+      chatMessageAttachmentPaths(message) === expectedAttachments,
+  )
+}
 
 function SessionItem({
   session,
@@ -63,7 +98,7 @@ function SessionItem({
             setEditing(false)
           }
         }}
-        className="oo-input-surface oo-text-control h-[var(--sidebar-item-height)] rounded-md border px-2 outline-none"
+        className="oo-input-surface oo-text-control h-8 rounded-md border px-3 outline-none"
       />
     )
   }
@@ -71,7 +106,7 @@ function SessionItem({
   return (
     <div
       className={cn(
-        "oo-sidebar-nav-item group oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+        "oo-sidebar-nav-item group oo-text-control flex h-8 items-center rounded-md px-3",
         active && "bg-sidebar-accent text-sidebar-accent-foreground",
       )}
     >
@@ -79,16 +114,15 @@ function SessionItem({
         type="button"
         onClick={onSelect}
         onDoubleClick={() => setEditing(true)}
-        className="flex min-w-0 flex-1 items-center gap-2"
+        className="min-w-0 flex-1 text-left"
       >
-        <MessageSquare className="size-4 shrink-0" />
         <span className="oo-sidebar-nav-label truncate">{session.title}</span>
       </button>
       <button
         type="button"
         aria-label={t("aria.deleteSession")}
         onClick={onDelete}
-        className="hidden size-5 shrink-0 items-center justify-center rounded group-hover:flex hover:text-destructive"
+        className="ml-1 hidden size-5 shrink-0 items-center justify-center rounded group-hover:flex hover:text-destructive"
       >
         <Trash2 className="size-3.5" />
       </button>
@@ -100,18 +134,22 @@ export function AppShell() {
   const t = useT()
   const chatService = useChatService()
   const { sessions, create, rename, remove, refresh } = useSessions()
-  const [route, setRoute] = React.useState<Route>(
-    (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"] === "settings" ? "settings" : "chat",
-  )
+  const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
-  const [showConnections, setShowConnections] = React.useState(true)
+  const [isDraftSession, setIsDraftSession] = React.useState(false)
+  const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
   const [ready, setReady] = React.useState(false)
 
-  const { messages, isGenerating, error, send, stop } = useChat(activeSessionId)
+  const { messages, status, messagesLoaded, error, send, stop } = useChat(activeSessionId)
   const connections = useConnections()
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
-  const pendingRetry = React.useRef<{ sessionId: string; service: string; text: string } | null>(null)
+  const pendingRetry = React.useRef<{
+    sessionId: string
+    service: string
+    text: string
+    attachments: ChatAttachment[]
+  } | null>(null)
 
   // 轮询 agent 就绪（sidecar 异步启动，首启需拉起 opencode + provider）。
   React.useEffect(() => {
@@ -157,10 +195,10 @@ export function AppShell() {
 
   // 默认选中最近的会话。
   React.useEffect(() => {
-    if (!activeSessionId && sessions.length > 0) {
+    if (!isDraftSession && !activeSessionId && sessions.length > 0) {
       setActiveSessionId(sessions[0].id)
     }
-  }, [sessions, activeSessionId])
+  }, [sessions, activeSessionId, isDraftSession])
 
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
   React.useEffect(() => {
@@ -172,47 +210,98 @@ export function AppShell() {
     if (connected) {
       pendingRetry.current = null
       setSelectedService(null)
-      void send(pending.sessionId, pending.text)
+      setRoute("chat")
+      void send(pending.sessionId, pending.text, pending.attachments)
     }
   }, [connections.summary, send])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const pendingCaughtUp = Boolean(
+    pendingChatTransition?.sessionId &&
+    activeSessionId === pendingChatTransition.sessionId &&
+    hasUserMessage(messages, pendingChatTransition.text, pendingChatTransition.attachments),
+  )
+  const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
+  const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
+  const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending
 
-  const handleNewSession = async (): Promise<void> => {
-    const info = await create()
-    setActiveSessionId(info.id)
+  React.useEffect(() => {
+    if (pendingCaughtUp) {
+      setPendingChatTransition(null)
+    }
+  }, [pendingCaughtUp])
+
+  React.useEffect(() => {
+    if (pendingChatTransition && status === "error") {
+      setPendingChatTransition(null)
+    }
+  }, [pendingChatTransition, status])
+
+  const handleNewSession = (): void => {
+    setActiveSessionId(null)
+    setIsDraftSession(true)
+    setPendingChatTransition(null)
     setRoute("chat")
   }
 
-  const handleSend = async (text: string): Promise<void> => {
+  const handleSend = async (text: string, attachments: ChatAttachment[] = []): Promise<void> => {
     setRoute("chat")
     let sessionId = activeSessionId
+    const bridgeEmptySend = messagesLoaded && messages.length === 0
+    const createdAt = Date.now()
+    if (bridgeEmptySend) {
+      setPendingChatTransition({ sessionId, text, attachments, createdAt })
+    }
     if (!sessionId) {
-      const info = await create(text.slice(0, 40))
+      let info: SessionInfo
+      try {
+        info = await create(buildSessionTitle(text || attachments[0]?.name || "附件"))
+      } catch (error) {
+        if (bridgeEmptySend) {
+          setPendingChatTransition(null)
+        }
+        throw error
+      }
       sessionId = info.id
       setActiveSessionId(sessionId)
+      setIsDraftSession(false)
+      setPendingChatTransition((pending) =>
+        pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
+      )
     }
-    await send(sessionId, text)
+    try {
+      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack" })
+    } catch (error) {
+      if (bridgeEmptySend) {
+        setPendingChatTransition(null)
+      }
+      throw error
+    }
   }
 
   const handleDelete = async (id: string): Promise<void> => {
     await remove(id)
     if (activeSessionId === id) {
       setActiveSessionId(null)
+      setIsDraftSession(false)
+      setPendingChatTransition(null)
     }
   }
 
   const handleAuthorize = (auth: AuthorizationInfo): void => {
-    // R5 闭环：展开右侧面板并定位该 provider；记录原 action，待用户在面板完成授权后自动重试。
-    setShowConnections(true)
+    // R5 闭环：打开连接页并定位该 provider；记录原 action，待用户完成授权后自动重试。
+    setRoute("connections")
     setSelectedService(auth.service)
     const lastUser = [...messages].reverse().find((m) => m.role === "user")
     const text = (lastUser?.parts ?? [])
       .filter((p) => p.kind === "text")
       .map((p) => p.text ?? "")
       .join("")
-    if (activeSessionId && text) {
-      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text }
+    const attachments = (lastUser?.parts ?? [])
+      .filter((p) => p.kind === "attachment" && p.attachment)
+      .map((p) => p.attachment as ChatAttachment)
+    if (activeSessionId && (text || attachments.length > 0)) {
+      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments }
     }
   }
 
@@ -222,44 +311,58 @@ export function AppShell() {
       <aside className="oo-sidebar oo-border-divider flex min-h-0 flex-col border-r">
         <header
           data-slot="sidebar-chrome-header"
-          className="relative flex h-[var(--app-titlebar-height)] items-center gap-2 [-webkit-app-region:drag]"
+          className="relative h-[var(--app-titlebar-height)] [-webkit-app-region:drag]"
           style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
-        >
-          <Sparkles className="oo-icon-accent size-4" />
-          <span className="oo-sidebar-chrome-brand oo-text-title">{branding.appName}</span>
-        </header>
+        />
 
-        <div className="px-3 pb-2 [-webkit-app-region:no-drag]">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full justify-start gap-2"
-            onClick={() => void handleNewSession()}
+        <nav aria-label="primary" className="grid gap-1 px-3 pb-3 [-webkit-app-region:no-drag]">
+          <button
+            type="button"
+            onClick={handleNewSession}
+            className={cn(
+              "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+              route === "chat" && !activeSessionId && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
           >
-            <MessageSquarePlus className="size-4" />
-            {t("sidebar.newSession")}
-          </Button>
-        </div>
+            <SquarePen className="size-4 shrink-0" />
+            <span className="oo-sidebar-nav-label truncate">{t("sidebar.newSession")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setRoute("connections")}
+            className={cn(
+              "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+              route === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <Plug className="size-4 shrink-0" />
+            <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
+          </button>
+        </nav>
 
-        <nav className="flex min-h-0 flex-1 flex-col justify-between overflow-y-auto px-3 [-webkit-app-region:no-drag]">
-          <div className="grid gap-1">
-            {sessions.map((session) => (
-              <SessionItem
-                key={session.id}
-                session={session}
-                active={route === "chat" && activeSessionId === session.id}
-                onSelect={() => {
-                  setActiveSessionId(session.id)
-                  setRoute("chat")
-                }}
-                onRename={(title) => void rename(session.id, title)}
-                onDelete={() => void handleDelete(session.id)}
-              />
-            ))}
-            {sessions.length === 0 && <p className="oo-text-caption px-2 py-4">{t("sidebar.empty")}</p>}
+        <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
+          <div className="oo-text-caption shrink-0 px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
+          <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+            <div className="grid gap-0.5">
+              {sessions.map((session) => (
+                <SessionItem
+                  key={session.id}
+                  session={session}
+                  active={route === "chat" && activeSessionId === session.id}
+                  onSelect={() => {
+                    setActiveSessionId(session.id)
+                    setIsDraftSession(false)
+                    setRoute("chat")
+                  }}
+                  onRename={(title) => void rename(session.id, title)}
+                  onDelete={() => void handleDelete(session.id)}
+                />
+              ))}
+              {sessions.length === 0 && <p className="oo-text-caption px-3 py-3">{t("sidebar.empty")}</p>}
+            </div>
           </div>
 
-          <div className="grid gap-1 pb-3">
+          <div className="grid shrink-0 gap-1 pb-3">
             <button
               type="button"
               onClick={() => setRoute("settings")}
@@ -277,48 +380,41 @@ export function AppShell() {
 
       {/* 右：主区（顶部工具条 + 内容） */}
       <div className="grid min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
-        <header className="oo-toolbar oo-border-divider flex h-[var(--app-titlebar-height)] items-center justify-between border-b px-4 [-webkit-app-region:drag]">
-          <span className="oo-toolbar-title oo-text-title">
-            {route === "settings" ? t("settings.title") : (activeSession?.title ?? t("chat.defaultTitle"))}
-          </span>
-          {route === "chat" && (
-            <button
-              type="button"
-              aria-label={showConnections ? t("aria.collapseConnections") : t("aria.expandConnections")}
-              onClick={() => setShowConnections((value) => !value)}
-              className="oo-toolbar-button flex size-8 items-center justify-center rounded-md [-webkit-app-region:no-drag] hover:bg-accent"
-            >
-              {showConnections ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-            </button>
-          )}
+        <header className="oo-toolbar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b px-4 [-webkit-app-region:drag]">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="oo-toolbar-title oo-text-title truncate">
+              {route === "settings"
+                ? t("settings.title")
+                : route === "connections"
+                  ? t("connections.title")
+                  : (activeSession?.title ?? t("chat.newSession"))}
+            </span>
+          </div>
         </header>
 
         <main className="oo-content-surface min-h-0">
           {route === "settings" ? (
             <SettingsRoute />
+          ) : route === "connections" ? (
+            <div className="h-full min-h-0 px-4 py-3">
+              <ConnectionsPanel connections={connections} selectedService={selectedService} />
+            </div>
           ) : (
-            <SplitViewRoot narrowPane="list">
-              <SplitViewBody className={cn(!showConnections && "min-[960px]:grid-cols-[minmax(0,1fr)]")}>
-                <SplitViewListPane narrowPane="list" className="px-4">
-                  <ChatArea
-                    sessionTitle={activeSession?.title ?? ""}
-                    messages={messages}
-                    isGenerating={isGenerating}
-                    error={error}
-                    disabled={!ready}
-                    placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                    onSend={(text) => void handleSend(text)}
-                    onStop={() => activeSessionId && void stop(activeSessionId)}
-                    onAuthorize={handleAuthorize}
-                  />
-                </SplitViewListPane>
-                {showConnections && (
-                  <SplitViewDesktopDetailPane>
-                    <ConnectionsPanel connections={connections} selectedService={selectedService} />
-                  </SplitViewDesktopDetailPane>
-                )}
-              </SplitViewBody>
-            </SplitViewRoot>
+            <div className="h-full min-h-0 overflow-hidden pb-3">
+              <ChatArea
+                messages={initialSendPending ? [] : messages}
+                status={displayedStatus}
+                showEmptyState={showChatEmptyState}
+                error={error}
+                disabled={!ready}
+                initialSendPending={initialSendPending}
+                providers={connections.summary?.providers ?? []}
+                placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
+                onSend={(text, attachments) => void handleSend(text, attachments)}
+                onStop={() => activeSessionId && void stop(activeSessionId)}
+                onAuthorize={handleAuthorize}
+              />
+            </div>
           )}
         </main>
       </div>

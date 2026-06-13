@@ -1,39 +1,71 @@
-import type { AuthorizationInfo, ChatMessage, ChatMessagePart, ToolStatus } from "../../../electron/chat/common"
+import type {
+  AuthorizationInfo,
+  ChatAttachment,
+  ChatMessage,
+  ChatMessagePart,
+  ToolStatus,
+} from "../../../electron/chat/common"
+import type { ConnectionProvider } from "../../../electron/connections/common"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
-import type { ToolUIPart } from "ai"
+import type { ChatStatus } from "ai"
 
-import { AlertTriangle, Plug, Sparkles } from "lucide-react"
-import * as React from "react"
 import {
-  Conversation,
-  ConversationContent,
-  ConversationEmptyState,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation"
-import { Loader } from "@/components/ai-elements/loader"
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  Clock3,
+  File as FileIcon,
+  FileArchive,
+  FileCode,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileVideoCamera,
+  Loader2,
+  Mic,
+  Plug,
+  Plus,
+  RotateCcw,
+  Sparkles,
+  Square,
+  Terminal,
+  Wrench,
+  X,
+} from "lucide-react"
+import * as React from "react"
+import { useVoiceRecorder } from "./useVoiceRecorder.ts"
+import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import {
   PromptInput,
+  PromptInputAttachments,
   PromptInputBody,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
-import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion"
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool"
+import { Shimmer } from "@/components/ai-elements/shimmer"
+import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
+import { useChatService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useT } from "@/i18n/i18n"
+import { cn } from "@/lib/utils"
+import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 interface ChatAreaProps {
-  sessionTitle: string
   messages: ChatMessage[]
-  isGenerating: boolean
+  status: ChatStatus
+  showEmptyState: boolean
   error: string | null
   disabled: boolean
+  initialSendPending: boolean
+  providers: ConnectionProvider[]
   placeholder: string
-  onSend: (text: string) => void
+  onSend: (text: string, attachments: ChatAttachment[]) => void
   onStop: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
 }
@@ -66,8 +98,105 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
+function fileSizeLabel(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) {
+    return ""
+  }
+  if (size < 1024) {
+    return `${size} B`
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function attachmentExtension(name: string): string {
+  const lastSegment = name.split(/[\\/]/).pop() ?? name
+  const index = lastSegment.lastIndexOf(".")
+  return index > -1 ? lastSegment.slice(index + 1).toLowerCase() : ""
+}
+
+function attachmentTypeLabel(attachment: ChatAttachment): string {
+  const extension = attachmentExtension(attachment.name)
+  if (extension) {
+    return extension.toUpperCase()
+  }
+  const [type] = attachment.mime.split("/")
+  return type ? type.toUpperCase() : "FILE"
+}
+
+function attachmentSummary(attachment: ChatAttachment): string {
+  const size = fileSizeLabel(attachment.size)
+  return size ? `${attachmentTypeLabel(attachment)} ${size}` : attachmentTypeLabel(attachment)
+}
+
+function voiceDurationLabel(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return btoa(binary)
+}
+
+function hasKeys(value: Record<string, unknown> | undefined): boolean {
+  return Boolean(value && Object.keys(value).length > 0)
+}
+
+function normalizeServiceSlug(value: string): string {
+  return value.trim().replace(/^oo-/, "").toLowerCase()
+}
+
+function parseServiceFromCommand(command: string): string {
+  const serviceArg = String.raw`(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))`
+  const connectorMatch = command.match(
+    new RegExp(String.raw`(?:^|\s)(?:oo\s+)?connector\s+(?:schema|run)\s+` + serviceArg),
+  )
+  if (connectorMatch) {
+    return connectorMatch[1] ?? connectorMatch[2] ?? connectorMatch[3] ?? ""
+  }
+  const providerFlagMatch = command.match(new RegExp(String.raw`(?:--provider|--service)\s+` + serviceArg))
+  return providerFlagMatch ? (providerFlagMatch[1] ?? providerFlagMatch[2] ?? providerFlagMatch[3] ?? "") : ""
+}
+
+function toolServiceSlug(part: ChatMessagePart): string {
+  const input = part.input ?? {}
+  const fromInput = str(input.service)
+  if (fromInput) {
+    return normalizeServiceSlug(fromInput)
+  }
+  const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
+  if (auth?.service) {
+    return normalizeServiceSlug(auth.service)
+  }
+  const skillTitle = part.title?.match(/^Loaded skill:\s*([A-Za-z0-9_-]+)/i)
+  if (skillTitle?.[1]) {
+    return normalizeServiceSlug(skillTitle[1])
+  }
+  const command = str(input.command)
+  if (command) {
+    const fromCommand = parseServiceFromCommand(command)
+    if (fromCommand) {
+      return normalizeServiceSlug(fromCommand)
+    }
+  }
+  return ""
+}
+
 /** 工具调用的一行人话摘要（折叠态显示）；缺少入参时退回原始工具名。 */
 function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
+  if (part.title) {
+    return part.title
+  }
   const input = part.input ?? {}
   const service = str(input.service)
   const action = str(input.action)
@@ -81,87 +210,316 @@ function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
       return target ? t("chat.toolInspect", { detail: target }) : (part.tool ?? "")
     case "call_action":
       return target ? t("chat.toolCall", { detail: target }) : (part.tool ?? "")
+    case "bash": {
+      const command = str(input.command).split("\n")[0]
+      return command ? t("chat.toolRun", { detail: command }) : (part.tool ?? "")
+    }
+    case "read": {
+      const filePath = str(input.filePath) || str(input.path)
+      return filePath ? t("chat.toolRead", { detail: filePath }) : (part.tool ?? "")
+    }
     default:
-      return part.tool ?? ""
+      return t("chat.toolGeneric", { detail: part.tool ?? "tool" })
   }
 }
 
-/** 把项目的工具状态映射为 ai-elements Tool 的 state。 */
-function toolState(status: ToolStatus | undefined): ToolUIPart["state"] {
+function toolStatusLabel(t: TranslateFn, status: ToolStatus | undefined): string {
   switch (status) {
+    case "pending":
+      return t("chat.toolStatusPending")
     case "running":
-      return "input-available"
+      return t("chat.toolStatusRunning")
     case "completed":
-      return "output-available"
+      return t("chat.toolStatusCompleted")
     case "error":
-      return "output-error"
+      return t("chat.toolStatusError")
     default:
-      return "input-streaming"
+      return t("chat.toolStatusPending")
   }
 }
 
-/** 输出若是 JSON 文本，转为对象交给 ToolOutput 缩进美化；否则原样返回字符串。 */
-function toolOutputValue(output: string | undefined): unknown {
+function formatToolOutput(output: string | undefined): string {
   if (!output) {
-    return undefined
+    return ""
   }
   try {
-    return JSON.parse(output)
+    return JSON.stringify(JSON.parse(output), null, 2)
   } catch {
     return output
   }
 }
 
-function ToolStep({ part, onAuthorize }: { part: ChatMessagePart; onAuthorize: (auth: AuthorizationInfo) => void }) {
-  const t = useT()
-  const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
-  const hasInput = Boolean(part.input && Object.keys(part.input).length > 0)
-  const showOutput = part.status === "completed" && Boolean(part.output) && !auth
-  const showError = part.status === "error" && Boolean(part.error)
+function formatJson(value: Record<string, unknown>): string {
+  return JSON.stringify(value, null, 2)
+}
 
+function formatDuration(part: ChatMessagePart): string | null {
+  const start = part.timing?.start
+  const end = part.timing?.end
+  if (typeof start !== "number" || typeof end !== "number" || end < start) {
+    return null
+  }
+  const ms = end - start
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
+}
+
+function ToolStatusIcon({ status }: { status: ToolStatus | undefined }) {
+  switch (status) {
+    case "running":
+      return <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+    case "completed":
+      return <CheckCircle2 className="size-3.5 text-green-600" />
+    case "error":
+      return <AlertTriangle className="size-3.5 text-destructive" />
+    case "pending":
+    default:
+      return <Circle className="size-3.5 text-muted-foreground" />
+  }
+}
+
+function ToolGlyph({ tool }: { tool: string | undefined }) {
+  if (tool === "bash") {
+    return <Terminal className="size-3.5" />
+  }
+  if (tool === "search_actions") {
+    return <Clock3 className="size-3.5" />
+  }
+  return <Wrench className="size-3.5" />
+}
+
+function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="oo-text-micro">
-      <Tool defaultOpen={part.status === "error"}>
-        <ToolHeader
-          title={toolSummary(t, part)}
-          type={`tool-${part.tool ?? "unknown"}`}
-          state={toolState(part.status)}
-          expandable={hasInput || showOutput || showError}
-        />
-        {(hasInput || showOutput || showError) && (
-          <ToolContent>
-            {hasInput && <ToolInput input={part.input} />}
-            {showOutput && <ToolOutput output={toolOutputValue(part.output)} errorText={undefined} />}
-            {showError && <ToolOutput output={undefined} errorText={part.error} />}
-          </ToolContent>
-        )}
-      </Tool>
-
-      {auth && (
-        <div className="mt-1.5 flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <span className="oo-text-caption">{t("chat.authNeeded", { name: auth.displayName })}</span>
-            <Button size="sm" variant="outline" className="gap-1" onClick={() => onAuthorize(auth)}>
-              <Plug className="size-3.5" />
-              {t("chat.authorize")}
-            </Button>
-          </div>
-          {auth.message && (
-            <pre className="oo-text-micro max-h-40 overflow-auto whitespace-pre-wrap text-destructive">
-              {auth.message}
-            </pre>
-          )}
-        </div>
-      )}
+    <div className="space-y-1.5">
+      <div className="oo-text-micro font-medium text-muted-foreground uppercase">{label}</div>
+      {children}
     </div>
   )
 }
 
+function ToolPre({ children, tone = "default" }: { children: string; tone?: "default" | "error" }) {
+  return (
+    <pre
+      className={cn(
+        "oo-text-micro max-h-56 overflow-auto rounded-md border bg-background p-2.5 whitespace-pre-wrap",
+        tone === "error" && "border-destructive/25 bg-destructive/5 text-destructive",
+      )}
+    >
+      {children}
+    </pre>
+  )
+}
+
+function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): boolean {
+  return (
+    hasKeys(part.input) ||
+    hasKeys(part.metadata) ||
+    Boolean(part.output && !auth) ||
+    Boolean(part.error) ||
+    Boolean(auth?.message) ||
+    Boolean(part.attachmentsCount)
+  )
+}
+
+function ToolActivityStep({
+  part,
+  provider,
+  onAuthorize,
+}: {
+  part: ChatMessagePart
+  provider?: ConnectionProvider
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
+  const t = useT()
+  const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
+  const details = hasToolDetails(part, auth)
+  const duration = formatDuration(part)
+  const statusText = toolStatusLabel(t, part.status)
+  const row = (
+    <div className="flex min-w-0 flex-1 items-start gap-2">
+      {provider ? (
+        <span className="mt-0.5 shrink-0" title={`${provider.displayName} · ${statusText}`}>
+          <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
+        </span>
+      ) : (
+        <span className="mt-0.5 shrink-0" title={statusText}>
+          <ToolStatusIcon status={part.status} />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="min-w-0 truncate text-sm text-foreground">{toolSummary(t, part)}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            {provider ? (
+              <>
+                <span>{provider.displayName}</span>
+                <span>·</span>
+              </>
+            ) : (
+              <ToolGlyph tool={part.tool} />
+            )}
+            <span>{part.tool}</span>
+          </span>
+          {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
+        </div>
+        {auth && (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="oo-text-caption">{t("chat.authNeeded", { name: auth.displayName })}</span>
+            <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
+              <Plug className="size-3.5" />
+              {t("chat.authorize")}
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
+  return (
+    <Collapsible defaultOpen={part.status === "error" || Boolean(auth)}>
+      <div className="rounded-md px-1 py-0.5">
+        {details ? (
+          <CollapsibleTrigger className="group flex w-full items-start justify-between gap-2 text-left">
+            {row}
+            <ChevronDown className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+        ) : (
+          row
+        )}
+      </div>
+      {details && (
+        <CollapsibleContent className="data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
+          <div className="ml-6 space-y-2.5 pt-1.5 pb-1">
+            {hasKeys(part.input) && (
+              <ToolDetailSection label={t("chat.toolParams")}>
+                <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {part.output && !auth && (
+              <ToolDetailSection label={t("chat.toolResult")}>
+                <ToolPre>{formatToolOutput(part.output)}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {part.error && (
+              <ToolDetailSection label={t("chat.toolError")}>
+                <ToolPre tone="error">{part.error}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {auth?.message && (
+              <ToolDetailSection label={t("chat.toolError")}>
+                <ToolPre tone="error">{auth.message}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {hasKeys(part.metadata) && (
+              <ToolDetailSection label={t("chat.toolMetadata")}>
+                <ToolPre>{formatJson(part.metadata ?? {})}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {part.attachmentsCount ? (
+              <div className="oo-text-caption text-muted-foreground">
+                {t("chat.toolAttachments", { count: part.attachmentsCount })}
+              </div>
+            ) : null}
+          </div>
+        </CollapsibleContent>
+      )}
+    </Collapsible>
+  )
+}
+
+function ToolActivity({
+  parts,
+  providerByService,
+  onAuthorize,
+}: {
+  parts: ChatMessagePart[]
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
+  const t = useT()
+  const hasActive = parts.some((part) => part.status === "pending" || part.status === "running")
+  const hasError = parts.some((part) => part.status === "error")
+  const hasAuth = parts.some(
+    (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
+  )
+  const title = hasError
+    ? t("chat.toolActivityError", { count: parts.length })
+    : hasActive
+      ? t("chat.toolActivityRunning", { count: parts.length })
+      : t("chat.toolActivityCompleted", { count: parts.length })
+
+  return (
+    <Task defaultOpen={hasActive || hasError || hasAuth} className="not-prose my-1 w-full">
+      <TaskTrigger title={title}>
+        <button
+          type="button"
+          className="group flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {hasActive ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : hasError ? (
+            <AlertTriangle className="size-3.5 text-destructive" />
+          ) : (
+            <CheckCircle2 className="size-3.5 text-green-600" />
+          )}
+          <span className="truncate">{title}</span>
+          <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+        </button>
+      </TaskTrigger>
+      <TaskContent className="[&>div]:mt-2 [&>div]:space-y-1.5 [&>div]:border-l [&>div]:pl-3">
+        {parts.map((part) => {
+          const service = toolServiceSlug(part)
+          return (
+            <ToolActivityStep
+              key={part.partId}
+              part={part}
+              provider={service ? providerByService.get(service) : undefined}
+              onAuthorize={onAuthorize}
+            />
+          )
+        })}
+      </TaskContent>
+    </Task>
+  )
+}
+
+function isRenderablePart(part: ChatMessagePart): boolean {
+  return part.kind === "tool" || Boolean(part.text)
+}
+
+type RenderBlock = { kind: "text"; part: ChatMessagePart } | { kind: "tools"; key: string; parts: ChatMessagePart[] }
+
+function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
+  const blocks: RenderBlock[] = []
+  let pendingTools: ChatMessagePart[] = []
+  const flushTools = () => {
+    if (pendingTools.length === 0) {
+      return
+    }
+    blocks.push({ kind: "tools", key: pendingTools.map((part) => part.partId).join(":"), parts: pendingTools })
+    pendingTools = []
+  }
+  for (const part of parts) {
+    if (!isRenderablePart(part)) {
+      continue
+    }
+    if (part.kind === "tool") {
+      pendingTools.push(part)
+      continue
+    }
+    flushTools()
+    blocks.push({ kind: "text", part })
+  }
+  flushTools()
+  return blocks
+}
+
 function MessageBubble({
   message,
+  providerByService,
   onAuthorize,
 }: {
   message: ChatMessage
+  providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   if (message.role === "user") {
@@ -169,24 +527,40 @@ function MessageBubble({
       .filter((p) => p.kind === "text")
       .map((p) => p.text)
       .join("")
+    const attachments = message.parts
+      .filter((p) => p.kind === "attachment" && p.attachment)
+      .map((p) => p.attachment as ChatAttachment)
+    if (!text && attachments.length === 0) {
+      return null
+    }
     return (
       <Message from="user">
-        <MessageContent>
-          <div className="break-words whitespace-pre-wrap">{text}</div>
+        <MessageContent className="grid gap-2">
+          {attachments.length > 0 ? <AttachmentList attachments={attachments} /> : null}
+          {text ? <div className="break-words whitespace-pre-wrap">{text}</div> : null}
         </MessageContent>
       </Message>
     )
   }
+  const blocks = renderBlocks(message.parts)
+  if (blocks.length === 0) {
+    return null
+  }
   return (
     <Message from="assistant">
       <MessageContent>
-        {message.parts.map((part) =>
-          part.kind === "text" ? (
-            part.text ? (
-              <MessageResponse key={part.partId}>{part.text}</MessageResponse>
+        {blocks.map((block) =>
+          block.kind === "text" ? (
+            block.part.text ? (
+              <MessageResponse key={block.part.partId}>{block.part.text}</MessageResponse>
             ) : null
           ) : (
-            <ToolStep key={part.partId} part={part} onAuthorize={onAuthorize} />
+            <ToolActivity
+              key={block.key}
+              parts={block.parts}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+            />
           ),
         )}
       </MessageContent>
@@ -194,99 +568,532 @@ function MessageBubble({
   )
 }
 
+function AttachmentIconTile({ attachment }: { attachment: ChatAttachment }) {
+  const mime = attachment.mime.toLowerCase()
+  const extension = attachmentExtension(attachment.name)
+
+  if (mime === "application/pdf" || extension === "pdf") {
+    return (
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-red-500 text-[9px] font-semibold text-white">
+        PDF
+      </span>
+    )
+  }
+
+  const iconClassName = "size-5"
+  const tileClassName = "flex size-10 shrink-0 items-center justify-center rounded-md"
+
+  if (mime.startsWith("image/")) {
+    return (
+      <span className={cn(tileClassName, "bg-sky-500/12 text-sky-700 dark:text-sky-300")}>
+        <FileImage className={iconClassName} />
+      </span>
+    )
+  }
+  if (mime.startsWith("video/")) {
+    return (
+      <span className={cn(tileClassName, "bg-violet-500/12 text-violet-700 dark:text-violet-300")}>
+        <FileVideoCamera className={iconClassName} />
+      </span>
+    )
+  }
+  if (["zip", "gz", "tgz", "rar", "7z"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-amber-500/14 text-amber-700 dark:text-amber-300")}>
+        <FileArchive className={iconClassName} />
+      </span>
+    )
+  }
+  if (["csv", "tsv", "xls", "xlsx"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300")}>
+        <FileSpreadsheet className={iconClassName} />
+      </span>
+    )
+  }
+  if (["css", "html", "js", "json", "jsx", "md", "py", "ts", "tsx", "xml", "yaml", "yml"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300")}>
+        <FileCode className={iconClassName} />
+      </span>
+    )
+  }
+  if (mime.startsWith("text/") || ["doc", "docx", "rtf", "txt"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-muted text-muted-foreground")}>
+        <FileText className={iconClassName} />
+      </span>
+    )
+  }
+
+  return (
+    <span className={cn(tileClassName, "bg-muted text-muted-foreground")}>
+      <FileIcon className={iconClassName} />
+    </span>
+  )
+}
+
+function AttachmentList({ attachments, onRemove }: { attachments: ChatAttachment[]; onRemove?: (id: string) => void }) {
+  return (
+    <div className="flex w-full flex-wrap justify-start gap-2">
+      {attachments.map((attachment) => (
+        <div
+          key={attachment.id}
+          title={attachment.path}
+          className="oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pr-2 pl-2 text-left shadow-xs"
+        >
+          <AttachmentIconTile attachment={attachment} />
+          <span className="min-w-0 flex-1">
+            <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
+              {attachment.name}
+            </span>
+            <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
+              {attachmentSummary(attachment)}
+            </span>
+          </span>
+          {onRemove ? (
+            <button
+              type="button"
+              aria-label="Remove attachment"
+              className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => onRemove(attachment.id)}
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; height?: number }) {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
+  const [sizeRevision, setSizeRevision] = React.useState(0)
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || typeof ResizeObserver === "undefined") {
+      return
+    }
+    const observer = new ResizeObserver(() => {
+      setSizeRevision((revision) => revision + 1)
+    })
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [])
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) {
+      return
+    }
+
+    const rect = canvas.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
+    const width = Math.max(1, Math.floor(rect.width * dpr))
+    const canvasHeight = Math.max(1, Math.floor(height * dpr))
+    if (canvas.width !== width) {
+      canvas.width = width
+    }
+    if (canvas.height !== canvasHeight) {
+      canvas.height = canvasHeight
+    }
+
+    const context = canvas.getContext("2d")
+    if (!context) {
+      return
+    }
+
+    context.clearRect(0, 0, width, canvasHeight)
+    context.fillStyle = getComputedStyle(canvas).color || "#18181b"
+
+    const barWidth = 3 * dpr
+    const gap = 3 * dpr
+    const step = barWidth + gap
+    const centerY = canvasHeight / 2
+    const drawableHeight = canvasHeight - 8 * dpr
+    const visibleCount = Math.ceil(width / step)
+    const visibleBars = bars.slice(-visibleCount)
+    const startX = width - visibleBars.length * step
+
+    visibleBars.forEach((bar, index) => {
+      const normalized = Math.max(0, Math.min(1, bar))
+      const barHeight = Math.max(3 * dpr, normalized * drawableHeight)
+      const x = startX + index * step
+      const y = centerY - barHeight / 2
+      context.globalAlpha = 0.35 + normalized * 0.65
+      context.beginPath()
+      context.roundRect(x, y, barWidth, barHeight, barWidth / 2)
+      context.fill()
+    })
+    context.globalAlpha = 1
+  }, [bars, height, sizeRevision])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      height={height}
+      className="h-8 w-full text-foreground/85"
+      aria-hidden
+      data-testid="voice-wave-canvas"
+    />
+  )
+}
+
+function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; durationMs: number }) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex h-8 min-w-0 flex-1 items-center justify-center overflow-hidden">
+        <VoiceWaveCanvas bars={bars} height={32} />
+      </div>
+      <span className="min-w-9 shrink-0 text-right text-sm leading-none font-normal text-muted-foreground tabular-nums">
+        {voiceDurationLabel(durationMs)}
+      </span>
+    </div>
+  )
+}
+
+function AssistantPendingMessage() {
+  const t = useT()
+  return (
+    <Message from="assistant">
+      <MessageContent>
+        <div className="py-0.5" role="status" aria-live="polite">
+          <Shimmer as="span" className="oo-text-caption" duration={1}>
+            {t("chat.thinking")}
+          </Shimmer>
+        </div>
+      </MessageContent>
+    </Message>
+  )
+}
+
 export function ChatArea({
-  sessionTitle,
   messages,
-  isGenerating,
+  status,
+  showEmptyState,
   error,
   disabled,
+  initialSendPending,
+  providers,
   placeholder,
   onSend,
   onStop,
   onAuthorize,
 }: ChatAreaProps) {
   const t = useT()
+  const chatService = useChatService()
   const [draft, setDraft] = React.useState("")
+  const [attachments, setAttachments] = React.useState<ChatAttachment[]>([])
+  const [inputError, setInputError] = React.useState<string | null>(null)
+  const [voiceTranscribing, setVoiceTranscribing] = React.useState(false)
+  const [voiceError, setVoiceError] = React.useState<string | null>(null)
+  const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const voiceRecorder = useVoiceRecorder()
+  const hasMessages = messages.length > 0
+  const isSubmitted = status === "submitted"
+  const isGenerating = status === "submitted" || status === "streaming"
+  const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant")
+  const providerByService = React.useMemo(
+    () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
+    [providers],
+  )
+  const voiceActive = voiceRecorder.isRecording || voiceTranscribing || Boolean(voiceError || voiceRecorder.error)
+  const showPendingMessage =
+    hasMessages &&
+    (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
 
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
   // 的 onClick），避免生成中按回车误中止流。
   const handleSubmit = (message: PromptInputMessage): void => {
     const text = message.text
-    if (!text || disabled) {
+    if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
-    onSend(text)
+    onSend(text, attachments)
     setDraft("")
+    setAttachments([])
+    setInputError(null)
+  }
+
+  const addFiles = React.useCallback(
+    (files: FileList | File[]) => {
+      setInputError(null)
+      const next: ChatAttachment[] = []
+      for (const file of Array.from(files)) {
+        const path = globalThis.lumo?.getPathForFile(file)
+        if (!path) {
+          setInputError(t("chat.attachmentPathUnavailable"))
+          continue
+        }
+        next.push({
+          id: `${Date.now()}-${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
+          name: file.name || path.split(/[\\/]/).pop() || "attachment",
+          mime: file.type || "application/octet-stream",
+          size: file.size,
+          path,
+        })
+      }
+      if (next.length > 0) {
+        setAttachments((current) => {
+          const existing = new Set(current.map((attachment) => attachment.path))
+          return [...current, ...next.filter((attachment) => !existing.has(attachment.path))]
+        })
+      }
+    },
+    [t],
+  )
+
+  const transcribeBlob = React.useCallback(
+    async (blob: Blob) => {
+      setVoiceTranscribing(true)
+      setVoiceError(null)
+      setVoiceRetryBlob(blob)
+      try {
+        const audioBase64 = arrayBufferToBase64(await blob.arrayBuffer())
+        const result = await chatService.invoke("transcribeVoice", { audioBase64 })
+        setDraft((current) =>
+          current.trim() ? `${current}${/\s$/.test(current) ? "" : " "}${result.text}` : result.text,
+        )
+        setVoiceRetryBlob(null)
+        voiceRecorder.cancel()
+      } catch (error) {
+        setVoiceError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setVoiceTranscribing(false)
+      }
+    },
+    [chatService, voiceRecorder],
+  )
+
+  const handleStopVoice = React.useCallback(async () => {
+    const recorded = await voiceRecorder.stop()
+    if (recorded) {
+      await transcribeBlob(recorded.blob)
+    }
+  }, [transcribeBlob, voiceRecorder])
+
+  const handleCancelVoice = React.useCallback(() => {
+    setVoiceTranscribing(false)
+    setVoiceError(null)
+    setVoiceRetryBlob(null)
+    voiceRecorder.cancel()
+  }, [voiceRecorder])
+
+  const visibleError = error ?? inputError ?? voiceError ?? voiceRecorder.error
+  const errorBanner = visibleError ? (
+    <div className="oo-error flex items-center gap-2">
+      <AlertTriangle className="size-4" />
+      {visibleError}
+    </div>
+  ) : null
+  const canSubmit = !disabled && !voiceActive && (draft.trim().length > 0 || attachments.length > 0)
+
+  const promptInput = (
+    <PromptInput
+      onSubmit={handleSubmit}
+      className={cn(hasMessages && "shrink-0")}
+      onDragOver={(event) => {
+        if (!disabled && !voiceActive && event.dataTransfer.types.includes("Files")) {
+          event.preventDefault()
+        }
+      }}
+      onDrop={(event) => {
+        if (disabled || voiceActive || event.dataTransfer.files.length === 0) {
+          return
+        }
+        event.preventDefault()
+        addFiles(event.dataTransfer.files)
+      }}
+    >
+      {attachments.length > 0 ? (
+        <PromptInputAttachments>
+          <AttachmentList
+            attachments={attachments}
+            onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
+          />
+        </PromptInputAttachments>
+      ) : null}
+      <PromptInputBody>
+        <PromptInputTextarea
+          className={cn(attachments.length > 0 && "pt-2")}
+          value={draft}
+          disabled={disabled || voiceActive}
+          placeholder={placeholder}
+          onChange={(e) => setDraft(e.target.value)}
+          onPaste={(event) => {
+            if (disabled || voiceActive || event.clipboardData.files.length === 0) {
+              return
+            }
+            addFiles(event.clipboardData.files)
+          }}
+        />
+      </PromptInputBody>
+      <PromptInputToolbar>
+        <PromptInputTools className="shrink-0 justify-start">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.currentTarget.files) {
+                addFiles(event.currentTarget.files)
+              }
+              event.currentTarget.value = ""
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title={t("chat.attachFile")}
+            aria-label={t("chat.attachFile")}
+            disabled={disabled || voiceActive || initialSendPending}
+            className="size-8 rounded-full"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Plus className="size-4" />
+          </Button>
+        </PromptInputTools>
+        {voiceActive ? <VoiceRecorderPanel bars={voiceRecorder.bars} durationMs={voiceRecorder.durationMs} /> : null}
+        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
+          {voiceActive ? (
+            <>
+              {voiceError || voiceRecorder.error ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  title={voiceError ?? voiceRecorder.error}
+                  aria-label={t("chat.voiceRetry")}
+                  className="size-8 rounded-full"
+                  disabled={!voiceRetryBlob || voiceTranscribing}
+                  onClick={() => voiceRetryBlob && void transcribeBlob(voiceRetryBlob)}
+                >
+                  <RotateCcw className="size-4" />
+                </Button>
+              ) : voiceTranscribing ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("chat.voiceCancel")}
+                  className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
+                  onClick={handleCancelVoice}
+                >
+                  <Loader2 className="size-[18px] animate-spin" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("chat.voiceStop")}
+                  className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
+                  onClick={() => void handleStopVoice()}
+                >
+                  <Square className="size-3.5" fill="currentColor" />
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("chat.voiceCancel")}
+                className="size-8 rounded-full bg-foreground text-background hover:bg-foreground/85 hover:text-background"
+                onClick={handleCancelVoice}
+              >
+                <X className="size-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title={t("chat.voiceInput")}
+                aria-label={t("chat.voiceInput")}
+                disabled={disabled || initialSendPending}
+                className="size-8 rounded-full"
+                onClick={() => {
+                  setVoiceError(null)
+                  void voiceRecorder.start()
+                }}
+              >
+                <Mic className="size-4" />
+              </Button>
+              <PromptInputSubmit
+                size="icon-xs"
+                className="!size-7"
+                status={isGenerating ? status : undefined}
+                visualStatus={initialSendPending ? "streaming" : undefined}
+                disabled={initialSendPending ? false : isSubmitted ? true : status === "streaming" ? false : !canSubmit}
+                aria-label={
+                  initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")
+                }
+                onClick={
+                  status === "streaming"
+                    ? (e) => {
+                        e.preventDefault()
+                        onStop()
+                      }
+                    : initialSendPending
+                      ? (e) => {
+                          e.preventDefault()
+                        }
+                      : undefined
+                }
+              />
+            </>
+          )}
+        </div>
+      </PromptInputToolbar>
+    </PromptInput>
+  )
+
+  if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
+    return (
+      <div className="grid h-full min-h-0 animate-in place-items-center px-1 py-6 duration-200 fade-in">
+        <div className="flex w-full max-w-[48rem] -translate-y-[6vh] flex-col gap-4 transition-transform duration-300 ease-out">
+          <div className="flex flex-col items-center gap-3 px-4 text-center">
+            <Sparkles className="size-8 text-muted-foreground" />
+            <h2 className="oo-text-title max-w-2xl">{t("chat.emptyTitle")}</h2>
+          </div>
+          {errorBanner}
+          {promptInput}
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 px-1">
-        <span className="oo-text-title truncate">{sessionTitle || t("chat.defaultTitle")}</span>
-        {isGenerating && <Loader className="text-muted-foreground" size={14} />}
-      </div>
-
+    <div className="flex h-full min-h-0 animate-in flex-col pb-6 duration-300 fade-in slide-in-from-bottom-2">
       <Conversation className="min-h-0 flex-1">
-        <ConversationContent data-selectable="true" className="min-h-full gap-4 px-0 py-2">
-          {messages.length === 0 ? (
-            <ConversationEmptyState
-              className="h-full"
-              icon={<Sparkles className="size-8" />}
-              title={t("chat.emptyTitle")}
+        <ConversationContent
+          data-selectable="true"
+          className="mx-auto min-h-full w-full max-w-[50rem] gap-4 px-4 pt-7 pb-9"
+        >
+          {messages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
             />
-          ) : (
-            messages.map((message) => <MessageBubble key={message.id} message={message} onAuthorize={onAuthorize} />)
-          )}
+          ))}
+          {showPendingMessage && <AssistantPendingMessage />}
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
 
-      {messages.length === 0 && (
-        <Suggestions className="mb-2 px-1">
-          <Suggestion
-            suggestion={t("chat.emptyExample")}
-            disabled={disabled}
-            onClick={(text) => {
-              onSend(text)
-              setDraft("")
-            }}
-          />
-        </Suggestions>
-      )}
-
-      {error && (
-        <div className="oo-error mb-2 flex items-center gap-2">
-          <AlertTriangle className="size-4" />
-          {error}
-        </div>
-      )}
-
-      <PromptInput onSubmit={handleSubmit} className="shrink-0">
-        <PromptInputBody>
-          <PromptInputTextarea
-            value={draft}
-            disabled={disabled}
-            placeholder={placeholder}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </PromptInputBody>
-        <PromptInputToolbar>
-          <PromptInputTools />
-          <PromptInputSubmit
-            status={isGenerating ? "streaming" : undefined}
-            disabled={isGenerating ? false : disabled || draft.trim().length === 0}
-            aria-label={isGenerating ? t("aria.stop") : t("aria.send")}
-            onClick={
-              isGenerating
-                ? (e) => {
-                    e.preventDefault()
-                    onStop()
-                  }
-                : undefined
-            }
-          />
-        </PromptInputToolbar>
-      </PromptInput>
+      <div className="mx-auto flex w-full max-w-[50rem] flex-col gap-2 px-4 transition-transform duration-300 ease-out">
+        {errorBanner}
+        {promptInput}
+      </div>
     </div>
   )
 }

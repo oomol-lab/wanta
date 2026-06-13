@@ -24,8 +24,11 @@ cp .env.example .env.local   # .env.local 已 gitignore
 ```bash
 npm run dev    # predev 先跑 scripts/check-oo.ts（.oo-bin/oo 缺失则报错退出）
                # vite dev server 端口 5273；vite-plugin-electron 同时拉起主进程
+npm run dev:no-electron
+               # 只启动 vite + electron bundle watch，不自动拉起 Electron；适合不需要 UI 窗口的代码侧调试
 ```
 
+- vite dev server 固定端口 `5273` 且 `strictPort=true`：如果已有 `npm run dev` 占用端口，新的 dev 进程会直接失败，避免悄悄切到 `5274+` 后再拉起第二个 Electron。需要临时禁用 Electron 自动启动时，也可用 `LUMO_ELECTRON_AUTO_START=0 npm run dev`。
 - `.electron-dist` 存在时 vite 自动设 `ELECTRON_OVERRIDE_DIST_PATH`，dev 用带 `lumo-local` scheme 的 Electron（菜单栏显示 dev 身份），浏览器登录回跳才能命中 dev 实例。
 - dev 的 userData 在 `~/Library/Application Support/lumo`（macOS）；agent 数据在其下 `agent/`（workspace / isolation / oo-store）。
 - 改动后质量门四件套：`npm run ts-check && npm run lint && npm run format && npm test`。

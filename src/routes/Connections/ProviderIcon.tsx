@@ -7,19 +7,26 @@ export function ProviderIcon({
 }: {
   iconUrl?: string
   displayName: string
-  size?: "default" | "lg"
+  size?: "compact" | "default" | "lg"
 }) {
   const [failed, setFailed] = React.useState(false)
-  const dim = size === "lg" ? { width: "2.25rem", height: "2.25rem" } : undefined
+  const dim =
+    size === "lg"
+      ? { width: "2.25rem", height: "2.25rem" }
+      : size === "compact"
+        ? { width: "1rem", height: "1rem" }
+        : undefined
+  const imageDim = size === "compact" ? { width: "0.75rem", height: "0.75rem" } : undefined
+  const className = size === "compact" ? "oo-entity-icon oo-entity-icon-compact" : "oo-entity-icon"
   if (iconUrl && !failed) {
     return (
-      <span className="oo-entity-icon oo-entity-icon-brand" style={dim}>
-        <img src={iconUrl} alt="" className="oo-entity-icon-image" onError={() => setFailed(true)} />
+      <span className={`${className} oo-entity-icon-brand`} style={dim}>
+        <img src={iconUrl} alt="" className="oo-entity-icon-image" style={imageDim} onError={() => setFailed(true)} />
       </span>
     )
   }
   return (
-    <span className="oo-entity-icon oo-entity-icon-fallback" style={dim}>
+    <span className={`${className} oo-entity-icon-fallback`} style={dim}>
       {displayName.slice(0, 1)}
     </span>
   )

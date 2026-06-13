@@ -1,8 +1,8 @@
-import type { AuthAccount } from "./auth/store.ts"
+import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, nativeTheme, shell } from "electron"
+import { app, BrowserWindow, nativeTheme, session, shell } from "electron"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import {
@@ -14,6 +14,7 @@ import {
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
+import { readOomolSessionCookie } from "./auth/session-cookie.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
@@ -142,23 +143,26 @@ if (isLocked) {
 }
 
 /** 凭证 → 运行时装配：替换 agent（重启 sidecar）并同步 connector 凭证。经 applyChain 串行执行。 */
-function applyAuthAccount(account: AuthAccount | null): Promise<void> {
+function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
   const next = applyChain.then(() => applyAuthAccountNow(account))
   applyChain = next.catch(() => undefined)
   return next
 }
 
 /** 最近一次成功装配的账号：同凭证重复 apply 时短路，避免无谓的 sidecar 重启。 */
-let appliedAccount: AuthAccount | null = null
+let appliedAccount: AuthRuntimeAccount | null = null
 
-async function applyAuthAccountNow(account: AuthAccount | null): Promise<void> {
+async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<void> {
+  const effectiveAccount =
+    account && !account.sessionToken ? { ...account, sessionToken: await readOomolSessionCookie() } : account
   // 幂等短路：冷启动 deep-link 与 whenReady 双路径会用同一账号 apply 两次。
   if (
-    account &&
+    effectiveAccount &&
     appliedAccount &&
     agent?.isReady() &&
-    account.id === appliedAccount.id &&
-    account.apiKey === appliedAccount.apiKey
+    effectiveAccount.id === appliedAccount.id &&
+    effectiveAccount.apiKey === appliedAccount.apiKey &&
+    effectiveAccount.sessionToken === appliedAccount.sessionToken
   ) {
     return
   }
@@ -166,17 +170,18 @@ async function applyAuthAccountNow(account: AuthAccount | null): Promise<void> {
   agent?.dispose()
   agent = null
   chatService.setAgent(null)
+  chatService.setVoiceAuthToken(effectiveAccount?.sessionToken)
   sessionService.setAgent(null)
-  connectionsService.setApiKey(account?.apiKey)
+  connectionsService.setApiKey(effectiveAccount?.apiKey)
   // 凭证变化后主动广播摘要，连接面板即时刷新（失败静默，面板有自己的拉取路径）。
   void connectionsService.refreshAndEmit().catch(() => undefined)
 
-  if (!account) {
+  if (!effectiveAccount) {
     return
   }
 
   const nextAgent = new AgentManager({
-    apiKey: account.apiKey,
+    apiKey: effectiveAccount.apiKey,
     opencodeBinPath,
     ooBinPath,
     rootDir: path.join(app.getPath("userData"), "agent"),
@@ -194,7 +199,7 @@ async function applyAuthAccountNow(account: AuthAccount | null): Promise<void> {
     sessionService.setAgent(null)
     throw error
   }
-  appliedAccount = account
+  appliedAccount = effectiveAccount
   chatService.startEventBridge()
   console.log("[lumo] agent sidecar ready at", nextAgent.url)
 }
@@ -219,6 +224,7 @@ function openExternalUrl(url: string): void {
 }
 
 function createMainWindow(): void {
+  installPermissionRequestHandler()
   const isMac = process.platform === "darwin"
   const backgroundColor = nativeTheme.shouldUseDarkColors ? darkWindowColor : lightWindowColor
 
@@ -271,6 +277,12 @@ function createMainWindow(): void {
 
   mainWindow.on("closed", () => {
     mainWindow = null
+  })
+}
+
+function installPermissionRequestHandler(): void {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === "media")
   })
 }
 

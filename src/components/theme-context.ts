@@ -1,5 +1,5 @@
 import * as React from "react"
-import { storageKey } from "../../electron/branding"
+import { storageKey } from "../../electron/branding.ts"
 
 export type ThemePreference = "system" | "light" | "dark"
 export type EffectiveTheme = "light" | "dark"

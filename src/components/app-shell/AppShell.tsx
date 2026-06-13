@@ -1,6 +1,6 @@
-import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common"
-import type { ModelChoice } from "../../../electron/models/common"
-import type { SessionInfo } from "../../../electron/session/common"
+import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
+import type { ModelChoice } from "../../../electron/models/common.ts"
+import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatStatus } from "ai"
 
 import { Package, PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
@@ -457,7 +457,8 @@ export function AppShell() {
       .filter((p) => p.kind === "attachment" && p.attachment)
       .map((p) => p.attachment as ChatAttachment)
     if (activeSessionId && (text || attachments.length > 0)) {
-      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments }
+      const model = pendingChatTransition?.sessionId === activeSessionId ? pendingChatTransition.model : undefined
+      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments, model }
     }
   }
   const handleToggleSidebar = (): void => {

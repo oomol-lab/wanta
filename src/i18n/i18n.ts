@@ -428,7 +428,7 @@ const messages = {
 } as const
 
 export type MessageKey = keyof (typeof messages)["zh-CN"]
-export type TranslateFn = (key: string, vars?: Record<string, string | number>) => string
+export type TranslateFn = (key: MessageKey, vars?: Record<string, string | number>) => string
 
 export interface I18nContextValue {
   locale: Locale
@@ -455,7 +455,11 @@ export function detectInitialLocale(): Locale {
   return globalThis.navigator?.language?.startsWith("zh") ? "zh-CN" : "en"
 }
 
-export function translate(locale: Locale, key: string, vars?: Record<string, string | number>): string {
+export function translate(locale: Locale, key: MessageKey, vars?: Record<string, string | number>): string {
+  return translateUnsafe(locale, key, vars)
+}
+
+export function translateUnsafe(locale: Locale, key: string, vars?: Record<string, string | number>): string {
   const localeMessages = messages[locale] as Record<string, string>
   const fallbackMessages = messages[defaultLocale] as Record<string, string>
   let text: string = localeMessages[key] ?? fallbackMessages[key] ?? key

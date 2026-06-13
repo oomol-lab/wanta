@@ -5,8 +5,9 @@ import type {
   SkillEditorAppId,
   SkillShareInfo,
   SkillShareResult,
-} from "../../electron/skills/common"
+} from "../../electron/skills/common.ts"
 import type { SkillRemoveTarget } from "@/components/useSkillObjectActions"
+import type { MessageKey } from "@/i18n"
 
 import * as React from "react"
 import { AgentIcon } from "@/components/AgentIcon"
@@ -75,7 +76,7 @@ type PublishMenuActionKind = "publish-private" | "publish-public" | "change-priv
 
 interface PublishMenuAction {
   kind: PublishMenuActionKind
-  labelKey: string
+  labelKey: MessageKey
   requiresConfirmation: boolean
   visibility: "private" | "public"
 }
@@ -361,7 +362,7 @@ function getPublishActionState(
 
 function createPublishAction(
   kind: PublishMenuActionKind,
-  labelKey: string,
+  labelKey: MessageKey,
   visibility: "private" | "public",
   requiresConfirmation: boolean,
 ): PublishMenuAction {
@@ -616,10 +617,25 @@ function SkillShareDialog({
   const isOpenRef = React.useRef(isOpen)
   const selectedHost = shareSourceHosts.find((host) => host.agentId === selectedAgentId)
   const sharePackageName = selectedHost?.packageName ?? skill.packageName
+  const sharePackageNameRef = React.useRef<string | undefined>(sharePackageName)
+  const shareInfoRequestSeqRef = React.useRef(0)
 
   React.useEffect(() => {
     isOpenRef.current = isOpen
   }, [isOpen])
+
+  React.useEffect(() => {
+    sharePackageNameRef.current = sharePackageName
+  }, [sharePackageName])
+
+  const canSetShareInfo = React.useCallback((dialogRunId: number, requestSeq: number, packageName: string): boolean => {
+    return (
+      isOpenRef.current &&
+      dialogRunIdRef.current === dialogRunId &&
+      shareInfoRequestSeqRef.current === requestSeq &&
+      sharePackageNameRef.current?.trim() === packageName
+    )
+  }, [])
 
   const setOpen = React.useCallback(
     (nextOpen: boolean) => {
@@ -632,6 +648,7 @@ function SkillShareDialog({
   const readShareInfo = React.useCallback(async () => {
     const packageName = sharePackageName?.trim()
     const dialogRunId = dialogRunIdRef.current
+    const requestSeq = ++shareInfoRequestSeqRef.current
 
     if (!packageName) {
       return {
@@ -646,14 +663,16 @@ function SkillShareDialog({
 
     const cachedInfo = skillShareInfoStore.getEntry(packageName)?.info
     if (cachedInfo) {
-      setShareInfo(cachedInfo)
+      if (canSetShareInfo(dialogRunId, requestSeq, packageName)) {
+        setShareInfo(cachedInfo)
+      }
       return cachedInfo
     }
 
     setIsShareInfoLoading(true)
     try {
       const nextInfo = await skillShareInfoStore.refreshPackage(packageName)
-      if (isOpenRef.current && dialogRunIdRef.current === dialogRunId) {
+      if (canSetShareInfo(dialogRunId, requestSeq, packageName)) {
         setShareInfo(nextInfo)
       }
       return nextInfo
@@ -663,16 +682,16 @@ function SkillShareDialog({
         packageName,
         visibility: "unpublished",
       } satisfies SkillShareInfo
-      if (isOpenRef.current && dialogRunIdRef.current === dialogRunId) {
+      if (canSetShareInfo(dialogRunId, requestSeq, packageName)) {
         setShareInfo(fallbackInfo)
       }
       return fallbackInfo
     } finally {
-      if (isOpenRef.current && dialogRunIdRef.current === dialogRunId) {
+      if (canSetShareInfo(dialogRunId, requestSeq, packageName)) {
         setIsShareInfoLoading(false)
       }
     }
-  }, [shareInfo, sharePackageName, skillShareInfoStore])
+  }, [canSetShareInfo, shareInfo, sharePackageName, skillShareInfoStore])
 
   React.useEffect(() => {
     if (!isOpen) {

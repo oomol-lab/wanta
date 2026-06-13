@@ -26,7 +26,7 @@ export function configureDiagnosticsLog(filePath: string): void {
     return
   }
   announcedDiagnosticsLogPath = filePath
-  console.info(`[diagnostics-log] writing diagnostics to ${filePath}`)
+  console.info(`[lumo][diagnostics-log] writing diagnostics to ${filePath}`)
 }
 
 export async function flushDiagnosticsLog(): Promise<void> {
@@ -148,7 +148,7 @@ function writeDiagnostic(
     })
     .catch((error: unknown) => {
       onWriteFailure?.()
-      console.warn("[diagnostics-log] failed to write diagnostics log", error)
+      console.warn("[lumo][diagnostics-log] failed to write diagnostics log", error)
     })
 }
 

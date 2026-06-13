@@ -60,11 +60,6 @@ export class AuthManager {
     return selectAccount(this.deps.store.read())
   }
 
-  /** 生效账号密钥（仅主进程内部服务使用，禁止注册到 RPC）。 */
-  public getCurrentAuthSecret(): AuthAccount | null {
-    return this.activeAccount()
-  }
-
   public getAuthState(): Promise<AuthState> {
     return Promise.resolve(this.currentState())
   }

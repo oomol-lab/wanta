@@ -1,4 +1,4 @@
-import type { ConnectionAuthType } from "../../../electron/connections/common"
+import type { ConnectionAuthType } from "../../../electron/connections/common.ts"
 import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
 /** 连接优先级：oauth > no_auth > api_key > custom > federated。 */

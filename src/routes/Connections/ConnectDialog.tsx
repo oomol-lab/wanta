@@ -3,7 +3,7 @@ import type {
   ConnectionConnectInput,
   ConnectionCredentialField,
   ConnectionProviderDetail,
-} from "../../../electron/connections/common"
+} from "../../../electron/connections/common.ts"
 
 import { KeyRound } from "lucide-react"
 import * as React from "react"
@@ -64,19 +64,15 @@ function getCredentialFields(
   }
 
   if (authType === "federated") {
-    const configured = detail.federatedCredentialConfig?.fields ?? []
     return {
-      fields:
-        configured.length > 0
-          ? configured
-          : [
-              { key: "oidcProviderArn", label: "OIDC Provider ARN", required: true, secret: false },
-              { key: "roleArn", label: "Role ARN", required: true, secret: false },
-              { key: "roleSessionName", label: "Role session name", required: false, secret: false },
-              { key: "bucket", label: "Bucket", required: false, secret: false },
-              { key: "durationSeconds", label: "Duration seconds", required: false, secret: false },
-              { key: "policy", label: "Policy", required: false, secret: false },
-            ],
+      fields: [
+        { key: "oidcProviderArn", label: "OIDC Provider ARN", required: true, secret: false },
+        { key: "roleArn", label: "Role ARN", required: true, secret: false },
+        { key: "roleSessionName", label: "Role session name", required: false, secret: false },
+        { key: "bucket", label: "Bucket", required: false, secret: false },
+        { key: "durationSeconds", label: "Duration seconds", required: false, secret: false },
+        { key: "policy", label: "Policy", required: false, secret: false },
+      ],
     }
   }
 
@@ -157,12 +153,17 @@ export function ConnectDialog({
     }
 
     if (authType === "federated") {
+      const oidcProviderArn = collected.oidcProviderArn?.trim()
+      const roleArn = collected.roleArn?.trim()
+      if (!oidcProviderArn || !roleArn) {
+        return
+      }
       onSubmit({
         authType: "federated",
         service: detail.service,
         config: {
-          oidcProviderArn: collected.oidcProviderArn ?? "",
-          roleArn: collected.roleArn ?? "",
+          oidcProviderArn,
+          roleArn,
           roleSessionName: collected.roleSessionName,
           bucket: collected.bucket,
           durationSeconds: collected.durationSeconds ? Number(collected.durationSeconds) : undefined,

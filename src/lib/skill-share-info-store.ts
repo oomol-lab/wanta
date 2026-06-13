@@ -1,4 +1,4 @@
-import type { SkillShareInfo, SkillShareInfoRequest } from "../../electron/skills/common"
+import type { SkillShareInfo, SkillShareInfoRequest } from "../../electron/skills/common.ts"
 
 export interface SkillShareInfoEntry {
   error: string | null
@@ -43,6 +43,7 @@ export class SkillShareInfoStore {
   private readonly now: () => number
   private readonly staleTimeMs: number
   private generation = 0
+  private readonly requestTokenByPackageName = new Map<string, number>()
   private snapshot: SkillShareInfoSnapshot = {}
 
   public constructor(options: SkillShareInfoStoreOptions) {
@@ -106,13 +107,14 @@ export class SkillShareInfoStore {
     }
 
     const generation = this.generation
+    const requestToken = this.nextRequestToken(normalizedPackageName)
     const request = this.load({ packageName: normalizedPackageName })
       .then((info) => {
         const nextInfo = {
           ...info,
           packageName: info.packageName ?? normalizedPackageName,
         }
-        if (generation === this.generation) {
+        if (generation === this.generation && this.isCurrentRequest(normalizedPackageName, requestToken)) {
           this.setEntry(normalizedPackageName, {
             error: null,
             info: nextInfo,
@@ -124,7 +126,7 @@ export class SkillShareInfoStore {
       })
       .catch((cause: unknown) => {
         const fallback = createUnpublishedShareInfo(normalizedPackageName)
-        if (generation === this.generation) {
+        if (generation === this.generation && this.isCurrentRequest(normalizedPackageName, requestToken)) {
           this.setEntry(normalizedPackageName, {
             error: toErrorMessage(cause),
             info: fallback,
@@ -135,7 +137,7 @@ export class SkillShareInfoStore {
         return fallback
       })
       .finally(() => {
-        if (generation === this.generation) {
+        if (generation === this.generation && this.isCurrentRequest(normalizedPackageName, requestToken)) {
           this.inFlightByPackageName.delete(normalizedPackageName)
         }
       })
@@ -150,6 +152,8 @@ export class SkillShareInfoStore {
       return
     }
 
+    this.nextRequestToken(normalizedPackageName)
+    this.inFlightByPackageName.delete(normalizedPackageName)
     this.setEntry(normalizedPackageName, {
       error: null,
       info: {
@@ -179,6 +183,16 @@ export class SkillShareInfoStore {
       [packageName]: entry,
     }
     this.emit()
+  }
+
+  private nextRequestToken(packageName: string): number {
+    const token = (this.requestTokenByPackageName.get(packageName) ?? 0) + 1
+    this.requestTokenByPackageName.set(packageName, token)
+    return token
+  }
+
+  private isCurrentRequest(packageName: string, token: number): boolean {
+    return this.requestTokenByPackageName.get(packageName) === token
   }
 
   private emit(): void {

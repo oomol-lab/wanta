@@ -4,8 +4,8 @@ import type {
   ChatMessagePart,
   ChatRole,
   MessageDeltaEvent,
-} from "../../electron/chat/common"
-import type { ModelChoice } from "../../electron/models/common"
+} from "../../electron/chat/common.ts"
+import type { ModelChoice } from "../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
 
 import * as React from "react"

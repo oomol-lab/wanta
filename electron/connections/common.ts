@@ -128,7 +128,7 @@ export type ConnectionCredentialConfig = ConnectionCustomCredentialConfig
 export interface ConnectionProviderDetail extends ConnectionProviderSummary {
   apiKeyConfig: ConnectionApiKeyConfig | null
   customCredentialConfig: ConnectionCustomCredentialConfig | null
-  federatedCredentialConfig: ConnectionCustomCredentialConfig | null
+  federatedCredentialConfig: ConnectionFederatedConfig | null
   homepageUrl?: string
 }
 

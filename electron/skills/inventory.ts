@@ -59,9 +59,10 @@ export function groupInstalledSkills(
   return skillNames.map((skillName) => {
     const matchedSkills = installedSkills.filter((skill) => skill.name === skillName)
     const firstMetadata = matchedSkills[0]?.metadata
+    const resolvedKind = resolveGroupKind(matchedSkills, isBuiltInSkillName(skillName))
     const description = matchedSkills.find((skill) => skill.metadata.description)?.metadata.description
     const icon = matchedSkills.find((skill) => skill.metadata.icon)?.metadata.icon ?? readBuiltInSkillIcon(skillName)
-    const isBuiltIn = builtInSkillIds.includes(skillName as (typeof builtInSkillIds)[number])
+    const isBuiltIn = isBuiltInSkillName(skillName)
 
     return {
       description,
@@ -69,12 +70,27 @@ export function groupInstalledSkills(
       id: skillName,
       name: skillName,
       isBuiltIn,
-      kind: firstMetadata?.kind ?? (isBuiltIn ? "bundled" : "unknown"),
+      kind: resolvedKind,
       packageName: firstMetadata?.packageName,
       version: firstMetadata?.version,
       hosts: createHostCoverage(skillName, installedSkills, manifestStore, coverageAgents),
     }
   })
+}
+
+function resolveGroupKind(matchedSkills: InstalledSkill[], isBuiltIn: boolean): ManagedSkillGroup["kind"] {
+  const kinds = new Set(matchedSkills.map((skill) => skill.metadata.kind).filter((kind) => kind !== undefined))
+  if (kinds.size === 1) {
+    return Array.from(kinds)[0] ?? (isBuiltIn ? "bundled" : "unknown")
+  }
+  if (kinds.size > 1) {
+    return isBuiltIn ? "bundled" : "unknown"
+  }
+  return isBuiltIn ? "bundled" : "unknown"
+}
+
+function isBuiltInSkillName(skillName: string): boolean {
+  return builtInSkillIds.includes(skillName as (typeof builtInSkillIds)[number])
 }
 
 function getInstalledAgents(installedSkills: InstalledSkill[]): SupportedAgent[] {
@@ -176,13 +192,11 @@ function compareSkillNames(left: string, right: string): number {
 }
 
 function readBuiltInSkillIcon(skillName: string): string | undefined {
-  return builtInSkillIds.includes(skillName as (typeof builtInSkillIds)[number])
-    ? builtInSkillIconById[skillName as (typeof builtInSkillIds)[number]]
-    : undefined
+  return isBuiltInSkillName(skillName) ? builtInSkillIconById[skillName as (typeof builtInSkillIds)[number]] : undefined
 }
 
 function readBuiltInSkillOrder(skillName: string): number | undefined {
-  return builtInSkillIds.includes(skillName as (typeof builtInSkillIds)[number])
+  return isBuiltInSkillName(skillName)
     ? builtInSkillOrderById[skillName as (typeof builtInSkillIds)[number]]
     : undefined
 }

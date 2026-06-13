@@ -6,7 +6,7 @@ import type {
   SkillEditorAppId,
   SkillInventory,
   SkillShareResult,
-} from "../../electron/skills/common"
+} from "../../electron/skills/common.ts"
 
 import * as React from "react"
 import { toast } from "sonner"

@@ -45,7 +45,7 @@ import type { FSWatcher } from "node:fs"
 import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
 import { watch } from "node:fs"
-import { access, cp, mkdir, rm, stat } from "node:fs/promises"
+import { access, cp, mkdir, realpath, rm, stat } from "node:fs/promises"
 import path from "node:path"
 import { buildOoEnv } from "../agent/oo.ts"
 import { listDiscoveredAgents, resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
@@ -101,7 +101,7 @@ import { createSkillSyncArgs } from "./sync.ts"
 const skillShareInfoCacheTtlMs = 5 * 60_000
 const myPublishedSkillCatalogCacheTtlMs = 5 * 60_000
 
-type AuthAccountSecret = ReturnType<AuthManager["getCurrentAuthSecret"]>
+type AuthAccountSecret = ReturnType<AuthManager["activeAccount"]>
 
 interface SkillVersionAuthSnapshot {
   account: AuthAccountSecret
@@ -163,7 +163,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     options: Omit<Parameters<typeof runOoCommand>[1], "env">,
   ): Promise<OoCommandResult> {
     await this.authService.getAuthState()
-    const account = this.authService.getCurrentAuthSecret()
+    const account = this.authService.activeAccount()
 
     if (!account) {
       throw new Error("Skills not available (sign in first)")
@@ -264,7 +264,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   public async listMyPublishedSkills(request: ListMyPublishedSkillsRequest = {}): Promise<MyPublishedSkillCatalog> {
     await this.authService.getAuthState()
-    const account = this.authService.getCurrentAuthSecret()
+    const account = this.authService.activeAccount()
 
     if (!account) {
       return {
@@ -624,7 +624,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     try {
       await this.authService.getAuthState()
-      const account = this.authService.getCurrentAuthSecret()
+      const account = this.authService.activeAccount()
 
       if (!account) {
         return {
@@ -1217,6 +1217,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async resolveAllowedSkillPath(requestPath: string): Promise<string> {
     const resolvedRequestPath = path.resolve(requestPath)
+    const canonicalRequestPath = await realpath(resolvedRequestPath)
     const inventory = await this.readSkillInventory({ writeManifest: false })
     const allowedPaths = [
       ...inventory.localProjects.map((project) => project.path),
@@ -1229,12 +1230,16 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       }
 
       const resolvedAllowedPath = path.resolve(allowedPath)
+      const canonicalAllowedPath = await realpath(resolvedAllowedPath).catch(() => undefined)
+      if (!canonicalAllowedPath) {
+        continue
+      }
       if (
-        resolvedRequestPath === resolvedAllowedPath ||
-        resolvedRequestPath.startsWith(`${resolvedAllowedPath}${path.sep}`)
+        canonicalRequestPath === canonicalAllowedPath ||
+        canonicalRequestPath.startsWith(`${canonicalAllowedPath}${path.sep}`)
       ) {
-        await access(resolvedRequestPath)
-        return resolvedRequestPath
+        await access(canonicalRequestPath)
+        return canonicalRequestPath
       }
     }
 
@@ -1255,7 +1260,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async readAuthSnapshot(): Promise<SkillVersionAuthSnapshot> {
     await this.authService.getAuthState()
-    const account = this.authService.getCurrentAuthSecret()
+    const account = this.authService.activeAccount()
 
     if (!account) {
       return {

@@ -16,10 +16,10 @@ import type {
   SkillSyncDirection,
   SkillShareResult,
   SkillVersionReport,
-} from "../../../electron/skills/common"
+} from "../../../electron/skills/common.ts"
 import type { ObjectStatusTone } from "@/components/ObjectRow"
 import type { SkillRemoveTarget } from "@/components/useSkillObjectActions"
-import type { TranslateFn as TFunction } from "@/i18n"
+import type { MessageKey, TranslateFn as TFunction } from "@/i18n"
 import type { SkillShareInfoEntry } from "@/lib/skill-share-info-store"
 
 import * as React from "react"
@@ -107,7 +107,7 @@ interface SkillSection {
   kind: SkillSectionKind
   localProjects?: LocalSkillProject[]
   remoteSkills?: MyPublishedSkill[]
-  titleKey: string
+  titleKey: MessageKey
 }
 
 const unpublishedSkillShareInfo: SkillShareInfo = {
@@ -349,7 +349,7 @@ function getSectionOrder(scopeFilter: SkillListScope): SkillSectionKind[] {
   }
 }
 
-function getSectionTitleKey(kind: SkillSectionKind): string {
+function getSectionTitleKey(kind: SkillSectionKind): MessageKey {
   switch (kind) {
     case "mine":
       return "skills.sectionMine"

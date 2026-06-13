@@ -6,6 +6,7 @@ import type {
   ModelChoice,
 } from "./common.ts"
 
+import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 
@@ -30,38 +31,38 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "deepseek",
     displayName: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    documentationUrl: "https://api-docs.deepseek.com/",
+    baseUrl: "",
+    requiresBaseUrl: true,
   },
   {
     id: "openrouter",
     displayName: "OpenRouter",
-    baseUrl: "https://openrouter.ai/api/v1",
-    documentationUrl: "https://openrouter.ai/docs",
+    baseUrl: "",
+    requiresBaseUrl: true,
   },
   {
     id: "zhipu",
     displayName: "GLM API",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    documentationUrl: "https://docs.bigmodel.cn/",
+    baseUrl: "",
+    requiresBaseUrl: true,
   },
   {
     id: "kimi",
     displayName: "Kimi",
-    baseUrl: "https://api.moonshot.cn/v1",
-    documentationUrl: "https://platform.moonshot.cn/docs",
+    baseUrl: "",
+    requiresBaseUrl: true,
   },
   {
     id: "minimax",
     displayName: "MiniMax",
-    baseUrl: "https://api.minimax.io/v1",
-    documentationUrl: "https://platform.minimaxi.com/document/guides/chat-model",
+    baseUrl: "",
+    requiresBaseUrl: true,
   },
   {
     id: "ollama",
     displayName: "Ollama",
     baseUrl: "http://127.0.0.1:11434/v1",
-    documentationUrl: "https://github.com/ollama/ollama/blob/main/docs/openai.md",
+    requiresBaseUrl: false,
   },
   {
     id: "custom",
@@ -141,7 +142,7 @@ export class ModelsStore {
 
   public async write(models: PersistedModels): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}`
+    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
     try {
       await writeFile(tmp, JSON.stringify(models, null, 2), { encoding: "utf-8", mode: 0o600 })
       await rename(tmp, this.file)

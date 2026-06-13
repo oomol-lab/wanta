@@ -17,6 +17,7 @@ export interface RunOoCommandOptions {
   env?: Record<string, string | undefined>
   owner: string
   rejectOnFailure?: boolean
+  timeoutMs?: number
 }
 
 interface ExecFailure {
@@ -38,6 +39,8 @@ export async function runOoCommand(args: string[], options: RunOoCommandOptions)
         PATH: getOoPath(),
       },
       maxBuffer: maxOoBuffer,
+      timeout: options.timeoutMs ?? 60_000,
+      killSignal: "SIGTERM",
     })
     const result = {
       ok: true,
@@ -124,6 +127,6 @@ async function recordOperation(
       stdout: result.stdout,
     })
   } catch (error) {
-    console.warn("[oo-command] failed to record operation history", error)
+    console.warn("[lumo] failed to record operation history", error)
   }
 }

@@ -6,7 +6,7 @@ import type {
   ConnectionProviderDetail,
   ConnectionSummary,
   ConnectionSummaryRequest,
-} from "../../electron/connections/common"
+} from "../../electron/connections/common.ts"
 
 import * as React from "react"
 import { useConnectionsService } from "@/components/AppContext"
@@ -21,15 +21,15 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
       return
     }
 
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer)
-        reject(signal.reason instanceof Error ? signal.reason : new DOMException("Aborted", "AbortError"))
-      },
-      { once: true },
-    )
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal.reason instanceof Error ? signal.reason : new DOMException("Aborted", "AbortError"))
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener("abort", onAbort, { once: true })
   })
 }
 

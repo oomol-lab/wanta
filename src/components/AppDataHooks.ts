@@ -1,10 +1,10 @@
-import type { AuthState } from "../../electron/auth/common"
+import type { AuthState } from "../../electron/auth/common.ts"
 import type {
   MyPublishedSkillCatalog,
   SkillInventory,
   SkillShareInfo,
   SkillVersionReport,
-} from "../../electron/skills/common"
+} from "../../electron/skills/common.ts"
 import type { ResourceView } from "@/lib/resource-store"
 import type { SkillShareInfoEntry, SkillShareInfoSnapshot } from "@/lib/skill-share-info-store"
 

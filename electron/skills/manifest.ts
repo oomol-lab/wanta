@@ -1,7 +1,8 @@
 import type { SkillControlState } from "./common.ts"
 import type { InstalledSkill, SkillManifestRecord, SkillManifestStore } from "./types.ts"
 
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { manifestSchemaVersion } from "./constants.ts"
 
@@ -31,7 +32,10 @@ export async function readManifestStore(manifestPath: string): Promise<SkillMani
         )
       }),
     }
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" && !(error instanceof SyntaxError)) {
+      throw error
+    }
     return {
       schemaVersion: manifestSchemaVersion,
       records: [],
@@ -41,7 +45,14 @@ export async function readManifestStore(manifestPath: string): Promise<SkillMani
 
 export async function writeManifestStore(manifestPath: string, store: SkillManifestStore): Promise<void> {
   await mkdir(path.dirname(manifestPath), { recursive: true })
-  await writeFile(manifestPath, `${JSON.stringify(store, null, 2)}\n`, "utf8")
+  const tmp = `${manifestPath}.tmp-${process.pid}-${randomUUID()}`
+  try {
+    await writeFile(tmp, `${JSON.stringify(store, null, 2)}\n`, "utf8")
+    await rename(tmp, manifestPath)
+  } catch (error) {
+    await rm(tmp, { force: true })
+    throw error
+  }
 }
 
 export function areManifestStoresEqual(left: SkillManifestStore, right: SkillManifestStore): boolean {

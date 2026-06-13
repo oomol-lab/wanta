@@ -1,5 +1,5 @@
-import type { AuthState } from "../../electron/auth/common"
-import type { MyPublishedSkillCatalog, SkillInventory, SkillVersionReport } from "../../electron/skills/common"
+import type { AuthState } from "../../electron/auth/common.ts"
+import type { MyPublishedSkillCatalog, SkillInventory, SkillVersionReport } from "../../electron/skills/common.ts"
 import type { SkillShareInfoStore } from "@/lib/skill-share-info-store"
 
 import * as React from "react"

@@ -1,7 +1,7 @@
 import type { UseAuth } from "@/hooks/useAuth"
 
 import { LogIn, Sparkles } from "lucide-react"
-import { branding } from "../../../electron/branding"
+import { branding } from "../../../electron/branding.ts"
 import { Loader } from "@/components/ai-elements/loader"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"

@@ -4,14 +4,14 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ToolStatus,
-} from "../../../electron/chat/common"
-import type { ConnectionProvider } from "../../../electron/connections/common"
+} from "../../../electron/chat/common.ts"
+import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type {
   CustomModelProvider,
   ModelCatalog,
   ModelChoice,
   SaveCustomModelRequest,
-} from "../../../electron/models/common"
+} from "../../../electron/models/common.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ChatStatus } from "ai"
@@ -940,7 +940,10 @@ function selectedModelSummary(catalog: ModelCatalog | null): { label: string; pr
       return { label: custom.modelName, provider: custom.providerName }
     }
   }
-  const builtin = catalog.builtins.find((model) => model.id === "oomol-chat") ?? catalog.builtins[0]
+  const builtin =
+    (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
+    catalog.builtins.find((model) => model.id === "oomol-chat") ??
+    catalog.builtins[0]
   return { label: builtin?.displayName ?? "Auto", provider: builtin?.providerName ?? "OOMOL" }
 }
 
@@ -1220,7 +1223,9 @@ function AddCustomModelDialog({
     setBaseUrl(providerBaseUrl(next))
   }
 
-  const canSave = providerId && apiKey.trim() && modelName.trim() && baseUrl.trim()
+  const canSave = Boolean(
+    providerId && apiKey.trim() && modelName.trim() && (!(provider?.requiresBaseUrl ?? true) || baseUrl.trim()),
+  )
 
   return (
     <Dialog

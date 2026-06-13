@@ -1,5 +1,5 @@
-import type { AuthState } from "../../electron/auth/common"
-import type { MyPublishedSkillCatalog, SkillInventory } from "../../electron/skills/common"
+import type { AuthState } from "../../electron/auth/common.ts"
+import type { MyPublishedSkillCatalog, SkillInventory } from "../../electron/skills/common.ts"
 import type { AppDataResources } from "@/components/AppDataContext"
 
 import * as React from "react"
@@ -74,6 +74,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (nextAuthState.status === "authenticated") {
         void resources.skillInventory.refresh({ forceRefresh: true, silent: true }).catch(() => {})
         void resources.skillVersions.refresh({ silent: true }).catch(() => {})
+      } else {
+        resources.myPublishedSkills.reset()
+        resources.skillInventory.reset()
+        resources.skillVersions.reset()
       }
     })
   }, [authService.serverEvents, resources])

@@ -1,6 +1,6 @@
 import type { SkillRepairPlanTarget } from "./common.ts"
 
-import { cp, mkdir, rm, stat } from "node:fs/promises"
+import { cp, mkdir, realpath, rm, stat } from "node:fs/promises"
 import path from "node:path"
 
 export async function resetSkillTargets(targets: SkillRepairPlanTarget[]): Promise<void> {
@@ -11,6 +11,11 @@ export async function resetSkillTargets(targets: SkillRepairPlanTarget[]): Promi
 
 async function resetSkillTarget(target: SkillRepairPlanTarget): Promise<void> {
   assertSafeResetPaths(target.sourcePath, target.currentPath)
+  const [canonicalSourcePath, canonicalCurrentPath] = await Promise.all([
+    resolveExistingPath(target.sourcePath),
+    resolveExistingPath(target.currentPath),
+  ])
+  assertSafeResetPaths(canonicalSourcePath, canonicalCurrentPath)
   const sourceStat = await stat(target.sourcePath)
 
   if (!sourceStat.isDirectory()) {
@@ -20,6 +25,10 @@ async function resetSkillTarget(target: SkillRepairPlanTarget): Promise<void> {
   await mkdir(path.dirname(target.currentPath), { recursive: true })
   await rm(target.currentPath, { force: true, recursive: true })
   await cp(target.sourcePath, target.currentPath, { recursive: true })
+}
+
+async function resolveExistingPath(pathname: string): Promise<string> {
+  return realpath(pathname).catch(() => path.resolve(pathname))
 }
 
 export function assertSafeResetPaths(sourcePath: string, currentPath: string): void {

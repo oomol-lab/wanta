@@ -112,6 +112,49 @@ test("buildSummary counts built-in coverage and attention hosts", () => {
   assert.equal(summary.nonBuiltInSkills[0]?.unknownHosts, 0)
 })
 
+test("buildSummary keeps mixed-kind same-id skills in one unknown group", () => {
+  const mixedInstalledSkills: InstalledSkill[] = [
+    {
+      agent: agents[0],
+      hash: "hash-local",
+      metadata: {
+        kind: "local",
+        packageName: "@alice/example",
+        version: "1.0.0",
+      },
+      name: "mixed-skill",
+      path: "/codex/skills/mixed-skill",
+      sourceHash: "hash-local",
+      sourcePath: "/workspace/mixed-skill",
+    },
+    {
+      agent: agents[1],
+      hash: "hash-registry",
+      metadata: {
+        kind: "registry",
+        packageName: "@oomol/mixed-skill",
+        version: "2.0.0",
+      },
+      name: "mixed-skill",
+      path: "/claude/skills/mixed-skill",
+      sourceHash: "hash-registry",
+      sourcePath: "/oo/skills/registry/mixed-skill",
+    },
+  ]
+  const groups = groupInstalledSkills(mixedInstalledSkills, manifestStore, agents)
+  const group = groups.find((item) => item.id === "mixed-skill")
+  const summary = buildSummary(groups)
+
+  assert.equal(group?.kind, "unknown")
+  assert.equal(summary.localSkills, 0)
+  assert.equal(summary.registrySkills, 0)
+  assert.deepEqual(
+    summary.nonBuiltInSkills.map((skill) => skill.id),
+    ["mixed-skill"],
+  )
+  assert.equal(summary.nonBuiltInSkills[0]?.kind, "unknown")
+})
+
 test("buildSummary does not report built-in missing when no agent is discovered", () => {
   const groups = groupInstalledSkills([], manifestStore, [])
   const summary = buildSummary(groups)

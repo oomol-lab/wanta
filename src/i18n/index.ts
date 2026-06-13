@@ -1,3 +1,3 @@
-export type { Locale, TranslateFn } from "./i18n"
-export { I18nProvider } from "./I18nProvider"
-export { useAppI18n, useI18n, useT } from "./i18n"
+export type { Locale, MessageKey, TranslateFn } from "./i18n.ts"
+export { I18nProvider } from "./I18nProvider.tsx"
+export { useAppI18n, useI18n, useT } from "./i18n.ts"

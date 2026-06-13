@@ -66,7 +66,7 @@ export function ObjectRow({
   title,
 }: ObjectRowProps) {
   const shouldShowChevron = chevron ?? Boolean(onClick)
-  const hasTrailing = Boolean(meta || badge || shouldShowChevron)
+  const hasTrailing = meta != null || badge != null || shouldShowChevron
   const shouldShowStatusIcon = statusVisibility === "always" || (statusVisibility === "auto" && statusTone !== "ready")
   const leadingAlignment = subtitle && iconAlignment === "title" ? "title" : "center"
   const content = (
@@ -93,8 +93,10 @@ export function ObjectRow({
       </ItemContent>
       {hasTrailing ? (
         <ItemActions className="min-w-0 justify-end gap-3">
-          {meta ? <span className="min-w-0 truncate text-right text-sm text-muted-foreground">{meta}</span> : null}
-          {badge ? renderObjectRowBadge(badge) : null}
+          {meta != null ? (
+            <span className="min-w-0 truncate text-right text-sm text-muted-foreground">{meta}</span>
+          ) : null}
+          {badge != null ? renderObjectRowBadge(badge) : null}
           {shouldShowChevron ? <AppIcons.status.navigate className="oo-icon-muted size-4 shrink-0" /> : null}
         </ItemActions>
       ) : null}

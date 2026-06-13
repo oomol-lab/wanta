@@ -7,7 +7,7 @@ import type {
   ConnectionSummary,
   ConnectionUsageDailyPoint,
   ConnectionUsageServiceItem,
-} from "../../../electron/connections/common"
+} from "../../../electron/connections/common.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 
 import {
@@ -24,9 +24,9 @@ import {
   Unplug,
 } from "lucide-react"
 import * as React from "react"
-import { ConnectDialog } from "./ConnectDialog"
-import { ProviderIcon } from "./ProviderIcon"
-import { authTypeLabel } from "./shared"
+import { ConnectDialog } from "./ConnectDialog.tsx"
+import { ProviderIcon } from "./ProviderIcon.tsx"
+import { authTypeLabel } from "./shared.ts"
 import { Loader } from "@/components/ai-elements/loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -261,7 +261,8 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   const connectProvider = React.useCallback(
     async (provider: ConnectionProviderSummary, authType: Exclude<ConnectionAuthType, null>): Promise<void> => {
       if (authType === "oauth2" || authType === "no_auth") {
-        await connect({ authType, service: provider.service } as ConnectionConnectInput)
+        const input: ConnectionConnectInput = { authType, service: provider.service }
+        await connect(input)
         return
       }
 

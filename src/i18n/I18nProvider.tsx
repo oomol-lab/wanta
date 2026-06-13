@@ -1,7 +1,7 @@
-import type { Locale, TranslateFn } from "./i18n"
+import type { Locale, TranslateFn } from "./i18n.ts"
 
 import * as React from "react"
-import { detectInitialLocale, I18nContext, localeStorageKey, translate } from "./i18n"
+import { detectInitialLocale, I18nContext, localeStorageKey, translate } from "./i18n.ts"
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = React.useState<Locale>(detectInitialLocale)

@@ -1,4 +1,4 @@
-import type { ManagedSkillGroup } from "../../electron/skills/common"
+import type { ManagedSkillGroup } from "../../electron/skills/common.ts"
 
 export function getInstalledSkillHosts(group: ManagedSkillGroup) {
   return group.hosts.filter((host) => host.status === "installed")

@@ -221,7 +221,11 @@ export async function resolveEditorCommand(
   const runRealpathPath = options.realpathPath ?? realpath
   const launchEnv = createLaunchEnvironment(env)
 
-  if (options.editorId && options.editorId !== "system") {
+  if (options.editorId === "system") {
+    return undefined
+  }
+
+  if (options.editorId) {
     const candidate = editorCandidates.find((item) => item.id === options.editorId)
     return candidate
       ? resolveEditorCandidateCommand(candidate, platform, launchEnv, runExecFile, runAccessPath, runRealpathPath)

@@ -18,6 +18,7 @@ export interface ResourceView<T> extends ResourceSnapshot<T> {
   isInitialLoading: boolean
   isRefreshing: boolean
   refresh(options?: ResourceLoadOptions): Promise<T>
+  reset(): void
   setData(data: T): void
 }
 
@@ -95,6 +96,14 @@ export class ResourceStore<T> {
       status: "ready",
       updatedAt: null,
     }
+    this.emit()
+  }
+
+  public reset(): void {
+    this.requestId += 1
+    this.inFlight = null
+    this.inFlightVisible = false
+    this.snapshot = createInitialSnapshot<T>()
     this.emit()
   }
 
@@ -207,6 +216,7 @@ export function toResourceView<T>(snapshot: ResourceSnapshot<T>, resource: Resou
     isRefreshing: snapshot.status === "refreshing",
     invalidate: () => resource.invalidate(),
     refresh: (options) => resource.refresh(options),
+    reset: () => resource.reset(),
     setData: (data) => resource.setData(data),
   }
 }

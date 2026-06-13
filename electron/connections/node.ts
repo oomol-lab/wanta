@@ -304,7 +304,7 @@ export class ConnectionsServiceImpl
       ...provider,
       apiKeyConfig: normalizeApiKeyConfig(providerResult.data.apiKeyConfig),
       customCredentialConfig: normalizeCustomCredentialConfig(providerResult.data.customCredentialConfig),
-      federatedCredentialConfig: normalizeCustomCredentialConfig(providerResult.data.federatedCredentialConfig),
+      federatedCredentialConfig: null,
       homepageUrl: asString(providerResult.data.homepageUrl),
     }
   }

@@ -21,6 +21,7 @@ import { SkillsRoute } from "@/routes/Skills"
 type Route = "chat" | "connections" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
+const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
 
 interface PendingChatTransition {
   sessionId: string | null
@@ -428,6 +429,20 @@ export function AppShell() {
     const id = window.setTimeout(() => setIsSidebarRestoring(false), SIDEBAR_RESTORE_DELAY_MS)
     return () => window.clearTimeout(id)
   }, [isSidebarRestoring])
+
+  React.useEffect(() => {
+    const mediaQuery = window.matchMedia(`(max-width: ${SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX}px)`)
+    const collapseIfNarrow = (matches: boolean): void => {
+      if (matches) {
+        setSidebarCollapsed(true)
+      }
+    }
+
+    collapseIfNarrow(mediaQuery.matches)
+    const onChange = (event: MediaQueryListEvent): void => collapseIfNarrow(event.matches)
+    mediaQuery.addEventListener("change", onChange)
+    return () => mediaQuery.removeEventListener("change", onChange)
+  }, [])
 
   const handleNewSession = (): void => {
     setActiveSessionId(null)

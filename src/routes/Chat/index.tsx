@@ -53,6 +53,13 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
+import {
+  compactPathDetail,
+  compactToolDetail,
+  formatToolDuration,
+  shouldShowRunningNoOutput,
+  toolActivityTitle,
+} from "./tool-activity.ts"
 import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
@@ -283,32 +290,57 @@ function toolServiceSlug(part: ChatMessagePart): string {
 
 /** 工具调用的一行人话摘要（折叠态显示）；缺少入参时退回原始工具名。 */
 function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
-  if (part.title) {
-    return part.title
-  }
   const input = part.input ?? {}
   const service = str(input.service)
   const action = str(input.action)
   const target = service && action ? `${service} · ${action}` : service || action
+  const fallbackDetail = part.title || part.tool || "tool"
   switch (part.tool) {
     case "search_actions": {
       const query = str(input.query)
-      return query ? t("chat.toolSearch", { detail: query }) : (part.tool ?? "")
+      return query ? t("chat.toolSearch", { detail: compactToolDetail(query) }) : t("chat.toolSearchGeneric")
     }
     case "inspect_action":
-      return target ? t("chat.toolInspect", { detail: target }) : (part.tool ?? "")
+      return target ? t("chat.toolInspect", { detail: target }) : t("chat.toolInspectGeneric")
     case "call_action":
-      return target ? t("chat.toolCall", { detail: target }) : (part.tool ?? "")
+      return target ? t("chat.toolCall", { detail: target }) : t("chat.toolCallGeneric")
     case "bash": {
       const command = str(input.command).split("\n")[0]
-      return command ? t("chat.toolRun", { detail: command }) : (part.tool ?? "")
+      return command ? t("chat.toolRun", { detail: compactToolDetail(command) }) : t("chat.toolRunGeneric")
     }
     case "read": {
       const filePath = str(input.filePath) || str(input.path)
-      return filePath ? t("chat.toolRead", { detail: filePath }) : (part.tool ?? "")
+      return filePath ? t("chat.toolRead", { detail: compactPathDetail(filePath) }) : t("chat.toolReadGeneric")
+    }
+    case "write": {
+      const filePath = str(input.filePath) || str(input.path)
+      return filePath ? t("chat.toolWrite", { detail: compactPathDetail(filePath) }) : t("chat.toolWriteGeneric")
+    }
+    case "edit": {
+      const filePath = str(input.filePath) || str(input.path)
+      return filePath ? t("chat.toolEdit", { detail: compactPathDetail(filePath) }) : t("chat.toolEditGeneric")
+    }
+    case "list": {
+      const filePath = str(input.path) || str(input.filePath)
+      return filePath ? t("chat.toolList", { detail: compactPathDetail(filePath) }) : t("chat.toolListGeneric")
+    }
+    case "grep": {
+      const pattern = str(input.pattern)
+      return pattern ? t("chat.toolGrep", { detail: compactToolDetail(pattern) }) : t("chat.toolGrepGeneric")
+    }
+    case "glob": {
+      const pattern = str(input.pattern)
+      return pattern ? t("chat.toolGlob", { detail: compactToolDetail(pattern) }) : t("chat.toolGlobGeneric")
+    }
+    case "webfetch": {
+      const url = str(input.url)
+      return url ? t("chat.toolWebFetch", { detail: compactPathDetail(url) }) : t("chat.toolWebFetchGeneric")
+    }
+    case "task": {
+      return t("chat.toolTask", { detail: compactToolDetail(fallbackDetail) })
     }
     default:
-      return t("chat.toolGeneric", { detail: part.tool ?? "tool" })
+      return t("chat.toolGeneric", { detail: compactToolDetail(fallbackDetail) })
   }
 }
 
@@ -346,16 +378,6 @@ function formatJson(value: Record<string, unknown>): string {
   return JSON.stringify(value, null, 2)
 }
 
-function formatDuration(part: ChatMessagePart): string | null {
-  const start = part.timing?.start
-  const end = part.timing?.end
-  if (typeof start !== "number" || typeof end !== "number" || end < start) {
-    return null
-  }
-  const ms = end - start
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
-}
-
 function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | undefined; stopped?: boolean }) {
   if (stopped) {
     return <Square className="size-3.5 text-muted-foreground" />
@@ -375,12 +397,12 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
 
 function ToolGlyph({ tool }: { tool: string | undefined }) {
   if (tool === "bash") {
-    return <Terminal className="size-3.5" />
+    return <Terminal className="size-3.5 shrink-0" />
   }
   if (tool === "search_actions") {
-    return <Clock3 className="size-3.5" />
+    return <Clock3 className="size-3.5 shrink-0" />
   }
-  return <Wrench className="size-3.5" />
+  return <Wrench className="size-3.5 shrink-0" />
 }
 
 function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
@@ -413,16 +435,19 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
     Boolean(part.output && !auth) ||
     Boolean(part.error && !stopped) ||
     Boolean(auth?.message) ||
+    shouldShowRunningNoOutput(part) ||
     Boolean(part.attachmentsCount)
   )
 }
 
 function ToolActivityStep({
   part,
+  now,
   provider,
   onAuthorize,
 }: {
   part: ChatMessagePart
+  now: number
   provider?: ConnectionProvider
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
@@ -430,7 +455,7 @@ function ToolActivityStep({
   const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
   const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
-  const duration = formatDuration(part)
+  const duration = formatToolDuration(part, now)
   const statusText = toolPartStatusLabel(t, part)
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
@@ -443,10 +468,10 @@ function ToolActivityStep({
           <ToolStatusIcon status={part.status} stopped={stopped} />
         </span>
       )}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="min-w-0 truncate text-sm text-foreground">{toolSummary(t, part)}</span>
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate text-xs text-foreground">{toolSummary(t, part)}</span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             {provider ? (
               <>
                 <span>{provider.displayName}</span>
@@ -456,6 +481,8 @@ function ToolActivityStep({
               <ToolGlyph tool={part.tool} />
             )}
             <span>{part.tool}</span>
+            <span>·</span>
+            <span>{statusText}</span>
           </span>
           {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
         </div>
@@ -491,6 +518,9 @@ function ToolActivityStep({
               <ToolDetailSection label={t("chat.toolParams")}>
                 <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
               </ToolDetailSection>
+            )}
+            {shouldShowRunningNoOutput(part) && (
+              <div className="oo-text-caption text-muted-foreground">{t("chat.toolRunningNoOutput")}</div>
             )}
             {part.output && !auth && (
               <ToolDetailSection label={t("chat.toolResult")}>
@@ -543,15 +573,26 @@ function ToolActivity({
   const shouldOpen = hasActive || hasError || hasAuth
   const statusKey = parts.map((part) => `${part.partId}:${part.status}`).join("|")
   const [open, setOpen] = React.useState(shouldOpen)
-  const title = hasError
-    ? t("chat.toolActivityError", { count: parts.length })
-    : hasActive
-      ? t("chat.toolActivityRunning", { count: parts.length })
-      : t("chat.toolActivityCompleted", { count: parts.length })
+  const [now, setNow] = React.useState(() => Date.now())
+  const title = toolActivityTitle(t, parts, {
+    hasActive,
+    hasError,
+    hasStopped,
+    singleSummary: parts[0] ? toolSummary(t, parts[0]) : undefined,
+  })
 
   React.useEffect(() => {
     setOpen(shouldOpen)
   }, [shouldOpen, statusKey])
+
+  React.useEffect(() => {
+    if (!hasActive) {
+      return
+    }
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [hasActive])
 
   return (
     <Task open={open} onOpenChange={setOpen} className="not-prose my-0 w-full">
@@ -561,15 +602,15 @@ function ToolActivity({
           className="group flex w-fit max-w-full items-center gap-2 rounded-md py-0.5 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           {hasActive ? (
-            <Loader2 className="size-3.5 animate-spin" />
+            <Loader2 className="size-3.5 shrink-0 animate-spin" />
           ) : hasError ? (
-            <AlertTriangle className="size-3.5 text-destructive" />
+            <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
           ) : hasStopped ? (
-            <Square className="size-3.5 text-muted-foreground" />
+            <Square className="size-3.5 shrink-0 text-muted-foreground" />
           ) : (
-            <Eye className="size-3.5 text-muted-foreground" />
+            <Eye className="size-3.5 shrink-0 text-muted-foreground" />
           )}
-          <span className="truncate">{title}</span>
+          <span className="min-w-0 truncate">{title}</span>
           <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
         </button>
       </TaskTrigger>
@@ -580,6 +621,7 @@ function ToolActivity({
             <ToolActivityStep
               key={part.partId}
               part={part}
+              now={now}
               provider={service ? providerByService.get(service) : undefined}
               onAuthorize={onAuthorize}
             />

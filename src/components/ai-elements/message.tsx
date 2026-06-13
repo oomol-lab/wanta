@@ -1,10 +1,14 @@
 import type { UIMessage } from "ai"
-import type { ComponentProps, HTMLAttributes } from "react"
+import type { HTMLAttributes } from "react"
+import type { StreamdownProps } from "streamdown"
 
-import { memo } from "react"
-import { Streamdown } from "streamdown"
+import { lazy, memo, Suspense } from "react"
 import { MarkdownTable } from "./markdown-table.tsx"
 import { cn } from "@/lib/utils"
+
+// streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
+// 懒加载：聊天外壳先渲染，首条助手消息出现时才加载，不阻塞 AppShell 首帧。
+const Streamdown = lazy(() => import("streamdown").then((m) => ({ default: m.Streamdown })))
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"]
@@ -37,7 +41,7 @@ export const MessageContent = ({ children, className, ...props }: MessageContent
   </div>
 )
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown>
+export type MessageResponseProps = StreamdownProps
 
 const messageResponseComponents = {
   table: MarkdownTable,
@@ -45,11 +49,14 @@ const messageResponseComponents = {
 
 export const MessageResponse = memo(
   ({ className, components, ...props }: MessageResponseProps) => (
-    <Streamdown
-      className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-      components={{ ...messageResponseComponents, ...components }}
-      {...props}
-    />
+    // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
+    <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{props.children}</div>}>
+      <Streamdown
+        className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+        components={{ ...messageResponseComponents, ...components }}
+        {...props}
+      />
+    </Suspense>
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children,
 )

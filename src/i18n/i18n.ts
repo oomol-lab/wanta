@@ -11,6 +11,8 @@ const messages = {
   "zh-CN": {
     "common.cancel": "取消",
     "common.submit": "提交",
+    "app.loadFailed": "界面加载失败",
+    "app.reload": "重新加载",
     "nav.settings": "设置",
     "sidebar.newSession": "新对话",
     "sidebar.tasks": "任务",
@@ -141,6 +143,8 @@ const messages = {
   en: {
     "common.cancel": "Cancel",
     "common.submit": "Submit",
+    "app.loadFailed": "Failed to load the interface",
+    "app.reload": "Reload",
     "nav.settings": "Settings",
     "sidebar.newSession": "New chat",
     "sidebar.tasks": "Tasks",

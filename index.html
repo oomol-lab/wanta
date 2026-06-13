@@ -4,9 +4,66 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lumo</title>
+    <script>
+      // Resolve theme before first paint so the window shows the correct background the moment it
+      // appears, avoiding a white/wrong-color flash while React/Tailwind are still loading. Reads the
+      // same persisted key as ThemeProvider (%LUMO_THEME_KEY% is injected from branding at build time
+      // per R1), falling back to the system theme. Any failure is ignored (worst case: light background).
+      ;(function () {
+        try {
+          var pref = localStorage.getItem("%LUMO_THEME_KEY%")
+          var dark =
+            pref === "dark" ||
+            ((pref === "system" || !pref) && window.matchMedia("(prefers-color-scheme: dark)").matches)
+          if (dark) {
+            document.documentElement.classList.add("dark")
+          }
+        } catch (e) {}
+      })()
+    </script>
+    <style>
+      /* Critical first-paint styles: applied before Tailwind / React load so the window is never blank
+         white. Background colors mirror index.css --background (light / .dark) for a seamless handoff
+         once React takes over. */
+      html {
+        background: oklch(1 0 0);
+        color: oklch(0.241 0.01 249);
+        color-scheme: light;
+      }
+      html.dark {
+        background: oklch(0.179 0.004 286);
+        color: oklch(0.949 0.003 268);
+        color-scheme: dark;
+      }
+      /* React clears #root on mount, removing the boot placeholder below (it only covers the gap
+         before the JS bundle loads). */
+      #lumo-boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+      }
+      #lumo-boot::after {
+        content: "";
+        width: 22px;
+        height: 22px;
+        border-radius: 9999px;
+        border: 2px solid color-mix(in oklch, currentColor 18%, transparent);
+        border-top-color: currentColor;
+        animation: lumo-boot-spin 0.7s linear infinite;
+        opacity: 0.55;
+      }
+      @keyframes lumo-boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="lumo-boot" aria-hidden="true"></div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

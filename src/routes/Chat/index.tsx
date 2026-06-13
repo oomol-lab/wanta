@@ -50,6 +50,7 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import { visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
+import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
@@ -317,6 +318,10 @@ function toolStatusLabel(t: TranslateFn, status: ToolStatus | undefined): string
   }
 }
 
+function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
+  return isToolCancellation(part) ? t("chat.toolStatusStopped") : toolStatusLabel(t, part.status)
+}
+
 function formatToolOutput(output: string | undefined): string {
   if (!output) {
     return ""
@@ -342,7 +347,10 @@ function formatDuration(part: ChatMessagePart): string | null {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
 }
 
-function ToolStatusIcon({ status }: { status: ToolStatus | undefined }) {
+function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | undefined; stopped?: boolean }) {
+  if (stopped) {
+    return <Square className="size-3.5 text-muted-foreground" />
+  }
   switch (status) {
     case "running":
       return <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
@@ -389,11 +397,12 @@ function ToolPre({ children, tone = "default" }: { children: string; tone?: "def
 }
 
 function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): boolean {
+  const stopped = isToolCancellation(part)
   return (
     hasKeys(part.input) ||
     hasKeys(part.metadata) ||
     Boolean(part.output && !auth) ||
-    Boolean(part.error) ||
+    Boolean(part.error && !stopped) ||
     Boolean(auth?.message) ||
     Boolean(part.attachmentsCount)
   )
@@ -410,9 +419,10 @@ function ToolActivityStep({
 }) {
   const t = useT()
   const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
+  const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
   const duration = formatDuration(part)
-  const statusText = toolStatusLabel(t, part.status)
+  const statusText = toolPartStatusLabel(t, part)
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
       {provider ? (
@@ -421,7 +431,7 @@ function ToolActivityStep({
         </span>
       ) : (
         <span className="mt-0.5 shrink-0" title={statusText}>
-          <ToolStatusIcon status={part.status} />
+          <ToolStatusIcon status={part.status} stopped={stopped} />
         </span>
       )}
       <div className="min-w-0 flex-1">
@@ -454,7 +464,7 @@ function ToolActivityStep({
   )
 
   return (
-    <Collapsible defaultOpen={part.status === "error" || Boolean(auth)}>
+    <Collapsible defaultOpen={(part.status === "error" && !stopped) || Boolean(auth)}>
       <div className="rounded-md px-1 py-0.5">
         {details ? (
           <CollapsibleTrigger className="group flex w-full items-start justify-between gap-2 text-left">
@@ -478,7 +488,7 @@ function ToolActivityStep({
                 <ToolPre>{formatToolOutput(part.output)}</ToolPre>
               </ToolDetailSection>
             )}
-            {part.error && (
+            {part.error && !stopped && (
               <ToolDetailSection label={t("chat.toolError")}>
                 <ToolPre tone="error">{part.error}</ToolPre>
               </ToolDetailSection>
@@ -516,7 +526,8 @@ function ToolActivity({
 }) {
   const t = useT()
   const hasActive = parts.some((part) => part.status === "pending" || part.status === "running")
-  const hasError = parts.some((part) => part.status === "error")
+  const hasError = hasBlockingToolError(parts)
+  const hasStopped = hasStoppedTool(parts)
   const hasAuth = parts.some(
     (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
   )
@@ -527,7 +538,9 @@ function ToolActivity({
     ? t("chat.toolActivityError", { count: parts.length })
     : hasActive
       ? t("chat.toolActivityRunning", { count: parts.length })
-      : t("chat.toolActivityCompleted", { count: parts.length })
+      : hasStopped
+        ? t("chat.toolActivityStopped", { count: parts.length })
+        : t("chat.toolActivityCompleted", { count: parts.length })
 
   React.useEffect(() => {
     setOpen(shouldOpen)
@@ -544,6 +557,8 @@ function ToolActivity({
             <Loader2 className="size-3.5 animate-spin" />
           ) : hasError ? (
             <AlertTriangle className="size-3.5 text-destructive" />
+          ) : hasStopped ? (
+            <Square className="size-3.5 text-muted-foreground" />
           ) : (
             <Eye className="size-3.5 text-muted-foreground" />
           )}

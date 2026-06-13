@@ -1,7 +1,7 @@
 import type {
   ConnectionAuthType,
   ConnectionConnectInput,
-  ConnectionField,
+  ConnectionCredentialField,
   ConnectionProviderDetail,
 } from "../../../electron/connections/common"
 
@@ -11,12 +11,17 @@ import { Loader } from "@/components/ai-elements/loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { useT } from "@/i18n/i18n"
 
 const URL_RE = /(https?:\/\/[^\s）)]+)/g
 const IS_URL = /^https?:\/\//
+const PRIMARY_KEY = "__primary__"
 
-/** 把文案中的 URL 渲染为可点击链接（走系统浏览器）。 */
+type CredentialMode = "api_key" | "custom_credential" | "federated"
+
 function LinkifiedText({ text, onOpenUrl }: { text: string; onOpenUrl: (url: string) => void }) {
   const parts = text.split(URL_RE)
   return (
@@ -39,17 +44,10 @@ function LinkifiedText({ text, onOpenUrl }: { text: string; onOpenUrl: (url: str
   )
 }
 
-const PRIMARY_KEY = "__primary__"
-
-type FieldSpec = ConnectionField
-
-function fieldsFor(
+function getCredentialFields(
   detail: ConnectionProviderDetail,
-  authType: ConnectionAuthType,
-): {
-  primary?: FieldSpec
-  fields: FieldSpec[]
-} {
+  authType: CredentialMode,
+): { primary?: ConnectionCredentialField; fields: ConnectionCredentialField[] } {
   if (authType === "api_key") {
     const cfg = detail.apiKeyConfig
     return {
@@ -64,18 +62,36 @@ function fieldsFor(
       fields: cfg?.extraFields ?? [],
     }
   }
+
   if (authType === "federated") {
-    return { fields: detail.federatedCredentialConfig?.fields ?? [] }
+    const configured = detail.federatedCredentialConfig?.fields ?? []
+    return {
+      fields:
+        configured.length > 0
+          ? configured
+          : [
+              { key: "oidcProviderArn", label: "OIDC Provider ARN", required: true, secret: false },
+              { key: "roleArn", label: "Role ARN", required: true, secret: false },
+              { key: "roleSessionName", label: "Role session name", required: false, secret: false },
+              { key: "bucket", label: "Bucket", required: false, secret: false },
+              { key: "durationSeconds", label: "Duration seconds", required: false, secret: false },
+              { key: "policy", label: "Policy", required: false, secret: false },
+            ],
+    }
   }
+
   return { fields: detail.customCredentialConfig?.fields ?? [] }
+}
+
+function isCredentialMode(authType: ConnectionAuthType): authType is CredentialMode {
+  return authType === "api_key" || authType === "custom_credential" || authType === "federated"
 }
 
 export interface ConnectDialogProps {
   open: boolean
   detail: ConnectionProviderDetail | null
-  authType: ConnectionAuthType
+  authType: CredentialMode | null
   busy: boolean
-  /** 存在 → 已连接账号的「重新连接」（api_key 走 by-id 端点）。 */
   appId?: string
   onClose: () => void
   onSubmit: (input: ConnectionConnectInput) => void
@@ -96,7 +112,6 @@ export function ConnectDialog({
   const [values, setValues] = React.useState<Record<string, string>>({})
   const [note, setNote] = React.useState("")
 
-  // 每次打开/切换 provider 重置表单。
   React.useEffect(() => {
     if (open) {
       setValues({})
@@ -104,22 +119,22 @@ export function ConnectDialog({
     }
   }, [open, detail?.service, authType])
 
-  if (!detail) {
+  if (!detail || !authType || !isCredentialMode(authType)) {
     return null
   }
 
-  const { primary, fields } = fieldsFor(detail, authType)
+  const { primary, fields } = getCredentialFields(detail, authType)
   const allFields = primary ? [primary, ...fields] : fields
-  const missingRequired = allFields.some((f) => f.required && !(values[f.key] ?? "").trim())
+  const missingRequired = allFields.some((field) => field.required && !(values[field.key] ?? "").trim())
 
   const submit = (): void => {
     const label = note.trim() || undefined
     if (authType === "api_key") {
       const extra: Record<string, string> = {}
-      for (const f of fields) {
-        const v = values[f.key]?.trim()
-        if (v) {
-          extra[f.key] = v
+      for (const field of fields) {
+        const value = values[field.key]?.trim()
+        if (value) {
+          extra[field.key] = value
         }
       }
       onSubmit({
@@ -132,24 +147,32 @@ export function ConnectDialog({
       })
       return
     }
+
     const collected: Record<string, string> = {}
-    for (const f of fields) {
-      const v = values[f.key]?.trim()
-      if (v) {
-        collected[f.key] = v
+    for (const field of fields) {
+      const value = values[field.key]?.trim()
+      if (value) {
+        collected[field.key] = value
       }
     }
+
     if (authType === "federated") {
       onSubmit({
         authType: "federated",
         service: detail.service,
-        subjectTokenSource: collected.subjectTokenSource ?? "",
-        target: collected.target,
-        config: collected,
+        config: {
+          oidcProviderArn: collected.oidcProviderArn ?? "",
+          roleArn: collected.roleArn ?? "",
+          roleSessionName: collected.roleSessionName,
+          bucket: collected.bucket,
+          durationSeconds: collected.durationSeconds ? Number(collected.durationSeconds) : undefined,
+          policy: collected.policy,
+        },
         label,
       })
       return
     }
+
     onSubmit({ authType: "custom_credential", service: detail.service, values: collected, label })
   }
 
@@ -162,7 +185,7 @@ export function ConnectDialog({
       footer={
         <Button className="gap-1.5" disabled={busy || missingRequired} onClick={submit}>
           {busy ? <Loader size={16} /> : <KeyRound className="size-4" />}
-          {t("connections.connect")}
+          {t("connections.saveConnection")}
         </Button>
       }
     >
@@ -172,21 +195,20 @@ export function ConnectDialog({
             key={field.key}
             field={field}
             value={values[field.key] ?? ""}
-            onChange={(v) => setValues((prev) => ({ ...prev, [field.key]: v }))}
+            onChange={(value) => setValues((prev) => ({ ...prev, [field.key]: value }))}
             onOpenUrl={onOpenUrl}
           />
         ))}
 
-        <label className="grid gap-1.5">
-          <span className="oo-text-label">{t("connections.note")}</span>
-          <input
+        <div className="grid gap-1.5">
+          <Label className="oo-text-label">{t("connections.note")}</Label>
+          <Input
             value={note}
             placeholder={t("connections.notePlaceholder")}
-            onChange={(e) => setNote(e.target.value)}
-            className="oo-input-surface oo-text-control h-9 w-full rounded-md border px-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            onChange={(event) => setNote(event.target.value)}
           />
           <span className="oo-text-caption">{t("connections.noteHelp")}</span>
-        </label>
+        </div>
       </div>
     </Dialog>
   )
@@ -198,31 +220,40 @@ function Field({
   onChange,
   onOpenUrl,
 }: {
-  field: FieldSpec
+  field: ConnectionCredentialField
   value: string
-  onChange: (v: string) => void
+  onChange: (value: string) => void
   onOpenUrl: (url: string) => void
 }) {
+  const isPolicy = field.key === "policy"
   return (
-    <label className="grid gap-1.5">
-      <span className="oo-text-label flex items-center gap-1.5">
+    <div className="grid gap-1.5">
+      <Label className="oo-text-label flex items-center gap-1.5">
         {field.label}
         {field.required && <span className="text-destructive">*</span>}
         {field.secret && <Badge variant="outline">secret</Badge>}
-      </span>
-      <input
-        autoFocus={field.key === PRIMARY_KEY}
-        type={field.secret ? "password" : "text"}
-        value={value}
-        placeholder={field.placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="oo-input-surface oo-text-control h-9 w-full rounded-md border px-3 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      />
+      </Label>
+      {isPolicy ? (
+        <Textarea
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-h-24 font-mono text-xs"
+        />
+      ) : (
+        <Input
+          autoFocus={field.key === PRIMARY_KEY}
+          type={field.secret ? "password" : "text"}
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
       {field.description && (
         <span className="oo-text-caption">
           <LinkifiedText text={field.description} onOpenUrl={onOpenUrl} />
         </span>
       )}
-    </label>
+    </div>
   )
 }

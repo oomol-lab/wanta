@@ -2,7 +2,7 @@ import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../el
 import type { SessionInfo } from "../../../electron/session/common"
 import type { ChatStatus } from "ai"
 
-import { PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
+import { Package, PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
 import * as React from "react"
 import { buildSessionTitle } from "@/components/app-shell/session-title"
 import { useChatService } from "@/components/AppContext"
@@ -14,8 +14,9 @@ import { cn } from "@/lib/utils"
 import { ChatArea } from "@/routes/Chat"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
+import { SkillsRoute } from "@/routes/Skills"
 
-type Route = "chat" | "connections" | "settings"
+type Route = "chat" | "connections" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 
@@ -28,7 +29,7 @@ interface PendingChatTransition {
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
-  return route === "settings" || route === "connections" ? route : "chat"
+  return route === "settings" || route === "connections" || route === "skills" ? route : "chat"
 }
 
 function chatMessageText(message: ChatMessage): string {
@@ -347,7 +348,9 @@ export function AppShell() {
     if (!pending) {
       return
     }
-    const connected = connections.summary?.providers.some((p) => p.service === pending.service && p.connected)
+    const connected = connections.summary?.providers.some(
+      (p) => p.service === pending.service && p.status === "connected" && p.appStatus === "active",
+    )
     if (connected) {
       pendingRetry.current = null
       setSelectedService(null)
@@ -509,6 +512,17 @@ export function AppShell() {
               <Plug className="size-4 shrink-0" />
               <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setRoute("skills")}
+              className={cn(
+                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                route === "skills" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+            >
+              <Package className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("skills.title")}</span>
+            </button>
           </nav>
 
           <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
@@ -572,7 +586,9 @@ export function AppShell() {
                 ? t("settings.title")
                 : route === "connections"
                   ? t("connections.title")
-                  : (activeSession?.title ?? t("chat.newSession"))}
+                  : route === "skills"
+                    ? t("skills.title")
+                    : (activeSession?.title ?? t("chat.newSession"))}
             </span>
           </div>
         </header>
@@ -584,6 +600,8 @@ export function AppShell() {
             <div className="h-full min-h-0 px-4 py-3">
               <ConnectionsPanel connections={connections} selectedService={selectedService} />
             </div>
+          ) : route === "skills" ? (
+            <SkillsRoute />
           ) : (
             <div className="h-full min-h-0 overflow-hidden pb-3">
               <ChatArea

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { emptyConnectionSummary, mergeConnectionSummary } from "./summary.ts"
+import { createEmptyConnectionSummary } from "./summary-model.ts"
+import { mergeConnectionSummary } from "./summary.ts"
 
 const providers = [
   { service: "gmail", displayName: "Gmail", authTypes: ["oauth2" as const], categories: [{ displayName: "Email" }] },
@@ -8,44 +9,71 @@ const providers = [
   { service: "ably", displayName: "Ably", authTypes: ["api_key" as const] },
 ]
 
+const emptyUsage = {
+  calls: 0,
+  days: 7,
+  errors: 0,
+  points: [],
+  recent: null,
+  services: [],
+  success: 0,
+}
+
 test("merge marks connected providers and computes counts", () => {
-  const summary = mergeConnectionSummary(
-    [{ service: "gmail", status: "active", authType: "oauth2", updatedAt: 5 }],
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "app-1", service: "gmail", status: "active", authType: "oauth2", updatedAt: 5 }],
     providers,
-    1000,
-  )
-  assert.equal(summary.ready, true)
+    usage: emptyUsage,
+  })
+
+  assert.equal(summary.status, "ready")
   assert.equal(summary.providerCount, 3)
-  assert.equal(summary.connectedCount, 1)
-  const gmail = summary.providers.find((p) => p.service === "gmail")
-  assert.equal(gmail?.connected, true)
+  assert.equal(summary.activeConnections, 1)
+  const gmail = summary.providers.find((provider) => provider.service === "gmail")
   assert.equal(gmail?.status, "connected")
+  assert.equal(gmail?.appStatus, "active")
   assert.equal(gmail?.canDisconnect, true)
-  assert.deepEqual(gmail?.categories, ["Email"])
+  assert.deepEqual(gmail?.categoryLabels, ["Email"])
 })
 
 test("connected providers sort before available ones", () => {
-  const summary = mergeConnectionSummary([{ service: "gmail", status: "active" }], providers, 1)
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "app-1", service: "gmail", status: "active" }],
+    providers,
+    usage: emptyUsage,
+  })
+
   assert.equal(summary.providers[0].service, "gmail")
 })
 
 test("pure no_auth connected provider cannot be disconnected", () => {
-  const summary = mergeConnectionSummary([{ service: "quickchart", status: "active" }], providers, 1)
-  const qc = summary.providers.find((p) => p.service === "quickchart")
-  assert.equal(qc?.connected, true)
-  assert.equal(qc?.canDisconnect, false)
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "app-1", service: "quickchart", status: "active" }],
+    providers,
+    usage: emptyUsage,
+  })
+  const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
+
+  assert.equal(quickchart?.status, "connected")
+  assert.equal(quickchart?.canDisconnect, false)
 })
 
 test("non-active app becomes needs_attention", () => {
-  const summary = mergeConnectionSummary([{ service: "ably", status: "reauth_required" }], providers, 1)
-  const ably = summary.providers.find((p) => p.service === "ably")
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "app-1", service: "ably", status: "reauth_required" }],
+    providers,
+    usage: emptyUsage,
+  })
+  const ably = summary.providers.find((provider) => provider.service === "ably")
+
   assert.equal(ably?.status, "needs_attention")
-  assert.equal(ably?.connected, false)
+  assert.equal(ably?.appStatus, "reauth_required")
 })
 
-test("emptyConnectionSummary is not ready", () => {
-  const summary = emptyConnectionSummary(1, "no key")
-  assert.equal(summary.ready, false)
+test("createEmptyConnectionSummary exposes a signed-out state", () => {
+  const summary = createEmptyConnectionSummary("signed-out", "no key")
+
+  assert.equal(summary.status, "signed-out")
   assert.equal(summary.message, "no key")
   assert.equal(summary.providers.length, 0)
 })

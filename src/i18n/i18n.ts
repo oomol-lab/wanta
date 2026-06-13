@@ -1,5 +1,6 @@
 import * as React from "react"
 import { storageKey } from "../../electron/branding.ts"
+import { skillsMessages } from "./skills-messages.ts"
 
 export type Locale = "zh-CN" | "en"
 
@@ -61,9 +62,18 @@ const messages = {
     "connections.connected": "已连接",
     "connections.waiting": "等待授权…",
     "connections.unsupported": "暂不支持",
+    "connections.providers": "服务商",
+    "connections.allProvidersDescription": "授权状态和需处理的问题",
+    "connections.providerCatalogReady": "{active} 个可用 · {connected} 个已连接 / {total} 个服务商",
+    "connections.providerNeedsAttention": "需处理",
+    "connections.providerAvailable": "可连接",
+    "connections.authUnknown": "未知鉴权",
+    "connections.notConnected": "未连接",
     "connections.apiKeyPlaceholder": "粘贴 API key",
     "connections.noMatch": "无匹配连接器",
     "connections.none": "暂无连接",
+    "connections.emptySearch": "没有匹配的服务商。",
+    "connections.backToProviders": "返回服务商",
     "connections.more": "搜索以连接更多（共 {count} 个）",
     "connections.notReady": "未登录，连接不可用。",
     "connections.manage": "管理",
@@ -84,6 +94,11 @@ const messages = {
     "connections.setDefault": "设为默认",
     "connections.updatedAt": "更新于",
     "connections.appId": "应用 ID",
+    "connections.account": "账号",
+    "connections.auth": "鉴权",
+    "connections.category": "分类",
+    "connections.categoryUnknown": "未分类",
+    "connections.service": "服务",
     "connections.executions": "执行记录",
     "connections.interfaces": "接口",
     "connections.noData": "暂无数据",
@@ -94,6 +109,53 @@ const messages = {
     "connections.notePlaceholder": "备注",
     "connections.noteHelp": "可选，用于在连接列表中备注该连接。",
     "connections.connectTitle": "连接 {name} 账号",
+    "connections.connectProvider": "连接服务商",
+    "connections.modifyConnection": "修改",
+    "connections.saveConnection": "保存",
+    "connections.connectedConnection": "连接已启用",
+    "connections.connectedConnectionDescription": "当前使用 {auth}。需要时可修改。",
+    "connections.availableConnectionDescription": "选择一种鉴权方式来启用这个服务商。",
+    "connections.providerDetails": "详情",
+    "connections.providerNeedsAttentionDescription": "{name} 需处理后才能继续使用。",
+    "connections.providerConnectedDescription": "{name} 已连接，可以被授权的 AI 流程调用。",
+    "connections.providerConnectedAccountDescription": "{name}（{account}）",
+    "connections.providerAvailableDescription": "{name} 还没有连接。",
+    "connections.signedOutTitle": "登录后管理连接",
+    "connections.signedOutDescription": "完成登录后即可添加、重新授权或断开服务商。",
+    "connections.unavailableTitle": "无法读取连接",
+    "connections.unavailableDescription": "连接服务暂时不可用，应用会在刷新时重试。",
+    "connections.emptyTitle": "还没有连接服务商",
+    "connections.readyEmptyDescription": "连接服务可用，但当前还没有服务商被连接。",
+    "connections.oauthWaiting": "等待授权完成",
+    "connections.unsupportedConnectionDescription": "这个服务商需要后续补充专用表单。",
+    "connections.usageTitle": "使用情况",
+    "connections.usageCompactCalls": "{count} 次调用",
+    "connections.usageNoCalls": "暂无调用",
+    "connections.usageCompactEmpty": "最近 {days} 天没有调用记录。",
+    "connections.usageCompactWithIncomplete": "最近 {days} 天 {success} 次成功，{errors} 次未完成。",
+    "connections.usageCompactAllSuccess": "最近 {days} 天调用均成功。",
+    "connections.viewUsage": "查看用量",
+    "connections.viewUsageForProvider": "查看 {name} 的使用情况",
+    "connections.usageDialogTitle": "使用情况",
+    "connections.usageDialogDescription": "{name} 最近 {days} 天的连接器调用情况。",
+    "connections.usageRangeLabel": "最近 {days} 天",
+    "connections.refreshExecutionLogs": "刷新记录",
+    "connections.usageCalls": "调用",
+    "connections.usageSuccess": "成功",
+    "connections.usageIncomplete": "未完成",
+    "connections.usageSuccessRate": "成功率",
+    "connections.usageDailyUnavailable": "暂无趋势数据",
+    "connections.executionLogsTitle": "执行记录",
+    "connections.executionStatusSuccess": "成功",
+    "connections.executionStatusError": "失败",
+    "connections.executionTimeUnknown": "时间未知",
+    "connections.executionDurationUnknown": "耗时未知",
+    "connections.executionDurationMs": "{value} ms",
+    "connections.executionDurationSeconds": "{value} s",
+    "connections.confirmDisconnectTitle": "断开服务商",
+    "connections.confirmDisconnectDescription": "确定要断开 {name} 吗？",
+    "connections.confirmDisconnectCancel": "保留连接",
+    "connections.disconnecting": "断开中…",
     "connections.loadFailed": "加载失败",
     "connections.statusSuccess": "成功",
     "connections.statusError": "失败",
@@ -139,6 +201,7 @@ const messages = {
     "aria.refresh": "刷新",
     "aria.expandConnections": "展开连接面板",
     "aria.collapseConnections": "收起连接面板",
+    ...skillsMessages["zh-CN"],
   },
   en: {
     "common.cancel": "Cancel",
@@ -193,9 +256,18 @@ const messages = {
     "connections.connected": "Connected",
     "connections.waiting": "Waiting for authorization…",
     "connections.unsupported": "Unsupported",
+    "connections.providers": "Providers",
+    "connections.allProvidersDescription": "Authorization state and issues",
+    "connections.providerCatalogReady": "{active} active · {connected} connected / {total} providers",
+    "connections.providerNeedsAttention": "Needs attention",
+    "connections.providerAvailable": "Available",
+    "connections.authUnknown": "Unknown auth",
+    "connections.notConnected": "Not connected",
     "connections.apiKeyPlaceholder": "Paste API key",
     "connections.noMatch": "No matching connector",
     "connections.none": "No connections",
+    "connections.emptySearch": "No matching provider.",
+    "connections.backToProviders": "Back to providers",
     "connections.more": "Search to connect more ({count} total)",
     "connections.notReady": "Sign in to use connections.",
     "connections.manage": "Manage",
@@ -216,6 +288,11 @@ const messages = {
     "connections.setDefault": "Set as default",
     "connections.updatedAt": "Updated",
     "connections.appId": "App ID",
+    "connections.account": "Account",
+    "connections.auth": "Auth",
+    "connections.category": "Category",
+    "connections.categoryUnknown": "Uncategorized",
+    "connections.service": "Service",
     "connections.executions": "Executions",
     "connections.interfaces": "Actions",
     "connections.noData": "No data",
@@ -226,6 +303,54 @@ const messages = {
     "connections.notePlaceholder": "Note",
     "connections.noteHelp": "Optional, used to label this connection in the list.",
     "connections.connectTitle": "Connect {name} account",
+    "connections.connectProvider": "Connect provider",
+    "connections.modifyConnection": "Modify",
+    "connections.saveConnection": "Save",
+    "connections.connectedConnection": "Connection enabled",
+    "connections.connectedConnectionDescription": "Currently using {auth}. Modify when needed.",
+    "connections.availableConnectionDescription": "Choose an authorization method to enable this provider.",
+    "connections.providerDetails": "Details",
+    "connections.providerNeedsAttentionDescription": "{name} needs attention before it can be used.",
+    "connections.providerConnectedDescription": "{name} is connected and available to authorized AI flows.",
+    "connections.providerConnectedAccountDescription": "{name} ({account})",
+    "connections.providerAvailableDescription": "{name} is not connected yet.",
+    "connections.signedOutTitle": "Sign in to manage Connections",
+    "connections.signedOutDescription": "Complete sign-in before adding, reauthorizing, or disconnecting providers.",
+    "connections.unavailableTitle": "Unable to read connections",
+    "connections.unavailableDescription":
+      "The connection service is temporarily unavailable. The app will retry on refresh.",
+    "connections.emptyTitle": "No provider connected yet",
+    "connections.readyEmptyDescription": "The connection service is available, but no provider is connected yet.",
+    "connections.oauthWaiting": "Waiting for authorization",
+    "connections.unsupportedConnectionDescription": "This provider needs a dedicated setup form in a later pass.",
+    "connections.usageTitle": "Usage",
+    "connections.usageCompactCalls": "{count} calls",
+    "connections.usageNoCalls": "No calls",
+    "connections.usageCompactEmpty": "No calls in the last {days} days.",
+    "connections.usageCompactWithIncomplete": "{success} succeeded and {errors} incomplete in the last {days} days.",
+    "connections.usageCompactAllSuccess": "All calls succeeded in the last {days} days.",
+    "connections.viewUsage": "View usage",
+    "connections.viewUsageForProvider": "View usage for {name}",
+    "connections.usageDialogTitle": "Usage",
+    "connections.usageDialogDescription": "Connector calls for {name} in the last {days} days.",
+    "connections.usageRangeLabel": "Last {days} days",
+    "connections.refreshExecutionLogs": "Refresh logs",
+    "connections.usageCalls": "Calls",
+    "connections.usageSuccess": "Success",
+    "connections.usageIncomplete": "Incomplete",
+    "connections.usageSuccessRate": "Success rate",
+    "connections.usageDailyUnavailable": "No trend data",
+    "connections.executionLogsTitle": "Execution logs",
+    "connections.executionStatusSuccess": "Success",
+    "connections.executionStatusError": "Error",
+    "connections.executionTimeUnknown": "Time unknown",
+    "connections.executionDurationUnknown": "Duration unknown",
+    "connections.executionDurationMs": "{value} ms",
+    "connections.executionDurationSeconds": "{value} s",
+    "connections.confirmDisconnectTitle": "Disconnect provider",
+    "connections.confirmDisconnectDescription": "Disconnect {name}?",
+    "connections.confirmDisconnectCancel": "Keep connection",
+    "connections.disconnecting": "Disconnecting…",
     "connections.loadFailed": "Failed to load",
     "connections.statusSuccess": "Success",
     "connections.statusError": "Error",
@@ -272,11 +397,12 @@ const messages = {
     "aria.refresh": "Refresh",
     "aria.expandConnections": "Expand connections panel",
     "aria.collapseConnections": "Collapse connections panel",
+    ...skillsMessages.en,
   },
 } as const
 
 export type MessageKey = keyof (typeof messages)["zh-CN"]
-export type TranslateFn = (key: MessageKey, vars?: Record<string, string | number>) => string
+export type TranslateFn = (key: string, vars?: Record<string, string | number>) => string
 
 export interface I18nContextValue {
   locale: Locale
@@ -303,12 +429,18 @@ export function detectInitialLocale(): Locale {
   return globalThis.navigator?.language?.startsWith("zh") ? "zh-CN" : "en"
 }
 
-export function translate(locale: Locale, key: MessageKey, vars?: Record<string, string | number>): string {
-  let text: string = messages[locale][key] ?? messages[defaultLocale][key] ?? key
+export function translate(locale: Locale, key: string, vars?: Record<string, string | number>): string {
+  const localeMessages = messages[locale] as Record<string, string>
+  const fallbackMessages = messages[defaultLocale] as Record<string, string>
+  let text: string = localeMessages[key] ?? fallbackMessages[key] ?? key
   if (vars) {
-    for (const [name, value] of Object.entries(vars)) {
-      text = text.replace(`{${name}}`, String(value))
-    }
+    text = text.replace(
+      /\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}|\{\s*([A-Za-z0-9_.-]+)\s*\}/g,
+      (match, doubleName, singleName) => {
+        const name = (doubleName ?? singleName) as string
+        return Object.hasOwn(vars, name) ? String(vars[name]) : match
+      },
+    )
   }
   return text
 }
@@ -323,4 +455,8 @@ export function useI18n(): I18nContextValue {
 
 export function useT(): TranslateFn {
   return useI18n().t
+}
+
+export function useAppI18n(): I18nContextValue {
+  return useI18n()
 }

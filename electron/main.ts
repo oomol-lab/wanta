@@ -33,6 +33,7 @@ const viteDevServerUrl = process.env["VITE_DEV_SERVER_URL"]
 const rendererDist = path.join(appRoot, "dist")
 const preloadPath = path.join(dirname, "preload.js")
 const titleBarHeight = 48
+const macTrafficLightPosition = { x: 15, y: 17 }
 const darkWindowColor = "#171717"
 const lightWindowColor = "#ffffff"
 
@@ -237,6 +238,7 @@ function createMainWindow(): void {
     title: branding.appName,
     backgroundColor,
     titleBarStyle: isMac ? "hidden" : "default",
+    ...(isMac ? { trafficLightPosition: macTrafficLightPosition } : {}),
     ...(isMac
       ? {}
       : {

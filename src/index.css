@@ -46,6 +46,8 @@
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --app-titlebar-height: 48px;
   --traffic-light-space: 78px;
+  --traffic-light-left: 15px;
+  --traffic-light-top: calc((var(--app-titlebar-height) - 12px) / 2);
   --titlebar-control-offset: 5px;
   --window-control-right-space: 12px;
   --sidebar-width: 264px;
@@ -345,6 +347,7 @@
 
 @layer components {
   .oo-app-chrome {
+    position: relative;
     background: var(--oo-chrome);
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
@@ -352,15 +355,79 @@
   }
 
   .oo-app-chrome.oo-sidebar-collapsed {
-    grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
+    grid-template-columns: 0px minmax(0, 1fr);
   }
 
   .oo-sidebar {
     background: var(--sidebar);
+    overflow: hidden;
+    transition:
+      opacity 120ms ease-out,
+      border-color 120ms ease-out;
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar {
+    border-color: transparent;
+    opacity: 0;
+  }
+
+  .oo-sidebar-content {
+    min-width: var(--sidebar-width);
+    transition:
+      opacity 120ms ease-out,
+      transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar-content {
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  .oo-sidebar-restoring .oo-sidebar-content {
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(-8px);
   }
 
   .oo-sidebar-chrome-brand {
     color: color-mix(in oklab, var(--foreground) 84%, transparent);
+  }
+
+  .oo-sidebar-titlebar-actions {
+    -webkit-app-region: no-drag;
+    pointer-events: auto;
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar-titlebar-actions-expanded {
+    display: none;
+  }
+
+  .oo-sidebar-restoring .oo-sidebar-titlebar-actions-expanded {
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .oo-sidebar-titlebar-button {
+    -webkit-app-region: no-drag;
+    pointer-events: auto;
+    color: color-mix(in oklab, var(--foreground) 62%, transparent);
+    outline: none;
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .oo-sidebar-titlebar-button:hover,
+  .oo-sidebar-titlebar-button:focus-visible {
+    background: var(--sidebar-accent);
+    color: var(--foreground);
+  }
+
+  .oo-sidebar-titlebar-button:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--sidebar-ring);
   }
 
   .oo-sidebar-nav-item {
@@ -413,6 +480,44 @@
 
   .oo-toolbar {
     background: var(--oo-toolbar);
+    transition: padding-left 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-main-titlebar {
+    gap: 0.75rem;
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .oo-titlebar-collapsed-controls {
+    -webkit-app-region: no-drag;
+    pointer-events: auto;
+    display: none;
+  }
+
+  .oo-sidebar-collapsed .oo-titlebar-collapsed-controls {
+    display: flex;
+  }
+
+  .oo-titlebar-control-spacer {
+    width: 0;
+    transition: width 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-sidebar-collapsed .oo-titlebar-control-spacer {
+    width: calc(var(--traffic-light-space) - 20px);
+  }
+
+  .oo-main-titlebar-title {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 80ms ease-out 80ms;
+  }
+
+  .oo-main-titlebar-title.is-restoring {
+    opacity: 0;
+    visibility: hidden;
+    transition-delay: 0ms;
   }
 
   .oo-toolbar-button {
@@ -433,12 +538,14 @@
     pointer-events: none;
   }
 
-  :root[data-dev-window-controls="macos"] .oo-sidebar [data-slot="sidebar-chrome-header"]::before,
+  :root[data-dev-window-controls="macos"] .oo-app-chrome::before,
   :root[data-dev-window-controls="macos"] .oo-bare-titlebar::before {
     content: "";
     position: absolute;
-    top: 18px;
-    left: 14px;
+    top: var(--traffic-light-top);
+    left: var(--traffic-light-left);
+    z-index: 60;
+    pointer-events: none;
     width: 12px;
     height: 12px;
     border-radius: 999px;
@@ -506,6 +613,42 @@
     border-color: transparent !important;
     background: var(--oo-search-surface) !important;
     box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 14%, transparent) !important;
+  }
+
+  .oo-session-search-backdrop {
+    background: color-mix(in oklab, var(--background) 72%, transparent);
+    backdrop-filter: blur(1px);
+  }
+
+  .oo-session-search-panel {
+    border-color: var(--oo-overlay-border);
+    background: color-mix(in oklab, var(--background) 96%, transparent);
+    box-shadow: var(--oo-overlay-inner-ring), var(--oo-overlay-shadow);
+  }
+
+  .oo-session-search-input {
+    border-color: color-mix(in oklab, var(--input-focus-ring) 36%, var(--border));
+    background: var(--oo-search-surface);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--input-focus-ring) 18%, transparent);
+    color: var(--foreground);
+  }
+
+  .oo-session-search-result {
+    color: var(--foreground);
+    outline: none;
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .oo-session-search-result:hover,
+  .oo-session-search-result:focus-visible {
+    background: var(--oo-row-hover);
+  }
+
+  .oo-session-search-result:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--control-focus-ring);
   }
 
   .oo-border-divider {

@@ -1,4 +1,5 @@
 import type { AuthorizationInfo, ChatMessage, ChatMessagePart, ToolStatus } from "../../../electron/chat/common"
+import type { ConnectionProvider } from "../../../electron/connections/common"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ChatStatus } from "ai"
@@ -32,6 +33,7 @@ import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 interface ChatAreaProps {
   messages: ChatMessage[]
@@ -40,6 +42,7 @@ interface ChatAreaProps {
   error: string | null
   disabled: boolean
   initialSendPending: boolean
+  providers: ConnectionProvider[]
   placeholder: string
   onSend: (text: string) => void
   onStop: () => void
@@ -76,6 +79,43 @@ function str(value: unknown): string {
 
 function hasKeys(value: Record<string, unknown> | undefined): boolean {
   return Boolean(value && Object.keys(value).length > 0)
+}
+
+function normalizeServiceSlug(value: string): string {
+  return value.trim().replace(/^oo-/, "").toLowerCase()
+}
+
+function parseServiceFromCommand(command: string): string {
+  const connectorMatch = command.match(/(?:^|\s)(?:oo\s+)?connector\s+(?:schema|run)\s+([A-Za-z0-9_-]+)/)
+  if (connectorMatch?.[1]) {
+    return connectorMatch[1]
+  }
+  const providerFlagMatch = command.match(/(?:--provider|--service)\s+([A-Za-z0-9_-]+)/)
+  return providerFlagMatch?.[1] ?? ""
+}
+
+function toolServiceSlug(part: ChatMessagePart): string {
+  const input = part.input ?? {}
+  const fromInput = str(input.service)
+  if (fromInput) {
+    return normalizeServiceSlug(fromInput)
+  }
+  const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
+  if (auth?.service) {
+    return normalizeServiceSlug(auth.service)
+  }
+  const skillTitle = part.title?.match(/^Loaded skill:\s*([A-Za-z0-9_-]+)/i)
+  if (skillTitle?.[1]) {
+    return normalizeServiceSlug(skillTitle[1])
+  }
+  const command = str(input.command)
+  if (command) {
+    const fromCommand = parseServiceFromCommand(command)
+    if (fromCommand) {
+      return normalizeServiceSlug(fromCommand)
+    }
+  }
+  return ""
 }
 
 /** 工具调用的一行人话摘要（折叠态显示）；缺少入参时退回原始工具名。 */
@@ -208,9 +248,11 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
 
 function ToolActivityStep({
   part,
+  provider,
   onAuthorize,
 }: {
   part: ChatMessagePart
+  provider?: ConnectionProvider
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
@@ -220,15 +262,28 @@ function ToolActivityStep({
   const statusText = toolStatusLabel(t, part.status)
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
-      <span className="mt-0.5 shrink-0" title={statusText}>
-        <ToolStatusIcon status={part.status} />
-      </span>
+      {provider ? (
+        <span className="mt-0.5 shrink-0" title={`${provider.displayName} · ${statusText}`}>
+          <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
+        </span>
+      ) : (
+        <span className="mt-0.5 shrink-0" title={statusText}>
+          <ToolStatusIcon status={part.status} />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="min-w-0 truncate text-sm text-foreground">{toolSummary(t, part)}</span>
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <ToolGlyph tool={part.tool} />
-            {part.tool}
+            {provider ? (
+              <>
+                <span>{provider.displayName}</span>
+                <span>·</span>
+              </>
+            ) : (
+              <ToolGlyph tool={part.tool} />
+            )}
+            <span>{part.tool}</span>
           </span>
           {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
         </div>
@@ -299,9 +354,11 @@ function ToolActivityStep({
 
 function ToolActivity({
   parts,
+  providerByService,
   onAuthorize,
 }: {
   parts: ChatMessagePart[]
+  providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
@@ -335,9 +392,17 @@ function ToolActivity({
         </button>
       </TaskTrigger>
       <TaskContent className="[&>div]:mt-2 [&>div]:space-y-1.5 [&>div]:border-l [&>div]:pl-3">
-        {parts.map((part) => (
-          <ToolActivityStep key={part.partId} part={part} onAuthorize={onAuthorize} />
-        ))}
+        {parts.map((part) => {
+          const service = toolServiceSlug(part)
+          return (
+            <ToolActivityStep
+              key={part.partId}
+              part={part}
+              provider={service ? providerByService.get(service) : undefined}
+              onAuthorize={onAuthorize}
+            />
+          )
+        })}
       </TaskContent>
     </Task>
   )
@@ -376,9 +441,11 @@ function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
 
 function MessageBubble({
   message,
+  providerByService,
   onAuthorize,
 }: {
   message: ChatMessage
+  providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   if (message.role === "user") {
@@ -410,7 +477,12 @@ function MessageBubble({
               <MessageResponse key={block.part.partId}>{block.part.text}</MessageResponse>
             ) : null
           ) : (
-            <ToolActivity key={block.key} parts={block.parts} onAuthorize={onAuthorize} />
+            <ToolActivity
+              key={block.key}
+              parts={block.parts}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+            />
           ),
         )}
       </MessageContent>
@@ -440,6 +512,7 @@ export function ChatArea({
   error,
   disabled,
   initialSendPending,
+  providers,
   placeholder,
   onSend,
   onStop,
@@ -451,6 +524,10 @@ export function ChatArea({
   const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant")
+  const providerByService = React.useMemo(
+    () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
+    [providers],
+  )
   const showPendingMessage =
     hasMessages &&
     (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
@@ -538,7 +615,12 @@ export function ChatArea({
           className="mx-auto min-h-full w-full max-w-[50rem] gap-4 px-4 pt-7 pb-9"
         >
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} onAuthorize={onAuthorize} />
+            <MessageBubble
+              key={message.id}
+              message={message}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+            />
           ))}
           {showPendingMessage && <AssistantPendingMessage />}
         </ConversationContent>

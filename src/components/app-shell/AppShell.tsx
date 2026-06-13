@@ -378,6 +378,7 @@ export function AppShell() {
                 error={error}
                 disabled={!ready}
                 initialSendPending={initialSendPending}
+                providers={connections.summary?.providers ?? []}
                 placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
                 onSend={(text) => void handleSend(text)}
                 onStop={() => activeSessionId && void stop(activeSessionId)}

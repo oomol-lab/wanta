@@ -37,6 +37,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { visibleUserText } from "./message-text.ts"
+import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
@@ -551,37 +552,6 @@ function ToolActivity({
   )
 }
 
-function isRenderablePart(part: ChatMessagePart): boolean {
-  return part.kind === "tool" || Boolean(part.text)
-}
-
-type RenderBlock = { kind: "text"; part: ChatMessagePart } | { kind: "tools"; key: string; parts: ChatMessagePart[] }
-
-function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
-  const blocks: RenderBlock[] = []
-  let pendingTools: ChatMessagePart[] = []
-  const flushTools = () => {
-    if (pendingTools.length === 0) {
-      return
-    }
-    blocks.push({ kind: "tools", key: pendingTools.map((part) => part.partId).join(":"), parts: pendingTools })
-    pendingTools = []
-  }
-  for (const part of parts) {
-    if (!isRenderablePart(part)) {
-      continue
-    }
-    if (part.kind === "tool") {
-      pendingTools.push(part)
-      continue
-    }
-    flushTools()
-    blocks.push({ kind: "text", part })
-  }
-  flushTools()
-  return blocks
-}
-
 function MessageBubble({
   message,
   providerByService,
@@ -618,23 +588,37 @@ function MessageBubble({
   if (blocks.length === 0) {
     return null
   }
+  const blockClassName = (index: number): string | undefined => {
+    if (index === 0) {
+      return undefined
+    }
+    const previous = blocks[index - 1]
+    const current = blocks[index]
+    if (!previous || !current) {
+      return undefined
+    }
+    if (previous.kind === "tools" && current.kind === "tools") {
+      return "mt-1"
+    }
+    if (previous.kind !== current.kind) {
+      return "mt-3"
+    }
+    return "mt-2"
+  }
   return (
     <Message from="assistant">
-      <MessageContent>
-        {blocks.map((block) =>
-          block.kind === "text" ? (
-            block.part.text ? (
-              <MessageResponse key={block.part.partId}>{block.part.text}</MessageResponse>
-            ) : null
-          ) : (
-            <ToolActivity
-              key={block.key}
-              parts={block.parts}
-              providerByService={providerByService}
-              onAuthorize={onAuthorize}
-            />
-          ),
-        )}
+      <MessageContent className="gap-0">
+        {blocks.map((block, index) => (
+          <div key={block.kind === "text" ? block.part.partId : block.key} className={blockClassName(index)}>
+            {block.kind === "text" ? (
+              block.part.text ? (
+                <MessageResponse>{block.part.text}</MessageResponse>
+              ) : null
+            ) : (
+              <ToolActivity parts={block.parts} providerByService={providerByService} onAuthorize={onAuthorize} />
+            )}
+          </div>
+        ))}
       </MessageContent>
     </Message>
   )

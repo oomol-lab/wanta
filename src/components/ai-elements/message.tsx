@@ -3,6 +3,7 @@ import type { ComponentProps, HTMLAttributes } from "react"
 
 import { memo } from "react"
 import { Streamdown } from "streamdown"
+import { MarkdownTable } from "./markdown-table.tsx"
 import { cn } from "@/lib/utils"
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -38,9 +39,17 @@ export const MessageContent = ({ children, className, ...props }: MessageContent
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>
 
+const messageResponseComponents = {
+  table: MarkdownTable,
+} satisfies MessageResponseProps["components"]
+
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)} {...props} />
+  ({ className, components, ...props }: MessageResponseProps) => (
+    <Streamdown
+      className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+      components={{ ...messageResponseComponents, ...components }}
+      {...props}
+    />
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children,
 )

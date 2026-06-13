@@ -122,6 +122,15 @@ export interface TranscribeVoiceResult {
   text: string
 }
 
+export interface AttachmentPreviewRequest {
+  path: string
+  mime: string
+}
+
+export interface AttachmentPreviewResult {
+  dataUrl: string | null
+}
+
 export type ChatService = typeof ChatService
 export const ChatService = serviceName("chat-service") as ServiceName<{
   ServerEvents: {
@@ -135,6 +144,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   }
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
+    getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
     transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>

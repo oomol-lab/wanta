@@ -49,6 +49,12 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 `npm run dev` 实机验证（见 [docs/conventions.md](docs/conventions.md) §9）。环境与打包细节见
 [docs/development.md](docs/development.md)。
 
+## 协作流程
+
+所有代码改动都从最新 `main` 拉出一次性临时分支完成，不直接在 `main` 上提交；推送后开 PR
+合入 `main`，PR 合并后再删除对应的本地和远端临时分支。细节见
+[docs/development.md](docs/development.md) §3。
+
 ## 铁律（违反会出真实事故，均有出处）
 
 > 条目中的 R1–R8 是原始计划的规则编号，定义见 [docs/conventions.md](docs/conventions.md) §1。

@@ -1,5 +1,7 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type {
+  AttachmentPreviewRequest,
+  AttachmentPreviewResult,
   ChatMessage,
   ChatService,
   SendMessageRequest,
@@ -9,15 +11,48 @@ import type {
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
+import { readFile, stat } from "node:fs/promises"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { voiceAsrBaseUrl } from "../domain.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
+
+const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message
   }
   return String(error)
+}
+
+function imageMimeFromPath(filePath: string): string | null {
+  const extension = filePath.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase()
+  switch (extension) {
+    case "avif":
+      return "image/avif"
+    case "bmp":
+      return "image/bmp"
+    case "gif":
+      return "image/gif"
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg"
+    case "png":
+      return "image/png"
+    case "svg":
+      return "image/svg+xml"
+    case "webp":
+      return "image/webp"
+    default:
+      return null
+  }
+}
+
+function attachmentPreviewMime(req: AttachmentPreviewRequest): string | null {
+  if (req.mime.toLowerCase().startsWith("image/")) {
+    return req.mime
+  }
+  return imageMimeFromPath(req.path)
 }
 
 export function createVoiceAsrRequestId(): string {
@@ -103,6 +138,24 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       .catch((error: unknown) => {
         void this.send("agentError", { sessionId: req.sessionId, message: errorMessage(error) })
       })
+  }
+
+  public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
+    const mime = attachmentPreviewMime(req)
+    if (!mime) {
+      return { dataUrl: null }
+    }
+    try {
+      const info = await stat(req.path)
+      if (!info.isFile() || info.size > attachmentPreviewMaxBytes) {
+        return { dataUrl: null }
+      }
+      const bytes = await readFile(req.path)
+      return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}` }
+    } catch (error) {
+      console.error("[lumo] getAttachmentPreview failed", { path: req.path, error: errorMessage(error) })
+      return { dataUrl: null }
+    }
   }
 
   public async transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult> {

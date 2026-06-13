@@ -23,6 +23,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideoCamera,
+  Eye,
   Loader2,
   Mic,
   Plug,
@@ -35,6 +36,7 @@ import {
   X,
 } from "lucide-react"
 import * as React from "react"
+import { visibleUserText } from "./message-text.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
@@ -68,6 +70,26 @@ interface ChatAreaProps {
   onSend: (text: string, attachments: ChatAttachment[]) => void
   onStop: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
+}
+
+type DraftAttachment = ChatAttachment & {
+  previewUrl?: string
+}
+
+const attachmentPreviewUrlByPath = new Map<string, string>()
+
+function revokePreviewUrl(url: string | undefined): void {
+  if (url?.startsWith("blob:")) {
+    URL.revokeObjectURL(url)
+  }
+}
+
+function setAttachmentPreviewUrl(path: string, url: string): void {
+  const current = attachmentPreviewUrlByPath.get(path)
+  if (current && current !== url) {
+    revokePreviewUrl(current)
+  }
+  attachmentPreviewUrlByPath.set(path, url)
 }
 
 function parseAuthorization(output: string | undefined): AuthorizationInfo | null {
@@ -129,6 +151,46 @@ function attachmentTypeLabel(attachment: ChatAttachment): string {
 function attachmentSummary(attachment: ChatAttachment): string {
   const size = fileSizeLabel(attachment.size)
   return size ? `${attachmentTypeLabel(attachment)} ${size}` : attachmentTypeLabel(attachment)
+}
+
+function isImageAttachment(attachment: ChatAttachment): boolean {
+  if (attachment.mime.toLowerCase().startsWith("image/")) {
+    return true
+  }
+  return ["avif", "bmp", "gif", "jpeg", "jpg", "png", "svg", "webp"].includes(attachmentExtension(attachment.name))
+}
+
+function revokeAttachmentPreviewUrls(attachments: DraftAttachment[]): void {
+  for (const attachment of attachments) {
+    const cached = attachmentPreviewUrlByPath.get(attachment.path)
+    if (cached && (!attachment.previewUrl || cached === attachment.previewUrl)) {
+      revokePreviewUrl(cached)
+      attachmentPreviewUrlByPath.delete(attachment.path)
+    } else {
+      revokePreviewUrl(attachment.previewUrl)
+    }
+  }
+}
+
+function attachmentWithPreview(attachment: ChatAttachment): DraftAttachment {
+  if (!isImageAttachment(attachment)) {
+    return attachment
+  }
+  return {
+    ...attachment,
+    previewUrl: attachmentPreviewUrlByPath.get(attachment.path),
+  }
+}
+
+function filesFromDataTransfer(dataTransfer: DataTransfer): File[] {
+  const files = Array.from(dataTransfer.files)
+  if (files.length > 0) {
+    return files
+  }
+  return Array.from(dataTransfer.items)
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
 }
 
 function voiceDurationLabel(durationMs: number): string {
@@ -441,31 +503,38 @@ function ToolActivity({
   const hasAuth = parts.some(
     (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
   )
+  const shouldOpen = hasActive || hasError || hasAuth
+  const statusKey = parts.map((part) => `${part.partId}:${part.status}`).join("|")
+  const [open, setOpen] = React.useState(shouldOpen)
   const title = hasError
     ? t("chat.toolActivityError", { count: parts.length })
     : hasActive
       ? t("chat.toolActivityRunning", { count: parts.length })
       : t("chat.toolActivityCompleted", { count: parts.length })
 
+  React.useEffect(() => {
+    setOpen(shouldOpen)
+  }, [shouldOpen, statusKey])
+
   return (
-    <Task defaultOpen={hasActive || hasError || hasAuth} className="not-prose my-1 w-full">
+    <Task open={open} onOpenChange={setOpen} className="not-prose my-0 w-full">
       <TaskTrigger title={title}>
         <button
           type="button"
-          className="group flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="group flex w-fit max-w-full items-center gap-2 rounded-md py-0.5 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           {hasActive ? (
             <Loader2 className="size-3.5 animate-spin" />
           ) : hasError ? (
             <AlertTriangle className="size-3.5 text-destructive" />
           ) : (
-            <CheckCircle2 className="size-3.5 text-green-600" />
+            <Eye className="size-3.5 text-muted-foreground" />
           )}
           <span className="truncate">{title}</span>
           <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
         </button>
       </TaskTrigger>
-      <TaskContent className="[&>div]:mt-2 [&>div]:space-y-1.5 [&>div]:border-l [&>div]:pl-3">
+      <TaskContent className="[&>div]:mt-1 [&>div]:space-y-1 [&>div]:border-l [&>div]:pl-2.5">
         {parts.map((part) => {
           const service = toolServiceSlug(part)
           return (
@@ -527,18 +596,21 @@ function MessageBubble({
       .filter((p) => p.kind === "text")
       .map((p) => p.text)
       .join("")
+    const visibleText = visibleUserText(text)
     const attachments = message.parts
       .filter((p) => p.kind === "attachment" && p.attachment)
-      .map((p) => p.attachment as ChatAttachment)
-    if (!text && attachments.length === 0) {
+      .map((p) => attachmentWithPreview(p.attachment as ChatAttachment))
+    if (!visibleText && attachments.length === 0) {
       return null
     }
     return (
-      <Message from="user">
-        <MessageContent className="grid gap-2">
-          {attachments.length > 0 ? <AttachmentList attachments={attachments} /> : null}
-          {text ? <div className="break-words whitespace-pre-wrap">{text}</div> : null}
-        </MessageContent>
+      <Message from="user" className="items-end">
+        {attachments.length > 0 ? <AttachmentList attachments={attachments} className="justify-end" /> : null}
+        {visibleText ? (
+          <MessageContent>
+            <div className="break-words whitespace-pre-wrap">{visibleText}</div>
+          </MessageContent>
+        ) : null}
       </Message>
     )
   }
@@ -568,7 +640,15 @@ function MessageBubble({
   )
 }
 
-function AttachmentIconTile({ attachment }: { attachment: ChatAttachment }) {
+function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) {
+  if (attachment.previewUrl && isImageAttachment(attachment)) {
+    return (
+      <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
+        <img src={attachment.previewUrl} alt="" className="size-full object-cover" draggable={false} decoding="async" />
+      </span>
+    )
+  }
+
   const mime = attachment.mime.toLowerCase()
   const extension = attachmentExtension(attachment.name)
 
@@ -633,36 +713,112 @@ function AttachmentIconTile({ attachment }: { attachment: ChatAttachment }) {
   )
 }
 
-function AttachmentList({ attachments, onRemove }: { attachments: ChatAttachment[]; onRemove?: (id: string) => void }) {
+function AttachmentImageCard({
+  attachment,
+  onRemove,
+}: {
+  attachment: DraftAttachment
+  onRemove?: (id: string) => void
+}) {
+  const chatService = useChatService()
+  const [previewUrl, setPreviewUrl] = React.useState(attachment.previewUrl ?? null)
+
+  React.useEffect(() => {
+    const cached = attachmentPreviewUrlByPath.get(attachment.path) ?? attachment.previewUrl ?? null
+    setPreviewUrl(cached)
+    if (cached || !isImageAttachment(attachment)) {
+      return
+    }
+    let cancelled = false
+    void chatService
+      .invoke("getAttachmentPreview", { path: attachment.path, mime: attachment.mime })
+      .then((result) => {
+        if (cancelled || !result.dataUrl) {
+          return
+        }
+        setAttachmentPreviewUrl(attachment.path, result.dataUrl)
+        setPreviewUrl(result.dataUrl)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [attachment, chatService])
+
   return (
-    <div className="flex w-full flex-wrap justify-start gap-2">
-      {attachments.map((attachment) => (
-        <div
-          key={attachment.id}
-          title={attachment.path}
-          className="oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pr-2 pl-2 text-left shadow-xs"
+    <div
+      title={attachment.path}
+      className="group relative size-20 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-xs"
+    >
+      {previewUrl ? (
+        <img
+          src={previewUrl}
+          alt=""
+          className="size-full object-cover object-center"
+          draggable={false}
+          decoding="async"
+        />
+      ) : (
+        <span className="flex size-full items-center justify-center text-muted-foreground/65">
+          <FileImage className="size-6" />
+        </span>
+      )}
+      {onRemove ? (
+        <button
+          type="button"
+          aria-label="Remove attachment"
+          className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow-sm hover:bg-foreground/85"
+          onClick={() => onRemove(attachment.id)}
         >
-          <AttachmentIconTile attachment={attachment} />
-          <span className="min-w-0 flex-1">
-            <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
-              {attachment.name}
+          <X className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function AttachmentList({
+  attachments,
+  className,
+  onRemove,
+}: {
+  attachments: DraftAttachment[]
+  className?: string
+  onRemove?: (id: string) => void
+}) {
+  return (
+    <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
+      {attachments.map((attachment) =>
+        isImageAttachment(attachment) ? (
+          <AttachmentImageCard key={attachment.id} attachment={attachment} onRemove={onRemove} />
+        ) : (
+          <div
+            key={attachment.id}
+            title={attachment.path}
+            className="oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pr-2 pl-2 text-left shadow-xs"
+          >
+            <AttachmentPreviewTile attachment={attachment} />
+            <span className="min-w-0 flex-1">
+              <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
+                {attachment.name}
+              </span>
+              <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
+                {attachmentSummary(attachment)}
+              </span>
             </span>
-            <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
-              {attachmentSummary(attachment)}
-            </span>
-          </span>
-          {onRemove ? (
-            <button
-              type="button"
-              aria-label="Remove attachment"
-              className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={() => onRemove(attachment.id)}
-            >
-              <X className="size-3.5" />
-            </button>
-          ) : null}
-        </div>
-      ))}
+            {onRemove ? (
+              <button
+                type="button"
+                aria-label="Remove attachment"
+                className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => onRemove(attachment.id)}
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ),
+      )}
     </div>
   )
 }
@@ -785,12 +941,13 @@ export function ChatArea({
   const t = useT()
   const chatService = useChatService()
   const [draft, setDraft] = React.useState("")
-  const [attachments, setAttachments] = React.useState<ChatAttachment[]>([])
+  const [attachments, setAttachments] = React.useState<DraftAttachment[]>([])
   const [inputError, setInputError] = React.useState<string | null>(null)
   const [voiceTranscribing, setVoiceTranscribing] = React.useState(false)
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const attachmentsRef = React.useRef<DraftAttachment[]>([])
   const voiceRecorder = useVoiceRecorder()
   const hasMessages = messages.length > 0
   const isSubmitted = status === "submitted"
@@ -805,6 +962,12 @@ export function ChatArea({
     hasMessages &&
     (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
 
+  React.useEffect(() => {
+    attachmentsRef.current = attachments
+  }, [attachments])
+
+  React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
+
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
   // 的 onClick），避免生成中按回车误中止流。
   const handleSubmit = (message: PromptInputMessage): void => {
@@ -813,6 +976,7 @@ export function ChatArea({
       return
     }
     onSend(text, attachments)
+    revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
     setInputError(null)
@@ -821,25 +985,36 @@ export function ChatArea({
   const addFiles = React.useCallback(
     (files: FileList | File[]) => {
       setInputError(null)
-      const next: ChatAttachment[] = []
+      const next: DraftAttachment[] = []
       for (const file of Array.from(files)) {
         const path = globalThis.lumo?.getPathForFile(file)
         if (!path) {
           setInputError(t("chat.attachmentPathUnavailable"))
           continue
         }
-        next.push({
+        const attachment: DraftAttachment = {
           id: `${Date.now()}-${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
           name: file.name || path.split(/[\\/]/).pop() || "attachment",
           mime: file.type || "application/octet-stream",
           size: file.size,
           path,
-        })
+        }
+        if (isImageAttachment(attachment)) {
+          attachment.previewUrl = URL.createObjectURL(file)
+        }
+        next.push(attachment)
       }
       if (next.length > 0) {
         setAttachments((current) => {
           const existing = new Set(current.map((attachment) => attachment.path))
-          return [...current, ...next.filter((attachment) => !existing.has(attachment.path))]
+          const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
+          revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
+          for (const attachment of uniqueNext) {
+            if (attachment.previewUrl) {
+              setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
+            }
+          }
+          return [...current, ...uniqueNext]
         })
       }
     },
@@ -901,18 +1076,24 @@ export function ChatArea({
         }
       }}
       onDrop={(event) => {
-        if (disabled || voiceActive || event.dataTransfer.files.length === 0) {
+        const files = filesFromDataTransfer(event.dataTransfer)
+        if (disabled || voiceActive || files.length === 0) {
           return
         }
         event.preventDefault()
-        addFiles(event.dataTransfer.files)
+        addFiles(files)
       }}
     >
       {attachments.length > 0 ? (
         <PromptInputAttachments>
           <AttachmentList
             attachments={attachments}
-            onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
+            onRemove={(id) =>
+              setAttachments((current) => {
+                revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
+                return current.filter((attachment) => attachment.id !== id)
+              })
+            }
           />
         </PromptInputAttachments>
       ) : null}
@@ -924,10 +1105,12 @@ export function ChatArea({
           placeholder={placeholder}
           onChange={(e) => setDraft(e.target.value)}
           onPaste={(event) => {
-            if (disabled || voiceActive || event.clipboardData.files.length === 0) {
+            const files = filesFromDataTransfer(event.clipboardData)
+            if (disabled || voiceActive || files.length === 0) {
               return
             }
-            addFiles(event.clipboardData.files)
+            event.preventDefault()
+            addFiles(files)
           }}
         />
       </PromptInputBody>

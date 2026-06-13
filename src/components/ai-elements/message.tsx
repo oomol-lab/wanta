@@ -3,6 +3,7 @@ import type { HTMLAttributes } from "react"
 import type { StreamdownProps } from "streamdown"
 
 import { lazy, memo, Suspense } from "react"
+import { MarkdownTable } from "./markdown-table.tsx"
 import { cn } from "@/lib/utils"
 
 // streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
@@ -42,11 +43,19 @@ export const MessageContent = ({ children, className, ...props }: MessageContent
 
 export type MessageResponseProps = StreamdownProps
 
+const messageResponseComponents = {
+  table: MarkdownTable,
+} satisfies MessageResponseProps["components"]
+
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
+  ({ className, components, ...props }: MessageResponseProps) => (
     // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
     <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{props.children}</div>}>
-      <Streamdown className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)} {...props} />
+      <Streamdown
+        className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+        components={{ ...messageResponseComponents, ...components }}
+        {...props}
+      />
     </Suspense>
   ),
   (prevProps, nextProps) => prevProps.children === nextProps.children,

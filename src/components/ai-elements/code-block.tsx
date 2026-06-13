@@ -1,10 +1,9 @@
 import type { ComponentProps, HTMLAttributes } from "react"
 import type { BundledLanguage, ShikiTransformer } from "shiki"
+import type { HighlighterCore } from "shiki/core"
 
 import { CheckIcon, CopyIcon } from "lucide-react"
 import { createContext, useContext, useEffect, useRef, useState } from "react"
-import { createHighlighterCore } from "shiki/core"
-import { createOnigurumaEngine } from "shiki/engine/oniguruma"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -38,15 +37,25 @@ const lineNumberTransformer: ShikiTransformer = {
 
 // 全应用仅在工具调用面板里高亮 JSON。改用 shiki/core 并只按需加载 json 语法 + 两个主题，
 // 避免 shiki 顶层 codeToHtml 拉入全量语言 bundle（vite 会因此产出 ~300 个无用语言 chunk，约 10MB）。
-let highlighterPromise: ReturnType<typeof createHighlighterCore> | undefined
+// 连 shiki/core 与 oniguruma 引擎也动态 import：首帧 / AppShell 外壳不再静态依赖 shiki，
+// 仅在首次真正高亮代码块时才拉取。
+let highlighterPromise: Promise<HighlighterCore> | undefined
 
-function getHighlighter() {
-  highlighterPromise ??= createHighlighterCore({
+function getHighlighter(): Promise<HighlighterCore> {
+  highlighterPromise ??= createHighlighter()
+  return highlighterPromise
+}
+
+async function createHighlighter(): Promise<HighlighterCore> {
+  const [{ createHighlighterCore }, { createOnigurumaEngine }] = await Promise.all([
+    import("shiki/core"),
+    import("shiki/engine/oniguruma"),
+  ])
+  return createHighlighterCore({
     themes: [import("@shikijs/themes/one-light"), import("@shikijs/themes/one-dark-pro")],
     langs: [import("@shikijs/langs/json")],
     engine: createOnigurumaEngine(import("shiki/wasm")),
   })
-  return highlighterPromise
 }
 
 export async function highlightCode(code: string, _language: BundledLanguage, showLineNumbers = false) {

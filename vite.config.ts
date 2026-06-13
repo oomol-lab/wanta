@@ -6,6 +6,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig, loadEnv } from "vite"
 import electron from "vite-plugin-electron/simple"
+import { storageKey } from "./electron/branding.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -103,6 +104,13 @@ export default defineConfig(({ command, mode }) => {
       },
     },
     plugins: [
+      // index.html 内联首帧主题脚本里的持久化 key 由 branding 单一来源注入（守 R1，避免硬编码品牌前缀）。
+      {
+        name: "lumo-inline-boot-theme-key",
+        transformIndexHtml(html: string) {
+          return html.replaceAll("%LUMO_THEME_KEY%", storageKey("theme"))
+        },
+      },
       tailwindcss(),
       react(),
       electron({
@@ -140,6 +148,18 @@ export default defineConfig(({ command, mode }) => {
     server: {
       port: 5273,
       strictPort: true,
+    },
+    // 重型依赖（含 lazy chunk 里才用到的 streamdown / shiki / motion）显式预打包：server 启动时
+    // 一次性 esbuild 预构建，避免渲染进程首次触达这些依赖时才即时优化、进而触发整页 reload 的卡顿。
+    optimizeDeps: {
+      include: [
+        "streamdown",
+        "shiki/core",
+        "shiki/engine/oniguruma",
+        "motion/react",
+        "radix-ui",
+        "use-stick-to-bottom",
+      ],
     },
   }
 })

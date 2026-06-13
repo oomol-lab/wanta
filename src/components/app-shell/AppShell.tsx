@@ -17,6 +17,8 @@ import { SettingsRoute } from "@/routes/Settings"
 
 type Route = "chat" | "connections" | "settings"
 
+const SIDEBAR_RESTORE_DELAY_MS = 260
+
 interface PendingChatTransition {
   sessionId: string | null
   text: string
@@ -380,7 +382,7 @@ export function AppShell() {
     if (!isSidebarRestoring) {
       return
     }
-    const id = window.setTimeout(() => setIsSidebarRestoring(false), 260)
+    const id = window.setTimeout(() => setIsSidebarRestoring(false), SIDEBAR_RESTORE_DELAY_MS)
     return () => window.clearTimeout(id)
   }, [isSidebarRestoring])
 

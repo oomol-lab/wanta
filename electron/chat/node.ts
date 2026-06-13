@@ -152,7 +152,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
       const bytes = await readFile(req.path)
       return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}` }
-    } catch {
+    } catch (error) {
+      console.error("[lumo] getAttachmentPreview failed", { path: req.path, error: errorMessage(error) })
       return { dataUrl: null }
     }
   }

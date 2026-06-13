@@ -78,6 +78,20 @@ type DraftAttachment = ChatAttachment & {
 
 const attachmentPreviewUrlByPath = new Map<string, string>()
 
+function revokePreviewUrl(url: string | undefined): void {
+  if (url?.startsWith("blob:")) {
+    URL.revokeObjectURL(url)
+  }
+}
+
+function setAttachmentPreviewUrl(path: string, url: string): void {
+  const current = attachmentPreviewUrlByPath.get(path)
+  if (current && current !== url) {
+    revokePreviewUrl(current)
+  }
+  attachmentPreviewUrlByPath.set(path, url)
+}
+
 function parseAuthorization(output: string | undefined): AuthorizationInfo | null {
   if (!output) {
     return null
@@ -148,11 +162,12 @@ function isImageAttachment(attachment: ChatAttachment): boolean {
 
 function revokeAttachmentPreviewUrls(attachments: DraftAttachment[]): void {
   for (const attachment of attachments) {
-    if (attachment.previewUrl) {
-      URL.revokeObjectURL(attachment.previewUrl)
-      if (attachmentPreviewUrlByPath.get(attachment.path) === attachment.previewUrl) {
-        attachmentPreviewUrlByPath.delete(attachment.path)
-      }
+    const cached = attachmentPreviewUrlByPath.get(attachment.path)
+    if (cached && (!attachment.previewUrl || cached === attachment.previewUrl)) {
+      revokePreviewUrl(cached)
+      attachmentPreviewUrlByPath.delete(attachment.path)
+    } else {
+      revokePreviewUrl(attachment.previewUrl)
     }
   }
 }
@@ -721,7 +736,7 @@ function AttachmentImageCard({
         if (cancelled || !result.dataUrl) {
           return
         }
-        attachmentPreviewUrlByPath.set(attachment.path, result.dataUrl)
+        setAttachmentPreviewUrl(attachment.path, result.dataUrl)
         setPreviewUrl(result.dataUrl)
       })
       .catch(() => undefined)
@@ -961,6 +976,7 @@ export function ChatArea({
       return
     }
     onSend(text, attachments)
+    revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
     setInputError(null)
@@ -969,7 +985,7 @@ export function ChatArea({
   const addFiles = React.useCallback(
     (files: FileList | File[]) => {
       setInputError(null)
-      const next: ChatAttachment[] = []
+      const next: DraftAttachment[] = []
       for (const file of Array.from(files)) {
         const path = globalThis.lumo?.getPathForFile(file)
         if (!path) {
@@ -985,7 +1001,6 @@ export function ChatArea({
         }
         if (isImageAttachment(attachment)) {
           attachment.previewUrl = URL.createObjectURL(file)
-          attachmentPreviewUrlByPath.set(attachment.path, attachment.previewUrl)
         }
         next.push(attachment)
       }
@@ -994,6 +1009,11 @@ export function ChatArea({
           const existing = new Set(current.map((attachment) => attachment.path))
           const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
           revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
+          for (const attachment of uniqueNext) {
+            if (attachment.previewUrl) {
+              setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
+            }
+          }
           return [...current, ...uniqueNext]
         })
       }

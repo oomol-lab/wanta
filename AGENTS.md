@@ -85,8 +85,9 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
    尤其 `OO_SKILLS_SYNC_DISABLED=1`，否则 oo 每次运行会写用户家目录（`~/.claude` 等）。
 9. **相对导入带显式 `.ts` 扩展名**；scripts 用 `node --experimental-strip-types` 直跑，
    故不能用 TS 参数属性（`constructor(private x)`）。
-10. 注释/commit message 中文；代码标识符/日志/系统提示英文；主进程业务日志统一
-    `[lumo]` 前缀（既存例外见 [docs/conventions.md](docs/conventions.md) §4）。
+10. 注释中文；代码标识符/日志/系统提示英文；所有 Git 操作中的人类可读文本必须英文
+    （commit message、branch name、PR title/description/comment、tag/release note 等）；
+    主进程业务日志统一 `[lumo]` 前缀（既存例外见 [docs/conventions.md](docs/conventions.md) §4）。
 
 完整编码约定（文件命名、纯函数拆分、内嵌工具源码限制、vendored UI 规则等）见
 [docs/conventions.md](docs/conventions.md)。

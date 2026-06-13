@@ -1,4 +1,4 @@
-import type { SessionInfo } from "../../electron/session/common"
+import type { SessionInfo } from "../../electron/session/common.ts"
 
 import * as React from "react"
 import { useSessionService } from "@/components/AppContext"

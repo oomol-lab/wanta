@@ -4,7 +4,8 @@ import type {
   ChatMessagePart,
   ChatRole,
   MessageDeltaEvent,
-} from "../../electron/chat/common"
+} from "../../electron/chat/common.ts"
+import type { ModelChoice } from "../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
 
 import * as React from "react"
@@ -129,7 +130,12 @@ export interface UseChat {
   status: ChatStatus
   messagesLoaded: boolean
   error: string | null
-  send: (sessionId: string, text: string, attachments?: ChatAttachment[], options?: SendOptions) => Promise<void>
+  send: (
+    sessionId: string,
+    text: string,
+    attachments?: ChatAttachment[],
+    options?: SendOptions & { model?: ModelChoice },
+  ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
 }
 
@@ -227,7 +233,12 @@ export function useChat(activeSessionId: string | null): UseChat {
   }, [activeSessionId, reload])
 
   const send = React.useCallback(
-    async (sessionId: string, text: string, attachments: ChatAttachment[] = [], options: SendOptions = {}) => {
+    async (
+      sessionId: string,
+      text: string,
+      attachments: ChatAttachment[] = [],
+      options: SendOptions & { model?: ModelChoice } = {},
+    ) => {
       const optimistic = options.optimistic ?? "before-ack"
       setError(null)
       setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
@@ -235,7 +246,12 @@ export function useChat(activeSessionId: string | null): UseChat {
         patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
       }
       try {
-        await chatService.invoke("sendMessage", { sessionId, text, attachments: agentAttachments(attachments) })
+        await chatService.invoke("sendMessage", {
+          sessionId,
+          text,
+          attachments: agentAttachments(attachments),
+          model: options.model,
+        })
         if (optimistic === "after-ack") {
           patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
         }

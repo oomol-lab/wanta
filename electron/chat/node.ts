@@ -134,7 +134,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
     void this.agent
-      .promptStreaming(req.sessionId, req.text, { attachments: req.attachments })
+      .promptStreaming(req.sessionId, req.text, { attachments: req.attachments, model: req.model })
       .catch((error: unknown) => {
         void this.send("agentError", { sessionId: req.sessionId, message: errorMessage(error) })
       })

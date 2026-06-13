@@ -1,4 +1,4 @@
-import type { AuthState } from "../../electron/auth/common"
+import type { AuthState } from "../../electron/auth/common.ts"
 
 import * as React from "react"
 import { useAuthService } from "@/components/AppContext"

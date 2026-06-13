@@ -1,11 +1,13 @@
-import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common"
-import type { SessionInfo } from "../../../electron/session/common"
+import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
+import type { ModelChoice } from "../../../electron/models/common.ts"
+import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatStatus } from "ai"
 
-import { PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
+import { Package, PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
 import * as React from "react"
 import { buildSessionTitle } from "@/components/app-shell/session-title"
 import { useChatService } from "@/components/AppContext"
+import { Input } from "@/components/ui/input"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
@@ -14,8 +16,9 @@ import { cn } from "@/lib/utils"
 import { ChatArea } from "@/routes/Chat"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
+import { SkillsRoute } from "@/routes/Skills"
 
-type Route = "chat" | "connections" | "settings"
+type Route = "chat" | "connections" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 
@@ -23,12 +26,13 @@ interface PendingChatTransition {
   sessionId: string | null
   text: string
   attachments: ChatAttachment[]
+  model?: ModelChoice
   createdAt: number
 }
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
-  return route === "settings" || route === "connections" ? route : "chat"
+  return route === "settings" || route === "connections" || route === "skills" ? route : "chat"
 }
 
 function chatMessageText(message: ChatMessage): string {
@@ -86,7 +90,7 @@ function SessionItem({
 
   if (editing) {
     return (
-      <input
+      <Input
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -104,7 +108,7 @@ function SessionItem({
             setEditing(false)
           }
         }}
-        className="oo-input-surface oo-text-control h-8 rounded-md border px-3 outline-none"
+        className="oo-text-control h-8"
       />
     )
   }
@@ -187,13 +191,13 @@ function SessionSearchOverlay({
         <div className="flex items-center gap-3">
           <div className="oo-session-search-input oo-text-title flex h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border px-3">
             <Search className="size-5 shrink-0 text-muted-foreground" />
-            <input
+            <Input
               ref={inputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("sidebar.searchPlaceholder")}
               aria-label={t("sidebar.searchPlaceholder")}
-              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+              className="h-10 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
             />
           </div>
           <button
@@ -290,7 +294,9 @@ export function AppShell() {
     service: string
     text: string
     attachments: ChatAttachment[]
+    model?: ModelChoice
   } | null>(null)
+  const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
 
   // 轮询 agent 就绪（sidecar 异步启动，首启需拉起 opencode + provider）。
   React.useEffect(() => {
@@ -347,12 +353,14 @@ export function AppShell() {
     if (!pending) {
       return
     }
-    const connected = connections.summary?.providers.some((p) => p.service === pending.service && p.connected)
+    const connected = connections.summary?.providers.some(
+      (p) => p.service === pending.service && p.status === "connected" && p.appStatus === "active",
+    )
     if (connected) {
       pendingRetry.current = null
       setSelectedService(null)
       setRoute("chat")
-      void send(pending.sessionId, pending.text, pending.attachments)
+      void send(pending.sessionId, pending.text, pending.attachments, { model: pending.model })
     }
   }, [connections.summary, send])
 
@@ -393,13 +401,13 @@ export function AppShell() {
     setRoute("chat")
   }
 
-  const handleSend = async (text: string, attachments: ChatAttachment[] = []): Promise<void> => {
+  const handleSend = async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
     setRoute("chat")
     let sessionId = activeSessionId
     const bridgeEmptySend = messagesLoaded && messages.length === 0
     const createdAt = Date.now()
     if (bridgeEmptySend) {
-      setPendingChatTransition({ sessionId, text, attachments, createdAt })
+      setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
     }
     if (!sessionId) {
       let info: SessionInfo
@@ -418,8 +426,9 @@ export function AppShell() {
         pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
       )
     }
+    lastModelBySession.current.set(sessionId, model)
     try {
-      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack" })
+      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack", model })
     } catch (error) {
       if (bridgeEmptySend) {
         setPendingChatTransition(null)
@@ -435,6 +444,7 @@ export function AppShell() {
       setIsDraftSession(false)
       setPendingChatTransition(null)
     }
+    lastModelBySession.current.delete(id)
   }
 
   const handleAuthorize = (auth: AuthorizationInfo): void => {
@@ -450,7 +460,11 @@ export function AppShell() {
       .filter((p) => p.kind === "attachment" && p.attachment)
       .map((p) => p.attachment as ChatAttachment)
     if (activeSessionId && (text || attachments.length > 0)) {
-      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments }
+      const model =
+        pendingChatTransition?.sessionId === activeSessionId
+          ? pendingChatTransition.model
+          : lastModelBySession.current.get(activeSessionId)
+      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments, model }
     }
   }
   const handleToggleSidebar = (): void => {
@@ -508,6 +522,17 @@ export function AppShell() {
             >
               <Plug className="size-4 shrink-0" />
               <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoute("skills")}
+              className={cn(
+                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                route === "skills" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+            >
+              <Package className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("skills.title")}</span>
             </button>
           </nav>
 
@@ -572,7 +597,9 @@ export function AppShell() {
                 ? t("settings.title")
                 : route === "connections"
                   ? t("connections.title")
-                  : (activeSession?.title ?? t("chat.newSession"))}
+                  : route === "skills"
+                    ? t("skills.title")
+                    : (activeSession?.title ?? t("chat.newSession"))}
             </span>
           </div>
         </header>
@@ -584,6 +611,8 @@ export function AppShell() {
             <div className="h-full min-h-0 px-4 py-3">
               <ConnectionsPanel connections={connections} selectedService={selectedService} />
             </div>
+          ) : route === "skills" ? (
+            <SkillsRoute />
           ) : (
             <div className="h-full min-h-0 overflow-hidden pb-3">
               <ChatArea
@@ -595,7 +624,7 @@ export function AppShell() {
                 initialSendPending={initialSendPending}
                 providers={connections.summary?.providers ?? []}
                 placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                onSend={(text, attachments) => void handleSend(text, attachments)}
+                onSend={(text, attachments, model) => void handleSend(text, attachments, model)}
                 onStop={() => activeSessionId && void stop(activeSessionId)}
                 onAuthorize={handleAuthorize}
               />

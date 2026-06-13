@@ -2,111 +2,183 @@ import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
 
-export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth"
+export type ConnectionBackendStatus = "ready" | "signed-out" | "unavailable"
+export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth" | null
+export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"
 export type ConnectionProviderStatus = "available" | "connected" | "needs_attention"
+export type ConnectionProviderActionKind =
+  | "oauth2"
+  | "api_key"
+  | "custom_credential"
+  | "no_auth"
+  | "federated"
+  | "unavailable"
 
-export interface ConnectionProvider {
-  service: string
-  displayName: string
-  iconUrl?: string
-  categories: string[]
-  authTypes: ConnectionAuthType[]
-  status: ConnectionProviderStatus
-  connected: boolean
-  appStatus?: string
+export interface ConnectionAppSummary {
   accountLabel?: string
-  updatedAt?: number
-  canDisconnect: boolean
-}
-
-export interface ConnectionSummary {
-  providers: ConnectionProvider[]
-  connectedCount: number
-  providerCount: number
-  /** connector 是否可用（apiKey 已配置且请求成功）。 */
-  ready: boolean
-  message?: string
+  authType: ConnectionAuthType
+  id: string
+  service: string
+  status: ConnectionAppStatus
   updatedAt: number
 }
 
+export interface ConnectionProviderSummary {
+  accountLabel?: string
+  appId?: string
+  appStatus?: ConnectionAppStatus
+  appAuthType?: ConnectionAuthType
+  authTypes: Exclude<ConnectionAuthType, null>[]
+  actionKind: ConnectionProviderActionKind
+  canDisconnect: boolean
+  categoryLabels: string[]
+  connectedUpdatedAt?: number
+  displayName: string
+  iconUrl?: string
+  service: string
+  status: ConnectionProviderStatus
+}
+
+export type ConnectionProvider = ConnectionProviderSummary
+
+export interface ConnectionUsageDailyPoint {
+  calls: number
+  date: string
+  errors: number
+  success: number
+}
+
+export interface ConnectionUsageServiceItem {
+  calls: number
+  errors: number
+  recent: ConnectionUsageDailyPoint | null
+  service: string
+  success: number
+  trend: ConnectionUsageDailyPoint[]
+}
+
+export interface ConnectionUsageSummary {
+  calls: number
+  days: number
+  errors: number
+  points: ConnectionUsageDailyPoint[]
+  recent: ConnectionUsageDailyPoint | null
+  services: ConnectionUsageServiceItem[]
+  success: number
+}
+
+export type ConnectionExecutionLogStatus = "success" | "error"
+
+export interface ConnectionExecutionLogItem {
+  action: string
+  durationMs: number | null
+  errorCode?: string
+  finishedAt: string
+  id: string
+  service: string
+  startedAt: string
+  status: ConnectionExecutionLogStatus
+}
+
+export interface ConnectionExecutionLogSummary {
+  items: ConnectionExecutionLogItem[]
+  nextCursor?: string
+}
+
+export interface ConnectionExecutionLogRequest {
+  cursor?: string
+  limit?: number
+  service: string
+  status?: ConnectionExecutionLogStatus
+}
+
+export interface ConnectionCredentialField {
+  description?: string
+  key: string
+  label: string
+  placeholder?: string
+  required: boolean
+  secret: boolean
+}
+
+export type ConnectionField = ConnectionCredentialField
+
+export interface ConnectionApiKeyConfig {
+  description?: string
+  extraFields: ConnectionCredentialField[]
+  label?: string
+  placeholder?: string
+}
+
+export interface ConnectionCustomCredentialConfig {
+  fields: ConnectionCredentialField[]
+}
+
+export interface ConnectionFederatedConfig {
+  bucket?: string
+  durationSeconds?: number
+  oidcProviderArn: string
+  policy?: string
+  roleArn: string
+  roleSessionName?: string
+}
+
+export type ConnectionCredentialConfig = ConnectionCustomCredentialConfig
+
+export interface ConnectionProviderDetail extends ConnectionProviderSummary {
+  apiKeyConfig: ConnectionApiKeyConfig | null
+  customCredentialConfig: ConnectionCustomCredentialConfig | null
+  federatedCredentialConfig: ConnectionFederatedConfig | null
+  homepageUrl?: string
+}
+
+export interface ConnectionSummary {
+  status: ConnectionBackendStatus
+  activeConnections: number
+  apps: ConnectionAppSummary[]
+  connectedProviderCount: number
+  connectableProviderCount: number
+  needsAttention: number
+  providerCount: number
+  providers: ConnectionProviderSummary[]
+  usage: ConnectionUsageSummary
+  message?: string
+  updatedAt: string
+}
+
+export interface ConnectionSummaryRequest {
+  forceRefresh?: boolean
+}
+
 export type ConnectionConnectInput =
-  // appId 存在 → 走 by-id 重连端点（已连接账号的「重新连接」）；否则走 service 首次连接端点。
   | { authType: "oauth2"; service: string; appId?: string }
-  | { authType: "no_auth"; service: string }
   | {
-      authType: "api_key"
-      service: string
       apiKey: string
-      label?: string
-      extra?: Record<string, string>
       appId?: string
+      authType: "api_key"
+      extra?: Record<string, string>
+      label?: string
+      service: string
     }
-  | { authType: "custom_credential"; service: string; values: Record<string, string>; label?: string }
+  | {
+      authType: "custom_credential"
+      label?: string
+      service: string
+      values: Record<string, string>
+    }
   | {
       authType: "federated"
-      service: string
-      subjectTokenSource: string
-      target?: string
-      config?: Record<string, string>
+      config: ConnectionFederatedConfig
       label?: string
+      service: string
     }
+  | { authType: "no_auth"; service: string }
 
 export interface ConnectionActionResult {
-  /** oauth2 → opened（已开浏览器，待轮询）；其余 connect → connected；disconnect → disconnected。 */
   status: "opened" | "connected" | "disconnected"
   summary: ConnectionSummary
 }
 
-/** provider 动态连接表单字段（来自 connector 的 apiKey/custom/federated 配置）。 */
-export interface ConnectionField {
-  key: string
-  label: string
-  required: boolean
-  secret?: boolean
-  placeholder?: string
-  description?: string
-}
-
-export interface ConnectionApiKeyConfig {
-  label?: string
-  placeholder?: string
-  description?: string
-  extraFields: ConnectionField[]
-}
-
-export interface ConnectionCredentialConfig {
-  fields: ConnectionField[]
-}
-
-/** provider 详情（GET /v1/providers/{service}），驱动详情页与动态连接表单。 */
-export interface ConnectionProviderDetail {
-  service: string
-  displayName: string
-  iconUrl?: string
-  homepageUrl?: string
-  categories: string[]
-  authTypes: ConnectionAuthType[]
-  apiKeyConfig?: ConnectionApiKeyConfig
-  customCredentialConfig?: ConnectionCredentialConfig
-  federatedCredentialConfig?: ConnectionCredentialConfig
-}
-
-/** 已连接账号（GET /v1/apps/services/{service}）。一个 provider 可有多账号。 */
-export interface ConnectionAccount {
-  id: string
-  service: string
-  accountLabel: string
-  alias?: string
-  status: string
-  isDefault: boolean
-  authType?: ConnectionAuthType | null
-  scopes: string[]
-  providerAccountId: string
-  createdAt?: number
-  updatedAt?: number
-}
-
-/** provider 接口/动作（GET /v1/actions?service=X）。 */
 export interface ConnectionAction {
   id: string
   service: string
@@ -115,18 +187,21 @@ export interface ConnectionAction {
   requiredScopes: string[]
 }
 
-/** 执行记录（GET /v1/apps/{service}/executions）。 */
-export interface ConnectionExecution {
-  executionId: string
-  action: string
-  actor?: string
-  status: "success" | "error"
-  errorCode?: string
-  errorMessage?: string
-  startedAt?: string
-  finishedAt?: string
-  outputSummary?: string
+export interface ConnectionAccount {
+  id: string
+  service: string
+  accountLabel: string
+  alias?: string
+  status: string
+  isDefault: boolean
+  authType?: ConnectionAuthType
+  scopes: string[]
+  providerAccountId: string
+  createdAt?: number
+  updatedAt?: number
 }
+
+export type ConnectionExecution = ConnectionExecutionLogItem
 
 export interface ConnectionSummaryChangedEvent {
   summary: ConnectionSummary
@@ -138,25 +213,22 @@ export const ConnectionsService = serviceName("connections-service") as ServiceN
     connectionSummaryChanged: ConnectionSummaryChangedEvent
   }
   ClientInvokes: {
-    getSummary(): Promise<ConnectionSummary>
     connect(input: ConnectionConnectInput): Promise<ConnectionActionResult>
+    connectProvider(input: ConnectionConnectInput): Promise<ConnectionActionResult>
     disconnect(service: string): Promise<ConnectionActionResult>
-    /** 按 appId 断开单个账号（多账号场景）。 */
     disconnectAccount(appId: string): Promise<ConnectionActionResult>
-    /** provider 详情（含动态连接表单配置与官网链接）。 */
+    disconnectProvider(service: string): Promise<ConnectionActionResult>
+    getConnectionExecutionLogs(request: ConnectionExecutionLogRequest): Promise<ConnectionExecutionLogSummary>
+    getConnectionProviderDetail(service: string): Promise<ConnectionProviderDetail>
+    getConnectionSummary(request?: ConnectionSummaryRequest): Promise<ConnectionSummary>
     getProviderDetail(service: string): Promise<ConnectionProviderDetail>
-    /** 该 provider 下的已连接账号列表。 */
-    listAccounts(service: string): Promise<ConnectionAccount[]>
-    /** 该 provider 暴露的接口/动作列表。 */
-    listActions(service: string): Promise<ConnectionAction[]>
-    /** 该 provider 的近期执行记录。 */
-    listExecutions(service: string): Promise<ConnectionExecution[]>
-    /** 修改账号别名（alias 为空串则清除）。 */
-    updateAlias(appId: string, alias: string): Promise<void>
-    /** 设置该 provider 的默认账号。 */
-    setDefaultAccount(service: string, appId: string): Promise<void>
-    /** 在系统浏览器打开外部 URL（仅 https；用户已在 UI 显式确认）。 */
-    openExternal(url: string): Promise<void>
+    getSummary(request?: ConnectionSummaryRequest): Promise<ConnectionSummary>
     isReady(): Promise<boolean>
+    listAccounts(service: string): Promise<ConnectionAccount[]>
+    listActions(service: string): Promise<ConnectionAction[]>
+    listExecutions(service: string): Promise<ConnectionExecution[]>
+    openExternal(url: string): Promise<void>
+    setDefaultAccount(service: string, appId: string): Promise<void>
+    updateAlias(appId: string, alias: string): Promise<void>
   }
 }>

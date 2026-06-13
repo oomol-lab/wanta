@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import { isLocale, translate } from "./i18n.ts"
+import { skillsMessages } from "./skills-messages.ts"
 
 test("translate returns locale-specific strings", () => {
   assert.equal(translate("zh-CN", "settings.title"), "设置")
@@ -15,9 +16,31 @@ test("translate interpolates {var}", () => {
   assert.equal(translate("en", "connections.more", { count: 577 }), "Search to connect more (577 total)")
 })
 
+test("translate interpolates OO-style {{var}}", () => {
+  assert.equal(translate("zh-CN", "skills.availableCoverage", { installed: 4, total: 4 }), "可用 4/4")
+  assert.equal(translate("en", "skills.availableCoverage", { installed: 4, total: 4 }), "Available 4/4")
+  assert.equal(translate("zh-CN", "skills.rowAttention", { count: 2 }), "2 个智能体需处理")
+})
+
 test("isLocale guards the supported locales", () => {
   assert.equal(isLocale("zh-CN"), true)
   assert.equal(isLocale("en"), true)
   assert.equal(isLocale("fr"), false)
   assert.equal(isLocale(null), false)
 })
+
+test("skills i18n locale keysets stay in parity", () => {
+  assert.deepEqual(flattenKeys(skillsMessages["zh-CN"]), flattenKeys(skillsMessages.en))
+})
+
+function flattenKeys(value: Record<string, unknown>, prefix = ""): string[] {
+  return Object.entries(value)
+    .flatMap(([key, entry]) => {
+      const nextKey = prefix ? `${prefix}.${key}` : key
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        return flattenKeys(entry as Record<string, unknown>, nextKey)
+      }
+      return [nextKey]
+    })
+    .sort()
+}

@@ -2,21 +2,135 @@ import type {
   ConnectionAccount,
   ConnectionAction,
   ConnectionActionResult,
-  ConnectionAuthType,
   ConnectionConnectInput,
   ConnectionExecution,
+  ConnectionExecutionLogRequest,
+  ConnectionExecutionLogSummary,
   ConnectionProviderDetail,
   ConnectionsService,
   ConnectionSummary,
+  ConnectionSummaryRequest,
 } from "./common.ts"
-import type { RawApp, RawProvider } from "./summary.ts"
+import type { RawApp, RawAppListMeta, RawProvider } from "./summary.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
 import { connectorBaseUrl, consoleBaseUrl } from "../domain.ts"
 import { ConnectionsService as ConnectionsServiceName } from "./common.ts"
-import { emptyConnectionSummary, mergeConnectionSummary } from "./summary.ts"
+import { createConnectorOAuthReturnUri, parseConnectorAuthorizationUrl } from "./domain.ts"
+import { normalizeConnectionExecutionLogs } from "./executions.ts"
+import { createFederatedConnectBody } from "./federated.ts"
+import {
+  connectionUsageSummaryDays,
+  createEmptyConnectionSummary,
+  createEmptyConnectionUsageSummary,
+  createSupersededConnectionSummaryFallback,
+  createUnavailableConnectionSummaryFallback,
+} from "./summary-model.ts"
+import {
+  mergeConnectionSummary,
+  normalizeApiKeyConfig,
+  normalizeCustomCredentialConfig,
+  normalizeProvider,
+} from "./summary.ts"
+import { normalizeUsageSummary } from "./usage.ts"
+
+interface ConnectorEnvelope<T> {
+  data?: T
+  errorMessage?: string
+  message?: string
+  meta?: unknown
+  success?: boolean
+}
+
+interface ConnectorRequestContext {
+  accountKey: string
+  connectorOrigin: string
+  headers: Record<string, string>
+}
+
+interface ConnectorCacheEntry<T> {
+  data: T
+  etag?: string
+  fetchedAt: number
+  lastModified?: string
+  meta: unknown
+}
+
+interface ConnectionSummaryCacheEntry {
+  accountKey: string
+  fetchedAt: number
+  summary: ConnectionSummary
+}
+
+interface ConnectionSummaryInFlight {
+  accountKey: string
+  promise: Promise<ConnectionSummary>
+}
+
+const executionLogDefaultLimit = 12
+const executionLogMaxLimit = 50
+const connectorGetCacheMs = 30_000
+const connectionSummaryCacheMs = 10_000
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function isAccountEntry<T extends { accountKey: string }>(entry: T | undefined, accountKey: string): entry is T {
+  return Boolean(entry && entry.accountKey === accountKey)
+}
+
+function clampExecutionLogLimit(value: number | undefined): number {
+  if (value === undefined || !Number.isInteger(value) || value <= 0) {
+    return executionLogDefaultLimit
+  }
+
+  return Math.min(value, executionLogMaxLimit)
+}
+
+function unwrapConnectorEnvelope<T>(payload: unknown): { data: T; meta: unknown } {
+  if (Array.isArray(payload)) {
+    return { data: payload as T, meta: null }
+  }
+  if (!payload || typeof payload !== "object") {
+    return { data: payload as T, meta: null }
+  }
+
+  const envelope = payload as ConnectorEnvelope<T>
+  if (envelope.success === false) {
+    throw new Error(envelope.errorMessage || envelope.message || "Connector request failed")
+  }
+  if ("data" in envelope) {
+    return { data: envelope.data as T, meta: envelope.meta ?? null }
+  }
+  return { data: payload as T, meta: null }
+}
+
+function extractEnvelopeMessage(payload: unknown): string | undefined {
+  if (payload && typeof payload === "object") {
+    const envelope = payload as ConnectorEnvelope<unknown>
+    return envelope.errorMessage || envelope.message
+  }
+  return undefined
+}
+
+function normalizeOptionalUsageSummary(
+  results: readonly PromiseSettledResult<{ data: unknown; meta: unknown }>[],
+): ConnectionSummary["usage"] {
+  const [dailyResult, servicesResult] = results
+
+  if (dailyResult?.status !== "fulfilled" || servicesResult?.status !== "fulfilled") {
+    return createEmptyConnectionUsageSummary()
+  }
+
+  try {
+    return normalizeUsageSummary(dailyResult.value.data, servicesResult.value.data)
+  } catch {
+    return createEmptyConnectionUsageSummary()
+  }
+}
 
 export interface ConnectionsServiceOptions {
   apiKey?: string
@@ -27,8 +141,12 @@ export class ConnectionsServiceImpl
   implements IConnectionService<ConnectionsService>
 {
   private apiKey?: string
-  /** 凭证代数：apiKey 每变一次递增，用于丢弃换代前发起的迟到摘要广播。 */
-  private credentialEpoch = 0
+  private readonly connectorGetCache = new Map<string, ConnectorCacheEntry<unknown>>()
+  private readonly connectorGetInFlight = new Map<string, Promise<{ data: unknown; meta: unknown }>>()
+  private connectionSummaryCache: ConnectionSummaryCacheEntry | undefined
+  private connectionSummaryGeneration = 0
+  private connectionSummaryInFlight: ConnectionSummaryInFlight | undefined
+  private lastReadySummary: ConnectionSummaryCacheEntry | undefined
 
   public constructor(options?: ConnectionsServiceOptions) {
     super(ConnectionsServiceName)
@@ -37,326 +155,488 @@ export class ConnectionsServiceImpl
 
   /** 登录 / 登出时由 main 更新凭证（账号的默认 api-key，等价旧 OO_API_KEY）。 */
   public setApiKey(apiKey: string | undefined): void {
+    if (this.apiKey === apiKey) {
+      return
+    }
+
     this.apiKey = apiKey
-    this.credentialEpoch++
+    this.clearConnectionSummaryState()
+    this.clearConnectorGetCache()
   }
 
   public isReady(): Promise<boolean> {
     return Promise.resolve(Boolean(this.apiKey))
   }
 
-  public async getSummary(): Promise<ConnectionSummary> {
-    if (!this.apiKey) {
-      return emptyConnectionSummary(Date.now(), "未登录")
-    }
-    const [apps, providers] = await Promise.all([
-      this.connectorRequest<RawApp[]>("/v1/apps", { method: "GET" }),
-      this.connectorRequest<RawProvider[]>("/v1/providers", { method: "GET" }),
-    ])
-    return mergeConnectionSummary(apps ?? [], providers ?? [], Date.now())
+  public getSummary(request?: ConnectionSummaryRequest): Promise<ConnectionSummary> {
+    return this.getConnectionSummary(request)
   }
 
-  public async connect(input: ConnectionConnectInput): Promise<ConnectionActionResult> {
-    this.assertReady()
+  public async getConnectionSummary(request: ConnectionSummaryRequest = {}): Promise<ConnectionSummary> {
+    if (!this.apiKey) {
+      this.clearConnectionSummaryState()
+      return createEmptyConnectionSummary("signed-out", "未登录")
+    }
+
+    const accountKey = this.apiKey
+    const now = Date.now()
+    if (!request.forceRefresh) {
+      const cachedSummary = this.getCachedConnectionSummary(accountKey, now)
+      if (cachedSummary) {
+        return cachedSummary
+      }
+    }
+
+    const inFlight = this.connectionSummaryInFlight
+    if (!request.forceRefresh && isAccountEntry(inFlight, accountKey)) {
+      return inFlight.promise
+    }
+
+    const generation = this.connectionSummaryGeneration
+    const refreshPromise = this.refreshConnectionSummary(accountKey, request, generation).finally(() => {
+      if (this.connectionSummaryInFlight?.promise === refreshPromise) {
+        this.connectionSummaryInFlight = undefined
+      }
+    })
+    this.connectionSummaryInFlight = { accountKey, promise: refreshPromise }
+    return refreshPromise
+  }
+
+  public connect(input: ConnectionConnectInput): Promise<ConnectionActionResult> {
+    return this.connectProvider(input)
+  }
+
+  public async connectProvider(input: ConnectionConnectInput): Promise<ConnectionActionResult> {
     const service = encodeURIComponent(input.service)
 
-    if (input.authType === "oauth2") {
-      // appId 存在 → 已连接账号的「重新连接」走 by-id 端点；否则首次连接走 service 端点。
-      const path = input.appId
-        ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect`
-        : `/v1/apps/${service}/connect`
-      const data = await this.connectorRequest<{ authorizationUrl?: string }>(path, {
-        method: "POST",
-        body: JSON.stringify({ returnUri: `${consoleBaseUrl}/app-connections/callback` }),
-      })
-      if (!data?.authorizationUrl) {
-        throw new Error("Connector connect did not return an authorization URL")
+    switch (input.authType) {
+      case "oauth2": {
+        const path = input.appId
+          ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect`
+          : `/v1/apps/${service}/connect`
+        const result = await this.requestConnector<{ authorizationUrl?: unknown }>(path, {
+          method: "POST",
+          body: JSON.stringify({ returnUri: createConnectorOAuthReturnUri(consoleBaseUrl) }),
+        })
+        const authorizationUrl = asString(result.data.authorizationUrl)
+        if (!authorizationUrl) {
+          throw new Error("Connector connect request did not return an authorization URL")
+        }
+
+        await shell.openExternal(parseConnectorAuthorizationUrl(authorizationUrl).toString())
+        this.clearConnectorGetCache()
+        const summary = await this.getConnectionSummary({ forceRefresh: true })
+        await this.emitSummaryChanged(summary)
+        return { status: "opened", summary }
       }
-      await this.openExternal(data.authorizationUrl)
-      const summary = await this.refreshAndEmit()
-      return { status: "opened", summary }
+      case "api_key": {
+        const path = input.appId
+          ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect/api-key`
+          : `/v1/apps/${service}/connect/api-key`
+        await this.requestConnector(path, {
+          method: "POST",
+          body: JSON.stringify({ apiKey: input.apiKey, label: input.label, extra: input.extra }),
+        })
+        break
+      }
+      case "custom_credential": {
+        await this.requestConnector(`/v1/apps/${service}/connect/custom-credential`, {
+          method: "POST",
+          body: JSON.stringify({ values: input.values, label: input.label }),
+        })
+        break
+      }
+      case "federated": {
+        await this.requestConnector(`/v1/apps/${service}/connect/federated`, {
+          method: "POST",
+          body: JSON.stringify(createFederatedConnectBody(input)),
+        })
+        break
+      }
+      case "no_auth": {
+        await this.requestConnector(`/v1/apps/${service}/connect/no-auth`, { method: "POST" })
+        break
+      }
     }
 
-    if (input.authType === "no_auth") {
-      await this.connectorRequest(`/v1/apps/${service}/connect/no-auth`, { method: "POST" })
-    } else if (input.authType === "api_key") {
-      const path = input.appId
-        ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect/api-key`
-        : `/v1/apps/${service}/connect/api-key`
-      await this.connectorRequest(path, {
-        method: "POST",
-        body: JSON.stringify({ apiKey: input.apiKey, label: input.label, extra: input.extra }),
-      })
-    } else if (input.authType === "federated") {
-      await this.connectorRequest(`/v1/apps/${service}/connect/federated`, {
-        method: "POST",
-        body: JSON.stringify({
-          subjectTokenSource: input.subjectTokenSource,
-          target: input.target,
-          config: input.config,
-          label: input.label,
-        }),
-      })
-    } else {
-      await this.connectorRequest(`/v1/apps/${service}/connect/custom-credential`, {
-        method: "POST",
-        body: JSON.stringify({ values: input.values, label: input.label }),
-      })
-    }
-
-    const summary = await this.refreshAndEmit()
+    this.clearConnectorGetCache()
+    const summary = await this.getConnectionSummary({ forceRefresh: true })
+    await this.emitSummaryChanged(summary)
     return { status: "connected", summary }
   }
 
-  public async disconnect(service: string): Promise<ConnectionActionResult> {
-    this.assertReady()
-    await this.connectorRequest(`/v1/apps/${encodeURIComponent(service)}`, { method: "DELETE" })
-    const summary = await this.refreshAndEmit()
+  public disconnect(service: string): Promise<ConnectionActionResult> {
+    return this.disconnectProvider(service)
+  }
+
+  public async disconnectProvider(service: string): Promise<ConnectionActionResult> {
+    await this.requestConnector(`/v1/apps/${encodeURIComponent(service)}`, { method: "DELETE" })
+    this.clearConnectorGetCache()
+    const summary = await this.getConnectionSummary({ forceRefresh: true })
+    await this.emitSummaryChanged(summary)
     return { status: "disconnected", summary }
   }
 
   public async disconnectAccount(appId: string): Promise<ConnectionActionResult> {
-    this.assertReady()
-    await this.connectorRequest(`/v1/apps/by-id/${encodeURIComponent(appId)}`, { method: "DELETE" })
-    const summary = await this.refreshAndEmit()
+    await this.requestConnector(`/v1/apps/by-id/${encodeURIComponent(appId)}`, { method: "DELETE" })
+    this.clearConnectorGetCache()
+    const summary = await this.getConnectionSummary({ forceRefresh: true })
+    await this.emitSummaryChanged(summary)
     return { status: "disconnected", summary }
   }
 
-  public async getProviderDetail(service: string): Promise<ConnectionProviderDetail> {
-    this.assertReady()
-    const raw = await this.connectorRequest<RawProviderDetail>(`/v1/providers/${encodeURIComponent(service)}`, {
-      method: "GET",
-    })
+  public getProviderDetail(service: string): Promise<ConnectionProviderDetail> {
+    return this.getConnectionProviderDetail(service)
+  }
+
+  public async getConnectionProviderDetail(service: string): Promise<ConnectionProviderDetail> {
+    const [summary, providerResult] = await Promise.all([
+      this.getConnectionSummary(),
+      this.getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}`),
+    ])
+    const appByService = new Map(summary.apps.map((app) => [app.service, app] as const))
+    const provider = normalizeProvider(providerResult.data, appByService)
+    if (!provider) {
+      throw new Error(`Provider ${service} is not available`)
+    }
+
     return {
-      service: raw.service,
-      displayName: raw.displayName ?? raw.service,
-      iconUrl: raw.iconUrl,
-      homepageUrl: raw.homepageUrl,
-      categories: (raw.categories ?? []).map((c) => c.displayName ?? c.id ?? "").filter(Boolean),
-      authTypes: raw.authTypes ?? [],
-      apiKeyConfig: raw.apiKeyConfig
-        ? {
-            label: raw.apiKeyConfig.label,
-            placeholder: raw.apiKeyConfig.placeholder,
-            description: raw.apiKeyConfig.description,
-            extraFields: raw.apiKeyConfig.extraFields ?? [],
-          }
-        : undefined,
-      customCredentialConfig: raw.customCredentialConfig
-        ? { fields: raw.customCredentialConfig.fields ?? [] }
-        : undefined,
-      federatedCredentialConfig: raw.federatedCredentialConfig
-        ? { fields: raw.federatedCredentialConfig.fields ?? [] }
-        : undefined,
+      ...provider,
+      apiKeyConfig: normalizeApiKeyConfig(providerResult.data.apiKeyConfig),
+      customCredentialConfig: normalizeCustomCredentialConfig(providerResult.data.customCredentialConfig),
+      federatedCredentialConfig: null,
+      homepageUrl: asString(providerResult.data.homepageUrl),
     }
   }
 
-  public async listAccounts(service: string): Promise<ConnectionAccount[]> {
-    this.assertReady()
-    const raw =
-      (await this.connectorRequest<RawAccount[]>(`/v1/apps/services/${encodeURIComponent(service)}`, {
-        method: "GET",
-      })) ?? []
-    return raw.map((a) => ({
-      id: a.id,
-      service: a.service,
-      accountLabel: a.accountLabel ?? a.displayName ?? a.providerAccountId ?? a.id,
-      alias: a.alias ?? undefined,
-      status: a.status ?? "unknown",
-      isDefault: Boolean(a.isDefault),
-      authType: a.authType ?? undefined,
-      scopes: a.scopes ?? [],
-      providerAccountId: a.providerAccountId ?? "",
-      createdAt: a.createdAt,
-      updatedAt: a.updatedAt,
-    }))
-  }
+  public async getConnectionExecutionLogs(
+    request: ConnectionExecutionLogRequest,
+  ): Promise<ConnectionExecutionLogSummary> {
+    const service = request.service.trim()
+    if (!service) {
+      return { items: [] }
+    }
 
-  public async listActions(service: string): Promise<ConnectionAction[]> {
-    this.assertReady()
-    const raw =
-      (await this.connectorRequest<RawAction[]>(`/v1/actions?service=${encodeURIComponent(service)}`, {
-        method: "GET",
-      })) ?? []
-    // service 缺省时该端点返回 [{ service }] 索引；带 service 时返回完整动作，过滤掉无 name 的索引项。
-    return raw
-      .filter((a) => typeof a.name === "string")
-      .map((a) => ({
-        id: a.id ?? `${a.service}.${a.name}`,
-        service: a.service,
-        name: a.name as string,
-        description: a.description,
-        requiredScopes: a.requiredScopes ?? [],
-      }))
+    const searchParams = new URLSearchParams({ limit: String(clampExecutionLogLimit(request.limit)) })
+    if (request.cursor) {
+      searchParams.set("cursor", request.cursor)
+    }
+    if (request.status) {
+      searchParams.set("status", request.status)
+    }
+
+    const result = await this.getConnector<unknown>(
+      `/v1/apps/${encodeURIComponent(service)}/executions?${searchParams.toString()}`,
+      { forceRefresh: true },
+    )
+    return normalizeConnectionExecutionLogs(result.data)
   }
 
   public async listExecutions(service: string): Promise<ConnectionExecution[]> {
-    this.assertReady()
-    const data = await this.connectorRequest<{ data?: RawExecution[] } | RawExecution[]>(
-      `/v1/apps/${encodeURIComponent(service)}/executions?limit=20`,
-      { method: "GET" },
-    )
-    const rows = Array.isArray(data) ? data : (data?.data ?? [])
-    return rows.map((e) => ({
-      executionId: e.executionId,
-      action: e.action,
-      actor: e.actor,
-      status: e.status === "error" ? "error" : "success",
-      errorCode: e.errorCode,
-      errorMessage: e.errorMessage,
-      startedAt: e.startedAt,
-      finishedAt: e.finishedAt,
-      outputSummary: e.outputSummary,
+    const result = await this.getConnectionExecutionLogs({ service, limit: 20 })
+    return result.items
+  }
+
+  public async listActions(service: string): Promise<ConnectionAction[]> {
+    const result = await this.getConnector<RawAction[]>(`/v1/actions?service=${encodeURIComponent(service)}`)
+    return result.data
+      .filter((action) => typeof action.name === "string")
+      .map((action) => ({
+        id: action.id ?? `${action.service}.${action.name}`,
+        service: action.service,
+        name: action.name as string,
+        description: action.description,
+        requiredScopes: action.requiredScopes ?? [],
+      }))
+  }
+
+  public async listAccounts(service: string): Promise<ConnectionAccount[]> {
+    const result = await this.getConnector<RawAccount[]>(`/v1/apps/services/${encodeURIComponent(service)}`)
+    return result.data.map((account) => ({
+      id: account.id,
+      service: account.service,
+      accountLabel: account.accountLabel ?? account.displayName ?? account.providerAccountId ?? account.id,
+      alias: account.alias ?? undefined,
+      status: account.status ?? "unknown",
+      isDefault: Boolean(account.isDefault),
+      authType: account.authType ?? undefined,
+      scopes: account.scopes ?? [],
+      providerAccountId: account.providerAccountId ?? "",
+      createdAt: account.createdAt,
+      updatedAt: account.updatedAt,
     }))
   }
 
   public async updateAlias(appId: string, alias: string): Promise<void> {
-    this.assertReady()
-    await this.connectorRequest(`/v1/apps/by-id/${encodeURIComponent(appId)}`, {
+    await this.requestConnector(`/v1/apps/by-id/${encodeURIComponent(appId)}`, {
       method: "PATCH",
       body: JSON.stringify({ alias: alias.trim() === "" ? null : alias.trim() }),
     })
+    this.clearConnectorGetCache()
     await this.refreshAndEmit()
   }
 
   public async setDefaultAccount(service: string, appId: string): Promise<void> {
-    this.assertReady()
-    await this.connectorRequest(`/v1/apps/services/${encodeURIComponent(service)}/default`, {
+    await this.requestConnector(`/v1/apps/services/${encodeURIComponent(service)}/default`, {
       method: "PUT",
       body: JSON.stringify({ appId }),
     })
+    this.clearConnectorGetCache()
     await this.refreshAndEmit()
   }
 
   public async openExternal(url: string): Promise<void> {
-    const parsed = new URL(url)
-    if (parsed.protocol !== "https:") {
-      throw new Error(`Refusing to open non-https URL: ${parsed.protocol}`)
-    }
-    await shell.openExternal(parsed.toString())
+    await shell.openExternal(parseConnectorAuthorizationUrl(url).toString())
   }
 
-  private assertReady(): void {
-    if (!this.apiKey) {
-      throw new Error("Connections not available (sign in first)")
-    }
-  }
-
-  /** 重新拉取摘要并广播（凭证 / endpoint 变化后由 main 调用，面板即时刷新）。 */
+  /** 重新拉取摘要并广播（凭证变化后由 main 调用，面板即时刷新）。 */
   public async refreshAndEmit(): Promise<ConnectionSummary> {
-    const epoch = this.credentialEpoch
-    const summary = await this.getSummary()
-    // 拉取期间凭证已换代：结果照常返回给调用方，但不广播（防旧账号摘要乱序覆盖新状态）。
-    if (epoch === this.credentialEpoch) {
-      await this.send("connectionSummaryChanged", { summary })
-    }
+    const summary = await this.getConnectionSummary({ forceRefresh: true })
+    await this.emitSummaryChanged(summary)
     return summary
   }
 
-  private async connectorRequest<T>(path: string, init: RequestInit): Promise<T> {
-    const response = await fetch(`${connectorBaseUrl}${path}`, {
-      ...init,
-      // Lumo 用网关 api-key → Authorization: Bearer，不带 x-oomol-user-uuid（与 oo-desktop 不同）。
-      headers: { Authorization: `Bearer ${this.apiKey ?? ""}`, "content-type": "application/json" },
-      signal: AbortSignal.timeout(20_000),
-    })
-    const text = await response.text()
-    let payload: unknown
-    if (text) {
-      try {
-        payload = JSON.parse(text)
-      } catch {
-        payload = text
+  private async refreshConnectionSummary(
+    accountKey: string,
+    request: ConnectionSummaryRequest,
+    generation: number,
+  ): Promise<ConnectionSummary> {
+    try {
+      const context = this.createConnectorRequestContext(accountKey)
+      const usageResultsRequest = Promise.allSettled([
+        this.getConnectorWithContext<unknown>(context, `/v1/usage/daily?days=${connectionUsageSummaryDays}`, request),
+        this.getConnectorWithContext<unknown>(
+          context,
+          `/v1/usage/services?days=${connectionUsageSummaryDays}`,
+          request,
+        ),
+      ])
+      const [appsResult, providersResult, usageResults] = await Promise.all([
+        this.getConnectorWithContext<RawApp[]>(context, "/v1/apps", request),
+        this.getConnectorWithContext<RawProvider[]>(context, "/v1/providers", request),
+        usageResultsRequest,
+      ])
+      const summary = mergeConnectionSummary({
+        apps: appsResult.data,
+        meta: appsResult.meta as RawAppListMeta | null,
+        providers: providersResult.data,
+        usage: normalizeOptionalUsageSummary(usageResults),
+      })
+
+      if (!this.isCurrentConnectionSummaryRefresh(accountKey, generation)) {
+        return this.createSupersededConnectionSummary(accountKey)
       }
+
+      this.setConnectionSummaryCache(accountKey, summary)
+      return summary
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (!this.isCurrentConnectionSummaryRefresh(accountKey, generation)) {
+        return this.createSupersededConnectionSummary(accountKey, message)
+      }
+
+      const previousSummary = this.getLastReadySummary(accountKey)
+      if (previousSummary) {
+        const fallback = createUnavailableConnectionSummaryFallback(previousSummary, message)
+        this.setConnectionSummaryCache(accountKey, fallback)
+        return fallback
+      }
+
+      const summary = createEmptyConnectionSummary("unavailable", message)
+      this.setConnectionSummaryCache(accountKey, summary)
+      return summary
     }
+  }
+
+  private createConnectorRequestContext(accountKey: string): ConnectorRequestContext {
+    return {
+      accountKey,
+      connectorOrigin: connectorBaseUrl,
+      headers: {
+        Authorization: `Bearer ${accountKey}`,
+        "content-type": "application/json",
+      },
+    }
+  }
+
+  private async requestConnector<T>(
+    path: string,
+    init: RequestInit & { headers?: Record<string, string> } = {},
+  ): Promise<{ data: T; meta: unknown }> {
+    const context = this.getConnectorRequestContext()
+    const response = await fetch(`${context.connectorOrigin}${path}`, {
+      ...init,
+      headers: { ...context.headers, ...init.headers },
+      signal: init.signal ?? AbortSignal.timeout(20_000),
+    })
+    const payload = await readConnectorPayload(response)
     if (!response.ok) {
       throw new Error(`Connector ${path} failed: ${extractEnvelopeMessage(payload) ?? `HTTP ${response.status}`}`)
     }
-    return unwrapEnvelope(payload) as T
+    return unwrapConnectorEnvelope<T>(payload)
   }
-}
 
-function unwrapEnvelope(payload: unknown): unknown {
-  if (Array.isArray(payload)) {
-    return payload
-  }
-  if (payload && typeof payload === "object" && "data" in payload) {
-    return (payload as { data: unknown }).data
-  }
-  return payload
-}
-
-function extractEnvelopeMessage(payload: unknown): string | undefined {
-  if (payload && typeof payload === "object") {
-    const p = payload as { message?: unknown; errorMessage?: unknown }
-    if (typeof p.errorMessage === "string") {
-      return p.errorMessage
+  private getConnectorRequestContext(): ConnectorRequestContext {
+    if (!this.apiKey) {
+      throw new Error("Connections not available (sign in first)")
     }
-    if (typeof p.message === "string") {
-      return p.message
+    return this.createConnectorRequestContext(this.apiKey)
+  }
+
+  private getConnector<T>(path: string, options: { forceRefresh?: boolean } = {}): Promise<{ data: T; meta: unknown }> {
+    return this.getConnectorWithContext(this.getConnectorRequestContext(), path, options)
+  }
+
+  private async getConnectorWithContext<T>(
+    context: ConnectorRequestContext,
+    path: string,
+    options: { forceRefresh?: boolean } = {},
+  ): Promise<{ data: T; meta: unknown }> {
+    const cacheKey = `${context.connectorOrigin}:${context.accountKey}:${path}`
+    const cached = this.connectorGetCache.get(cacheKey) as ConnectorCacheEntry<T> | undefined
+    const now = Date.now()
+
+    if (!options.forceRefresh && cached && now - cached.fetchedAt < connectorGetCacheMs) {
+      return { data: cached.data, meta: cached.meta }
+    }
+
+    const inFlight = this.connectorGetInFlight.get(cacheKey)
+    if (!options.forceRefresh && inFlight) {
+      return inFlight as Promise<{ data: T; meta: unknown }>
+    }
+
+    const request = this.fetchConnectorGet<T>(context, path, cacheKey, cached).finally(() => {
+      this.connectorGetInFlight.delete(cacheKey)
+    })
+    this.connectorGetInFlight.set(cacheKey, request as Promise<{ data: unknown; meta: unknown }>)
+    return request
+  }
+
+  private async fetchConnectorGet<T>(
+    context: ConnectorRequestContext,
+    path: string,
+    cacheKey: string,
+    cached: ConnectorCacheEntry<T> | undefined,
+  ): Promise<{ data: T; meta: unknown }> {
+    const response = await fetch(`${context.connectorOrigin}${path}`, {
+      headers: {
+        ...context.headers,
+        ...(cached?.etag ? { "if-none-match": cached.etag } : {}),
+        ...(cached?.lastModified ? { "if-modified-since": cached.lastModified } : {}),
+      },
+      signal: AbortSignal.timeout(20_000),
+    })
+
+    if (response.status === 304 && cached) {
+      cached.fetchedAt = Date.now()
+      return { data: cached.data, meta: cached.meta }
+    }
+
+    const payload = await readConnectorPayload(response)
+    if (!response.ok) {
+      throw new Error(`Connector request failed with status ${response.status}`)
+    }
+
+    const result = unwrapConnectorEnvelope<T>(payload)
+    this.connectorGetCache.set(cacheKey, {
+      data: result.data,
+      etag: asString(response.headers.get("etag")),
+      fetchedAt: Date.now(),
+      lastModified: asString(response.headers.get("last-modified")),
+      meta: result.meta,
+    })
+    return result
+  }
+
+  private clearConnectorGetCache(): void {
+    this.connectorGetCache.clear()
+    this.connectorGetInFlight.clear()
+    this.invalidateConnectionSummaryCache()
+  }
+
+  private clearConnectionSummaryState(): void {
+    this.invalidateConnectionSummaryCache({ clearLastReady: true })
+  }
+
+  private invalidateConnectionSummaryCache(options: { clearLastReady?: boolean } = {}): void {
+    this.connectionSummaryCache = undefined
+    this.connectionSummaryInFlight = undefined
+    this.connectionSummaryGeneration += 1
+    if (options.clearLastReady) {
+      this.lastReadySummary = undefined
     }
   }
-  return undefined
+
+  private getCachedConnectionSummary(accountKey: string, now: number): ConnectionSummary | undefined {
+    const entry = this.connectionSummaryCache
+    if (!isAccountEntry(entry, accountKey)) {
+      return undefined
+    }
+    return now - entry.fetchedAt < connectionSummaryCacheMs ? entry.summary : undefined
+  }
+
+  private setConnectionSummaryCache(accountKey: string, summary: ConnectionSummary): void {
+    this.connectionSummaryCache = { accountKey, fetchedAt: Date.now(), summary }
+    if (summary.status === "ready") {
+      this.lastReadySummary = { accountKey, fetchedAt: Date.now(), summary }
+    }
+  }
+
+  private getLastReadySummary(accountKey: string): ConnectionSummary | undefined {
+    const entry = this.lastReadySummary
+    return isAccountEntry(entry, accountKey) ? entry.summary : undefined
+  }
+
+  private isCurrentConnectionSummaryRefresh(accountKey: string, generation: number): boolean {
+    return this.connectionSummaryGeneration === generation && this.apiKey === accountKey
+  }
+
+  private createSupersededConnectionSummary(accountKey: string, message?: string): ConnectionSummary {
+    return createSupersededConnectionSummaryFallback({
+      accountMatches: this.apiKey === accountKey,
+      cached: this.getCachedConnectionSummary(accountKey, Date.now()),
+      message,
+      previous: this.getLastReadySummary(accountKey),
+    })
+  }
+
+  private async emitSummaryChanged(summary: ConnectionSummary): Promise<void> {
+    await this.send("connectionSummaryChanged", { summary })
+  }
 }
 
-/** connector 原始返回形状（仅取本端用到的字段）。 */
-interface RawField {
-  key: string
-  label: string
-  required: boolean
-  secret?: boolean
-  placeholder?: string
-  description?: string
-}
+async function readConnectorPayload(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) {
+    return null
+  }
 
-interface RawProviderDetail {
-  service: string
-  displayName?: string
-  iconUrl?: string
-  homepageUrl?: string
-  categories?: Array<{ id?: string; displayName?: string }>
-  authTypes?: ConnectionAuthType[]
-  apiKeyConfig?: {
-    label?: string
-    placeholder?: string
-    description?: string
-    extraFields?: RawField[]
-  } | null
-  customCredentialConfig?: { fields?: RawField[] } | null
-  federatedCredentialConfig?: { fields?: RawField[] } | null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
 }
 
 interface RawAccount {
-  id: string
-  service: string
   accountLabel?: string
-  displayName?: string
   alias?: string | null
-  status?: string
-  isDefault?: boolean
-  authType?: ConnectionAuthType | null
-  scopes?: string[]
-  providerAccountId?: string
+  authType?: ConnectionAccount["authType"]
   createdAt?: number
+  displayName?: string
+  id: string
+  isDefault?: boolean
+  providerAccountId?: string
+  scopes?: string[]
+  service: string
+  status?: string
   updatedAt?: number
 }
 
 interface RawAction {
-  id?: string
-  service: string
-  name?: string
   description?: string
+  id?: string
+  name?: string
   requiredScopes?: string[]
-}
-
-interface RawExecution {
-  executionId: string
-  action: string
-  actor?: string
-  status?: string
-  errorCode?: string
-  errorMessage?: string
-  startedAt?: string
-  finishedAt?: string
-  outputSummary?: string
+  service: string
 }

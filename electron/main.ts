@@ -19,10 +19,13 @@ import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { ConnectionsServiceImpl } from "./connections/node.ts"
+import { ModelsServiceImpl } from "./models/node.ts"
+import { ModelsStore } from "./models/store.ts"
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { SessionServiceImpl } from "./session/node.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
+import { SkillServiceImpl } from "./skills/node.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -45,11 +48,13 @@ let mainWindow: BrowserWindow | null = null
 const server = new ConnectionServer(new ElectronServerAdapter())
 
 const settingsStore = new SettingsStore(app.getPath("userData"))
+const modelsStore = new ModelsStore(app.getPath("userData"))
 // 二进制解析：生产从打包 Resources/bin（extraResources），dev 从 node_modules（opencode）与 .oo-bin（oo）。
 const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
   : resolveDevOpencodeBin(appRoot)
 const ooBinPath = app.isPackaged ? resolveBundledBin(process.resourcesPath, ooBinaryName()) : resolveOoBin()
+process.env.OO_CLI_PATH = ooBinPath
 
 // Agent 内核：凭证来自浏览器登录（userData/auth.json，账号默认 api-key 等价旧 OO_API_KEY env）。
 // 未登录时 agent=null，服务仍注册但 isReady()=false，渲染层显示登录页；
@@ -57,10 +62,16 @@ const ooBinPath = app.isPackaged ? resolveBundledBin(process.resourcesPath, ooBi
 let agent: AgentManager | null = null
 // 装配串行化：登录后紧接登出时避免 dispose/start 交错。
 let applyChain: Promise<void> = Promise.resolve()
+let modelConfigVersion = 0
+let appliedModelConfigVersion = -1
 
 const authStore = new AuthStore(app.getPath("userData"))
 const chatService = new ChatServiceImpl()
 const sessionService = new SessionServiceImpl()
+const modelsService = new ModelsServiceImpl({
+  store: modelsStore,
+  onCustomModelsChanged: restartAgentForModelConfig,
+})
 // Connections 直调 connector HTTP（与 agent 解耦），复用同一账号 api-key。
 const connectionsService = new ConnectionsServiceImpl()
 // 凭证逻辑在未注册的 AuthManager；注册给渲染层的 AuthServiceImpl 只是薄门面（防 RPC 凭证泄露）。
@@ -70,6 +81,7 @@ const authManager = new AuthManager({
   applyAccount: applyAuthAccount,
 })
 const authService = new AuthServiceImpl(authManager)
+const skillService = new SkillServiceImpl(authManager)
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
 })
@@ -89,6 +101,8 @@ if (!isLocked) {
 server.registerService(chatService)
 server.registerService(sessionService)
 server.registerService(connectionsService)
+server.registerService(skillService)
+server.registerService(modelsService)
 server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)
@@ -161,6 +175,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     effectiveAccount &&
     appliedAccount &&
     agent?.isReady() &&
+    appliedModelConfigVersion === modelConfigVersion &&
     effectiveAccount.id === appliedAccount.id &&
     effectiveAccount.apiKey === appliedAccount.apiKey &&
     effectiveAccount.sessionToken === appliedAccount.sessionToken
@@ -186,6 +201,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     opencodeBinPath,
     ooBinPath,
     rootDir: path.join(app.getPath("userData"), "agent"),
+    customModels: await modelsStore.runtimeCustomModels(),
   })
   agent = nextAgent
   chatService.setAgent(nextAgent)
@@ -201,8 +217,16 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     throw error
   }
   appliedAccount = effectiveAccount
+  appliedModelConfigVersion = modelConfigVersion
   chatService.startEventBridge()
   console.log("[lumo] agent sidecar ready at", nextAgent.url)
+}
+
+function restartAgentForModelConfig(): void {
+  modelConfigVersion += 1
+  void applyAuthAccount(authManager.activeAccount()).catch((error: unknown) => {
+    console.error("[lumo] failed to restart agent after model config change:", error)
+  })
 }
 
 /**

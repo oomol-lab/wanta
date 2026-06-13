@@ -1,8 +1,10 @@
-import type { AuthService } from "../../electron/auth/common"
-import type { ChatService } from "../../electron/chat/common"
-import type { ConnectionsService } from "../../electron/connections/common"
-import type { SessionService } from "../../electron/session/common"
-import type { SettingsService } from "../../electron/settings/common"
+import type { AuthService } from "../../electron/auth/common.ts"
+import type { ChatService } from "../../electron/chat/common.ts"
+import type { ConnectionsService } from "../../electron/connections/common.ts"
+import type { ModelsService } from "../../electron/models/common.ts"
+import type { SessionService } from "../../electron/session/common.ts"
+import type { SettingsService } from "../../electron/settings/common.ts"
+import type { SkillService } from "../../electron/skills/common.ts"
 import type { UpdateService } from "../../electron/update/common.ts"
 import type { ConnectionClientService } from "@oomol/connection"
 
@@ -12,6 +14,8 @@ export interface AppContextValue {
   chatService: ConnectionClientService<ChatService>
   sessionService: ConnectionClientService<SessionService>
   connectionsService: ConnectionClientService<ConnectionsService>
+  skillService: ConnectionClientService<SkillService>
+  modelsService: ConnectionClientService<ModelsService>
   settingsService: ConnectionClientService<SettingsService>
   authService: ConnectionClientService<AuthService>
   updateService: ConnectionClientService<UpdateService>
@@ -37,6 +41,14 @@ export function useSessionService(): ConnectionClientService<SessionService> {
 
 export function useConnectionsService(): ConnectionClientService<ConnectionsService> {
   return useAppContext().connectionsService
+}
+
+export function useSkillService(): ConnectionClientService<SkillService> {
+  return useAppContext().skillService
+}
+
+export function useModelsService(): ConnectionClientService<ModelsService> {
+  return useAppContext().modelsService
 }
 
 export function useSettingsService(): ConnectionClientService<SettingsService> {

@@ -1,9 +1,8 @@
 import type { UIMessage } from "ai"
-import type { HTMLAttributes } from "react"
+import type { ComponentProps, HTMLAttributes } from "react"
 import type { StreamdownProps } from "streamdown"
 
 import { lazy, memo, Suspense } from "react"
-import { MarkdownTable } from "./markdown-table.tsx"
 import { cn } from "@/lib/utils"
 
 // streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
@@ -43,17 +42,42 @@ export const MessageContent = ({ children, className, ...props }: MessageContent
 
 export type MessageResponseProps = StreamdownProps
 
+type MarkdownTableProps = ComponentProps<"table"> & {
+  node?: unknown
+}
+
+function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
+  return (
+    <div className="my-3 min-w-0 overflow-x-auto rounded-md border border-border bg-background">
+      <table className={cn("w-full min-w-max divide-y divide-border text-sm", className)} {...props}>
+        {children}
+      </table>
+    </div>
+  )
+}
+
 const messageResponseComponents = {
   table: MarkdownTable,
 } satisfies MessageResponseProps["components"]
 
+function messageResponseControls(controls: MessageResponseProps["controls"]): MessageResponseProps["controls"] {
+  if (controls === undefined) {
+    return { table: false }
+  }
+  if (typeof controls === "boolean") {
+    return controls
+  }
+  return { table: false, ...controls }
+}
+
 export const MessageResponse = memo(
-  ({ className, components, ...props }: MessageResponseProps) => (
+  ({ className, components, controls, ...props }: MessageResponseProps) => (
     // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
     <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{props.children}</div>}>
       <Streamdown
         className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
         components={{ ...messageResponseComponents, ...components }}
+        controls={messageResponseControls(controls)}
         {...props}
       />
     </Suspense>

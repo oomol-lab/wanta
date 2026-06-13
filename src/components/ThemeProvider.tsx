@@ -1,7 +1,7 @@
-import type { EffectiveTheme, ThemeContextValue, ThemePreference } from "./theme-context"
+import type { EffectiveTheme, ThemeContextValue, ThemePreference } from "./theme-context.ts"
 
 import * as React from "react"
-import { isThemePreference, ThemeContext, themeStorageKey } from "./theme-context"
+import { isThemePreference, ThemeContext, themeStorageKey } from "./theme-context.ts"
 import { useSettingsService } from "@/components/AppContext"
 
 function readInitialPreference(): ThemePreference {

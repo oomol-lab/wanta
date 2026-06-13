@@ -1,7 +1,10 @@
 import { lazy, Suspense } from "react"
+import { AppDataProvider } from "@/components/AppDataProvider"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { ThemeProvider } from "@/components/ThemeProvider"
 import { Button } from "@/components/ui/button"
+import { Toaster } from "@/components/ui/sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuth } from "@/hooks/useAuth"
 import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
 import { useT } from "@/i18n/i18n"
@@ -31,7 +34,12 @@ function AuthGate() {
   return (
     <ErrorBoundary fallback={<AppShellFallback />}>
       <Suspense fallback={<div className="h-full bg-background" />}>
-        <AppShell key={account?.id} />
+        <AppDataProvider>
+          <TooltipProvider>
+            <AppShell key={account?.id} />
+            <Toaster />
+          </TooltipProvider>
+        </AppDataProvider>
       </Suspense>
     </ErrorBoundary>
   )

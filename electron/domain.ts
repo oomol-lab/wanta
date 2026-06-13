@@ -24,6 +24,12 @@ export const apiBaseUrl = `https://api.${ooEndpoint}`
 /** Hub 基址，如 `https://hub.oomol.com`（浏览器登录页所在域）。 */
 export const hubBaseUrl = `https://hub.${ooEndpoint}`
 
+/** 技能 registry 基址，如 `https://registry.oomol.com`。 */
+export const registryBaseUrl = `https://registry.${ooEndpoint}`
+
+/** 技能搜索基址，如 `https://search.oomol.com`。 */
+export const searchBaseUrl = `https://search.${ooEndpoint}`
+
 /** 自动更新静态分发基址，如 `https://static.oomol.com`（路径段见 branding.updateFeedPath）。 */
 export const staticBaseUrl = `https://static.${ooEndpoint}`
 

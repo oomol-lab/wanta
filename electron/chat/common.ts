@@ -1,3 +1,4 @@
+import type { ModelChoice } from "../models/common.ts"
 import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
@@ -104,6 +105,7 @@ export interface SendMessageRequest {
   sessionId: string
   text: string
   attachments?: ChatAttachment[]
+  model?: ModelChoice
 }
 
 export interface ChatAttachment {

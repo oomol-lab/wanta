@@ -4,18 +4,27 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ToolStatus,
-} from "../../../electron/chat/common"
-import type { ConnectionProvider } from "../../../electron/connections/common"
+} from "../../../electron/chat/common.ts"
+import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type {
+  CustomModelProvider,
+  ModelCatalog,
+  ModelChoice,
+  SaveCustomModelRequest,
+} from "../../../electron/models/common.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ChatStatus } from "ai"
 
 import {
   AlertTriangle,
+  Bot,
+  Brain,
   CheckCircle2,
   ChevronDown,
   Circle,
   Clock3,
+  ExternalLink,
   File as FileIcon,
   FileArchive,
   FileCode,
@@ -29,14 +38,18 @@ import {
   Plug,
   Plus,
   RotateCcw,
+  Settings2,
   Sparkles,
   Square,
   Terminal,
+  Trash2,
   Wrench,
   X,
 } from "lucide-react"
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { visibleUserText } from "./message-text.ts"
+import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
@@ -51,9 +64,13 @@ import {
 } from "@/components/ai-elements/prompt-input"
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
-import { useChatService } from "@/components/AppContext"
+import { useChatService, useModelsService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Dialog } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
@@ -67,7 +84,7 @@ interface ChatAreaProps {
   initialSendPending: boolean
   providers: ConnectionProvider[]
   placeholder: string
-  onSend: (text: string, attachments: ChatAttachment[]) => void
+  onSend: (text: string, attachments: ChatAttachment[], model?: ModelChoice) => void
   onStop: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
 }
@@ -551,37 +568,6 @@ function ToolActivity({
   )
 }
 
-function isRenderablePart(part: ChatMessagePart): boolean {
-  return part.kind === "tool" || Boolean(part.text)
-}
-
-type RenderBlock = { kind: "text"; part: ChatMessagePart } | { kind: "tools"; key: string; parts: ChatMessagePart[] }
-
-function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
-  const blocks: RenderBlock[] = []
-  let pendingTools: ChatMessagePart[] = []
-  const flushTools = () => {
-    if (pendingTools.length === 0) {
-      return
-    }
-    blocks.push({ kind: "tools", key: pendingTools.map((part) => part.partId).join(":"), parts: pendingTools })
-    pendingTools = []
-  }
-  for (const part of parts) {
-    if (!isRenderablePart(part)) {
-      continue
-    }
-    if (part.kind === "tool") {
-      pendingTools.push(part)
-      continue
-    }
-    flushTools()
-    blocks.push({ kind: "text", part })
-  }
-  flushTools()
-  return blocks
-}
-
 function MessageBubble({
   message,
   providerByService,
@@ -618,23 +604,37 @@ function MessageBubble({
   if (blocks.length === 0) {
     return null
   }
+  const blockClassName = (index: number): string | undefined => {
+    if (index === 0) {
+      return undefined
+    }
+    const previous = blocks[index - 1]
+    const current = blocks[index]
+    if (!previous || !current) {
+      return undefined
+    }
+    if (previous.kind === "tools" && current.kind === "tools") {
+      return "mt-1"
+    }
+    if (previous.kind !== current.kind) {
+      return "mt-3"
+    }
+    return "mt-2"
+  }
   return (
     <Message from="assistant">
-      <MessageContent>
-        {blocks.map((block) =>
-          block.kind === "text" ? (
-            block.part.text ? (
-              <MessageResponse key={block.part.partId}>{block.part.text}</MessageResponse>
-            ) : null
-          ) : (
-            <ToolActivity
-              key={block.key}
-              parts={block.parts}
-              providerByService={providerByService}
-              onAuthorize={onAuthorize}
-            />
-          ),
-        )}
+      <MessageContent className="gap-0">
+        {blocks.map((block, index) => (
+          <div key={block.kind === "text" ? block.part.partId : block.key} className={blockClassName(index)}>
+            {block.kind === "text" ? (
+              block.part.text ? (
+                <MessageResponse>{block.part.text}</MessageResponse>
+              ) : null
+            ) : (
+              <ToolActivity parts={block.parts} providerByService={providerByService} onAuthorize={onAuthorize} />
+            )}
+          </div>
+        ))}
       </MessageContent>
     </Message>
   )
@@ -925,6 +925,401 @@ function AssistantPendingMessage() {
   )
 }
 
+function sameModelChoice(a: ModelChoice | undefined, b: ModelChoice | undefined): boolean {
+  return Boolean(a && b && a.kind === b.kind && a.id === b.id)
+}
+
+function selectedModelSummary(catalog: ModelCatalog | null): { label: string; provider: string } {
+  if (!catalog) {
+    return { label: "Auto", provider: "OOMOL" }
+  }
+  const selected = catalog.selected
+  if (selected.kind === "custom") {
+    const custom = catalog.customModels.find((model) => model.id === selected.id)
+    if (custom) {
+      return { label: custom.modelName, provider: custom.providerName }
+    }
+  }
+  const builtin =
+    (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
+    catalog.builtins.find((model) => model.id === "oomol-chat") ??
+    catalog.builtins[0]
+  return { label: builtin?.displayName ?? "Auto", provider: builtin?.providerName ?? "OOMOL" }
+}
+
+function providerInitial(name: string): string {
+  return (name.trim()[0] ?? "M").toUpperCase()
+}
+
+function ProviderMark({ name }: { name: string }) {
+  return (
+    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-medium text-muted-foreground">
+      {providerInitial(name)}
+    </span>
+  )
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function ModelRow({
+  active,
+  icon,
+  title,
+  subtitle,
+  deleteLabel,
+  onSelect,
+  onDelete,
+}: {
+  active: boolean
+  icon: React.ReactNode
+  title: string
+  subtitle: string
+  deleteLabel?: string
+  onSelect: () => void
+  onDelete?: () => void
+}) {
+  return (
+    <div className="group flex min-w-0 items-center gap-1">
+      <button
+        type="button"
+        className={cn(
+          "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-accent-foreground",
+          active && "bg-accent text-accent-foreground",
+        )}
+        onClick={onSelect}
+      >
+        {icon}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm leading-5">{title}</span>
+          <span className="block truncate text-xs leading-4 text-muted-foreground">{subtitle}</span>
+        </span>
+        {active ? <CheckCircle2 className="size-3.5 shrink-0 text-green-600" /> : null}
+      </button>
+      {onDelete ? (
+        <button
+          type="button"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100"
+          aria-label={deleteLabel}
+          onClick={(event) => {
+            event.stopPropagation()
+            onDelete()
+          }}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function ModelPicker({
+  catalog,
+  disabled,
+  onSelect,
+  onDelete,
+  onAdd,
+}: {
+  catalog: ModelCatalog | null
+  disabled: boolean
+  onSelect: (choice: ModelChoice) => void
+  onDelete: (id: string) => void
+  onAdd: () => void
+}) {
+  const t = useT()
+  const [open, setOpen] = React.useState(false)
+  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({})
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
+  const menuRef = React.useRef<HTMLDivElement | null>(null)
+  const selected = selectedModelSummary(catalog)
+
+  const updateMenuPosition = React.useCallback(() => {
+    const anchor = rootRef.current
+    if (!anchor) {
+      return
+    }
+    const rect = anchor.getBoundingClientRect()
+    const margin = 16
+    const gap = 8
+    const width = Math.min(320, window.innerWidth - margin * 2)
+    const left = clampNumber(rect.right - width, margin, window.innerWidth - width - margin)
+    const bottom = Math.max(margin, window.innerHeight - rect.top + gap)
+    const maxHeight = Math.max(180, rect.top - margin - gap)
+    setMenuStyle({ left, bottom, width, maxHeight })
+  }, [])
+
+  React.useLayoutEffect(() => {
+    if (open) {
+      updateMenuPosition()
+    }
+  }, [open, updateMenuPosition])
+
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
+    const onMouseDown = (event: MouseEvent): void => {
+      const target = event.target as Node
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
+        setOpen(false)
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setOpen(false)
+      }
+    }
+    const onReposition = (): void => updateMenuPosition()
+    document.addEventListener("mousedown", onMouseDown)
+    document.addEventListener("keydown", onKeyDown)
+    window.addEventListener("resize", onReposition)
+    window.addEventListener("scroll", onReposition, true)
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown)
+      document.removeEventListener("keydown", onKeyDown)
+      window.removeEventListener("resize", onReposition)
+      window.removeEventListener("scroll", onReposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const menu = open
+    ? createPortal(
+        <div
+          ref={menuRef}
+          style={menuStyle}
+          className="oo-border-divider fixed z-50 overflow-y-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-xl"
+        >
+          <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelBuiltIn")}</div>
+          {catalog?.builtins.map((model) => {
+            const choice: ModelChoice = { kind: "builtin", id: model.id }
+            return (
+              <ModelRow
+                key={model.id}
+                active={sameModelChoice(catalog.selected, choice)}
+                icon={<Bot className="size-4 shrink-0 text-muted-foreground" />}
+                title={model.displayName}
+                subtitle={model.providerName}
+                onSelect={() => {
+                  onSelect(choice)
+                  setOpen(false)
+                }}
+              />
+            )
+          }) ?? (
+            <ModelRow
+              active
+              icon={<Bot className="size-4 shrink-0 text-muted-foreground" />}
+              title="Auto"
+              subtitle="OOMOL"
+              onSelect={() => setOpen(false)}
+            />
+          )}
+
+          {catalog && catalog.customModels.length > 0 ? (
+            <>
+              <div className="mt-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelCustom")}</div>
+              {catalog.customModels.map((model) => {
+                const choice: ModelChoice = { kind: "custom", id: model.id }
+                return (
+                  <ModelRow
+                    key={model.id}
+                    active={sameModelChoice(catalog.selected, choice)}
+                    icon={<ProviderMark name={model.providerName} />}
+                    title={model.modelName}
+                    subtitle={model.providerName}
+                    deleteLabel={t("chat.modelDelete")}
+                    onSelect={() => {
+                      onSelect(choice)
+                      setOpen(false)
+                    }}
+                    onDelete={() => onDelete(model.id)}
+                  />
+                )
+              })}
+            </>
+          ) : null}
+
+          <div className="oo-border-divider mt-1 border-t pt-1">
+            <button
+              type="button"
+              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                setOpen(false)
+                onAdd()
+              }}
+            >
+              <Settings2 className="size-4 text-muted-foreground" />
+              <span>{t("chat.modelAdd")}</span>
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )
+    : null
+
+  return (
+    <div ref={rootRef}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        title={t("chat.modelPicker")}
+        aria-label={t("chat.modelPicker")}
+        aria-expanded={open}
+        disabled={disabled}
+        className="h-8 max-w-40 rounded-full px-2"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Brain className="size-4" />
+        <span className="min-w-0 truncate">{selected.label}</span>
+        <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+      </Button>
+      {menu}
+    </div>
+  )
+}
+
+function providerBaseUrl(provider: CustomModelProvider | undefined): string {
+  return provider?.baseUrl ?? ""
+}
+
+function AddCustomModelDialog({
+  open,
+  providers,
+  error,
+  onClose,
+  onSave,
+}: {
+  open: boolean
+  providers: CustomModelProvider[]
+  error: string | null
+  onClose: () => void
+  onSave: (req: SaveCustomModelRequest) => Promise<void>
+}) {
+  const t = useT()
+  const firstProvider = providers[0]
+  const [providerId, setProviderId] = React.useState(firstProvider?.id ?? "custom")
+  const [baseUrl, setBaseUrl] = React.useState(providerBaseUrl(firstProvider))
+  const [apiKey, setApiKey] = React.useState("")
+  const [modelName, setModelName] = React.useState("")
+  const [saving, setSaving] = React.useState(false)
+  const provider = providers.find((item) => item.id === providerId)
+
+  React.useEffect(() => {
+    if (open) {
+      const initial = providers[0]
+      setProviderId(initial?.id ?? "custom")
+      setBaseUrl(providerBaseUrl(initial))
+      setApiKey("")
+      setModelName("")
+      setSaving(false)
+    }
+  }, [open, providers])
+
+  const handleProviderChange = (nextId: string): void => {
+    const next = providers.find((item) => item.id === nextId)
+    setProviderId(nextId)
+    setBaseUrl(providerBaseUrl(next))
+  }
+
+  const canSave = Boolean(
+    providerId && apiKey.trim() && modelName.trim() && (!(provider?.requiresBaseUrl ?? true) || baseUrl.trim()),
+  )
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t("chat.modelAddTitle")}
+      description={t("chat.modelAddDescription")}
+      closeLabel={t("common.cancel")}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            type="button"
+            disabled={!canSave || saving}
+            onClick={() => {
+              setSaving(true)
+              void onSave({
+                providerId,
+                providerName: provider?.displayName,
+                baseUrl,
+                apiKey,
+                modelName,
+              }).finally(() => setSaving(false))
+            }}
+          >
+            {t("common.save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-4">
+        <div className="grid gap-1.5">
+          <Label>{t("chat.modelProvider")}</Label>
+          <Select value={providerId} onValueChange={handleProviderChange}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {providers.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="grid gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label>{t("chat.modelBaseUrl")}</Label>
+            {provider?.documentationUrl ? (
+              <a
+                href={provider.documentationUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-normal text-primary hover:underline"
+              >
+                {t("chat.modelDocs")}
+                <ExternalLink className="size-3" />
+              </a>
+            ) : null}
+          </div>
+          <Input
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.target.value)}
+            placeholder="https://api.example.com/v1"
+            readOnly={!provider?.requiresBaseUrl}
+          />
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label>{t("chat.modelApiKey")}</Label>
+          <Input
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            type="password"
+            placeholder="sk-..."
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label>{t("chat.modelName")}</Label>
+          <Input value={modelName} onChange={(event) => setModelName(event.target.value)} placeholder="deepseek-chat" />
+        </div>
+
+        {error ? <div className="oo-error flex items-center gap-2">{error}</div> : null}
+      </div>
+    </Dialog>
+  )
+}
+
 export function ChatArea({
   messages,
   status,
@@ -940,9 +1335,13 @@ export function ChatArea({
 }: ChatAreaProps) {
   const t = useT()
   const chatService = useChatService()
+  const modelsService = useModelsService()
   const [draft, setDraft] = React.useState("")
   const [attachments, setAttachments] = React.useState<DraftAttachment[]>([])
   const [inputError, setInputError] = React.useState<string | null>(null)
+  const [modelCatalog, setModelCatalog] = React.useState<ModelCatalog | null>(null)
+  const [modelDialogOpen, setModelDialogOpen] = React.useState(false)
+  const [modelError, setModelError] = React.useState<string | null>(null)
   const [voiceTranscribing, setVoiceTranscribing] = React.useState(false)
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
@@ -968,6 +1367,64 @@ export function ChatArea({
 
   React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
 
+  React.useEffect(() => {
+    let cancelled = false
+    void modelsService
+      .invoke("listModels")
+      .then((catalog) => {
+        if (!cancelled) {
+          setModelCatalog(catalog)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setModelError(error instanceof Error ? error.message : String(error))
+        }
+      })
+    const off = modelsService.serverEvents.on("modelsChanged", (catalog) => setModelCatalog(catalog))
+    return () => {
+      cancelled = true
+      off()
+    }
+  }, [modelsService])
+
+  const handleSelectModel = React.useCallback(
+    (choice: ModelChoice) => {
+      setModelError(null)
+      void modelsService
+        .invoke("setSelectedModel", choice)
+        .then(setModelCatalog)
+        .catch((error) => setModelError(error instanceof Error ? error.message : String(error)))
+    },
+    [modelsService],
+  )
+
+  const handleDeleteModel = React.useCallback(
+    (id: string) => {
+      setModelError(null)
+      void modelsService
+        .invoke("deleteCustomModel", id)
+        .then(setModelCatalog)
+        .catch((error) => setModelError(error instanceof Error ? error.message : String(error)))
+    },
+    [modelsService],
+  )
+
+  const handleSaveModel = React.useCallback(
+    async (req: SaveCustomModelRequest) => {
+      setModelError(null)
+      try {
+        const catalog = await modelsService.invoke("saveCustomModel", req)
+        setModelCatalog(catalog)
+        setModelDialogOpen(false)
+      } catch (error) {
+        setModelError(error instanceof Error ? error.message : String(error))
+        throw error
+      }
+    },
+    [modelsService],
+  )
+
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
   // 的 onClick），避免生成中按回车误中止流。
   const handleSubmit = (message: PromptInputMessage): void => {
@@ -975,7 +1432,7 @@ export function ChatArea({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
-    onSend(text, attachments)
+    onSend(text, attachments, modelCatalog?.selected)
     revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
@@ -1057,7 +1514,7 @@ export function ChatArea({
     voiceRecorder.cancel()
   }, [voiceRecorder])
 
-  const visibleError = error ?? inputError ?? voiceError ?? voiceRecorder.error
+  const visibleError = error ?? inputError ?? modelError ?? voiceError ?? voiceRecorder.error
   const errorBanner = visibleError ? (
     <div className="oo-error flex items-center gap-2">
       <AlertTriangle className="size-4" />
@@ -1194,6 +1651,16 @@ export function ChatArea({
             </>
           ) : (
             <>
+              <ModelPicker
+                catalog={modelCatalog}
+                disabled={disabled || initialSendPending}
+                onSelect={handleSelectModel}
+                onDelete={handleDeleteModel}
+                onAdd={() => {
+                  setModelError(null)
+                  setModelDialogOpen(true)
+                }}
+              />
               <Button
                 type="button"
                 variant="ghost"
@@ -1238,6 +1705,16 @@ export function ChatArea({
     </PromptInput>
   )
 
+  const modelDialog = (
+    <AddCustomModelDialog
+      open={modelDialogOpen}
+      providers={modelCatalog?.providers ?? []}
+      error={modelError}
+      onClose={() => setModelDialogOpen(false)}
+      onSave={handleSaveModel}
+    />
+  )
+
   if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
     return (
       <div className="grid h-full min-h-0 animate-in place-items-center px-1 py-6 duration-200 fade-in">
@@ -1248,6 +1725,7 @@ export function ChatArea({
           </div>
           {errorBanner}
           {promptInput}
+          {modelDialog}
         </div>
       </div>
     )
@@ -1276,6 +1754,7 @@ export function ChatArea({
       <div className="mx-auto flex w-full max-w-[50rem] flex-col gap-2 px-4 transition-transform duration-300 ease-out">
         {errorBanner}
         {promptInput}
+        {modelDialog}
       </div>
     </div>
   )

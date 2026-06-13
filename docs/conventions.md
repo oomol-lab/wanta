@@ -33,7 +33,8 @@
 
 ## 4. 语言与日志
 
-- 注释 / commit message：中文。代码标识符 / 系统提示词 / 日志文本：英文。
+- 注释：中文。代码标识符 / 系统提示词 / 日志文本：英文。
+- 所有 Git 操作中的人类可读文本必须用英文，包括但不限于 commit message、branch name、PR title、PR description、PR review/comment、tag/release note；不要为 Codex/agent 提交使用中文 Git 文案。
 - 文档（docs/ 与根指南）：按主题组织，**不写 commit hash、不逐 commit 追加记录**（git log 才是历史的权威来源）；不硬编码根指南的文件名（它以两个互为 symlink 的名字存在）。
 - 主进程业务日志统一 `console.*("[lumo] ...")` 前缀。既存例外（历史遗留，新代码勿仿）：`electron/protocol.ts` 用 `[protocol]` 前缀、`electron/preload.ts` 的 contextBridge 兜底 `console.error(error)` 无前缀。
 - **deep-link 日志必须脱敏**（query 含可兑换凭证的 authID）：只记 scheme/host/path（见 `main.ts` 的 `redactDeepLink`）。

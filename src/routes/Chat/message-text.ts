@@ -27,6 +27,44 @@ export function copyableMessageText(message: Pick<ChatMessage, "parts" | "role">
   return textParts.join("\n\n").trim()
 }
 
+export function assistantResponseActionTextByMessageId(
+  messages: Pick<ChatMessage, "id" | "parts" | "role">[],
+  activeAssistantMessageId?: string,
+): Map<string, string> {
+  const textByMessageId = new Map<string, string>()
+  let group: Pick<ChatMessage, "id" | "parts" | "role">[] = []
+
+  const flushGroup = (): void => {
+    const last = group.at(-1)
+    if (!last) {
+      return
+    }
+    if (last.id === activeAssistantMessageId) {
+      group = []
+      return
+    }
+    const text = group
+      .map((message) => copyableMessageText(message))
+      .filter(Boolean)
+      .join("\n\n")
+      .trim()
+    if (text) {
+      textByMessageId.set(last.id, text)
+    }
+    group = []
+  }
+
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      group.push(message)
+      continue
+    }
+    flushGroup()
+  }
+  flushGroup()
+  return textByMessageId
+}
+
 function jsonObjectEnd(text: string): number {
   if (!text.startsWith("{")) {
     return -1

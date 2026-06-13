@@ -71,6 +71,9 @@ export interface AuthorizationRequiredEvent {
 export interface MessageCompletedEvent {
   sessionId: string
 }
+export interface GenerationStoppedEvent {
+  sessionId: string
+}
 export interface AgentErrorEvent {
   sessionId?: string
   message: string
@@ -93,6 +96,7 @@ export interface ChatMessagePart {
   timing?: ToolTiming
   attachmentsCount?: number
   authorization?: AuthorizationInfo
+  cancelled?: boolean
 }
 export interface ChatMessage {
   id: string
@@ -142,6 +146,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     toolCallResult: ToolCallResultEvent
     authorizationRequired: AuthorizationRequiredEvent
     messageCompleted: MessageCompletedEvent
+    generationStopped: GenerationStoppedEvent
     agentError: AgentErrorEvent
   }
   ClientInvokes: {

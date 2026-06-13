@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildVoiceAsrRequest, parseVoiceAsrTranscript } from "./node.ts"
+import { buildVoiceAsrRequest, isAbortErrorMessage, parseVoiceAsrTranscript } from "./node.ts"
 
 test("buildVoiceAsrRequest matches Studio voice ASR request shape", () => {
   const init = buildVoiceAsrRequest("oomol-token", "wav-base64", "request-1")
@@ -27,4 +27,13 @@ test("parseVoiceAsrTranscript trims result text and rejects empty recognition", 
   assert.equal(parseVoiceAsrTranscript({ result: { text: "  hello  " } }), "hello")
   assert.throws(() => parseVoiceAsrTranscript({ result: { text: "   " } }), /No speech was recognized/)
   assert.throws(() => parseVoiceAsrTranscript(undefined), /No speech was recognized/)
+})
+
+test("isAbortErrorMessage recognizes controlled stop errors only", () => {
+  assert.equal(isAbortErrorMessage("Aborted"), true)
+  assert.equal(isAbortErrorMessage("AbortError"), true)
+  assert.equal(isAbortErrorMessage("AbortError: The operation was aborted."), true)
+  assert.equal(isAbortErrorMessage("The operation was aborted."), true)
+  assert.equal(isAbortErrorMessage("Task failed"), false)
+  assert.equal(isAbortErrorMessage("Remote service cancelled the request"), false)
 })

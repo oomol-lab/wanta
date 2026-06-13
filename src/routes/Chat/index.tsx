@@ -44,13 +44,15 @@ import {
   Sparkles,
   Square,
   Terminal,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Wrench,
   X,
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { copyableMessageText, visibleUserText } from "./message-text.ts"
+import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
@@ -546,9 +548,7 @@ function ToolActivity({
     ? t("chat.toolActivityError", { count: parts.length })
     : hasActive
       ? t("chat.toolActivityRunning", { count: parts.length })
-      : hasStopped
-        ? t("chat.toolActivityStopped", { count: parts.length })
-        : t("chat.toolActivityCompleted", { count: parts.length })
+      : t("chat.toolActivityCompleted", { count: parts.length })
 
   React.useEffect(() => {
     setOpen(shouldOpen)
@@ -677,16 +677,70 @@ function CopyMessageAction({ text }: { text: string }) {
   )
 }
 
+type MessageRating = "up" | "down"
+
+function MessageFeedbackAction({
+  rating,
+  activeRating,
+  onRatingChange,
+}: {
+  rating: MessageRating
+  activeRating: MessageRating | null
+  onRatingChange: (rating: MessageRating | null) => void
+}) {
+  const t = useT()
+  const active = activeRating === rating
+  const Icon = rating === "up" ? ThumbsUp : ThumbsDown
+  const label = rating === "up" ? t("chat.likeMessage") : t("chat.dislikeMessage")
+
+  return (
+    <MessageAction
+      label={label}
+      tooltip={label}
+      aria-pressed={active}
+      className={cn(active && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
+      onClick={() => onRatingChange(active ? null : rating)}
+    >
+      <Icon className="size-3.5" />
+    </MessageAction>
+  )
+}
+
+function AssistantMessageActions({ text, cancelled }: { text: string; cancelled: boolean }) {
+  const t = useT()
+  const [activeRating, setActiveRating] = React.useState<MessageRating | null>(null)
+
+  if (!text && !cancelled) {
+    return null
+  }
+
+  return (
+    <div className="mt-1">
+      {cancelled ? <div className="oo-text-caption mb-1 text-muted-foreground">{t("chat.userCancelled")}</div> : null}
+      {text ? (
+        <MessageActions className="pointer-events-auto static opacity-100">
+          <CopyMessageAction text={text} />
+          <MessageFeedbackAction rating="up" activeRating={activeRating} onRatingChange={setActiveRating} />
+          <MessageFeedbackAction rating="down" activeRating={activeRating} onRatingChange={setActiveRating} />
+        </MessageActions>
+      ) : null}
+    </div>
+  )
+}
+
 function MessageBubble({
   message,
   providerByService,
   onAuthorize,
+  assistantActionsText,
 }: {
   message: ChatMessage
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  assistantActionsText: string | null
 }) {
   const copyText = copyableMessageText(message)
+  const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
   if (message.role === "user") {
     const text = message.parts
       .filter((p) => p.kind === "text")
@@ -752,6 +806,9 @@ function MessageBubble({
           </div>
         ))}
       </MessageContent>
+      {assistantActionsText || assistantCancelled ? (
+        <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
+      ) : null}
     </Message>
   )
 }
@@ -1476,6 +1533,11 @@ export function ChatArea({
   const showPendingMessage =
     hasMessages &&
     (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
+  const activeAssistantMessageId =
+    status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
+  const assistantActionTextByMessageId = React.useMemo(() => {
+    return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
+  }, [activeAssistantMessageId, messages])
 
   React.useEffect(() => {
     attachmentsRef.current = attachments
@@ -1860,6 +1922,7 @@ export function ChatArea({
               message={message}
               providerByService={providerByService}
               onAuthorize={onAuthorize}
+              assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
             />
           ))}
           {showPendingMessage && <AssistantPendingMessage />}

@@ -17,12 +17,29 @@ import { voiceAsrBaseUrl } from "../domain.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
+const userStopAbortWindowMs = 30_000
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message
   }
   return String(error)
+}
+
+export function isAbortErrorMessage(message: string): boolean {
+  const normalized = message
+    .trim()
+    .replace(/[.!。]+$/, "")
+    .toLowerCase()
+  return (
+    normalized === "aborted" ||
+    normalized === "aborterror" ||
+    normalized.startsWith("aborterror:") ||
+    normalized === "abort error" ||
+    normalized === "the operation was aborted" ||
+    normalized === "this operation was aborted" ||
+    normalized.includes("operation was aborted")
+  )
 }
 
 function imageMimeFromPath(filePath: string): string | null {
@@ -93,6 +110,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private agent: AgentManager | null
   private voiceAuthToken: string | undefined
   private bridged = false
+  private userStoppedSessions = new Map<string, number>()
 
   public constructor(agent: AgentManager | null = null) {
     super(ChatServiceName)
@@ -103,6 +121,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public setAgent(agent: AgentManager | null): void {
     this.agent = agent
     this.bridged = false
+    this.userStoppedSessions.clear()
   }
 
   /** 登录 / 登出时由 main 更新 Studio ASR 需要的 oomol-token。只在主进程内使用，renderer 不可见。 */
@@ -119,9 +138,44 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
     this.agent.subscribe((event) => {
       for (const translated of translateOpencodeEvent(event)) {
+        if (
+          translated.event === "agentError" &&
+          translated.data.sessionId &&
+          this.consumeUserStopAbort(translated.data.sessionId, translated.data.message)
+        ) {
+          void emit("generationStopped", { sessionId: translated.data.sessionId })
+          continue
+        }
         void emit(translated.event, translated.data)
       }
     })
+  }
+
+  private markUserStopped(sessionId: string): void {
+    const expiresAt = Date.now() + userStopAbortWindowMs
+    this.userStoppedSessions.set(sessionId, expiresAt)
+    const timer = setTimeout(() => {
+      if (this.userStoppedSessions.get(sessionId) === expiresAt) {
+        this.userStoppedSessions.delete(sessionId)
+      }
+    }, userStopAbortWindowMs)
+    timer.unref?.()
+  }
+
+  private consumeUserStopAbort(sessionId: string, message: string): boolean {
+    const expiresAt = this.userStoppedSessions.get(sessionId)
+    if (!expiresAt) {
+      return false
+    }
+    if (Date.now() > expiresAt) {
+      this.userStoppedSessions.delete(sessionId)
+      return false
+    }
+    if (!isAbortErrorMessage(message)) {
+      return false
+    }
+    this.userStoppedSessions.delete(sessionId)
+    return true
   }
 
   public async isReady(): Promise<boolean> {
@@ -186,7 +240,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return
     }
-    await this.agent.abort(sessionId)
+    this.markUserStopped(sessionId)
+    try {
+      await this.agent.abort(sessionId)
+    } catch (error) {
+      this.userStoppedSessions.delete(sessionId)
+      throw error
+    }
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {

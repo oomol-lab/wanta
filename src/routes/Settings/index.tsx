@@ -204,7 +204,13 @@ function UpdateStatusLine({ update }: { update: ReturnType<typeof useAppUpdate> 
     case "not-available":
       return <p className="oo-text-caption">{t("settings.updateUpToDate")}</p>
     case "available":
-      return <p className="oo-text-caption">{t("settings.updateAvailable", { version: state.status.version })}</p>
+      return (
+        <p className="oo-text-caption">
+          {t(state.channel === "beta" ? "settings.updateAvailableOnBeta" : "settings.updateAvailable", {
+            version: state.status.version,
+          })}
+        </p>
+      )
     case "downloaded":
       return <p className="oo-text-caption">{t("settings.updateDownloaded", { version: state.status.version })}</p>
     case "error":

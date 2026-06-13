@@ -1,29 +1,114 @@
 import type { ChatMessagePart } from "../../../electron/chat/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
+export type ToolCategory = "connector" | "shell" | "file" | "web" | "task" | "skill" | "custom" | "mixed"
+
 interface ToolActivityTitleState {
   hasActive: boolean
   hasError: boolean
   hasStopped: boolean
   duration?: string | null
+  category?: ToolCategory
 }
 
 export function toolActivityTitle(
   t: TranslateFn,
   parts: ChatMessagePart[],
-  { hasActive, hasError, hasStopped, duration }: ToolActivityTitleState,
+  { hasActive, hasError, hasStopped, duration, category = summarizeToolCategory(parts) }: ToolActivityTitleState,
 ): string {
   const withDuration = (title: string) => (duration ? `${title} · ${duration}` : title)
   if (hasError) {
-    return withDuration(t("chat.toolActivityError", { count: parts.length }))
+    return withDuration(
+      category === "mixed"
+        ? t("chat.toolActivityError", { count: parts.length })
+        : t("chat.toolActivityCategoryError", { count: parts.length, category: toolCategoryLabel(t, category) }),
+    )
   }
   if (hasActive) {
-    return withDuration(t("chat.toolActivityRunning", { count: parts.length }))
+    return withDuration(
+      category === "mixed"
+        ? t("chat.toolActivityRunning", { count: parts.length })
+        : t("chat.toolActivityCategoryRunning", { count: parts.length, category: toolCategoryLabel(t, category) }),
+    )
   }
   if (hasStopped) {
-    return withDuration(t("chat.toolActivityStopped", { count: parts.length }))
+    return withDuration(
+      category === "mixed"
+        ? t("chat.toolActivityStopped", { count: parts.length })
+        : t("chat.toolActivityCategoryStopped", { count: parts.length, category: toolCategoryLabel(t, category) }),
+    )
   }
-  return withDuration(t("chat.toolActivityCompleted", { count: parts.length }))
+  return withDuration(
+    category === "mixed"
+      ? t("chat.toolActivityCompleted", { count: parts.length })
+      : t("chat.toolActivityCategoryCompleted", { count: parts.length, category: toolCategoryLabel(t, category) }),
+  )
+}
+
+export function classifyToolPart(part: ChatMessagePart): ToolCategory {
+  switch (part.tool) {
+    case "search_actions":
+    case "inspect_action":
+    case "call_action":
+      return "connector"
+    case "bash":
+      return "shell"
+    case "read":
+    case "write":
+    case "edit":
+    case "list":
+    case "grep":
+    case "glob":
+      return "file"
+    case "webfetch":
+      return "web"
+    case "task":
+      return "task"
+    default:
+      if (part.tool?.startsWith("todo")) {
+        return "task"
+      }
+      if (part.title?.match(/^Loaded skill:/i)) {
+        return "skill"
+      }
+      return "custom"
+  }
+}
+
+export function summarizeToolCategory(parts: ChatMessagePart[]): ToolCategory {
+  let category: ToolCategory | undefined
+  for (const part of parts) {
+    const current = classifyToolPart(part)
+    if (category === undefined) {
+      category = current
+      continue
+    }
+    if (category !== current) {
+      return "mixed"
+    }
+  }
+  return category ?? "custom"
+}
+
+export function toolCategoryLabel(t: TranslateFn, category: ToolCategory): string {
+  switch (category) {
+    case "connector":
+      return t("chat.toolCategoryConnector")
+    case "shell":
+      return t("chat.toolCategoryShell")
+    case "file":
+      return t("chat.toolCategoryFile")
+    case "web":
+      return t("chat.toolCategoryWeb")
+    case "task":
+      return t("chat.toolCategoryTask")
+    case "skill":
+      return t("chat.toolCategorySkill")
+    case "custom":
+      return t("chat.toolCategoryCustom")
+    case "mixed":
+      return t("chat.toolCategoryMixed")
+  }
 }
 
 export function formatToolDuration(part: ChatMessagePart, now = Date.now()): string | null {

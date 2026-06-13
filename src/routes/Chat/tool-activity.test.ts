@@ -3,15 +3,33 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { describe, expect, it } from "vitest"
 import {
+  classifyToolPart,
   compactPathDetail,
   compactToolDetail,
   formatToolActivityDuration,
   formatToolDuration,
   shouldShowRunningNoOutput,
+  summarizeToolCategory,
   toolActivityTitle,
 } from "./tool-activity.ts"
 
-const t: TranslateFn = (key, vars) => `${key}:${vars?.count ?? ""}`
+const labels: Record<string, string> = {
+  "chat.toolCategoryConnector": "connector",
+  "chat.toolCategoryShell": "shell",
+  "chat.toolCategoryFile": "file",
+  "chat.toolCategoryWeb": "web",
+  "chat.toolCategoryTask": "task",
+  "chat.toolCategorySkill": "skill",
+  "chat.toolCategoryCustom": "custom",
+  "chat.toolCategoryMixed": "mixed",
+}
+
+const t: TranslateFn = (key, vars) => {
+  if (labels[key]) {
+    return labels[key]
+  }
+  return `${key}:${vars?.category ?? ""}:${vars?.count ?? ""}`
+}
 
 function toolPart(partId: string, extra: Partial<ChatMessagePart> = {}): ChatMessagePart {
   return {
@@ -33,7 +51,7 @@ describe("toolActivityTitle", () => {
       hasStopped: false,
     })
 
-    expect(title).toBe("chat.toolActivityCompleted:1")
+    expect(title).toBe("chat.toolActivityCategoryCompleted:shell:1")
   })
 
   it("uses operation counts for grouped tool activities", () => {
@@ -43,7 +61,7 @@ describe("toolActivityTitle", () => {
       hasStopped: false,
     })
 
-    expect(title).toBe("chat.toolActivityRunning:2")
+    expect(title).toBe("chat.toolActivityCategoryRunning:shell:2")
   })
 
   it("uses the stopped state when grouped tools were cancelled", () => {
@@ -53,7 +71,7 @@ describe("toolActivityTitle", () => {
       hasStopped: true,
     })
 
-    expect(title).toBe("chat.toolActivityStopped:2")
+    expect(title).toBe("chat.toolActivityCategoryStopped:shell:2")
   })
 
   it("appends duration when available", () => {
@@ -64,7 +82,43 @@ describe("toolActivityTitle", () => {
       duration: "1.5s",
     })
 
-    expect(title).toBe("chat.toolActivityCompleted:1 · 1.5s")
+    expect(title).toBe("chat.toolActivityCategoryCompleted:shell:1 · 1.5s")
+  })
+
+  it("falls back to generic tool calls for mixed categories", () => {
+    const title = toolActivityTitle(
+      t,
+      [toolPart("tool-1", { tool: "bash" }), toolPart("tool-2", { tool: "call_action" })],
+      {
+        hasActive: false,
+        hasError: false,
+        hasStopped: false,
+      },
+    )
+
+    expect(title).toBe("chat.toolActivityCompleted::2")
+  })
+})
+
+describe("classifyToolPart", () => {
+  it("classifies known tool groups", () => {
+    expect(classifyToolPart(toolPart("tool-1", { tool: "search_actions" }))).toBe("connector")
+    expect(classifyToolPart(toolPart("tool-2", { tool: "bash" }))).toBe("shell")
+    expect(classifyToolPart(toolPart("tool-3", { tool: "read" }))).toBe("file")
+    expect(classifyToolPart(toolPart("tool-4", { tool: "webfetch" }))).toBe("web")
+    expect(classifyToolPart(toolPart("tool-5", { tool: "task" }))).toBe("task")
+    expect(classifyToolPart(toolPart("tool-6", { tool: "todo_write" }))).toBe("task")
+    expect(classifyToolPart(toolPart("tool-7", { tool: "unknown", title: "Loaded skill: pdf" }))).toBe("skill")
+    expect(classifyToolPart(toolPart("tool-8", { tool: "unknown" }))).toBe("custom")
+  })
+
+  it("summarizes a single category or mixed category", () => {
+    expect(summarizeToolCategory([toolPart("tool-1", { tool: "bash" }), toolPart("tool-2", { tool: "bash" })])).toBe(
+      "shell",
+    )
+    expect(summarizeToolCategory([toolPart("tool-1", { tool: "bash" }), toolPart("tool-2", { tool: "read" })])).toBe(
+      "mixed",
+    )
   })
 })
 

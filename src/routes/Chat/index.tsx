@@ -12,6 +12,7 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
+import type { ToolCategory } from "./tool-activity.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ChatStatus } from "ai"
@@ -24,7 +25,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Circle,
-  Clock3,
   CopyIcon,
   ExternalLink,
   File as FileIcon,
@@ -34,6 +34,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideoCamera,
+  Globe,
   Eye,
   Loader2,
   Mic,
@@ -48,6 +49,8 @@ import {
   Trash2,
   Wrench,
   X,
+  Package,
+  ListChecks,
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
@@ -56,10 +59,13 @@ import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import {
   compactPathDetail,
   compactToolDetail,
+  classifyToolPart,
   formatToolActivityDuration,
   formatToolDuration,
   shouldShowRunningNoOutput,
+  summarizeToolCategory,
   toolActivityTitle,
+  toolCategoryLabel,
 } from "./tool-activity.ts"
 import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
@@ -425,14 +431,26 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
   }
 }
 
-function ToolGlyph({ tool }: { tool: string | undefined }) {
-  if (tool === "bash") {
-    return <Terminal className="size-3.5 shrink-0" />
+function ToolCategoryIcon({ category, className }: { category: ToolCategory; className?: string }) {
+  const iconClassName = cn("size-3.5 shrink-0", className)
+  switch (category) {
+    case "shell":
+      return <Terminal className={iconClassName} />
+    case "connector":
+      return <Plug className={iconClassName} />
+    case "file":
+      return <FileText className={iconClassName} />
+    case "web":
+      return <Globe className={iconClassName} />
+    case "task":
+      return <ListChecks className={iconClassName} />
+    case "skill":
+      return <Package className={iconClassName} />
+    case "custom":
+      return <Wrench className={iconClassName} />
+    case "mixed":
+      return <Eye className={iconClassName} />
   }
-  if (tool === "search_actions") {
-    return <Clock3 className="size-3.5 shrink-0" />
-  }
-  return <Wrench className="size-3.5 shrink-0" />
 }
 
 function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
@@ -487,6 +505,8 @@ function ToolActivityStep({
   const details = hasToolDetails(part, auth)
   const duration = formatToolDuration(part, now)
   const statusText = toolPartStatusLabel(t, part)
+  const category = classifyToolPart(part)
+  const categoryText = toolCategoryLabel(t, category)
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
       {provider ? (
@@ -508,9 +528,9 @@ function ToolActivityStep({
                 <span>·</span>
               </>
             ) : (
-              <ToolGlyph tool={part.tool} />
+              <ToolCategoryIcon category={category} />
             )}
-            <span>{part.tool}</span>
+            <span>{provider ? t("chat.toolCategoryConnector") : categoryText}</span>
             <span>·</span>
             <span>{statusText}</span>
           </span>
@@ -605,11 +625,13 @@ function ToolActivity({
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
   const activityDuration = formatToolActivityDuration(parts, now)
+  const category = summarizeToolCategory(parts)
   const title = toolActivityTitle(t, parts, {
     hasActive,
     hasError,
     hasStopped,
     duration: activityDuration,
+    category,
   })
 
   React.useEffect(() => {
@@ -639,7 +661,7 @@ function ToolActivity({
           ) : hasStopped ? (
             <Square className="size-3.5 shrink-0 text-muted-foreground" />
           ) : (
-            <Eye className="size-3.5 shrink-0 text-muted-foreground" />
+            <ToolCategoryIcon category={category} className="text-muted-foreground" />
           )}
           <span className="min-w-0 truncate">{title}</span>
           <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />

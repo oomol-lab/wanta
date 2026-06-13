@@ -127,7 +127,7 @@ export const PromptInputSubmit = ({
   if (iconStatus === "submitted") {
     Icon = <Loader2Icon className="size-4 animate-spin" />
   } else if (iconStatus === "streaming") {
-    Icon = <SquareIcon className="size-4" />
+    Icon = <SquareIcon className="size-3.5" fill="currentColor" strokeWidth={0} />
   } else if (iconStatus === "error") {
     Icon = <XIcon className="size-4" />
   }

@@ -706,7 +706,7 @@ export function AppShell() {
           ) : route === "skills" ? (
             <SkillsRoute />
           ) : (
-            <div className="h-full min-h-0 overflow-hidden pb-3">
+            <div className="h-full min-h-0 overflow-hidden">
               <ChatArea
                 messages={initialSendPending ? [] : messages}
                 status={displayedStatus}

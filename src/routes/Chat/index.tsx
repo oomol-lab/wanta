@@ -1910,7 +1910,7 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex h-full min-h-0 animate-in flex-col pb-6 duration-300 fade-in slide-in-from-bottom-2">
+    <div className="flex h-full min-h-0 animate-in flex-col pb-4 duration-300 fade-in slide-in-from-bottom-2">
       <Conversation className="min-h-0 flex-1">
         <ConversationContent
           data-selectable="true"

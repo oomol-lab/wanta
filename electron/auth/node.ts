@@ -5,6 +5,7 @@ import type { IConnectionService } from "@oomol/connection"
 import { ConnectionService } from "@oomol/connection"
 import { app, dialog, shell } from "electron"
 import { apiBaseUrl } from "../domain.ts"
+import { ServiceEvent } from "../service-events.ts"
 import {
   extractOomolTokenFromCookies,
   hubSigninUrl,
@@ -43,6 +44,7 @@ export class AuthManager {
   private readonly deps: AuthManagerDeps
   private pending: PendingLogin | undefined
   private emitState: (state: AuthState) => Promise<void> = async () => {}
+  public readonly stateChanged = new ServiceEvent<AuthState>()
 
   public constructor(deps: AuthManagerDeps) {
     this.deps = deps
@@ -56,6 +58,11 @@ export class AuthManager {
   /** 生效账号（含 apiKey，仅主进程内部使用）。 */
   public activeAccount(): AuthAccount | null {
     return selectAccount(this.deps.store.read())
+  }
+
+  /** 生效账号密钥（仅主进程内部服务使用，禁止注册到 RPC）。 */
+  public getCurrentAuthSecret(): AuthAccount | null {
+    return this.activeAccount()
   }
 
   public getAuthState(): Promise<AuthState> {
@@ -89,6 +96,7 @@ export class AuthManager {
       console.warn("[lumo] failed to clear session cookies:", error)
     })
     const state = this.currentState()
+    this.stateChanged.emit(state)
     await this.emitState(state)
     return state
   }
@@ -146,6 +154,7 @@ export class AuthManager {
     }
     this.deps.store.write(upsertAccount(this.deps.store.read(), account))
     const state = this.currentState()
+    this.stateChanged.emit(state)
     await this.emitState(state)
     void this.deps.applyAccount(account).catch((error: unknown) => {
       console.error("[lumo] failed to start agent after sign-in:", error)

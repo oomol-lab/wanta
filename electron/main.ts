@@ -23,6 +23,7 @@ import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstan
 import { SessionServiceImpl } from "./session/node.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
+import { SkillServiceImpl } from "./skills/node.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -50,6 +51,7 @@ const opencodeBinPath = app.isPackaged
   ? resolveBundledBin(process.resourcesPath, opencodeBinaryName())
   : resolveDevOpencodeBin(appRoot)
 const ooBinPath = app.isPackaged ? resolveBundledBin(process.resourcesPath, ooBinaryName()) : resolveOoBin()
+process.env.OO_CLI_PATH = ooBinPath
 
 // Agent 内核：凭证来自浏览器登录（userData/auth.json，账号默认 api-key 等价旧 OO_API_KEY env）。
 // 未登录时 agent=null，服务仍注册但 isReady()=false，渲染层显示登录页；
@@ -70,6 +72,7 @@ const authManager = new AuthManager({
   applyAccount: applyAuthAccount,
 })
 const authService = new AuthServiceImpl(authManager)
+const skillService = new SkillServiceImpl(authManager)
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
 })
@@ -89,6 +92,7 @@ if (!isLocked) {
 server.registerService(chatService)
 server.registerService(sessionService)
 server.registerService(connectionsService)
+server.registerService(skillService)
 server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)

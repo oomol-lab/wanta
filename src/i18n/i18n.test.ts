@@ -15,6 +15,12 @@ test("translate interpolates {var}", () => {
   assert.equal(translate("en", "connections.more", { count: 577 }), "Search to connect more (577 total)")
 })
 
+test("translate interpolates OO-style {{var}}", () => {
+  assert.equal(translate("zh-CN", "skills.availableCoverage", { installed: 4, total: 4 }), "可用 4/4")
+  assert.equal(translate("en", "skills.availableCoverage", { installed: 4, total: 4 }), "Available 4/4")
+  assert.equal(translate("zh-CN", "skills.rowAttention", { count: 2 }), "2 个智能体需处理")
+})
+
 test("isLocale guards the supported locales", () => {
   assert.equal(isLocale("zh-CN"), true)
   assert.equal(isLocale("en"), true)

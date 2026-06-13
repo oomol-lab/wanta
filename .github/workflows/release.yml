@@ -551,6 +551,11 @@ jobs:
             PREV_TAG=$(git tag -l 'v*' --sort=-creatordate | head -1 || true)
           fi
 
+          # annotated tag 需要 committer 身份；GitHub runner 默认未配置，
+          # 用 github-actions[bot] 规范身份（不污染全局，仅本仓库）。
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
 

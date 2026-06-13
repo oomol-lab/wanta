@@ -13,6 +13,11 @@ export interface AuthorizationInfo {
   message?: string
 }
 
+export interface ToolTiming {
+  start?: number
+  end?: number
+}
+
 // ── ServerEvents 负载（R7 流式：主进程把 OpenCode SSE 转译为这些事件推给渲染层）──
 export interface MessageStartedEvent {
   sessionId: string
@@ -36,6 +41,9 @@ export interface ToolCallStartedEvent {
   tool: string
   input: Record<string, unknown>
   status: "pending" | "running"
+  title?: string
+  metadata?: Record<string, unknown>
+  timing?: ToolTiming
 }
 export interface ToolCallResultEvent {
   sessionId: string
@@ -44,8 +52,13 @@ export interface ToolCallResultEvent {
   callId: string
   tool: string
   status: "completed" | "error"
+  input: Record<string, unknown>
   output?: string
   error?: string
+  title?: string
+  metadata?: Record<string, unknown>
+  timing?: ToolTiming
+  attachmentsCount?: number
 }
 export interface AuthorizationRequiredEvent {
   sessionId: string
@@ -73,6 +86,10 @@ export interface ChatMessagePart {
   input?: Record<string, unknown>
   output?: string
   error?: string
+  title?: string
+  metadata?: Record<string, unknown>
+  timing?: ToolTiming
+  attachmentsCount?: number
   authorization?: AuthorizationInfo
 }
 export interface ChatMessage {

@@ -110,8 +110,27 @@ interface OpencodePart {
   state?: {
     status: ToolStatus
     input?: Record<string, unknown>
+    raw?: string
     output?: string
     error?: string
+    title?: string
+    metadata?: Record<string, unknown>
+    time?: {
+      start?: number
+      end?: number
+      compacted?: number
+    }
+    attachments?: unknown[]
+  }
+}
+
+function toolContext(state: NonNullable<OpencodePart["state"]>) {
+  return {
+    input: state.input ?? {},
+    ...(state.title ? { title: state.title } : {}),
+    ...(state.metadata ? { metadata: state.metadata } : {}),
+    ...(state.time ? { timing: { start: state.time.start, end: state.time.end } } : {}),
+    ...(Array.isArray(state.attachments) ? { attachmentsCount: state.attachments.length } : {}),
   }
 }
 
@@ -140,12 +159,13 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       tool: part.tool,
     }
     const state = part.state
+    const context = toolContext(state)
     if (state.status === "pending" || state.status === "running") {
-      return [{ event: "toolCallStarted", data: { ...base, input: state.input ?? {}, status: state.status } }]
+      return [{ event: "toolCallStarted", data: { ...base, ...context, status: state.status } }]
     }
     if (state.status === "completed") {
       const emits: ChatEmit[] = [
-        { event: "toolCallResult", data: { ...base, status: "completed", output: state.output } },
+        { event: "toolCallResult", data: { ...base, ...context, status: "completed", output: state.output } },
       ]
       if (part.tool === "call_action") {
         const auth = parseAuthorization(state.output)
@@ -159,7 +179,7 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       return emits
     }
     if (state.status === "error") {
-      return [{ event: "toolCallResult", data: { ...base, status: "error", error: state.error } }]
+      return [{ event: "toolCallResult", data: { ...base, ...context, status: "error", error: state.error } }]
     }
   }
   return []
@@ -190,6 +210,10 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         input: state.input ?? {},
         output: state.output,
         error: state.error,
+        title: state.title,
+        metadata: state.metadata,
+        timing: state.time ? { start: state.time.start, end: state.time.end } : undefined,
+        attachmentsCount: Array.isArray(state.attachments) ? state.attachments.length : undefined,
       }
       if (part.tool === "call_action" && state.status === "completed") {
         const auth = parseAuthorization(state.output)

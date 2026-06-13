@@ -49,6 +49,47 @@ test("tool part pending → toolCallStarted", () => {
   assert.equal(out[0].event, "toolCallStarted")
 })
 
+test("tool events preserve title, metadata and timing for renderer summaries", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "p2",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "tool",
+        callID: "c1",
+        tool: "bash",
+        state: {
+          status: "completed",
+          input: { command: "npm test" },
+          output: "ok",
+          title: "Run tests",
+          metadata: { exit: 0 },
+          time: { start: 100, end: 250 },
+          attachments: [{}],
+        },
+      },
+    },
+  })
+  assert.equal(out.length, 1)
+  assert.equal(out[0].event, "toolCallResult")
+  assert.deepEqual(out[0].data, {
+    sessionId: "s1",
+    messageId: "m1",
+    partId: "p2",
+    callId: "c1",
+    tool: "bash",
+    input: { command: "npm test" },
+    status: "completed",
+    output: "ok",
+    title: "Run tests",
+    metadata: { exit: 0 },
+    timing: { start: 100, end: 250 },
+    attachmentsCount: 1,
+  })
+})
+
 test("call_action completed with auth output → toolCallResult + authorizationRequired", () => {
   const output = JSON.stringify({
     status: "authorization_required",

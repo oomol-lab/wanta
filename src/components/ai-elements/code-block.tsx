@@ -69,21 +69,36 @@ export const CodeBlock = ({
 }: CodeBlockProps) => {
   const [html, setHtml] = useState<string>("")
   const [darkHtml, setDarkHtml] = useState<string>("")
-  const mounted = useRef(false)
+  const mounted = useRef(true)
 
   useEffect(() => {
-    highlightCode(code, language, showLineNumbers).then(([light, dark]) => {
-      if (!mounted.current) {
-        setHtml(light)
-        setDarkHtml(dark)
-        mounted.current = true
-      }
-    })
+    mounted.current = true
+    setHtml("")
+    setDarkHtml("")
+    highlightCode(code, language, showLineNumbers)
+      .then(([light, dark]) => {
+        if (mounted.current) {
+          setHtml(light)
+          setDarkHtml(dark)
+        }
+      })
+      .catch(() => {
+        if (mounted.current) {
+          setHtml("")
+          setDarkHtml("")
+        }
+      })
 
     return () => {
       mounted.current = false
     }
   }, [code, language, showLineNumbers])
+
+  const fallback = (
+    <pre className="m-0 overflow-auto bg-background p-4 text-sm text-foreground">
+      <code className="font-mono text-sm">{code}</code>
+    </pre>
+  )
 
   return (
     <CodeBlockContext.Provider value={{ code }}>
@@ -95,14 +110,22 @@ export const CodeBlock = ({
         {...props}
       >
         <div className="relative">
-          <div
-            className="overflow-auto dark:hidden [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-sm [&>pre]:text-foreground!"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-          <div
-            className="hidden overflow-auto dark:block [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-sm [&>pre]:text-foreground!"
-            dangerouslySetInnerHTML={{ __html: darkHtml }}
-          />
+          {html ? (
+            <div
+              className="overflow-auto dark:hidden [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-sm [&>pre]:text-foreground!"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          ) : (
+            <div className="dark:hidden">{fallback}</div>
+          )}
+          {darkHtml ? (
+            <div
+              className="hidden overflow-auto dark:block [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:bg-background! [&>pre]:p-4 [&>pre]:text-sm [&>pre]:text-foreground!"
+              dangerouslySetInnerHTML={{ __html: darkHtml }}
+            />
+          ) : (
+            <div className="hidden dark:block">{fallback}</div>
+          )}
           {children && <div className="absolute top-2 right-2 flex items-center gap-2">{children}</div>}
         </div>
       </div>

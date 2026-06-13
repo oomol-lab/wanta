@@ -1,9 +1,20 @@
 import type { AuthorizationInfo, ChatMessage, ChatMessagePart, ToolStatus } from "../../../electron/chat/common"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
-import type { ChatStatus, ToolUIPart } from "ai"
+import type { ChatStatus } from "ai"
 
-import { AlertTriangle, Plug, Sparkles } from "lucide-react"
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Circle,
+  Clock3,
+  Loader2,
+  Plug,
+  Sparkles,
+  Terminal,
+  Wrench,
+} from "lucide-react"
 import * as React from "react"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
@@ -16,8 +27,9 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
 import { Shimmer } from "@/components/ai-elements/shimmer"
-import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool"
+import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -62,8 +74,15 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
 
+function hasKeys(value: Record<string, unknown> | undefined): boolean {
+  return Boolean(value && Object.keys(value).length > 0)
+}
+
 /** 工具调用的一行人话摘要（折叠态显示）；缺少入参时退回原始工具名。 */
 function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
+  if (part.title) {
+    return part.title
+  }
   const input = part.input ?? {}
   const service = str(input.service)
   const action = str(input.action)
@@ -77,84 +96,282 @@ function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
       return target ? t("chat.toolInspect", { detail: target }) : (part.tool ?? "")
     case "call_action":
       return target ? t("chat.toolCall", { detail: target }) : (part.tool ?? "")
+    case "bash": {
+      const command = str(input.command).split("\n")[0]
+      return command ? t("chat.toolRun", { detail: command }) : (part.tool ?? "")
+    }
+    case "read": {
+      const filePath = str(input.filePath) || str(input.path)
+      return filePath ? t("chat.toolRead", { detail: filePath }) : (part.tool ?? "")
+    }
     default:
-      return part.tool ?? ""
+      return t("chat.toolGeneric", { detail: part.tool ?? "tool" })
   }
 }
 
-/** 把项目的工具状态映射为 ai-elements Tool 的 state。 */
-function toolState(status: ToolStatus | undefined): ToolUIPart["state"] {
+function toolStatusLabel(t: TranslateFn, status: ToolStatus | undefined): string {
   switch (status) {
+    case "pending":
+      return t("chat.toolStatusPending")
     case "running":
-      return "input-available"
+      return t("chat.toolStatusRunning")
     case "completed":
-      return "output-available"
+      return t("chat.toolStatusCompleted")
     case "error":
-      return "output-error"
+      return t("chat.toolStatusError")
     default:
-      return "input-streaming"
+      return t("chat.toolStatusPending")
   }
 }
 
-/** 输出若是 JSON 文本，转为对象交给 ToolOutput 缩进美化；否则原样返回字符串。 */
-function toolOutputValue(output: string | undefined): unknown {
+function formatToolOutput(output: string | undefined): string {
   if (!output) {
-    return undefined
+    return ""
   }
   try {
-    return JSON.parse(output)
+    return JSON.stringify(JSON.parse(output), null, 2)
   } catch {
     return output
   }
 }
 
-function ToolStep({ part, onAuthorize }: { part: ChatMessagePart; onAuthorize: (auth: AuthorizationInfo) => void }) {
+function formatJson(value: Record<string, unknown>): string {
+  return JSON.stringify(value, null, 2)
+}
+
+function formatDuration(part: ChatMessagePart): string | null {
+  const start = part.timing?.start
+  const end = part.timing?.end
+  if (typeof start !== "number" || typeof end !== "number" || end < start) {
+    return null
+  }
+  const ms = end - start
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
+}
+
+function ToolStatusIcon({ status }: { status: ToolStatus | undefined }) {
+  switch (status) {
+    case "running":
+      return <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+    case "completed":
+      return <CheckCircle2 className="size-3.5 text-green-600" />
+    case "error":
+      return <AlertTriangle className="size-3.5 text-destructive" />
+    case "pending":
+    default:
+      return <Circle className="size-3.5 text-muted-foreground" />
+  }
+}
+
+function ToolGlyph({ tool }: { tool: string | undefined }) {
+  if (tool === "bash") {
+    return <Terminal className="size-3.5" />
+  }
+  if (tool === "search_actions") {
+    return <Clock3 className="size-3.5" />
+  }
+  return <Wrench className="size-3.5" />
+}
+
+function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="oo-text-micro font-medium text-muted-foreground uppercase">{label}</div>
+      {children}
+    </div>
+  )
+}
+
+function ToolPre({ children, tone = "default" }: { children: string; tone?: "default" | "error" }) {
+  return (
+    <pre
+      className={cn(
+        "oo-text-micro max-h-56 overflow-auto rounded-md border bg-background p-2.5 whitespace-pre-wrap",
+        tone === "error" && "border-destructive/25 bg-destructive/5 text-destructive",
+      )}
+    >
+      {children}
+    </pre>
+  )
+}
+
+function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): boolean {
+  return (
+    hasKeys(part.input) ||
+    hasKeys(part.metadata) ||
+    Boolean(part.output && !auth) ||
+    Boolean(part.error) ||
+    Boolean(auth?.message) ||
+    Boolean(part.attachmentsCount)
+  )
+}
+
+function ToolActivityStep({
+  part,
+  onAuthorize,
+}: {
+  part: ChatMessagePart
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
   const t = useT()
   const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
-  const hasInput = Boolean(part.input && Object.keys(part.input).length > 0)
-  const showOutput = part.status === "completed" && Boolean(part.output) && !auth
-  const showError = part.status === "error" && Boolean(part.error)
-
-  return (
-    <div className="oo-text-micro">
-      <Tool defaultOpen={part.status === "error"}>
-        <ToolHeader
-          title={toolSummary(t, part)}
-          type={`tool-${part.tool ?? "unknown"}`}
-          state={toolState(part.status)}
-          expandable={hasInput || showOutput || showError}
-        />
-        {(hasInput || showOutput || showError) && (
-          <ToolContent>
-            {hasInput && <ToolInput input={part.input} />}
-            {showOutput && <ToolOutput output={toolOutputValue(part.output)} errorText={undefined} />}
-            {showError && <ToolOutput output={undefined} errorText={part.error} />}
-          </ToolContent>
-        )}
-      </Tool>
-
-      {auth && (
-        <div className="mt-1.5 flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
+  const details = hasToolDetails(part, auth)
+  const duration = formatDuration(part)
+  const statusText = toolStatusLabel(t, part.status)
+  const row = (
+    <div className="flex min-w-0 flex-1 items-start gap-2">
+      <span className="mt-0.5 shrink-0" title={statusText}>
+        <ToolStatusIcon status={part.status} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span className="min-w-0 truncate text-sm text-foreground">{toolSummary(t, part)}</span>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <ToolGlyph tool={part.tool} />
+            {part.tool}
+          </span>
+          {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
+        </div>
+        {auth && (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="oo-text-caption">{t("chat.authNeeded", { name: auth.displayName })}</span>
-            <Button size="sm" variant="outline" className="gap-1" onClick={() => onAuthorize(auth)}>
+            <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
               <Plug className="size-3.5" />
               {t("chat.authorize")}
             </Button>
           </div>
-          {auth.message && (
-            <pre className="oo-text-micro max-h-40 overflow-auto whitespace-pre-wrap text-destructive">
-              {auth.message}
-            </pre>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
+  )
+
+  return (
+    <Collapsible defaultOpen={part.status === "error" || Boolean(auth)}>
+      <div className="rounded-md px-1 py-0.5">
+        {details ? (
+          <CollapsibleTrigger className="group flex w-full items-start justify-between gap-2 text-left">
+            {row}
+            <ChevronDown className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+          </CollapsibleTrigger>
+        ) : (
+          row
+        )}
+      </div>
+      {details && (
+        <CollapsibleContent className="data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
+          <div className="ml-6 space-y-2.5 pt-1.5 pb-1">
+            {hasKeys(part.input) && (
+              <ToolDetailSection label={t("chat.toolParams")}>
+                <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {part.output && !auth && (
+              <ToolDetailSection label={t("chat.toolResult")}>
+                <ToolPre>{formatToolOutput(part.output)}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {part.error && (
+              <ToolDetailSection label={t("chat.toolError")}>
+                <ToolPre tone="error">{part.error}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {auth?.message && (
+              <ToolDetailSection label={t("chat.toolError")}>
+                <ToolPre tone="error">{auth.message}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {hasKeys(part.metadata) && (
+              <ToolDetailSection label={t("chat.toolMetadata")}>
+                <ToolPre>{formatJson(part.metadata ?? {})}</ToolPre>
+              </ToolDetailSection>
+            )}
+            {part.attachmentsCount ? (
+              <div className="oo-text-caption text-muted-foreground">
+                {t("chat.toolAttachments", { count: part.attachmentsCount })}
+              </div>
+            ) : null}
+          </div>
+        </CollapsibleContent>
+      )}
+    </Collapsible>
+  )
+}
+
+function ToolActivity({
+  parts,
+  onAuthorize,
+}: {
+  parts: ChatMessagePart[]
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
+  const t = useT()
+  const hasActive = parts.some((part) => part.status === "pending" || part.status === "running")
+  const hasError = parts.some((part) => part.status === "error")
+  const hasAuth = parts.some(
+    (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
+  )
+  const title = hasError
+    ? t("chat.toolActivityError", { count: parts.length })
+    : hasActive
+      ? t("chat.toolActivityRunning", { count: parts.length })
+      : t("chat.toolActivityCompleted", { count: parts.length })
+
+  return (
+    <Task defaultOpen={hasActive || hasError || hasAuth} className="not-prose my-1 w-full">
+      <TaskTrigger title={title}>
+        <button
+          type="button"
+          className="group flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {hasActive ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : hasError ? (
+            <AlertTriangle className="size-3.5 text-destructive" />
+          ) : (
+            <CheckCircle2 className="size-3.5 text-green-600" />
+          )}
+          <span className="truncate">{title}</span>
+          <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+        </button>
+      </TaskTrigger>
+      <TaskContent className="[&>div]:mt-2 [&>div]:space-y-1.5 [&>div]:border-l [&>div]:pl-3">
+        {parts.map((part) => (
+          <ToolActivityStep key={part.partId} part={part} onAuthorize={onAuthorize} />
+        ))}
+      </TaskContent>
+    </Task>
   )
 }
 
 function isRenderablePart(part: ChatMessagePart): boolean {
   return part.kind === "tool" || Boolean(part.text)
+}
+
+type RenderBlock = { kind: "text"; part: ChatMessagePart } | { kind: "tools"; key: string; parts: ChatMessagePart[] }
+
+function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
+  const blocks: RenderBlock[] = []
+  let pendingTools: ChatMessagePart[] = []
+  const flushTools = () => {
+    if (pendingTools.length === 0) {
+      return
+    }
+    blocks.push({ kind: "tools", key: pendingTools.map((part) => part.partId).join(":"), parts: pendingTools })
+    pendingTools = []
+  }
+  for (const part of parts) {
+    if (!isRenderablePart(part)) {
+      continue
+    }
+    if (part.kind === "tool") {
+      pendingTools.push(part)
+      continue
+    }
+    flushTools()
+    blocks.push({ kind: "text", part })
+  }
+  flushTools()
+  return blocks
 }
 
 function MessageBubble({
@@ -180,20 +397,20 @@ function MessageBubble({
       </Message>
     )
   }
-  const visibleParts = message.parts.filter(isRenderablePart)
-  if (visibleParts.length === 0) {
+  const blocks = renderBlocks(message.parts)
+  if (blocks.length === 0) {
     return null
   }
   return (
     <Message from="assistant">
       <MessageContent>
-        {visibleParts.map((part) =>
-          part.kind === "text" ? (
-            part.text ? (
-              <MessageResponse key={part.partId}>{part.text}</MessageResponse>
+        {blocks.map((block) =>
+          block.kind === "text" ? (
+            block.part.text ? (
+              <MessageResponse key={block.part.partId}>{block.part.text}</MessageResponse>
             ) : null
           ) : (
-            <ToolStep key={part.partId} part={part} onAuthorize={onAuthorize} />
+            <ToolActivity key={block.key} parts={block.parts} onAuthorize={onAuthorize} />
           ),
         )}
       </MessageContent>

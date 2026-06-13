@@ -135,6 +135,9 @@ export function useChat(activeSessionId: string | null): UseChat {
             tool: e.tool,
             status: e.status,
             input: e.input,
+            title: e.title,
+            metadata: e.metadata,
+            timing: e.timing,
           }),
         )
       }),
@@ -147,8 +150,13 @@ export function useChat(activeSessionId: string | null): UseChat {
             callId: e.callId,
             tool: e.tool,
             status: e.status,
+            input: e.input,
             output: e.output,
             error: e.error,
+            title: e.title,
+            metadata: e.metadata,
+            timing: e.timing,
+            attachmentsCount: e.attachmentsCount,
           }),
         )
       }),

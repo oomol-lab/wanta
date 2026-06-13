@@ -41,7 +41,6 @@ import {
   Plus,
   RotateCcw,
   Settings2,
-  Sparkles,
   Square,
   Terminal,
   ThumbsDown,
@@ -1895,11 +1894,10 @@ export function ChatArea({
 
   if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
     return (
-      <div className="grid h-full min-h-0 animate-in place-items-center px-1 py-6 duration-200 fade-in">
-        <div className="flex w-full max-w-[48rem] -translate-y-[6vh] flex-col gap-4 transition-transform duration-300 ease-out">
-          <div className="flex flex-col items-center gap-3 px-4 text-center">
-            <Sparkles className="size-8 text-muted-foreground" />
-            <h2 className="oo-text-title max-w-2xl">{t("chat.emptyTitle")}</h2>
+      <div className="grid h-full min-h-0 animate-in place-items-center px-4 py-6 duration-200 fade-in sm:px-5 lg:px-8">
+        <div className="flex w-full max-w-[50rem] -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out">
+          <div className="px-4 pb-1 text-center">
+            <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
           </div>
           {errorBanner}
           {promptInput}

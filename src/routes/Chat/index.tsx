@@ -56,6 +56,7 @@ import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import {
   compactPathDetail,
   compactToolDetail,
+  formatToolActivityDuration,
   formatToolDuration,
   shouldShowRunningNoOutput,
   toolActivityTitle,
@@ -288,8 +289,37 @@ function toolServiceSlug(part: ChatMessagePart): string {
   return ""
 }
 
-/** 工具调用的一行人话摘要（折叠态显示）；缺少入参时退回原始工具名。 */
-function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
+function bashActionSummary(t: TranslateFn, command: string): string {
+  const normalized = command.replace(/\s+/g, " ").trim()
+  if (/^(ls|stat|file|du)\b/.test(normalized)) {
+    return t("chat.toolBashCheckFile")
+  }
+  if (/(^|[;&|]\s*)(which|command -v)\b|--version\b/.test(normalized)) {
+    return t("chat.toolBashCheckTools")
+  }
+  if (/^(sips|magick|convert|qlmanage)\b/.test(normalized)) {
+    return t("chat.toolBashConvertImage")
+  }
+  if (/^python3?\s+-c\s+["']import\b/.test(normalized)) {
+    return t("chat.toolBashCheckPythonModule")
+  }
+  if (/\bpip3?\s+install\b/.test(normalized)) {
+    return t("chat.toolBashInstallPythonPackage")
+  }
+  if (/^python3?\s+<<\s*['"]?EOF\b/.test(normalized) || /^python3?\s+\S+\.py\b/.test(normalized)) {
+    return t("chat.toolBashRunPythonScript")
+  }
+  if (/^(cat|sed|head|tail)\b/.test(normalized)) {
+    return t("chat.toolBashReadContent")
+  }
+  if (/^find\b/.test(normalized)) {
+    return t("chat.toolBashFindFiles")
+  }
+  return t("chat.toolRunGeneric")
+}
+
+/** 工具调用的一行人话动作摘要；原始命令只放在详情里。 */
+function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string {
   const input = part.input ?? {}
   const service = str(input.service)
   const action = str(input.action)
@@ -306,7 +336,7 @@ function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
       return target ? t("chat.toolCall", { detail: target }) : t("chat.toolCallGeneric")
     case "bash": {
       const command = str(input.command).split("\n")[0]
-      return command ? t("chat.toolRun", { detail: compactToolDetail(command) }) : t("chat.toolRunGeneric")
+      return command ? bashActionSummary(t, command) : t("chat.toolRunGeneric")
     }
     case "read": {
       const filePath = str(input.filePath) || str(input.path)
@@ -470,7 +500,7 @@ function ToolActivityStep({
       )}
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="min-w-0 truncate text-xs text-foreground">{toolSummary(t, part)}</span>
+          <span className="min-w-0 truncate text-xs text-foreground">{toolActionSummary(t, part)}</span>
           <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             {provider ? (
               <>
@@ -574,11 +604,12 @@ function ToolActivity({
   const statusKey = parts.map((part) => `${part.partId}:${part.status}`).join("|")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
+  const activityDuration = formatToolActivityDuration(parts, now)
   const title = toolActivityTitle(t, parts, {
     hasActive,
     hasError,
     hasStopped,
-    singleSummary: parts[0] ? toolSummary(t, parts[0]) : undefined,
+    duration: activityDuration,
   })
 
   React.useEffect(() => {

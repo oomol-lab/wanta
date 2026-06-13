@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import {
   compactPathDetail,
   compactToolDetail,
+  formatToolActivityDuration,
   formatToolDuration,
   shouldShowRunningNoOutput,
   toolActivityTitle,
@@ -25,15 +26,14 @@ function toolPart(partId: string, extra: Partial<ChatMessagePart> = {}): ChatMes
 }
 
 describe("toolActivityTitle", () => {
-  it("uses the tool summary for a single tool activity", () => {
+  it("uses the aggregate title for a single tool activity", () => {
     const title = toolActivityTitle(t, [toolPart("tool-1")], {
       hasActive: false,
       hasError: false,
       hasStopped: false,
-      singleSummary: "运行命令：sleep 60",
     })
 
-    expect(title).toBe("运行命令：sleep 60")
+    expect(title).toBe("chat.toolActivityCompleted:1")
   })
 
   it("uses operation counts for grouped tool activities", () => {
@@ -41,7 +41,6 @@ describe("toolActivityTitle", () => {
       hasActive: true,
       hasError: false,
       hasStopped: false,
-      singleSummary: "运行命令：sleep 60",
     })
 
     expect(title).toBe("chat.toolActivityRunning:2")
@@ -56,6 +55,17 @@ describe("toolActivityTitle", () => {
 
     expect(title).toBe("chat.toolActivityStopped:2")
   })
+
+  it("appends duration when available", () => {
+    const title = toolActivityTitle(t, [toolPart("tool-1")], {
+      hasActive: false,
+      hasError: false,
+      hasStopped: false,
+      duration: "1.5s",
+    })
+
+    expect(title).toBe("chat.toolActivityCompleted:1 · 1.5s")
+  })
 })
 
 describe("formatToolDuration", () => {
@@ -65,6 +75,23 @@ describe("formatToolDuration", () => {
 
   it("formats running tool duration against the current time", () => {
     expect(formatToolDuration(toolPart("tool-1", { status: "running", timing: { start: 1000 } }), 12_200)).toBe("11s")
+  })
+})
+
+describe("formatToolActivityDuration", () => {
+  it("formats the span covering all tool calls", () => {
+    expect(
+      formatToolActivityDuration([
+        toolPart("tool-1", { timing: { start: 1000, end: 1800 } }),
+        toolPart("tool-2", { timing: { start: 2000, end: 3600 } }),
+      ]),
+    ).toBe("2.6s")
+  })
+
+  it("uses current time for running activity duration", () => {
+    expect(formatToolActivityDuration([toolPart("tool-1", { status: "running", timing: { start: 1000 } })], 3200)).toBe(
+      "2.2s",
+    )
   })
 })
 

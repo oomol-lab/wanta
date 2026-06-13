@@ -3,6 +3,8 @@ import type { ComponentProps, HTMLAttributes } from "react"
 import type { StreamdownProps } from "streamdown"
 
 import { lazy, memo, Suspense } from "react"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 // streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
@@ -16,7 +18,7 @@ export type MessageProps = HTMLAttributes<HTMLDivElement> & {
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
     className={cn(
-      "group flex w-full max-w-[95%] flex-col gap-2",
+      "group group/message relative flex w-full max-w-[95%] flex-col gap-2",
       from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
       className,
     )}
@@ -38,6 +40,52 @@ export const MessageContent = ({ children, className, ...props }: MessageContent
   >
     {children}
   </div>
+)
+
+export type MessageActionsProps = HTMLAttributes<HTMLDivElement>
+
+export const MessageActions = ({ children, className, ...props }: MessageActionsProps) => (
+  <div
+    className={cn(
+      "pointer-events-none absolute top-full z-10 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/message:pointer-events-auto group-hover/message:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100",
+      "group-[.is-user]:right-0 group-[.is-user]:justify-end",
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </div>
+)
+
+export type MessageActionProps = ComponentProps<typeof Button> & {
+  label: string
+  tooltip?: string
+  tooltipDelayDuration?: number
+}
+
+export const MessageAction = ({
+  children,
+  className,
+  label,
+  tooltip,
+  tooltipDelayDuration = 500,
+  ...props
+}: MessageActionProps) => (
+  <Tooltip delayDuration={tooltipDelayDuration}>
+    <TooltipTrigger asChild>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={label}
+        className={cn("text-muted-foreground hover:text-foreground", className)}
+        {...props}
+      >
+        {children}
+      </Button>
+    </TooltipTrigger>
+    <TooltipContent>{tooltip ?? label}</TooltipContent>
+  </Tooltip>
 )
 
 export type MessageResponseProps = StreamdownProps

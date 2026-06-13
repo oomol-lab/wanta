@@ -20,10 +20,12 @@ import {
   AlertTriangle,
   Bot,
   Brain,
+  CheckIcon,
   CheckCircle2,
   ChevronDown,
   Circle,
   Clock3,
+  CopyIcon,
   ExternalLink,
   File as FileIcon,
   FileArchive,
@@ -48,12 +50,18 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { visibleUserText } from "./message-text.ts"
+import { copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message"
 import {
   PromptInput,
   PromptInputAttachments,
@@ -583,6 +591,92 @@ function ToolActivity({
   )
 }
 
+function formatMessageTime(createdAt: number): string {
+  if (!Number.isFinite(createdAt)) {
+    return ""
+  }
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(createdAt))
+}
+
+function MessageTimestamp({ createdAt }: { createdAt: number }) {
+  const label = formatMessageTime(createdAt)
+  if (!label) {
+    return null
+  }
+  return <span className="oo-text-caption text-muted-foreground/80 tabular-nums">{label}</span>
+}
+
+function CopyMessageAction({ text }: { text: string }) {
+  const t = useT()
+  const [copied, setCopied] = React.useState(false)
+  const timeoutRef = React.useRef<number | undefined>(undefined)
+
+  React.useEffect(
+    () => () => {
+      if (timeoutRef.current !== undefined) {
+        window.clearTimeout(timeoutRef.current)
+      }
+    },
+    [],
+  )
+
+  if (!text) {
+    return null
+  }
+
+  const writeClipboard = async (): Promise<boolean> => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text)
+        return true
+      } catch {
+        // 继续走 DOM fallback。
+      }
+    }
+
+    const textarea = document.createElement("textarea")
+    textarea.value = text
+    textarea.setAttribute("readonly", "")
+    textarea.style.position = "fixed"
+    textarea.style.top = "-9999px"
+    textarea.style.left = "-9999px"
+    document.body.append(textarea)
+    textarea.select()
+    try {
+      return document.execCommand("copy")
+    } finally {
+      textarea.remove()
+    }
+  }
+
+  const copyToClipboard = async (): Promise<void> => {
+    const didCopy = await writeClipboard()
+    if (!didCopy) {
+      setCopied(false)
+      return
+    }
+    setCopied(true)
+    if (timeoutRef.current !== undefined) {
+      window.clearTimeout(timeoutRef.current)
+    }
+    timeoutRef.current = window.setTimeout(() => setCopied(false), 3000)
+  }
+
+  const Icon = copied ? CheckIcon : CopyIcon
+  const label = copied ? t("chat.copiedMessage") : t("chat.copyMessage")
+
+  return (
+    <MessageAction
+      label={label}
+      tooltip={label}
+      className={cn(copied && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
+      onClick={() => void copyToClipboard()}
+    >
+      <Icon className="size-3.5" />
+    </MessageAction>
+  )
+}
+
 function MessageBubble({
   message,
   providerByService,
@@ -592,6 +686,7 @@ function MessageBubble({
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
+  const copyText = copyableMessageText(message)
   if (message.role === "user") {
     const text = message.parts
       .filter((p) => p.kind === "text")
@@ -605,12 +700,18 @@ function MessageBubble({
       return null
     }
     return (
-      <Message from="user" className="items-end">
+      <Message from="user" className={cn("items-end", copyText && "pb-7")}>
         {attachments.length > 0 ? <AttachmentList attachments={attachments} className="justify-end" /> : null}
         {visibleText ? (
           <MessageContent>
             <div className="break-words whitespace-pre-wrap">{visibleText}</div>
           </MessageContent>
+        ) : null}
+        {copyText ? (
+          <MessageActions className="top-auto bottom-0 mt-0">
+            <MessageTimestamp createdAt={message.createdAt} />
+            <CopyMessageAction text={copyText} />
+          </MessageActions>
         ) : null}
       </Message>
     )

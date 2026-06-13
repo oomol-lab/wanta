@@ -1,3 +1,5 @@
+import type { ChatMessage } from "../../../electron/chat/common.ts"
+
 const readToolPrefix = "Called the Read tool with the following input:"
 
 export function visibleUserText(text: string): string {
@@ -11,6 +13,18 @@ export function visibleUserText(text: string): string {
     return text
   }
   return afterPrefix.slice(jsonEnd + 1).trimStart()
+}
+
+export function copyableMessageText(message: Pick<ChatMessage, "parts" | "role">): string {
+  const textParts = message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text ?? "")
+    .filter(Boolean)
+
+  if (message.role === "user") {
+    return visibleUserText(textParts.join("")).trim()
+  }
+  return textParts.join("\n\n").trim()
 }
 
 function jsonObjectEnd(text: string): number {

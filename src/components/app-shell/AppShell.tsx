@@ -5,7 +5,7 @@ import type { ChatStatus } from "ai"
 
 import { Package, PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
 import * as React from "react"
-import { buildSessionTitle } from "@/components/app-shell/session-title"
+import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { useChatService } from "@/components/AppContext"
 import { Input } from "@/components/ui/input"
 import { useChat } from "@/hooks/useChat"
@@ -71,6 +71,26 @@ function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase()
 }
 
+function buildSessionTitleInput(
+  messages: ChatMessage[],
+  text: string,
+  attachments: ChatAttachment[],
+): { text: string; attachmentNames?: string[] } {
+  const recentUserMessages = messages
+    .filter((message) => message.role === "user")
+    .map(chatMessageText)
+    .map((messageText) => messageText.trim())
+    .filter(Boolean)
+    .slice(-3)
+  const currentText = text.trim()
+  const titleText = [...recentUserMessages, currentText].filter(Boolean).join("\n\n")
+  const attachmentNames = attachments.map((attachment) => attachment.name.trim()).filter(Boolean)
+  return {
+    text: titleText || attachmentNames.join("\n"),
+    ...(attachmentNames.length > 0 ? { attachmentNames } : {}),
+  }
+}
+
 function SessionItem({
   session,
   active,
@@ -124,6 +144,7 @@ function SessionItem({
         type="button"
         onClick={onSelect}
         onDoubleClick={() => setEditing(true)}
+        title={session.title}
         className="min-w-0 flex-1 text-left"
       >
         <span className="oo-sidebar-nav-label truncate">{session.title}</span>
@@ -221,6 +242,7 @@ function SessionSearchOverlay({
                 key={session.id}
                 type="button"
                 onClick={() => onSelect(session)}
+                title={session.title}
                 className="oo-session-search-result oo-text-value flex h-10 min-w-0 items-center rounded-lg px-3 text-left"
               >
                 <span className="truncate">{session.title}</span>
@@ -275,7 +297,7 @@ function SidebarTitlebarActions({
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
-  const { sessions, create, rename, remove, refresh } = useSessions()
+  const { sessions, create, generateTitle, rename, remove, refresh } = useSessions()
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
@@ -297,6 +319,11 @@ export function AppShell() {
     model?: ModelChoice
   } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
+  const sessionsRef = React.useRef<SessionInfo[]>([])
+
+  React.useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
 
   // 轮询 agent 就绪（sidecar 异步启动，首启需拉起 opencode + provider）。
   React.useEffect(() => {
@@ -373,6 +400,14 @@ export function AppShell() {
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending
+  const titlebarTitle =
+    route === "settings"
+      ? t("settings.title")
+      : route === "connections"
+        ? t("connections.title")
+        : route === "skills"
+          ? t("skills.title")
+          : (activeSession?.title ?? t("chat.newSession"))
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
@@ -401,9 +436,64 @@ export function AppShell() {
     setRoute("chat")
   }
 
+  const refreshGeneratedTitle = React.useCallback(
+    async (
+      sessionId: string,
+      input: { text: string; attachmentNames?: string[] },
+      allowPlaceholder: boolean,
+      replaceableTitle?: string,
+    ) => {
+      const current = sessionsRef.current.find((session) => session.id === sessionId)
+      if (
+        current &&
+        current.title !== replaceableTitle &&
+        !shouldAutoRefreshSessionTitle(current.title, allowPlaceholder)
+      ) {
+        return
+      }
+      try {
+        const title = await generateTitle(input)
+        const latest = sessionsRef.current.find((session) => session.id === sessionId)
+        if (
+          latest &&
+          latest.title !== replaceableTitle &&
+          !shouldAutoRefreshSessionTitle(latest.title, allowPlaceholder)
+        ) {
+          return
+        }
+        if (title && title !== latest?.title) {
+          await rename(sessionId, title)
+        }
+      } catch (error) {
+        console.error("[lumo] generate session title failed", error)
+      }
+    },
+    [generateTitle, rename],
+  )
+
+  React.useEffect(() => {
+    if (!activeSession || !messagesLoaded || messages.length === 0) {
+      return
+    }
+    if (!shouldAutoRefreshSessionTitle(activeSession.title, true)) {
+      return
+    }
+    const titleInput = buildSessionTitleInput(messages, "", [])
+    if (!titleInput.text && !titleInput.attachmentNames?.length) {
+      return
+    }
+    void refreshGeneratedTitle(activeSession.id, titleInput, true, activeSession.title)
+  }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
+
   const handleSend = async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
     setRoute("chat")
     let sessionId = activeSessionId
+    const titleInput = buildSessionTitleInput(messages, text, attachments)
+    const fallbackTitle = buildFallbackSessionTitle(titleInput)
+    const allowPlaceholderTitle =
+      !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
+    const shouldRefreshTitle =
+      !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
     const bridgeEmptySend = messagesLoaded && messages.length === 0
     const createdAt = Date.now()
     if (bridgeEmptySend) {
@@ -412,7 +502,7 @@ export function AppShell() {
     if (!sessionId) {
       let info: SessionInfo
       try {
-        info = await create(buildSessionTitle(text || attachments[0]?.name || "附件"))
+        info = await create(fallbackTitle)
       } catch (error) {
         if (bridgeEmptySend) {
           setPendingChatTransition(null)
@@ -424,6 +514,14 @@ export function AppShell() {
       setIsDraftSession(false)
       setPendingChatTransition((pending) =>
         pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
+      )
+    }
+    if (shouldRefreshTitle) {
+      void refreshGeneratedTitle(
+        sessionId,
+        titleInput,
+        allowPlaceholderTitle,
+        !activeSessionId ? fallbackTitle : undefined,
       )
     }
     lastModelBySession.current.set(sessionId, model)
@@ -592,14 +690,8 @@ export function AppShell() {
               isSidebarRestoring && "is-restoring",
             )}
           >
-            <span className="oo-toolbar-title oo-text-title truncate">
-              {route === "settings"
-                ? t("settings.title")
-                : route === "connections"
-                  ? t("connections.title")
-                  : route === "skills"
-                    ? t("skills.title")
-                    : (activeSession?.title ?? t("chat.newSession"))}
+            <span className="oo-toolbar-title oo-text-title truncate" title={titlebarTitle}>
+              {titlebarTitle}
             </span>
           </div>
         </header>

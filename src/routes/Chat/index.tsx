@@ -316,7 +316,10 @@ export function ChatArea({
   return (
     <div className="flex h-full min-h-0 animate-in flex-col pb-6 duration-300 fade-in slide-in-from-bottom-2">
       <Conversation className="min-h-0 flex-1">
-        <ConversationContent data-selectable="true" className="mx-auto min-h-full w-full max-w-[50rem] gap-4 px-4 py-2">
+        <ConversationContent
+          data-selectable="true"
+          className="mx-auto min-h-full w-full max-w-[50rem] gap-4 px-4 pt-7 pb-9"
+        >
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} onAuthorize={onAuthorize} />
           ))}

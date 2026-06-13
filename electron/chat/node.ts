@@ -1,9 +1,16 @@
 import type { AgentManager } from "../agent/manager.ts"
-import type { ChatMessage, ChatService, SendMessageRequest } from "./common.ts"
+import type {
+  ChatMessage,
+  ChatService,
+  SendMessageRequest,
+  TranscribeVoiceRequest,
+  TranscribeVoiceResult,
+} from "./common.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
+import { voiceAsrBaseUrl } from "../domain.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 
 function errorMessage(error: unknown): string {
@@ -13,8 +20,43 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
+export function createVoiceAsrRequestId(): string {
+  return crypto.randomUUID()
+}
+
+export function buildVoiceAsrRequest(apiKey: string, audioBase64: string, requestId: string): RequestInit {
+  return {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "X-Api-Request-Id": requestId,
+    },
+    body: JSON.stringify({
+      user: { uid: requestId },
+      audio: { data: audioBase64 },
+      request: {
+        model_name: "bigmodel",
+        enable_itn: true,
+        enable_punc: true,
+      },
+    }),
+  }
+}
+
+export function parseVoiceAsrTranscript(payload: VoiceAsrResponse | undefined): string {
+  const transcript = payload?.result?.text?.trim() ?? ""
+  if (!transcript) {
+    throw new Error("No speech was recognized.")
+  }
+  return transcript
+}
+
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
   private agent: AgentManager | null
+  private voiceAuthToken: string | undefined
   private bridged = false
 
   public constructor(agent: AgentManager | null = null) {
@@ -26,6 +68,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public setAgent(agent: AgentManager | null): void {
     this.agent = agent
     this.bridged = false
+  }
+
+  /** 登录 / 登出时由 main 更新 Studio ASR 需要的 oomol-token。只在主进程内使用，renderer 不可见。 */
+  public setVoiceAuthToken(token: string | undefined): void {
+    this.voiceAuthToken = token
   }
 
   /** agent 就绪后调用：订阅 OpenCode SSE，转译为 ServerEvents 广播给渲染层。 */
@@ -51,9 +98,35 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Agent not configured (sign in first)")
     }
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
-    void this.agent.promptStreaming(req.sessionId, req.text).catch((error: unknown) => {
-      void this.send("agentError", { sessionId: req.sessionId, message: errorMessage(error) })
+    void this.agent
+      .promptStreaming(req.sessionId, req.text, { attachments: req.attachments })
+      .catch((error: unknown) => {
+        void this.send("agentError", { sessionId: req.sessionId, message: errorMessage(error) })
+      })
+  }
+
+  public async transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult> {
+    if (!this.voiceAuthToken) {
+      throw new Error("Voice transcription requires a fresh sign-in. Please sign out and sign in again.")
+    }
+    const requestId = createVoiceAsrRequestId()
+    const response = await fetch(voiceAsrBaseUrl, {
+      ...buildVoiceAsrRequest(this.voiceAuthToken, req.audioBase64, requestId),
+      signal: AbortSignal.timeout(60_000),
     })
+    const text = await response.text()
+    let payload: VoiceAsrResponse | undefined
+    if (text) {
+      try {
+        payload = JSON.parse(text) as VoiceAsrResponse
+      } catch {
+        payload = undefined
+      }
+    }
+    if (!response.ok) {
+      throw new Error(`Voice transcription failed with status ${response.status}: ${text || response.statusText}`)
+    }
+    return { text: parseVoiceAsrTranscript(payload) }
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {
@@ -68,5 +141,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return []
     }
     return this.agent.getMessages(sessionId)
+  }
+}
+
+export interface VoiceAsrResponse {
+  audio_info?: {
+    duration?: number
+  }
+  result?: {
+    text?: string
+    utterances?: unknown[]
   }
 }

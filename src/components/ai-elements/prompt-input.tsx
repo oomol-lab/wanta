@@ -35,6 +35,16 @@ export const PromptInputBody = ({ className, ...props }: PromptInputBodyProps) =
   <div className={cn("contents", className)} {...props} />
 )
 
+export type PromptInputAttachmentsProps = Omit<ComponentProps<typeof InputGroupAddon>, "align">
+
+export const PromptInputAttachments = ({ className, ...props }: PromptInputAttachmentsProps) => (
+  <InputGroupAddon
+    align="block-start"
+    className={cn("cursor-default justify-start px-4 pt-3 pb-1.5 select-text", className)}
+    {...props}
+  />
+)
+
 export type PromptInputTextareaProps = ComponentProps<typeof InputGroupTextarea>
 
 export const PromptInputTextarea = ({

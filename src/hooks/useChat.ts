@@ -1,4 +1,10 @@
-import type { ChatMessage, ChatMessagePart, ChatRole, MessageDeltaEvent } from "../../electron/chat/common"
+import type {
+  ChatAttachment,
+  ChatMessage,
+  ChatMessagePart,
+  ChatRole,
+  MessageDeltaEvent,
+} from "../../electron/chat/common"
 import type { ChatStatus } from "ai"
 
 import * as React from "react"
@@ -55,20 +61,44 @@ function messageText(message: ChatMessage): string {
     .join("")
 }
 
-function hasUserMessage(msgs: ChatMessage[], text: string): boolean {
-  return msgs.some((message) => message.role === "user" && messageText(message) === text)
+function messageAttachments(message: ChatMessage): ChatAttachment[] {
+  return message.parts
+    .filter((part) => part.kind === "attachment" && part.attachment)
+    .map((part) => part.attachment as ChatAttachment)
 }
 
-function appendOptimisticUserMessage(msgs: ChatMessage[], text: string): ChatMessage[] {
-  if (hasUserMessage(msgs, text)) {
+function attachmentsKey(attachments: ChatAttachment[] | undefined): string {
+  return (attachments ?? [])
+    .map((attachment) => attachment.path)
+    .sort()
+    .join("\n")
+}
+
+function hasUserMessage(msgs: ChatMessage[], text: string, attachments?: ChatAttachment[]): boolean {
+  const expectedAttachments = attachmentsKey(attachments)
+  return msgs.some(
+    (message) =>
+      message.role === "user" &&
+      messageText(message) === text &&
+      attachmentsKey(messageAttachments(message)) === expectedAttachments,
+  )
+}
+
+function appendOptimisticUserMessage(msgs: ChatMessage[], text: string, attachments?: ChatAttachment[]): ChatMessage[] {
+  if (hasUserMessage(msgs, text, attachments)) {
     return msgs
   }
+  const attachmentParts: ChatMessagePart[] = (attachments ?? []).map((attachment) => ({
+    kind: "attachment",
+    partId: `local-attachment-${attachment.id}`,
+    attachment,
+  }))
   return [
     ...msgs,
     {
       id: `local-user-${Date.now()}`,
       role: "user",
-      parts: [{ kind: "text", partId: "local", text }],
+      parts: [...attachmentParts, ...(text ? [{ kind: "text" as const, partId: "local", text }] : [])],
       createdAt: Date.now(),
     },
   ]
@@ -77,7 +107,9 @@ function appendOptimisticUserMessage(msgs: ChatMessage[], text: string): ChatMes
 function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
   const missingLocalUsers = current.filter(
     (message) =>
-      message.role === "user" && message.id.startsWith("local-user-") && !hasUserMessage(fetched, messageText(message)),
+      message.role === "user" &&
+      message.id.startsWith("local-user-") &&
+      !hasUserMessage(fetched, messageText(message), messageAttachments(message)),
   )
   return missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetched] : fetched
 }
@@ -87,7 +119,7 @@ export interface UseChat {
   status: ChatStatus
   messagesLoaded: boolean
   error: string | null
-  send: (sessionId: string, text: string, options?: SendOptions) => Promise<void>
+  send: (sessionId: string, text: string, attachments?: ChatAttachment[], options?: SendOptions) => Promise<void>
   stop: (sessionId: string) => Promise<void>
 }
 
@@ -185,17 +217,17 @@ export function useChat(activeSessionId: string | null): UseChat {
   }, [activeSessionId, reload])
 
   const send = React.useCallback(
-    async (sessionId: string, text: string, options: SendOptions = {}) => {
+    async (sessionId: string, text: string, attachments: ChatAttachment[] = [], options: SendOptions = {}) => {
       const optimistic = options.optimistic ?? "before-ack"
       setError(null)
       setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
       if (optimistic === "before-ack") {
-        patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text))
+        patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
       }
       try {
-        await chatService.invoke("sendMessage", { sessionId, text })
+        await chatService.invoke("sendMessage", { sessionId, text, attachments })
         if (optimistic === "after-ack") {
-          patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text))
+          patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
         }
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))

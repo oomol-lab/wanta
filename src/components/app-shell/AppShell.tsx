@@ -1,4 +1,4 @@
-import type { AuthorizationInfo, ChatMessage } from "../../../electron/chat/common"
+import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common"
 import type { SessionInfo } from "../../../electron/session/common"
 import type { ChatStatus } from "ai"
 
@@ -20,6 +20,7 @@ type Route = "chat" | "connections" | "settings"
 interface PendingChatTransition {
   sessionId: string | null
   text: string
+  attachments: ChatAttachment[]
   createdAt: number
 }
 
@@ -35,8 +36,29 @@ function chatMessageText(message: ChatMessage): string {
     .join("")
 }
 
-function hasUserMessage(messages: ChatMessage[], text: string): boolean {
-  return messages.some((message) => message.role === "user" && chatMessageText(message) === text)
+function chatMessageAttachmentPaths(message: ChatMessage): string {
+  return message.parts
+    .filter((part) => part.kind === "attachment" && part.attachment)
+    .map((part) => part.attachment?.path ?? "")
+    .sort()
+    .join("\n")
+}
+
+function attachmentPaths(attachments: ChatAttachment[]): string {
+  return attachments
+    .map((attachment) => attachment.path)
+    .sort()
+    .join("\n")
+}
+
+function hasUserMessage(messages: ChatMessage[], text: string, attachments: ChatAttachment[] = []): boolean {
+  const expectedAttachments = attachmentPaths(attachments)
+  return messages.some(
+    (message) =>
+      message.role === "user" &&
+      chatMessageText(message) === text &&
+      chatMessageAttachmentPaths(message) === expectedAttachments,
+  )
 }
 
 function SessionItem({
@@ -122,7 +144,12 @@ export function AppShell() {
   const connections = useConnections()
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
-  const pendingRetry = React.useRef<{ sessionId: string; service: string; text: string } | null>(null)
+  const pendingRetry = React.useRef<{
+    sessionId: string
+    service: string
+    text: string
+    attachments: ChatAttachment[]
+  } | null>(null)
 
   // 轮询 agent 就绪（sidecar 异步启动，首启需拉起 opencode + provider）。
   React.useEffect(() => {
@@ -184,7 +211,7 @@ export function AppShell() {
       pendingRetry.current = null
       setSelectedService(null)
       setRoute("chat")
-      void send(pending.sessionId, pending.text)
+      void send(pending.sessionId, pending.text, pending.attachments)
     }
   }, [connections.summary, send])
 
@@ -192,7 +219,7 @@ export function AppShell() {
   const pendingCaughtUp = Boolean(
     pendingChatTransition?.sessionId &&
     activeSessionId === pendingChatTransition.sessionId &&
-    hasUserMessage(messages, pendingChatTransition.text),
+    hasUserMessage(messages, pendingChatTransition.text, pendingChatTransition.attachments),
   )
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
@@ -217,18 +244,18 @@ export function AppShell() {
     setRoute("chat")
   }
 
-  const handleSend = async (text: string): Promise<void> => {
+  const handleSend = async (text: string, attachments: ChatAttachment[] = []): Promise<void> => {
     setRoute("chat")
     let sessionId = activeSessionId
     const bridgeEmptySend = messagesLoaded && messages.length === 0
     const createdAt = Date.now()
     if (bridgeEmptySend) {
-      setPendingChatTransition({ sessionId, text, createdAt })
+      setPendingChatTransition({ sessionId, text, attachments, createdAt })
     }
     if (!sessionId) {
       let info: SessionInfo
       try {
-        info = await create(buildSessionTitle(text))
+        info = await create(buildSessionTitle(text || attachments[0]?.name || "附件"))
       } catch (error) {
         if (bridgeEmptySend) {
           setPendingChatTransition(null)
@@ -243,7 +270,7 @@ export function AppShell() {
       )
     }
     try {
-      await send(sessionId, text, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack" })
+      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack" })
     } catch (error) {
       if (bridgeEmptySend) {
         setPendingChatTransition(null)
@@ -270,8 +297,11 @@ export function AppShell() {
       .filter((p) => p.kind === "text")
       .map((p) => p.text ?? "")
       .join("")
-    if (activeSessionId && text) {
-      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text }
+    const attachments = (lastUser?.parts ?? [])
+      .filter((p) => p.kind === "attachment" && p.attachment)
+      .map((p) => p.attachment as ChatAttachment)
+    if (activeSessionId && (text || attachments.length > 0)) {
+      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments }
     }
   }
 
@@ -380,7 +410,7 @@ export function AppShell() {
                 initialSendPending={initialSendPending}
                 providers={connections.summary?.providers ?? []}
                 placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                onSend={(text) => void handleSend(text)}
+                onSend={(text, attachments) => void handleSend(text, attachments)}
                 onStop={() => activeSessionId && void stop(activeSessionId)}
                 onAuthorize={handleAuthorize}
               />

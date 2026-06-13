@@ -77,9 +77,10 @@ export interface AgentErrorEvent {
 
 // ── 规范化消息（切换会话时加载历史用）──
 export interface ChatMessagePart {
-  kind: "text" | "tool"
+  kind: "text" | "tool" | "attachment"
   partId: string
   text?: string
+  attachment?: ChatAttachment
   callId?: string
   tool?: string
   status?: ToolStatus
@@ -102,6 +103,23 @@ export interface ChatMessage {
 export interface SendMessageRequest {
   sessionId: string
   text: string
+  attachments?: ChatAttachment[]
+}
+
+export interface ChatAttachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  path: string
+}
+
+export interface TranscribeVoiceRequest {
+  audioBase64: string
+}
+
+export interface TranscribeVoiceResult {
+  text: string
 }
 
 export type ChatService = typeof ChatService
@@ -117,6 +135,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   }
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
+    transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>
     /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */

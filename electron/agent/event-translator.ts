@@ -105,6 +105,13 @@ interface OpencodePart {
   messageID: string
   type: string
   text?: string
+  mime?: string
+  filename?: string
+  url?: string
+  source?: {
+    type?: string
+    path?: string
+  }
   callID?: string
   tool?: string
   state?: {
@@ -185,6 +192,20 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
   return []
 }
 
+function attachmentPath(part: OpencodePart): string {
+  if (part.source?.path) {
+    return part.source.path
+  }
+  if (part.url?.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(part.url).pathname)
+    } catch {
+      return part.url
+    }
+  }
+  return part.url ?? ""
+}
+
 /** 把 OpenCode 的 message {info, parts} 规范化为 ChatMessage（切换会话加载历史用）。 */
 export function normalizeMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
   const info = message.info as { id?: string; role?: ChatRole; time?: { created?: number } } | undefined
@@ -198,6 +219,21 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
       const text = part.text ?? ""
       if (text.length > 0) {
         parts.push({ kind: "text", partId: part.id, text })
+      }
+    } else if (part.type === "file") {
+      const path = attachmentPath(part)
+      if (path) {
+        parts.push({
+          kind: "attachment",
+          partId: part.id,
+          attachment: {
+            id: part.id,
+            name: part.filename ?? path.split(/[\\/]/).pop() ?? "attachment",
+            mime: part.mime ?? "application/octet-stream",
+            size: 0,
+            path,
+          },
+        })
       }
     } else if (part.type === "tool" && part.state && part.callID && part.tool) {
       const state = part.state

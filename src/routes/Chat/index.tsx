@@ -1,4 +1,10 @@
-import type { AuthorizationInfo, ChatMessage, ChatMessagePart, ToolStatus } from "../../../electron/chat/common"
+import type {
+  AuthorizationInfo,
+  ChatAttachment,
+  ChatMessage,
+  ChatMessagePart,
+  ToolStatus,
+} from "../../../electron/chat/common"
 import type { ConnectionProvider } from "../../../electron/connections/common"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
@@ -10,17 +16,31 @@ import {
   ChevronDown,
   Circle,
   Clock3,
+  File as FileIcon,
+  FileArchive,
+  FileCode,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileVideoCamera,
   Loader2,
+  Mic,
   Plug,
+  Plus,
+  RotateCcw,
   Sparkles,
+  Square,
   Terminal,
   Wrench,
+  X,
 } from "lucide-react"
 import * as React from "react"
+import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import {
   PromptInput,
+  PromptInputAttachments,
   PromptInputBody,
   PromptInputSubmit,
   PromptInputTextarea,
@@ -29,6 +49,7 @@ import {
 } from "@/components/ai-elements/prompt-input"
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
+import { useChatService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useT } from "@/i18n/i18n"
@@ -44,7 +65,7 @@ interface ChatAreaProps {
   initialSendPending: boolean
   providers: ConnectionProvider[]
   placeholder: string
-  onSend: (text: string) => void
+  onSend: (text: string, attachments: ChatAttachment[]) => void
   onStop: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
 }
@@ -75,6 +96,56 @@ function parseAuthorization(output: string | undefined): AuthorizationInfo | nul
 
 function str(value: unknown): string {
   return typeof value === "string" ? value : ""
+}
+
+function fileSizeLabel(size: number): string {
+  if (!Number.isFinite(size) || size <= 0) {
+    return ""
+  }
+  if (size < 1024) {
+    return `${size} B`
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
+
+function attachmentExtension(name: string): string {
+  const lastSegment = name.split(/[\\/]/).pop() ?? name
+  const index = lastSegment.lastIndexOf(".")
+  return index > -1 ? lastSegment.slice(index + 1).toLowerCase() : ""
+}
+
+function attachmentTypeLabel(attachment: ChatAttachment): string {
+  const extension = attachmentExtension(attachment.name)
+  if (extension) {
+    return extension.toUpperCase()
+  }
+  const [type] = attachment.mime.split("/")
+  return type ? type.toUpperCase() : "FILE"
+}
+
+function attachmentSummary(attachment: ChatAttachment): string {
+  const size = fileSizeLabel(attachment.size)
+  return size ? `${attachmentTypeLabel(attachment)} ${size}` : attachmentTypeLabel(attachment)
+}
+
+function voiceDurationLabel(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const chunkSize = 0x8000
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return btoa(binary)
 }
 
 function hasKeys(value: Record<string, unknown> | undefined): boolean {
@@ -456,13 +527,17 @@ function MessageBubble({
       .filter((p) => p.kind === "text")
       .map((p) => p.text)
       .join("")
-    if (!text) {
+    const attachments = message.parts
+      .filter((p) => p.kind === "attachment" && p.attachment)
+      .map((p) => p.attachment as ChatAttachment)
+    if (!text && attachments.length === 0) {
       return null
     }
     return (
       <Message from="user">
-        <MessageContent>
-          <div className="break-words whitespace-pre-wrap">{text}</div>
+        <MessageContent className="grid gap-2">
+          {attachments.length > 0 ? <AttachmentList attachments={attachments} /> : null}
+          {text ? <div className="break-words whitespace-pre-wrap">{text}</div> : null}
         </MessageContent>
       </Message>
     )
@@ -490,6 +565,192 @@ function MessageBubble({
         )}
       </MessageContent>
     </Message>
+  )
+}
+
+function AttachmentIconTile({ attachment }: { attachment: ChatAttachment }) {
+  const mime = attachment.mime.toLowerCase()
+  const extension = attachmentExtension(attachment.name)
+
+  if (mime === "application/pdf" || extension === "pdf") {
+    return (
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-red-500 text-[9px] font-semibold text-white">
+        PDF
+      </span>
+    )
+  }
+
+  const iconClassName = "size-5"
+  const tileClassName = "flex size-10 shrink-0 items-center justify-center rounded-md"
+
+  if (mime.startsWith("image/")) {
+    return (
+      <span className={cn(tileClassName, "bg-sky-500/12 text-sky-700 dark:text-sky-300")}>
+        <FileImage className={iconClassName} />
+      </span>
+    )
+  }
+  if (mime.startsWith("video/")) {
+    return (
+      <span className={cn(tileClassName, "bg-violet-500/12 text-violet-700 dark:text-violet-300")}>
+        <FileVideoCamera className={iconClassName} />
+      </span>
+    )
+  }
+  if (["zip", "gz", "tgz", "rar", "7z"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-amber-500/14 text-amber-700 dark:text-amber-300")}>
+        <FileArchive className={iconClassName} />
+      </span>
+    )
+  }
+  if (["csv", "tsv", "xls", "xlsx"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300")}>
+        <FileSpreadsheet className={iconClassName} />
+      </span>
+    )
+  }
+  if (["css", "html", "js", "json", "jsx", "md", "py", "ts", "tsx", "xml", "yaml", "yml"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300")}>
+        <FileCode className={iconClassName} />
+      </span>
+    )
+  }
+  if (mime.startsWith("text/") || ["doc", "docx", "rtf", "txt"].includes(extension)) {
+    return (
+      <span className={cn(tileClassName, "bg-muted text-muted-foreground")}>
+        <FileText className={iconClassName} />
+      </span>
+    )
+  }
+
+  return (
+    <span className={cn(tileClassName, "bg-muted text-muted-foreground")}>
+      <FileIcon className={iconClassName} />
+    </span>
+  )
+}
+
+function AttachmentList({ attachments, onRemove }: { attachments: ChatAttachment[]; onRemove?: (id: string) => void }) {
+  return (
+    <div className="flex w-full flex-wrap justify-start gap-2">
+      {attachments.map((attachment) => (
+        <div
+          key={attachment.id}
+          title={attachment.path}
+          className="oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pr-2 pl-2 text-left shadow-xs"
+        >
+          <AttachmentIconTile attachment={attachment} />
+          <span className="min-w-0 flex-1">
+            <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
+              {attachment.name}
+            </span>
+            <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
+              {attachmentSummary(attachment)}
+            </span>
+          </span>
+          {onRemove ? (
+            <button
+              type="button"
+              aria-label="Remove attachment"
+              className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => onRemove(attachment.id)}
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; height?: number }) {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
+  const [sizeRevision, setSizeRevision] = React.useState(0)
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || typeof ResizeObserver === "undefined") {
+      return
+    }
+    const observer = new ResizeObserver(() => {
+      setSizeRevision((revision) => revision + 1)
+    })
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [])
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) {
+      return
+    }
+
+    const rect = canvas.getBoundingClientRect()
+    const dpr = window.devicePixelRatio || 1
+    const width = Math.max(1, Math.floor(rect.width * dpr))
+    const canvasHeight = Math.max(1, Math.floor(height * dpr))
+    if (canvas.width !== width) {
+      canvas.width = width
+    }
+    if (canvas.height !== canvasHeight) {
+      canvas.height = canvasHeight
+    }
+
+    const context = canvas.getContext("2d")
+    if (!context) {
+      return
+    }
+
+    context.clearRect(0, 0, width, canvasHeight)
+    context.fillStyle = getComputedStyle(canvas).color || "#18181b"
+
+    const barWidth = 3 * dpr
+    const gap = 3 * dpr
+    const step = barWidth + gap
+    const centerY = canvasHeight / 2
+    const drawableHeight = canvasHeight - 8 * dpr
+    const visibleCount = Math.ceil(width / step)
+    const visibleBars = bars.slice(-visibleCount)
+    const startX = width - visibleBars.length * step
+
+    visibleBars.forEach((bar, index) => {
+      const normalized = Math.max(0, Math.min(1, bar))
+      const barHeight = Math.max(3 * dpr, normalized * drawableHeight)
+      const x = startX + index * step
+      const y = centerY - barHeight / 2
+      context.globalAlpha = 0.35 + normalized * 0.65
+      context.beginPath()
+      context.roundRect(x, y, barWidth, barHeight, barWidth / 2)
+      context.fill()
+    })
+    context.globalAlpha = 1
+  }, [bars, height, sizeRevision])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      height={height}
+      className="h-8 w-full text-foreground/85"
+      aria-hidden
+      data-testid="voice-wave-canvas"
+    />
+  )
+}
+
+function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; durationMs: number }) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-3">
+      <div className="flex h-8 min-w-0 flex-1 items-center justify-center overflow-hidden">
+        <VoiceWaveCanvas bars={bars} height={32} />
+      </div>
+      <span className="min-w-9 shrink-0 text-right text-sm leading-none font-normal text-muted-foreground tabular-nums">
+        {voiceDurationLabel(durationMs)}
+      </span>
+    </div>
   )
 }
 
@@ -522,7 +783,15 @@ export function ChatArea({
   onAuthorize,
 }: ChatAreaProps) {
   const t = useT()
+  const chatService = useChatService()
   const [draft, setDraft] = React.useState("")
+  const [attachments, setAttachments] = React.useState<ChatAttachment[]>([])
+  const [inputError, setInputError] = React.useState<string | null>(null)
+  const [voiceTranscribing, setVoiceTranscribing] = React.useState(false)
+  const [voiceError, setVoiceError] = React.useState<string | null>(null)
+  const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const voiceRecorder = useVoiceRecorder()
   const hasMessages = messages.length > 0
   const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
@@ -531,6 +800,7 @@ export function ChatArea({
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
     [providers],
   )
+  const voiceActive = voiceRecorder.isRecording || voiceTranscribing || Boolean(voiceError || voiceRecorder.error)
   const showPendingMessage =
     hasMessages &&
     (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
@@ -539,58 +809,248 @@ export function ChatArea({
   // 的 onClick），避免生成中按回车误中止流。
   const handleSubmit = (message: PromptInputMessage): void => {
     const text = message.text
-    if (!text || disabled || initialSendPending) {
+    if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
-    onSend(text)
+    onSend(text, attachments)
     setDraft("")
+    setAttachments([])
+    setInputError(null)
   }
 
-  const errorBanner = error ? (
+  const addFiles = React.useCallback(
+    (files: FileList | File[]) => {
+      setInputError(null)
+      const next: ChatAttachment[] = []
+      for (const file of Array.from(files)) {
+        const path = globalThis.lumo?.getPathForFile(file)
+        if (!path) {
+          setInputError(t("chat.attachmentPathUnavailable"))
+          continue
+        }
+        next.push({
+          id: `${Date.now()}-${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
+          name: file.name || path.split(/[\\/]/).pop() || "attachment",
+          mime: file.type || "application/octet-stream",
+          size: file.size,
+          path,
+        })
+      }
+      if (next.length > 0) {
+        setAttachments((current) => {
+          const existing = new Set(current.map((attachment) => attachment.path))
+          return [...current, ...next.filter((attachment) => !existing.has(attachment.path))]
+        })
+      }
+    },
+    [t],
+  )
+
+  const transcribeBlob = React.useCallback(
+    async (blob: Blob) => {
+      setVoiceTranscribing(true)
+      setVoiceError(null)
+      setVoiceRetryBlob(blob)
+      try {
+        const audioBase64 = arrayBufferToBase64(await blob.arrayBuffer())
+        const result = await chatService.invoke("transcribeVoice", { audioBase64 })
+        setDraft((current) =>
+          current.trim() ? `${current}${/\s$/.test(current) ? "" : " "}${result.text}` : result.text,
+        )
+        setVoiceRetryBlob(null)
+        voiceRecorder.cancel()
+      } catch (error) {
+        setVoiceError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setVoiceTranscribing(false)
+      }
+    },
+    [chatService, voiceRecorder],
+  )
+
+  const handleStopVoice = React.useCallback(async () => {
+    const recorded = await voiceRecorder.stop()
+    if (recorded) {
+      await transcribeBlob(recorded.blob)
+    }
+  }, [transcribeBlob, voiceRecorder])
+
+  const handleCancelVoice = React.useCallback(() => {
+    setVoiceTranscribing(false)
+    setVoiceError(null)
+    setVoiceRetryBlob(null)
+    voiceRecorder.cancel()
+  }, [voiceRecorder])
+
+  const visibleError = error ?? inputError ?? voiceError ?? voiceRecorder.error
+  const errorBanner = visibleError ? (
     <div className="oo-error flex items-center gap-2">
       <AlertTriangle className="size-4" />
-      {error}
+      {visibleError}
     </div>
   ) : null
+  const canSubmit = !disabled && !voiceActive && (draft.trim().length > 0 || attachments.length > 0)
 
   const promptInput = (
-    <PromptInput onSubmit={handleSubmit} className={cn(hasMessages && "shrink-0")}>
+    <PromptInput
+      onSubmit={handleSubmit}
+      className={cn(hasMessages && "shrink-0")}
+      onDragOver={(event) => {
+        if (!disabled && !voiceActive && event.dataTransfer.types.includes("Files")) {
+          event.preventDefault()
+        }
+      }}
+      onDrop={(event) => {
+        if (disabled || voiceActive || event.dataTransfer.files.length === 0) {
+          return
+        }
+        event.preventDefault()
+        addFiles(event.dataTransfer.files)
+      }}
+    >
+      {attachments.length > 0 ? (
+        <PromptInputAttachments>
+          <AttachmentList
+            attachments={attachments}
+            onRemove={(id) => setAttachments((current) => current.filter((a) => a.id !== id))}
+          />
+        </PromptInputAttachments>
+      ) : null}
       <PromptInputBody>
         <PromptInputTextarea
+          className={cn(attachments.length > 0 && "pt-2")}
           value={draft}
-          disabled={disabled}
+          disabled={disabled || voiceActive}
           placeholder={placeholder}
           onChange={(e) => setDraft(e.target.value)}
+          onPaste={(event) => {
+            if (disabled || voiceActive || event.clipboardData.files.length === 0) {
+              return
+            }
+            addFiles(event.clipboardData.files)
+          }}
         />
       </PromptInputBody>
       <PromptInputToolbar>
-        <PromptInputTools />
-        <PromptInputSubmit
-          status={isGenerating ? status : undefined}
-          visualStatus={initialSendPending ? "streaming" : undefined}
-          disabled={
-            initialSendPending
-              ? false
-              : isSubmitted
-                ? true
-                : status === "streaming"
-                  ? false
-                  : disabled || draft.trim().length === 0
-          }
-          aria-label={initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")}
-          onClick={
-            status === "streaming"
-              ? (e) => {
-                  e.preventDefault()
-                  onStop()
+        <PromptInputTools className="shrink-0 justify-start">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.currentTarget.files) {
+                addFiles(event.currentTarget.files)
+              }
+              event.currentTarget.value = ""
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title={t("chat.attachFile")}
+            aria-label={t("chat.attachFile")}
+            disabled={disabled || voiceActive || initialSendPending}
+            className="size-8 rounded-full"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Plus className="size-4" />
+          </Button>
+        </PromptInputTools>
+        {voiceActive ? <VoiceRecorderPanel bars={voiceRecorder.bars} durationMs={voiceRecorder.durationMs} /> : null}
+        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
+          {voiceActive ? (
+            <>
+              {voiceError || voiceRecorder.error ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  title={voiceError ?? voiceRecorder.error}
+                  aria-label={t("chat.voiceRetry")}
+                  className="size-8 rounded-full"
+                  disabled={!voiceRetryBlob || voiceTranscribing}
+                  onClick={() => voiceRetryBlob && void transcribeBlob(voiceRetryBlob)}
+                >
+                  <RotateCcw className="size-4" />
+                </Button>
+              ) : voiceTranscribing ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("chat.voiceCancel")}
+                  className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
+                  onClick={handleCancelVoice}
+                >
+                  <Loader2 className="size-[18px] animate-spin" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("chat.voiceStop")}
+                  className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
+                  onClick={() => void handleStopVoice()}
+                >
+                  <Square className="size-3.5" fill="currentColor" />
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("chat.voiceCancel")}
+                className="size-8 rounded-full bg-foreground text-background hover:bg-foreground/85 hover:text-background"
+                onClick={handleCancelVoice}
+              >
+                <X className="size-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title={t("chat.voiceInput")}
+                aria-label={t("chat.voiceInput")}
+                disabled={disabled || initialSendPending}
+                className="size-8 rounded-full"
+                onClick={() => {
+                  setVoiceError(null)
+                  void voiceRecorder.start()
+                }}
+              >
+                <Mic className="size-4" />
+              </Button>
+              <PromptInputSubmit
+                size="icon-xs"
+                className="!size-7"
+                status={isGenerating ? status : undefined}
+                visualStatus={initialSendPending ? "streaming" : undefined}
+                disabled={initialSendPending ? false : isSubmitted ? true : status === "streaming" ? false : !canSubmit}
+                aria-label={
+                  initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")
                 }
-              : initialSendPending
-                ? (e) => {
-                    e.preventDefault()
-                  }
-                : undefined
-          }
-        />
+                onClick={
+                  status === "streaming"
+                    ? (e) => {
+                        e.preventDefault()
+                        onStop()
+                      }
+                    : initialSendPending
+                      ? (e) => {
+                          e.preventDefault()
+                        }
+                      : undefined
+                }
+              />
+            </>
+          )}
+        </div>
       </PromptInputToolbar>
     </PromptInput>
   )

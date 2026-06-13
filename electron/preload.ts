@@ -1,6 +1,6 @@
 import { electronAPI } from "@electron-toolkit/preload"
 import { setupConnectionPreload } from "@oomol/connection-electron-adapter/preload"
-import { contextBridge } from "electron"
+import { contextBridge, webUtils } from "electron"
 import { branding } from "./branding.ts"
 
 declare const __APP_COMMIT__: string | undefined
@@ -8,6 +8,7 @@ declare const __APP_VERSION__: string | undefined
 
 export interface LumoBridge {
   appCommit: string
+  getPathForFile(file: File): string
   platform: NodeJS.Platform
   version: string
 }
@@ -23,6 +24,7 @@ setupConnectionPreload()
 
 const lumo: LumoBridge = {
   appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   platform: process.platform,
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
 }

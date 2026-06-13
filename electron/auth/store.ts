@@ -9,6 +9,11 @@ export interface AuthAccount {
   apiKey: string
 }
 
+/** 运行时账号：sessionToken 只留在主进程内存，用于 Studio authFetchJSON 同源的服务调用，不落盘。 */
+export interface AuthRuntimeAccount extends AuthAccount {
+  sessionToken?: string
+}
+
 export interface PersistedAuth {
   /** 当前账号 id（见 selectAccount）。 */
   currentId?: string
@@ -19,13 +24,18 @@ function asAccounts(value: PersistedAuth): AuthAccount[] {
   return Array.isArray(value.accounts) ? value.accounts : []
 }
 
+function persistableAccount(account: AuthRuntimeAccount): AuthAccount {
+  return { id: account.id, name: account.name, apiKey: account.apiKey }
+}
+
 /** 登录成功：插入或替换账号（按 id），并把它设为当前账号。 */
-export function upsertAccount(auth: PersistedAuth, account: AuthAccount): PersistedAuth {
+export function upsertAccount(auth: PersistedAuth, account: AuthRuntimeAccount): PersistedAuth {
+  const next = persistableAccount(account)
   const accounts = asAccounts(auth)
-  const index = accounts.findIndex((existing) => existing.id === account.id)
+  const index = accounts.findIndex((existing) => existing.id === next.id)
   return {
-    currentId: account.id,
-    accounts: index === -1 ? [...accounts, account] : accounts.map((a, i) => (i === index ? account : a)),
+    currentId: next.id,
+    accounts: index === -1 ? [...accounts, next] : accounts.map((a, i) => (i === index ? next : a)),
   }
 }
 

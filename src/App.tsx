@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/app-shell/AppShell"
 import { ThemeProvider } from "@/components/ThemeProvider"
 import { useAuth } from "@/hooks/useAuth"
+import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
 import { I18nProvider } from "@/i18n/I18nProvider"
 import { LoginRoute } from "@/routes/Login"
 
@@ -22,6 +23,8 @@ function AuthGate() {
 }
 
 export function App() {
+  useGlobalScrollbars()
+
   return (
     <I18nProvider>
       <ThemeProvider>

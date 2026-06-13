@@ -82,7 +82,10 @@
   --text-selection-foreground: var(--foreground);
   --input-focus-ring: color-mix(in oklab, var(--info) 46%, var(--border));
   --control-focus-ring: color-mix(in oklab, var(--foreground) 16%, var(--border));
-  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 28%, transparent);
+  --scrollbar-thumb: oklch(0.76 0.006 286);
+  --scrollbar-thumb-active: oklch(0.66 0.007 286);
+  --scrollbar-size: 9px;
+  --scrollbar-inset: 2px;
   --oo-input-surface: oklch(0.991 0.002 289);
   --oo-prompt-input-surface: oklch(0.976 0.003 288);
   --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 12%, transparent);
@@ -174,7 +177,8 @@
   --text-selection-foreground: var(--foreground);
   --input-focus-ring: color-mix(in oklab, var(--info) 52%, var(--border));
   --control-focus-ring: color-mix(in oklab, var(--foreground) 18%, var(--border));
-  --scrollbar-thumb: color-mix(in oklab, var(--foreground) 34%, transparent);
+  --scrollbar-thumb: oklch(0.48 0.006 272);
+  --scrollbar-thumb-active: oklch(0.58 0.007 272);
   --oo-input-surface: oklch(0.252 0.006 272);
   --oo-prompt-input-surface: var(--oo-input-surface);
   --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 16%, transparent);
@@ -277,19 +281,43 @@
   }
 
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    border: 3px solid transparent;
+    background: transparent;
+    border: var(--scrollbar-inset) solid transparent;
     border-radius: 999px;
     background-clip: content-box;
+    transition: background-color 140ms ease-out;
   }
 
   ::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  * {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+
+  .is-scrolling::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    background-clip: content-box;
+  }
+
+  .is-scrolling {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  .is-scrolling::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-active);
+    background-clip: content-box;
+  }
+
+  .oo-scrollbar-gutter-auto {
+    scrollbar-gutter: auto !important;
   }
 }
 
@@ -376,6 +404,11 @@
   .oo-sidebar-nav-item:active {
     background: var(--sidebar-accent);
     color: var(--sidebar-accent-foreground);
+  }
+
+  .oo-sidebar-session-scroll {
+    scrollbar-gutter: auto;
+    scrollbar-width: thin;
   }
 
   .oo-toolbar {

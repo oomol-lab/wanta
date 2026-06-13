@@ -316,7 +316,7 @@ export function ChatArea({
   return (
     <div className="flex h-full min-h-0 animate-in flex-col pb-6 duration-300 fade-in slide-in-from-bottom-2">
       <Conversation className="min-h-0 flex-1">
-        <ConversationContent data-selectable="true" className="mx-auto min-h-full w-full max-w-[48rem] gap-4 px-0 py-2">
+        <ConversationContent data-selectable="true" className="mx-auto min-h-full w-full max-w-[50rem] gap-4 px-4 py-2">
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} onAuthorize={onAuthorize} />
           ))}
@@ -325,7 +325,7 @@ export function ChatArea({
         <ConversationScrollButton />
       </Conversation>
 
-      <div className="mx-auto flex w-full max-w-[48rem] flex-col gap-2 transition-transform duration-300 ease-out">
+      <div className="mx-auto flex w-full max-w-[50rem] flex-col gap-2 px-4 transition-transform duration-300 ease-out">
         {errorBanner}
         {promptInput}
       </div>

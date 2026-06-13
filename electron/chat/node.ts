@@ -6,6 +6,13 @@ import { ConnectionService } from "@oomol/connection"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
   private agent: AgentManager | null
   private bridged = false
@@ -43,7 +50,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    await this.agent.promptStreaming(req.sessionId, req.text)
+    // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
+    void this.agent.promptStreaming(req.sessionId, req.text).catch((error: unknown) => {
+      void this.send("agentError", { sessionId: req.sessionId, message: errorMessage(error) })
+    })
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {

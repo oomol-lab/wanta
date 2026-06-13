@@ -312,7 +312,7 @@ export function AppShell() {
 
         <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
           <div className="oo-text-caption shrink-0 px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
-          <div className="min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto pr-1 pb-2">
+          <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
             <div className="grid gap-0.5">
               {sessions.map((session) => (
                 <SessionItem
@@ -370,7 +370,7 @@ export function AppShell() {
               <ConnectionsPanel connections={connections} selectedService={selectedService} />
             </div>
           ) : (
-            <div className="h-full min-h-0 overflow-hidden px-4 pb-3">
+            <div className="h-full min-h-0 overflow-hidden pb-3">
               <ChatArea
                 messages={initialSendPending ? [] : messages}
                 status={displayedStatus}

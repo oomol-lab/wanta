@@ -2,7 +2,7 @@ import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../el
 import type { SessionInfo } from "../../../electron/session/common"
 import type { ChatStatus } from "ai"
 
-import { Plug, Settings, SquarePen, Trash2 } from "lucide-react"
+import { PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
 import * as React from "react"
 import { buildSessionTitle } from "@/components/app-shell/session-title"
 import { useChatService } from "@/components/AppContext"
@@ -59,6 +59,10 @@ function hasUserMessage(messages: ChatMessage[], text: string, attachments: Chat
       chatMessageText(message) === text &&
       chatMessageAttachmentPaths(message) === expectedAttachments,
   )
+}
+
+function normalizeSearchText(value: string): string {
+  return value.trim().toLocaleLowerCase()
 }
 
 function SessionItem({
@@ -130,6 +134,138 @@ function SessionItem({
   )
 }
 
+function SessionSearchOverlay({
+  sessions,
+  open,
+  onClose,
+  onSelect,
+}: {
+  sessions: SessionInfo[]
+  open: boolean
+  onClose: () => void
+  onSelect: (session: SessionInfo) => void
+}) {
+  const t = useT()
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const [query, setQuery] = React.useState("")
+  const normalizedQuery = normalizeSearchText(query)
+  const filteredSessions = normalizedQuery
+    ? sessions.filter((session) => normalizeSearchText(session.title).includes(normalizedQuery))
+    : sessions
+
+  React.useEffect(() => {
+    if (open) {
+      setQuery("")
+      window.setTimeout(() => inputRef.current?.focus(), 0)
+    }
+  }, [open])
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("sidebar.search")}
+      className="oo-session-search-backdrop fixed inset-0 z-50 flex items-start justify-center px-5 pt-[18vh]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose()
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          onClose()
+        }
+      }}
+    >
+      <section className="oo-session-search-panel w-full max-w-[620px] rounded-[28px] border p-6 shadow-[var(--oo-overlay-shadow)]">
+        <div className="flex items-center gap-3">
+          <div className="oo-session-search-input oo-text-title flex h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border px-3">
+            <Search className="size-5 shrink-0 text-muted-foreground" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("sidebar.searchPlaceholder")}
+              aria-label={t("sidebar.searchPlaceholder")}
+              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+          <button
+            type="button"
+            title={t("sidebar.closeSearch")}
+            aria-label={t("sidebar.closeSearch")}
+            onClick={onClose}
+            className="oo-toolbar-button flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <p className="oo-text-control mt-5 px-3 text-muted-foreground">
+          {t("sidebar.searchResults", { count: filteredSessions.length })}
+        </p>
+        <div className="mt-3 max-h-[min(54vh,520px)] overflow-y-auto pr-1">
+          <div className="grid gap-1">
+            {filteredSessions.map((session) => (
+              <button
+                key={session.id}
+                type="button"
+                onClick={() => onSelect(session)}
+                className="oo-session-search-result oo-text-value flex h-10 min-w-0 items-center rounded-lg px-3 text-left"
+              >
+                <span className="truncate">{session.title}</span>
+              </button>
+            ))}
+            {filteredSessions.length === 0 && (
+              <p className="oo-text-control px-3 py-6 text-muted-foreground">{t("sidebar.searchEmpty")}</p>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function SidebarTitlebarActions({
+  collapsed,
+  onToggleCollapsed,
+  onSearch,
+}: {
+  collapsed: boolean
+  onToggleCollapsed: () => void
+  onSearch: () => void
+}) {
+  const t = useT()
+
+  return (
+    <div className="oo-sidebar-titlebar-actions flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      <button
+        type="button"
+        title={collapsed ? t("aria.expandSidebar") : t("aria.collapseSidebar")}
+        aria-label={collapsed ? t("aria.expandSidebar") : t("aria.collapseSidebar")}
+        aria-pressed={collapsed}
+        onClick={onToggleCollapsed}
+        className="oo-sidebar-titlebar-button flex size-7 shrink-0 items-center justify-center rounded-md"
+      >
+        {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+      </button>
+      <button
+        type="button"
+        title={t("sidebar.search")}
+        aria-label={t("sidebar.search")}
+        onClick={onSearch}
+        className="oo-sidebar-titlebar-button flex size-7 shrink-0 items-center justify-center rounded-md"
+      >
+        <Search className="size-4" />
+      </button>
+    </div>
+  )
+}
+
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
@@ -139,6 +275,9 @@ export function AppShell() {
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
   const [ready, setReady] = React.useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
+  const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
+  const [searchOpen, setSearchOpen] = React.useState(false)
 
   const { messages, status, messagesLoaded, error, send, stop } = useChat(activeSessionId)
   const connections = useConnections()
@@ -237,6 +376,14 @@ export function AppShell() {
     }
   }, [pendingChatTransition, status])
 
+  React.useEffect(() => {
+    if (!isSidebarRestoring) {
+      return
+    }
+    const id = window.setTimeout(() => setIsSidebarRestoring(false), 260)
+    return () => window.clearTimeout(id)
+  }, [isSidebarRestoring])
+
   const handleNewSession = (): void => {
     setActiveSessionId(null)
     setIsDraftSession(true)
@@ -304,84 +451,120 @@ export function AppShell() {
       pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments }
     }
   }
+  const handleToggleSidebar = (): void => {
+    if (sidebarCollapsed) {
+      setIsSidebarRestoring(true)
+    }
+    setSidebarCollapsed((collapsed) => !collapsed)
+  }
+  const handleOpenSearch = (): void => setSearchOpen(true)
 
   return (
-    <div className="oo-app-chrome grid h-full text-foreground">
+    <div
+      className={cn(
+        "oo-app-chrome grid h-full text-foreground",
+        sidebarCollapsed && "oo-sidebar-collapsed",
+        isSidebarRestoring && "oo-sidebar-restoring",
+      )}
+    >
       {/* 左：会话导航栏 */}
-      <aside className="oo-sidebar oo-border-divider flex min-h-0 flex-col border-r">
+      <aside className="oo-sidebar oo-border-divider relative z-20 flex min-h-0 flex-col border-r">
         <header
           data-slot="sidebar-chrome-header"
-          className="relative h-[var(--app-titlebar-height)] [-webkit-app-region:drag]"
+          className="relative flex h-[var(--app-titlebar-height)] items-center justify-end [-webkit-app-region:drag]"
           style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
-        />
-
-        <nav aria-label="primary" className="grid gap-1 px-3 pb-3 [-webkit-app-region:no-drag]">
-          <button
-            type="button"
-            onClick={handleNewSession}
-            className={cn(
-              "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-              route === "chat" && !activeSessionId && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-          >
-            <SquarePen className="size-4 shrink-0" />
-            <span className="oo-sidebar-nav-label truncate">{t("sidebar.newSession")}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setRoute("connections")}
-            className={cn(
-              "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-              route === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-          >
-            <Plug className="size-4 shrink-0" />
-            <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
-          </button>
-        </nav>
-
-        <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
-          <div className="oo-text-caption shrink-0 px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
-          <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-            <div className="grid gap-0.5">
-              {sessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  active={route === "chat" && activeSessionId === session.id}
-                  onSelect={() => {
-                    setActiveSessionId(session.id)
-                    setIsDraftSession(false)
-                    setRoute("chat")
-                  }}
-                  onRename={(title) => void rename(session.id, title)}
-                  onDelete={() => void handleDelete(session.id)}
-                />
-              ))}
-              {sessions.length === 0 && <p className="oo-text-caption px-3 py-3">{t("sidebar.empty")}</p>}
-            </div>
+        >
+          <div className="oo-sidebar-titlebar-actions-expanded">
+            <SidebarTitlebarActions
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={handleToggleSidebar}
+              onSearch={handleOpenSearch}
+            />
           </div>
+        </header>
 
-          <div className="grid shrink-0 gap-1 pb-3">
+        <div className="oo-sidebar-content flex min-h-0 flex-1 flex-col">
+          <nav aria-label="primary" className="grid gap-1 px-3 pb-3 [-webkit-app-region:no-drag]">
             <button
               type="button"
-              onClick={() => setRoute("settings")}
+              onClick={handleNewSession}
               className={cn(
                 "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                route === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
+                route === "chat" && !activeSessionId && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
-              <Settings className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("nav.settings")}</span>
+              <SquarePen className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("sidebar.newSession")}</span>
             </button>
-          </div>
-        </nav>
+            <button
+              type="button"
+              onClick={() => setRoute("connections")}
+              className={cn(
+                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                route === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+            >
+              <Plug className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
+            </button>
+          </nav>
+
+          <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
+            <div className="oo-text-caption shrink-0 px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
+            <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+              <div className="grid gap-0.5">
+                {sessions.map((session) => (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    active={route === "chat" && activeSessionId === session.id}
+                    onSelect={() => {
+                      setActiveSessionId(session.id)
+                      setIsDraftSession(false)
+                      setRoute("chat")
+                    }}
+                    onRename={(title) => void rename(session.id, title)}
+                    onDelete={() => void handleDelete(session.id)}
+                  />
+                ))}
+                {sessions.length === 0 && <p className="oo-text-caption px-3 py-3">{t("sidebar.empty")}</p>}
+              </div>
+            </div>
+
+            <div className="grid shrink-0 gap-1 pb-3">
+              <button
+                type="button"
+                onClick={() => setRoute("settings")}
+                className={cn(
+                  "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                  route === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
+                )}
+              >
+                <Settings className="size-4 shrink-0" />
+                <span className="oo-sidebar-nav-label truncate">{t("nav.settings")}</span>
+              </button>
+            </div>
+          </nav>
+        </div>
       </aside>
 
       {/* 右：主区（顶部工具条 + 内容） */}
       <div className="grid min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
-        <header className="oo-toolbar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b px-4 [-webkit-app-region:drag]">
-          <div className="flex min-w-0 items-center gap-2">
+        <header className="oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
+          <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
+            <div className="oo-titlebar-control-spacer shrink-0" />
+            <SidebarTitlebarActions
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={handleToggleSidebar}
+              onSearch={handleOpenSearch}
+            />
+          </div>
+          <div
+            className={cn(
+              "oo-main-titlebar-title flex min-w-0 items-center gap-2",
+              isSidebarRestoring && "is-restoring",
+            )}
+          >
             <span className="oo-toolbar-title oo-text-title truncate">
               {route === "settings"
                 ? t("settings.title")
@@ -418,6 +601,19 @@ export function AppShell() {
           )}
         </main>
       </div>
+
+      <SessionSearchOverlay
+        sessions={sessions}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onSelect={(session) => {
+          setActiveSessionId(session.id)
+          setIsDraftSession(false)
+          setPendingChatTransition(null)
+          setRoute("chat")
+          setSearchOpen(false)
+        }}
+      />
     </div>
   )
 }

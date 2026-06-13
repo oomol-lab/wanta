@@ -104,6 +104,16 @@ function appendOptimisticUserMessage(msgs: ChatMessage[], text: string, attachme
   ]
 }
 
+function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
+  return attachments.map((attachment) => ({
+    id: attachment.id,
+    name: attachment.name,
+    mime: attachment.mime,
+    size: attachment.size,
+    path: attachment.path,
+  }))
+}
+
 function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
   const missingLocalUsers = current.filter(
     (message) =>
@@ -225,7 +235,7 @@ export function useChat(activeSessionId: string | null): UseChat {
         patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
       }
       try {
-        await chatService.invoke("sendMessage", { sessionId, text, attachments })
+        await chatService.invoke("sendMessage", { sessionId, text, attachments: agentAttachments(attachments) })
         if (optimistic === "after-ack") {
           patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
         }

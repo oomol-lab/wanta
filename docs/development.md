@@ -31,6 +31,7 @@ npm run dev:no-electron
 - vite dev server 固定端口 `5273` 且 `strictPort=true`：如果已有 `npm run dev` 占用端口，新的 dev 进程会直接失败，避免悄悄切到 `5274+` 后再拉起第二个 Electron。需要临时禁用 Electron 自动启动时，也可用 `LUMO_ELECTRON_AUTO_START=0 npm run dev`。
 - `.electron-dist` 存在时 vite 自动设 `ELECTRON_OVERRIDE_DIST_PATH`，dev 用带 `lumo-local` scheme 的 Electron（菜单栏显示 dev 身份），浏览器登录回跳才能命中 dev 实例。
 - dev 的 userData 在 `~/Library/Application Support/lumo`（macOS）；agent 数据在其下 `agent/`（workspace / isolation / oo-store）。
+- 提代码必须走临时分支 + PR：先把本地 `main` 对齐 `origin/main`，再从 `main` 拉一次性分支（如 `codex/<task>`、`ci/<task>`、`fix/<task>`）。改动完成并通过质量门后推送临时分支，开 PR 到 `oomol/lumo:main`，由 PR 合并回 `main`。不要直接在 `main` 上提交或推送。PR 合并后同步最新 `main`，删除本地临时分支，并删除 fork/远端上的同名临时分支。
 - 改动后质量门四件套：`npm run ts-check && npm run lint && npm run format && npm test`。
 
 ## 4. 测试

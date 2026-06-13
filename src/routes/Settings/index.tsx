@@ -184,7 +184,11 @@ function UpdateAction({ update }: { update: ReturnType<typeof useAppUpdate> }) {
   }
 }
 
-/** 更新状态说明行（仅在有可说明内容时渲染）。 */
+/**
+ * 更新状态说明行：state 加载后始终渲染等高的一行，文字随状态切换。
+ * idle / downloading 无独立文案，用 nbsp 占位保持行高——否则点「检查更新」或切渠道时
+ * 这行会在 checking/idle 帧塌缩为 null，导致整段高度抖动（视觉上「跳一下」）。
+ */
 function UpdateStatusLine({ update }: { update: ReturnType<typeof useAppUpdate> }) {
   const { t } = useI18n()
   const state = update.state
@@ -195,6 +199,8 @@ function UpdateStatusLine({ update }: { update: ReturnType<typeof useAppUpdate> 
     return <p className="oo-text-caption">{t("settings.updateDevUnavailable")}</p>
   }
   switch (state.status.status) {
+    case "checking":
+      return <p className="oo-text-caption">{t("settings.updateChecking")}</p>
     case "not-available":
       return <p className="oo-text-caption">{t("settings.updateUpToDate")}</p>
     case "available":
@@ -206,6 +212,6 @@ function UpdateStatusLine({ update }: { update: ReturnType<typeof useAppUpdate> 
         <p className="oo-text-caption text-destructive">{t("settings.updateError", { error: state.status.error })}</p>
       )
     default:
-      return null
+      return <p className="oo-text-caption">{"\u00A0"}</p>
   }
 }

@@ -33,7 +33,7 @@ export async function readManifestStore(manifestPath: string): Promise<SkillMani
       }),
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT" && !(error instanceof SyntaxError)) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       throw error
     }
     return {

@@ -296,6 +296,7 @@ export function AppShell() {
     attachments: ChatAttachment[]
     model?: ModelChoice
   } | null>(null)
+  const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
 
   // 轮询 agent 就绪（sidecar 异步启动，首启需拉起 opencode + provider）。
   React.useEffect(() => {
@@ -425,6 +426,7 @@ export function AppShell() {
         pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
       )
     }
+    lastModelBySession.current.set(sessionId, model)
     try {
       await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack", model })
     } catch (error) {
@@ -442,6 +444,7 @@ export function AppShell() {
       setIsDraftSession(false)
       setPendingChatTransition(null)
     }
+    lastModelBySession.current.delete(id)
   }
 
   const handleAuthorize = (auth: AuthorizationInfo): void => {
@@ -457,7 +460,10 @@ export function AppShell() {
       .filter((p) => p.kind === "attachment" && p.attachment)
       .map((p) => p.attachment as ChatAttachment)
     if (activeSessionId && (text || attachments.length > 0)) {
-      const model = pendingChatTransition?.sessionId === activeSessionId ? pendingChatTransition.model : undefined
+      const model =
+        pendingChatTransition?.sessionId === activeSessionId
+          ? pendingChatTransition.model
+          : lastModelBySession.current.get(activeSessionId)
       pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments, model }
     }
   }

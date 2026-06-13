@@ -16,15 +16,15 @@ async function resetSkillTarget(target: SkillRepairPlanTarget): Promise<void> {
     resolveExistingPath(target.currentPath),
   ])
   assertSafeResetPaths(canonicalSourcePath, canonicalCurrentPath)
-  const sourceStat = await stat(target.sourcePath)
+  const sourceStat = await stat(canonicalSourcePath)
 
   if (!sourceStat.isDirectory()) {
-    throw new Error(`Skill source is not a directory: ${target.sourcePath}`)
+    throw new Error(`Skill source is not a directory: ${canonicalSourcePath}`)
   }
 
-  await mkdir(path.dirname(target.currentPath), { recursive: true })
-  await rm(target.currentPath, { force: true, recursive: true })
-  await cp(target.sourcePath, target.currentPath, { recursive: true })
+  await mkdir(path.dirname(canonicalCurrentPath), { recursive: true })
+  await rm(canonicalCurrentPath, { force: true, recursive: true })
+  await cp(canonicalSourcePath, canonicalCurrentPath, { recursive: true })
 }
 
 async function resolveExistingPath(pathname: string): Promise<string> {

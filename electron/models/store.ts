@@ -61,8 +61,8 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "ollama",
     displayName: "Ollama",
-    baseUrl: "http://127.0.0.1:11434/v1",
-    requiresBaseUrl: false,
+    baseUrl: "",
+    requiresBaseUrl: true,
   },
   {
     id: "custom",

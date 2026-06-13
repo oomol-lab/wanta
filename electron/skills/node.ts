@@ -573,11 +573,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   public async adoptLocalSkillProject(request: AdoptLocalSkillProjectRequest): Promise<AdoptLocalSkillProjectResult> {
     const skillPath = await this.resolveAllowedSkillPath(request.path)
     const inventory = await this.readSkillInventory({ writeManifest: false })
-    const project = inventory.localProjects.find((item) => {
-      return (
-        path.resolve(item.path) === skillPath && (request.agentId === undefined || item.agentId === request.agentId)
-      )
-    })
+    const projectEntries = await Promise.all(
+      inventory.localProjects.map(async (item) => ({
+        item,
+        canonicalPath: await realpath(path.resolve(item.path)).catch(() => path.resolve(item.path)),
+      })),
+    )
+    const project = projectEntries.find(({ item, canonicalPath }) => {
+      return canonicalPath === skillPath && (request.agentId === undefined || item.agentId === request.agentId)
+    })?.item
 
     if (!project) {
       throw new Error("Local Skill project was not found.")

@@ -1,7 +1,10 @@
 import { lazy, Suspense } from "react"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { ThemeProvider } from "@/components/ThemeProvider"
+import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/useAuth"
 import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
+import { useT } from "@/i18n/i18n"
 import { I18nProvider } from "@/i18n/I18nProvider"
 import { LoginRoute } from "@/routes/Login"
 
@@ -22,12 +25,27 @@ function AuthGate() {
   }
 
   // key：账号变化时整体重挂载（会话列表 / 连接面板 / isReady 轮询全部重置）。
-  // fallback 复用未知态的空背景：AppShell chunk 加载期间不闪烁、不留白。
+  // Suspense fallback 复用未知态的空背景，chunk 加载期间不闪烁、不留白；
+  // ErrorBoundary 兜底动态 import 失败：渲染可恢复的重载入口，而非崩成空白页。
   const account = auth.state.account
   return (
-    <Suspense fallback={<div className="h-full bg-background" />}>
-      <AppShell key={account?.id} />
-    </Suspense>
+    <ErrorBoundary fallback={<AppShellFallback />}>
+      <Suspense fallback={<div className="h-full bg-background" />}>
+        <AppShell key={account?.id} />
+      </Suspense>
+    </ErrorBoundary>
+  )
+}
+
+function AppShellFallback() {
+  const t = useT()
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-background text-foreground">
+      <p className="text-sm text-muted-foreground">{t("app.loadFailed")}</p>
+      <Button variant="outline" onClick={() => window.location.reload()}>
+        {t("app.reload")}
+      </Button>
+    </div>
   )
 }
 

@@ -42,7 +42,14 @@ const lineNumberTransformer: ShikiTransformer = {
 let highlighterPromise: Promise<HighlighterCore> | undefined
 
 function getHighlighter(): Promise<HighlighterCore> {
-  highlighterPromise ??= createHighlighter()
+  // 不缓存失败态 Promise：首次初始化（动态 import shiki + WASM）若失败，重置以便下次调用重试，
+  // 否则高亮会在本次会话永久失效。
+  if (!highlighterPromise) {
+    highlighterPromise = createHighlighter().catch((error: unknown) => {
+      highlighterPromise = undefined
+      throw error
+    })
+  }
   return highlighterPromise
 }
 

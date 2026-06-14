@@ -13,6 +13,9 @@ import { useChatService } from "@/components/AppContext"
 
 type MessagesMap = Record<string, ChatMessage[]>
 type SendOptimisticMode = "before-ack" | "after-ack"
+type CancelledToolPartsMap = Map<string, Set<string>>
+
+const userStoppedToolCancelWindowMs = 30_000
 
 interface SendOptions {
   optimistic?: SendOptimisticMode
@@ -40,6 +43,55 @@ function ensureMessage(msgs: ChatMessage[], id: string, role: ChatRole): ChatMes
 function setPart(msgs: ChatMessage[], messageId: string, part: ChatMessagePart): ChatMessage[] {
   const ensured = ensureMessage(msgs, messageId, "assistant")
   return ensured.map((m) => (m.id === messageId ? { ...m, parts: upsertPart(m.parts, part) } : m))
+}
+
+function shouldCancelToolPart(part: ChatMessagePart): boolean {
+  return part.kind === "tool" && (part.status === "pending" || part.status === "running" || part.status === "error")
+}
+
+function markLatestAssistantToolsCancelled(msgs: ChatMessage[]): { messages: ChatMessage[]; partIds: string[] } {
+  const messageIndex = msgs.findLastIndex((message) => message.role === "assistant")
+  if (messageIndex === -1) {
+    return { messages: msgs, partIds: [] }
+  }
+  const message = msgs[messageIndex]
+  if (!message) {
+    return { messages: msgs, partIds: [] }
+  }
+  const partIds: string[] = []
+  const parts = message.parts.map((part) => {
+    if (!shouldCancelToolPart(part)) {
+      return part
+    }
+    partIds.push(part.partId)
+    return { ...part, cancelled: true }
+  })
+  if (partIds.length === 0) {
+    return { messages: msgs, partIds }
+  }
+  const messages = msgs.slice()
+  messages[messageIndex] = { ...message, parts }
+  return { messages, partIds }
+}
+
+function applyCancelledToolParts(msgs: ChatMessage[], partIds: Set<string> | undefined): ChatMessage[] {
+  if (!partIds || partIds.size === 0) {
+    return msgs
+  }
+  let changed = false
+  const messages = msgs.map((message) => {
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (part.kind !== "tool" || !partIds.has(part.partId) || part.cancelled === true) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      return { ...part, cancelled: true }
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return changed ? messages : msgs
 }
 
 function setTextPart(msgs: ChatMessage[], event: MessageDeltaEvent): ChatMessage[] {
@@ -112,6 +164,7 @@ function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
     mime: attachment.mime,
     size: attachment.size,
     path: attachment.path,
+    kind: attachment.kind,
   }))
 }
 
@@ -144,21 +197,82 @@ export function useChat(activeSessionId: string | null): UseChat {
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
   const [error, setError] = React.useState<string | null>(null)
+  const userStoppedSessions = React.useRef(new Map<string, number>())
+  const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
 
   const patch = React.useCallback((sessionId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
     setMessagesMap((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }))
   }, [])
 
+  const rememberCancelledToolParts = React.useCallback((sessionId: string, partIds: string[]) => {
+    if (partIds.length === 0) {
+      return
+    }
+    const current = cancelledToolParts.current.get(sessionId) ?? new Set<string>()
+    for (const partId of partIds) {
+      current.add(partId)
+    }
+    cancelledToolParts.current.set(sessionId, current)
+  }, [])
+
+  const markSessionUserStopped = React.useCallback((sessionId: string) => {
+    const expiresAt = Date.now() + userStoppedToolCancelWindowMs
+    userStoppedSessions.current.set(sessionId, expiresAt)
+    const timer = window.setTimeout(() => {
+      if (userStoppedSessions.current.get(sessionId) === expiresAt) {
+        userStoppedSessions.current.delete(sessionId)
+      }
+    }, userStoppedToolCancelWindowMs)
+    return timer
+  }, [])
+
+  const isSessionUserStopped = React.useCallback((sessionId: string): boolean => {
+    const expiresAt = userStoppedSessions.current.get(sessionId)
+    if (!expiresAt) {
+      return false
+    }
+    if (Date.now() > expiresAt) {
+      userStoppedSessions.current.delete(sessionId)
+      return false
+    }
+    return true
+  }, [])
+
+  const markCurrentToolsCancelled = React.useCallback(
+    (sessionId: string) => {
+      patch(sessionId, (msgs) => {
+        const { messages, partIds } = markLatestAssistantToolsCancelled(msgs)
+        rememberCancelledToolParts(sessionId, partIds)
+        return messages
+      })
+    },
+    [patch, rememberCancelledToolParts],
+  )
+
   const reload = React.useCallback(
     async (sessionId: string) => {
       try {
         const msgs = await chatService.invoke("getMessages", sessionId)
-        setMessagesMap((prev) => ({ ...prev, [sessionId]: mergeFetchedMessages(prev[sessionId] ?? [], msgs) }))
+        setMessagesMap((prev) => ({
+          ...prev,
+          [sessionId]: (() => {
+            const merged = applyCancelledToolParts(
+              mergeFetchedMessages(prev[sessionId] ?? [], msgs),
+              cancelledToolParts.current.get(sessionId),
+            )
+            if (!isSessionUserStopped(sessionId)) {
+              return merged
+            }
+            const { messages, partIds } = markLatestAssistantToolsCancelled(merged)
+            rememberCancelledToolParts(sessionId, partIds)
+            return messages
+          })(),
+        }))
       } catch (err) {
         console.error("[lumo] getMessages failed", err)
       }
     },
-    [chatService],
+    [chatService, isSessionUserStopped, rememberCancelledToolParts],
   )
 
   React.useEffect(() => {
@@ -190,7 +304,11 @@ export function useChat(activeSessionId: string | null): UseChat {
         )
       }),
       chatService.serverEvents.on("toolCallResult", (e) => {
-        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+        const cancelled = e.status === "error" && isSessionUserStopped(e.sessionId)
+        setStatuses((s) => ({ ...s, [e.sessionId]: cancelled ? "ready" : "streaming" }))
+        if (cancelled) {
+          rememberCancelledToolParts(e.sessionId, [e.partId])
+        }
         patch(e.sessionId, (msgs) =>
           setPart(msgs, e.messageId, {
             kind: "tool",
@@ -205,11 +323,18 @@ export function useChat(activeSessionId: string | null): UseChat {
             metadata: e.metadata,
             timing: e.timing,
             attachmentsCount: e.attachmentsCount,
+            ...(cancelled ? { cancelled: true } : {}),
           }),
         )
       }),
       chatService.serverEvents.on("messageCompleted", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
+        void reload(e.sessionId)
+      }),
+      chatService.serverEvents.on("generationStopped", (e) => {
+        setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
+        setError(null)
+        markCurrentToolsCancelled(e.sessionId)
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("agentError", (e) => {
@@ -224,7 +349,7 @@ export function useChat(activeSessionId: string | null): UseChat {
         off()
       }
     }
-  }, [chatService, patch, reload])
+  }, [chatService, isSessionUserStopped, markCurrentToolsCancelled, patch, reload, rememberCancelledToolParts])
 
   React.useEffect(() => {
     if (activeSessionId) {
@@ -241,6 +366,8 @@ export function useChat(activeSessionId: string | null): UseChat {
     ) => {
       const optimistic = options.optimistic ?? "before-ack"
       setError(null)
+      userStoppedSessions.current.delete(sessionId)
+      cancelledToolParts.current.delete(sessionId)
       setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
       if (optimistic === "before-ack") {
         patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
@@ -265,10 +392,18 @@ export function useChat(activeSessionId: string | null): UseChat {
 
   const stop = React.useCallback(
     async (sessionId: string) => {
-      await chatService.invoke("stopGeneration", sessionId)
-      setStatuses((s) => ({ ...s, [sessionId]: "ready" }))
+      setError(null)
+      markSessionUserStopped(sessionId)
+      markCurrentToolsCancelled(sessionId)
+      try {
+        await chatService.invoke("stopGeneration", sessionId)
+        setStatuses((s) => ({ ...s, [sessionId]: "ready" }))
+      } catch (err) {
+        setStatuses((s) => ({ ...s, [sessionId]: "error" }))
+        setError(String(err))
+      }
     },
-    [chatService],
+    [chatService, markCurrentToolsCancelled, markSessionUserStopped],
   )
 
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? []) : []

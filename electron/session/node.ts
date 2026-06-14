@@ -1,5 +1,5 @@
 import type { AgentManager } from "../agent/manager.ts"
-import type { SessionInfo, SessionService } from "./common.ts"
+import type { GenerateSessionTitleRequest, GenerateSessionTitleResult, SessionInfo, SessionService } from "./common.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -35,6 +35,13 @@ export class SessionServiceImpl
     const info = await this.agent.createSession(title)
     void this.broadcastChanged()
     return info
+  }
+
+  public async generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult> {
+    if (!this.agent) {
+      throw new Error("Agent not configured (sign in first)")
+    }
+    return { title: await this.agent.generateSessionTitle(req) }
   }
 
   public async rename(req: { id: string; title: string }): Promise<void> {

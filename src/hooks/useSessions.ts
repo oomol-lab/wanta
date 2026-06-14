@@ -1,4 +1,4 @@
-import type { SessionInfo } from "../../electron/session/common.ts"
+import type { GenerateSessionTitleRequest, SessionInfo } from "../../electron/session/common.ts"
 
 import * as React from "react"
 import { useSessionService } from "@/components/AppContext"
@@ -6,6 +6,7 @@ import { useSessionService } from "@/components/AppContext"
 export interface UseSessions {
   sessions: SessionInfo[]
   create: (title?: string) => Promise<SessionInfo>
+  generateTitle: (req: GenerateSessionTitleRequest) => Promise<string>
   rename: (id: string, title: string) => Promise<void>
   remove: (id: string) => Promise<void>
   refresh: () => Promise<void>
@@ -39,6 +40,14 @@ export function useSessions(): UseSessions {
     [sessionService, refresh],
   )
 
+  const generateTitle = React.useCallback(
+    async (req: GenerateSessionTitleRequest) => {
+      const result = await sessionService.invoke("generateTitle", req)
+      return result.title
+    },
+    [sessionService],
+  )
+
   const rename = React.useCallback(
     async (id: string, title: string) => {
       await sessionService.invoke("rename", { id, title })
@@ -53,5 +62,5 @@ export function useSessions(): UseSessions {
     [sessionService],
   )
 
-  return { sessions, create, rename, remove, refresh }
+  return { sessions, create, generateTitle, rename, remove, refresh }
 }

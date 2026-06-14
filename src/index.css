@@ -509,6 +509,7 @@
   }
 
   .oo-main-titlebar-title {
+    max-width: min(42ch, 58vw);
     opacity: 1;
     visibility: visible;
     transition: opacity 80ms ease-out 80ms;
@@ -525,6 +526,8 @@
   }
 
   .oo-toolbar-title {
+    display: block;
+    max-width: 100%;
     color: color-mix(in oklab, var(--foreground) 88%, transparent);
   }
 

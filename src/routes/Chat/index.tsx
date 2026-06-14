@@ -12,18 +12,21 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
+import type { ToolCategory } from "./tool-activity.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
+import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
   AlertTriangle,
   Bot,
   Brain,
+  CheckIcon,
   CheckCircle2,
   ChevronDown,
   Circle,
-  Clock3,
+  CopyIcon,
   ExternalLink,
   File as FileIcon,
   FileArchive,
@@ -32,6 +35,8 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideoCamera,
+  Folder,
+  Globe,
   Eye,
   Loader2,
   Mic,
@@ -39,20 +44,41 @@ import {
   Plus,
   RotateCcw,
   Settings2,
-  Sparkles,
   Square,
   Terminal,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   Wrench,
   X,
+  Package,
+  ListChecks,
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { visibleUserText } from "./message-text.ts"
+import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
+import {
+  compactPathDetail,
+  compactToolDetail,
+  classifyToolPart,
+  formatToolActivityDuration,
+  formatToolDuration,
+  shouldShowRunningNoOutput,
+  summarizeToolCategory,
+  toolActivityTitle,
+  toolCategoryLabel,
+} from "./tool-activity.ts"
+import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message"
 import {
   PromptInput,
   PromptInputAttachments,
@@ -68,11 +94,13 @@ import { useChatService, useModelsService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Dialog } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 interface ChatAreaProps {
@@ -87,11 +115,25 @@ interface ChatAreaProps {
   onSend: (text: string, attachments: ChatAttachment[], model?: ModelChoice) => void
   onStop: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
+  onArtifactsReset: () => void
+  onArtifactsOpen: (selection: ArtifactSelection) => void
+  onArtifactsAvailable: (selection: ArtifactSelection) => void
 }
 
 type DraftAttachment = ChatAttachment & {
   previewUrl?: string
 }
+
+interface AttachmentInput {
+  name: string
+  mime: string
+  size: number
+  path: string
+  kind?: "file" | "directory"
+  file?: File
+}
+
+const CHAT_CONTENT_MAX_WIDTH_CLASS = "max-w-[50rem]"
 
 const attachmentPreviewUrlByPath = new Map<string, string>()
 
@@ -156,7 +198,14 @@ function attachmentExtension(name: string): string {
   return index > -1 ? lastSegment.slice(index + 1).toLowerCase() : ""
 }
 
-function attachmentTypeLabel(attachment: ChatAttachment): string {
+function isDirectoryAttachment(attachment: ChatAttachment): boolean {
+  return attachment.kind === "directory" || attachment.mime.toLowerCase() === "inode/directory"
+}
+
+function attachmentTypeLabel(t: TranslateFn, attachment: ChatAttachment): string {
+  if (isDirectoryAttachment(attachment)) {
+    return t("chat.attachmentFolder")
+  }
   const extension = attachmentExtension(attachment.name)
   if (extension) {
     return extension.toUpperCase()
@@ -165,12 +214,18 @@ function attachmentTypeLabel(attachment: ChatAttachment): string {
   return type ? type.toUpperCase() : "FILE"
 }
 
-function attachmentSummary(attachment: ChatAttachment): string {
+function attachmentSummary(t: TranslateFn, attachment: ChatAttachment): string {
+  if (isDirectoryAttachment(attachment)) {
+    return attachmentTypeLabel(t, attachment)
+  }
   const size = fileSizeLabel(attachment.size)
-  return size ? `${attachmentTypeLabel(attachment)} ${size}` : attachmentTypeLabel(attachment)
+  return size ? `${attachmentTypeLabel(t, attachment)} ${size}` : attachmentTypeLabel(t, attachment)
 }
 
 function isImageAttachment(attachment: ChatAttachment): boolean {
+  if (isDirectoryAttachment(attachment)) {
+    return false
+  }
   if (attachment.mime.toLowerCase().startsWith("image/")) {
     return true
   }
@@ -271,34 +326,88 @@ function toolServiceSlug(part: ChatMessagePart): string {
   return ""
 }
 
-/** 工具调用的一行人话摘要（折叠态显示）；缺少入参时退回原始工具名。 */
-function toolSummary(t: TranslateFn, part: ChatMessagePart): string {
-  if (part.title) {
-    return part.title
+function bashActionSummary(t: TranslateFn, command: string): string {
+  const normalized = command.replace(/\s+/g, " ").trim()
+  if (/^(ls|stat|file|du)\b/.test(normalized)) {
+    return t("chat.toolBashCheckFile")
   }
+  if (/(^|[;&|]\s*)(which|command -v)\b|--version\b/.test(normalized)) {
+    return t("chat.toolBashCheckTools")
+  }
+  if (/^(sips|magick|convert|qlmanage)\b/.test(normalized)) {
+    return t("chat.toolBashConvertImage")
+  }
+  if (/^python3?\s+-c\s+["']import\b/.test(normalized)) {
+    return t("chat.toolBashCheckPythonModule")
+  }
+  if (/\bpip3?\s+install\b/.test(normalized)) {
+    return t("chat.toolBashInstallPythonPackage")
+  }
+  if (/^python3?\s+<<\s*['"]?EOF\b/.test(normalized) || /^python3?\s+\S+\.py\b/.test(normalized)) {
+    return t("chat.toolBashRunPythonScript")
+  }
+  if (/^(cat|sed|head|tail)\b/.test(normalized)) {
+    return t("chat.toolBashReadContent")
+  }
+  if (/^find\b/.test(normalized)) {
+    return t("chat.toolBashFindFiles")
+  }
+  return t("chat.toolRunGeneric")
+}
+
+/** 工具调用的一行人话动作摘要；原始命令只放在详情里。 */
+function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string {
   const input = part.input ?? {}
   const service = str(input.service)
   const action = str(input.action)
   const target = service && action ? `${service} · ${action}` : service || action
+  const fallbackDetail = part.title || part.tool || "tool"
   switch (part.tool) {
     case "search_actions": {
       const query = str(input.query)
-      return query ? t("chat.toolSearch", { detail: query }) : (part.tool ?? "")
+      return query ? t("chat.toolSearch", { detail: compactToolDetail(query) }) : t("chat.toolSearchGeneric")
     }
     case "inspect_action":
-      return target ? t("chat.toolInspect", { detail: target }) : (part.tool ?? "")
+      return target ? t("chat.toolInspect", { detail: target }) : t("chat.toolInspectGeneric")
     case "call_action":
-      return target ? t("chat.toolCall", { detail: target }) : (part.tool ?? "")
+      return target ? t("chat.toolCall", { detail: target }) : t("chat.toolCallGeneric")
     case "bash": {
       const command = str(input.command).split("\n")[0]
-      return command ? t("chat.toolRun", { detail: command }) : (part.tool ?? "")
+      return command ? bashActionSummary(t, command) : t("chat.toolRunGeneric")
     }
     case "read": {
       const filePath = str(input.filePath) || str(input.path)
-      return filePath ? t("chat.toolRead", { detail: filePath }) : (part.tool ?? "")
+      return filePath ? t("chat.toolRead", { detail: compactPathDetail(filePath) }) : t("chat.toolReadGeneric")
+    }
+    case "write": {
+      const filePath = str(input.filePath) || str(input.path)
+      return filePath ? t("chat.toolWrite", { detail: compactPathDetail(filePath) }) : t("chat.toolWriteGeneric")
+    }
+    case "edit": {
+      const filePath = str(input.filePath) || str(input.path)
+      return filePath ? t("chat.toolEdit", { detail: compactPathDetail(filePath) }) : t("chat.toolEditGeneric")
+    }
+    case "list": {
+      const filePath = str(input.path) || str(input.filePath)
+      return filePath ? t("chat.toolList", { detail: compactPathDetail(filePath) }) : t("chat.toolListGeneric")
+    }
+    case "grep": {
+      const pattern = str(input.pattern)
+      return pattern ? t("chat.toolGrep", { detail: compactToolDetail(pattern) }) : t("chat.toolGrepGeneric")
+    }
+    case "glob": {
+      const pattern = str(input.pattern)
+      return pattern ? t("chat.toolGlob", { detail: compactToolDetail(pattern) }) : t("chat.toolGlobGeneric")
+    }
+    case "webfetch": {
+      const url = str(input.url)
+      return url ? t("chat.toolWebFetch", { detail: compactPathDetail(url) }) : t("chat.toolWebFetchGeneric")
+    }
+    case "task": {
+      return t("chat.toolTask", { detail: compactToolDetail(fallbackDetail) })
     }
     default:
-      return t("chat.toolGeneric", { detail: part.tool ?? "tool" })
+      return t("chat.toolGeneric", { detail: compactToolDetail(fallbackDetail) })
   }
 }
 
@@ -317,6 +426,10 @@ function toolStatusLabel(t: TranslateFn, status: ToolStatus | undefined): string
   }
 }
 
+function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
+  return isToolCancellation(part) ? t("chat.toolStatusStopped") : toolStatusLabel(t, part.status)
+}
+
 function formatToolOutput(output: string | undefined): string {
   if (!output) {
     return ""
@@ -332,17 +445,10 @@ function formatJson(value: Record<string, unknown>): string {
   return JSON.stringify(value, null, 2)
 }
 
-function formatDuration(part: ChatMessagePart): string | null {
-  const start = part.timing?.start
-  const end = part.timing?.end
-  if (typeof start !== "number" || typeof end !== "number" || end < start) {
-    return null
+function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | undefined; stopped?: boolean }) {
+  if (stopped) {
+    return <Square className="size-3.5 text-muted-foreground" />
   }
-  const ms = end - start
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
-}
-
-function ToolStatusIcon({ status }: { status: ToolStatus | undefined }) {
   switch (status) {
     case "running":
       return <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
@@ -356,14 +462,26 @@ function ToolStatusIcon({ status }: { status: ToolStatus | undefined }) {
   }
 }
 
-function ToolGlyph({ tool }: { tool: string | undefined }) {
-  if (tool === "bash") {
-    return <Terminal className="size-3.5" />
+function ToolCategoryIcon({ category, className }: { category: ToolCategory; className?: string }) {
+  const iconClassName = cn("size-3.5 shrink-0", className)
+  switch (category) {
+    case "shell":
+      return <Terminal className={iconClassName} />
+    case "connector":
+      return <Plug className={iconClassName} />
+    case "file":
+      return <FileText className={iconClassName} />
+    case "web":
+      return <Globe className={iconClassName} />
+    case "task":
+      return <ListChecks className={iconClassName} />
+    case "skill":
+      return <Package className={iconClassName} />
+    case "custom":
+      return <Wrench className={iconClassName} />
+    case "mixed":
+      return <Eye className={iconClassName} />
   }
-  if (tool === "search_actions") {
-    return <Clock3 className="size-3.5" />
-  }
-  return <Wrench className="size-3.5" />
 }
 
 function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
@@ -389,30 +507,37 @@ function ToolPre({ children, tone = "default" }: { children: string; tone?: "def
 }
 
 function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): boolean {
+  const stopped = isToolCancellation(part)
   return (
     hasKeys(part.input) ||
     hasKeys(part.metadata) ||
     Boolean(part.output && !auth) ||
-    Boolean(part.error) ||
+    Boolean(part.error && !stopped) ||
     Boolean(auth?.message) ||
+    shouldShowRunningNoOutput(part) ||
     Boolean(part.attachmentsCount)
   )
 }
 
 function ToolActivityStep({
   part,
+  now,
   provider,
   onAuthorize,
 }: {
   part: ChatMessagePart
+  now: number
   provider?: ConnectionProvider
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
   const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
+  const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
-  const duration = formatDuration(part)
-  const statusText = toolStatusLabel(t, part.status)
+  const duration = formatToolDuration(part, now)
+  const statusText = toolPartStatusLabel(t, part)
+  const category = classifyToolPart(part)
+  const categoryText = toolCategoryLabel(t, category)
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
       {provider ? (
@@ -421,22 +546,24 @@ function ToolActivityStep({
         </span>
       ) : (
         <span className="mt-0.5 shrink-0" title={statusText}>
-          <ToolStatusIcon status={part.status} />
+          <ToolStatusIcon status={part.status} stopped={stopped} />
         </span>
       )}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="min-w-0 truncate text-sm text-foreground">{toolSummary(t, part)}</span>
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate text-xs text-foreground">{toolActionSummary(t, part)}</span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             {provider ? (
               <>
                 <span>{provider.displayName}</span>
                 <span>·</span>
               </>
             ) : (
-              <ToolGlyph tool={part.tool} />
+              <ToolCategoryIcon category={category} />
             )}
-            <span>{part.tool}</span>
+            <span>{provider ? t("chat.toolCategoryConnector") : categoryText}</span>
+            <span>·</span>
+            <span>{statusText}</span>
           </span>
           {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
         </div>
@@ -454,7 +581,7 @@ function ToolActivityStep({
   )
 
   return (
-    <Collapsible defaultOpen={part.status === "error" || Boolean(auth)}>
+    <Collapsible defaultOpen={(part.status === "error" && !stopped) || Boolean(auth)}>
       <div className="rounded-md px-1 py-0.5">
         {details ? (
           <CollapsibleTrigger className="group flex w-full items-start justify-between gap-2 text-left">
@@ -473,12 +600,15 @@ function ToolActivityStep({
                 <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
               </ToolDetailSection>
             )}
+            {shouldShowRunningNoOutput(part) && (
+              <div className="oo-text-caption text-muted-foreground">{t("chat.toolRunningNoOutput")}</div>
+            )}
             {part.output && !auth && (
               <ToolDetailSection label={t("chat.toolResult")}>
                 <ToolPre>{formatToolOutput(part.output)}</ToolPre>
               </ToolDetailSection>
             )}
-            {part.error && (
+            {part.error && !stopped && (
               <ToolDetailSection label={t("chat.toolError")}>
                 <ToolPre tone="error">{part.error}</ToolPre>
               </ToolDetailSection>
@@ -516,22 +646,37 @@ function ToolActivity({
 }) {
   const t = useT()
   const hasActive = parts.some((part) => part.status === "pending" || part.status === "running")
-  const hasError = parts.some((part) => part.status === "error")
+  const hasError = hasBlockingToolError(parts)
+  const hasStopped = hasStoppedTool(parts)
   const hasAuth = parts.some(
     (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
   )
   const shouldOpen = hasActive || hasError || hasAuth
   const statusKey = parts.map((part) => `${part.partId}:${part.status}`).join("|")
   const [open, setOpen] = React.useState(shouldOpen)
-  const title = hasError
-    ? t("chat.toolActivityError", { count: parts.length })
-    : hasActive
-      ? t("chat.toolActivityRunning", { count: parts.length })
-      : t("chat.toolActivityCompleted", { count: parts.length })
+  const [now, setNow] = React.useState(() => Date.now())
+  const activityDuration = formatToolActivityDuration(parts, now)
+  const category = summarizeToolCategory(parts)
+  const title = toolActivityTitle(t, parts, {
+    hasActive,
+    hasError,
+    hasStopped,
+    duration: activityDuration,
+    category,
+  })
 
   React.useEffect(() => {
     setOpen(shouldOpen)
   }, [shouldOpen, statusKey])
+
+  React.useEffect(() => {
+    if (!hasActive) {
+      return
+    }
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [hasActive])
 
   return (
     <Task open={open} onOpenChange={setOpen} className="not-prose my-0 w-full">
@@ -541,13 +686,15 @@ function ToolActivity({
           className="group flex w-fit max-w-full items-center gap-2 rounded-md py-0.5 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           {hasActive ? (
-            <Loader2 className="size-3.5 animate-spin" />
+            <Loader2 className="size-3.5 shrink-0 animate-spin" />
           ) : hasError ? (
-            <AlertTriangle className="size-3.5 text-destructive" />
+            <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+          ) : hasStopped ? (
+            <Square className="size-3.5 shrink-0 text-muted-foreground" />
           ) : (
-            <Eye className="size-3.5 text-muted-foreground" />
+            <ToolCategoryIcon category={category} className="text-muted-foreground" />
           )}
-          <span className="truncate">{title}</span>
+          <span className="min-w-0 truncate">{title}</span>
           <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
         </button>
       </TaskTrigger>
@@ -558,6 +705,7 @@ function ToolActivity({
             <ToolActivityStep
               key={part.partId}
               part={part}
+              now={now}
               provider={service ? providerByService.get(service) : undefined}
               onAuthorize={onAuthorize}
             />
@@ -568,15 +716,160 @@ function ToolActivity({
   )
 }
 
+function formatMessageTime(createdAt: number): string {
+  if (!Number.isFinite(createdAt)) {
+    return ""
+  }
+  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(createdAt))
+}
+
+function MessageTimestamp({ createdAt }: { createdAt: number }) {
+  const label = formatMessageTime(createdAt)
+  if (!label) {
+    return null
+  }
+  return <span className="oo-text-caption text-muted-foreground/80 tabular-nums">{label}</span>
+}
+
+function CopyMessageAction({ text }: { text: string }) {
+  const t = useT()
+  const [copied, setCopied] = React.useState(false)
+  const timeoutRef = React.useRef<number | undefined>(undefined)
+
+  React.useEffect(
+    () => () => {
+      if (timeoutRef.current !== undefined) {
+        window.clearTimeout(timeoutRef.current)
+      }
+    },
+    [],
+  )
+
+  if (!text) {
+    return null
+  }
+
+  const writeClipboard = async (): Promise<boolean> => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text)
+        return true
+      } catch {
+        // 继续走 DOM fallback。
+      }
+    }
+
+    const textarea = document.createElement("textarea")
+    textarea.value = text
+    textarea.setAttribute("readonly", "")
+    textarea.style.position = "fixed"
+    textarea.style.top = "-9999px"
+    textarea.style.left = "-9999px"
+    document.body.append(textarea)
+    textarea.select()
+    try {
+      return document.execCommand("copy")
+    } finally {
+      textarea.remove()
+    }
+  }
+
+  const copyToClipboard = async (): Promise<void> => {
+    const didCopy = await writeClipboard()
+    if (!didCopy) {
+      setCopied(false)
+      return
+    }
+    setCopied(true)
+    if (timeoutRef.current !== undefined) {
+      window.clearTimeout(timeoutRef.current)
+    }
+    timeoutRef.current = window.setTimeout(() => setCopied(false), 3000)
+  }
+
+  const Icon = copied ? CheckIcon : CopyIcon
+  const label = copied ? t("chat.copiedMessage") : t("chat.copyMessage")
+
+  return (
+    <MessageAction
+      label={label}
+      tooltip={label}
+      className={cn(copied && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
+      onClick={() => void copyToClipboard()}
+    >
+      <Icon className="size-3.5" />
+    </MessageAction>
+  )
+}
+
+type MessageRating = "up" | "down"
+
+function MessageFeedbackAction({
+  rating,
+  activeRating,
+  onRatingChange,
+}: {
+  rating: MessageRating
+  activeRating: MessageRating | null
+  onRatingChange: (rating: MessageRating | null) => void
+}) {
+  const t = useT()
+  const active = activeRating === rating
+  const Icon = rating === "up" ? ThumbsUp : ThumbsDown
+  const label = rating === "up" ? t("chat.likeMessage") : t("chat.dislikeMessage")
+
+  return (
+    <MessageAction
+      label={label}
+      tooltip={label}
+      aria-pressed={active}
+      className={cn(active && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
+      onClick={() => onRatingChange(active ? null : rating)}
+    >
+      <Icon className="size-3.5" />
+    </MessageAction>
+  )
+}
+
+function AssistantMessageActions({ text, cancelled }: { text: string; cancelled: boolean }) {
+  const t = useT()
+  const [activeRating, setActiveRating] = React.useState<MessageRating | null>(null)
+
+  if (!text && !cancelled) {
+    return null
+  }
+
+  return (
+    <div className="mt-1">
+      {cancelled ? <div className="oo-text-caption mb-1 text-muted-foreground">{t("chat.userCancelled")}</div> : null}
+      {text ? (
+        <MessageActions className="pointer-events-auto static opacity-100">
+          <CopyMessageAction text={text} />
+          <MessageFeedbackAction rating="up" activeRating={activeRating} onRatingChange={setActiveRating} />
+          <MessageFeedbackAction rating="down" activeRating={activeRating} onRatingChange={setActiveRating} />
+        </MessageActions>
+      ) : null}
+    </div>
+  )
+}
+
 function MessageBubble({
   message,
   providerByService,
   onAuthorize,
+  onOpenArtifacts,
+  onArtifactsAvailable,
+  assistantActionsText,
 }: {
   message: ChatMessage
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onOpenArtifacts: (selection: ArtifactSelection) => void
+  onArtifactsAvailable: (selection: ArtifactSelection) => void
+  assistantActionsText: string | null
 }) {
+  const copyText = copyableMessageText(message)
+  const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
   if (message.role === "user") {
     const text = message.parts
       .filter((p) => p.kind === "text")
@@ -590,12 +883,18 @@ function MessageBubble({
       return null
     }
     return (
-      <Message from="user" className="items-end">
+      <Message from="user" className={cn("items-end", copyText && "pb-7")}>
         {attachments.length > 0 ? <AttachmentList attachments={attachments} className="justify-end" /> : null}
         {visibleText ? (
           <MessageContent>
             <div className="break-words whitespace-pre-wrap">{visibleText}</div>
           </MessageContent>
+        ) : null}
+        {copyText ? (
+          <MessageActions className="top-auto bottom-0 mt-0">
+            <MessageTimestamp createdAt={message.createdAt} />
+            <CopyMessageAction text={copyText} />
+          </MessageActions>
         ) : null}
       </Message>
     )
@@ -604,6 +903,10 @@ function MessageBubble({
   if (blocks.length === 0) {
     return null
   }
+  const assistantText = message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text ?? "")
+    .join("")
   const blockClassName = (index: number): string | undefined => {
     if (index === 0) {
       return undefined
@@ -635,12 +938,29 @@ function MessageBubble({
             )}
           </div>
         ))}
+        <GeneratedArtifacts
+          messageId={message.id}
+          text={assistantText}
+          onOpen={onOpenArtifacts}
+          onAvailable={onArtifactsAvailable}
+        />
       </MessageContent>
+      {assistantActionsText || assistantCancelled ? (
+        <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
+      ) : null}
     </Message>
   )
 }
 
 function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) {
+  if (isDirectoryAttachment(attachment)) {
+    return (
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-cyan-500/12 text-cyan-700 dark:text-cyan-300">
+        <Folder className="size-5" />
+      </span>
+    )
+  }
+
   if (attachment.previewUrl && isImageAttachment(attachment)) {
     return (
       <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
@@ -786,6 +1106,7 @@ function AttachmentList({
   className?: string
   onRemove?: (id: string) => void
 }) {
+  const t = useT()
   return (
     <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
       {attachments.map((attachment) =>
@@ -803,7 +1124,7 @@ function AttachmentList({
                 {attachment.name}
               </span>
               <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
-                {attachmentSummary(attachment)}
+                {attachmentSummary(t, attachment)}
               </span>
             </span>
             {onRemove ? (
@@ -1332,6 +1653,9 @@ export function ChatArea({
   onSend,
   onStop,
   onAuthorize,
+  onArtifactsReset,
+  onArtifactsOpen,
+  onArtifactsAvailable,
 }: ChatAreaProps) {
   const t = useT()
   const chatService = useChatService()
@@ -1360,12 +1684,21 @@ export function ChatArea({
   const showPendingMessage =
     hasMessages &&
     (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
+  const activeAssistantMessageId =
+    status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
+  const assistantActionTextByMessageId = React.useMemo(() => {
+    return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
+  }, [activeAssistantMessageId, messages])
 
   React.useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
 
   React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
+
+  React.useEffect(() => {
+    onArtifactsReset()
+  }, [messages[0]?.id, onArtifactsReset])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1439,43 +1772,80 @@ export function ChatArea({
     setInputError(null)
   }
 
+  const addAttachments = React.useCallback((items: AttachmentInput[]) => {
+    const next: DraftAttachment[] = []
+    for (const item of items) {
+      const attachment: DraftAttachment = {
+        id: `${Date.now()}-${item.kind ?? "file"}-${item.name}-${item.size}-${Math.random().toString(36).slice(2)}`,
+        name: item.name || item.path.split(/[\\/]/).pop() || "attachment",
+        mime: item.mime || (item.kind === "directory" ? "inode/directory" : "application/octet-stream"),
+        size: item.size,
+        path: item.path,
+        kind: item.kind ?? "file",
+      }
+      if (item.file && isImageAttachment(attachment)) {
+        attachment.previewUrl = URL.createObjectURL(item.file)
+      }
+      next.push(attachment)
+    }
+    if (next.length > 0) {
+      setAttachments((current) => {
+        const existing = new Set(current.map((attachment) => attachment.path))
+        const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
+        revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
+        for (const attachment of uniqueNext) {
+          if (attachment.previewUrl) {
+            setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
+          }
+        }
+        return [...current, ...uniqueNext]
+      })
+    }
+  }, [])
+
   const addFiles = React.useCallback(
     (files: FileList | File[]) => {
       setInputError(null)
-      const next: DraftAttachment[] = []
+      const next: AttachmentInput[] = []
       for (const file of Array.from(files)) {
         const path = globalThis.lumo?.getPathForFile(file)
         if (!path) {
           setInputError(t("chat.attachmentPathUnavailable"))
           continue
         }
-        const attachment: DraftAttachment = {
-          id: `${Date.now()}-${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
+        next.push({
           name: file.name || path.split(/[\\/]/).pop() || "attachment",
           mime: file.type || "application/octet-stream",
           size: file.size,
           path,
-        }
-        if (isImageAttachment(attachment)) {
-          attachment.previewUrl = URL.createObjectURL(file)
-        }
-        next.push(attachment)
-      }
-      if (next.length > 0) {
-        setAttachments((current) => {
-          const existing = new Set(current.map((attachment) => attachment.path))
-          const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
-          revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
-          for (const attachment of uniqueNext) {
-            if (attachment.previewUrl) {
-              setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
-            }
-          }
-          return [...current, ...uniqueNext]
+          kind: "file",
+          file,
         })
       }
+      addAttachments(next)
     },
-    [t],
+    [addAttachments, t],
+  )
+
+  const selectAttachments = React.useCallback(
+    async (kind: "file" | "directory") => {
+      setInputError(null)
+      const picker = globalThis.lumo?.selectAttachmentPaths
+      if (!picker) {
+        if (kind === "file") {
+          fileInputRef.current?.click()
+        } else {
+          setInputError(t("chat.attachmentFolderPickerUnavailable"))
+        }
+        return
+      }
+      try {
+        addAttachments(await picker(kind))
+      } catch (error) {
+        setInputError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [addAttachments, t],
   )
 
   const transcribeBlob = React.useCallback(
@@ -1585,18 +1955,31 @@ export function ChatArea({
               event.currentTarget.value = ""
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            title={t("chat.attachFile")}
-            aria-label={t("chat.attachFile")}
-            disabled={disabled || voiceActive || initialSendPending}
-            className="size-8 rounded-full"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Plus className="size-4" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title={t("chat.attachFile")}
+                aria-label={t("chat.attachFile")}
+                disabled={disabled || voiceActive || initialSendPending}
+                className="size-8 rounded-full"
+              >
+                <Plus className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-40">
+              <DropdownMenuItem onSelect={() => void selectAttachments("file")}>
+                <FileIcon className="size-4" />
+                {t("chat.attachFileAction")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void selectAttachments("directory")}>
+                <Folder className="size-4" />
+                {t("chat.attachFolderAction")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </PromptInputTools>
         {voiceActive ? <VoiceRecorderPanel bars={voiceRecorder.bars} durationMs={voiceRecorder.durationMs} /> : null}
         <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
@@ -1717,11 +2100,15 @@ export function ChatArea({
 
   if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
     return (
-      <div className="grid h-full min-h-0 animate-in place-items-center px-1 py-6 duration-200 fade-in">
-        <div className="flex w-full max-w-[48rem] -translate-y-[6vh] flex-col gap-4 transition-transform duration-300 ease-out">
-          <div className="flex flex-col items-center gap-3 px-4 text-center">
-            <Sparkles className="size-8 text-muted-foreground" />
-            <h2 className="oo-text-title max-w-2xl">{t("chat.emptyTitle")}</h2>
+      <div className="grid h-full min-h-0 animate-in place-items-center px-4 py-6 duration-200 fade-in sm:px-5 lg:px-8">
+        <div
+          className={cn(
+            "flex w-full -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out",
+            CHAT_CONTENT_MAX_WIDTH_CLASS,
+          )}
+        >
+          <div className="px-4 pb-1 text-center">
+            <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
           </div>
           {errorBanner}
           {promptInput}
@@ -1732,29 +2119,39 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex h-full min-h-0 animate-in flex-col pb-6 duration-300 fade-in slide-in-from-bottom-2">
-      <Conversation className="min-h-0 flex-1">
-        <ConversationContent
-          data-selectable="true"
-          className="mx-auto min-h-full w-full max-w-[50rem] gap-4 px-4 pt-7 pb-9"
-        >
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              providerByService={providerByService}
-              onAuthorize={onAuthorize}
-            />
-          ))}
-          {showPendingMessage && <AssistantPendingMessage />}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
+    <div className="flex h-full min-h-0 animate-in duration-300 fade-in slide-in-from-bottom-2">
+      <div className="flex min-w-0 flex-1 flex-col pb-4">
+        <Conversation className="min-h-0 flex-1">
+          <ConversationContent
+            data-selectable="true"
+            className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
+          >
+            {messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                providerByService={providerByService}
+                onAuthorize={onAuthorize}
+                onOpenArtifacts={onArtifactsOpen}
+                onArtifactsAvailable={onArtifactsAvailable}
+                assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
+              />
+            ))}
+            {showPendingMessage && <AssistantPendingMessage />}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
 
-      <div className="mx-auto flex w-full max-w-[50rem] flex-col gap-2 px-4 transition-transform duration-300 ease-out">
-        {errorBanner}
-        {promptInput}
-        {modelDialog}
+        <div
+          className={cn(
+            "mx-auto flex w-full flex-col gap-2 px-4 transition-transform duration-300 ease-out",
+            CHAT_CONTENT_MAX_WIDTH_CLASS,
+          )}
+        >
+          {errorBanner}
+          {promptInput}
+          {modelDialog}
+        </div>
       </div>
     </div>
   )

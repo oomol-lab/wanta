@@ -140,6 +140,35 @@ test("parseAuthorization accepts auth json, rejects plain results", () => {
   assert.equal(parseAuthorization(undefined), null)
 })
 
+test("normalizeMessage marks directory attachments from inode mime", () => {
+  const message = normalizeMessage({
+    info: { id: "m1", role: "user", time: { created: 1 } },
+    parts: [
+      {
+        id: "p1",
+        type: "file",
+        filename: "project",
+        mime: "inode/directory",
+        source: { path: "/Users/me/project" },
+      },
+    ],
+  })
+  assert.deepEqual(message?.parts, [
+    {
+      kind: "attachment",
+      partId: "p1",
+      attachment: {
+        id: "p1",
+        name: "project",
+        mime: "inode/directory",
+        size: 0,
+        path: "/Users/me/project",
+        kind: "directory",
+      },
+    },
+  ])
+})
+
 test("normalizeMessage builds ChatMessage with text + tool parts in order", () => {
   const msg = normalizeMessage({
     info: { id: "m1", role: "assistant", time: { created: 123 } },

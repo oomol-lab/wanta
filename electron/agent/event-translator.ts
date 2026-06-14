@@ -223,15 +223,17 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
     } else if (part.type === "file") {
       const path = attachmentPath(part)
       if (path) {
+        const mime = part.mime ?? "application/octet-stream"
         parts.push({
           kind: "attachment",
           partId: part.id,
           attachment: {
             id: part.id,
             name: part.filename ?? path.split(/[\\/]/).pop() ?? "attachment",
-            mime: part.mime ?? "application/octet-stream",
+            mime,
             size: 0,
             path,
+            kind: mime === "inode/directory" ? "directory" : "file",
           },
         })
       }

@@ -2,13 +2,15 @@ import type { ChatAttachment, ChatMessage } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
+import type { BuildSessionTitleInput } from "../session/title.ts"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 
 import { randomBytes } from "node:crypto"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { connectorBaseUrl } from "../domain.ts"
+import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
+import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
 import { buildOoEnv } from "./oo.ts"
@@ -44,6 +46,10 @@ interface RawSession {
   id: string
   title?: string
   time?: { created?: number; updated?: number }
+}
+
+interface ChatCompletionResponse {
+  choices?: Array<{ message?: { content?: string } }>
 }
 
 function toSessionInfo(session: RawSession): SessionInfo {
@@ -164,6 +170,48 @@ export class AgentManager {
 
   public async deleteSession(id: string): Promise<void> {
     await this.client.session.delete({ path: { id } })
+  }
+
+  public async generateSessionTitle(input: BuildSessionTitleInput): Promise<string> {
+    const fallback = buildFallbackSessionTitle(input)
+    const titleSource = buildTitleSource(input)
+    if (!titleSource) {
+      return fallback
+    }
+
+    try {
+      const response = await fetch(`${llmBaseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.options.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: LUMO_MODEL_ID,
+          temperature: 0.2,
+          max_tokens: 40,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Generate a concise chat title for the user's task. Output only the title. Keep the user's language. Use 3-6 English words or 6-14 Chinese characters when possible. Do not output a URL, punctuation wrapper, markdown, or explanations.",
+            },
+            {
+              role: "user",
+              content: titleSource,
+            },
+          ],
+        }),
+        signal: AbortSignal.timeout(12_000),
+      })
+      if (!response.ok) {
+        return fallback
+      }
+      const payload = (await response.json()) as ChatCompletionResponse
+      return sanitizeGeneratedSessionTitle(payload.choices?.[0]?.message?.content ?? "", input)
+    } catch {
+      return fallback
+    }
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -301,6 +349,13 @@ function buildPromptParts(
   }
   parts.push({ type: "text", text })
   return parts
+}
+
+function buildTitleSource(input: BuildSessionTitleInput): string {
+  const parts = [input.text, ...(input.attachmentNames ?? []).map((name) => `Attachment: ${name}`)]
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return parts.join("\n").slice(0, 1600)
 }
 
 function pathToFileUrl(filePath: string): string {

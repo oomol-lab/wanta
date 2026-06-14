@@ -6,6 +6,7 @@ import { ooEndpoint } from "../domain.ts"
 export interface AuthAccount {
   id: string
   name: string
+  avatarUrl?: string
   apiKey: string
 }
 
@@ -25,7 +26,12 @@ function asAccounts(value: PersistedAuth): AuthAccount[] {
 }
 
 function persistableAccount(account: AuthRuntimeAccount): AuthAccount {
-  return { id: account.id, name: account.name, apiKey: account.apiKey }
+  return {
+    id: account.id,
+    name: account.name,
+    ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}),
+    apiKey: account.apiKey,
+  }
 }
 
 /** 登录成功：插入或替换账号（按 id），并把它设为当前账号。 */
@@ -68,7 +74,7 @@ function migrateLegacyAccounts(auth: PersistedAuth): PersistedAuth {
   }
   const normalized: AuthAccount[] = accounts
     .filter((a) => a.endpoint === undefined || a.endpoint === ooEndpoint)
-    .map((a) => ({ id: a.id, name: a.name, apiKey: a.apiKey }))
+    .map((a) => ({ id: a.id, name: a.name, ...(a.avatarUrl ? { avatarUrl: a.avatarUrl } : {}), apiKey: a.apiKey }))
   const currentId = normalized.some((a) => a.id === auth.currentId) ? auth.currentId : undefined
   return { currentId, accounts: normalized }
 }

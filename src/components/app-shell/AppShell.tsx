@@ -5,6 +5,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  LogOut,
   Package,
   PanelLeftClose,
   PanelLeftOpen,
@@ -19,7 +20,16 @@ import {
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { useChatService } from "@/components/AppContext"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
@@ -125,6 +135,11 @@ function hasUserMessage(messages: ChatMessage[], text: string, attachments: Chat
 
 function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase()
+}
+
+function accountInitial(name?: string): string {
+  const trimmed = name?.trim()
+  return trimmed ? trimmed.charAt(0).toLocaleUpperCase() : "L"
 }
 
 function buildSessionTitleInput(
@@ -339,9 +354,101 @@ function SidebarTitlebarActions({
   )
 }
 
+function SidebarAccountMenu({
+  accountName,
+  avatarUrl,
+  activeRoute,
+  loggingOut,
+  onNavigate,
+  onLogout,
+}: {
+  accountName?: string
+  avatarUrl?: string
+  activeRoute: Route
+  loggingOut: boolean
+  onNavigate: (route: Route) => void
+  onLogout: () => void
+}) {
+  const t = useT()
+  const displayName = accountName?.trim() || t("settings.account")
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "oo-sidebar-account oo-sidebar-nav-item -mx-3 flex h-14 shrink-0 items-center gap-2 px-4 text-left [-webkit-app-region:no-drag]",
+            activeRoute === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
+          )}
+          aria-label={t("sidebar.accountMenu")}
+          title={t("sidebar.accountMenu")}
+        >
+          <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
+          <div className="oo-sidebar-nav-label min-w-0 flex-1">
+            <div className="oo-text-control truncate text-foreground" title={displayName}>
+              {displayName}
+            </div>
+          </div>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md">
+            <Settings className="size-4" />
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" alignOffset={12} sideOffset={8} className="w-56">
+        <DropdownMenuLabel className="truncate">{displayName}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onNavigate("connections")}>
+          <Plug className="size-4" />
+          {t("connections.title")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNavigate("skills")}>
+          <Package className="size-4" />
+          {t("skills.title")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNavigate("settings")}>
+          <Settings className="size-4" />
+          {t("settings.title")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" disabled={loggingOut} onSelect={onLogout}>
+          <LogOut className="size-4" />
+          {t("settings.logout")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
+  const [failed, setFailed] = React.useState(false)
+
+  React.useEffect(() => {
+    setFailed(false)
+  }, [avatarUrl])
+
+  return (
+    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-medium text-foreground">
+      {avatarUrl && !failed ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          className="size-full object-cover"
+          draggable={false}
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        accountInitial(name)
+      )}
+    </div>
+  )
+}
+
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
+  const auth = useAuth()
   const { sessions, create, generateTitle, rename, remove, refresh } = useSessions()
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
@@ -872,19 +979,14 @@ export function AppShell() {
               </div>
             </div>
 
-            <div className="grid shrink-0 gap-1 pb-3">
-              <button
-                type="button"
-                onClick={() => setRoute("settings")}
-                className={cn(
-                  "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                  route === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
-                )}
-              >
-                <Settings className="size-4 shrink-0" />
-                <span className="oo-sidebar-nav-label truncate">{t("nav.settings")}</span>
-              </button>
-            </div>
+            <SidebarAccountMenu
+              accountName={auth.state?.account?.name}
+              avatarUrl={auth.state?.account?.avatarUrl}
+              activeRoute={route}
+              loggingOut={auth.loggingOut}
+              onNavigate={setRoute}
+              onLogout={() => void auth.logout()}
+            />
           </nav>
         </div>
         <div

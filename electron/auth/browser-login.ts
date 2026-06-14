@@ -15,10 +15,17 @@ interface DefaultApiKeyResponse {
 }
 
 interface UserProfileResponse {
+  avatar?: unknown
+  avatar_url?: unknown
+  avatarUrl?: unknown
   displayname?: unknown
   email?: unknown
+  image?: unknown
   nickname?: unknown
+  photo?: unknown
+  picture?: unknown
   uid?: unknown
+  url?: unknown
   username?: unknown
 }
 
@@ -26,10 +33,24 @@ interface UserProfileResponse {
 export interface BrowserLoginProfile {
   id: string
   name: string
+  avatarUrl?: string
 }
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function normalizeAvatarUrl(value: unknown): string | undefined {
+  const raw = asString(value)
+  if (!raw) {
+    return undefined
+  }
+  try {
+    const url = new URL(raw)
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** 浏览器登录入口 URL：hub 登录页经 ?protocol= 得知回跳的自定义协议。 */
@@ -84,10 +105,18 @@ export function normalizeLoginProfile(response: UserProfileResponse): BrowserLog
     asString(response.displayname) ??
     asString(response.email) ??
     uid
+  const avatarUrl =
+    normalizeAvatarUrl(response.avatar_url) ??
+    normalizeAvatarUrl(response.avatarUrl) ??
+    normalizeAvatarUrl(response.avatar) ??
+    normalizeAvatarUrl(response.picture) ??
+    normalizeAvatarUrl(response.photo) ??
+    normalizeAvatarUrl(response.image) ??
+    normalizeAvatarUrl(response.url)
 
   if (!uid || !name) {
     return undefined
   }
 
-  return { id: uid, name }
+  return { id: uid, name, ...(avatarUrl ? { avatarUrl } : {}) }
 }

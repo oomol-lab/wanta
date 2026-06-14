@@ -41,11 +41,29 @@ test("normalizeDefaultApiKey requires a non-empty string key", () => {
 })
 
 test("normalizeLoginProfile prefers nickname and requires uid", () => {
-  assert.deepEqual(normalizeLoginProfile({ uid: "u1", nickname: "Nick", username: "user" }), {
-    id: "u1",
-    name: "Nick",
-  })
+  assert.deepEqual(
+    normalizeLoginProfile({
+      uid: "u1",
+      nickname: "Nick",
+      username: "user",
+      avatar_url: "https://example.com/avatar.png",
+    }),
+    {
+      id: "u1",
+      name: "Nick",
+      avatarUrl: "https://example.com/avatar.png",
+    },
+  )
   assert.deepEqual(normalizeLoginProfile({ uid: "u1", username: "user" }), { id: "u1", name: "user" })
+  assert.deepEqual(normalizeLoginProfile({ uid: "u1", username: "user", avatar_url: "javascript:bad" }), {
+    id: "u1",
+    name: "user",
+  })
+  assert.deepEqual(normalizeLoginProfile({ uid: "u1", username: "user", url: "https://avatars.example.com/u1" }), {
+    id: "u1",
+    name: "user",
+    avatarUrl: "https://avatars.example.com/u1",
+  })
   assert.deepEqual(normalizeLoginProfile({ uid: "u1" }), { id: "u1", name: "u1" })
   assert.equal(normalizeLoginProfile({ nickname: "no-uid" }), undefined)
 })

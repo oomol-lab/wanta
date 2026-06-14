@@ -20,7 +20,6 @@ import {
   LoaderCircle,
   Plug,
   RefreshCw,
-  Search,
   Unplug,
 } from "lucide-react"
 import * as React from "react"
@@ -28,14 +27,13 @@ import { ConnectDialog } from "./ConnectDialog.tsx"
 import { ProviderIcon } from "./ProviderIcon.tsx"
 import { authTypeLabel } from "./shared.ts"
 import { Loader } from "@/components/ai-elements/loader"
+import { SearchField } from "@/components/SearchField"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import {
   SplitViewBody,
   SplitViewDesktopDetailPane,
-  SplitViewHeader,
   SplitViewListPane,
   SplitViewMobileDetailPane,
   SplitViewRoot,
@@ -281,30 +279,15 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   )
 
   return (
-    <SplitViewRoot narrowPane={narrowPane}>
-      <SplitViewHeader narrowPane={narrowPane}>
-        <div className="oo-search-surface flex h-9 min-w-0 items-center gap-2 rounded-lg border px-2">
-          <Search className="oo-icon-muted size-4" />
-          <Input
-            value={query}
-            placeholder={t("connections.search")}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-          />
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={busy === "refresh"}
-          onClick={() => void refresh({ forceRefresh: true })}
-        >
-          <RefreshCw className={cn("size-4", busy === "refresh" && "animate-spin")} />
-          {t("aria.refresh")}
-        </Button>
-      </SplitViewHeader>
-
+    <SplitViewRoot narrowPane={narrowPane} className="grid-rows-[minmax(0,1fr)]">
       <SplitViewBody desktopLayout="narrow-list">
         <SplitViewListPane narrowPane={narrowPane}>
+          <ConnectionListToolbar
+            busy={busy}
+            query={query}
+            onQueryChange={setQuery}
+            onRefresh={() => void refresh({ forceRefresh: true })}
+          />
           <div className="grid gap-3">
             <SummaryHeader />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
@@ -405,6 +388,36 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         }}
       />
     </SplitViewRoot>
+  )
+}
+
+function ConnectionListToolbar({
+  busy,
+  onQueryChange,
+  onRefresh,
+  query,
+}: {
+  busy: UseConnections["busy"]
+  onQueryChange: (query: string) => void
+  onRefresh: () => void
+  query: string
+}) {
+  const t = useT()
+
+  return (
+    <div className="grid gap-2 py-2">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <SearchField
+          value={query}
+          placeholder={t("connections.search")}
+          onChange={(event) => onQueryChange(event.currentTarget.value)}
+        />
+        <Button variant="ghost" size="sm" disabled={busy === "refresh"} onClick={onRefresh}>
+          <RefreshCw className={cn("size-4", busy === "refresh" && "animate-spin")} />
+          {t("aria.refresh")}
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -537,7 +550,7 @@ function ProviderDetail({
     <div className="grid min-w-0 gap-3">
       {summary && summary.status !== "ready" ? <StatusNotice summary={summary} /> : null}
 
-      <section className="grid gap-2 rounded-lg border px-3 py-3">
+      <section className="grid gap-2 rounded-md border px-3 py-2.5">
         <div className="flex min-w-0 items-start gap-3">
           <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="lg" />
           <div className="min-w-0 flex-1">
@@ -567,19 +580,18 @@ function ProviderDetail({
         </div>
         {actionError ? <div className="oo-error oo-text-micro">{actionError}</div> : null}
         {detailError ? <div className="oo-error oo-text-micro">{detailError}</div> : null}
+        <ConnectionPanel
+          busy={busy}
+          currentAuthType={currentAuthType}
+          detail={detail}
+          detailLoading={detailLoading}
+          onCancelPolling={onCancelPolling}
+          onConnect={onConnect}
+          onDisconnect={onDisconnect}
+          polling={polling}
+          provider={provider}
+        />
       </section>
-
-      <ConnectionPanel
-        busy={busy}
-        currentAuthType={currentAuthType}
-        detail={detail}
-        detailLoading={detailLoading}
-        onCancelPolling={onCancelPolling}
-        onConnect={onConnect}
-        onDisconnect={onDisconnect}
-        polling={polling}
-        provider={provider}
-      />
 
       {isConnected(provider) ? (
         <ProviderUsagePanel
@@ -590,9 +602,9 @@ function ProviderDetail({
         />
       ) : null}
 
-      <section className="grid gap-2">
-        <h3 className="oo-text-title px-1">{t("connections.providerDetails")}</h3>
-        <dl className="overflow-hidden rounded-lg border">
+      <section className="grid gap-1.5">
+        <h3 className="oo-text-title px-0.5">{t("connections.providerDetails")}</h3>
+        <dl className="overflow-hidden rounded-md border">
           <DetailRow label={t("connections.account")} value={provider.accountLabel ?? t("connections.notConnected")} />
           <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
           <DetailRow
@@ -647,7 +659,7 @@ function ConnectionPanel({
   }, [currentAuthType, provider.service])
 
   return (
-    <section className="grid gap-3 rounded-lg border px-3 py-3">
+    <div className="grid gap-2 border-t pt-2">
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="min-w-0">
           <h3 className="oo-text-title truncate">
@@ -712,7 +724,7 @@ function ConnectionPanel({
       ) : (
         <div className="oo-text-caption oo-text-muted">{t("connections.unsupportedConnectionDescription")}</div>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -821,11 +833,11 @@ function ProviderUsagePanel({
         : t("connections.usageCompactAllSuccess", { days: usageDays })
 
   return (
-    <section className="grid gap-2">
-      <h3 className="oo-text-title px-1">{t("connections.usageTitle")}</h3>
+    <section className="grid gap-1.5">
+      <h3 className="oo-text-title px-0.5">{t("connections.usageTitle")}</h3>
       <button
         type="button"
-        className="group grid min-w-0 gap-2 rounded-md bg-[var(--oo-inspector-surface)] px-3 py-2.5 text-left transition-colors outline-none hover:bg-[var(--oo-surface-raised)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className="group grid min-w-0 gap-2 rounded-md bg-[var(--oo-inspector-surface)] px-2.5 py-2 text-left transition-colors outline-none hover:bg-[var(--oo-surface-raised)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
         aria-label={t("connections.viewUsageForProvider", { name: provider.displayName })}
         onClick={() => setIsUsageDialogOpen(true)}
       >
@@ -1018,7 +1030,7 @@ function ExecutionLogs({
 
 function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] border-b px-3 py-2 last:border-b-0">
+    <div className="grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] border-b px-2.5 py-1.5 last:border-b-0">
       <dt className="oo-text-caption oo-text-muted">{label}</dt>
       <dd className={cn("oo-text-control min-w-0 truncate", mono && "font-mono")}>{value}</dd>
     </div>

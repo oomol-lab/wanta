@@ -959,7 +959,7 @@ export function AppShell() {
             {route === "settings" ? (
               <SettingsRoute />
             ) : route === "connections" ? (
-              <div className="h-full min-h-0 px-4 py-3">
+              <div className="h-full min-h-0 p-0">
                 <ConnectionsPanel connections={connections} selectedService={selectedService} />
               </div>
             ) : route === "skills" ? (

@@ -68,14 +68,15 @@ export function createVoiceAsrRequestId(): string {
   return crypto.randomUUID()
 }
 
-export function buildVoiceAsrRequest(apiKey: string, audioBase64: string, requestId: string): RequestInit {
+export function buildVoiceAsrRequest(authToken: string, audioBase64: string, requestId: string): RequestInit {
   return {
     method: "POST",
     credentials: "include",
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${authToken}`,
       "Content-Type": "application/json",
+      Cookie: `oomol-token=${authToken}`,
       "X-Api-Request-Id": requestId,
     },
     body: JSON.stringify({
@@ -96,6 +97,19 @@ export function parseVoiceAsrTranscript(payload: VoiceAsrResponse | undefined): 
     throw new Error("No speech was recognized.")
   }
   return transcript
+}
+
+export function describeVoiceAsrFetchFailure(error: unknown): string {
+  const message = errorMessage(error)
+  const cause = error instanceof Error ? error.cause : undefined
+  const causeCode =
+    cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string" ? cause.code : undefined
+  const causeMessage =
+    cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string"
+      ? cause.message
+      : undefined
+  const details = [causeCode, causeMessage].filter((item): item is string => Boolean(item)).join(": ")
+  return details ? `${message} (${details})` : message
 }
 
 function localArtifactName(filePath: string): string {
@@ -308,10 +322,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Voice transcription requires a fresh sign-in. Please sign out and sign in again.")
     }
     const requestId = createVoiceAsrRequestId()
-    const response = await fetch(voiceAsrBaseUrl, {
-      ...buildVoiceAsrRequest(this.voiceAuthToken, req.audioBase64, requestId),
-      signal: AbortSignal.timeout(60_000),
-    })
+    let response: Response
+    try {
+      response = await fetch(voiceAsrBaseUrl, {
+        ...buildVoiceAsrRequest(this.voiceAuthToken, req.audioBase64, requestId),
+        signal: AbortSignal.timeout(60_000),
+      })
+    } catch (error) {
+      const message = describeVoiceAsrFetchFailure(error)
+      console.error("[lumo] voice transcription fetch failed", { endpoint: voiceAsrBaseUrl, requestId, error: message })
+      throw new Error(`Voice transcription request failed: ${message}`)
+    }
     const text = await response.text()
     let payload: VoiceAsrResponse | undefined
     if (text) {

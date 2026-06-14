@@ -35,7 +35,13 @@ describe("formatSessionRelativeTime", () => {
 
 describe("formatSessionAbsoluteTime", () => {
   test("returns an empty label for invalid values", () => {
-    assert.equal(formatSessionAbsoluteTime(0), "")
-    assert.equal(formatSessionAbsoluteTime(Number.NaN), "")
+    assert.equal(formatSessionAbsoluteTime(0, "zh-CN"), "")
+    assert.equal(formatSessionAbsoluteTime(Number.NaN, "en"), "")
+  })
+
+  test("uses the application locale", () => {
+    const updatedAt = Date.UTC(2026, 0, 2, 3, 4, 5)
+    assert.equal(formatSessionAbsoluteTime(updatedAt, "en"), new Date(updatedAt).toLocaleString("en"))
+    assert.equal(formatSessionAbsoluteTime(updatedAt, "zh-CN"), new Date(updatedAt).toLocaleString("zh-CN"))
   })
 })

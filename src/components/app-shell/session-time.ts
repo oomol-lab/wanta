@@ -31,11 +31,11 @@ export function formatSessionRelativeTime(updatedAt: number, now: number, locale
   return formatRelativeUnit(Math.floor(elapsed / YEAR_MS), "y", "年", locale)
 }
 
-export function formatSessionAbsoluteTime(updatedAt: number): string {
+export function formatSessionAbsoluteTime(updatedAt: number, locale: Locale): string {
   if (!Number.isFinite(updatedAt) || updatedAt <= 0) {
     return ""
   }
-  return new Date(updatedAt).toLocaleString()
+  return new Date(updatedAt).toLocaleString(locale)
 }
 
 function formatRelativeUnit(value: number, enUnit: string, zhUnit: string, locale: Locale): string {

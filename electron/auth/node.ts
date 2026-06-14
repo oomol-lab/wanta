@@ -169,12 +169,16 @@ export class AuthManager {
     }
     this.profileRefreshAccountId = account.id
     const profile = await requestLoginProfile(apiBaseUrl, account.apiKey)
-    if (!profile.avatarUrl && profile.name === account.name) {
+    const currentAccount = this.activeAccount()
+    if (!currentAccount || currentAccount.id !== account.id || currentAccount.apiKey !== account.apiKey) {
+      return
+    }
+    if (!profile.avatarUrl && profile.name === currentAccount.name) {
       return
     }
     this.deps.store.write(
       upsertAccount(this.deps.store.read(), {
-        ...account,
+        ...currentAccount,
         name: profile.name,
         ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
       }),

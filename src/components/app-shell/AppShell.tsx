@@ -187,7 +187,7 @@ function SessionItem({
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(session.title)
   const relativeTime = formatSessionRelativeTime(session.updatedAt, now, locale)
-  const absoluteTime = formatSessionAbsoluteTime(session.updatedAt)
+  const absoluteTime = formatSessionAbsoluteTime(session.updatedAt, locale)
 
   if (editing) {
     return (
@@ -598,10 +598,10 @@ export function AppShell() {
       return (
         sessionStatus === "submitted" ||
         sessionStatus === "streaming" ||
-        (pendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
+        (sessionId === activeSessionId && pendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
       )
     },
-    [getSessionStatus, pendingCaughtUp, pendingChatTransition],
+    [activeSessionId, getSessionStatus, pendingCaughtUp, pendingChatTransition],
   )
   const titlebarTitle =
     route === "settings"

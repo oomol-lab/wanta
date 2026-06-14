@@ -20,8 +20,7 @@ import type { ChatStatus } from "ai"
 
 import {
   AlertTriangle,
-  Bot,
-  Brain,
+  BrainCircuit,
   CheckIcon,
   CheckCircle2,
   ChevronDown,
@@ -1250,22 +1249,22 @@ function sameModelChoice(a: ModelChoice | undefined, b: ModelChoice | undefined)
   return Boolean(a && b && a.kind === b.kind && a.id === b.id)
 }
 
-function selectedModelSummary(catalog: ModelCatalog | null): { label: string; provider: string } {
+function selectedModelSummary(catalog: ModelCatalog | null): { label: string } {
   if (!catalog) {
-    return { label: "Auto", provider: "OOMOL" }
+    return { label: "Auto" }
   }
   const selected = catalog.selected
   if (selected.kind === "custom") {
     const custom = catalog.customModels.find((model) => model.id === selected.id)
     if (custom) {
-      return { label: custom.modelName, provider: custom.providerName }
+      return { label: custom.modelName }
     }
   }
   const builtin =
     (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
     catalog.builtins.find((model) => model.id === "oomol-chat") ??
     catalog.builtins[0]
-  return { label: builtin?.displayName ?? "Auto", provider: builtin?.providerName ?? "OOMOL" }
+  return { label: builtin?.displayName ?? "Auto" }
 }
 
 function providerInitial(name: string): string {
@@ -1296,7 +1295,7 @@ function ModelRow({
   active: boolean
   icon: React.ReactNode
   title: string
-  subtitle: string
+  subtitle?: string
   deleteLabel?: string
   onSelect: () => void
   onDelete?: () => void
@@ -1313,8 +1312,8 @@ function ModelRow({
       >
         {icon}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm leading-5">{title}</span>
-          <span className="block truncate text-xs leading-4 text-muted-foreground">{subtitle}</span>
+          <span className={cn("block truncate text-sm", subtitle ? "leading-5" : "leading-none")}>{title}</span>
+          {subtitle ? <span className="block truncate text-xs leading-4 text-muted-foreground">{subtitle}</span> : null}
         </span>
         {active ? <CheckCircle2 className="size-3.5 shrink-0 text-green-600" /> : null}
       </button>
@@ -1418,9 +1417,8 @@ function ModelPicker({
               <ModelRow
                 key={model.id}
                 active={sameModelChoice(catalog.selected, choice)}
-                icon={<Bot className="size-4 shrink-0 text-muted-foreground" />}
+                icon={<BrainCircuit className="size-4 shrink-0 text-muted-foreground" />}
                 title={model.displayName}
-                subtitle={model.providerName}
                 onSelect={() => {
                   onSelect(choice)
                   setOpen(false)
@@ -1430,9 +1428,8 @@ function ModelPicker({
           }) ?? (
             <ModelRow
               active
-              icon={<Bot className="size-4 shrink-0 text-muted-foreground" />}
+              icon={<BrainCircuit className="size-4 shrink-0 text-muted-foreground" />}
               title="Auto"
-              subtitle="OOMOL"
               onSelect={() => setOpen(false)}
             />
           )}
@@ -1492,7 +1489,7 @@ function ModelPicker({
         className="h-8 max-w-40 rounded-full px-2"
         onClick={() => setOpen((value) => !value)}
       >
-        <Brain className="size-4" />
+        <BrainCircuit className="size-4" />
         <span className="min-w-0 truncate">{selected.label}</span>
         <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
       </Button>

@@ -936,6 +936,10 @@ export function AppShell() {
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
 
+  if (route === "settings") {
+    return <SettingsRoute onBack={() => setRoute("chat")} />
+  }
+
   return (
     <div
       className={cn(
@@ -1094,9 +1098,7 @@ export function AppShell() {
           </header>
 
           <main className="oo-content-surface min-h-0">
-            {route === "settings" ? (
-              <SettingsRoute />
-            ) : route === "connections" ? (
+            {route === "connections" ? (
               <div className="h-full min-h-0 p-0">
                 <ConnectionsPanel connections={connections} selectedService={selectedService} />
               </div>

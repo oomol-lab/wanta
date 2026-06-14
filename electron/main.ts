@@ -307,6 +307,14 @@ function resolveOoBin(): string {
   return resolveDevOoBin(appRoot)
 }
 
+function getBrandingResourcePath(fileName: string): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, fileName)
+  }
+
+  return path.join(appRoot, "resources", "branding", fileName)
+}
+
 // 仅放行安全的用户意图协议外开；其余（file:、自定义协议等）一律忽略。
 function openExternalUrl(url: string): void {
   if (/^(https?|mailto|tel):/i.test(url)) {
@@ -326,6 +334,7 @@ function createMainWindow(): void {
     minHeight: 480,
     show: false,
     title: branding.appName,
+    icon: getBrandingResourcePath("icon.png"),
     backgroundColor,
     titleBarStyle: isMac ? "hidden" : "default",
     ...(isMac ? { trafficLightPosition: macTrafficLightPosition } : {}),

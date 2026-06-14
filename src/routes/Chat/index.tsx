@@ -15,6 +15,7 @@ import type {
 import type { ToolCategory } from "./tool-activity.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
+import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
@@ -34,6 +35,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideoCamera,
+  Folder,
   Globe,
   Eye,
   Loader2,
@@ -92,11 +94,13 @@ import { useChatService, useModelsService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Dialog } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 interface ChatAreaProps {
@@ -111,11 +115,25 @@ interface ChatAreaProps {
   onSend: (text: string, attachments: ChatAttachment[], model?: ModelChoice) => void
   onStop: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
+  onArtifactsReset: () => void
+  onArtifactsOpen: (selection: ArtifactSelection) => void
+  onArtifactsAvailable: (selection: ArtifactSelection) => void
 }
 
 type DraftAttachment = ChatAttachment & {
   previewUrl?: string
 }
+
+interface AttachmentInput {
+  name: string
+  mime: string
+  size: number
+  path: string
+  kind?: "file" | "directory"
+  file?: File
+}
+
+const CHAT_CONTENT_MAX_WIDTH_CLASS = "max-w-[50rem]"
 
 const attachmentPreviewUrlByPath = new Map<string, string>()
 
@@ -180,7 +198,14 @@ function attachmentExtension(name: string): string {
   return index > -1 ? lastSegment.slice(index + 1).toLowerCase() : ""
 }
 
-function attachmentTypeLabel(attachment: ChatAttachment): string {
+function isDirectoryAttachment(attachment: ChatAttachment): boolean {
+  return attachment.kind === "directory" || attachment.mime.toLowerCase() === "inode/directory"
+}
+
+function attachmentTypeLabel(t: TranslateFn, attachment: ChatAttachment): string {
+  if (isDirectoryAttachment(attachment)) {
+    return t("chat.attachmentFolder")
+  }
   const extension = attachmentExtension(attachment.name)
   if (extension) {
     return extension.toUpperCase()
@@ -189,12 +214,18 @@ function attachmentTypeLabel(attachment: ChatAttachment): string {
   return type ? type.toUpperCase() : "FILE"
 }
 
-function attachmentSummary(attachment: ChatAttachment): string {
+function attachmentSummary(t: TranslateFn, attachment: ChatAttachment): string {
+  if (isDirectoryAttachment(attachment)) {
+    return attachmentTypeLabel(t, attachment)
+  }
   const size = fileSizeLabel(attachment.size)
-  return size ? `${attachmentTypeLabel(attachment)} ${size}` : attachmentTypeLabel(attachment)
+  return size ? `${attachmentTypeLabel(t, attachment)} ${size}` : attachmentTypeLabel(t, attachment)
 }
 
 function isImageAttachment(attachment: ChatAttachment): boolean {
+  if (isDirectoryAttachment(attachment)) {
+    return false
+  }
   if (attachment.mime.toLowerCase().startsWith("image/")) {
     return true
   }
@@ -826,11 +857,15 @@ function MessageBubble({
   message,
   providerByService,
   onAuthorize,
+  onOpenArtifacts,
+  onArtifactsAvailable,
   assistantActionsText,
 }: {
   message: ChatMessage
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onOpenArtifacts: (selection: ArtifactSelection) => void
+  onArtifactsAvailable: (selection: ArtifactSelection) => void
   assistantActionsText: string | null
 }) {
   const copyText = copyableMessageText(message)
@@ -868,6 +903,10 @@ function MessageBubble({
   if (blocks.length === 0) {
     return null
   }
+  const assistantText = message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text ?? "")
+    .join("")
   const blockClassName = (index: number): string | undefined => {
     if (index === 0) {
       return undefined
@@ -899,6 +938,12 @@ function MessageBubble({
             )}
           </div>
         ))}
+        <GeneratedArtifacts
+          messageId={message.id}
+          text={assistantText}
+          onOpen={onOpenArtifacts}
+          onAvailable={onArtifactsAvailable}
+        />
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
@@ -908,6 +953,14 @@ function MessageBubble({
 }
 
 function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) {
+  if (isDirectoryAttachment(attachment)) {
+    return (
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-cyan-500/12 text-cyan-700 dark:text-cyan-300">
+        <Folder className="size-5" />
+      </span>
+    )
+  }
+
   if (attachment.previewUrl && isImageAttachment(attachment)) {
     return (
       <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
@@ -1053,6 +1106,7 @@ function AttachmentList({
   className?: string
   onRemove?: (id: string) => void
 }) {
+  const t = useT()
   return (
     <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
       {attachments.map((attachment) =>
@@ -1070,7 +1124,7 @@ function AttachmentList({
                 {attachment.name}
               </span>
               <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
-                {attachmentSummary(attachment)}
+                {attachmentSummary(t, attachment)}
               </span>
             </span>
             {onRemove ? (
@@ -1599,6 +1653,9 @@ export function ChatArea({
   onSend,
   onStop,
   onAuthorize,
+  onArtifactsReset,
+  onArtifactsOpen,
+  onArtifactsAvailable,
 }: ChatAreaProps) {
   const t = useT()
   const chatService = useChatService()
@@ -1638,6 +1695,10 @@ export function ChatArea({
   }, [attachments])
 
   React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
+
+  React.useEffect(() => {
+    onArtifactsReset()
+  }, [messages[0]?.id, onArtifactsReset])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1711,43 +1772,80 @@ export function ChatArea({
     setInputError(null)
   }
 
+  const addAttachments = React.useCallback((items: AttachmentInput[]) => {
+    const next: DraftAttachment[] = []
+    for (const item of items) {
+      const attachment: DraftAttachment = {
+        id: `${Date.now()}-${item.kind ?? "file"}-${item.name}-${item.size}-${Math.random().toString(36).slice(2)}`,
+        name: item.name || item.path.split(/[\\/]/).pop() || "attachment",
+        mime: item.mime || (item.kind === "directory" ? "inode/directory" : "application/octet-stream"),
+        size: item.size,
+        path: item.path,
+        kind: item.kind ?? "file",
+      }
+      if (item.file && isImageAttachment(attachment)) {
+        attachment.previewUrl = URL.createObjectURL(item.file)
+      }
+      next.push(attachment)
+    }
+    if (next.length > 0) {
+      setAttachments((current) => {
+        const existing = new Set(current.map((attachment) => attachment.path))
+        const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
+        revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
+        for (const attachment of uniqueNext) {
+          if (attachment.previewUrl) {
+            setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
+          }
+        }
+        return [...current, ...uniqueNext]
+      })
+    }
+  }, [])
+
   const addFiles = React.useCallback(
     (files: FileList | File[]) => {
       setInputError(null)
-      const next: DraftAttachment[] = []
+      const next: AttachmentInput[] = []
       for (const file of Array.from(files)) {
         const path = globalThis.lumo?.getPathForFile(file)
         if (!path) {
           setInputError(t("chat.attachmentPathUnavailable"))
           continue
         }
-        const attachment: DraftAttachment = {
-          id: `${Date.now()}-${file.name}-${file.size}-${Math.random().toString(36).slice(2)}`,
+        next.push({
           name: file.name || path.split(/[\\/]/).pop() || "attachment",
           mime: file.type || "application/octet-stream",
           size: file.size,
           path,
-        }
-        if (isImageAttachment(attachment)) {
-          attachment.previewUrl = URL.createObjectURL(file)
-        }
-        next.push(attachment)
-      }
-      if (next.length > 0) {
-        setAttachments((current) => {
-          const existing = new Set(current.map((attachment) => attachment.path))
-          const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
-          revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
-          for (const attachment of uniqueNext) {
-            if (attachment.previewUrl) {
-              setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
-            }
-          }
-          return [...current, ...uniqueNext]
+          kind: "file",
+          file,
         })
       }
+      addAttachments(next)
     },
-    [t],
+    [addAttachments, t],
+  )
+
+  const selectAttachments = React.useCallback(
+    async (kind: "file" | "directory") => {
+      setInputError(null)
+      const picker = globalThis.lumo?.selectAttachmentPaths
+      if (!picker) {
+        if (kind === "file") {
+          fileInputRef.current?.click()
+        } else {
+          setInputError(t("chat.attachmentFolderPickerUnavailable"))
+        }
+        return
+      }
+      try {
+        addAttachments(await picker(kind))
+      } catch (error) {
+        setInputError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [addAttachments, t],
   )
 
   const transcribeBlob = React.useCallback(
@@ -1857,18 +1955,31 @@ export function ChatArea({
               event.currentTarget.value = ""
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            title={t("chat.attachFile")}
-            aria-label={t("chat.attachFile")}
-            disabled={disabled || voiceActive || initialSendPending}
-            className="size-8 rounded-full"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Plus className="size-4" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title={t("chat.attachFile")}
+                aria-label={t("chat.attachFile")}
+                disabled={disabled || voiceActive || initialSendPending}
+                className="size-8 rounded-full"
+              >
+                <Plus className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-40">
+              <DropdownMenuItem onSelect={() => void selectAttachments("file")}>
+                <FileIcon className="size-4" />
+                {t("chat.attachFileAction")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void selectAttachments("directory")}>
+                <Folder className="size-4" />
+                {t("chat.attachFolderAction")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </PromptInputTools>
         {voiceActive ? <VoiceRecorderPanel bars={voiceRecorder.bars} durationMs={voiceRecorder.durationMs} /> : null}
         <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
@@ -1990,7 +2101,12 @@ export function ChatArea({
   if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
     return (
       <div className="grid h-full min-h-0 animate-in place-items-center px-4 py-6 duration-200 fade-in sm:px-5 lg:px-8">
-        <div className="flex w-full max-w-[50rem] -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out">
+        <div
+          className={cn(
+            "flex w-full -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out",
+            CHAT_CONTENT_MAX_WIDTH_CLASS,
+          )}
+        >
           <div className="px-4 pb-1 text-center">
             <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
           </div>
@@ -2003,30 +2119,39 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex h-full min-h-0 animate-in flex-col pb-4 duration-300 fade-in slide-in-from-bottom-2">
-      <Conversation className="min-h-0 flex-1">
-        <ConversationContent
-          data-selectable="true"
-          className="mx-auto min-h-full w-full max-w-[50rem] gap-4 px-4 pt-7 pb-9"
-        >
-          {messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              providerByService={providerByService}
-              onAuthorize={onAuthorize}
-              assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
-            />
-          ))}
-          {showPendingMessage && <AssistantPendingMessage />}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
+    <div className="flex h-full min-h-0 animate-in duration-300 fade-in slide-in-from-bottom-2">
+      <div className="flex min-w-0 flex-1 flex-col pb-4">
+        <Conversation className="min-h-0 flex-1">
+          <ConversationContent
+            data-selectable="true"
+            className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
+          >
+            {messages.map((message) => (
+              <MessageBubble
+                key={message.id}
+                message={message}
+                providerByService={providerByService}
+                onAuthorize={onAuthorize}
+                onOpenArtifacts={onArtifactsOpen}
+                onArtifactsAvailable={onArtifactsAvailable}
+                assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
+              />
+            ))}
+            {showPendingMessage && <AssistantPendingMessage />}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
 
-      <div className="mx-auto flex w-full max-w-[50rem] flex-col gap-2 px-4 transition-transform duration-300 ease-out">
-        {errorBanner}
-        {promptInput}
-        {modelDialog}
+        <div
+          className={cn(
+            "mx-auto flex w-full flex-col gap-2 px-4 transition-transform duration-300 ease-out",
+            CHAT_CONTENT_MAX_WIDTH_CLASS,
+          )}
+        >
+          {errorBanner}
+          {promptInput}
+          {modelDialog}
+        </div>
       </div>
     </div>
   )

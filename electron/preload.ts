@@ -6,10 +6,19 @@ import { branding } from "./branding.ts"
 declare const __APP_COMMIT__: string | undefined
 declare const __APP_VERSION__: string | undefined
 
+export interface SelectedAttachmentPath {
+  name: string
+  mime: string
+  size: number
+  path: string
+  kind: "file" | "directory"
+}
+
 export interface LumoBridge {
   appCommit: string
   getPathForFile(file: File): string
   platform: NodeJS.Platform
+  selectAttachmentPaths(kind: "file" | "directory"): Promise<SelectedAttachmentPath[]>
   version: string
 }
 
@@ -26,6 +35,8 @@ const lumo: LumoBridge = {
   appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   platform: process.platform,
+  selectAttachmentPaths: (kind: "file" | "directory") =>
+    electronAPI.ipcRenderer.invoke("lumo:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
 }
 

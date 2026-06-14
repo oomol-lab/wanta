@@ -4,6 +4,11 @@ import type {
   AttachmentPreviewResult,
   ChatMessage,
   ChatService,
+  LocalArtifactGroup,
+  LocalArtifactItem,
+  OpenLocalPathRequest,
+  ResolveLocalArtifactsRequest,
+  ResolveLocalArtifactsResult,
   SendMessageRequest,
   TranscribeVoiceRequest,
   TranscribeVoiceResult,
@@ -11,13 +16,23 @@ import type {
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
-import { readFile, stat } from "node:fs/promises"
+import { shell } from "electron"
+import { readdir, readFile, stat } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { voiceAsrBaseUrl } from "../domain.ts"
+import {
+  extractLocalPathCandidates,
+  imageMimeFromPath,
+  mimeFromPath,
+  normalizeLocalPathCandidate,
+} from "./artifacts.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 const userStopAbortWindowMs = 30_000
+const defaultMaxDirectoryItems = 80
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -40,29 +55,6 @@ export function isAbortErrorMessage(message: string): boolean {
     normalized === "this operation was aborted" ||
     normalized.includes("operation was aborted")
   )
-}
-
-function imageMimeFromPath(filePath: string): string | null {
-  const extension = filePath.split(/[\\/]/).pop()?.split(".").pop()?.toLowerCase()
-  switch (extension) {
-    case "avif":
-      return "image/avif"
-    case "bmp":
-      return "image/bmp"
-    case "gif":
-      return "image/gif"
-    case "jpg":
-    case "jpeg":
-      return "image/jpeg"
-    case "png":
-      return "image/png"
-    case "svg":
-      return "image/svg+xml"
-    case "webp":
-      return "image/webp"
-    default:
-      return null
-  }
 }
 
 function attachmentPreviewMime(req: AttachmentPreviewRequest): string | null {
@@ -104,6 +96,66 @@ export function parseVoiceAsrTranscript(payload: VoiceAsrResponse | undefined): 
     throw new Error("No speech was recognized.")
   }
   return transcript
+}
+
+function localArtifactName(filePath: string): string {
+  return path.basename(filePath.replace(/[\\/]+$/, "")) || filePath
+}
+
+async function localArtifactItem(filePath: string): Promise<LocalArtifactItem | null> {
+  try {
+    const info = await stat(filePath)
+    const kind = info.isDirectory() ? "directory" : "file"
+    return {
+      path: filePath,
+      name: localArtifactName(filePath),
+      kind,
+      mime: kind === "directory" ? "inode/directory" : mimeFromPath(filePath),
+      ...(kind === "file" ? { size: info.size } : {}),
+      modifiedAt: info.mtimeMs,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function directoryArtifacts(dirPath: string, maxItems: number): Promise<LocalArtifactGroup | null> {
+  const root = await localArtifactItem(dirPath)
+  if (!root || root.kind !== "directory") {
+    return null
+  }
+  let entries
+  try {
+    entries = await readdir(dirPath, { withFileTypes: true })
+  } catch {
+    return { root, items: [], totalItems: 0, truncated: false }
+  }
+  const sorted = entries
+    .filter((entry) => !entry.name.startsWith("."))
+    .sort((a, b) => {
+      if (a.isDirectory() !== b.isDirectory()) {
+        return a.isDirectory() ? -1 : 1
+      }
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+    })
+  const selected = sorted.slice(0, maxItems)
+  const items = (await Promise.all(selected.map((entry) => localArtifactItem(path.join(dirPath, entry.name))))).filter(
+    (item): item is LocalArtifactItem => Boolean(item),
+  )
+  return {
+    root,
+    items,
+    totalItems: sorted.length,
+    truncated: sorted.length > selected.length,
+  }
+}
+
+async function fileArtifact(filePath: string): Promise<LocalArtifactGroup | null> {
+  const item = await localArtifactItem(filePath)
+  if (!item || item.kind !== "file") {
+    return null
+  }
+  return { items: [item], totalItems: 1, truncated: false }
 }
 
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
@@ -209,6 +261,41 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     } catch (error) {
       console.error("[lumo] getAttachmentPreview failed", { path: req.path, error: errorMessage(error) })
       return { dataUrl: null }
+    }
+  }
+
+  public async resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult> {
+    const candidates = extractLocalPathCandidates(req.text)
+    const maxDirectoryItems = Math.max(1, Math.min(req.maxDirectoryItems ?? defaultMaxDirectoryItems, 200))
+    const seen = new Set<string>()
+    const groups: LocalArtifactGroup[] = []
+    for (const candidate of candidates) {
+      const filePath = normalizeLocalPathCandidate(candidate, os.homedir())
+      if (!filePath || seen.has(filePath)) {
+        continue
+      }
+      seen.add(filePath)
+      const item = await localArtifactItem(filePath)
+      if (!item) {
+        continue
+      }
+      const group =
+        item.kind === "directory" ? await directoryArtifacts(filePath, maxDirectoryItems) : await fileArtifact(filePath)
+      if (group && (group.root || group.items.length > 0)) {
+        groups.push(group)
+      }
+    }
+    return { groups }
+  }
+
+  public async openLocalPath(req: OpenLocalPathRequest): Promise<void> {
+    const item = await localArtifactItem(req.path)
+    if (!item) {
+      throw new Error("File does not exist.")
+    }
+    const result = await shell.openPath(item.path)
+    if (result) {
+      throw new Error(result)
     }
   }
 

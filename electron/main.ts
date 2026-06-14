@@ -2,7 +2,8 @@ import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, nativeTheme, session, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron"
+import { stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import {
@@ -17,6 +18,7 @@ import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { readOomolSessionCookie } from "./auth/session-cookie.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
+import { mimeFromPath } from "./chat/artifacts.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { ConnectionsServiceImpl } from "./connections/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
@@ -39,6 +41,14 @@ const titleBarHeight = 48
 const macTrafficLightPosition = { x: 15, y: 17 }
 const darkWindowColor = "#171717"
 const lightWindowColor = "#ffffff"
+
+interface SelectedAttachmentPath {
+  name: string
+  mime: string
+  size: number
+  path: string
+  kind: "file" | "directory"
+}
 
 // dev 用本地 scheme，生产用正式 scheme（R1 / 阶段 6）。
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
@@ -107,6 +117,7 @@ server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)
 settingsService.applyStartupTheme()
+registerAttachmentDialogHandler()
 
 if (isLocked) {
   server.start()
@@ -155,6 +166,41 @@ if (isLocked) {
     agent?.dispose()
     server.dispose()
   })
+}
+
+function registerAttachmentDialogHandler(): void {
+  ipcMain.handle(
+    "lumo:select-attachment-paths",
+    async (event, kind: "file" | "directory"): Promise<SelectedAttachmentPath[]> => {
+      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+      const properties: Electron.OpenDialogOptions["properties"] =
+        kind === "directory" ? ["openDirectory", "multiSelections"] : ["openFile", "multiSelections"]
+      const result = parent
+        ? await dialog.showOpenDialog(parent, { properties })
+        : await dialog.showOpenDialog({ properties })
+      if (result.canceled) {
+        return []
+      }
+      const items = await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))
+      return items.filter((item): item is SelectedAttachmentPath => Boolean(item))
+    },
+  )
+}
+
+async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachmentPath | null> {
+  try {
+    const info = await stat(filePath)
+    const kind = info.isDirectory() ? "directory" : "file"
+    return {
+      name: path.basename(filePath.replace(/[\\/]+$/, "")) || filePath,
+      mime: kind === "directory" ? "inode/directory" : mimeFromPath(filePath),
+      size: kind === "file" ? info.size : 0,
+      path: filePath,
+      kind,
+    }
+  } catch {
+    return null
+  }
 }
 
 /** 凭证 → 运行时装配：替换 agent（重启 sidecar）并同步 connector 凭证。经 applyChain 串行执行。 */

@@ -118,6 +118,7 @@ export interface ChatAttachment {
   mime: string
   size: number
   path: string
+  kind?: "file" | "directory"
 }
 
 export interface TranscribeVoiceRequest {
@@ -137,6 +138,37 @@ export interface AttachmentPreviewResult {
   dataUrl: string | null
 }
 
+export type LocalArtifactKind = "file" | "directory"
+
+export interface LocalArtifactItem {
+  path: string
+  name: string
+  kind: LocalArtifactKind
+  mime: string
+  size?: number
+  modifiedAt?: number
+}
+
+export interface LocalArtifactGroup {
+  root?: LocalArtifactItem
+  items: LocalArtifactItem[]
+  totalItems: number
+  truncated: boolean
+}
+
+export interface ResolveLocalArtifactsRequest {
+  text: string
+  maxDirectoryItems?: number
+}
+
+export interface ResolveLocalArtifactsResult {
+  groups: LocalArtifactGroup[]
+}
+
+export interface OpenLocalPathRequest {
+  path: string
+}
+
 export type ChatService = typeof ChatService
 export const ChatService = serviceName("chat-service") as ServiceName<{
   ServerEvents: {
@@ -152,6 +184,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
+    resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
+    openLocalPath(req: OpenLocalPathRequest): Promise<void>
     transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>

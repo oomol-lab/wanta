@@ -164,6 +164,7 @@ function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
     mime: attachment.mime,
     size: attachment.size,
     path: attachment.path,
+    kind: attachment.kind,
   }))
 }
 

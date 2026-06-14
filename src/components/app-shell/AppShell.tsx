@@ -1,9 +1,22 @@
 import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
-import { Package, PanelLeftClose, PanelLeftOpen, Plug, Search, Settings, SquarePen, Trash2, X } from "lucide-react"
+import {
+  Package,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Plug,
+  Search,
+  Settings,
+  SquarePen,
+  Trash2,
+  X,
+} from "lucide-react"
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { useChatService } from "@/components/AppContext"
@@ -14,6 +27,7 @@ import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ChatArea } from "@/routes/Chat"
+import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
 import { SkillsRoute } from "@/routes/Skills"
@@ -307,6 +321,8 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
   const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
+  const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
 
   const { messages, status, messagesLoaded, error, send, stop } = useChat(activeSessionId)
   const connections = useConnections()
@@ -415,6 +431,11 @@ export function AppShell() {
       setPendingChatTransition(null)
     }
   }, [pendingCaughtUp])
+
+  React.useEffect(() => {
+    setArtifactSelection(null)
+    setArtifactsPanelOpen(false)
+  }, [activeSessionId])
 
   React.useEffect(() => {
     if (pendingChatTransition && status === "error") {
@@ -587,6 +608,21 @@ export function AppShell() {
     setSidebarCollapsed((collapsed) => !collapsed)
   }
   const handleOpenSearch = (): void => setSearchOpen(true)
+  const handleArtifactsReset = React.useCallback(() => {
+    setArtifactSelection(null)
+    setArtifactsPanelOpen(false)
+  }, [])
+  const handleArtifactsOpen = React.useCallback((selection: ArtifactSelection) => {
+    setArtifactSelection(selection)
+    setArtifactsPanelOpen(true)
+  }, [])
+  const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
+    setArtifactSelection((current) => current ?? selection)
+  }, [])
+  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen
+  const showArtifactsToggle = route === "chat" && !artifactsPanelVisible
+  const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
+  const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
 
   return (
     <div
@@ -689,55 +725,89 @@ export function AppShell() {
       </aside>
 
       {/* 右：主区（顶部工具条 + 内容） */}
-      <div className="grid min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
-        <header className="oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
-          <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
-            <div className="oo-titlebar-control-spacer shrink-0" />
-            <SidebarTitlebarActions
-              collapsed={sidebarCollapsed}
-              onToggleCollapsed={handleToggleSidebar}
-              onSearch={handleOpenSearch}
-            />
-          </div>
-          <div
-            className={cn(
-              "oo-main-titlebar-title flex min-w-0 items-center gap-2",
-              isSidebarRestoring && "is-restoring",
-            )}
-          >
-            <span className="oo-toolbar-title oo-text-title truncate" title={titlebarTitle}>
-              {titlebarTitle}
-            </span>
-          </div>
-        </header>
-
-        <main className="oo-content-surface min-h-0">
-          {route === "settings" ? (
-            <SettingsRoute />
-          ) : route === "connections" ? (
-            <div className="h-full min-h-0 px-4 py-3">
-              <ConnectionsPanel connections={connections} selectedService={selectedService} />
-            </div>
-          ) : route === "skills" ? (
-            <SkillsRoute />
-          ) : (
-            <div className="h-full min-h-0 overflow-hidden">
-              <ChatArea
-                messages={initialSendPending ? [] : messages}
-                status={displayedStatus}
-                showEmptyState={showChatEmptyState}
-                error={error}
-                disabled={!ready}
-                initialSendPending={initialSendPending}
-                providers={connections.summary?.providers ?? []}
-                placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                onSend={(text, attachments, model) => void handleSend(text, attachments, model)}
-                onStop={() => activeSessionId && void stop(activeSessionId)}
-                onAuthorize={handleAuthorize}
+      <div className="flex min-h-0">
+        <div className="grid min-w-0 flex-1 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
+          <header className="oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
+            <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
+              <div className="oo-titlebar-control-spacer shrink-0" />
+              <SidebarTitlebarActions
+                collapsed={sidebarCollapsed}
+                onToggleCollapsed={handleToggleSidebar}
+                onSearch={handleOpenSearch}
               />
             </div>
+            <div
+              className={cn(
+                "oo-main-titlebar-title flex min-w-0 items-center gap-2",
+                isSidebarRestoring && "is-restoring",
+              )}
+            >
+              <span className="oo-toolbar-title oo-text-title truncate" title={titlebarTitle}>
+                {titlebarTitle}
+              </span>
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+              {showArtifactsToggle ? (
+                <button
+                  type="button"
+                  title={artifactsToggleLabel}
+                  aria-label={artifactsToggleLabel}
+                  aria-pressed={artifactsPanelOpen}
+                  className={cn(
+                    "oo-toolbar-button flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
+                    artifactsPanelOpen && "bg-accent text-foreground",
+                  )}
+                  onClick={() => setArtifactsPanelOpen((open) => !open)}
+                >
+                  <ArtifactsToggleIcon className="size-4" />
+                </button>
+              ) : null}
+            </div>
+          </header>
+
+          <main className="oo-content-surface min-h-0">
+            {route === "settings" ? (
+              <SettingsRoute />
+            ) : route === "connections" ? (
+              <div className="h-full min-h-0 px-4 py-3">
+                <ConnectionsPanel connections={connections} selectedService={selectedService} />
+              </div>
+            ) : route === "skills" ? (
+              <SkillsRoute />
+            ) : (
+              <div className="h-full min-h-0 overflow-hidden">
+                <ChatArea
+                  messages={initialSendPending ? [] : messages}
+                  status={displayedStatus}
+                  showEmptyState={showChatEmptyState}
+                  error={error}
+                  disabled={!ready}
+                  initialSendPending={initialSendPending}
+                  providers={connections.summary?.providers ?? []}
+                  placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
+                  onSend={(text, attachments, model) => void handleSend(text, attachments, model)}
+                  onStop={() => activeSessionId && void stop(activeSessionId)}
+                  onAuthorize={handleAuthorize}
+                  onArtifactsReset={handleArtifactsReset}
+                  onArtifactsOpen={handleArtifactsOpen}
+                  onArtifactsAvailable={handleArtifactsAvailable}
+                />
+              </div>
+            )}
+          </main>
+        </div>
+
+        <div
+          className={cn(
+            "min-h-0 shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
+            artifactsPanelVisible ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-3 opacity-0",
           )}
-        </main>
+          style={{ width: artifactsPanelVisible ? "clamp(260px, 28vw, 300px)" : "0px" }}
+        >
+          <div className="h-full" style={{ width: "clamp(260px, 28vw, 300px)" }}>
+            <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+          </div>
+        </div>
       </div>
 
       <SessionSearchOverlay

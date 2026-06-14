@@ -76,9 +76,9 @@ export const MessageAction = ({
       <Button
         type="button"
         variant="ghost"
-        size="icon-xs"
+        size="icon"
         aria-label={label}
-        className={cn("text-muted-foreground hover:text-foreground", className)}
+        className={cn("size-6 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-3", className)}
         {...props}
       >
         {children}

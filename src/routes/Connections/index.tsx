@@ -40,6 +40,7 @@ import {
   SplitViewMobileDetailPane,
   SplitViewRoot,
 } from "@/components/ui/split-view"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -82,6 +83,13 @@ function formatAuthTypes(authTypes: Exclude<ConnectionAuthType, null>[], t: Retu
     return t("connections.authUnknown")
   }
   return authTypes.map((authType) => authTypeLabel(t, authType)).join(" / ")
+}
+
+function isConnectionAuthType(
+  value: string,
+  authTypes: Exclude<ConnectionAuthType, null>[],
+): value is Exclude<ConnectionAuthType, null> {
+  return authTypes.some((authType) => authType === value)
 }
 
 function formatDateTime(value: number | string | undefined, t: ReturnType<typeof useT>): string {
@@ -298,7 +306,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
       <SplitViewBody desktopLayout="narrow-list">
         <SplitViewListPane narrowPane={narrowPane}>
           <div className="grid gap-3">
-            <SummaryHeader summary={summary} />
+            <SummaryHeader />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
             {error && <div className="oo-error oo-text-micro">{error}</div>}
             {filteredProviders.length === 0 ? (
@@ -400,23 +408,11 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   )
 }
 
-function SummaryHeader({ summary }: { summary: ConnectionSummary | null }) {
+function SummaryHeader() {
   const t = useT()
   return (
     <div className="grid gap-1 px-1 py-1">
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="oo-text-title truncate">{t("connections.providers")}</div>
-        {summary ? (
-          <Badge variant={summary.needsAttention > 0 ? "warning" : "muted"}>
-            {t("connections.providerCatalogReady", {
-              active: summary.activeConnections,
-              connected: summary.connectedProviderCount,
-              total: summary.providerCount,
-            })}
-          </Badge>
-        ) : null}
-      </div>
-      <div className="oo-text-caption oo-text-muted">{t("connections.allProvidersDescription")}</div>
+      <div className="oo-text-title truncate">{t("connections.providers")}</div>
     </div>
   )
 }
@@ -560,7 +556,8 @@ function ProviderDetail({
           {detail?.homepageUrl ? (
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon"
+              className="size-8"
               title={t("connections.homepage")}
               onClick={() => void connections.openExternal(detail.homepageUrl as string)}
             >
@@ -667,20 +664,7 @@ function ConnectionPanel({
         {detailLoading ? <Loader className="oo-icon-muted" size={16} /> : null}
       </div>
 
-      {usableAuthTypes.length > 1 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {usableAuthTypes.map((authType) => (
-            <Button
-              key={authType}
-              variant={authType === activeAuthType ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedAuthType(authType)}
-            >
-              {authTypeLabel(t, authType)}
-            </Button>
-          ))}
-        </div>
-      ) : null}
+      <AuthTypeToggleGroup authTypes={usableAuthTypes} value={activeAuthType ?? null} onChange={setSelectedAuthType} />
 
       {activeAuthType ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -729,6 +713,43 @@ function ConnectionPanel({
         <div className="oo-text-caption oo-text-muted">{t("connections.unsupportedConnectionDescription")}</div>
       )}
     </section>
+  )
+}
+
+function AuthTypeToggleGroup({
+  authTypes,
+  onChange,
+  value,
+}: {
+  authTypes: Exclude<ConnectionAuthType, null>[]
+  onChange: (value: Exclude<ConnectionAuthType, null>) => void
+  value: Exclude<ConnectionAuthType, null> | null
+}) {
+  const t = useT()
+
+  if (authTypes.length <= 1) {
+    return null
+  }
+
+  return (
+    <ToggleGroup
+      variant="outline"
+      size="sm"
+      type="single"
+      value={value ?? undefined}
+      aria-label={t("connections.authMode")}
+      onValueChange={(nextValue) => {
+        if (isConnectionAuthType(nextValue, authTypes)) {
+          onChange(nextValue)
+        }
+      }}
+    >
+      {authTypes.map((authType) => (
+        <ToggleGroupItem key={authType} value={authType}>
+          {authTypeLabel(t, authType)}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   )
 }
 

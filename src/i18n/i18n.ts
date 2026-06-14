@@ -271,6 +271,7 @@ const messages = {
     "settings.channelHint":
       "测试版（Beta）包含正式版的全部更新，并会更早收到预览构建。切换到测试版会立即检查更新；切回正式版后将保留当前版本，直到有更高的正式版发布。",
     "aria.deleteSession": "删除会话",
+    "aria.sessionRunning": "任务正在执行",
     "aria.expandSidebar": "展开侧边栏",
     "aria.collapseSidebar": "折叠侧边栏",
     "aria.resizeSidebar": "调整侧边栏宽度",
@@ -546,6 +547,7 @@ const messages = {
     "settings.channelHint":
       "Beta includes every Stable release plus earlier preview builds. Switching to Beta checks for updates immediately; switching back to Stable keeps your current version until a newer stable release is available.",
     "aria.deleteSession": "Delete chat",
+    "aria.sessionRunning": "Task running",
     "aria.expandSidebar": "Expand sidebar",
     "aria.collapseSidebar": "Collapse sidebar",
     "aria.resizeSidebar": "Resize sidebar",

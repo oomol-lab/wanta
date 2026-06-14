@@ -482,6 +482,10 @@
     line-height: var(--oo-line-caption);
   }
 
+  .oo-sidebar-session-activity {
+    color: color-mix(in oklab, var(--sidebar-foreground) 72%, transparent);
+  }
+
   .oo-sidebar-collapsed .oo-sidebar-nav-label {
     max-width: 0;
     opacity: 0;

@@ -6,6 +6,7 @@ import type { ChatStatus } from "ai"
 
 import {
   LogOut,
+  LoaderCircle,
   Package,
   PanelLeftClose,
   PanelLeftOpen,
@@ -166,6 +167,7 @@ function buildSessionTitleInput(
 function SessionItem({
   session,
   active,
+  running,
   now,
   onSelect,
   onRename,
@@ -173,6 +175,7 @@ function SessionItem({
 }: {
   session: SessionInfo
   active: boolean
+  running: boolean
   now: number
   onSelect: () => void
   onRename: (title: string) => void
@@ -225,7 +228,15 @@ function SessionItem({
         className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
         <span className="oo-sidebar-nav-label min-w-0 truncate">{session.title}</span>
-        {relativeTime ? (
+        {running ? (
+          <span
+            title={t("aria.sessionRunning")}
+            aria-label={t("aria.sessionRunning")}
+            className="oo-sidebar-session-activity ml-auto flex size-5 shrink-0 items-center justify-center group-hover:hidden"
+          >
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          </span>
+        ) : relativeTime ? (
           <span
             title={absoluteTime}
             className="oo-sidebar-session-time ml-auto shrink-0 text-right whitespace-nowrap tabular-nums group-hover:hidden"
@@ -442,7 +453,7 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   }, [avatarUrl])
 
   return (
-    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-medium text-foreground">
+    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-medium text-foreground">
       {avatarUrl && !failed ? (
         <img
           src={avatarUrl}
@@ -480,7 +491,7 @@ export function AppShell() {
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
 
-  const { messages, status, messagesLoaded, error, send, stop } = useChat(activeSessionId)
+  const { messages, status, messagesLoaded, error, getSessionStatus, send, stop } = useChat(activeSessionId)
   const connections = useConnections()
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
@@ -580,6 +591,17 @@ export function AppShell() {
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending
+  const isSessionRunning = React.useCallback(
+    (sessionId: string): boolean => {
+      const sessionStatus = getSessionStatus(sessionId)
+      return (
+        sessionStatus === "submitted" ||
+        sessionStatus === "streaming" ||
+        (pendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
+      )
+    },
+    [getSessionStatus, pendingCaughtUp, pendingChatTransition],
+  )
   const titlebarTitle =
     route === "settings"
       ? t("settings.title")
@@ -986,6 +1008,7 @@ export function AppShell() {
                     key={session.id}
                     session={session}
                     active={route === "chat" && activeSessionId === session.id}
+                    running={isSessionRunning(session.id)}
                     now={relativeTimeNow}
                     onSelect={() => {
                       setActiveSessionId(session.id)

@@ -183,6 +183,7 @@ export interface UseChat {
   status: ChatStatus
   messagesLoaded: boolean
   error: string | null
+  getSessionStatus: (sessionId: string) => ChatStatus
   send: (
     sessionId: string,
     text: string,
@@ -409,5 +410,9 @@ export function useChat(activeSessionId: string | null): UseChat {
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? []) : []
   const status = activeSessionId ? (statuses[activeSessionId] ?? "ready") : "ready"
   const messagesLoaded = activeSessionId ? Object.hasOwn(messagesMap, activeSessionId) : true
-  return { messages, status, messagesLoaded, error, send, stop }
+  const getSessionStatus = React.useCallback(
+    (sessionId: string): ChatStatus => statuses[sessionId] ?? "ready",
+    [statuses],
+  )
+  return { messages, status, messagesLoaded, error, getSessionStatus, send, stop }
 }

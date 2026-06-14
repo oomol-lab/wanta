@@ -14,10 +14,17 @@ export interface SelectedAttachmentPath {
   kind: "file" | "directory"
 }
 
+export interface SaveClipboardAttachmentInput {
+  name?: string
+  mime?: string
+  bytes: ArrayBuffer
+}
+
 export interface LumoBridge {
   appCommit: string
   getPathForFile(file: File): string
   platform: NodeJS.Platform
+  saveClipboardAttachment(input: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath>
   selectAttachmentPaths(kind: "file" | "directory"): Promise<SelectedAttachmentPath[]>
   version: string
 }
@@ -35,6 +42,8 @@ const lumo: LumoBridge = {
   appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   platform: process.platform,
+  saveClipboardAttachment: (input: SaveClipboardAttachmentInput) =>
+    electronAPI.ipcRenderer.invoke("lumo:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
   selectAttachmentPaths: (kind: "file" | "directory") =>
     electronAPI.ipcRenderer.invoke("lumo:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",

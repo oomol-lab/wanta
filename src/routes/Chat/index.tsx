@@ -1801,13 +1801,34 @@ export function ChatArea({
   }, [])
 
   const addFiles = React.useCallback(
-    (files: FileList | File[]) => {
+    async (files: FileList | File[]) => {
       setInputError(null)
       const next: AttachmentInput[] = []
       for (const file of Array.from(files)) {
         const path = globalThis.lumo?.getPathForFile(file)
         if (!path) {
-          setInputError(t("chat.attachmentPathUnavailable"))
+          const saver = globalThis.lumo?.saveClipboardAttachment
+          if (!saver) {
+            setInputError(t("chat.attachmentPathUnavailable"))
+            continue
+          }
+          try {
+            const saved = await saver({
+              name: file.name,
+              mime: file.type || "application/octet-stream",
+              bytes: await file.arrayBuffer(),
+            })
+            next.push({
+              name: saved.name,
+              mime: saved.mime,
+              size: saved.size,
+              path: saved.path,
+              kind: saved.kind,
+              file,
+            })
+          } catch {
+            setInputError(t("chat.attachmentSaveFailed"))
+          }
           continue
         }
         next.push({
@@ -1905,7 +1926,7 @@ export function ChatArea({
           return
         }
         event.preventDefault()
-        addFiles(files)
+        void addFiles(files)
       }}
     >
       {attachments.length > 0 ? (
@@ -1934,7 +1955,7 @@ export function ChatArea({
               return
             }
             event.preventDefault()
-            addFiles(files)
+            void addFiles(files)
           }}
         />
       </PromptInputBody>
@@ -1947,7 +1968,7 @@ export function ChatArea({
             className="hidden"
             onChange={(event) => {
               if (event.currentTarget.files) {
-                addFiles(event.currentTarget.files)
+                void addFiles(event.currentTarget.files)
               }
               event.currentTarget.value = ""
             }}

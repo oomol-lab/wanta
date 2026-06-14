@@ -19,6 +19,7 @@ import { readOomolSessionCookie } from "./auth/session-cookie.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
 import { mimeFromPath } from "./chat/artifacts.ts"
+import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { ConnectionsServiceImpl } from "./connections/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
@@ -48,6 +49,12 @@ interface SelectedAttachmentPath {
   size: number
   path: string
   kind: "file" | "directory"
+}
+
+interface SaveClipboardAttachmentRequest {
+  name?: string
+  mime?: string
+  bytes: ArrayBuffer
 }
 
 // dev 用本地 scheme，生产用正式 scheme（R1 / 阶段 6）。
@@ -183,6 +190,19 @@ function registerAttachmentDialogHandler(): void {
       }
       const items = await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))
       return items.filter((item): item is SelectedAttachmentPath => Boolean(item))
+    },
+  )
+  ipcMain.handle(
+    "lumo:save-clipboard-attachment",
+    async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
+      const attachment = await saveClipboardAttachment(app.getPath("userData"), req)
+      return {
+        name: attachment.name,
+        mime: attachment.mime,
+        size: attachment.size,
+        path: attachment.path,
+        kind: "file",
+      }
     },
   )
 }

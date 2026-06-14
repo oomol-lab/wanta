@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
 import {
   DropdownMenu,
@@ -33,7 +34,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
-import { useT } from "@/i18n/i18n"
+import { useI18n, useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ChatArea } from "@/routes/Chat"
 import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
@@ -165,19 +166,24 @@ function buildSessionTitleInput(
 function SessionItem({
   session,
   active,
+  now,
   onSelect,
   onRename,
   onDelete,
 }: {
   session: SessionInfo
   active: boolean
+  now: number
   onSelect: () => void
   onRename: (title: string) => void
   onDelete: () => void
 }) {
   const t = useT()
+  const { locale } = useI18n()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(session.title)
+  const relativeTime = formatSessionRelativeTime(session.updatedAt, now, locale)
+  const absoluteTime = formatSessionAbsoluteTime(session.updatedAt)
 
   if (editing) {
     return (
@@ -216,9 +222,17 @@ function SessionItem({
         onClick={onSelect}
         onDoubleClick={() => setEditing(true)}
         title={session.title}
-        className="min-w-0 flex-1 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
-        <span className="oo-sidebar-nav-label truncate">{session.title}</span>
+        <span className="oo-sidebar-nav-label min-w-0 truncate">{session.title}</span>
+        {relativeTime ? (
+          <span
+            title={absoluteTime}
+            className="oo-sidebar-session-time ml-auto shrink-0 text-right whitespace-nowrap tabular-nums group-hover:hidden"
+          >
+            {relativeTime}
+          </span>
+        ) : null}
       </button>
       <button
         type="button"
@@ -460,6 +474,7 @@ export function AppShell() {
   const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
@@ -516,6 +531,11 @@ export function AppShell() {
       void refresh()
     }
   }, [ready, refresh])
+
+  React.useEffect(() => {
+    const id = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   // dev/smoke：VITE_LUMO_SMOKE 设置时，就绪后自动发送一条消息用于可视化验证（生产无此 env，无害）。
   const smokeSent = React.useRef(false)
@@ -966,6 +986,7 @@ export function AppShell() {
                     key={session.id}
                     session={session}
                     active={route === "chat" && activeSessionId === session.id}
+                    now={relativeTimeNow}
                     onSelect={() => {
                       setActiveSessionId(session.id)
                       setIsDraftSession(false)

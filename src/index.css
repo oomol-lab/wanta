@@ -475,6 +475,13 @@
       transform 180ms cubic-bezier(0.2, 0, 0, 1);
   }
 
+  .oo-sidebar-session-time {
+    min-width: 3.5rem;
+    color: color-mix(in oklab, var(--sidebar-foreground) 72%, transparent);
+    font-size: var(--oo-font-caption);
+    line-height: var(--oo-line-caption);
+  }
+
   .oo-sidebar-collapsed .oo-sidebar-nav-label {
     max-width: 0;
     opacity: 0;

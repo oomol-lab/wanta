@@ -354,6 +354,27 @@
     transition: grid-template-columns 180ms cubic-bezier(0.2, 0, 0, 1);
   }
 
+  .oo-app-chrome.oo-sidebar-resizing {
+    cursor: ew-resize;
+    user-select: none;
+  }
+
+  .oo-app-chrome.oo-artifacts-panel-resizing {
+    cursor: ew-resize;
+    user-select: none;
+  }
+
+  .oo-app-chrome.oo-sidebar-resizing,
+  .oo-app-chrome.oo-sidebar-resizing .oo-sidebar-content,
+  .oo-app-chrome.oo-sidebar-resizing .oo-sidebar-nav-item,
+  .oo-app-chrome.oo-sidebar-resizing .oo-sidebar-nav-label {
+    transition: none;
+  }
+
+  .oo-app-chrome.oo-artifacts-panel-resizing .oo-artifacts-panel-shell {
+    transition: none;
+  }
+
   .oo-app-chrome.oo-sidebar-collapsed {
     grid-template-columns: 0px minmax(0, 1fr);
   }
@@ -476,6 +497,74 @@
   .oo-sidebar-session-scroll {
     scrollbar-gutter: auto;
     scrollbar-width: thin;
+  }
+
+  .oo-sidebar-resize-handle {
+    -webkit-app-region: no-drag;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 8px;
+    cursor: ew-resize;
+    touch-action: none;
+    outline: none;
+  }
+
+  .oo-sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0.75rem;
+    right: 0;
+    bottom: 0.75rem;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background-color 120ms ease-out;
+  }
+
+  .oo-sidebar-resize-handle:hover::after,
+  .oo-sidebar-resize-handle:focus-visible::after,
+  .oo-sidebar-resizing .oo-sidebar-resize-handle::after {
+    background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar-resize-handle,
+  .oo-sidebar-restoring .oo-sidebar-resize-handle {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .oo-artifacts-panel-resize-handle {
+    -webkit-app-region: no-drag;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: 8px;
+    cursor: ew-resize;
+    touch-action: none;
+    outline: none;
+  }
+
+  .oo-artifacts-panel-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0.75rem;
+    bottom: 0.75rem;
+    left: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background-color 120ms ease-out;
+  }
+
+  .oo-artifacts-panel-resize-handle:hover::after,
+  .oo-artifacts-panel-resize-handle:focus-visible::after,
+  .oo-artifacts-panel-resizing .oo-artifacts-panel-resize-handle::after {
+    background: color-mix(in oklab, var(--foreground) 18%, transparent);
   }
 
   .oo-toolbar {

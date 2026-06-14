@@ -36,6 +36,14 @@ type Route = "chat" | "connections" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
+const SIDEBAR_DEFAULT_WIDTH_PX = 264
+const SIDEBAR_MIN_WIDTH_PX = 220
+const SIDEBAR_MAX_WIDTH_PX = 420
+const SIDEBAR_WIDTH_STORAGE_KEY = "lumo.sidebarWidth"
+const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
+const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
+const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
+const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
 
 interface PendingChatTransition {
   sessionId: string | null
@@ -48,6 +56,40 @@ interface PendingChatTransition {
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
   return route === "settings" || route === "connections" || route === "skills" ? route : "chat"
+}
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH_PX, Math.max(SIDEBAR_MIN_WIDTH_PX, width))
+}
+
+function readStoredSidebarWidth(): number {
+  try {
+    const stored = globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
+    if (!stored) {
+      return SIDEBAR_DEFAULT_WIDTH_PX
+    }
+    const width = Number.parseInt(stored, 10)
+    return Number.isFinite(width) ? clampSidebarWidth(width) : SIDEBAR_DEFAULT_WIDTH_PX
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH_PX
+  }
+}
+
+function clampArtifactsPanelWidth(width: number): number {
+  return Math.min(ARTIFACTS_PANEL_MAX_WIDTH_PX, Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, width))
+}
+
+function readStoredArtifactsPanelWidth(): number {
+  try {
+    const stored = globalThis.localStorage?.getItem(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY)
+    if (!stored) {
+      return ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
+    }
+    const width = Number.parseInt(stored, 10)
+    return Number.isFinite(width) ? clampArtifactsPanelWidth(width) : ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
+  } catch {
+    return ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
+  }
 }
 
 function chatMessageText(message: ChatMessage): string {
@@ -320,9 +362,13 @@ export function AppShell() {
   const [ready, setReady] = React.useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
   const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
+  const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
+  const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
+  const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
+  const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
 
   const { messages, status, messagesLoaded, error, send, stop } = useChat(activeSessionId)
   const connections = useConnections()
@@ -335,6 +381,8 @@ export function AppShell() {
     attachments: ChatAttachment[]
     model?: ModelChoice
   } | null>(null)
+  const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
+  const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
 
@@ -464,6 +512,76 @@ export function AppShell() {
     mediaQuery.addEventListener("change", onChange)
     return () => mediaQuery.removeEventListener("change", onChange)
   }, [])
+
+  React.useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
+    } catch {
+      // 本地存储不可用时仅保留本次会话宽度。
+    }
+  }, [sidebarWidth])
+
+  React.useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY, String(artifactsPanelWidth))
+    } catch {
+      // 本地存储不可用时仅保留本次会话宽度。
+    }
+  }, [artifactsPanelWidth])
+
+  React.useEffect(() => {
+    if (!isSidebarResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent): void => {
+      const start = sidebarResizeStart.current
+      if (!start) {
+        return
+      }
+      setSidebarWidth(clampSidebarWidth(start.width + event.clientX - start.pointerX))
+    }
+    const handlePointerUp = (): void => {
+      sidebarResizeStart.current = null
+      setIsSidebarResizing(false)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp, { once: true })
+    window.addEventListener("pointercancel", handlePointerUp, { once: true })
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+      window.removeEventListener("pointercancel", handlePointerUp)
+    }
+  }, [isSidebarResizing])
+
+  React.useEffect(() => {
+    if (!isArtifactsPanelResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent): void => {
+      const start = artifactsPanelResizeStart.current
+      if (!start) {
+        return
+      }
+      setArtifactsPanelWidth(clampArtifactsPanelWidth(start.width + start.pointerX - event.clientX))
+    }
+    const handlePointerUp = (): void => {
+      artifactsPanelResizeStart.current = null
+      setIsArtifactsPanelResizing(false)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp, { once: true })
+    window.addEventListener("pointercancel", handlePointerUp, { once: true })
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+      window.removeEventListener("pointercancel", handlePointerUp)
+    }
+  }, [isArtifactsPanelResizing])
 
   const handleNewSession = (): void => {
     setActiveSessionId(null)
@@ -607,6 +725,62 @@ export function AppShell() {
     }
     setSidebarCollapsed((collapsed) => !collapsed)
   }
+  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (sidebarCollapsed) {
+      return
+    }
+    event.preventDefault()
+    sidebarResizeStart.current = { pointerX: event.clientX, width: sidebarWidth }
+    setIsSidebarResizing(true)
+  }
+  const handleSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (sidebarCollapsed) {
+      return
+    }
+
+    const step = event.shiftKey ? 24 : 12
+    if (event.key === "ArrowLeft") {
+      event.preventDefault()
+      setSidebarWidth((width) => clampSidebarWidth(width - step))
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault()
+      setSidebarWidth((width) => clampSidebarWidth(width + step))
+    } else if (event.key === "Home") {
+      event.preventDefault()
+      setSidebarWidth(SIDEBAR_MIN_WIDTH_PX)
+    } else if (event.key === "End") {
+      event.preventDefault()
+      setSidebarWidth(SIDEBAR_MAX_WIDTH_PX)
+    }
+  }
+  const handleArtifactsPanelResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (!artifactsPanelVisible) {
+      return
+    }
+    event.preventDefault()
+    artifactsPanelResizeStart.current = { pointerX: event.clientX, width: artifactsPanelWidth }
+    setIsArtifactsPanelResizing(true)
+  }
+  const handleArtifactsPanelResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!artifactsPanelVisible) {
+      return
+    }
+
+    const step = event.shiftKey ? 24 : 12
+    if (event.key === "ArrowLeft") {
+      event.preventDefault()
+      setArtifactsPanelWidth((width) => clampArtifactsPanelWidth(width + step))
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault()
+      setArtifactsPanelWidth((width) => clampArtifactsPanelWidth(width - step))
+    } else if (event.key === "Home") {
+      event.preventDefault()
+      setArtifactsPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
+    } else if (event.key === "End") {
+      event.preventDefault()
+      setArtifactsPanelWidth(ARTIFACTS_PANEL_MAX_WIDTH_PX)
+    }
+  }
   const handleOpenSearch = (): void => setSearchOpen(true)
   const handleArtifactsReset = React.useCallback(() => {
     setArtifactSelection(null)
@@ -630,7 +804,10 @@ export function AppShell() {
         "oo-app-chrome grid h-full text-foreground",
         sidebarCollapsed && "oo-sidebar-collapsed",
         isSidebarRestoring && "oo-sidebar-restoring",
+        isSidebarResizing && "oo-sidebar-resizing",
+        isArtifactsPanelResizing && "oo-artifacts-panel-resizing",
       )}
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
     >
       {/* 左：会话导航栏 */}
       <aside className="oo-sidebar oo-border-divider relative z-20 flex min-h-0 flex-col border-r">
@@ -722,6 +899,19 @@ export function AppShell() {
             </div>
           </nav>
         </div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("aria.resizeSidebar")}
+          aria-valuemin={SIDEBAR_MIN_WIDTH_PX}
+          aria-valuemax={SIDEBAR_MAX_WIDTH_PX}
+          aria-valuenow={sidebarWidth}
+          title={t("aria.resizeSidebar")}
+          tabIndex={sidebarCollapsed ? -1 : 0}
+          className="oo-sidebar-resize-handle"
+          onPointerDown={handleSidebarResizeStart}
+          onKeyDown={handleSidebarResizeKeyDown}
+        />
       </aside>
 
       {/* 右：主区（顶部工具条 + 内容） */}
@@ -799,12 +989,25 @@ export function AppShell() {
 
         <div
           className={cn(
-            "min-h-0 shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
+            "oo-artifacts-panel-shell relative min-h-0 shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
             artifactsPanelVisible ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-3 opacity-0",
           )}
-          style={{ width: artifactsPanelVisible ? "clamp(260px, 28vw, 300px)" : "0px" }}
+          style={{ width: artifactsPanelVisible ? `${artifactsPanelWidth}px` : "0px" }}
         >
-          <div className="h-full" style={{ width: "clamp(260px, 28vw, 300px)" }}>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("aria.resizeArtifactsPanel")}
+            aria-valuemin={ARTIFACTS_PANEL_MIN_WIDTH_PX}
+            aria-valuemax={ARTIFACTS_PANEL_MAX_WIDTH_PX}
+            aria-valuenow={artifactsPanelWidth}
+            title={t("aria.resizeArtifactsPanel")}
+            tabIndex={artifactsPanelVisible ? 0 : -1}
+            className="oo-artifacts-panel-resize-handle"
+            onPointerDown={handleArtifactsPanelResizeStart}
+            onKeyDown={handleArtifactsPanelResizeKeyDown}
+          />
+          <div className="h-full" style={{ width: `${artifactsPanelWidth}px` }}>
             <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
           </div>
         </div>

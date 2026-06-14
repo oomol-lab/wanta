@@ -541,11 +541,11 @@ function ToolActivityStep({
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
       {provider ? (
-        <span className="mt-0.5 shrink-0" title={`${provider.displayName} · ${statusText}`}>
+        <span className="flex h-4 shrink-0 items-center" title={`${provider.displayName} · ${statusText}`}>
           <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
         </span>
       ) : (
-        <span className="mt-0.5 shrink-0" title={statusText}>
+        <span className="flex h-4 shrink-0 items-center" title={statusText}>
           <ToolStatusIcon status={part.status} stopped={stopped} />
         </span>
       )}

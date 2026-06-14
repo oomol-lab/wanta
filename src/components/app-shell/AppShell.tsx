@@ -15,7 +15,6 @@ import {
   Settings,
   SquarePen,
   Trash2,
-  X,
 } from "lucide-react"
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
@@ -253,7 +252,7 @@ function SessionSearchOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={t("sidebar.search")}
-      className="oo-session-search-backdrop fixed inset-0 z-50 flex items-start justify-center px-5 pt-[18vh]"
+      className="oo-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-5"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose()
@@ -265,34 +264,23 @@ function SessionSearchOverlay({
         }
       }}
     >
-      <section className="oo-session-search-panel w-full max-w-[620px] rounded-[28px] border p-6 shadow-[var(--oo-overlay-shadow)]">
-        <div className="flex items-center gap-3">
-          <div className="oo-session-search-input oo-text-title flex h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border px-3">
-            <Search className="size-5 shrink-0 text-muted-foreground" />
-            <Input
-              ref={inputRef}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("sidebar.searchPlaceholder")}
-              aria-label={t("sidebar.searchPlaceholder")}
-              className="h-10 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <button
-            type="button"
-            title={t("sidebar.closeSearch")}
-            aria-label={t("sidebar.closeSearch")}
-            onClick={onClose}
-            className="oo-toolbar-button flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-          >
-            <X className="size-5" />
-          </button>
+      <section className="oo-modal-surface w-full max-w-[520px] rounded-lg border p-5">
+        <div className="oo-session-search-input oo-text-title flex h-10 min-w-0 items-center gap-2 rounded-lg border px-3">
+          <Search className="size-4 shrink-0 text-muted-foreground" />
+          <Input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("sidebar.searchPlaceholder")}
+            aria-label={t("sidebar.searchPlaceholder")}
+            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+          />
         </div>
 
-        <p className="oo-text-control mt-5 px-3 text-muted-foreground">
+        <p className="oo-text-control mt-4 px-3 text-muted-foreground">
           {t("sidebar.searchResults", { count: filteredSessions.length })}
         </p>
-        <div className="mt-3 max-h-[min(54vh,520px)] overflow-y-auto pr-1">
+        <div className="mt-3 max-h-[min(46vh,420px)] overflow-y-auto pr-1">
           <div className="grid gap-1">
             {filteredSessions.map((session) => (
               <button

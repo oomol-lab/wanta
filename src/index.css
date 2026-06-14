@@ -135,6 +135,7 @@
   --oo-overlay-border: var(--oo-border-subtle);
   --oo-overlay-shadow: 0 8px 20px color-mix(in oklab, var(--foreground) 10%, transparent);
   --oo-overlay-inner-ring: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 4%, transparent);
+  --oo-modal-backdrop: rgb(0 0 0 / 50%);
   --oo-tooltip-shadow: 0 6px 16px color-mix(in oklab, var(--foreground) 10%, transparent);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
@@ -209,6 +210,7 @@
   --oo-overlay-border: color-mix(in oklab, var(--foreground) 12%, var(--border));
   --oo-overlay-shadow: 0 10px 24px color-mix(in oklab, var(--background) 72%, transparent);
   --oo-overlay-inner-ring: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 4%, transparent);
+  --oo-modal-backdrop: rgb(0 0 0 / 62%);
   --oo-tooltip-shadow: 0 8px 18px color-mix(in oklab, var(--background) 78%, transparent);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
@@ -707,14 +709,13 @@
     box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 14%, transparent) !important;
   }
 
-  .oo-session-search-backdrop {
-    background: color-mix(in oklab, var(--background) 72%, transparent);
-    backdrop-filter: blur(1px);
+  .oo-modal-backdrop {
+    background: var(--oo-modal-backdrop);
   }
 
-  .oo-session-search-panel {
+  .oo-modal-surface {
     border-color: var(--oo-overlay-border);
-    background: color-mix(in oklab, var(--background) 96%, transparent);
+    background: var(--popover);
     box-shadow: var(--oo-overlay-inner-ring), var(--oo-overlay-shadow);
   }
 
@@ -783,10 +784,6 @@
 
   .oo-entity-icon-brand {
     background: var(--background);
-  }
-
-  .oo-entity-icon-compact.oo-entity-icon-brand {
-    transform: translateY(0.0625rem);
   }
 
   .oo-entity-icon-image {

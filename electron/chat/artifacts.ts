@@ -81,7 +81,8 @@ export function extractLocalPathCandidates(text: string): string[] {
     }
   }
 
-  const plainPattern = /(?:file:\/\/[^\s<>"'`，。；：、]+|(?:~?\/|[A-Za-z]:[\\/])(?:[^\s<>"'`，。；：、]+))/g
+  const plainPattern =
+    /(?:file:\/\/[^\s<>"'`，。；：、]+|[A-Za-z]:[\\/][^<>"'`，。；：、\r\n]*\.[A-Za-z0-9]{1,16}(?=$|[\s<>"'`，。；：、,;:!?.)])|[A-Za-z]:[\\/][^\s<>"'`，。；：、]+|~?\/[^\s<>"'`，。；：、]+)/g
   for (const match of text.matchAll(plainPattern)) {
     pushCandidate(candidates, match[0])
   }

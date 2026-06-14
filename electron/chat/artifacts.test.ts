@@ -15,6 +15,18 @@ describe("extractLocalPathCandidates", () => {
       extractLocalPathCandidates("结果在 file:///Users/wushuang/Desktop/out.png，源文件在 ~/Desktop/source.pdf"),
     ).toEqual(["file:///Users/wushuang/Desktop/out.png", "~/Desktop/source.pdf"])
   })
+
+  it("extracts plain Windows paths without spaces", () => {
+    expect(extractLocalPathCandidates("Result: C:\\Users\\wushuang\\Desktop\\out.png, done")).toEqual([
+      "C:\\Users\\wushuang\\Desktop\\out.png",
+    ])
+  })
+
+  it("extracts plain Windows paths with spaces", () => {
+    expect(extractLocalPathCandidates("Result: C:\\Program Files\\Lumo\\out file.png is ready")).toEqual([
+      "C:\\Program Files\\Lumo\\out file.png",
+    ])
+  })
 })
 
 describe("normalizeLocalPathCandidate", () => {

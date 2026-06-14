@@ -293,9 +293,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!item) {
       throw new Error("File does not exist.")
     }
-    const result = await shell.openPath(item.path)
-    if (result) {
-      throw new Error(result)
+    try {
+      const result = await shell.openPath(item.path)
+      if (result) {
+        throw new Error(result)
+      }
+    } catch (error) {
+      throw new Error(`Failed to open local path: ${errorMessage(error)}`)
     }
   }
 

@@ -19,7 +19,6 @@ import {
   Trash2,
 } from "lucide-react"
 import * as React from "react"
-import { branding } from "../../../electron/branding.ts"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
@@ -955,11 +954,10 @@ export function AppShell() {
           className="relative flex h-[var(--app-titlebar-height)] items-center justify-between gap-3 [-webkit-app-region:drag]"
           style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
         >
-          <div className="oo-sidebar-chrome-brand flex min-w-0 items-center gap-2">
-            <BrandIcon className="size-5 shadow-sm" />
-            <span className="truncate text-[13px] leading-5 font-semibold">{branding.appName}</span>
+          <div className="oo-sidebar-chrome-brand min-w-0 items-center gap-2">
+            <BrandIcon className="size-6" />
           </div>
-          <div className="oo-sidebar-titlebar-actions-expanded">
+          <div className="oo-sidebar-titlebar-actions-expanded ml-auto">
             <SidebarTitlebarActions
               collapsed={sidebarCollapsed}
               onToggleCollapsed={handleToggleSidebar}
@@ -1072,7 +1070,6 @@ export function AppShell() {
                 isSidebarRestoring && "is-restoring",
               )}
             >
-              <BrandIcon data-titlebar-logo className="size-4 shadow-sm" />
               <span className="oo-toolbar-title oo-text-title truncate" title={titlebarTitle}>
                 {titlebarTitle}
               </span>

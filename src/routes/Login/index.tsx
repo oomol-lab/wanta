@@ -18,7 +18,7 @@ export function LoginRoute({ auth }: { auth: UseAuth }) {
 
       <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8 pb-16">
         <div className="flex flex-col items-center gap-3">
-          <BrandIcon className="size-12 shadow-sm" />
+          <BrandIcon className="size-16" />
           <h1 className="oo-text-title text-2xl font-semibold">{branding.appName}</h1>
           <p className="oo-text-caption max-w-sm text-center">{t("login.subtitle")}</p>
         </div>

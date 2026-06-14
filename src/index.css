@@ -414,7 +414,13 @@
   }
 
   .oo-sidebar-chrome-brand {
+    display: none;
     color: color-mix(in oklab, var(--foreground) 84%, transparent);
+  }
+
+  :root[data-platform="win32"] .oo-sidebar-chrome-brand,
+  :root[data-dev-window-controls="windows"] .oo-sidebar-chrome-brand {
+    display: flex;
   }
 
   .oo-sidebar-titlebar-actions {
@@ -591,6 +597,12 @@
     padding-left: 1rem;
   }
 
+  :root[data-platform="win32"] .oo-main-titlebar,
+  :root[data-platform="linux"] .oo-main-titlebar,
+  :root[data-dev-window-controls="windows"] .oo-main-titlebar {
+    padding-right: calc(var(--window-control-right-space) + 1rem);
+  }
+
   .oo-titlebar-collapsed-controls {
     -webkit-app-region: no-drag;
     pointer-events: auto;
@@ -673,16 +685,6 @@
     font-family: var(--font-mono);
     font-size: 12px;
     letter-spacing: 8px;
-  }
-
-  [data-titlebar-logo] {
-    display: none;
-  }
-
-  @media (min-width: 721px) {
-    :root[data-platform="win32"] [data-titlebar-logo] {
-      display: block;
-    }
   }
 
   .oo-titlebar-menu {

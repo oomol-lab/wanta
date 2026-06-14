@@ -31,11 +31,20 @@
   // 运行时 app.isPackaged 走 process.resourcesPath/bin。
   extraResources: [
     {
+      from: "resources/branding/icon.png",
+      to: "icon.png",
+    },
+    {
+      from: "resources/branding/tray-icon@2x.png",
+      to: "tray-icon@2x.png",
+    },
+    {
       from: "resources/bin",
       to: "bin",
     },
   ],
   mac: {
+    icon: "branding/icon.icns",
     electronLanguages: ["en", "zh_CN"],
     target: [
       {
@@ -50,6 +59,7 @@
     artifactName: "${productName}-${version}.${ext}",
   },
   win: {
+    icon: "branding/icon.ico",
     electronLanguages: ["en-US", "zh-CN"],
     target: [
       {
@@ -72,6 +82,7 @@
     deleteAppDataOnUninstall: false,
   },
   linux: {
+    icon: "branding/icon.png",
     target: ["AppImage"],
     artifactName: "${productName}-${version}.${ext}",
   },

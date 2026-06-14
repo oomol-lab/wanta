@@ -5,6 +5,8 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  LogOut,
+  LoaderCircle,
   Package,
   PanelLeftClose,
   PanelLeftOpen,
@@ -15,16 +17,26 @@ import {
   Settings,
   SquarePen,
   Trash2,
-  X,
 } from "lucide-react"
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
+import { BrandIcon } from "@/components/BrandIcon"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
-import { useT } from "@/i18n/i18n"
+import { useI18n, useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ChatArea } from "@/routes/Chat"
 import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
@@ -36,6 +48,14 @@ type Route = "chat" | "connections" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
+const SIDEBAR_DEFAULT_WIDTH_PX = 264
+const SIDEBAR_MIN_WIDTH_PX = 220
+const SIDEBAR_MAX_WIDTH_PX = 420
+const SIDEBAR_WIDTH_STORAGE_KEY = "lumo.sidebarWidth"
+const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
+const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
+const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
+const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
 
 interface PendingChatTransition {
   sessionId: string | null
@@ -48,6 +68,40 @@ interface PendingChatTransition {
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
   return route === "settings" || route === "connections" || route === "skills" ? route : "chat"
+}
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH_PX, Math.max(SIDEBAR_MIN_WIDTH_PX, width))
+}
+
+function readStoredSidebarWidth(): number {
+  try {
+    const stored = globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
+    if (!stored) {
+      return SIDEBAR_DEFAULT_WIDTH_PX
+    }
+    const width = Number.parseInt(stored, 10)
+    return Number.isFinite(width) ? clampSidebarWidth(width) : SIDEBAR_DEFAULT_WIDTH_PX
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH_PX
+  }
+}
+
+function clampArtifactsPanelWidth(width: number): number {
+  return Math.min(ARTIFACTS_PANEL_MAX_WIDTH_PX, Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, width))
+}
+
+function readStoredArtifactsPanelWidth(): number {
+  try {
+    const stored = globalThis.localStorage?.getItem(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY)
+    if (!stored) {
+      return ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
+    }
+    const width = Number.parseInt(stored, 10)
+    return Number.isFinite(width) ? clampArtifactsPanelWidth(width) : ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
+  } catch {
+    return ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
+  }
 }
 
 function chatMessageText(message: ChatMessage): string {
@@ -86,6 +140,11 @@ function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase()
 }
 
+function accountInitial(name?: string): string {
+  const trimmed = name?.trim()
+  return trimmed ? trimmed.charAt(0).toLocaleUpperCase() : "L"
+}
+
 function buildSessionTitleInput(
   messages: ChatMessage[],
   text: string,
@@ -109,19 +168,26 @@ function buildSessionTitleInput(
 function SessionItem({
   session,
   active,
+  running,
+  now,
   onSelect,
   onRename,
   onDelete,
 }: {
   session: SessionInfo
   active: boolean
+  running: boolean
+  now: number
   onSelect: () => void
   onRename: (title: string) => void
   onDelete: () => void
 }) {
   const t = useT()
+  const { locale } = useI18n()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(session.title)
+  const relativeTime = formatSessionRelativeTime(session.updatedAt, now, locale)
+  const absoluteTime = formatSessionAbsoluteTime(session.updatedAt, locale)
 
   if (editing) {
     return (
@@ -160,9 +226,25 @@ function SessionItem({
         onClick={onSelect}
         onDoubleClick={() => setEditing(true)}
         title={session.title}
-        className="min-w-0 flex-1 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
-        <span className="oo-sidebar-nav-label truncate">{session.title}</span>
+        <span className="oo-sidebar-nav-label min-w-0 truncate">{session.title}</span>
+        {running ? (
+          <span
+            title={t("aria.sessionRunning")}
+            aria-label={t("aria.sessionRunning")}
+            className="oo-sidebar-session-activity ml-auto flex size-5 shrink-0 items-center justify-center group-hover:hidden"
+          >
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          </span>
+        ) : relativeTime ? (
+          <span
+            title={absoluteTime}
+            className="oo-sidebar-session-time ml-auto shrink-0 text-right whitespace-nowrap tabular-nums group-hover:hidden"
+          >
+            {relativeTime}
+          </span>
+        ) : null}
       </button>
       <button
         type="button"
@@ -211,7 +293,7 @@ function SessionSearchOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={t("sidebar.search")}
-      className="oo-session-search-backdrop fixed inset-0 z-50 flex items-start justify-center px-5 pt-[18vh]"
+      className="oo-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-5"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose()
@@ -223,34 +305,23 @@ function SessionSearchOverlay({
         }
       }}
     >
-      <section className="oo-session-search-panel w-full max-w-[620px] rounded-[28px] border p-6 shadow-[var(--oo-overlay-shadow)]">
-        <div className="flex items-center gap-3">
-          <div className="oo-session-search-input oo-text-title flex h-12 min-w-0 flex-1 items-center gap-2 rounded-xl border px-3">
-            <Search className="size-5 shrink-0 text-muted-foreground" />
-            <Input
-              ref={inputRef}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("sidebar.searchPlaceholder")}
-              aria-label={t("sidebar.searchPlaceholder")}
-              className="h-10 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <button
-            type="button"
-            title={t("sidebar.closeSearch")}
-            aria-label={t("sidebar.closeSearch")}
-            onClick={onClose}
-            className="oo-toolbar-button flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-          >
-            <X className="size-5" />
-          </button>
+      <section className="oo-modal-surface w-full max-w-[520px] rounded-lg border p-5">
+        <div className="oo-session-search-input oo-text-title flex h-10 min-w-0 items-center gap-2 rounded-lg border px-3">
+          <Search className="size-4 shrink-0 text-muted-foreground" />
+          <Input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("sidebar.searchPlaceholder")}
+            aria-label={t("sidebar.searchPlaceholder")}
+            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+          />
         </div>
 
-        <p className="oo-text-control mt-5 px-3 text-muted-foreground">
+        <p className="oo-text-control mt-4 px-3 text-muted-foreground">
           {t("sidebar.searchResults", { count: filteredSessions.length })}
         </p>
-        <div className="mt-3 max-h-[min(54vh,520px)] overflow-y-auto pr-1">
+        <div className="mt-3 max-h-[min(46vh,420px)] overflow-y-auto pr-1">
           <div className="grid gap-1">
             {filteredSessions.map((session) => (
               <button
@@ -309,9 +380,101 @@ function SidebarTitlebarActions({
   )
 }
 
+function SidebarAccountMenu({
+  accountName,
+  avatarUrl,
+  activeRoute,
+  loggingOut,
+  onNavigate,
+  onLogout,
+}: {
+  accountName?: string
+  avatarUrl?: string
+  activeRoute: Route
+  loggingOut: boolean
+  onNavigate: (route: Route) => void
+  onLogout: () => void
+}) {
+  const t = useT()
+  const displayName = accountName?.trim() || t("settings.account")
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "oo-sidebar-account oo-sidebar-nav-item -mx-3 flex h-14 shrink-0 items-center gap-2 px-4 text-left [-webkit-app-region:no-drag]",
+            activeRoute === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
+          )}
+          aria-label={t("sidebar.accountMenu")}
+          title={t("sidebar.accountMenu")}
+        >
+          <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
+          <div className="oo-sidebar-nav-label min-w-0 flex-1">
+            <div className="oo-text-control truncate text-foreground" title={displayName}>
+              {displayName}
+            </div>
+          </div>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md">
+            <Settings className="size-4" />
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" alignOffset={12} sideOffset={8} className="w-56">
+        <DropdownMenuLabel className="truncate">{displayName}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onNavigate("connections")}>
+          <Plug className="size-4" />
+          {t("connections.title")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNavigate("skills")}>
+          <Package className="size-4" />
+          {t("skills.title")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNavigate("settings")}>
+          <Settings className="size-4" />
+          {t("settings.title")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" disabled={loggingOut} onSelect={onLogout}>
+          <LogOut className="size-4" />
+          {t("settings.logout")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
+  const [failed, setFailed] = React.useState(false)
+
+  React.useEffect(() => {
+    setFailed(false)
+  }, [avatarUrl])
+
+  return (
+    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-medium text-foreground">
+      {avatarUrl && !failed ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          className="size-full object-cover"
+          draggable={false}
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        accountInitial(name)
+      )}
+    </div>
+  )
+}
+
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
+  const auth = useAuth()
   const { sessions, create, generateTitle, rename, remove, refresh } = useSessions()
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
@@ -320,11 +483,16 @@ export function AppShell() {
   const [ready, setReady] = React.useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
   const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
+  const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
+  const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
+  const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
+  const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
 
-  const { messages, status, messagesLoaded, error, send, stop } = useChat(activeSessionId)
+  const { messages, status, messagesLoaded, error, getSessionStatus, send, stop } = useChat(activeSessionId)
   const connections = useConnections()
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
@@ -335,6 +503,8 @@ export function AppShell() {
     attachments: ChatAttachment[]
     model?: ModelChoice
   } | null>(null)
+  const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
+  const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
 
@@ -373,6 +543,11 @@ export function AppShell() {
       void refresh()
     }
   }, [ready, refresh])
+
+  React.useEffect(() => {
+    const id = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   // dev/smoke：VITE_LUMO_SMOKE 设置时，就绪后自动发送一条消息用于可视化验证（生产无此 env，无害）。
   const smokeSent = React.useRef(false)
@@ -417,6 +592,17 @@ export function AppShell() {
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending
+  const isSessionRunning = React.useCallback(
+    (sessionId: string): boolean => {
+      const sessionStatus = getSessionStatus(sessionId)
+      return (
+        sessionStatus === "submitted" ||
+        sessionStatus === "streaming" ||
+        (sessionId === activeSessionId && pendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
+      )
+    },
+    [activeSessionId, getSessionStatus, pendingCaughtUp, pendingChatTransition],
+  )
   const titlebarTitle =
     route === "settings"
       ? t("settings.title")
@@ -464,6 +650,76 @@ export function AppShell() {
     mediaQuery.addEventListener("change", onChange)
     return () => mediaQuery.removeEventListener("change", onChange)
   }, [])
+
+  React.useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
+    } catch {
+      // 本地存储不可用时仅保留本次会话宽度。
+    }
+  }, [sidebarWidth])
+
+  React.useEffect(() => {
+    try {
+      globalThis.localStorage?.setItem(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY, String(artifactsPanelWidth))
+    } catch {
+      // 本地存储不可用时仅保留本次会话宽度。
+    }
+  }, [artifactsPanelWidth])
+
+  React.useEffect(() => {
+    if (!isSidebarResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent): void => {
+      const start = sidebarResizeStart.current
+      if (!start) {
+        return
+      }
+      setSidebarWidth(clampSidebarWidth(start.width + event.clientX - start.pointerX))
+    }
+    const handlePointerUp = (): void => {
+      sidebarResizeStart.current = null
+      setIsSidebarResizing(false)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp, { once: true })
+    window.addEventListener("pointercancel", handlePointerUp, { once: true })
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+      window.removeEventListener("pointercancel", handlePointerUp)
+    }
+  }, [isSidebarResizing])
+
+  React.useEffect(() => {
+    if (!isArtifactsPanelResizing) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent): void => {
+      const start = artifactsPanelResizeStart.current
+      if (!start) {
+        return
+      }
+      setArtifactsPanelWidth(clampArtifactsPanelWidth(start.width + start.pointerX - event.clientX))
+    }
+    const handlePointerUp = (): void => {
+      artifactsPanelResizeStart.current = null
+      setIsArtifactsPanelResizing(false)
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", handlePointerUp, { once: true })
+    window.addEventListener("pointercancel", handlePointerUp, { once: true })
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", handlePointerUp)
+      window.removeEventListener("pointercancel", handlePointerUp)
+    }
+  }, [isArtifactsPanelResizing])
 
   const handleNewSession = (): void => {
     setActiveSessionId(null)
@@ -607,6 +863,62 @@ export function AppShell() {
     }
     setSidebarCollapsed((collapsed) => !collapsed)
   }
+  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (sidebarCollapsed) {
+      return
+    }
+    event.preventDefault()
+    sidebarResizeStart.current = { pointerX: event.clientX, width: sidebarWidth }
+    setIsSidebarResizing(true)
+  }
+  const handleSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (sidebarCollapsed) {
+      return
+    }
+
+    const step = event.shiftKey ? 24 : 12
+    if (event.key === "ArrowLeft") {
+      event.preventDefault()
+      setSidebarWidth((width) => clampSidebarWidth(width - step))
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault()
+      setSidebarWidth((width) => clampSidebarWidth(width + step))
+    } else if (event.key === "Home") {
+      event.preventDefault()
+      setSidebarWidth(SIDEBAR_MIN_WIDTH_PX)
+    } else if (event.key === "End") {
+      event.preventDefault()
+      setSidebarWidth(SIDEBAR_MAX_WIDTH_PX)
+    }
+  }
+  const handleArtifactsPanelResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (!artifactsPanelVisible) {
+      return
+    }
+    event.preventDefault()
+    artifactsPanelResizeStart.current = { pointerX: event.clientX, width: artifactsPanelWidth }
+    setIsArtifactsPanelResizing(true)
+  }
+  const handleArtifactsPanelResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!artifactsPanelVisible) {
+      return
+    }
+
+    const step = event.shiftKey ? 24 : 12
+    if (event.key === "ArrowLeft") {
+      event.preventDefault()
+      setArtifactsPanelWidth((width) => clampArtifactsPanelWidth(width + step))
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault()
+      setArtifactsPanelWidth((width) => clampArtifactsPanelWidth(width - step))
+    } else if (event.key === "Home") {
+      event.preventDefault()
+      setArtifactsPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
+    } else if (event.key === "End") {
+      event.preventDefault()
+      setArtifactsPanelWidth(ARTIFACTS_PANEL_MAX_WIDTH_PX)
+    }
+  }
   const handleOpenSearch = (): void => setSearchOpen(true)
   const handleArtifactsReset = React.useCallback(() => {
     setArtifactSelection(null)
@@ -630,16 +942,22 @@ export function AppShell() {
         "oo-app-chrome grid h-full text-foreground",
         sidebarCollapsed && "oo-sidebar-collapsed",
         isSidebarRestoring && "oo-sidebar-restoring",
+        isSidebarResizing && "oo-sidebar-resizing",
+        isArtifactsPanelResizing && "oo-artifacts-panel-resizing",
       )}
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
     >
       {/* 左：会话导航栏 */}
       <aside className="oo-sidebar oo-border-divider relative z-20 flex min-h-0 flex-col border-r">
         <header
           data-slot="sidebar-chrome-header"
-          className="relative flex h-[var(--app-titlebar-height)] items-center justify-end [-webkit-app-region:drag]"
+          className="relative flex h-[var(--app-titlebar-height)] items-center justify-between gap-3 [-webkit-app-region:drag]"
           style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
         >
-          <div className="oo-sidebar-titlebar-actions-expanded">
+          <div className="oo-sidebar-chrome-brand min-w-0 items-center gap-2">
+            <BrandIcon className="size-6" />
+          </div>
+          <div className="oo-sidebar-titlebar-actions-expanded ml-auto">
             <SidebarTitlebarActions
               collapsed={sidebarCollapsed}
               onToggleCollapsed={handleToggleSidebar}
@@ -694,6 +1012,8 @@ export function AppShell() {
                     key={session.id}
                     session={session}
                     active={route === "chat" && activeSessionId === session.id}
+                    running={isSessionRunning(session.id)}
+                    now={relativeTimeNow}
                     onSelect={() => {
                       setActiveSessionId(session.id)
                       setIsDraftSession(false)
@@ -707,21 +1027,29 @@ export function AppShell() {
               </div>
             </div>
 
-            <div className="grid shrink-0 gap-1 pb-3">
-              <button
-                type="button"
-                onClick={() => setRoute("settings")}
-                className={cn(
-                  "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                  route === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
-                )}
-              >
-                <Settings className="size-4 shrink-0" />
-                <span className="oo-sidebar-nav-label truncate">{t("nav.settings")}</span>
-              </button>
-            </div>
+            <SidebarAccountMenu
+              accountName={auth.state?.account?.name}
+              avatarUrl={auth.state?.account?.avatarUrl}
+              activeRoute={route}
+              loggingOut={auth.loggingOut}
+              onNavigate={setRoute}
+              onLogout={() => void auth.logout()}
+            />
           </nav>
         </div>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("aria.resizeSidebar")}
+          aria-valuemin={SIDEBAR_MIN_WIDTH_PX}
+          aria-valuemax={SIDEBAR_MAX_WIDTH_PX}
+          aria-valuenow={sidebarWidth}
+          title={t("aria.resizeSidebar")}
+          tabIndex={sidebarCollapsed ? -1 : 0}
+          className="oo-sidebar-resize-handle"
+          onPointerDown={handleSidebarResizeStart}
+          onKeyDown={handleSidebarResizeKeyDown}
+        />
       </aside>
 
       {/* 右：主区（顶部工具条 + 内容） */}
@@ -769,7 +1097,7 @@ export function AppShell() {
             {route === "settings" ? (
               <SettingsRoute />
             ) : route === "connections" ? (
-              <div className="h-full min-h-0 px-4 py-3">
+              <div className="h-full min-h-0 p-0">
                 <ConnectionsPanel connections={connections} selectedService={selectedService} />
               </div>
             ) : route === "skills" ? (
@@ -799,12 +1127,25 @@ export function AppShell() {
 
         <div
           className={cn(
-            "min-h-0 shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
+            "oo-artifacts-panel-shell relative min-h-0 shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
             artifactsPanelVisible ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-3 opacity-0",
           )}
-          style={{ width: artifactsPanelVisible ? "clamp(260px, 28vw, 300px)" : "0px" }}
+          style={{ width: artifactsPanelVisible ? `${artifactsPanelWidth}px` : "0px" }}
         >
-          <div className="h-full" style={{ width: "clamp(260px, 28vw, 300px)" }}>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("aria.resizeArtifactsPanel")}
+            aria-valuemin={ARTIFACTS_PANEL_MIN_WIDTH_PX}
+            aria-valuemax={ARTIFACTS_PANEL_MAX_WIDTH_PX}
+            aria-valuenow={artifactsPanelWidth}
+            title={t("aria.resizeArtifactsPanel")}
+            tabIndex={artifactsPanelVisible ? 0 : -1}
+            className="oo-artifacts-panel-resize-handle"
+            onPointerDown={handleArtifactsPanelResizeStart}
+            onKeyDown={handleArtifactsPanelResizeKeyDown}
+          />
+          <div className="h-full" style={{ width: `${artifactsPanelWidth}px` }}>
             <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
           </div>
         </div>

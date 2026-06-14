@@ -1,8 +1,9 @@
 import type { UseAuth } from "@/hooks/useAuth"
 
-import { LogIn, Sparkles } from "lucide-react"
+import { LogIn } from "lucide-react"
 import { branding } from "../../../electron/branding.ts"
 import { Loader } from "@/components/ai-elements/loader"
+import { BrandIcon } from "@/components/BrandIcon"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 
@@ -17,7 +18,7 @@ export function LoginRoute({ auth }: { auth: UseAuth }) {
 
       <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-8 px-8 pb-16">
         <div className="flex flex-col items-center gap-3">
-          <Sparkles className="oo-icon-accent size-10" />
+          <BrandIcon className="size-16" />
           <h1 className="oo-text-title text-2xl font-semibold">{branding.appName}</h1>
           <p className="oo-text-caption max-w-sm text-center">{t("login.subtitle")}</p>
         </div>

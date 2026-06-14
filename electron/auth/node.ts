@@ -44,6 +44,7 @@ export class AuthManager {
   private readonly deps: AuthManagerDeps
   private pending: PendingLogin | undefined
   private emitState: (state: AuthState) => Promise<void> = async () => {}
+  private profileRefreshAccountId: string | undefined
   public readonly stateChanged = new ServiceEvent<AuthState>()
 
   public constructor(deps: AuthManagerDeps) {
@@ -61,6 +62,9 @@ export class AuthManager {
   }
 
   public getAuthState(): Promise<AuthState> {
+    void this.refreshActiveAccountProfile().catch((error: unknown) => {
+      console.warn("[lumo] failed to refresh account profile:", error)
+    })
     return Promise.resolve(this.currentState())
   }
 
@@ -137,7 +141,7 @@ export class AuthManager {
     }
     return {
       status: "authenticated",
-      account: { id: account.id, name: account.name },
+      account: { id: account.id, name: account.name, ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}) },
       updatedAt,
     }
   }
@@ -155,6 +159,31 @@ export class AuthManager {
       console.error("[lumo] failed to start agent after sign-in:", error)
     })
     return state
+  }
+
+  /** 兼容旧 auth.json：若账号缺头像，后台补拉 profile 并只广播渲染层展示状态。 */
+  private async refreshActiveAccountProfile(): Promise<void> {
+    const account = this.activeAccount()
+    if (!account || account.avatarUrl || this.profileRefreshAccountId === account.id) {
+      return
+    }
+    this.profileRefreshAccountId = account.id
+    const profile = await requestLoginProfile(apiBaseUrl, account.apiKey)
+    const currentAccount = this.activeAccount()
+    if (!currentAccount || currentAccount.id !== account.id || currentAccount.apiKey !== account.apiKey) {
+      return
+    }
+    if (!profile.avatarUrl && profile.name === currentAccount.name) {
+      return
+    }
+    this.deps.store.write(
+      upsertAccount(this.deps.store.read(), {
+        ...currentAccount,
+        name: profile.name,
+        ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+      }),
+    )
+    await this.emitState(this.currentState())
   }
 
   private createPending(): PendingLogin {
@@ -241,7 +270,13 @@ async function exchangeLogin(authId: string): Promise<AuthRuntimeAccount> {
   const api = apiBaseUrl
   const token = await requestSigninWithAuthId(api, authId)
   const [apiKey, profile] = await Promise.all([requestDefaultApiKey(api, token), requestLoginProfile(api, token)])
-  return { id: profile.id, name: profile.name, apiKey, sessionToken: token }
+  return {
+    id: profile.id,
+    name: profile.name,
+    ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+    apiKey,
+    sessionToken: token,
+  }
 }
 
 function getSetCookieHeaders(headers: Headers): string[] {
@@ -293,7 +328,10 @@ async function requestDefaultApiKey(api: string, token: string): Promise<string>
   return apiKey
 }
 
-async function requestLoginProfile(api: string, token: string): Promise<{ id: string; name: string }> {
+async function requestLoginProfile(
+  api: string,
+  token: string,
+): Promise<{ id: string; name: string; avatarUrl?: string }> {
   const response = await fetch(`${api}/v1/users/profile`, {
     method: "GET",
     signal: authRequestSignal(),

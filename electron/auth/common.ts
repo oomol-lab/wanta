@@ -8,6 +8,7 @@ export type AuthStatus = "authenticated" | "unauthenticated"
 export interface AuthAccountSummary {
   id: string
   name: string
+  avatarUrl?: string
 }
 
 export interface AuthState {

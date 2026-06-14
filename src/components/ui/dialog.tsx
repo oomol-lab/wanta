@@ -39,8 +39,7 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "color-mix(in oklab, var(--foreground) 28%, transparent)" }}
+      className="oo-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           onClose()
@@ -53,7 +52,7 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
         role="dialog"
         aria-modal="true"
         className={cn(
-          "oo-border-divider flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl border bg-popover shadow-xl outline-none",
+          "oo-modal-surface flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg border text-popover-foreground outline-none",
           className,
         )}
       >

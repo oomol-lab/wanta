@@ -8,6 +8,7 @@ import { AuthStore, removeAccount, selectAccount, upsertAccount } from "./store.
 
 const acme = { id: "u1", name: "Acme", apiKey: "key-prod" }
 const other = { id: "u2", name: "Other", apiKey: "key-other" }
+const avatarUrl = "https://example.com/avatar.png"
 
 test("upsertAccount inserts, replaces by id, and sets current", () => {
   let auth = upsertAccount({}, acme)
@@ -26,8 +27,8 @@ test("upsertAccount inserts, replaces by id, and sets current", () => {
 })
 
 test("upsertAccount never persists runtime sessionToken", () => {
-  const auth = upsertAccount({}, { ...acme, sessionToken: "oomol-token" })
-  assert.deepEqual(auth, { currentId: "u1", accounts: [acme] })
+  const auth = upsertAccount({}, { ...acme, avatarUrl, sessionToken: "oomol-token" })
+  assert.deepEqual(auth, { currentId: "u1", accounts: [{ ...acme, avatarUrl }] })
 })
 
 test("selectAccount picks current first, then the first account, else null", () => {

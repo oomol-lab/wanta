@@ -1071,7 +1071,9 @@
   }
 
   .oo-markdown table {
-    width: 100%;
+    display: block;
+    width: max-content;
+    max-width: 100%;
     overflow-x: auto;
     border-collapse: collapse;
   }

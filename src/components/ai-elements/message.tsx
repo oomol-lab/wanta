@@ -97,8 +97,8 @@ type MarkdownTableProps = ComponentProps<"table"> & {
 
 function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
   return (
-    <div className="my-3 w-full min-w-0 overflow-x-auto">
-      <table className={cn("w-full border-collapse border border-border text-sm", className)} {...props}>
+    <div className="my-3 min-w-0 overflow-x-auto">
+      <table className={cn("w-full min-w-max border-collapse border border-border text-sm", className)} {...props}>
         {children}
       </table>
     </div>

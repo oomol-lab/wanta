@@ -2,12 +2,13 @@ import type { ChatMessage } from "../../../electron/chat/common.ts"
 
 export interface GeneratedArtifactSource {
   messageId: string
+  requestText: string
   text: string
   artifactRoot?: string
   sourcePaths: string[]
 }
 
-function assistantMessageText(message: ChatMessage): string {
+function messageText(message: ChatMessage): string {
   return message.parts
     .filter((part) => part.kind === "text")
     .map((part) => part.text ?? "")
@@ -17,6 +18,7 @@ function assistantMessageText(message: ChatMessage): string {
 function sourceForTurn(
   messageId: string | null,
   artifactRoot: string | undefined,
+  requestText: string,
   textParts: string[],
   sourcePaths: string[],
 ): GeneratedArtifactSource | null {
@@ -29,6 +31,7 @@ function sourceForTurn(
   }
   return {
     messageId,
+    requestText,
     text,
     sourcePaths,
     ...(artifactRoot ? { artifactRoot } : {}),
@@ -38,16 +41,18 @@ function sourceForTurn(
 export function collectGeneratedArtifactSources(messages: ChatMessage[]): GeneratedArtifactSource[] {
   const sources: GeneratedArtifactSource[] = []
   let latestArtifactRoot: string | undefined
+  let requestText = ""
   let sourcePaths: string[] = []
   let textParts: string[] = []
   let lastAssistantMessageId: string | null = null
 
   const flushTurn = () => {
-    const source = sourceForTurn(lastAssistantMessageId, latestArtifactRoot, textParts, sourcePaths)
+    const source = sourceForTurn(lastAssistantMessageId, latestArtifactRoot, requestText, textParts, sourcePaths)
     if (source) {
       sources.push(source)
     }
     latestArtifactRoot = undefined
+    requestText = ""
     sourcePaths = []
     textParts = []
     lastAssistantMessageId = null
@@ -56,6 +61,7 @@ export function collectGeneratedArtifactSources(messages: ChatMessage[]): Genera
   for (const message of messages) {
     if (message.role === "user") {
       flushTurn()
+      requestText = messageText(message).trim()
       sourcePaths = message.parts
         .filter((part) => part.kind === "attachment" && part.attachment)
         .map((part) => part.attachment?.path ?? "")
@@ -66,7 +72,7 @@ export function collectGeneratedArtifactSources(messages: ChatMessage[]): Genera
       continue
     }
     lastAssistantMessageId = message.id
-    const text = assistantMessageText(message).trim()
+    const text = messageText(message).trim()
     if (text) {
       textParts.push(text)
     }

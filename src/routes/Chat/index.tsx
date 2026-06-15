@@ -1712,6 +1712,13 @@ export function ChatArea({
   const artifactSources = React.useMemo(() => {
     return collectGeneratedArtifactSources(messages)
   }, [messages])
+  const visibleArtifactSources = React.useMemo(() => {
+    const latestAssistantMessageId = latestAssistant?.id
+    if (!isGenerating || !latestAssistantMessageId) {
+      return artifactSources
+    }
+    return artifactSources.filter((source) => source.messageId !== latestAssistantMessageId)
+  }, [artifactSources, isGenerating, latestAssistant?.id])
 
   React.useEffect(() => {
     attachmentsRef.current = attachments
@@ -2218,9 +2225,9 @@ export function ChatArea({
                 assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               />
             ))}
-            {artifactSources.length > 0 ? (
+            {visibleArtifactSources.length > 0 ? (
               <GeneratedArtifacts
-                sources={artifactSources}
+                sources={visibleArtifactSources}
                 onOpen={onArtifactsOpen}
                 onAvailable={onArtifactsAvailable}
               />

@@ -50,6 +50,7 @@ describe("collectGeneratedArtifactSources", () => {
     expect(sources).toEqual([
       {
         messageId: "assistant-2",
+        requestText: "Convert this PDF",
         artifactRoot: "/tmp/lumo/artifacts/turn-1",
         sourcePaths: [],
         text: "I will create files.\nDone: `/tmp/lumo/artifacts/turn-1/page.png`",
@@ -66,6 +67,7 @@ describe("collectGeneratedArtifactSources", () => {
     expect(sources).toEqual([
       {
         messageId: "assistant-1",
+        requestText: "Convert this PDF",
         sourcePaths: [],
         text: "Output file: `/Users/me/Desktop/page.png`",
       },
@@ -87,6 +89,7 @@ describe("collectGeneratedArtifactSources", () => {
     expect(sources).toEqual([
       {
         messageId: "assistant-1",
+        requestText: "Convert this PDF",
         sourcePaths: ["/Users/me/Desktop/source.pdf"],
         text: [
           "Source file: `/Users/me/Desktop/source.pdf`",

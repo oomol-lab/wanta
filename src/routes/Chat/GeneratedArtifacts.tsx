@@ -10,6 +10,49 @@ import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 const previewLimit = 4
+const intermediateCodeExtensions = new Set([
+  ".bash",
+  ".c",
+  ".cc",
+  ".cjs",
+  ".cpp",
+  ".cs",
+  ".css",
+  ".cxx",
+  ".dart",
+  ".fish",
+  ".go",
+  ".h",
+  ".hpp",
+  ".html",
+  ".htm",
+  ".java",
+  ".js",
+  ".jsx",
+  ".kt",
+  ".kts",
+  ".less",
+  ".lua",
+  ".mjs",
+  ".php",
+  ".pl",
+  ".py",
+  ".r",
+  ".rb",
+  ".rs",
+  ".sass",
+  ".scala",
+  ".scss",
+  ".sh",
+  ".svelte",
+  ".swift",
+  ".ts",
+  ".tsx",
+  ".vue",
+  ".zsh",
+])
+const codeRequestPattern =
+  /\b(api|app|cli|code|component|css|html|javascript|js|node|program|python|react|script|typescript|ts|website)\b|代码|脚本|程序|网页|网站|应用|组件|前端|后端|接口|库|插件|扩展|源码|项目/i
 
 export interface ArtifactSelection {
   messageId: string
@@ -179,14 +222,28 @@ function artifactGroupPaths(group: LocalArtifactGroup): string[] {
   return [group.root?.path, ...group.items.map((item) => item.path)].filter((item): item is string => Boolean(item))
 }
 
+function fileExtension(name: string): string {
+  const index = name.lastIndexOf(".")
+  return index > 0 ? name.slice(index).toLowerCase() : ""
+}
+
+function sourceRequestsCode(source: GeneratedArtifactSource): boolean {
+  return codeRequestPattern.test(source.requestText)
+}
+
+function isIntermediateCodeArtifact(item: LocalArtifactItem, source: GeneratedArtifactSource): boolean {
+  return !sourceRequestsCode(source) && intermediateCodeExtensions.has(fileExtension(item.name))
+}
+
 function isDisplayableArtifactGroup(group: LocalArtifactGroup): boolean {
   return group.items.length > 0
 }
 
-function excludeSourcePaths(groups: LocalArtifactGroup[], sourcePaths: Set<string>): LocalArtifactGroup[] {
+function filterArtifactGroups(groups: LocalArtifactGroup[], source: GeneratedArtifactSource): LocalArtifactGroup[] {
+  const sourcePaths = new Set(source.sourcePaths)
   return groups.flatMap((group) => {
-    const rootExcluded = group.root && sourcePaths.has(group.root.path)
-    const items = group.items.filter((item) => !sourcePaths.has(item.path))
+    const rootExcluded = Boolean(group.root && sourcePaths.has(group.root.path))
+    const items = group.items.filter((item) => !sourcePaths.has(item.path) && !isIntermediateCodeArtifact(item, source))
     if (items.length === 0) {
       return []
     }
@@ -197,12 +254,11 @@ function excludeSourcePaths(groups: LocalArtifactGroup[], sourcePaths: Set<strin
   })
 }
 
-function mergeArtifactGroups(groups: LocalArtifactGroup[][], sourcePaths: readonly string[]): LocalArtifactGroup[] {
+function mergeArtifactGroups(groups: LocalArtifactGroup[][], source: GeneratedArtifactSource): LocalArtifactGroup[] {
   const merged: LocalArtifactGroup[] = []
   const seenPaths = new Set<string>()
-  const sourcePathSet = new Set(sourcePaths)
   for (const groupList of groups) {
-    for (const group of excludeSourcePaths(groupList.filter(isDisplayableArtifactGroup), sourcePathSet)) {
+    for (const group of filterArtifactGroups(groupList.filter(isDisplayableArtifactGroup), source)) {
       const paths = artifactGroupPaths(group)
       if (paths.length > 0 && paths.every((item) => seenPaths.has(item))) {
         continue
@@ -244,7 +300,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
         requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then((result) => result.groups))
       }
       const resultGroups = await Promise.all(requests)
-      return mergeArtifactGroups(resultGroups, source.sourcePaths).map((group) => ({
+      return mergeArtifactGroups(resultGroups, source).map((group) => ({
         messageId: source.messageId,
         group,
       }))

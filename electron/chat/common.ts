@@ -111,6 +111,8 @@ export interface ChatMessagePart {
 }
 export interface ChatMessage {
   id: string
+  /** UI 身份：不同于服务端 id，乐观消息绑定到真实消息后仍保持稳定。 */
+  clientId?: string
   role: ChatRole
   parts: ChatMessagePart[]
   createdAt: number

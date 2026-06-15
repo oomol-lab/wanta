@@ -111,28 +111,15 @@ function chatMessageText(message: ChatMessage): string {
     .join("")
 }
 
-function chatMessageAttachmentPaths(message: ChatMessage): string {
-  return message.parts
-    .filter((part) => part.kind === "attachment" && part.attachment)
-    .map((part) => part.attachment?.path ?? "")
-    .sort()
-    .join("\n")
-}
-
-function attachmentPaths(attachments: ChatAttachment[]): string {
-  return attachments
-    .map((attachment) => attachment.path)
-    .sort()
-    .join("\n")
-}
-
-function hasUserMessage(messages: ChatMessage[], text: string, attachments: ChatAttachment[] = []): boolean {
-  const expectedAttachments = attachmentPaths(attachments)
+function hasAssistantContent(messages: ChatMessage[]): boolean {
   return messages.some(
     (message) =>
-      message.role === "user" &&
-      chatMessageText(message) === text &&
-      chatMessageAttachmentPaths(message) === expectedAttachments,
+      message.role === "assistant" &&
+      !message.id.startsWith("local-assistant-") &&
+      message.parts.some(
+        (part) =>
+          part.kind === "tool" || part.kind === "attachment" || (part.kind === "text" && Boolean(part.text?.trim())),
+      ),
   )
 }
 
@@ -587,7 +574,7 @@ export function AppShell() {
   const pendingCaughtUp = Boolean(
     pendingChatTransition?.sessionId &&
     activeSessionId === pendingChatTransition.sessionId &&
-    hasUserMessage(messages, pendingChatTransition.text, pendingChatTransition.attachments),
+    hasAssistantContent(messages),
   )
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
@@ -818,7 +805,7 @@ export function AppShell() {
     }
     lastModelBySession.current.set(sessionId, model)
     try {
-      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack", model })
+      await send(sessionId, text, attachments, { model })
     } catch (error) {
       if (bridgeEmptySend) {
         setPendingChatTransition(null)

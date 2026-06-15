@@ -853,6 +853,7 @@ function AssistantMessageActions({ text, cancelled }: { text: string; cancelled:
 
 function MessageBubble({
   message,
+  pending,
   providerByService,
   onAuthorize,
   onOpenArtifacts,
@@ -860,12 +861,14 @@ function MessageBubble({
   assistantActionsText,
 }: {
   message: ChatMessage
+  pending: boolean
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
   onOpenArtifacts: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   assistantActionsText: string | null
 }) {
+  const t = useT()
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
   if (message.role === "user") {
@@ -898,6 +901,20 @@ function MessageBubble({
     )
   }
   const blocks = renderBlocks(message.parts)
+  if (blocks.length === 0 && pending) {
+    return (
+      <Message from="assistant">
+        <MessageContent>
+          <div className="flex items-center gap-2 py-0.5" role="status" aria-live="polite">
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+            <Shimmer as="span" className="oo-text-caption" duration={1}>
+              {t("chat.thinking")}
+            </Shimmer>
+          </div>
+        </MessageContent>
+      </Message>
+    )
+  }
   if (blocks.length === 0) {
     return null
   }
@@ -1227,21 +1244,6 @@ function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; dur
         {voiceDurationLabel(durationMs)}
       </span>
     </div>
-  )
-}
-
-function AssistantPendingMessage() {
-  const t = useT()
-  return (
-    <Message from="assistant">
-      <MessageContent>
-        <div className="py-0.5" role="status" aria-live="polite">
-          <Shimmer as="span" className="oo-text-caption" duration={1}>
-            {t("chat.thinking")}
-          </Shimmer>
-        </div>
-      </MessageContent>
-    </Message>
   )
 }
 
@@ -1668,6 +1670,7 @@ export function ChatArea({
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
+  const deferredSubmitClearRef = React.useRef<DraftAttachment[] | null>(null)
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const voiceRecorder = useVoiceRecorder()
@@ -1680,9 +1683,12 @@ export function ChatArea({
     [providers],
   )
   const voiceActive = voiceRecorder.isRecording || voiceTranscribing || Boolean(voiceError || voiceRecorder.error)
-  const showPendingMessage =
-    hasMessages &&
-    (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
+  const pendingAssistantMessageId =
+    latestAssistant &&
+    (isSubmitted || (status === "streaming" && !latestAssistant.parts.some(isRenderablePart))) &&
+    !hasStoppedTool(latestAssistant.parts)
+      ? latestAssistant.id
+      : null
   const activeAssistantMessageId =
     status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
   const assistantActionTextByMessageId = React.useMemo(() => {
@@ -1694,6 +1700,18 @@ export function ChatArea({
   }, [attachments])
 
   React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
+
+  React.useEffect(() => {
+    const deferredAttachments = deferredSubmitClearRef.current
+    if (initialSendPending || !deferredAttachments) {
+      return
+    }
+    deferredSubmitClearRef.current = null
+    revokeAttachmentPreviewUrls(deferredAttachments)
+    setDraft("")
+    setAttachments([])
+    setInputError(null)
+  }, [initialSendPending])
 
   React.useEffect(() => {
     onArtifactsReset()
@@ -1711,9 +1729,8 @@ export function ChatArea({
     }
     lastAutoScrolledUserMessageIdRef.current = lastMessage.id
     void conversationRef.current?.scrollToBottom({
-      animation: "smooth",
+      animation: "instant",
       ignoreEscapes: true,
-      duration: 250,
     })
   }, [isGenerating, messages])
 
@@ -1782,7 +1799,13 @@ export function ChatArea({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
+    const deferClear = !hasMessages
     onSend(text, attachments, modelCatalog?.selected)
+    if (deferClear) {
+      deferredSubmitClearRef.current = attachments
+      setInputError(null)
+      return
+    }
     revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
@@ -2157,7 +2180,7 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex h-full min-h-0 animate-in duration-300 fade-in slide-in-from-bottom-2">
+    <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col pb-4">
         <Conversation className="min-h-0 flex-1" contextRef={conversationRef}>
           <ConversationContent
@@ -2166,8 +2189,9 @@ export function ChatArea({
           >
             {messages.map((message) => (
               <MessageBubble
-                key={message.id}
+                key={message.clientId ?? message.id}
                 message={message}
+                pending={message.id === pendingAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
                 onOpenArtifacts={onArtifactsOpen}
@@ -2175,7 +2199,6 @@ export function ChatArea({
                 assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               />
             ))}
-            {showPendingMessage && <AssistantPendingMessage />}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>

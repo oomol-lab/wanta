@@ -51,13 +51,7 @@ export const TaskTrigger = ({ children, className, title, ...props }: TaskTrigge
 export type TaskContentProps = ComponentProps<typeof CollapsibleContent>
 
 export const TaskContent = ({ children, className, ...props }: TaskContentProps) => (
-  <CollapsibleContent
-    className={cn(
-      "text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2",
-      className,
-    )}
-    {...props}
-  >
+  <CollapsibleContent className={cn("text-popover-foreground outline-none", className)} {...props}>
     <div className="mt-4 space-y-2 border-l-2 border-muted pl-4">{children}</div>
   </CollapsibleContent>
 )

@@ -18,6 +18,10 @@ function toolPart(partId: string): ChatMessagePart {
   }
 }
 
+function errorPart(partId: string, errorText: string): ChatMessagePart {
+  return { kind: "error", partId, errorText }
+}
+
 describe("renderBlocks", () => {
   it("ignores whitespace-only text parts so adjacent tools stay grouped", () => {
     const firstTool = toolPart("tool-1")
@@ -38,6 +42,20 @@ describe("renderBlocks", () => {
     expect(blocks).toEqual([
       { kind: "tools", key: "tool-1", parts: [firstTool] },
       { kind: "text", part: visibleText },
+      { kind: "tools", key: "tool-2", parts: [secondTool] },
+    ])
+  })
+
+  it("keeps error notices as standalone separators", () => {
+    const firstTool = toolPart("tool-1")
+    const error = errorPart("error-1", "Payment Required")
+    const secondTool = toolPart("tool-2")
+
+    const blocks = renderBlocks([firstTool, error, secondTool])
+
+    expect(blocks).toEqual([
+      { kind: "tools", key: "tool-1", parts: [firstTool] },
+      { kind: "error", part: error },
       { kind: "tools", key: "tool-2", parts: [secondTool] },
     ])
   })

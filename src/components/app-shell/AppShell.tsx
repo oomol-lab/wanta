@@ -5,6 +5,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  CreditCard,
   LogOut,
   LoaderCircle,
   Package,
@@ -38,13 +39,14 @@ import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { BillingRoute } from "@/routes/Billing"
 import { ChatArea } from "@/routes/Chat"
 import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
 import { SkillsRoute } from "@/routes/Skills"
 
-type Route = "chat" | "connections" | "skills" | "settings"
+type Route = "billing" | "chat" | "connections" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
@@ -67,7 +69,7 @@ interface PendingChatTransition {
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
-  return route === "settings" || route === "connections" || route === "skills" ? route : "chat"
+  return route === "settings" || route === "connections" || route === "skills" || route === "billing" ? route : "chat"
 }
 
 function clampSidebarWidth(width: number): number {
@@ -593,11 +595,13 @@ export function AppShell() {
   const titlebarTitle =
     route === "settings"
       ? t("settings.title")
-      : route === "connections"
-        ? t("connections.title")
-        : route === "skills"
-          ? t("skills.title")
-          : (activeSession?.title ?? t("chat.newSession"))
+      : route === "billing"
+        ? t("billing.title")
+        : route === "connections"
+          ? t("connections.title")
+          : route === "skills"
+            ? t("skills.title")
+            : (activeSession?.title ?? t("chat.newSession"))
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
@@ -972,6 +976,17 @@ export function AppShell() {
             </button>
             <button
               type="button"
+              onClick={() => setRoute("billing")}
+              className={cn(
+                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                route === "billing" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+            >
+              <CreditCard className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("billing.title")}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setRoute("connections")}
               className={cn(
                 "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
@@ -1085,7 +1100,9 @@ export function AppShell() {
           </header>
 
           <main className="oo-content-surface min-h-0">
-            {route === "connections" ? (
+            {route === "billing" ? (
+              <BillingRoute onBack={() => setRoute("chat")} />
+            ) : route === "connections" ? (
               <div className="h-full min-h-0 p-0">
                 <ConnectionsPanel connections={connections} selectedService={selectedService} />
               </div>
@@ -1108,6 +1125,7 @@ export function AppShell() {
                   onArtifactsReset={handleArtifactsReset}
                   onArtifactsOpen={handleArtifactsOpen}
                   onArtifactsAvailable={handleArtifactsAvailable}
+                  onViewBilling={() => setRoute("billing")}
                 />
               </div>
             )}

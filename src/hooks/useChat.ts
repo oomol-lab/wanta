@@ -6,6 +6,7 @@ import type {
   MessageAttachmentEvent,
   MessageArtifactsEvent,
   MessageDeltaEvent,
+  MessageErrorEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
@@ -76,6 +77,21 @@ export function ensureMessage(msgs: ChatMessage[], id: string, role: ChatRole): 
 function setPart(msgs: ChatMessage[], messageId: string, part: ChatMessagePart): ChatMessage[] {
   const ensured = ensureMessage(msgs, messageId, "assistant")
   return ensured.map((m) => (m.id === messageId ? { ...m, parts: upsertPart(m.parts, part) } : m))
+}
+
+function latestAssistantMessageId(msgs: ChatMessage[]): string | null {
+  return msgs.findLast((message) => message.role === "assistant")?.id ?? null
+}
+
+export function setErrorPart(msgs: ChatMessage[], event: MessageErrorEvent): ChatMessage[] {
+  const messageId = event.messageId ?? latestAssistantMessageId(msgs) ?? `local-assistant-error-${Date.now()}`
+  return setPart(msgs, messageId, {
+    kind: "error",
+    partId: event.partId,
+    errorText: event.message,
+    ...(event.errorKind ? { errorKind: event.errorKind } : {}),
+    ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+  })
 }
 
 function shouldCancelToolPart(part: ChatMessagePart): boolean {
@@ -252,6 +268,18 @@ function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
 }
 
 export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+  const currentErrorPartsById = new Map(
+    current.map((message) => [
+      message.id,
+      message.parts.filter((part) => part.kind === "error" && Boolean(part.errorText)),
+    ]),
+  )
+  const missingLocalAssistants = current.filter(
+    (message) =>
+      message.role === "assistant" &&
+      message.id.startsWith("local-assistant-") &&
+      message.parts.some((part) => part.kind === "error" && Boolean(part.errorText)),
+  )
   const missingLocalUsers = current.filter(
     (message) =>
       message.role === "user" &&
@@ -277,10 +305,24 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
     return {
       ...message,
       clientId: currentMessage?.clientId ?? message.clientId ?? serverClientId(message.id),
+      parts: preserveLocalErrorParts(message.parts, currentErrorPartsById.get(message.id)),
       ...(artifactRoot && !message.artifactRoot ? { artifactRoot } : {}),
     }
   })
-  return missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetchedWithLocalState] : fetchedWithLocalState
+  const merged = missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetchedWithLocalState] : fetchedWithLocalState
+  return missingLocalAssistants.length > 0 ? [...merged, ...missingLocalAssistants] : merged
+}
+
+function preserveLocalErrorParts(
+  parts: ChatMessagePart[],
+  localErrorParts: ChatMessagePart[] | undefined,
+): ChatMessagePart[] {
+  if (!localErrorParts || localErrorParts.length === 0) {
+    return parts
+  }
+  const partIds = new Set(parts.map((part) => part.partId))
+  const missing = localErrorParts.filter((part) => !partIds.has(part.partId))
+  return missing.length === 0 ? parts : [...parts, ...missing]
 }
 
 export interface UseChat {
@@ -443,6 +485,11 @@ export function useChat(activeSessionId: string | null): UseChat {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
         void reload(e.sessionId)
       }),
+      chatService.serverEvents.on("messageError", (e) => {
+        setStatuses((s) => ({ ...s, [e.sessionId]: "error" }))
+        setError(null)
+        patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
+      }),
       chatService.serverEvents.on("generationStopped", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
         setError(null)
@@ -490,7 +537,14 @@ export function useChat(activeSessionId: string | null): UseChat {
         })
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))
-        setError(String(err))
+        setError(null)
+        patch(sessionId, (msgs) =>
+          setErrorPart(msgs, {
+            sessionId,
+            partId: `local-error-${Date.now()}`,
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        )
       }
     },
     [chatService, patch],

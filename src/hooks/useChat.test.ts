@@ -1,7 +1,7 @@
 import type { ChatAttachment, ChatMessage } from "../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { appendOptimisticConversationTurn, ensureMessage, mergeFetchedMessages } from "./useChat.ts"
+import { appendOptimisticConversationTurn, ensureMessage, mergeFetchedMessages, setErrorPart } from "./useChat.ts"
 
 const pdfAttachment: ChatAttachment = {
   id: "att-1",
@@ -65,5 +65,49 @@ describe("chat message identity reconciliation", () => {
     expect(merged[0]?.clientId).toBe(current[0]?.clientId)
     expect(merged[1]?.clientId).toBe(current[1]?.clientId)
     expect(merged[1]?.parts).toEqual([{ kind: "text", partId: "text-1", text: "Done" }])
+  })
+
+  it("attaches message errors to the latest assistant bubble", () => {
+    const current = appendOptimisticConversationTurn([], "Create a report", [])
+    const updated = setErrorPart(current, {
+      sessionId: "s1",
+      partId: "error-1",
+      message: "Payment Required: account is in deficit",
+      errorKind: "payment_required",
+      errorCode: "OOMOL_INSUFFICIENT_CREDIT",
+    })
+
+    expect(updated[1]?.parts).toEqual([
+      {
+        kind: "error",
+        partId: "error-1",
+        errorText: "Payment Required: account is in deficit",
+        errorKind: "payment_required",
+        errorCode: "OOMOL_INSUFFICIENT_CREDIT",
+      },
+    ])
+  })
+
+  it("preserves local error parts when full history reloads", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ kind: "error", partId: "error-1", errorText: "Payment Required" }],
+        createdAt: 1,
+      },
+    ]
+    const fetched: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [],
+        createdAt: 1,
+      },
+    ]
+
+    expect(mergeFetchedMessages(current, fetched)[0]?.parts).toEqual([
+      { kind: "error", partId: "error-1", errorText: "Payment Required" },
+    ])
   })
 })

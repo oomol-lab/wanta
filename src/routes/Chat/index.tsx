@@ -58,6 +58,7 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
+import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import {
@@ -118,6 +119,7 @@ interface ChatAreaProps {
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onViewBilling?: () => void
 }
 
 type DraftAttachment = ChatAttachment & {
@@ -858,12 +860,14 @@ function MessageBubble({
   pending,
   providerByService,
   onAuthorize,
+  onViewBilling,
   assistantActionsText,
 }: {
   message: ChatMessage
   pending: boolean
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
   assistantActionsText: string | null
 }) {
   const t = useT()
@@ -937,11 +941,19 @@ function MessageBubble({
     <Message from="assistant">
       <MessageContent className="gap-0">
         {blocks.map((block, index) => (
-          <div key={block.kind === "text" ? block.part.partId : block.key} className={blockClassName(index)}>
+          <div key={block.kind === "tools" ? block.key : block.part.partId} className={blockClassName(index)}>
             {block.kind === "text" ? (
               block.part.text ? (
                 <MessageResponse>{block.part.text}</MessageResponse>
               ) : null
+            ) : block.kind === "error" ? (
+              <ChatErrorNotice
+                autoOpenKey={block.part.partId}
+                errorCode={block.part.errorCode}
+                errorKind={block.part.errorKind}
+                message={block.part.errorText ?? block.part.error ?? "Agent error"}
+                onViewBilling={onViewBilling}
+              />
             ) : (
               <ToolActivity parts={block.parts} providerByService={providerByService} onAuthorize={onAuthorize} />
             )}
@@ -1670,6 +1682,7 @@ export function ChatArea({
   onArtifactsReset,
   onArtifactsOpen,
   onArtifactsAvailable,
+  onViewBilling,
 }: ChatAreaProps) {
   const t = useT()
   const chatService = useChatService()
@@ -2222,6 +2235,7 @@ export function ChatArea({
                 pending={message.id === pendingAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
+                onViewBilling={onViewBilling}
                 assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               />
             ))}

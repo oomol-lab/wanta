@@ -929,7 +929,7 @@ export function AppShell() {
     setArtifactsPanelOpen(true)
   }, [])
   const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
-    setArtifactSelection((current) => current ?? selection)
+    setArtifactSelection((current) => (current?.messageId === selection.messageId ? current : selection))
   }, [])
   const artifactsPanelVisible = route === "chat" && artifactsPanelOpen
   const showArtifactsToggle = route === "chat" && !artifactsPanelVisible

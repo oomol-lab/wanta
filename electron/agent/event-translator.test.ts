@@ -30,6 +30,41 @@ test("text part.updated forwards streaming delta when cumulative text is unavail
   ])
 })
 
+test("file part.updated → messageAttachment", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "p-file",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "file",
+        filename: "report.pdf",
+        mime: "application/pdf",
+        source: { path: "/Users/me/report.pdf" },
+      },
+    },
+  })
+  assert.deepEqual(out, [
+    {
+      event: "messageAttachment",
+      data: {
+        sessionId: "s1",
+        messageId: "m1",
+        partId: "p-file",
+        attachment: {
+          id: "p-file",
+          name: "report.pdf",
+          mime: "application/pdf",
+          size: 0,
+          path: "/Users/me/report.pdf",
+          kind: "file",
+        },
+      },
+    },
+  ])
+})
+
 test("tool part pending → toolCallStarted", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",

@@ -939,6 +939,7 @@ function MessageBubble({
         <GeneratedArtifacts
           messageId={message.id}
           text={assistantText}
+          artifactRoot={message.artifactRoot}
           onOpen={onOpenArtifacts}
           onAvailable={onArtifactsAvailable}
         />

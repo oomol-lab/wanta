@@ -177,6 +177,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private voiceAuthToken: string | undefined
   private bridged = false
   private userStoppedSessions = new Map<string, number>()
+  private pendingArtifactDirs = new Map<string, string[]>()
 
   public constructor(agent: AgentManager | null = null) {
     super(ChatServiceName)
@@ -188,6 +189,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.agent = agent
     this.bridged = false
     this.userStoppedSessions.clear()
+    this.pendingArtifactDirs.clear()
   }
 
   /** 登录 / 登出时由 main 更新 Studio ASR 需要的 oomol-token。只在主进程内使用，renderer 不可见。 */
@@ -212,9 +214,47 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           void emit("generationStopped", { sessionId: translated.data.sessionId })
           continue
         }
+        if (translated.event === "messageStarted" && translated.data.role === "assistant") {
+          const artifactRoot = this.consumePendingArtifactDir(translated.data.sessionId)
+          if (artifactRoot) {
+            void emit("messageArtifacts", {
+              sessionId: translated.data.sessionId,
+              messageId: translated.data.messageId,
+              artifactRoot,
+            })
+          }
+        }
         void emit(translated.event, translated.data)
       }
     })
+  }
+
+  private enqueuePendingArtifactDir(sessionId: string, artifactDir: string): void {
+    const queue = this.pendingArtifactDirs.get(sessionId) ?? []
+    queue.push(artifactDir)
+    this.pendingArtifactDirs.set(sessionId, queue)
+  }
+
+  private consumePendingArtifactDir(sessionId: string): string | undefined {
+    const queue = this.pendingArtifactDirs.get(sessionId)
+    const artifactDir = queue?.shift()
+    if (!queue || queue.length === 0) {
+      this.pendingArtifactDirs.delete(sessionId)
+    }
+    return artifactDir
+  }
+
+  private removePendingArtifactDir(sessionId: string, artifactDir: string): void {
+    const queue = this.pendingArtifactDirs.get(sessionId)
+    if (!queue) {
+      return
+    }
+    const next = queue.filter((item) => item !== artifactDir)
+    if (next.length === 0) {
+      this.pendingArtifactDirs.delete(sessionId)
+      return
+    }
+    this.pendingArtifactDirs.set(sessionId, next)
   }
 
   private markUserStopped(sessionId: string): void {
@@ -252,10 +292,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    const artifactDir = await this.agent.createArtifactDir(req.sessionId)
+    this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
     void this.agent
-      .promptStreaming(req.sessionId, req.text, { attachments: req.attachments, model: req.model })
+      .promptStreaming(req.sessionId, req.text, { attachments: req.attachments, model: req.model, artifactDir })
       .catch((error: unknown) => {
+        this.removePendingArtifactDir(req.sessionId, artifactDir)
         void this.send("agentError", { sessionId: req.sessionId, message: errorMessage(error) })
       })
   }
@@ -279,7 +322,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult> {
-    const candidates = extractLocalPathCandidates(req.text)
+    const candidates = req.artifactRoot ? [req.artifactRoot] : extractLocalPathCandidates(req.text ?? "")
     const maxDirectoryItems = Math.max(1, Math.min(req.maxDirectoryItems ?? defaultMaxDirectoryItems, 200))
     const seen = new Set<string>()
     const groups: LocalArtifactGroup[] = []

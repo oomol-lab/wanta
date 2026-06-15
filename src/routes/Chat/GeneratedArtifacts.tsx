@@ -11,12 +11,14 @@ import { cn } from "@/lib/utils"
 const previewLimit = 4
 
 export interface ArtifactSelection {
+  messageId: string
   group: LocalArtifactGroup
 }
 
 interface GeneratedArtifactsProps {
   messageId: string
   text: string
+  artifactRoot?: string
   onOpen: (selection: ArtifactSelection) => void
   onAvailable: (selection: ArtifactSelection) => void
 }
@@ -89,9 +91,11 @@ function ArtifactsEmptyState() {
 
 function GeneratedArtifactsGroup({
   group,
+  messageId,
   onOpen,
 }: {
   group: LocalArtifactGroup
+  messageId: string
   onOpen: (selection: ArtifactSelection) => void
 }) {
   const t = useT()
@@ -103,7 +107,7 @@ function GeneratedArtifactsGroup({
   const openRoot = async (event: React.MouseEvent): Promise<void> => {
     event.stopPropagation()
     if (!group.root) {
-      onOpen({ group })
+      onOpen({ messageId, group })
       return
     }
     await chatService.invoke("openLocalPath", { path: group.root.path }).catch(() => undefined)
@@ -117,7 +121,7 @@ function GeneratedArtifactsGroup({
             type="button"
             title={group.root.path}
             className="oo-border-divider flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => onOpen({ group })}
+            onClick={() => onOpen({ messageId, group })}
           >
             <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{group.root.name}</span>
@@ -145,7 +149,7 @@ function GeneratedArtifactsGroup({
               type="button"
               title={item.path}
               className="oo-border-divider flex h-8 max-w-48 min-w-0 items-center gap-2 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => onOpen({ group })}
+              onClick={() => onOpen({ messageId, group })}
             >
               <ArtifactIcon item={item} className="text-muted-foreground" />
               <span className="min-w-0 truncate">{item.name}</span>
@@ -155,7 +159,7 @@ function GeneratedArtifactsGroup({
             <button
               type="button"
               className="flex h-8 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-accent"
-              onClick={() => onOpen({ group })}
+              onClick={() => onOpen({ messageId, group })}
             >
               {t("artifacts.viewAll", { count: total })}
               <span aria-hidden>→</span>
@@ -167,20 +171,20 @@ function GeneratedArtifactsGroup({
   )
 }
 
-export function GeneratedArtifacts({ messageId, text, onOpen, onAvailable }: GeneratedArtifactsProps) {
+export function GeneratedArtifacts({ messageId, text, artifactRoot, onOpen, onAvailable }: GeneratedArtifactsProps) {
   const t = useT()
   const chatService = useChatService()
   const [groups, setGroups] = React.useState<LocalArtifactGroup[]>([])
 
   React.useEffect(() => {
     const trimmed = text.trim()
-    if (!trimmed) {
+    if (!artifactRoot && !trimmed) {
       setGroups([])
       return
     }
     let cancelled = false
     void chatService
-      .invoke("resolveLocalArtifacts", { text: trimmed })
+      .invoke("resolveLocalArtifacts", artifactRoot ? { artifactRoot } : { text: trimmed })
       .then((result) => {
         if (!cancelled) {
           setGroups(result.groups)
@@ -194,14 +198,14 @@ export function GeneratedArtifacts({ messageId, text, onOpen, onAvailable }: Gen
     return () => {
       cancelled = true
     }
-  }, [chatService, messageId, text])
+  }, [artifactRoot, chatService, messageId, text])
 
   React.useEffect(() => {
     const group = groups[0]
     if (group) {
-      onAvailable({ group })
+      onAvailable({ messageId, group })
     }
-  }, [groups, onAvailable])
+  }, [groups, messageId, onAvailable])
 
   if (groups.length === 0) {
     return null
@@ -215,6 +219,7 @@ export function GeneratedArtifacts({ messageId, text, onOpen, onAvailable }: Gen
           <GeneratedArtifactsGroup
             key={group.root?.path ?? group.items.map((item) => item.path).join("\n")}
             group={group}
+            messageId={messageId}
             onOpen={onOpen}
           />
         ))}

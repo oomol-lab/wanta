@@ -6,7 +6,8 @@ import type { BuildSessionTitleInput } from "../session/title.ts"
 import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 
-import { randomBytes } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
+import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
@@ -40,6 +41,7 @@ export interface PromptStreamingOptions {
   system?: string
   attachments?: ChatAttachment[]
   model?: ModelChoice
+  artifactDir?: string
 }
 
 interface RawSession {
@@ -236,7 +238,10 @@ export class AgentManager {
    * 让已授权 provider 跳过 discovery（但仍需 inspect_action 查 schema 再 call_action）。稳定前缀（人格/工具/契约）留在 agent.prompt 以利缓存。
    */
   public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
-    const tail = options.system ?? (await this.buildAuthorizedSystem())
+    const tail = mergeSystemPrompts(
+      options.system ?? (await this.buildAuthorizedSystem()),
+      buildArtifactSystem(options.artifactDir),
+    )
     const result = await this.client.session.promptAsync({
       path: { id: sessionId },
       body: {
@@ -286,6 +291,17 @@ export class AgentManager {
 
   public async abort(sessionId: string): Promise<void> {
     await this.client.session.abort({ path: { id: sessionId } })
+  }
+
+  public async createArtifactDir(sessionId: string): Promise<string> {
+    const dir = path.join(
+      this.options.rootDir,
+      "artifacts",
+      sanitizeArtifactPathSegment(sessionId),
+      `${Date.now()}-${randomUUID()}`,
+    )
+    await mkdir(dir, { recursive: true })
+    return dir
   }
 
   /** 阻塞发送（headless 验证用）：发送并返回该会话全部消息。 */
@@ -351,6 +367,27 @@ function buildPromptParts(
   return parts
 }
 
+function buildArtifactSystem(artifactDir: string | undefined): string | undefined {
+  if (!artifactDir) {
+    return undefined
+  }
+  return [
+    "Artifact output contract for this turn:",
+    `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
+    "- Do not reuse output folders from earlier turns or other chats.",
+    "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
+    "- When you finish, report the absolute path to the artifact directory and the generated files.",
+  ].join("\n")
+}
+
+function mergeSystemPrompts(...parts: Array<string | undefined>): string | undefined {
+  const merged = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n")
+  return merged || undefined
+}
+
 function buildTitleSource(input: BuildSessionTitleInput): string {
   const parts = [input.text, ...(input.attachmentNames ?? []).map((name) => `Attachment: ${name}`)]
     .map((part) => part.trim())
@@ -360,4 +397,8 @@ function buildTitleSource(input: BuildSessionTitleInput): string {
 
 function pathToFileUrl(filePath: string): string {
   return pathToFileURL(path.resolve(filePath)).toString()
+}
+
+function sanitizeArtifactPathSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "session"
 }

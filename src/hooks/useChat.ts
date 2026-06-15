@@ -3,6 +3,8 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ChatRole,
+  MessageAttachmentEvent,
+  MessageArtifactsEvent,
   MessageDeltaEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
@@ -107,6 +109,29 @@ function setTextPart(msgs: ChatMessage[], event: MessageDeltaEvent): ChatMessage
   })
 }
 
+function setAttachmentPart(msgs: ChatMessage[], event: MessageAttachmentEvent): ChatMessage[] {
+  const ensured = ensureMessage(msgs, event.messageId, "user")
+  return ensured.map((message) =>
+    message.id === event.messageId
+      ? {
+          ...message,
+          parts: upsertPart(message.parts, {
+            kind: "attachment",
+            partId: event.partId,
+            attachment: event.attachment,
+          }),
+        }
+      : message,
+  )
+}
+
+function setMessageArtifactRoot(msgs: ChatMessage[], event: MessageArtifactsEvent): ChatMessage[] {
+  const ensured = ensureMessage(msgs, event.messageId, "assistant")
+  return ensured.map((message) =>
+    message.id === event.messageId ? { ...message, artifactRoot: event.artifactRoot } : message,
+  )
+}
+
 function messageText(message: ChatMessage): string {
   return message.parts
     .filter((part) => part.kind === "text")
@@ -175,7 +200,14 @@ function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): C
       message.id.startsWith("local-user-") &&
       !hasUserMessage(fetched, messageText(message), messageAttachments(message)),
   )
-  return missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetched] : fetched
+  const artifactRootByMessageId = new Map(
+    current.flatMap((message) => (message.artifactRoot ? [[message.id, message.artifactRoot] as const] : [])),
+  )
+  const fetchedWithLocalState = fetched.map((message) => {
+    const artifactRoot = artifactRootByMessageId.get(message.id)
+    return artifactRoot && !message.artifactRoot ? { ...message, artifactRoot } : message
+  })
+  return missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetchedWithLocalState] : fetchedWithLocalState
 }
 
 export interface UseChat {
@@ -287,6 +319,12 @@ export function useChat(activeSessionId: string | null): UseChat {
       chatService.serverEvents.on("messageDelta", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
         patch(e.sessionId, (msgs) => setTextPart(msgs, e))
+      }),
+      chatService.serverEvents.on("messageAttachment", (e) => {
+        patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
+      }),
+      chatService.serverEvents.on("messageArtifacts", (e) => {
+        patch(e.sessionId, (msgs) => setMessageArtifactRoot(msgs, e))
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))

@@ -34,6 +34,17 @@ export interface MessageDeltaEvent {
   /** OpenCode 流式增量；某些 provider 在最终事件前不会持续更新 text。 */
   delta?: string
 }
+export interface MessageAttachmentEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+  attachment: ChatAttachment
+}
+export interface MessageArtifactsEvent {
+  sessionId: string
+  messageId: string
+  artifactRoot: string
+}
 export interface ToolCallStartedEvent {
   sessionId: string
   messageId: string
@@ -103,6 +114,7 @@ export interface ChatMessage {
   role: ChatRole
   parts: ChatMessagePart[]
   createdAt: number
+  artifactRoot?: string
 }
 
 export interface SendMessageRequest {
@@ -157,7 +169,8 @@ export interface LocalArtifactGroup {
 }
 
 export interface ResolveLocalArtifactsRequest {
-  text: string
+  text?: string
+  artifactRoot?: string
   maxDirectoryItems?: number
 }
 
@@ -174,6 +187,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   ServerEvents: {
     messageStarted: MessageStartedEvent
     messageDelta: MessageDeltaEvent
+    messageAttachment: MessageAttachmentEvent
+    messageArtifacts: MessageArtifactsEvent
     toolCallStarted: ToolCallStartedEvent
     toolCallResult: ToolCallResultEvent
     authorizationRequired: AuthorizationRequiredEvent

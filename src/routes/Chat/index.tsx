@@ -61,13 +61,11 @@ import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import {
   compactPathDetail,
   compactToolDetail,
-  classifyToolPart,
   formatToolActivityDuration,
   formatToolDuration,
   shouldShowRunningNoOutput,
   summarizeToolCategory,
   toolActivityTitle,
-  toolCategoryLabel,
 } from "./tool-activity.ts"
 import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
@@ -430,6 +428,14 @@ function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
   return isToolCancellation(part) ? t("chat.toolStatusStopped") : toolStatusLabel(t, part.status)
 }
 
+function toolInlineDetail(part: ChatMessagePart): string {
+  if (part.tool !== "bash") {
+    return ""
+  }
+  const command = str(part.input?.command).split("\n")[0]
+  return command ? compactToolDetail(command, 96) : ""
+}
+
 function formatToolOutput(output: string | undefined): string {
   if (!output) {
     return ""
@@ -536,8 +542,8 @@ function ToolActivityStep({
   const details = hasToolDetails(part, auth)
   const duration = formatToolDuration(part, now)
   const statusText = toolPartStatusLabel(t, part)
-  const category = classifyToolPart(part)
-  const categoryText = toolCategoryLabel(t, category)
+  const inlineDetail = toolInlineDetail(part)
+  const metaText = [provider?.displayName, statusText, duration].filter(Boolean).join(" · ")
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
       {provider ? (
@@ -552,20 +558,12 @@ function ToolActivityStep({
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="min-w-0 truncate text-xs text-foreground">{toolActionSummary(t, part)}</span>
-          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            {provider ? (
-              <>
-                <span>{provider.displayName}</span>
-                <span>·</span>
-              </>
-            ) : (
-              <ToolCategoryIcon category={category} />
-            )}
-            <span>{provider ? t("chat.toolCategoryConnector") : categoryText}</span>
-            <span>·</span>
-            <span>{statusText}</span>
-          </span>
-          {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
+          {inlineDetail && (
+            <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+              {inlineDetail}
+            </code>
+          )}
+          <span className="shrink-0 text-xs text-muted-foreground">{metaText}</span>
         </div>
         {auth && (
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -651,7 +649,7 @@ function ToolActivity({
   const hasAuth = parts.some(
     (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
   )
-  const shouldOpen = hasActive || hasError || hasAuth
+  const shouldOpen = hasError || hasAuth
   const statusKey = parts.map((part) => `${part.partId}:${part.status}`).join("|")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())

@@ -1,5 +1,5 @@
 import type { ChatMessagePart } from "../../../electron/chat/common.ts"
-import type { TranslateFn } from "@/i18n/i18n"
+import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
 export type ToolCategory = "connector" | "shell" | "file" | "web" | "task" | "skill" | "custom" | "mixed"
 
@@ -11,38 +11,119 @@ interface ToolActivityTitleState {
   category?: ToolCategory
 }
 
+type ToolActivityTitleKind =
+  | "connector"
+  | "shell"
+  | "file"
+  | "fileRead"
+  | "fileWrite"
+  | "fileEdit"
+  | "fileList"
+  | "fileSearch"
+  | "web"
+  | "task"
+  | "skill"
+  | "custom"
+  | "mixed"
+
+type ToolActivityTitleStatus = "completed" | "running" | "error" | "stopped"
+
+const toolActivityTitleKeys = {
+  connector: {
+    completed: "chat.toolActivityConnectorCompleted",
+    running: "chat.toolActivityConnectorRunning",
+    error: "chat.toolActivityConnectorError",
+    stopped: "chat.toolActivityConnectorStopped",
+  },
+  shell: {
+    completed: "chat.toolActivityShellCompleted",
+    running: "chat.toolActivityShellRunning",
+    error: "chat.toolActivityShellError",
+    stopped: "chat.toolActivityShellStopped",
+  },
+  file: {
+    completed: "chat.toolActivityFileCompleted",
+    running: "chat.toolActivityFileRunning",
+    error: "chat.toolActivityFileError",
+    stopped: "chat.toolActivityFileStopped",
+  },
+  fileRead: {
+    completed: "chat.toolActivityFileReadCompleted",
+    running: "chat.toolActivityFileReadRunning",
+    error: "chat.toolActivityFileReadError",
+    stopped: "chat.toolActivityFileReadStopped",
+  },
+  fileWrite: {
+    completed: "chat.toolActivityFileWriteCompleted",
+    running: "chat.toolActivityFileWriteRunning",
+    error: "chat.toolActivityFileWriteError",
+    stopped: "chat.toolActivityFileWriteStopped",
+  },
+  fileEdit: {
+    completed: "chat.toolActivityFileEditCompleted",
+    running: "chat.toolActivityFileEditRunning",
+    error: "chat.toolActivityFileEditError",
+    stopped: "chat.toolActivityFileEditStopped",
+  },
+  fileList: {
+    completed: "chat.toolActivityFileListCompleted",
+    running: "chat.toolActivityFileListRunning",
+    error: "chat.toolActivityFileListError",
+    stopped: "chat.toolActivityFileListStopped",
+  },
+  fileSearch: {
+    completed: "chat.toolActivityFileSearchCompleted",
+    running: "chat.toolActivityFileSearchRunning",
+    error: "chat.toolActivityFileSearchError",
+    stopped: "chat.toolActivityFileSearchStopped",
+  },
+  web: {
+    completed: "chat.toolActivityWebCompleted",
+    running: "chat.toolActivityWebRunning",
+    error: "chat.toolActivityWebError",
+    stopped: "chat.toolActivityWebStopped",
+  },
+  task: {
+    completed: "chat.toolActivityTaskCompleted",
+    running: "chat.toolActivityTaskRunning",
+    error: "chat.toolActivityTaskError",
+    stopped: "chat.toolActivityTaskStopped",
+  },
+  skill: {
+    completed: "chat.toolActivitySkillCompleted",
+    running: "chat.toolActivitySkillRunning",
+    error: "chat.toolActivitySkillError",
+    stopped: "chat.toolActivitySkillStopped",
+  },
+  custom: {
+    completed: "chat.toolActivityCustomCompleted",
+    running: "chat.toolActivityCustomRunning",
+    error: "chat.toolActivityCustomError",
+    stopped: "chat.toolActivityCustomStopped",
+  },
+  mixed: {
+    completed: "chat.toolActivityMixedCompleted",
+    running: "chat.toolActivityMixedRunning",
+    error: "chat.toolActivityMixedError",
+    stopped: "chat.toolActivityMixedStopped",
+  },
+} satisfies Record<ToolActivityTitleKind, Record<ToolActivityTitleStatus, MessageKey>>
+
 export function toolActivityTitle(
   t: TranslateFn,
   parts: ChatMessagePart[],
   { hasActive, hasError, hasStopped, duration, category = summarizeToolCategory(parts) }: ToolActivityTitleState,
 ): string {
   const withDuration = (title: string) => (duration ? `${title} · ${duration}` : title)
-  if (hasError) {
-    return withDuration(
-      category === "mixed"
-        ? t("chat.toolActivityError", { count: parts.length })
-        : t("chat.toolActivityCategoryError", { count: parts.length, category: toolCategoryLabel(t, category) }),
-    )
-  }
-  if (hasActive) {
-    return withDuration(
-      category === "mixed"
-        ? t("chat.toolActivityRunning", { count: parts.length })
-        : t("chat.toolActivityCategoryRunning", { count: parts.length, category: toolCategoryLabel(t, category) }),
-    )
-  }
-  if (hasStopped) {
-    return withDuration(
-      category === "mixed"
-        ? t("chat.toolActivityStopped", { count: parts.length })
-        : t("chat.toolActivityCategoryStopped", { count: parts.length, category: toolCategoryLabel(t, category) }),
-    )
-  }
-  return withDuration(
-    category === "mixed"
-      ? t("chat.toolActivityCompleted", { count: parts.length })
-      : t("chat.toolActivityCategoryCompleted", { count: parts.length, category: toolCategoryLabel(t, category) }),
-  )
+  const status: ToolActivityTitleStatus = hasError
+    ? "error"
+    : hasActive
+      ? "running"
+      : hasStopped
+        ? "stopped"
+        : "completed"
+  const kind = toolActivityTitleKind(parts, category)
+  return withDuration(t(toolActivityTitleKeys[kind][status], { count: parts.length }))
 }
 
 export function classifyToolPart(part: ChatMessagePart): ToolCategory {
@@ -88,6 +169,42 @@ export function summarizeToolCategory(parts: ChatMessagePart[]): ToolCategory {
     }
   }
   return category ?? "custom"
+}
+
+function toolActivityTitleKind(parts: ChatMessagePart[], category: ToolCategory): ToolActivityTitleKind {
+  if (category !== "file") {
+    return category
+  }
+
+  let tool: string | undefined
+  for (const part of parts) {
+    if (!part.tool) {
+      return "file"
+    }
+    if (tool === undefined) {
+      tool = part.tool
+      continue
+    }
+    if (tool !== part.tool) {
+      return "file"
+    }
+  }
+
+  switch (tool) {
+    case "read":
+      return "fileRead"
+    case "write":
+      return "fileWrite"
+    case "edit":
+      return "fileEdit"
+    case "list":
+      return "fileList"
+    case "grep":
+    case "glob":
+      return "fileSearch"
+    default:
+      return "file"
+  }
 }
 
 export function toolCategoryLabel(t: TranslateFn, category: ToolCategory): string {

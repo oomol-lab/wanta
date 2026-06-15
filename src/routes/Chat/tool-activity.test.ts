@@ -28,7 +28,7 @@ const t: TranslateFn = (key, vars) => {
   if (labels[key]) {
     return labels[key]
   }
-  return `${key}:${vars?.category ?? ""}:${vars?.count ?? ""}`
+  return `${key}:${vars?.count ?? ""}`
 }
 
 function toolPart(partId: string, extra: Partial<ChatMessagePart> = {}): ChatMessagePart {
@@ -51,7 +51,7 @@ describe("toolActivityTitle", () => {
       hasStopped: false,
     })
 
-    expect(title).toBe("chat.toolActivityCategoryCompleted:shell:1")
+    expect(title).toBe("chat.toolActivityShellCompleted:1")
   })
 
   it("uses operation counts for grouped tool activities", () => {
@@ -61,7 +61,7 @@ describe("toolActivityTitle", () => {
       hasStopped: false,
     })
 
-    expect(title).toBe("chat.toolActivityCategoryRunning:shell:2")
+    expect(title).toBe("chat.toolActivityShellRunning:2")
   })
 
   it("uses the stopped state when grouped tools were cancelled", () => {
@@ -71,7 +71,17 @@ describe("toolActivityTitle", () => {
       hasStopped: true,
     })
 
-    expect(title).toBe("chat.toolActivityCategoryStopped:shell:2")
+    expect(title).toBe("chat.toolActivityShellStopped:2")
+  })
+
+  it("uses specific file operation summaries", () => {
+    const title = toolActivityTitle(t, [toolPart("tool-1", { tool: "edit" })], {
+      hasActive: false,
+      hasError: false,
+      hasStopped: false,
+    })
+
+    expect(title).toBe("chat.toolActivityFileEditCompleted:1")
   })
 
   it("appends duration when available", () => {
@@ -82,7 +92,7 @@ describe("toolActivityTitle", () => {
       duration: "1.5s",
     })
 
-    expect(title).toBe("chat.toolActivityCategoryCompleted:shell:1 · 1.5s")
+    expect(title).toBe("chat.toolActivityShellCompleted:1 · 1.5s")
   })
 
   it("falls back to generic tool calls for mixed categories", () => {
@@ -96,7 +106,7 @@ describe("toolActivityTitle", () => {
       },
     )
 
-    expect(title).toBe("chat.toolActivityCompleted::2")
+    expect(title).toBe("chat.toolActivityMixedCompleted:2")
   })
 })
 

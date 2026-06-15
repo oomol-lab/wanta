@@ -18,6 +18,7 @@ export interface PersistedCustomModel {
   apiKey: string
   modelName: string
   displayName?: string
+  supportsImages?: boolean
 }
 
 export interface PersistedModels {
@@ -87,6 +88,7 @@ export function publicCustomModel(model: PersistedCustomModel): CustomModelSumma
     modelName: model.modelName,
     displayName: customModelDisplayName(model),
     apiKeyConfigured: model.apiKey.length > 0,
+    supportsImages: model.supportsImages === true,
   }
 }
 
@@ -179,6 +181,7 @@ function isPersistedCustomModel(value: unknown): value is PersistedCustomModel {
     typeof model.baseUrl === "string" &&
     typeof model.apiKey === "string" &&
     typeof model.modelName === "string" &&
-    (model.displayName === undefined || typeof model.displayName === "string")
+    (model.displayName === undefined || typeof model.displayName === "string") &&
+    (model.supportsImages === undefined || typeof model.supportsImages === "boolean")
   )
 }

@@ -638,7 +638,7 @@
   }
 
   .oo-main-titlebar-title {
-    max-width: min(42ch, 58vw);
+    max-width: min(30ch, 38vw);
     opacity: 1;
     visibility: visible;
     transition: opacity 80ms ease-out 80ms;

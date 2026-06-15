@@ -1478,7 +1478,9 @@ function ModelPicker({
                     active={sameModelChoice(catalog.selected, choice)}
                     icon={<ProviderMark name={model.providerName} />}
                     title={model.modelName}
-                    subtitle={model.providerName}
+                    subtitle={
+                      model.supportsImages ? `${model.providerName} / ${t("chat.modelVision")}` : model.providerName
+                    }
                     deleteLabel={t("chat.modelDelete")}
                     onSelect={() => {
                       onSelect(choice)
@@ -1554,7 +1556,9 @@ function AddCustomModelDialog({
   const [baseUrl, setBaseUrl] = React.useState(providerBaseUrl(firstProvider))
   const [apiKey, setApiKey] = React.useState("")
   const [modelName, setModelName] = React.useState("")
+  const [supportsImages, setSupportsImages] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const supportsImagesId = React.useId()
   const provider = providers.find((item) => item.id === providerId)
 
   React.useEffect(() => {
@@ -1564,6 +1568,7 @@ function AddCustomModelDialog({
       setBaseUrl(providerBaseUrl(initial))
       setApiKey("")
       setModelName("")
+      setSupportsImages(false)
       setSaving(false)
     }
   }, [open, providers])
@@ -1601,6 +1606,7 @@ function AddCustomModelDialog({
                 baseUrl,
                 apiKey,
                 modelName,
+                supportsImages,
               }).finally(() => setSaving(false))
             }}
           >
@@ -1663,6 +1669,22 @@ function AddCustomModelDialog({
         <div className="grid gap-1.5">
           <Label>{t("chat.modelName")}</Label>
           <Input value={modelName} onChange={(event) => setModelName(event.target.value)} placeholder="deepseek-chat" />
+        </div>
+
+        <div className="rounded-md border border-border/70 px-3 py-2.5">
+          <label htmlFor={supportsImagesId} className="flex cursor-pointer items-start gap-3">
+            <input
+              id={supportsImagesId}
+              type="checkbox"
+              checked={supportsImages}
+              onChange={(event) => setSupportsImages(event.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span className="grid gap-1">
+              <span className="text-sm font-medium">{t("chat.modelSupportsImages")}</span>
+              <span className="oo-text-caption text-muted-foreground">{t("chat.modelSupportsImagesDescription")}</span>
+            </span>
+          </label>
         </div>
 
         {error ? <div className="oo-error flex items-center gap-2">{error}</div> : null}

@@ -54,6 +54,7 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       apiKey,
       modelName,
       displayName: req.displayName?.trim() || undefined,
+      supportsImages: req.supportsImages === true,
     }
     const customModels = existing
       ? current.map((model) => (model.id === existing.id ? next : model))

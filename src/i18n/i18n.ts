@@ -66,6 +66,9 @@ const messages = {
     "chat.modelDocs": "查看文档",
     "chat.modelApiKey": "API Key",
     "chat.modelName": "模型名称",
+    "chat.modelVision": "图片输入",
+    "chat.modelSupportsImages": "支持图片输入",
+    "chat.modelSupportsImagesDescription": "仅当该模型确实支持视觉理解时开启，图片附件会作为多模态输入发送。",
     "chatError.paymentRequired.title": "点数不足，回复未完成",
     "chatError.paymentRequired.description": "当前账户点数不足以完成这次生成。充值后可重新发送。",
     "chatError.paymentRequired.primaryAction": "充值点数",
@@ -567,6 +570,10 @@ const messages = {
     "chat.modelDocs": "Docs",
     "chat.modelApiKey": "API Key",
     "chat.modelName": "Model name",
+    "chat.modelVision": "Image input",
+    "chat.modelSupportsImages": "Supports image input",
+    "chat.modelSupportsImagesDescription":
+      "Enable only for models that support vision. Image attachments will be sent as multimodal input.",
     "chatError.paymentRequired.title": "Not enough credits",
     "chatError.paymentRequired.description":
       "Your current balance is not enough to complete this response. Add credits and try again.",

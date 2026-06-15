@@ -26,6 +26,7 @@ export interface CustomModelSummary {
   modelName: string
   displayName: string
   apiKeyConfigured: boolean
+  supportsImages: boolean
 }
 
 export type ModelChoice = { kind: "builtin"; id: BuiltinModelId } | { kind: "custom"; id: string }
@@ -45,6 +46,7 @@ export interface SaveCustomModelRequest {
   apiKey?: string
   modelName: string
   displayName?: string
+  supportsImages?: boolean
 }
 
 export type ModelsService = typeof ModelsService

@@ -18,10 +18,13 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider (derived ba
   assert.equal(provider.npm, "@ai-sdk/openai-compatible")
   assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
   assert.equal(provider.options?.apiKey, "api-test")
-  assert.ok(provider.models?.[LUMO_MODEL_ID])
+  const model = provider.models?.[LUMO_MODEL_ID]
+  assert.ok(model)
+  assert.equal(model.attachment, true)
+  assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
 
-test("buildOpencodeConfig wires custom openai-compatible providers without changing the default model", () => {
+test("buildOpencodeConfig wires text-only custom openai-compatible providers without changing the default model", () => {
   const config = buildOpencodeConfig({
     apiKey: "api-test",
     customModels: [
@@ -40,7 +43,31 @@ test("buildOpencodeConfig wires custom openai-compatible providers without chang
   assert.equal(provider.npm, "@ai-sdk/openai-compatible")
   assert.equal(provider.options?.baseURL, "https://api.deepseek.com/v1")
   assert.equal(provider.options?.apiKey, "sk-custom")
-  assert.equal(provider.models?.["deepseek-chat"]?.tool_call, true)
+  const model = provider.models?.["deepseek-chat"]
+  assert.equal(model?.tool_call, true)
+  assert.equal(model?.attachment, undefined)
+  assert.equal(model?.modalities, undefined)
+})
+
+test("buildOpencodeConfig marks custom providers as image-capable only when requested", () => {
+  const config = buildOpencodeConfig({
+    apiKey: "api-test",
+    customModels: [
+      {
+        id: "custom-vision",
+        providerName: "OpenRouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: "sk-custom",
+        modelName: "vision-model",
+        supportsImages: true,
+      },
+    ],
+  })
+
+  const model = config.provider?.[customProviderId("custom-vision")]?.models?.["vision-model"]
+
+  assert.equal(model?.attachment, true)
+  assert.deepEqual(model?.modalities, { input: ["text", "image"], output: ["text"] })
 })
 
 test("lumo agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {

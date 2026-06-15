@@ -20,7 +20,11 @@ import {
   Trash2,
 } from "lucide-react"
 import * as React from "react"
-import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import {
+  buildFallbackSessionTitle,
+  shouldAutoRefreshSessionTitle,
+  trimTitleToColumns,
+} from "../../../electron/session/title.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
@@ -271,8 +275,9 @@ function RenameSessionDialog({
     if (!canSave) {
       return
     }
-    if (trimmedDraft !== session.title) {
-      onRename(session.id, trimmedDraft)
+    const nextTitle = trimTitleToColumns(trimmedDraft)
+    if (nextTitle !== session.title) {
+      onRename(session.id, nextTitle)
     }
     onClose()
   }
@@ -383,8 +388,12 @@ function EditableTitlebarTitle({
   }
 
   const commit = (): void => {
-    const nextTitle = draft.trim()
+    const trimmedDraft = draft.trim()
     setEditing(false)
+    if (!trimmedDraft) {
+      return
+    }
+    const nextTitle = trimTitleToColumns(trimmedDraft)
     if (nextTitle && nextTitle !== title) {
       onRename(nextTitle)
     }
@@ -420,16 +429,21 @@ function EditableTitlebarTitle({
     )
   }
 
+  if (!editable) {
+    return (
+      <span className="oo-toolbar-title oo-text-title inline-block max-w-full min-w-0 truncate" title={title}>
+        {title}
+      </span>
+    )
+  }
+
   return (
     <button
       type="button"
       onDoubleClick={startEditing}
       title={title}
-      aria-label={editable ? t("session.renameFromTitlebar") : undefined}
-      className={cn(
-        "oo-toolbar-title oo-text-title block w-full min-w-0 truncate border-0 bg-transparent p-0 text-left outline-none [-webkit-app-region:no-drag]",
-        editable && "cursor-default",
-      )}
+      aria-label={t("session.renameFromTitlebar")}
+      className="oo-toolbar-title oo-text-title inline-block max-w-full min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left outline-none [-webkit-app-region:no-drag]"
     >
       {title}
     </button>

@@ -71,7 +71,7 @@
 - 无路由库：页面切换是 `AppShell.tsx` 内部 state，新增"页面"先考虑是否真的需要路由库。
 - 流式渲染稳定性：文本 part 用稳定 React key（partId），`upsertPart` 原地替换——不重挂载、无闪烁；`messageDelta` 是累计全文非增量。
 - streaming 时 Enter 必须只发送、不停止（停止仅响应按钮显式点击；曾是 HIGH 回归）。
-- vendored 组件规则：新 vendored 文件放 `src/components/ui/` 或 `src/components/ai-elements/`（享受 `react/only-export-components` override）；`ui/badge.tsx` 是 shadcn 标准 + 项目自有 success/warning/muted 变体的合并版，升级勿直接覆盖；`code-block.tsx` 锁定 json-only 高亮（`shiki/core` 按需），勿改回 `shiki` 顶层 API（bundle 会爆 ~10MB）；`tool.tsx` 的 `ToolHeader` 带项目自有 `expandable` prop（无内容时禁用点击），重新 vendoring 勿丢；registry 源码自带的 `// @ts-expect-error ... v6` 注释 vendoring 时必须删除（本项目装的就是 ai v6，该指令变"未使用"会卡 ts-check）。
+- vendored 组件规则：新 vendored 文件放 `src/components/ui/` 或 `src/components/ai-elements/`（享受 `react/only-export-components` override）；`ui/badge.tsx` 是 shadcn 标准 + 项目自有 success/warning/muted 变体的合并版，升级勿直接覆盖；registry 源码自带的 `// @ts-expect-error ... v6` 注释 vendoring 时必须删除（本项目装的就是 ai v6，该指令变"未使用"会卡 ts-check）。
 - `src/index.css` 的 `@source "../node_modules/streamdown/dist"` 不可删（Tailwind v4 不扫 node_modules，删了 streamdown 的类不生成）。
 - i18n：自研轻量实现（`src/i18n/i18n.ts`），扁平 dot key + `{var}` 占位，zh-CN 基准 + en 镜像，新增文案两个 locale 都要加；`useT()` 取翻译函数。
 - ai-elements 是聊天组件库，没有 sidebar/导航/表单/列表项——非聊天界面用 shadcn 原语，勿强行 ai-elements 化。

@@ -45,7 +45,7 @@ src/routes/Chat (PromptInput)
 
 ServerEvents（`electron/chat/common.ts`）：`messageStarted` / `messageDelta`（**累计全文非增量**，渲染层按 `partId` 替换）/ `toolCallStarted` / `toolCallResult` / `authorizationRequired` / `messageCompleted` / `agentError`。`useChat.ts`：按 sessionId→messages map、`upsertPart` 按 partId 原地更新（稳定 React key，不重挂载无闪烁）、发送时插入乐观 user 气泡 `local-user-*`（真实 user 消息到达时清除）、`messageCompleted` 后 reload 全量校正。事件桥由 `ChatServiceImpl.startEventBridge()` 在 agent 装配后启动。
 
-渲染用 vendored ai-elements（`src/components/ai-elements/`）：Conversation/Message/Tool/PromptInput 等；Markdown 走 streamdown（MessageResponse 内置）+ shiki（仅 JSON 高亮，`shiki/core` 按需加载）；工具 part 映射到 ai SDK 的 `ToolUIPart["state"]`。
+渲染用 vendored ai-elements（`src/components/ai-elements/`）：Conversation/Message/PromptInput/Task 等；Markdown 走 streamdown（MessageResponse 内置）；工具 part 映射为聊天内的 `Task` 折叠摘要。
 
 ## 5. 登录与凭证流
 
@@ -85,8 +85,8 @@ electron/
 src/
   main.tsx App.tsx            入口 / AuthGate
   components/app-shell/       AppShell 三栏 + 内部 Route state（"chat"|"settings"）
-  components/ai-elements/     vendored 裁剪版（code-block conversation loader message prompt-input suggestion task tool）
-  components/ui/              shadcn 基件（button badge input textarea dialog scroll-area collapsible input-group split-view）
+  components/ai-elements/     vendored 裁剪版（conversation loader message message-image prompt-input shimmer task）
+  components/ui/              shadcn 基件（button badge input textarea dialog collapsible input-group split-view）
   routes/  Chat/ Connections/ Login/ Settings/
   hooks/   useChat useSessions useConnections useAuth useAppUpdate
   i18n/    自研轻量 i18n（zh-CN 基准 + en，localStorage key lumo.locale）

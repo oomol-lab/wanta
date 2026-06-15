@@ -76,11 +76,11 @@ describe("collectMacMetadata", () => {
 
   it("produces a two-artifact entry with the same expanded size for DMG and ZIP", async () => {
     const version = "9.8.7"
-    await writeFile(path.join(releaseDir, `Lumo-${version}.dmg`), Buffer.alloc(1000))
-    await writeFile(path.join(releaseDir, `Lumo-${version}.zip`), Buffer.alloc(800))
-    const appDir = path.join(releaseDir, "mac-arm64", "Lumo.app", "Contents", "MacOS")
+    await writeFile(path.join(releaseDir, `Gimo-${version}.dmg`), Buffer.alloc(1000))
+    await writeFile(path.join(releaseDir, `Gimo-${version}.zip`), Buffer.alloc(800))
+    const appDir = path.join(releaseDir, "mac-arm64", "Gimo.app", "Contents", "MacOS")
     await mkdir(appDir, { recursive: true })
-    await writeFile(path.join(appDir, "Lumo"), Buffer.alloc(2048))
+    await writeFile(path.join(appDir, "Gimo"), Buffer.alloc(2048))
 
     const metadata = await collectMacMetadata({
       version,
@@ -92,14 +92,14 @@ describe("collectMacMetadata", () => {
     assert.equal(metadata.artifacts.length, 2)
     assert.deepEqual(metadata.artifacts[0], {
       artifact: "DMG",
-      fileName: `Lumo-${version}.dmg`,
+      fileName: `Gimo-${version}.dmg`,
       downloadBytes: 1000,
       expandedBytes: 2048,
       expandedLabel: "app bundle",
     })
     assert.deepEqual(metadata.artifacts[1], {
       artifact: "ZIP",
-      fileName: `Lumo-${version}.zip`,
+      fileName: `Gimo-${version}.zip`,
       downloadBytes: 800,
       expandedBytes: 2048,
       expandedLabel: "app bundle",
@@ -108,8 +108,8 @@ describe("collectMacMetadata", () => {
 
   it("fails fast when the unpacked .app bundle is missing", async () => {
     const version = "9.8.7"
-    await writeFile(path.join(releaseDir, `Lumo-${version}.dmg`), Buffer.alloc(1))
-    await writeFile(path.join(releaseDir, `Lumo-${version}.zip`), Buffer.alloc(1))
+    await writeFile(path.join(releaseDir, `Gimo-${version}.dmg`), Buffer.alloc(1))
+    await writeFile(path.join(releaseDir, `Gimo-${version}.zip`), Buffer.alloc(1))
     await assert.rejects(collectMacMetadata({ version, arch: "arm64", releaseDir }), /unpacked \.app bundle/)
   })
 })
@@ -125,7 +125,7 @@ describe("collectWinMetadata", () => {
 
   it("produces Setup EXE entries with the same expanded size", async () => {
     const version = "9.8.7"
-    await writeFile(path.join(releaseDir, `Lumo-${version}-Setup.exe`), Buffer.alloc(500))
+    await writeFile(path.join(releaseDir, `Gimo-${version}-Setup.exe`), Buffer.alloc(500))
     const unpackedDir = path.join(releaseDir, "win-unpacked", "resources")
     await mkdir(unpackedDir, { recursive: true })
     await writeFile(path.join(unpackedDir, "app.asar"), Buffer.alloc(4096))
@@ -140,7 +140,7 @@ describe("collectWinMetadata", () => {
     assert.equal(metadata.artifacts.length, 1)
     assert.deepEqual(metadata.artifacts[0], {
       artifact: "Setup EXE",
-      fileName: `Lumo-${version}-Setup.exe`,
+      fileName: `Gimo-${version}-Setup.exe`,
       downloadBytes: 500,
       expandedBytes: 4096,
       expandedLabel: "installed app payload",
@@ -149,7 +149,7 @@ describe("collectWinMetadata", () => {
 
   it("fails fast when win-unpacked is missing", async () => {
     const version = "9.8.7"
-    await writeFile(path.join(releaseDir, `Lumo-${version}-Setup.exe`), Buffer.alloc(1))
+    await writeFile(path.join(releaseDir, `Gimo-${version}-Setup.exe`), Buffer.alloc(1))
     await assert.rejects(collectWinMetadata({ version, arch: "x64", releaseDir }), /Windows unpacked payload/)
   })
 })
@@ -162,14 +162,14 @@ describe("renderDownloadsTable", () => {
     artifacts: [
       {
         artifact: "DMG",
-        fileName: "Lumo-1.2.3.dmg",
+        fileName: "Gimo-1.2.3.dmg",
         downloadBytes: 113506914,
         expandedBytes: 273530880,
         expandedLabel: "app bundle",
       },
       {
         artifact: "ZIP",
-        fileName: "Lumo-1.2.3.zip",
+        fileName: "Gimo-1.2.3.zip",
         downloadBytes: 107986869,
         expandedBytes: 273530880,
         expandedLabel: "app bundle",
@@ -183,7 +183,7 @@ describe("renderDownloadsTable", () => {
     artifacts: [
       {
         artifact: "Setup EXE",
-        fileName: "Lumo-1.2.3-Setup.exe",
+        fileName: "Gimo-1.2.3-Setup.exe",
         downloadBytes: 90000000,
         expandedBytes: 250000000,
         expandedLabel: "installed app payload",
@@ -213,8 +213,8 @@ describe("renderDownloadsTable", () => {
     assert.ok(table.includes("| Platform | Artifact | Download Size | Expanded / Installed Size | Link |"))
     assert.ok(table.includes("108.2 MiB"))
     assert.ok(table.includes("260.9 MiB app bundle"))
-    assert.ok(table.includes(`${OSS_BASE}/darwin/arm64/Lumo-1.2.3.dmg`))
-    assert.ok(table.includes(`${OSS_BASE}/win32/x64/Lumo-1.2.3-Setup.exe`))
+    assert.ok(table.includes(`${OSS_BASE}/darwin/arm64/Gimo-1.2.3.dmg`))
+    assert.ok(table.includes(`${OSS_BASE}/win32/x64/Gimo-1.2.3-Setup.exe`))
     assert.ok(table.includes("installed app payload"))
   })
 

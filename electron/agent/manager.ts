@@ -312,7 +312,7 @@ export class AgentManager {
   public async sendMessage(text: string, sessionId?: string, system?: string): Promise<SendMessageResult> {
     let id = sessionId
     if (!id) {
-      id = (await this.createSession("Lumo")).id
+      id = (await this.createSession("Gimo")).id
     }
     const prompted = await this.client.session.prompt({
       path: { id },

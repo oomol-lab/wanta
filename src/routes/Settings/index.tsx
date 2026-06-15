@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { branding } from "../../../electron/branding.ts"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
@@ -258,7 +259,7 @@ function AboutSettings({ update }: { update: UseAppUpdate }) {
   return (
     <section className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 border-b border-[var(--oo-divider)] px-3 py-3 max-[760px]:grid-cols-1">
       <div className="grid min-w-0 gap-1">
-        <div className="oo-text-label text-muted-foreground">Lumo</div>
+        <div className="oo-text-label text-muted-foreground">{branding.appName}</div>
         <div className="oo-text-value text-foreground">v{version}</div>
         <div className="oo-text-caption">{t("settings.platform", { platform })}</div>
         <div className={cn("oo-text-caption", update.state?.status.status === "error" && "text-destructive")}>

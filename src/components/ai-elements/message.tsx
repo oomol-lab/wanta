@@ -2,10 +2,12 @@ import type { UIMessage } from "ai"
 import type { ComponentProps, HTMLAttributes } from "react"
 import type { StreamdownProps } from "streamdown"
 
-import { lazy, memo, Suspense } from "react"
+import { CheckIcon, CopyIcon } from "lucide-react"
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react"
 import { MarkdownImage } from "./message-image.tsx"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 // streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
@@ -13,6 +15,9 @@ import { cn } from "@/lib/utils"
 const Streamdown = lazy(() => import("streamdown").then((m) => ({ default: m.Streamdown })))
 const localImagePathPattern =
   /(?:file:\/\/[^\s<>"'`，。；：、]+|(?:~?\/|[A-Za-z]:[\\/]).*?\.(?:avif|bmp|gif|jpe?g|png|svg|webp))(?=$|[\s<>"'`，。；：、,;:!?)\]])/gi
+const localPathStartPattern = /^(?:file:\/\/|~?[\\/]|[A-Za-z]:[\\/])/
+const singleLocalPathFencePattern =
+  /(^|\n)([ \t]{0,3})(`{3,}|~{3,})[ \t]*(?:text|txt|path|file)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\3[ \t]*(?=\n|$)/gi
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"]
@@ -97,6 +102,79 @@ type MarkdownTableProps = ComponentProps<"table"> & {
   node?: unknown
 }
 
+type MarkdownInlineCodeProps = ComponentProps<"code"> & {
+  node?: unknown
+}
+
+type MarkdownLocalPathProps = ComponentProps<"span"> & {
+  value: string
+}
+
+function isSingleLocalPath(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.length > 0 && !trimmed.includes("\n") && !trimmed.includes("`") && localPathStartPattern.test(trimmed)
+}
+
+function inlineCodeText(children: MarkdownInlineCodeProps["children"]): string | null {
+  if (typeof children === "string") {
+    return children
+  }
+  if (Array.isArray(children) && children.every((child) => typeof child === "string")) {
+    return children.join("")
+  }
+  return null
+}
+
+function normalizedLocalPath(value: string): string {
+  const trimmed = value.trim()
+  if (/^file:\/\//i.test(trimmed)) {
+    try {
+      return decodeURIComponent(new URL(trimmed).pathname)
+    } catch {
+      // URL 解析失败时保留原始内容。
+    }
+  }
+  return trimmed
+}
+
+async function writeClipboardText(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value)
+    return true
+  } catch {
+    // 继续使用下方 DOM 兜底。
+  }
+
+  const textarea = document.createElement("textarea")
+  textarea.value = value
+  textarea.setAttribute("readonly", "")
+  textarea.style.position = "fixed"
+  textarea.style.top = "-9999px"
+  textarea.style.left = "-9999px"
+  document.body.append(textarea)
+  textarea.select()
+  textarea.setSelectionRange(0, value.length)
+  try {
+    return document.execCommand("copy")
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
+}
+
+export function compactLocalPath(value: string, maxLength = 72): string {
+  const normalized = normalizedLocalPath(value)
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  const ellipsis = "..."
+  const keep = Math.max(8, maxLength - ellipsis.length)
+  const head = Math.ceil(keep * 0.45)
+  const tail = keep - head
+  return `${normalized.slice(0, head)}${ellipsis}${normalized.slice(-tail)}`
+}
+
 function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
   return (
     <div className="my-3 min-w-0 overflow-x-auto">
@@ -104,6 +182,69 @@ function MarkdownTable({ children, className, node: _, ...props }: MarkdownTable
         {children}
       </table>
     </div>
+  )
+}
+
+function MarkdownLocalPath({ className, value, ...props }: MarkdownLocalPathProps) {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  const copiedTimerRef = useRef<number | null>(null)
+  const normalized = normalizedLocalPath(value)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current)
+      }
+    }
+  }, [])
+
+  const copyPath = async (): Promise<void> => {
+    if (await writeClipboardText(normalized)) {
+      setCopied(true)
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current)
+      }
+      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200)
+    }
+  }
+
+  return (
+    <Tooltip delayDuration={650}>
+      <TooltipTrigger asChild>
+        <span {...props} className={cn("oo-markdown-path-token", className)}>
+          <span className="oo-markdown-path-text">{compactLocalPath(normalized)}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="oo-markdown-path-tooltip">
+        <span className="oo-markdown-path-tooltip-text">{normalized}</span>
+        <button
+          type="button"
+          className={cn("oo-markdown-path-tooltip-copy", copied && "is-copied")}
+          aria-label={copied ? t("chat.copiedMessage") : t("chat.copyMessage")}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void copyPath()
+          }}
+        >
+          {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+        </button>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function MarkdownInlineCode({ children, className, node: _, ref: _ref, ...props }: MarkdownInlineCodeProps) {
+  const text = inlineCodeText(children)
+
+  if (text && isSingleLocalPath(text)) {
+    return <MarkdownLocalPath {...props} className={className} value={text} />
+  }
+  return (
+    <code className={className} {...props}>
+      {children}
+    </code>
   )
 }
 
@@ -145,30 +286,59 @@ function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
   return previews
 }
 
-function messageResponseControls(controls: MessageResponseProps["controls"]): MessageResponseProps["controls"] {
+export function normalizeSingleLocalPathCodeFences(markdown: string): string {
+  return markdown.replace(
+    singleLocalPathFencePattern,
+    (match, prefix: string, indent: string, _fence: string, body: string) => {
+      const value = body.trim()
+      if (!isSingleLocalPath(value)) {
+        return match
+      }
+      return `${prefix}${indent}\`${value}\``
+    },
+  )
+}
+
+const defaultMessageResponseControls = {
+  table: false,
+  code: {
+    copy: true,
+    download: false,
+  },
+} satisfies Exclude<MessageResponseProps["controls"], boolean | undefined>
+
+export function messageResponseControls(controls: MessageResponseProps["controls"]): MessageResponseProps["controls"] {
   if (controls === undefined) {
-    return { table: false }
+    return defaultMessageResponseControls
   }
   if (typeof controls === "boolean") {
     return controls
   }
-  return { table: false, ...controls }
+  return {
+    ...defaultMessageResponseControls,
+    ...controls,
+    ...(typeof controls.code === "object"
+      ? { code: { ...defaultMessageResponseControls.code, ...controls.code } }
+      : {}),
+  }
 }
 
 export const MessageResponse = memo(
-  ({ className, components, controls, children, ...props }: MessageResponseProps) => {
-    const localImagePreviews = typeof children === "string" ? extractLocalImagePreviews(children) : []
+  ({ className, components, controls, children, lineNumbers, ...props }: MessageResponseProps) => {
+    const responseChildren = typeof children === "string" ? normalizeSingleLocalPathCodeFences(children) : children
+    const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
     return (
       // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
-      <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{children}</div>}>
+      <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{responseChildren}</div>}>
         <>
           <Streamdown
-            className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-            components={{ ...messageResponseComponents, ...components }}
+            className={cn("oo-message-response size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+            components={{ ...messageResponseComponents, inlineCode: MarkdownInlineCode, ...components }}
             controls={messageResponseControls(controls)}
+            lineNumbers={lineNumbers ?? false}
             {...props}
           >
-            {children}
+            {responseChildren}
           </Streamdown>
           {localImagePreviews.length > 0 ? (
             <div className="mt-3 grid gap-3">
@@ -184,7 +354,9 @@ export const MessageResponse = memo(
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
     prevProps.className === nextProps.className &&
-    prevProps.controls === nextProps.controls,
+    prevProps.components === nextProps.components &&
+    prevProps.controls === nextProps.controls &&
+    prevProps.lineNumbers === nextProps.lineNumbers,
 )
 
 MessageResponse.displayName = "MessageResponse"

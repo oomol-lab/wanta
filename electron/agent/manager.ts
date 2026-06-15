@@ -376,7 +376,7 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
     `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
     "- Do not reuse output folders from earlier turns or other chats.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
-    "- When you finish, report the absolute path to the artifact directory and the generated files.",
+    "- When you finish, report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
   ].join("\n")
 }
 

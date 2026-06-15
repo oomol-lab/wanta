@@ -1,4 +1,5 @@
 import type { LocalArtifactGroup, LocalArtifactItem } from "../../../electron/chat/common.ts"
+import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import { File, FileText, FolderOpen, Image, Package, PanelRightClose } from "lucide-react"
@@ -19,13 +20,6 @@ interface GeneratedArtifactsProps {
   sources: GeneratedArtifactSource[]
   onOpen: (selection: ArtifactSelection) => void
   onAvailable: (selection: ArtifactSelection) => void
-}
-
-export interface GeneratedArtifactSource {
-  messageId: string
-  text: string
-  artifactRoot?: string
-  sourcePaths: string[]
 }
 
 interface ArtifactsPanelProps {

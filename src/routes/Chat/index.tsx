@@ -56,7 +56,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { turnArtifactSourcesByRenderMessage } from "./artifact-sources.ts"
+import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import {
@@ -1681,7 +1681,7 @@ export function ChatArea({
     return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
   }, [activeAssistantMessageId, messages])
   const artifactSources = React.useMemo(() => {
-    return Array.from(turnArtifactSourcesByRenderMessage(messages).values())
+    return collectGeneratedArtifactSources(messages)
   }, [messages])
 
   React.useEffect(() => {

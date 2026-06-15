@@ -1,6 +1,6 @@
 import type { ChatMessage } from "../../../electron/chat/common.ts"
 
-export interface TurnArtifactSource {
+export interface GeneratedArtifactSource {
   messageId: string
   text: string
   artifactRoot?: string
@@ -15,12 +15,12 @@ function assistantMessageText(message: ChatMessage): string {
 }
 
 function sourceForTurn(
-  renderMessageId: string | null,
+  messageId: string | null,
   artifactRoot: string | undefined,
   textParts: string[],
   sourcePaths: string[],
-): TurnArtifactSource | null {
-  if (!renderMessageId) {
+): GeneratedArtifactSource | null {
+  if (!messageId) {
     return null
   }
   const text = textParts.join("\n").trim()
@@ -28,15 +28,15 @@ function sourceForTurn(
     return null
   }
   return {
-    messageId: renderMessageId,
+    messageId,
     text,
     sourcePaths,
     ...(artifactRoot ? { artifactRoot } : {}),
   }
 }
 
-export function turnArtifactSourcesByRenderMessage(messages: ChatMessage[]): Map<string, TurnArtifactSource> {
-  const sources = new Map<string, TurnArtifactSource>()
+export function collectGeneratedArtifactSources(messages: ChatMessage[]): GeneratedArtifactSource[] {
+  const sources: GeneratedArtifactSource[] = []
   let latestArtifactRoot: string | undefined
   let sourcePaths: string[] = []
   let textParts: string[] = []
@@ -45,7 +45,7 @@ export function turnArtifactSourcesByRenderMessage(messages: ChatMessage[]): Map
   const flushTurn = () => {
     const source = sourceForTurn(lastAssistantMessageId, latestArtifactRoot, textParts, sourcePaths)
     if (source) {
-      sources.set(source.messageId, source)
+      sources.push(source)
     }
     latestArtifactRoot = undefined
     sourcePaths = []

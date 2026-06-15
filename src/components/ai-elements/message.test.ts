@@ -59,4 +59,10 @@ describe("compactLocalPath", () => {
   it("decodes file URLs before compacting", () => {
     expect(compactLocalPath("file:///Users/me/output%20files/report.pdf")).toBe("/Users/me/output files/report.pdf")
   })
+
+  it("normalizes Windows file URLs before compacting", () => {
+    expect(compactLocalPath("file:///C:/Users/me/output%20files/report.pdf")).toBe(
+      "C:/Users/me/output files/report.pdf",
+    )
+  })
 })

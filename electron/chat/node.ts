@@ -51,6 +51,7 @@ const billingPath = "/billing"
 const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingLogsMaxRangeDays = 30
+const billingLogsMaxPagesPerRange = 100
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -652,6 +653,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
     url.searchParams.set("product", "ai")
     const portalUrl = unwrapConsoleData<string>(await this.fetchConsoleJson(url))
+    if (!portalUrl) {
+      throw new Error("Subscription portal URL response is invalid.")
+    }
     await shell.openExternal(ensureHttpUrl(portalUrl))
   }
 
@@ -776,8 +780,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private async getBillingLogs(days: number): Promise<BillingLogItem[]> {
     const ranges = billingLogRanges(days)
-    const pages = await Promise.all(ranges.map((range) => this.getBillingLogsPage(range, 1)))
+    const pages = await Promise.all(ranges.map((range) => this.getAllBillingLogsInRange(range)))
     return pages.flat().sort((left, right) => Number(right.createdAt) - Number(left.createdAt))
+  }
+
+  private async getAllBillingLogsInRange(range: BillingLogRange): Promise<BillingLogItem[]> {
+    const items: BillingLogItem[] = []
+    for (let page = 1; page <= billingLogsMaxPagesPerRange; page += 1) {
+      const pageItems = await this.getBillingLogsPage(range, page)
+      if (pageItems.length === 0) {
+        break
+      }
+      items.push(...pageItems)
+    }
+    return items
   }
 
   private async getBillingLogsPage({ endTime, startTime }: BillingLogRange, page: number): Promise<BillingLogItem[]> {

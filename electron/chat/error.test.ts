@@ -27,6 +27,17 @@ describe("normalizeChatError", () => {
     })
   })
 
+  it.each([
+    [429, "rate_limited", true],
+    [401, "auth_required", false],
+    [403, "permission_denied", false],
+    [503, "provider_unavailable", true],
+  ] as const)("classifies JSON %d responses by status", (status, kind, retryable) => {
+    const error = normalizeChatError(JSON.stringify({ status, message: "upstream error" }))
+
+    expect(error).toMatchObject({ kind, retryable })
+  })
+
   it("keeps unknown error display details separate from diagnostics", () => {
     const error = normalizeChatError("PROVIDER_FAILED: upstream failed")
 

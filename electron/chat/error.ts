@@ -96,6 +96,7 @@ export function normalizeChatError(rawMessage: string): ChatErrorClassification 
   const { code, message } = stripKnownCodePrefix(diagnostics)
   const effectiveMessage = message || diagnostics
   const effectiveCode = resolvedCode(code, effectiveMessage)
+  const effectiveStatus = readJsonMessage(effectiveMessage)?.status
 
   if (resolvePaymentRequired(effectiveMessage, effectiveCode)) {
     return {
@@ -130,7 +131,10 @@ export function normalizeChatError(rawMessage: string): ChatErrorClassification 
     }
   }
 
-  if (includesAny(diagnostics, ["rate limit", "too many requests", "code 429", "http 429"])) {
+  if (
+    effectiveStatus === 429 ||
+    includesAny(diagnostics, ["rate limit", "too many requests", "code 429", "http 429"])
+  ) {
     return {
       kind: "rate_limited",
       code: effectiveCode,
@@ -139,7 +143,10 @@ export function normalizeChatError(rawMessage: string): ChatErrorClassification 
     }
   }
 
-  if (includesAny(diagnostics, ["unauthorized", "sign in", "login required", "code 401", "http 401"])) {
+  if (
+    effectiveStatus === 401 ||
+    includesAny(diagnostics, ["unauthorized", "sign in", "login required", "code 401", "http 401"])
+  ) {
     return {
       kind: "auth_required",
       code: effectiveCode,
@@ -148,7 +155,10 @@ export function normalizeChatError(rawMessage: string): ChatErrorClassification 
     }
   }
 
-  if (includesAny(diagnostics, ["permission denied", "forbidden", "access denied", "code 403", "http 403"])) {
+  if (
+    effectiveStatus === 403 ||
+    includesAny(diagnostics, ["permission denied", "forbidden", "access denied", "code 403", "http 403"])
+  ) {
     return {
       kind: "permission_denied",
       code: effectiveCode,
@@ -157,7 +167,10 @@ export function normalizeChatError(rawMessage: string): ChatErrorClassification 
     }
   }
 
-  if (includesAny(diagnostics, ["service unavailable", "bad gateway", "gateway timeout", "code 500", "http 500"])) {
+  if (
+    (typeof effectiveStatus === "number" && effectiveStatus >= 500) ||
+    includesAny(diagnostics, ["service unavailable", "bad gateway", "gateway timeout", "code 500", "http 500"])
+  ) {
     return {
       kind: "provider_unavailable",
       code: effectiveCode,

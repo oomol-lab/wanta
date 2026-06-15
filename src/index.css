@@ -963,7 +963,6 @@
   /* Markdown 渲染：Tailwind preflight 清掉了默认排版，这里在聊天气泡内按需恢复。 */
   .oo-markdown {
     line-height: var(--oo-line-body);
-    word-break: break-word;
     overflow-wrap: anywhere;
   }
 
@@ -1075,7 +1074,6 @@
 
   .oo-message-response [data-streamdown="inline-code"] {
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
 
   .oo-message-response .oo-markdown-path-token {
@@ -1130,7 +1128,6 @@
     line-height: 1.35;
     text-wrap: wrap;
     overflow-wrap: anywhere;
-    word-break: break-word;
   }
 
   .oo-markdown-path-tooltip > svg {

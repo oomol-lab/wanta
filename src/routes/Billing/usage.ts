@@ -146,7 +146,7 @@ export function formatPercent(value: number): string {
 }
 
 export function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })
 }
 
 export function formatDateTime(timestamp: number): string {
@@ -214,6 +214,6 @@ function parseTimestamp(value: unknown): number | null {
 
 function startOfDay(value: number): number {
   const date = new Date(value)
-  date.setHours(0, 0, 0, 0)
+  date.setUTCHours(0, 0, 0, 0)
   return date.getTime()
 }

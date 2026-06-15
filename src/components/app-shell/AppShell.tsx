@@ -120,7 +120,10 @@ function hasAssistantContent(messages: ChatMessage[]): boolean {
       !message.id.startsWith("local-assistant-") &&
       message.parts.some(
         (part) =>
-          part.kind === "tool" || part.kind === "attachment" || (part.kind === "text" && Boolean(part.text?.trim())),
+          part.kind === "tool" ||
+          part.kind === "attachment" ||
+          part.kind === "error" ||
+          (part.kind === "text" && Boolean(part.text?.trim())),
       ),
   )
 }

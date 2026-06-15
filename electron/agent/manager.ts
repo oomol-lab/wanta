@@ -294,14 +294,15 @@ export class AgentManager {
   }
 
   public async createArtifactDir(sessionId: string): Promise<string> {
-    const dir = path.join(
-      this.options.rootDir,
-      "artifacts",
-      sanitizeArtifactPathSegment(sessionId),
-      `${Date.now()}-${randomUUID()}`,
-    )
-    await mkdir(dir, { recursive: true })
-    return dir
+    const artifactsRoot = path.join(this.options.rootDir, "artifacts")
+    const dir = path.join(artifactsRoot, sanitizeArtifactPathSegment(sessionId), `${Date.now()}-${randomUUID()}`)
+    const resolvedRoot = path.resolve(artifactsRoot)
+    const resolvedDir = path.resolve(dir)
+    if (!resolvedDir.startsWith(`${resolvedRoot}${path.sep}`)) {
+      throw new Error("Invalid artifact directory segment.")
+    }
+    await mkdir(resolvedDir, { recursive: true })
+    return resolvedDir
   }
 
   /** 阻塞发送（headless 验证用）：发送并返回该会话全部消息。 */
@@ -400,5 +401,6 @@ function pathToFileUrl(filePath: string): string {
 }
 
 function sanitizeArtifactPathSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "session"
+  const cleaned = value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120)
+  return cleaned || "session"
 }

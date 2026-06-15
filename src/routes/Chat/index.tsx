@@ -955,7 +955,7 @@ function MessageBubble({
                 billingCacheScope={billingCacheScope}
                 errorCode={block.part.errorCode}
                 errorKind={block.part.errorKind}
-                message={block.part.errorText ?? block.part.error ?? "Agent error"}
+                message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
                 onViewBilling={onViewBilling}
               />
             ) : (

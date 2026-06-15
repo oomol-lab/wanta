@@ -99,6 +99,7 @@ export function ChatErrorNotice({
   const [balance, setBalance] = React.useState<string | null>(null)
   const [recovered, setRecovered] = React.useState(false)
   const [refreshFailed, setRefreshFailed] = React.useState(false)
+  const confirmAutoPromptedRef = React.useRef(false)
   const isPaymentRequired = error.kind === "payment_required"
 
   const refreshBalance = React.useCallback(async (): Promise<boolean> => {
@@ -156,7 +157,15 @@ export function ChatErrorNotice({
   }, [autoOpenKey, isPaymentRequired, recovered])
 
   React.useEffect(() => {
-    if (isPaymentRequired && hasPaymentRecoveryPending() && !recovered && !confirmDialogOpen) {
+    confirmAutoPromptedRef.current = false
+  }, [autoOpenKey])
+
+  React.useEffect(() => {
+    if (!isPaymentRequired || recovered || confirmDialogOpen || confirmAutoPromptedRef.current) {
+      return
+    }
+    if (hasPaymentRecoveryPending()) {
+      confirmAutoPromptedRef.current = true
       setConfirmDialogOpen(true)
     }
   }, [confirmDialogOpen, isPaymentRequired, recovered])
@@ -169,6 +178,7 @@ export function ChatErrorNotice({
 
   const handleCheckoutOpened = React.useCallback(() => {
     markPaymentRecoveryPending()
+    confirmAutoPromptedRef.current = true
     setConfirmDialogOpen(true)
   }, [])
 

@@ -106,7 +106,7 @@ type MarkdownInlineCodeProps = ComponentProps<"code"> & {
   node?: unknown
 }
 
-type MarkdownLocalPathProps = ComponentProps<"span"> & {
+type MarkdownLocalPathProps = Omit<ComponentProps<"button">, "value"> & {
   value: string
 }
 
@@ -129,7 +129,8 @@ function normalizedLocalPath(value: string): string {
   const trimmed = value.trim()
   if (/^file:\/\//i.test(trimmed)) {
     try {
-      return decodeURIComponent(new URL(trimmed).pathname)
+      const decoded = decodeURIComponent(new URL(trimmed).pathname)
+      return /^\/[A-Za-z]:[\\/]/.test(decoded) ? decoded.slice(1) : decoded
     } catch {
       // URL 解析失败时保留原始内容。
     }
@@ -212,9 +213,9 @@ function MarkdownLocalPath({ className, value, ...props }: MarkdownLocalPathProp
   return (
     <Tooltip delayDuration={650}>
       <TooltipTrigger asChild>
-        <span {...props} className={cn("oo-markdown-path-token", className)}>
+        <button type="button" {...props} className={cn("oo-markdown-path-token", className)} aria-label={normalized}>
           <span className="oo-markdown-path-text">{compactLocalPath(normalized)}</span>
-        </span>
+        </button>
       </TooltipTrigger>
       <TooltipContent className="oo-markdown-path-tooltip">
         <span className="oo-markdown-path-tooltip-text">{normalized}</span>

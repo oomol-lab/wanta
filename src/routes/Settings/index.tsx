@@ -129,7 +129,7 @@ function AccountSettings({
           <AccountAvatar name={displayName} avatarUrl={account?.avatarUrl} />
           <div className="min-w-0">
             <div className="oo-text-title truncate text-foreground">{displayName}</div>
-            <div className="oo-text-caption truncate">{t("settings.signedIn")}</div>
+            <div className="oo-text-caption truncate">{account ? t("settings.signedIn") : t("settings.signedOut")}</div>
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:justify-start">
@@ -139,7 +139,7 @@ function AccountSettings({
               {t("settings.copyAccountInfo")}
             </Button>
           ) : null}
-          <Button type="button" variant="outline" size="sm" disabled={loggingOut} onClick={onLogout}>
+          <Button type="button" variant="outline" size="sm" disabled={loggingOut || !account} onClick={onLogout}>
             <LogOutIcon className="size-4" />
             {t("settings.logout")}
           </Button>

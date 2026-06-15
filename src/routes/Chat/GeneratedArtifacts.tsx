@@ -118,13 +118,13 @@ function GeneratedArtifactsGroup({
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-1.5">
       {group.root ? (
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
             title={group.root.path}
-            className="oo-border-divider flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+            className="oo-border-divider flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
             onClick={() => onOpen({ messageId, group })}
           >
             <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
@@ -136,7 +136,7 @@ function GeneratedArtifactsGroup({
             variant="outline"
             size="sm"
             title={t("artifacts.openFolder")}
-            className="h-8 shrink-0 gap-1 px-2"
+            className="h-7 shrink-0 gap-1 px-2 text-xs"
             onClick={(event) => void openRoot(event)}
           >
             <FolderOpen className="size-3.5" />
@@ -146,13 +146,13 @@ function GeneratedArtifactsGroup({
       ) : null}
 
       {visibleItems.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {visibleItems.map((item) => (
             <button
               key={item.path}
               type="button"
               title={item.path}
-              className="oo-border-divider flex h-8 max-w-48 min-w-0 items-center gap-2 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              className="oo-border-divider flex h-7 max-w-44 min-w-0 items-center gap-1.5 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
               onClick={() => onOpen({ messageId, group })}
             >
               <ArtifactIcon item={item} className="text-muted-foreground" />
@@ -162,7 +162,7 @@ function GeneratedArtifactsGroup({
           {remaining > 0 ? (
             <button
               type="button"
-              className="flex h-8 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-accent"
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-accent"
               onClick={() => onOpen({ messageId, group })}
             >
               {t("artifacts.viewAll", { count: total })}
@@ -216,24 +216,6 @@ function mergeArtifactGroups(groups: LocalArtifactGroup[][], sourcePaths: readon
   return merged
 }
 
-function mergeResolvedArtifactGroups(groups: ResolvedArtifactGroup[][]): ResolvedArtifactGroup[] {
-  const merged: ResolvedArtifactGroup[] = []
-  const seenPaths = new Set<string>()
-  for (const groupList of groups) {
-    for (const resolved of groupList) {
-      const paths = artifactGroupPaths(resolved.group)
-      if (paths.length > 0 && paths.every((item) => seenPaths.has(item))) {
-        continue
-      }
-      merged.push(resolved)
-      for (const item of paths) {
-        seenPaths.add(item)
-      }
-    }
-  }
-  return merged
-}
-
 export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
   const t = useT()
   const chatService = useChatService()
@@ -270,7 +252,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
     void Promise.all(sourceRequests)
       .then((resultGroups) => {
         if (!cancelled) {
-          setGroups(mergeResolvedArtifactGroups(resultGroups))
+          setGroups(resultGroups.findLast((group) => group.length > 0) ?? [])
         }
       })
       .catch(() => {
@@ -295,9 +277,9 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
   }
 
   return (
-    <section className="not-prose mt-3 grid gap-2">
+    <section className="not-prose -mt-1 grid gap-1.5">
       <div className="oo-text-caption font-medium text-muted-foreground">{t("artifacts.title")}</div>
-      <div className="grid gap-2">
+      <div className="grid gap-1.5">
         {groups.map(({ messageId, group }) => (
           <GeneratedArtifactsGroup
             key={group.root?.path ?? group.items.map((item) => item.path).join("\n")}

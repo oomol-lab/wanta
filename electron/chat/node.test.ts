@@ -5,10 +5,12 @@ import path from "node:path"
 import { test } from "vitest"
 import {
   buildVoiceAsrRequest,
+  billingLogRanges,
   ChatServiceImpl,
   describeVoiceAsrFetchFailure,
   isAbortErrorMessage,
   parseVoiceAsrTranscript,
+  readBillingLogs,
 } from "./node.ts"
 
 test("buildVoiceAsrRequest matches Studio voice ASR request shape", () => {
@@ -54,6 +56,40 @@ test("describeVoiceAsrFetchFailure includes network cause details", () => {
   })
 
   assert.equal(describeVoiceAsrFetchFailure(error), "fetch failed (ECONNRESET: Client network socket disconnected)")
+})
+
+test("readBillingLogs accepts common response envelope shapes", () => {
+  const log = {
+    debitCredit: "0.1",
+    eventID: "event-1",
+    userID: "user-1",
+    source: "SERVICE_LLM",
+    subject: "oomol-chat",
+    sourceType: "quota",
+    serviceScope: "general",
+    traceID: "trace-1",
+    payload: {},
+    createdAt: Date.now(),
+  }
+
+  assert.deepEqual(readBillingLogs({ items: [log] }), [log])
+  assert.deepEqual(readBillingLogs({ data: { items: [log] } }), [log])
+  assert.deepEqual(readBillingLogs([log]), [log])
+  assert.deepEqual(readBillingLogs({ records: [log] }), [log])
+  assert.deepEqual(readBillingLogs({ items: [null, log] }), [log])
+})
+
+test("billingLogRanges splits long record queries into backend-safe windows", () => {
+  const dayMs = 24 * 60 * 60 * 1000
+  const endTime = Date.UTC(2026, 5, 15)
+
+  assert.deepEqual(billingLogRanges(7, endTime), [{ endTime, startTime: endTime - 7 * dayMs }])
+  assert.deepEqual(billingLogRanges(90, endTime), [
+    { endTime, startTime: endTime - 30 * dayMs },
+    { endTime: endTime - 30 * dayMs, startTime: endTime - 60 * dayMs },
+    { endTime: endTime - 60 * dayMs, startTime: endTime - 90 * dayMs },
+  ])
+  assert.deepEqual(billingLogRanges(Number.NaN, endTime), [{ endTime, startTime: endTime - 30 * dayMs }])
 })
 
 test("resolveLocalArtifacts resolves an explicit artifact root without scanning unrelated text paths", async () => {

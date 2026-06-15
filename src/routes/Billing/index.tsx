@@ -1,10 +1,5 @@
-import type {
-  BillingLogItem,
-  BillingOverviewResult,
-  BillingPeriodDays,
-  BillingSpendStats,
-  CreditItem,
-} from "../../../electron/chat/common.ts"
+import type { BillingLogItem, BillingPeriodDays, CreditItem } from "../../../electron/chat/common.ts"
+import type { CategorySummary, UsageCategory } from "./usage.ts"
 
 import {
   ArrowLeftIcon,
@@ -18,49 +13,40 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
-import { useChatService } from "@/components/AppContext"
+import {
+  buildCategorySummaries,
+  buildDailySpendBuckets,
+  categoryOrder,
+  formatCredit,
+  formatDate,
+  formatDateTime,
+  formatPercent,
+  getSummary,
+  statsTotalCredit,
+  statsTotalEvents,
+  toNumber,
+  usageCategory,
+} from "./usage.ts"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-type UsageCategory = "chat" | "image" | "other"
-
 interface BillingRouteProps {
+  cacheScope: string
   onBack: () => void
 }
 
-interface CategorySummary {
-  category: UsageCategory
-  credit: number
-  eventCount: number
-}
-
 const periods: BillingPeriodDays[] = [7, 30, 90]
-const categoryOrder: UsageCategory[] = ["chat", "image", "other"]
 
-export function BillingRoute({ onBack }: BillingRouteProps) {
+export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
   const t = useT()
-  const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
-  const [data, setData] = React.useState<BillingOverviewResult | null>(null)
-  const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
-
-  const refresh = React.useCallback(() => {
-    setLoading(true)
-    setError(null)
-    chatService
-      .invoke("getBillingOverview", { days: period })
-      .then(setData)
-      .catch((nextError: unknown) => setError(nextError instanceof Error ? nextError.message : String(nextError)))
-      .finally(() => setLoading(false))
-  }, [chatService, period])
-
-  React.useEffect(() => refresh(), [refresh])
+  const { data, error, loading, refresh } = useBillingOverview(period, { cacheScope })
 
   const summaries = React.useMemo(
     () => buildCategorySummaries(data?.spend, data?.metering),
@@ -74,10 +60,14 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const dailyBuckets = React.useMemo(
-    () => buildDailySpendBuckets(data?.spend?.items ?? [], period),
-    [data?.spend, period],
+    () => buildDailySpendBuckets(data?.spend?.items ?? [], period, totalSpend),
+    [data?.spend, period, totalSpend],
   )
-  const maxDailySpend = Math.max(...dailyBuckets.map((bucket) => bucket.credit), 0)
+  const hasEstimatedTrend = dailyBuckets.some((bucket) => bucket.estimated)
+  const maxDailySpend = Math.max(
+    ...dailyBuckets.map((bucket) => bucket.credit),
+    hasEstimatedTrend ? averageDailySpend * 2 : 0,
+  )
   const recentLogs = React.useMemo(
     () => [...(data?.logs ?? [])].sort((left, right) => right.createdAt - left.createdAt).slice(0, 20),
     [data?.logs],
@@ -109,7 +99,7 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <div
-                className="inline-flex rounded-lg border border-border bg-muted p-1"
+                className="inline-flex h-[var(--oo-control-height)] items-center rounded-md border border-border bg-muted p-0.5"
                 role="radiogroup"
                 aria-label={t("billing.period")}
               >
@@ -120,7 +110,7 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
                     role="radio"
                     aria-checked={period === value}
                     className={cn(
-                      "h-9 rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors",
+                      "h-full rounded-sm px-3 text-sm font-medium text-muted-foreground transition-colors",
                       period === value && "bg-background text-foreground shadow-sm",
                     )}
                     onClick={() => setPeriod(value)}
@@ -129,7 +119,7 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
                   </button>
                 ))}
               </div>
-              <Button type="button" variant="outline" disabled={loading} onClick={refresh}>
+              <Button type="button" variant="outline" disabled={loading} onClick={() => void refresh({ force: true })}>
                 <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
                 {t("billing.refresh")}
               </Button>
@@ -186,20 +176,33 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
             </Panel>
           </section>
 
-          <Panel title={t("billing.trendTitle")} meta={t("billing.trendMeta", { days: period })}>
+          <Panel
+            title={t("billing.trendTitle")}
+            meta={t(hasEstimatedTrend ? "billing.trendEstimatedMeta" : "billing.trendMeta", { days: period })}
+          >
             {loading && !data ? (
               <Skeleton className="h-44 w-full rounded-lg" />
             ) : (
-              <div className="flex h-44 items-end gap-1" aria-label={t("billing.trendTitle")}>
+              <div
+                className="grid min-h-40 items-end gap-1 px-4 py-4"
+                style={{ gridTemplateColumns: `repeat(${dailyBuckets.length}, minmax(0, 1fr))` }}
+                aria-label={t("billing.trendTitle")}
+              >
                 {dailyBuckets.map((bucket) => {
                   const height = maxDailySpend > 0 ? Math.max(2, (bucket.credit / maxDailySpend) * 100) : 0
                   return (
                     <div
                       key={bucket.key}
-                      className="flex min-w-0 flex-1 items-end rounded-t bg-muted"
+                      className="flex h-32 min-w-0 items-end justify-center"
                       title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
                     >
-                      <div className="w-full rounded-t bg-foreground" style={{ height: `${height}%` }} />
+                      <div
+                        className={cn(
+                          "w-full max-w-[18px] rounded-t-full rounded-b-sm",
+                          bucket.credit > 0 ? "bg-foreground" : "bg-muted",
+                        )}
+                        style={{ height: `${height}%`, minHeight: 2 }}
+                      />
                     </div>
                   )
                 })}
@@ -207,17 +210,18 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
             )}
           </Panel>
 
-          <Panel title={t("billing.recordsTitle")} meta={t("billing.recordsMeta")}>
+          <Panel title={t("billing.recordsTitle")} meta={t("billing.recordsMeta", { days: period })}>
             {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
           </Panel>
         </div>
       </main>
       <CreditPurchaseModal
+        cacheScope={cacheScope}
         open={purchaseOpen}
         showViewDetails={false}
         onClose={() => {
           setPurchaseOpen(false)
-          refresh()
+          void refresh({ force: true })
         }}
       />
     </div>
@@ -352,10 +356,13 @@ function RecentRecords({ logs }: { logs: BillingLogItem[] }) {
           </tr>
         </thead>
         <tbody>
-          {logs.map((log) => {
+          {logs.map((log, index) => {
             const category = usageCategory(log.source, log.subject)
             return (
-              <tr key={log.eventID} className="border-b border-border last:border-b-0">
+              <tr
+                key={`${log.eventID}-${log.traceID}-${log.createdAt}-${index}`}
+                className="border-b border-border last:border-b-0"
+              >
                 <td className="py-3">
                   <Badge variant={category === "other" ? "outline" : "secondary"}>
                     {t(`billing.category.${category}`)}
@@ -374,84 +381,6 @@ function RecentRecords({ logs }: { logs: BillingLogItem[] }) {
       </table>
     </div>
   )
-}
-
-function buildCategorySummaries(
-  spend: BillingSpendStats | null | undefined,
-  metering: BillingSpendStats | null | undefined,
-): CategorySummary[] {
-  const summaries = new Map<UsageCategory, CategorySummary>()
-  for (const category of categoryOrder) {
-    summaries.set(category, { category, credit: 0, eventCount: 0 })
-  }
-  const spendItems = spend?.items ?? []
-  const meteringItems = metering?.items ?? []
-  for (const item of spendItems) {
-    const summary = summaries.get(usageCategory(item.source, item.subject))
-    if (summary) {
-      summary.credit += billingCredit(item)
-    }
-  }
-  if (spendItems.length === 0) {
-    const fallbackSpend = statsTotalCredit(spend)
-    if (fallbackSpend > 0) {
-      const summary = summaries.get("other")
-      if (summary) {
-        summary.credit += fallbackSpend
-      }
-    }
-  }
-  for (const item of meteringItems) {
-    const summary = summaries.get(usageCategory(item.source, item.subject))
-    if (summary) {
-      summary.eventCount += billingEventCount(item)
-    }
-  }
-  if (meteringItems.length === 0) {
-    const fallbackEvents = statsTotalEvents(metering)
-    if (fallbackEvents > 0) {
-      const summary = summaries.get("other")
-      if (summary) {
-        summary.eventCount += fallbackEvents
-      }
-    }
-  }
-  return categoryOrder.map((category) => summaries.get(category) ?? { category, credit: 0, eventCount: 0 })
-}
-
-function getSummary(summaries: CategorySummary[], category: UsageCategory): CategorySummary {
-  return summaries.find((summary) => summary.category === category) ?? { category, credit: 0, eventCount: 0 }
-}
-
-function buildDailySpendBuckets(items: BillingSpendStats["items"], period: BillingPeriodDays) {
-  const today = startOfDay(Date.now())
-  const buckets = Array.from({ length: period }, (_, index) => {
-    const time = today - (period - index - 1) * 24 * 60 * 60 * 1000
-    return { key: String(time), label: formatDate(time), credit: 0 }
-  })
-  const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]))
-  for (const item of items) {
-    const bucket = byKey.get(String(startOfDay(normalizeTimestamp(item.time))))
-    if (bucket) {
-      bucket.credit += billingCredit(item)
-    }
-  }
-  return buckets
-}
-
-function usageCategory(source: string, subject: string): UsageCategory {
-  const normalizedSource = source.toLowerCase()
-  const normalizedSubject = subject.toLowerCase()
-  if (source === "SERVICE_LLM" || normalizedSource.includes("llm")) {
-    return "chat"
-  }
-  if (
-    normalizedSource.includes("image") ||
-    /\b(image|img|picture|photo|png|jpg|jpeg|flux|banana|gpt-image|stable-diffusion)\b/.test(normalizedSubject)
-  ) {
-    return "image"
-  }
-  return "other"
 }
 
 function categoryIcon(category: UsageCategory): React.ReactNode {
@@ -494,71 +423,4 @@ function balanceSourceLabel(sourceType: string, t: ReturnType<typeof useT>): str
     return t("billing.balanceSource.topup")
   }
   return t("billing.balanceSource.bonus")
-}
-
-function toNumber(value: string | number | undefined): number {
-  const amount = Number(value)
-  return Number.isFinite(amount) ? amount : 0
-}
-
-function numberField(value: unknown, keys: string[]): number {
-  if (!value || typeof value !== "object") {
-    return 0
-  }
-  const record = value as Record<string, unknown>
-  for (const key of keys) {
-    const amount = Number(record[key])
-    if (Number.isFinite(amount)) {
-      return amount
-    }
-  }
-  return 0
-}
-
-function billingCredit(item: BillingSpendStats["items"][number]): number {
-  return numberField(item, ["totalCredit", "debitCredit", "credit", "totalUsage", "usage"])
-}
-
-function billingEventCount(item: BillingSpendStats["items"][number]): number {
-  return numberField(item, ["eventCount", "totalEventCount", "count", "calls"])
-}
-
-function statsTotalCredit(stats: BillingSpendStats | null | undefined): number {
-  return numberField(stats?.total, ["totalCredit", "debitCredit", "credit", "totalUsage", "usage"])
-}
-
-function statsTotalEvents(stats: BillingSpendStats | null | undefined): number {
-  return numberField(stats?.total, ["eventCount", "totalEventCount", "count", "calls"])
-}
-
-function normalizeTimestamp(timestamp: number): number {
-  return timestamp > 0 && timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp
-}
-
-function formatCredit(value: number | string | undefined): string {
-  const amount = toNumber(value)
-  return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
-}
-
-function formatPercent(value: number): string {
-  return `${Math.round(value)}%`
-}
-
-function startOfDay(value: number): number {
-  const date = new Date(value)
-  date.setHours(0, 0, 0, 0)
-  return date.getTime()
-}
-
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-}
-
-function formatDateTime(timestamp: number): string {
-  return new Date(normalizeTimestamp(timestamp)).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
 }

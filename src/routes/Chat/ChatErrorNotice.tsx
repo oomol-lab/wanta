@@ -13,6 +13,7 @@ import { CreditPurchaseModal } from "@/routes/Billing/CreditPurchaseModal"
 
 interface ChatErrorNoticeProps {
   autoOpenKey?: string
+  billingCacheScope: string
   errorCode?: string
   errorKind?: ChatErrorKind
   message: string
@@ -81,7 +82,14 @@ function iconClassName(severity: ChatErrorSeverity): string {
   }
 }
 
-export function ChatErrorNotice({ autoOpenKey, errorCode, errorKind, message, onViewBilling }: ChatErrorNoticeProps) {
+export function ChatErrorNotice({
+  autoOpenKey,
+  billingCacheScope,
+  errorCode,
+  errorKind,
+  message,
+  onViewBilling,
+}: ChatErrorNoticeProps) {
   const t = useT()
   const chatService = useChatService()
   const error = resolveChatError(message, { errorCode, errorKind })
@@ -243,6 +251,7 @@ export function ChatErrorNotice({ autoOpenKey, errorCode, errorKind, message, on
       {isPaymentRequired ? (
         <>
           <CreditPurchaseModal
+            cacheScope={billingCacheScope}
             open={purchaseDialogOpen}
             onClose={() => setPurchaseDialogOpen(false)}
             onCheckoutOpened={handleCheckoutOpened}

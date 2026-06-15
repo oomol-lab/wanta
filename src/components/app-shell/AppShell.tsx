@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
@@ -925,13 +926,14 @@ export function AppShell() {
   const showArtifactsToggle = route === "chat" && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
+  const billingCacheScope = auth.state?.account?.id ?? "authenticated"
 
   if (route === "settings") {
     return <SettingsRoute onBack={() => setRoute("chat")} />
   }
 
   if (route === "billing") {
-    return <BillingRoute onBack={() => setRoute("chat")} />
+    return <BillingRoute cacheScope={billingCacheScope} onBack={() => setRoute("chat")} />
   }
 
   return (
@@ -1073,6 +1075,7 @@ export function AppShell() {
               </span>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+              <BillingUsagePopover cacheScope={billingCacheScope} onViewDetails={() => setRoute("billing")} />
               {showArtifactsToggle ? (
                 <button
                   type="button"
@@ -1101,6 +1104,7 @@ export function AppShell() {
             ) : (
               <div className="h-full min-h-0 overflow-hidden">
                 <ChatArea
+                  billingCacheScope={billingCacheScope}
                   messages={initialSendPending ? [] : messages}
                   status={displayedStatus}
                   showEmptyState={showChatEmptyState}

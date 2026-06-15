@@ -3,14 +3,17 @@ import type { RechargePrice, SubscriptionPlanTag } from "../../../electron/chat/
 import { CheckIcon, CreditCardIcon, ExternalLinkIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { formatCredit } from "./usage.ts"
 import { useChatService } from "@/components/AppContext"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
+import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 export interface CreditPurchaseModalProps {
+  cacheScope: string
   open: boolean
   onClose: () => void
   onCheckoutOpened?: () => void
@@ -82,14 +85,6 @@ const subscriptionPlans: SubscriptionPlan[] = [
   },
 ]
 
-function formatCredit(value: string | number | undefined): string {
-  const amount = Number(value)
-  if (!Number.isFinite(amount)) {
-    return "--"
-  }
-  return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
-}
-
 function subscriptionPlansFromStatus(
   status: { plan: string | null; plans: string[]; platforms: Record<string, string[]> } | null,
 ): string[] {
@@ -117,6 +112,7 @@ function planLabel(plan: string | undefined, t: ReturnType<typeof useT>): string
 }
 
 export function CreditPurchaseModal({
+  cacheScope,
   onCheckoutOpened,
   onClose,
   onViewDetails,
@@ -125,31 +121,15 @@ export function CreditPurchaseModal({
 }: CreditPurchaseModalProps) {
   const t = useT()
   const chatService = useChatService()
-  const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState(false)
-  const [currentCredits, setCurrentCredits] = React.useState<string>("--")
-  const [currentPlans, setCurrentPlans] = React.useState<string[]>([])
+  const overview = useBillingOverview(30, { cacheScope, enabled: open })
   const [subscriptionLoading, setSubscriptionLoading] = React.useState<SubscriptionPlanTag | null>(null)
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
-  const refresh = React.useCallback(() => {
-    setLoading(true)
-    setError(false)
-    chatService
-      .invoke("getBillingOverview", { days: 30 })
-      .then((overview) => {
-        setCurrentCredits(formatCredit(overview.balance?.total.currentCredit))
-        setCurrentPlans(subscriptionPlansFromStatus(overview.subscription))
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false))
-  }, [chatService])
-
-  React.useEffect(() => {
-    if (open) {
-      refresh()
-    }
-  }, [open, refresh])
+  const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit) : "--"
+  const currentPlans = React.useMemo(
+    () => subscriptionPlansFromStatus(overview.data?.subscription ?? null),
+    [overview.data?.subscription],
+  )
 
   const handleSubscription = React.useCallback(
     async (plan: SubscriptionPlanTag, isCurrent: boolean) => {
@@ -213,19 +193,22 @@ export function CreditPurchaseModal({
           ) : (
             <span />
           )}
-          {error ? (
-            <Button type="button" variant="outline" size="sm" onClick={refresh}>
-              <RefreshCwIcon className={cn("size-3.5", loading && "animate-spin")} />
+          {overview.error ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => void overview.refresh({ force: true })}>
+              <RefreshCwIcon className={cn("size-3.5", overview.loading && "animate-spin")} />
               {t("billing.refresh")}
             </Button>
           ) : null}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <SummaryCell label={t("billing.purchaseDialog.currentCredits")} value={loading ? "..." : currentCredits} />
+          <SummaryCell
+            label={t("billing.purchaseDialog.currentCredits")}
+            value={overview.loading && !overview.data ? "..." : currentCredits}
+          />
           <SummaryCell
             label={t("billing.purchaseDialog.currentPlan")}
-            value={loading ? "..." : planLabel(currentPlan, t)}
+            value={overview.loading && !overview.data ? "..." : planLabel(currentPlan, t)}
           />
         </div>
 

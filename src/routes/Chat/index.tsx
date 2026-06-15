@@ -105,6 +105,7 @@ import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 interface ChatAreaProps {
+  billingCacheScope: string
   messages: ChatMessage[]
   status: ChatStatus
   showEmptyState: boolean
@@ -856,6 +857,7 @@ function AssistantMessageActions({ text, cancelled }: { text: string; cancelled:
 }
 
 function MessageBubble({
+  billingCacheScope,
   message,
   pending,
   providerByService,
@@ -863,6 +865,7 @@ function MessageBubble({
   onViewBilling,
   assistantActionsText,
 }: {
+  billingCacheScope: string
   message: ChatMessage
   pending: boolean
   providerByService: Map<string, ConnectionProvider>
@@ -949,6 +952,7 @@ function MessageBubble({
             ) : block.kind === "error" ? (
               <ChatErrorNotice
                 autoOpenKey={block.part.partId}
+                billingCacheScope={billingCacheScope}
                 errorCode={block.part.errorCode}
                 errorKind={block.part.errorKind}
                 message={block.part.errorText ?? block.part.error ?? "Agent error"}
@@ -1668,6 +1672,7 @@ function AddCustomModelDialog({
 }
 
 export function ChatArea({
+  billingCacheScope,
   messages,
   status,
   showEmptyState,
@@ -2232,6 +2237,7 @@ export function ChatArea({
               <MessageBubble
                 key={message.clientId ?? message.id}
                 message={message}
+                billingCacheScope={billingCacheScope}
                 pending={message.id === pendingAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}

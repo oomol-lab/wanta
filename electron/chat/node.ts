@@ -34,7 +34,7 @@ import { readdir, readFile, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
-import { consoleBaseUrl, insightBaseUrl, voiceAsrBaseUrl } from "../domain.ts"
+import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl, voiceAsrBaseUrl } from "../domain.ts"
 import {
   extractLocalPathCandidates,
   imageMimeFromPath,
@@ -50,6 +50,7 @@ const defaultMaxDirectoryItems = 80
 const billingPath = "/billing"
 const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
+const billingLogsMaxRangeDays = 30
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -158,6 +159,23 @@ function readCreditUsages(payload: unknown): CreditUsages {
   }
 }
 
+export function readBillingLogs(payload: unknown): BillingLogItem[] {
+  const source = unwrapApiData<unknown>(payload)
+  if (Array.isArray(source)) {
+    return source.filter(isBillingLogItem)
+  }
+  if (!source || typeof source !== "object") {
+    return []
+  }
+  const record = source as Record<string, unknown>
+  const items = [record["items"], record["logs"], record["records"]].find(Array.isArray)
+  return Array.isArray(items) ? items.filter(isBillingLogItem) : []
+}
+
+function isBillingLogItem(item: unknown): item is BillingLogItem {
+  return Boolean(item && typeof item === "object")
+}
+
 function ensureHttpUrl(rawUrl: string): string {
   const url = new URL(rawUrl)
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -200,6 +218,26 @@ function statsRange(days: number): { endTime: number; startTime: number } {
   const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30
   const endTime = Date.now()
   return { endTime, startTime: endTime - normalizedDays * dayMs }
+}
+
+export interface BillingLogRange {
+  endTime: number
+  startTime: number
+}
+
+export function billingLogRanges(days: number, endTime = Date.now()): BillingLogRange[] {
+  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30
+  const ranges: BillingLogRange[] = []
+  let remainingDays = normalizedDays
+  let rangeEndTime = endTime
+  while (remainingDays > 0) {
+    const rangeDays = Math.min(remainingDays, billingLogsMaxRangeDays)
+    const startTime = rangeEndTime - rangeDays * dayMs
+    ranges.push({ endTime: rangeEndTime, startTime })
+    rangeEndTime = startTime
+    remainingDays -= rangeDays
+  }
+  return ranges
 }
 
 function unwrapConsoleData<T>(payload: unknown): T {
@@ -579,7 +617,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       await this.openBillingPage({ target: "recharge" })
       return
     }
-    const url = new URL("/api/user/web_top_up_url", consoleBaseUrl)
+    const url = new URL("/api/user/web_top_up_url", consoleServerBaseUrl)
     url.searchParams.set("price", req.price)
     url.searchParams.set("redirect", checkoutReturnUrl())
     const checkoutUrl = unwrapConsoleData<string>(await this.fetchConsoleJson(url))
@@ -594,7 +632,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       await this.openBillingPage({ target: "recharge" })
       return
     }
-    const url = new URL("/api/user/subscriptions/page", consoleBaseUrl)
+    const url = new URL("/api/user/subscriptions/page", consoleServerBaseUrl)
     url.searchParams.set("payment_type", "subscription")
     url.searchParams.set("redirect", checkoutReturnUrl())
     url.searchParams.set("source_page", checkoutReturnUrl())
@@ -611,7 +649,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       await this.openBillingPage({ target: "recharge" })
       return
     }
-    const url = new URL("/api/stripe/portal", consoleBaseUrl)
+    const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
     url.searchParams.set("product", "ai")
     const portalUrl = unwrapConsoleData<string>(await this.fetchConsoleJson(url))
     await shell.openExternal(ensureHttpUrl(portalUrl))
@@ -737,24 +775,26 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async getBillingLogs(days: number): Promise<BillingLogItem[]> {
-    const { endTime, startTime } = statsRange(days)
+    const ranges = billingLogRanges(days)
+    const pages = await Promise.all(ranges.map((range) => this.getBillingLogsPage(range, 1)))
+    return pages.flat().sort((left, right) => Number(right.createdAt) - Number(left.createdAt))
+  }
+
+  private async getBillingLogsPage({ endTime, startTime }: BillingLogRange, page: number): Promise<BillingLogItem[]> {
     const url = new URL("/v1/logs/billing", insightBaseUrl)
     url.searchParams.set("from", String(startTime))
     url.searchParams.set("to", String(endTime))
-    url.searchParams.set("page", "1")
-    const payload = unwrapApiData<unknown>(await this.fetchInsightJson(url))
-    return payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>)["items"])
-      ? ((payload as Record<string, unknown>)["items"] as BillingLogItem[])
-      : []
+    url.searchParams.set("page", String(page))
+    return readBillingLogs(await this.fetchInsightJson(url))
   }
 
   private async getSubscriptionStatus(): Promise<SubscriptionStatus> {
-    const url = new URL("/api/user/subscriptions", consoleBaseUrl)
+    const url = new URL("/api/user/subscriptions", consoleServerBaseUrl)
     return unwrapConsoleData<SubscriptionStatus>(await this.fetchConsoleJson(url))
   }
 
   private async getSubscriptionSchedules(): Promise<SubscriptionSchedule[]> {
-    const url = new URL("/api/user/subscriptions/schedulers", consoleBaseUrl)
+    const url = new URL("/api/user/subscriptions/schedulers", consoleServerBaseUrl)
     return unwrapConsoleData<SubscriptionSchedule[]>(await this.fetchConsoleJson(url))
   }
 

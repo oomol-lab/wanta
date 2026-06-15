@@ -23,7 +23,7 @@ export const PromptInput = ({ className, onSubmit, children, ...props }: PromptI
   }
 
   return (
-    <form className={cn("w-full", className)} onSubmit={handleSubmit} {...props}>
+    <form className={cn("w-full max-w-full min-w-0", className)} onSubmit={handleSubmit} {...props}>
       <InputGroup className="oo-prompt-input-surface overflow-hidden rounded-[1.375rem]">{children}</InputGroup>
     </form>
   )
@@ -76,7 +76,10 @@ export const PromptInputTextarea = ({
 
   return (
     <InputGroupTextarea
-      className={cn("field-sizing-content max-h-52 min-h-14 px-4 pt-3 pb-1.5", className)}
+      className={cn(
+        "field-sizing-content max-h-52 min-h-14 min-w-0 px-4 pt-3 pb-1.5 [overflow-wrap:anywhere] [word-break:break-word]",
+        className,
+      )}
       name="message"
       onCompositionEnd={() => setIsComposing(false)}
       onCompositionStart={() => setIsComposing(true)}

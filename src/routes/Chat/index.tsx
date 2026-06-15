@@ -135,7 +135,7 @@ interface AttachmentInput {
   file?: File
 }
 
-const CHAT_CONTENT_MAX_WIDTH_CLASS = "max-w-[50rem]"
+const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 
 const attachmentPreviewUrlByPath = new Map<string, string>()
 

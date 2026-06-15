@@ -3,7 +3,10 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ChatRole,
+  MessageAttachmentEvent,
+  MessageArtifactsEvent,
   MessageDeltaEvent,
+  MessageErrorEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
@@ -12,14 +15,10 @@ import * as React from "react"
 import { useChatService } from "@/components/AppContext"
 
 type MessagesMap = Record<string, ChatMessage[]>
-type SendOptimisticMode = "before-ack" | "after-ack"
 type CancelledToolPartsMap = Map<string, Set<string>>
 
 const userStoppedToolCancelWindowMs = 30_000
-
-interface SendOptions {
-  optimistic?: SendOptimisticMode
-}
+let localMessageSequence = 0
 
 function upsertPart(parts: ChatMessagePart[], part: ChatMessagePart): ChatMessagePart[] {
   const index = parts.findIndex((p) => p.partId === part.partId)
@@ -31,18 +30,68 @@ function upsertPart(parts: ChatMessagePart[], part: ChatMessagePart): ChatMessag
   return next
 }
 
-function ensureMessage(msgs: ChatMessage[], id: string, role: ChatRole): ChatMessage[] {
-  if (msgs.some((m) => m.id === id)) {
-    return msgs
+function createClientId(kind: ChatRole): string {
+  localMessageSequence += 1
+  return `client-${kind}-${Date.now()}-${localMessageSequence}`
+}
+
+function serverClientId(id: string): string {
+  return `server-${id}`
+}
+
+function withStableClientId(message: ChatMessage): ChatMessage {
+  return message.clientId ? message : { ...message, clientId: serverClientId(message.id) }
+}
+
+function replaceLocalMessage(msgs: ChatMessage[], id: string, role: ChatRole): ChatMessage[] | null {
+  const prefix = role === "user" ? "local-user-" : "local-assistant-"
+  const localIndex = msgs.findLastIndex((m) => m.role === role && m.id.startsWith(prefix))
+  if (localIndex === -1) {
+    return null
   }
-  // 真实 user 消息到达时，清掉乐观占位的 local-user-* 气泡。
+  const local = msgs[localIndex]
+  if (!local) {
+    return null
+  }
+  const next = msgs.filter((m, index) => index === localIndex || !m.id.startsWith(prefix))
+  const targetIndex = next.findIndex((m) => m.id === local.id)
+  if (targetIndex !== -1) {
+    next[targetIndex] = { ...local, id, role, clientId: local.clientId ?? createClientId(role) }
+  }
+  return next
+}
+
+export function ensureMessage(msgs: ChatMessage[], id: string, role: ChatRole): ChatMessage[] {
+  if (msgs.some((m) => m.id === id)) {
+    return msgs.map((message) => (message.id === id ? withStableClientId(message) : message))
+  }
+  const replaced = replaceLocalMessage(msgs, id, role)
+  if (replaced) {
+    return replaced
+  }
+  // 没有可复用的本地气泡时，清掉残留乐观占位。
   const base = role === "user" ? msgs.filter((m) => !m.id.startsWith("local-user-")) : msgs
-  return [...base, { id, role, parts: [], createdAt: Date.now() }]
+  return [...base, { id, clientId: serverClientId(id), role, parts: [], createdAt: Date.now() }]
 }
 
 function setPart(msgs: ChatMessage[], messageId: string, part: ChatMessagePart): ChatMessage[] {
   const ensured = ensureMessage(msgs, messageId, "assistant")
   return ensured.map((m) => (m.id === messageId ? { ...m, parts: upsertPart(m.parts, part) } : m))
+}
+
+function latestAssistantMessageId(msgs: ChatMessage[]): string | null {
+  return msgs.findLast((message) => message.role === "assistant")?.id ?? null
+}
+
+export function setErrorPart(msgs: ChatMessage[], event: MessageErrorEvent): ChatMessage[] {
+  const messageId = event.messageId ?? latestAssistantMessageId(msgs) ?? `local-assistant-error-${Date.now()}`
+  return setPart(msgs, messageId, {
+    kind: "error",
+    partId: event.partId,
+    errorText: event.message,
+    ...(event.errorKind ? { errorKind: event.errorKind } : {}),
+    ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+  })
 }
 
 function shouldCancelToolPart(part: ChatMessagePart): boolean {
@@ -100,11 +149,48 @@ function setTextPart(msgs: ChatMessage[], event: MessageDeltaEvent): ChatMessage
     if (message.id !== event.messageId) {
       return message
     }
-    const existing = message.parts.find((part) => part.partId === event.partId)
+    const parts =
+      message.role === "user"
+        ? message.parts.filter((part) => !(part.kind === "text" && part.partId === "local"))
+        : message.parts
+    const existing = parts.find((part) => part.partId === event.partId)
     const currentText = existing?.kind === "text" ? (existing.text ?? "") : ""
     const text = event.text || (event.delta ? currentText + event.delta : currentText)
-    return { ...message, parts: upsertPart(message.parts, { kind: "text", partId: event.partId, text }) }
+    return { ...message, parts: upsertPart(parts, { kind: "text", partId: event.partId, text }) }
   })
+}
+
+function setAttachmentPart(msgs: ChatMessage[], event: MessageAttachmentEvent): ChatMessage[] {
+  const ensured = ensureMessage(msgs, event.messageId, "user")
+  return ensured.map((message) =>
+    message.id === event.messageId
+      ? {
+          ...message,
+          parts: upsertPart(
+            message.parts.filter(
+              (part) =>
+                !(
+                  part.kind === "attachment" &&
+                  part.partId.startsWith("local-attachment-") &&
+                  part.attachment?.path === event.attachment.path
+                ),
+            ),
+            {
+              kind: "attachment",
+              partId: event.partId,
+              attachment: event.attachment,
+            },
+          ),
+        }
+      : message,
+  )
+}
+
+function setMessageArtifactRoot(msgs: ChatMessage[], event: MessageArtifactsEvent): ChatMessage[] {
+  const ensured = ensureMessage(msgs, event.messageId, "assistant")
+  return ensured.map((message) =>
+    message.id === event.messageId ? { ...message, artifactRoot: event.artifactRoot } : message,
+  )
 }
 
 function messageText(message: ChatMessage): string {
@@ -137,10 +223,15 @@ function hasUserMessage(msgs: ChatMessage[], text: string, attachments?: ChatAtt
   )
 }
 
-function appendOptimisticUserMessage(msgs: ChatMessage[], text: string, attachments?: ChatAttachment[]): ChatMessage[] {
+export function appendOptimisticConversationTurn(
+  msgs: ChatMessage[],
+  text: string,
+  attachments?: ChatAttachment[],
+): ChatMessage[] {
   if (hasUserMessage(msgs, text, attachments)) {
     return msgs
   }
+  const now = Date.now()
   const attachmentParts: ChatMessagePart[] = (attachments ?? []).map((attachment) => ({
     kind: "attachment",
     partId: `local-attachment-${attachment.id}`,
@@ -149,10 +240,18 @@ function appendOptimisticUserMessage(msgs: ChatMessage[], text: string, attachme
   return [
     ...msgs,
     {
-      id: `local-user-${Date.now()}`,
+      id: `local-user-${now}-${localMessageSequence + 1}`,
+      clientId: createClientId("user"),
       role: "user",
       parts: [...attachmentParts, ...(text ? [{ kind: "text" as const, partId: "local", text }] : [])],
-      createdAt: Date.now(),
+      createdAt: now,
+    },
+    {
+      id: `local-assistant-${now}-${localMessageSequence + 1}`,
+      clientId: createClientId("assistant"),
+      role: "assistant",
+      parts: [],
+      createdAt: now,
     },
   ]
 }
@@ -168,14 +267,62 @@ function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
   }))
 }
 
-function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+  const currentErrorPartsById = new Map(
+    current.map((message) => [
+      message.id,
+      message.parts.filter((part) => part.kind === "error" && Boolean(part.errorText)),
+    ]),
+  )
+  const missingLocalAssistants = current.filter(
+    (message) =>
+      message.role === "assistant" &&
+      message.id.startsWith("local-assistant-") &&
+      message.parts.some((part) => part.kind === "error" && Boolean(part.errorText)),
+  )
   const missingLocalUsers = current.filter(
     (message) =>
       message.role === "user" &&
       message.id.startsWith("local-user-") &&
       !hasUserMessage(fetched, messageText(message), messageAttachments(message)),
   )
-  return missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetched] : fetched
+  const localUserByContent = new Map(
+    current
+      .filter((message) => message.role === "user" && message.id.startsWith("local-user-"))
+      .map((message) => [`${messageText(message)}\n---\n${attachmentsKey(messageAttachments(message))}`, message]),
+  )
+  const currentById = new Map(current.map((message) => [message.id, message]))
+  const artifactRootByMessageId = new Map(
+    current.flatMap((message) => (message.artifactRoot ? [[message.id, message.artifactRoot] as const] : [])),
+  )
+  const fetchedWithLocalState = fetched.map((message) => {
+    const matchedLocalUser =
+      message.role === "user"
+        ? localUserByContent.get(`${messageText(message)}\n---\n${attachmentsKey(messageAttachments(message))}`)
+        : undefined
+    const currentMessage = currentById.get(message.id) ?? matchedLocalUser
+    const artifactRoot = artifactRootByMessageId.get(message.id)
+    return {
+      ...message,
+      clientId: currentMessage?.clientId ?? message.clientId ?? serverClientId(message.id),
+      parts: preserveLocalErrorParts(message.parts, currentErrorPartsById.get(message.id)),
+      ...(artifactRoot && !message.artifactRoot ? { artifactRoot } : {}),
+    }
+  })
+  const merged = missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetchedWithLocalState] : fetchedWithLocalState
+  return missingLocalAssistants.length > 0 ? [...merged, ...missingLocalAssistants] : merged
+}
+
+function preserveLocalErrorParts(
+  parts: ChatMessagePart[],
+  localErrorParts: ChatMessagePart[] | undefined,
+): ChatMessagePart[] {
+  if (!localErrorParts || localErrorParts.length === 0) {
+    return parts
+  }
+  const partIds = new Set(parts.map((part) => part.partId))
+  const missing = localErrorParts.filter((part) => !partIds.has(part.partId))
+  return missing.length === 0 ? parts : [...parts, ...missing]
 }
 
 export interface UseChat {
@@ -184,22 +331,50 @@ export interface UseChat {
   messagesLoaded: boolean
   error: string | null
   getSessionStatus: (sessionId: string) => ChatStatus
+  hasUnreadSession: (sessionId: string) => boolean
   send: (
     sessionId: string,
     text: string,
     attachments?: ChatAttachment[],
-    options?: SendOptions & { model?: ModelChoice },
+    options?: { model?: ModelChoice },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
 }
 
-export function useChat(activeSessionId: string | null): UseChat {
+export function markSessionCompletedUnread(
+  unreadSessionIds: Set<string>,
+  completedSessionId: string,
+  visibleSessionId: string | null,
+): Set<string> {
+  if (completedSessionId === visibleSessionId || unreadSessionIds.has(completedSessionId)) {
+    return unreadSessionIds
+  }
+  return new Set(unreadSessionIds).add(completedSessionId)
+}
+
+export function markSessionViewed(unreadSessionIds: Set<string>, visibleSessionId: string | null): Set<string> {
+  if (!visibleSessionId || !unreadSessionIds.has(visibleSessionId)) {
+    return unreadSessionIds
+  }
+  const next = new Set(unreadSessionIds)
+  next.delete(visibleSessionId)
+  return next
+}
+
+export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
   const chatService = useChatService()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
+  const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
   const [error, setError] = React.useState<string | null>(null)
+  const visibleSessionIdRef = React.useRef<string | null>(visibleSessionId)
   const userStoppedSessions = React.useRef(new Map<string, number>())
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
+
+  React.useEffect(() => {
+    visibleSessionIdRef.current = visibleSessionId
+    setUnreadSessionIds((current) => markSessionViewed(current, visibleSessionId))
+  }, [visibleSessionId])
 
   const patch = React.useCallback((sessionId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
     setMessagesMap((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }))
@@ -288,6 +463,12 @@ export function useChat(activeSessionId: string | null): UseChat {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
         patch(e.sessionId, (msgs) => setTextPart(msgs, e))
       }),
+      chatService.serverEvents.on("messageAttachment", (e) => {
+        patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
+      }),
+      chatService.serverEvents.on("messageArtifacts", (e) => {
+        patch(e.sessionId, (msgs) => setMessageArtifactRoot(msgs, e))
+      }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
         patch(e.sessionId, (msgs) =>
@@ -330,7 +511,13 @@ export function useChat(activeSessionId: string | null): UseChat {
       }),
       chatService.serverEvents.on("messageCompleted", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
+        setUnreadSessionIds((current) => markSessionCompletedUnread(current, e.sessionId, visibleSessionIdRef.current))
         void reload(e.sessionId)
+      }),
+      chatService.serverEvents.on("messageError", (e) => {
+        setStatuses((s) => ({ ...s, [e.sessionId]: "error" }))
+        setError(null)
+        patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
       chatService.serverEvents.on("generationStopped", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
@@ -363,16 +550,13 @@ export function useChat(activeSessionId: string | null): UseChat {
       sessionId: string,
       text: string,
       attachments: ChatAttachment[] = [],
-      options: SendOptions & { model?: ModelChoice } = {},
+      options: { model?: ModelChoice } = {},
     ) => {
-      const optimistic = options.optimistic ?? "before-ack"
       setError(null)
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
       setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
-      if (optimistic === "before-ack") {
-        patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
-      }
+      patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments))
       try {
         await chatService.invoke("sendMessage", {
           sessionId,
@@ -380,12 +564,16 @@ export function useChat(activeSessionId: string | null): UseChat {
           attachments: agentAttachments(attachments),
           model: options.model,
         })
-        if (optimistic === "after-ack") {
-          patch(sessionId, (msgs) => appendOptimisticUserMessage(msgs, text, attachments))
-        }
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))
-        setError(String(err))
+        setError(null)
+        patch(sessionId, (msgs) =>
+          setErrorPart(msgs, {
+            sessionId,
+            partId: `local-error-${Date.now()}`,
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        )
       }
     },
     [chatService, patch],
@@ -414,5 +602,9 @@ export function useChat(activeSessionId: string | null): UseChat {
     (sessionId: string): ChatStatus => statuses[sessionId] ?? "ready",
     [statuses],
   )
-  return { messages, status, messagesLoaded, error, getSessionStatus, send, stop }
+  const hasUnreadSession = React.useCallback(
+    (sessionId: string): boolean => unreadSessionIds.has(sessionId),
+    [unreadSessionIds],
+  )
+  return { messages, status, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop }
 }

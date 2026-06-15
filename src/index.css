@@ -137,6 +137,8 @@
   --oo-overlay-inner-ring: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 4%, transparent);
   --oo-modal-backdrop: rgb(0 0 0 / 50%);
   --oo-tooltip-shadow: 0 6px 16px color-mix(in oklab, var(--foreground) 10%, transparent);
+  --oo-path-tooltip-surface: oklch(1 0 0);
+  --oo-path-tooltip-foreground: var(--foreground);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
   --oo-warning-surface: color-mix(in oklab, var(--warning) 12%, transparent);
@@ -212,6 +214,8 @@
   --oo-overlay-inner-ring: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 4%, transparent);
   --oo-modal-backdrop: rgb(0 0 0 / 62%);
   --oo-tooltip-shadow: 0 8px 18px color-mix(in oklab, var(--background) 78%, transparent);
+  --oo-path-tooltip-surface: oklch(0.145 0.004 286);
+  --oo-path-tooltip-foreground: var(--foreground);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
   --oo-warning-surface: color-mix(in oklab, var(--warning) 14%, transparent);
@@ -597,9 +601,20 @@
     padding-left: 1rem;
   }
 
+  .oo-page-titlebar {
+    padding-right: 1rem;
+    padding-left: calc(var(--traffic-light-space) + 1rem);
+  }
+
   :root[data-platform="win32"] .oo-main-titlebar,
   :root[data-platform="linux"] .oo-main-titlebar,
   :root[data-dev-window-controls="windows"] .oo-main-titlebar {
+    padding-right: calc(var(--window-control-right-space) + 1rem);
+  }
+
+  :root[data-platform="win32"] .oo-page-titlebar,
+  :root[data-platform="linux"] .oo-page-titlebar,
+  :root[data-dev-window-controls="windows"] .oo-page-titlebar {
     padding-right: calc(var(--window-control-right-space) + 1rem);
   }
 
@@ -948,7 +963,6 @@
   /* Markdown 渲染：Tailwind preflight 清掉了默认排版，这里在聊天气泡内按需恢复。 */
   .oo-markdown {
     line-height: var(--oo-line-body);
-    word-break: break-word;
     overflow-wrap: anywhere;
   }
 
@@ -1058,6 +1072,147 @@
     font-size: 0.85em;
   }
 
+  .oo-message-response [data-streamdown="inline-code"] {
+    overflow-wrap: anywhere;
+  }
+
+  .oo-message-response .oo-markdown-path-token {
+    display: inline-flex;
+    max-width: min(100%, 38rem);
+    min-height: 1.75rem;
+    align-items: center;
+    gap: 0.45rem;
+    vertical-align: middle;
+    border: 1px solid var(--oo-divider);
+    border-radius: 8px;
+    background: var(--background);
+    padding: 0.2rem 0.55rem;
+    color: var(--foreground);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.875em;
+    line-height: 1.3;
+    overflow: hidden;
+    text-align: left;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: default;
+    appearance: none;
+  }
+
+  .oo-message-response .oo-markdown-path-token:hover {
+    background: var(--accent);
+  }
+
+  .oo-message-response .oo-markdown-path-token:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .oo-message-response .oo-markdown-path-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .oo-markdown-path-tooltip {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    max-width: min(34rem, calc(100vw - 2rem));
+    border: 1px solid var(--oo-overlay-border);
+    background: var(--oo-path-tooltip-surface);
+    color: var(--oo-path-tooltip-foreground);
+    box-shadow: var(--oo-tooltip-shadow);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    line-height: 1.35;
+    text-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .oo-markdown-path-tooltip > svg {
+    background: var(--oo-path-tooltip-surface);
+    fill: var(--oo-path-tooltip-surface);
+  }
+
+  .oo-markdown-path-tooltip-text {
+    min-width: 0;
+  }
+
+  .oo-markdown-path-tooltip-copy {
+    display: inline-flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--muted-foreground);
+  }
+
+  .oo-markdown-path-tooltip-copy:hover,
+  .oo-markdown-path-tooltip-copy.is-copied {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+
+  .oo-markdown-path-tooltip-copy:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .oo-markdown-path-tooltip-copy svg {
+    background: transparent;
+    fill: none;
+  }
+
+  /* Streamdown 默认代码块是外层容器 + 内层高亮容器的双层卡片，聊天里显得过重。 */
+  .oo-message-response [data-streamdown="code-block"] {
+    position: relative;
+    margin: 0.75rem 0;
+    gap: 0;
+    overflow: hidden;
+    border: 1px solid var(--oo-divider);
+    border-radius: 8px;
+    background: var(--muted);
+    padding: 0;
+  }
+
+  .oo-message-response [data-streamdown="code-block-header"] {
+    display: none;
+  }
+
+  .oo-message-response [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+    position: absolute;
+    top: 0.375rem;
+    right: 0.375rem;
+    z-index: 1;
+    height: auto;
+    margin-top: 0;
+  }
+
+  .oo-message-response [data-streamdown="code-block-actions"] {
+    gap: 0.125rem;
+    border: 0;
+    background: color-mix(in oklab, var(--muted) 88%, transparent);
+    padding: 0.125rem;
+    backdrop-filter: blur(8px);
+  }
+
+  .oo-message-response [data-streamdown="code-block-copy-button"] {
+    border-radius: 6px;
+    padding: 0.25rem;
+  }
+
+  .oo-message-response [data-streamdown="code-block-body"] {
+    overflow-x: auto;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0.75rem 2.5rem 0.75rem 0.875rem;
+    font-size: 0.85em;
+  }
+
   .oo-markdown blockquote {
     border-left: 3px solid var(--oo-divider);
     padding-left: 0.75rem;
@@ -1090,8 +1245,69 @@
     font-weight: 600;
   }
 
-  .oo-markdown img {
-    max-width: 100%;
-    border-radius: 6px;
+  /* Markdown 图片专用渲染器样式：不要挂到 .oo-markdown 或通用 img，避免影响表格/其它 Markdown。 */
+  .oo-markdown-image-preview {
+    position: relative;
+    display: block;
+    width: fit-content;
+    max-width: min(100%, 20rem);
+    margin: 0.75rem 0;
+    overflow: hidden;
+    border-radius: 8px;
+    line-height: 0;
+  }
+
+  .oo-markdown-image-preview img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: min(100%, 20rem);
+    max-height: min(58vh, 28rem);
+    object-fit: contain;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+  }
+
+  .oo-markdown-image-actions {
+    position: absolute;
+    bottom: 0.75rem;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateX(-50%);
+    border: 1px solid color-mix(in oklab, var(--oo-divider) 82%, transparent);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--background) 86%, transparent);
+    padding: 0.25rem;
+    box-shadow: 0 6px 18px color-mix(in oklab, black 18%, transparent);
+    opacity: 0;
+    backdrop-filter: blur(10px);
+    pointer-events: none;
+    transition: opacity 120ms ease-out;
+  }
+
+  .oo-markdown-image-preview:hover .oo-markdown-image-actions,
+  .oo-markdown-image-preview:focus-within .oo-markdown-image-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .oo-markdown-image-action {
+    display: flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--muted-foreground);
+    text-decoration: none;
+  }
+
+  .oo-markdown-image-action:hover {
+    background: var(--accent);
+    color: var(--foreground);
+    text-decoration: none;
   }
 }

@@ -252,7 +252,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   agent?.dispose()
   agent = null
   chatService.setAgent(null)
-  chatService.setVoiceAuthToken(effectiveAccount?.sessionToken)
+  chatService.setBillingAccountContext({ token: effectiveAccount?.sessionToken, userId: effectiveAccount?.id })
   sessionService.setAgent(null)
   connectionsService.setApiKey(effectiveAccount?.apiKey)
   // 凭证变化后主动广播摘要，连接面板即时刷新（失败静默，面板有自己的拉取路径）。

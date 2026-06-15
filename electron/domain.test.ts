@@ -4,6 +4,7 @@ import {
   apiBaseUrl,
   connectorBaseUrl,
   consoleBaseUrl,
+  consoleServerBaseUrl,
   hubBaseUrl,
   llmBaseUrl,
   ooEndpoint,
@@ -19,6 +20,7 @@ test("all base URLs derive from the single injected endpoint", () => {
   assert.equal(llmBaseUrl, `https://llm.${ooEndpoint}/v1`)
   assert.equal(connectorBaseUrl, `https://connector.${ooEndpoint}`)
   assert.equal(consoleBaseUrl, `https://console.${ooEndpoint}`)
+  assert.equal(consoleServerBaseUrl, `https://console-server.${ooEndpoint}`)
   assert.equal(apiBaseUrl, `https://api.${ooEndpoint}`)
   assert.equal(hubBaseUrl, `https://hub.${ooEndpoint}`)
   assert.equal(staticBaseUrl, `https://static.${ooEndpoint}`)

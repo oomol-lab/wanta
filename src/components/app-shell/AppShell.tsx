@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
@@ -38,13 +39,14 @@ import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { BillingRoute } from "@/routes/Billing"
 import { ChatArea } from "@/routes/Chat"
 import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
 import { SkillsRoute } from "@/routes/Skills"
 
-type Route = "chat" | "connections" | "skills" | "settings"
+type Route = "billing" | "chat" | "connections" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
@@ -67,7 +69,7 @@ interface PendingChatTransition {
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
-  return route === "settings" || route === "connections" || route === "skills" ? route : "chat"
+  return route === "settings" || route === "connections" || route === "skills" || route === "billing" ? route : "chat"
 }
 
 function clampSidebarWidth(width: number): number {
@@ -111,28 +113,18 @@ function chatMessageText(message: ChatMessage): string {
     .join("")
 }
 
-function chatMessageAttachmentPaths(message: ChatMessage): string {
-  return message.parts
-    .filter((part) => part.kind === "attachment" && part.attachment)
-    .map((part) => part.attachment?.path ?? "")
-    .sort()
-    .join("\n")
-}
-
-function attachmentPaths(attachments: ChatAttachment[]): string {
-  return attachments
-    .map((attachment) => attachment.path)
-    .sort()
-    .join("\n")
-}
-
-function hasUserMessage(messages: ChatMessage[], text: string, attachments: ChatAttachment[] = []): boolean {
-  const expectedAttachments = attachmentPaths(attachments)
+function hasAssistantContent(messages: ChatMessage[]): boolean {
   return messages.some(
     (message) =>
-      message.role === "user" &&
-      chatMessageText(message) === text &&
-      chatMessageAttachmentPaths(message) === expectedAttachments,
+      message.role === "assistant" &&
+      !message.id.startsWith("local-assistant-") &&
+      message.parts.some(
+        (part) =>
+          part.kind === "tool" ||
+          part.kind === "attachment" ||
+          part.kind === "error" ||
+          (part.kind === "text" && Boolean(part.text?.trim())),
+      ),
   )
 }
 
@@ -169,6 +161,7 @@ function SessionItem({
   session,
   active,
   running,
+  unread,
   now,
   onSelect,
   onRename,
@@ -177,6 +170,7 @@ function SessionItem({
   session: SessionInfo
   active: boolean
   running: boolean
+  unread: boolean
   now: number
   onSelect: () => void
   onRename: (title: string) => void
@@ -236,6 +230,14 @@ function SessionItem({
             className="oo-sidebar-session-activity ml-auto flex size-5 shrink-0 items-center justify-center group-hover:hidden"
           >
             <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+          </span>
+        ) : unread ? (
+          <span
+            title={t("aria.unreadSession")}
+            aria-label={t("aria.unreadSession")}
+            className="ml-auto flex size-5 shrink-0 items-center justify-center group-hover:hidden"
+          >
+            <span className="size-2 rounded-full bg-blue-500" aria-hidden="true" />
           </span>
         ) : relativeTime ? (
           <span
@@ -404,7 +406,7 @@ function SidebarAccountMenu({
         <button
           type="button"
           className={cn(
-            "oo-sidebar-account oo-sidebar-nav-item -mx-3 flex h-14 shrink-0 items-center gap-2 px-4 text-left [-webkit-app-region:no-drag]",
+            "oo-sidebar-account oo-sidebar-nav-item -mx-3 flex h-12 shrink-0 items-center gap-2 px-4 text-left [-webkit-app-region:no-drag]",
             activeRoute === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
           )}
           aria-label={t("sidebar.accountMenu")}
@@ -416,7 +418,7 @@ function SidebarAccountMenu({
               {displayName}
             </div>
           </div>
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-md">
             <Settings className="size-4" />
           </span>
         </button>
@@ -454,7 +456,7 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   }, [avatarUrl])
 
   return (
-    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-medium text-foreground">
+    <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
       {avatarUrl && !failed ? (
         <img
           src={avatarUrl}
@@ -492,7 +494,10 @@ export function AppShell() {
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
 
-  const { messages, status, messagesLoaded, error, getSessionStatus, send, stop } = useChat(activeSessionId)
+  const { messages, status, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
+    activeSessionId,
+    route === "chat" ? activeSessionId : null,
+  )
   const connections = useConnections()
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
@@ -587,7 +592,7 @@ export function AppShell() {
   const pendingCaughtUp = Boolean(
     pendingChatTransition?.sessionId &&
     activeSessionId === pendingChatTransition.sessionId &&
-    hasUserMessage(messages, pendingChatTransition.text, pendingChatTransition.attachments),
+    hasAssistantContent(messages),
   )
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
@@ -606,11 +611,13 @@ export function AppShell() {
   const titlebarTitle =
     route === "settings"
       ? t("settings.title")
-      : route === "connections"
-        ? t("connections.title")
-        : route === "skills"
-          ? t("skills.title")
-          : (activeSession?.title ?? t("chat.newSession"))
+      : route === "billing"
+        ? t("billing.title")
+        : route === "connections"
+          ? t("connections.title")
+          : route === "skills"
+            ? t("skills.title")
+            : (activeSession?.title ?? t("chat.newSession"))
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
@@ -818,7 +825,7 @@ export function AppShell() {
     }
     lastModelBySession.current.set(sessionId, model)
     try {
-      await send(sessionId, text, attachments, { optimistic: bridgeEmptySend ? "after-ack" : "before-ack", model })
+      await send(sessionId, text, attachments, { model })
     } catch (error) {
       if (bridgeEmptySend) {
         setPendingChatTransition(null)
@@ -929,15 +936,20 @@ export function AppShell() {
     setArtifactsPanelOpen(true)
   }, [])
   const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
-    setArtifactSelection((current) => current ?? selection)
+    setArtifactSelection((current) => (current?.messageId === selection.messageId ? current : selection))
   }, [])
   const artifactsPanelVisible = route === "chat" && artifactsPanelOpen
   const showArtifactsToggle = route === "chat" && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
+  const billingCacheScope = auth.state?.account?.id ?? "authenticated"
 
   if (route === "settings") {
     return <SettingsRoute onBack={() => setRoute("chat")} />
+  }
+
+  if (route === "billing") {
+    return <BillingRoute cacheScope={billingCacheScope} onBack={() => setRoute("chat")} />
   }
 
   return (
@@ -1017,6 +1029,7 @@ export function AppShell() {
                     session={session}
                     active={route === "chat" && activeSessionId === session.id}
                     running={isSessionRunning(session.id)}
+                    unread={hasUnreadSession(session.id)}
                     now={relativeTimeNow}
                     onSelect={() => {
                       setActiveSessionId(session.id)
@@ -1079,6 +1092,7 @@ export function AppShell() {
               </span>
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+              <BillingUsagePopover cacheScope={billingCacheScope} onViewDetails={() => setRoute("billing")} />
               {showArtifactsToggle ? (
                 <button
                   type="button"
@@ -1107,6 +1121,7 @@ export function AppShell() {
             ) : (
               <div className="h-full min-h-0 overflow-hidden">
                 <ChatArea
+                  billingCacheScope={billingCacheScope}
                   messages={initialSendPending ? [] : messages}
                   status={displayedStatus}
                   showEmptyState={showChatEmptyState}
@@ -1121,6 +1136,7 @@ export function AppShell() {
                   onArtifactsReset={handleArtifactsReset}
                   onArtifactsOpen={handleArtifactsOpen}
                   onArtifactsAvailable={handleArtifactsAvailable}
+                  onViewBilling={() => setRoute("billing")}
                 />
               </div>
             )}

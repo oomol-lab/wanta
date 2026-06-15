@@ -1,46 +1,35 @@
+import type { AuthAccountSummary } from "../../../electron/auth/common.ts"
 import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { Locale } from "@/i18n/i18n"
 
 import {
-  ArrowLeft,
-  Languages,
-  LogOut,
-  Monitor,
-  Moon,
-  Palette,
-  RefreshCw,
-  Search,
-  Settings as SettingsIcon,
-  Sun,
-  UserRound,
+  CopyIcon,
+  DownloadIcon,
+  LogOutIcon,
+  MonitorIcon,
+  MoonIcon,
+  RefreshCwIcon,
+  RotateCcwIcon,
+  SunIcon,
 } from "lucide-react"
 import * as React from "react"
+import { PageRouteShell } from "@/components/PageRouteShell"
+import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useI18n } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-type SettingsSectionId = "general" | "appearance" | "account" | "updates"
-
-const sections = [
-  { id: "general", labelKey: "settings.general", groupKey: "settings.groupPersonal", icon: SettingsIcon },
-  { id: "appearance", labelKey: "settings.appearance", groupKey: "settings.groupPersonal", icon: Palette },
-  { id: "account", labelKey: "settings.account", groupKey: "settings.groupPersonal", icon: UserRound },
-  { id: "updates", labelKey: "settings.update", groupKey: "settings.groupApplication", icon: RefreshCw },
-] as const
-type SettingsSectionMeta = (typeof sections)[number]
-
 const themeOptions = [
-  { value: "system", labelKey: "settings.themeSystem", icon: Monitor },
-  { value: "light", labelKey: "settings.themeLight", icon: Sun },
-  { value: "dark", labelKey: "settings.themeDark", icon: Moon },
+  { value: "light", labelKey: "settings.themeLight", icon: SunIcon },
+  { value: "dark", labelKey: "settings.themeDark", icon: MoonIcon },
+  { value: "system", labelKey: "settings.themeSystem", icon: MonitorIcon },
 ] as const
 
 const localeOptions: Array<{ value: Locale; label: string }> = [
@@ -58,166 +47,140 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
   const { locale, setLocale, t } = useI18n()
   const auth = useAuth()
   const update = useAppUpdate()
-  const [activeSection, setActiveSection] = React.useState<SettingsSectionId>("general")
-  const [query, setQuery] = React.useState("")
-  const normalizedQuery = query.trim().toLocaleLowerCase()
-  const filteredSections = normalizedQuery
-    ? sections.filter((section) => t(section.labelKey).toLocaleLowerCase().includes(normalizedQuery))
-    : sections
-
-  React.useEffect(() => {
-    if (filteredSections.length > 0 && !filteredSections.some((section) => section.id === activeSection)) {
-      setActiveSection(filteredSections[0].id)
-    }
-  }, [activeSection, filteredSections])
-
-  const activeMeta = sections.find((section) => section.id === activeSection) ?? sections[0]
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[280px_minmax(0,1fr)] bg-background text-foreground max-[760px]:grid-cols-1">
-      <aside className="oo-border-divider flex min-h-0 flex-col border-r bg-sidebar">
-        <header
-          className="flex h-[var(--app-titlebar-height)] shrink-0 items-center [-webkit-app-region:drag]"
-          style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
-        />
-        <div className="flex min-h-0 flex-1 flex-col gap-5 px-4 pb-5">
-          <button
-            type="button"
-            onClick={onBack}
-            className="oo-sidebar-nav-item oo-text-control flex h-8 w-fit items-center gap-2 rounded-md px-2 text-sidebar-foreground [-webkit-app-region:no-drag]"
-          >
-            <ArrowLeft className="size-4" />
-            <span>{t("settings.backToApp")}</span>
-          </button>
+    <PageRouteShell backLabel={t("settings.backToApp")} contentClassName="max-w-[60rem] gap-6" onBack={onBack}>
+      <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("settings.title")}</h1>
 
-          <label className="flex h-9 items-center gap-2 rounded-lg border border-sidebar-border bg-background/35 px-3 text-sidebar-foreground [-webkit-app-region:no-drag]">
-            <Search className="size-4 shrink-0 opacity-70" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("settings.searchPlaceholder")}
-              className="oo-text-control min-w-0 flex-1 border-0 bg-transparent p-0 text-foreground outline-none placeholder:text-muted-foreground"
-            />
-          </label>
+      <div className="grid gap-5">
+        <SettingsSection title={t("settings.groupPersonal")}>
+          <AccountSettings
+            account={auth.state?.account}
+            error={auth.error}
+            loggingOut={auth.loggingOut}
+            onLogout={() => void auth.logout()}
+          />
+          <SettingsItem title={t("settings.appearance")}>
+            <ThemeSettings preference={preference} setPreference={setPreference} />
+          </SettingsItem>
+          <SettingsItem title={t("settings.language")}>
+            <LanguageSettings locale={locale} setLocale={setLocale} />
+          </SettingsItem>
+        </SettingsSection>
 
-          <nav className="min-h-0 flex-1 overflow-y-auto [-webkit-app-region:no-drag]" aria-label={t("settings.title")}>
-            <SettingsSidebar
-              activeSection={activeSection}
-              filteredSections={filteredSections}
-              onSelect={setActiveSection}
-            />
-          </nav>
-        </div>
-      </aside>
-
-      <main className="grid min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
-        <header className="h-[var(--app-titlebar-height)] shrink-0 [-webkit-app-region:drag]" />
-        <div className="min-h-0 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[860px] px-10 pt-14 pb-16 max-[760px]:px-5 max-[760px]:pt-8">
-            <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t(activeMeta.labelKey)}</h1>
-            <div className="mt-14 max-[760px]:mt-8">
-              {activeSection === "general" ? (
-                <GeneralSettings locale={locale} setLocale={setLocale} />
-              ) : activeSection === "appearance" ? (
-                <AppearanceSettings preference={preference} setPreference={setPreference} />
-              ) : activeSection === "account" ? (
-                <AccountSettings
-                  accountName={auth.state?.account?.name}
-                  avatarUrl={auth.state?.account?.avatarUrl}
-                  error={auth.error}
-                  loggingOut={auth.loggingOut}
-                  onLogout={() => void auth.logout()}
-                />
-              ) : (
-                <UpdateSettings update={update} />
-              )}
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
+        <SettingsSection title={t("settings.groupApplication")}>
+          <AboutSettings update={update} />
+          <SettingsItem title={t("settings.updateChannel")} description={t("settings.channelHint")}>
+            <UpdateChannelSettings update={update} />
+          </SettingsItem>
+        </SettingsSection>
+      </div>
+    </PageRouteShell>
   )
 }
 
-function SettingsSidebar({
-  activeSection,
-  filteredSections,
-  onSelect,
+function SettingsSection({ children, title }: { children: React.ReactNode; title: string }) {
+  return (
+    <section className="grid gap-2">
+      <SectionHeading>{title}</SectionHeading>
+      <div className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">{children}</div>
+    </section>
+  )
+}
+
+function SettingsItem({
+  children,
+  description,
+  title,
 }: {
-  activeSection: SettingsSectionId
-  filteredSections: readonly SettingsSectionMeta[]
-  onSelect: (section: SettingsSectionId) => void
+  children: React.ReactNode
+  description?: React.ReactNode
+  title: string
+}) {
+  return (
+    <section className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 max-[760px]:grid-cols-1">
+      <div className="min-w-0">
+        <h3 className="oo-text-label truncate text-foreground">{title}</h3>
+        {description ? <div className="oo-text-caption mt-0.5 max-w-[44rem]">{description}</div> : null}
+      </div>
+      <div className="min-w-0 justify-self-end max-[760px]:justify-self-start">{children}</div>
+    </section>
+  )
+}
+
+function AccountSettings({
+  account,
+  error,
+  loggingOut,
+  onLogout,
+}: {
+  account?: AuthAccountSummary
+  error?: string | null
+  loggingOut: boolean
+  onLogout: () => void
 }) {
   const { t } = useI18n()
-  const grouped = filteredSections.reduce<
-    Array<{ groupKey: SettingsSectionMeta["groupKey"]; items: SettingsSectionMeta[] }>
-  >((groups, section) => {
-    const group = groups.find((item) => item.groupKey === section.groupKey)
-    if (group) {
-      group.items.push(section)
-    } else {
-      groups.push({ groupKey: section.groupKey, items: [section] })
-    }
-    return groups
-  }, [])
-
-  if (grouped.length === 0) {
-    return <p className="oo-text-caption px-2 py-3 text-muted-foreground">{t("settings.searchEmpty")}</p>
-  }
+  const displayName = account?.name.trim() || t("settings.account")
 
   return (
-    <div className="grid gap-6">
-      {grouped.map((group) => (
-        <section key={group.groupKey} className="grid gap-2">
-          <h2 className="oo-text-caption px-2 text-muted-foreground">{t(group.groupKey)}</h2>
-          <div className="grid gap-1">
-            {group.items.map((item) => {
-              const Icon = item.icon
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onSelect(item.id)}
-                  className={cn(
-                    "oo-sidebar-nav-item oo-text-control flex h-9 items-center gap-2 rounded-md px-2 text-left",
-                    activeSection === item.id && "bg-sidebar-accent text-sidebar-accent-foreground",
-                  )}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="truncate">{t(item.labelKey)}</span>
-                </button>
-              )
-            })}
+    <>
+      <section className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 border-b border-[var(--oo-divider)] px-3 py-3 max-[760px]:grid-cols-1">
+        <div className="flex min-w-0 items-center gap-3">
+          <AccountAvatar name={displayName} avatarUrl={account?.avatarUrl} />
+          <div className="min-w-0">
+            <div className="oo-text-title truncate text-foreground">{displayName}</div>
+            <div className="oo-text-caption truncate">{account ? t("settings.signedIn") : t("settings.signedOut")}</div>
           </div>
-        </section>
-      ))}
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:justify-start">
+          {account ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => copyAccountInfo(account, t)}>
+              <CopyIcon className="size-4" />
+              {t("settings.copyAccountInfo")}
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" size="sm" disabled={loggingOut || !account} onClick={onLogout}>
+            <LogOutIcon className="size-4" />
+            {t("settings.logout")}
+          </Button>
+        </div>
+      </section>
+
+      {account ? (
+        <AccountField
+          label={t("settings.userId")}
+          value={account.id}
+          onCopy={() => {
+            void navigator.clipboard?.writeText(account.id)
+          }}
+        />
+      ) : null}
+
+      {error ? (
+        <p className="oo-text-body border-b border-[var(--oo-divider)] px-3 py-2.5 text-destructive">{error}</p>
+      ) : null}
+    </>
+  )
+}
+
+function AccountField({ label, onCopy, value }: { label: string; onCopy: () => void; value: string }) {
+  return (
+    <div className="grid min-h-12 grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 max-[760px]:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="oo-text-label text-muted-foreground max-[760px]:col-span-2">{label}</div>
+      <div className="oo-text-control min-w-0 truncate font-mono text-foreground">{value}</div>
+      <button
+        type="button"
+        onClick={onCopy}
+        className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label={label}
+      >
+        <CopyIcon className="size-4" />
+      </button>
     </div>
   )
 }
 
-function GeneralSettings({ locale, setLocale }: { locale: Locale; setLocale: (locale: Locale) => void }) {
-  const { t } = useI18n()
-  return (
-    <SettingsSection>
-      <SettingsGroup>
-        <SettingsRow
-          title={t("settings.language")}
-          description={t("settings.languageDescription")}
-          action={
-            <LanguageSelect
-              value={locale}
-              onChange={(value) => {
-                setLocale(value)
-              }}
-            />
-          }
-        />
-      </SettingsGroup>
-    </SettingsSection>
-  )
-}
-
-function AppearanceSettings({
+function ThemeSettings({
   preference,
   setPreference,
 }: {
@@ -226,173 +189,99 @@ function AppearanceSettings({
 }) {
   const { t } = useI18n()
   return (
-    <SettingsSection>
-      <SettingsGroup>
-        <SettingsRow
-          title={t("settings.theme")}
-          description={t("settings.themeDescription")}
-          action={
-            <ToggleGroup
-              type="single"
-              value={preference}
-              onValueChange={(value) => {
-                if (value) {
-                  setPreference(value as ThemePreference)
-                }
-              }}
-              variant="outline"
-              size="lg"
-              spacing={1}
-              className="flex-wrap justify-end"
-            >
-              {themeOptions.map((option) => (
-                <ToggleGroupItem key={option.value} value={option.value} className="px-3">
-                  <option.icon className="size-4" />
-                  {t(option.labelKey)}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          }
-        />
-      </SettingsGroup>
-    </SettingsSection>
+    <ToggleGroup
+      type="single"
+      value={preference}
+      onValueChange={(value) => {
+        if (value) {
+          setPreference(value as ThemePreference)
+        }
+      }}
+      variant="outline"
+      size="sm"
+      className="flex-wrap"
+    >
+      {themeOptions.map((option) => (
+        <ToggleGroupItem key={option.value} value={option.value}>
+          <option.icon className="size-4" />
+          {t(option.labelKey)}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   )
 }
 
-function AccountSettings({
-  accountName,
-  avatarUrl,
-  error,
-  loggingOut,
-  onLogout,
-}: {
-  accountName?: string
-  avatarUrl?: string
-  error?: string | null
-  loggingOut: boolean
-  onLogout: () => void
-}) {
-  const { t } = useI18n()
-  const displayName = accountName?.trim() || t("settings.account")
+function LanguageSettings({ locale, setLocale }: { locale: Locale; setLocale: (locale: Locale) => void }) {
   return (
-    <SettingsSection>
-      <SettingsGroup>
-        <SettingsRow
-          title={t("settings.account")}
-          description={error ? error : t("settings.accountDescription", { name: displayName })}
-          descriptionClassName={error ? "text-destructive" : undefined}
-          action={
-            <div className="flex items-center gap-3">
-              <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
-              <Button variant="outline" size="sm" className="gap-2" disabled={loggingOut} onClick={onLogout}>
-                <LogOut className="size-4" />
-                {t("settings.logout")}
-              </Button>
-            </div>
-          }
-        />
-      </SettingsGroup>
-    </SettingsSection>
+    <ToggleGroup
+      type="single"
+      value={locale}
+      onValueChange={(value) => {
+        if (value) {
+          setLocale(value as Locale)
+        }
+      }}
+      variant="outline"
+      size="sm"
+      className="flex-wrap"
+    >
+      {localeOptions.map((option) => (
+        <ToggleGroupItem key={option.value} value={option.value}>
+          {option.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   )
 }
 
-function UpdateSettings({ update }: { update: UseAppUpdate }) {
+function AboutSettings({ update }: { update: UseAppUpdate }) {
   const { t } = useI18n()
   const statusText = getUpdateStatusText(update, t)
   const updateStatus = update.state?.status
   const downloadingStatus = updateStatus?.status === "downloading" ? updateStatus : null
   const percent = Math.round(downloadingStatus?.percent ?? 0)
+  const version = update.state?.currentVersion ?? globalThis.lumo?.version ?? "—"
+  const platform = globalThis.lumo?.platform ?? "browser"
 
   return (
-    <SettingsSection>
-      <SettingsGroup>
-        <SettingsRow
-          title={t("settings.updateCurrentVersion", { version: update.state?.currentVersion ?? "—" })}
-          description={statusText}
-          action={<UpdateAction update={update} />}
-        />
-        {downloadingStatus ? (
-          <div className="border-t px-4 py-3">
-            <Progress value={percent} className="h-1.5" />
-          </div>
-        ) : null}
-        <SettingsRow
-          title={t("settings.updateChannel")}
-          description={t("settings.channelHint")}
-          action={
-            <ToggleGroup
-              type="single"
-              value={update.state?.channel ?? "stable"}
-              onValueChange={(value) => {
-                if (value) {
-                  void update.setChannel(value as UpdateChannel)
-                }
-              }}
-              variant="outline"
-              size="lg"
-              spacing={1}
-              className="justify-end"
-            >
-              {channelOptions.map((option) => (
-                <ToggleGroupItem key={option.value} value={option.value} className="px-3">
-                  {t(option.labelKey)}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          }
-        />
-      </SettingsGroup>
-    </SettingsSection>
-  )
-}
-
-function SettingsSection({ children }: { children: React.ReactNode }) {
-  return <section>{children}</section>
-}
-
-function SettingsGroup({ children }: { children: React.ReactNode }) {
-  return <div className="overflow-hidden rounded-lg border bg-background">{children}</div>
-}
-
-function SettingsRow({
-  title,
-  description,
-  descriptionClassName,
-  action,
-}: {
-  title: string
-  description: string
-  descriptionClassName?: string
-  action: React.ReactNode
-}) {
-  return (
-    <div className="grid min-h-20 grid-cols-[minmax(0,1fr)_auto] items-center gap-8 border-b px-4 py-4 last:border-b-0 max-[760px]:grid-cols-1 max-[760px]:gap-3">
-      <div className="min-w-0">
-        <h2 className="oo-text-value font-medium">{title}</h2>
-        <p className={cn("oo-text-control mt-1 max-w-[560px] text-muted-foreground", descriptionClassName)}>
-          {description}
-        </p>
+    <section className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 border-b border-[var(--oo-divider)] px-3 py-3 max-[760px]:grid-cols-1">
+      <div className="grid min-w-0 gap-1">
+        <div className="oo-text-label text-muted-foreground">Lumo</div>
+        <div className="oo-text-value text-foreground">v{version}</div>
+        <div className="oo-text-caption">{t("settings.platform", { platform })}</div>
+        <div className={cn("oo-text-caption", update.state?.status.status === "error" && "text-destructive")}>
+          {statusText}
+        </div>
+        {downloadingStatus ? <Progress value={percent} className="mt-3 h-1.5 max-w-sm" /> : null}
       </div>
-      <div className="flex min-w-0 justify-end max-[760px]:justify-start">{action}</div>
-    </div>
+      <UpdateAction update={update} />
+    </section>
   )
 }
 
-function LanguageSelect({ value, onChange }: { value: Locale; onChange: (value: Locale) => void }) {
+function UpdateChannelSettings({ update }: { update: UseAppUpdate }) {
+  const { t } = useI18n()
   return (
-    <Select value={value} onValueChange={(next) => onChange(next as Locale)}>
-      <SelectTrigger className="h-[var(--oo-control-height-comfortable)] w-[180px]">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent align="end">
-        {localeOptions.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            <Languages className="size-4" />
-            {option.label}
-          </SelectItem>
+    <div className="grid max-w-[48rem] gap-3">
+      <ToggleGroup
+        type="single"
+        value={update.state?.channel ?? "stable"}
+        onValueChange={(value) => {
+          if (value) {
+            void update.setChannel(value as UpdateChannel)
+          }
+        }}
+        variant="outline"
+        size="sm"
+        className="flex-wrap"
+      >
+        {channelOptions.map((option) => (
+          <ToggleGroupItem key={option.value} value={option.value}>
+            {t(option.labelKey)}
+          </ToggleGroupItem>
         ))}
-      </SelectContent>
-    </Select>
+      </ToggleGroup>
+    </div>
   )
 }
 
@@ -406,30 +295,35 @@ function UpdateAction({ update }: { update: UseAppUpdate }) {
     case "checking":
       return (
         <Button variant="outline" size="sm" disabled>
+          <RefreshCwIcon className="size-4 animate-spin" />
           {t("settings.updateChecking")}
         </Button>
       )
     case "available":
       return (
         <Button variant="outline" size="sm" onClick={() => void update.download()}>
+          <DownloadIcon className="size-4" />
           {t("settings.updateDownload")}
         </Button>
       )
     case "downloading":
       return (
         <Button variant="outline" size="sm" disabled>
+          <DownloadIcon className="size-4" />
           {t("settings.updateDownloading", { percent: Math.round(state.status.percent ?? 0) })}
         </Button>
       )
     case "downloaded":
       return (
         <Button variant="outline" size="sm" onClick={() => void update.install()}>
+          <RotateCcwIcon className="size-4" />
           {t("settings.updateRestart")}
         </Button>
       )
     default:
       return (
         <Button variant="outline" size="sm" onClick={() => void update.check()}>
+          <RefreshCwIcon className="size-4" />
           {t("settings.updateCheck")}
         </Button>
       )
@@ -472,7 +366,7 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   }, [avatarUrl])
 
   return (
-    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-medium text-foreground">
+    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground">
       {avatarUrl && !failed ? (
         <img
           src={avatarUrl}
@@ -487,4 +381,9 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
       )}
     </div>
   )
+}
+
+function copyAccountInfo(account: AuthAccountSummary, t: ReturnType<typeof useI18n>["t"]): void {
+  const lines = [`${t("settings.accountName")}: ${account.name}`, `${t("settings.userId")}: ${account.id}`]
+  void navigator.clipboard?.writeText(lines.join("\n"))
 }

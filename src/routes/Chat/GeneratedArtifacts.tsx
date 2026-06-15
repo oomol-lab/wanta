@@ -1,4 +1,5 @@
 import type { LocalArtifactGroup, LocalArtifactItem } from "../../../electron/chat/common.ts"
+import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import { File, FileText, FolderOpen, Image, Package, PanelRightClose } from "lucide-react"
@@ -9,14 +10,57 @@ import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 const previewLimit = 4
+const intermediateCodeExtensions = new Set([
+  ".bash",
+  ".c",
+  ".cc",
+  ".cjs",
+  ".cpp",
+  ".cs",
+  ".css",
+  ".cxx",
+  ".dart",
+  ".fish",
+  ".go",
+  ".h",
+  ".hpp",
+  ".html",
+  ".htm",
+  ".java",
+  ".js",
+  ".jsx",
+  ".kt",
+  ".kts",
+  ".less",
+  ".lua",
+  ".mjs",
+  ".php",
+  ".pl",
+  ".py",
+  ".r",
+  ".rb",
+  ".rs",
+  ".sass",
+  ".scala",
+  ".scss",
+  ".sh",
+  ".svelte",
+  ".swift",
+  ".ts",
+  ".tsx",
+  ".vue",
+  ".zsh",
+])
+const codeRequestPattern =
+  /\b(api|app|cli|code|component|css|html|javascript|js|node|program|python|react|script|typescript|ts|website)\b|代码|脚本|程序|网页|网站|应用|组件|前端|后端|接口|库|插件|扩展|源码|项目/i
 
 export interface ArtifactSelection {
+  messageId: string
   group: LocalArtifactGroup
 }
 
 interface GeneratedArtifactsProps {
-  messageId: string
-  text: string
+  sources: GeneratedArtifactSource[]
   onOpen: (selection: ArtifactSelection) => void
   onAvailable: (selection: ArtifactSelection) => void
 }
@@ -24,6 +68,11 @@ interface GeneratedArtifactsProps {
 interface ArtifactsPanelProps {
   selection: ArtifactSelection | null
   onCollapse: () => void
+}
+
+interface ResolvedArtifactGroup {
+  messageId: string
+  group: LocalArtifactGroup
 }
 
 function itemCount(group: LocalArtifactGroup): number {
@@ -89,9 +138,11 @@ function ArtifactsEmptyState() {
 
 function GeneratedArtifactsGroup({
   group,
+  messageId,
   onOpen,
 }: {
   group: LocalArtifactGroup
+  messageId: string
   onOpen: (selection: ArtifactSelection) => void
 }) {
   const t = useT()
@@ -103,21 +154,21 @@ function GeneratedArtifactsGroup({
   const openRoot = async (event: React.MouseEvent): Promise<void> => {
     event.stopPropagation()
     if (!group.root) {
-      onOpen({ group })
+      onOpen({ messageId, group })
       return
     }
     await chatService.invoke("openLocalPath", { path: group.root.path }).catch(() => undefined)
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-1.5">
       {group.root ? (
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
             title={group.root.path}
-            className="oo-border-divider flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-            onClick={() => onOpen({ group })}
+            className="oo-border-divider flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+            onClick={() => onOpen({ messageId, group })}
           >
             <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{group.root.name}</span>
@@ -128,7 +179,7 @@ function GeneratedArtifactsGroup({
             variant="outline"
             size="sm"
             title={t("artifacts.openFolder")}
-            className="h-8 shrink-0 gap-1 px-2"
+            className="h-7 shrink-0 gap-1 px-2 text-xs"
             onClick={(event) => void openRoot(event)}
           >
             <FolderOpen className="size-3.5" />
@@ -138,14 +189,14 @@ function GeneratedArtifactsGroup({
       ) : null}
 
       {visibleItems.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {visibleItems.map((item) => (
             <button
               key={item.path}
               type="button"
               title={item.path}
-              className="oo-border-divider flex h-8 max-w-48 min-w-0 items-center gap-2 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-              onClick={() => onOpen({ group })}
+              className="oo-border-divider flex h-7 max-w-44 min-w-0 items-center gap-1.5 rounded-md border bg-background/70 px-2 text-left text-xs hover:bg-accent hover:text-accent-foreground"
+              onClick={() => onOpen({ messageId, group })}
             >
               <ArtifactIcon item={item} className="text-muted-foreground" />
               <span className="min-w-0 truncate">{item.name}</span>
@@ -154,8 +205,8 @@ function GeneratedArtifactsGroup({
           {remaining > 0 ? (
             <button
               type="button"
-              className="flex h-8 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-accent"
-              onClick={() => onOpen({ group })}
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-xs text-primary hover:bg-accent"
+              onClick={() => onOpen({ messageId, group })}
             >
               {t("artifacts.viewAll", { count: total })}
               <span aria-hidden>→</span>
@@ -167,23 +218,97 @@ function GeneratedArtifactsGroup({
   )
 }
 
-export function GeneratedArtifacts({ messageId, text, onOpen, onAvailable }: GeneratedArtifactsProps) {
+function artifactGroupPaths(group: LocalArtifactGroup): string[] {
+  return [group.root?.path, ...group.items.map((item) => item.path)].filter((item): item is string => Boolean(item))
+}
+
+function fileExtension(name: string): string {
+  const index = name.lastIndexOf(".")
+  return index > 0 ? name.slice(index).toLowerCase() : ""
+}
+
+function sourceRequestsCode(source: GeneratedArtifactSource): boolean {
+  return codeRequestPattern.test(source.requestText)
+}
+
+function isIntermediateCodeArtifact(item: LocalArtifactItem, source: GeneratedArtifactSource): boolean {
+  return !sourceRequestsCode(source) && intermediateCodeExtensions.has(fileExtension(item.name))
+}
+
+function isDisplayableArtifactGroup(group: LocalArtifactGroup): boolean {
+  return group.items.length > 0
+}
+
+function filterArtifactGroups(groups: LocalArtifactGroup[], source: GeneratedArtifactSource): LocalArtifactGroup[] {
+  const sourcePaths = new Set(source.sourcePaths)
+  return groups.flatMap((group) => {
+    const rootExcluded = Boolean(group.root && sourcePaths.has(group.root.path))
+    const items = group.items.filter((item) => !sourcePaths.has(item.path) && !isIntermediateCodeArtifact(item, source))
+    if (items.length === 0) {
+      return []
+    }
+    if (rootExcluded) {
+      return [{ items, totalItems: items.length, truncated: false }]
+    }
+    return [{ ...group, items, totalItems: group.root?.kind === "directory" ? items.length : group.totalItems }]
+  })
+}
+
+function mergeArtifactGroups(groups: LocalArtifactGroup[][], source: GeneratedArtifactSource): LocalArtifactGroup[] {
+  const merged: LocalArtifactGroup[] = []
+  const seenPaths = new Set<string>()
+  for (const groupList of groups) {
+    for (const group of filterArtifactGroups(groupList.filter(isDisplayableArtifactGroup), source)) {
+      const paths = artifactGroupPaths(group)
+      if (paths.length > 0 && paths.every((item) => seenPaths.has(item))) {
+        continue
+      }
+      merged.push(group)
+      for (const item of paths) {
+        seenPaths.add(item)
+      }
+    }
+  }
+  return merged
+}
+
+export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
   const t = useT()
   const chatService = useChatService()
-  const [groups, setGroups] = React.useState<LocalArtifactGroup[]>([])
+  const [groups, setGroups] = React.useState<ResolvedArtifactGroup[]>([])
 
   React.useEffect(() => {
-    const trimmed = text.trim()
-    if (!trimmed) {
+    if (sources.length === 0) {
       setGroups([])
       return
     }
     let cancelled = false
-    void chatService
-      .invoke("resolveLocalArtifacts", { text: trimmed })
-      .then((result) => {
+    const sourceRequests = sources.map(async (source): Promise<ResolvedArtifactGroup[]> => {
+      const trimmed = source.text.trim()
+      if (!source.artifactRoot && !trimmed) {
+        return []
+      }
+      const requests: Array<Promise<LocalArtifactGroup[]>> = []
+      if (source.artifactRoot) {
+        requests.push(
+          chatService
+            .invoke("resolveLocalArtifacts", { artifactRoot: source.artifactRoot })
+            .then((result) => result.groups),
+        )
+      }
+      if (trimmed) {
+        requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then((result) => result.groups))
+      }
+      const resultGroups = await Promise.all(requests)
+      return mergeArtifactGroups(resultGroups, source).map((group) => ({
+        messageId: source.messageId,
+        group,
+      }))
+    })
+    void Promise.all(sourceRequests)
+      .then((resultGroups) => {
         if (!cancelled) {
-          setGroups(result.groups)
+          setGroups(resultGroups.findLast((group) => group.length > 0) ?? [])
         }
       })
       .catch(() => {
@@ -194,12 +319,12 @@ export function GeneratedArtifacts({ messageId, text, onOpen, onAvailable }: Gen
     return () => {
       cancelled = true
     }
-  }, [chatService, messageId, text])
+  }, [chatService, sources])
 
   React.useEffect(() => {
-    const group = groups[0]
-    if (group) {
-      onAvailable({ group })
+    const resolved = groups[0]
+    if (resolved) {
+      onAvailable(resolved)
     }
   }, [groups, onAvailable])
 
@@ -208,13 +333,14 @@ export function GeneratedArtifacts({ messageId, text, onOpen, onAvailable }: Gen
   }
 
   return (
-    <section className="not-prose mt-3 grid gap-2">
+    <section className="not-prose -mt-1 grid gap-1.5">
       <div className="oo-text-caption font-medium text-muted-foreground">{t("artifacts.title")}</div>
-      <div className="grid gap-2">
-        {groups.map((group) => (
+      <div className="grid gap-1.5">
+        {groups.map(({ messageId, group }) => (
           <GeneratedArtifactsGroup
             key={group.root?.path ?? group.items.map((item) => item.path).join("\n")}
             group={group}
+            messageId={messageId}
             onOpen={onOpen}
           />
         ))}

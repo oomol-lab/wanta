@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
+import { mkdtemp, stat } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { test } from "vitest"
 import { ooEndpoint } from "../domain.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
+import { AgentManager } from "./manager.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
@@ -90,4 +94,22 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authorization_required"))
+})
+
+test("createArtifactDir creates an isolated per-session turn directory", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "lumo-agent-artifacts-"))
+  const manager = new AgentManager({
+    apiKey: "api-test",
+    opencodeBinPath: "/bin/opencode",
+    ooBinPath: "/bin/oo",
+    rootDir,
+  })
+
+  const first = await manager.createArtifactDir("session/one")
+  const second = await manager.createArtifactDir("session/one")
+
+  assert.notEqual(first, second)
+  assert.ok(first.startsWith(path.join(rootDir, "artifacts", "session_one")))
+  assert.ok((await stat(first)).isDirectory())
+  assert.ok((await stat(second)).isDirectory())
 })

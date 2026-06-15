@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ChatRole,
+  MessageAttachmentEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
   MessageStartedEvent,
@@ -17,6 +18,7 @@ import type {
 export type ChatEmit =
   | { event: "messageStarted"; data: MessageStartedEvent }
   | { event: "messageDelta"; data: MessageDeltaEvent }
+  | { event: "messageAttachment"; data: MessageAttachmentEvent }
   | { event: "toolCallStarted"; data: ToolCallStartedEvent }
   | { event: "toolCallResult"; data: ToolCallResultEvent }
   | { event: "authorizationRequired"; data: AuthorizationRequiredEmit }
@@ -157,6 +159,23 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       },
     ]
   }
+  if (part.type === "file") {
+    const attachment = attachmentPart(part)
+    if (!attachment.attachment) {
+      return []
+    }
+    return [
+      {
+        event: "messageAttachment",
+        data: {
+          sessionId: part.sessionID,
+          messageId: part.messageID,
+          partId: part.id,
+          attachment: attachment.attachment,
+        },
+      },
+    ]
+  }
   if (part.type === "tool" && part.state && part.callID && part.tool) {
     const base = {
       sessionId: part.sessionID,
@@ -206,6 +225,26 @@ function attachmentPath(part: OpencodePart): string {
   return part.url ?? ""
 }
 
+function attachmentPart(part: OpencodePart): ChatMessagePart {
+  const path = attachmentPath(part)
+  if (!path) {
+    return { kind: "attachment", partId: part.id }
+  }
+  const mime = part.mime ?? "application/octet-stream"
+  return {
+    kind: "attachment",
+    partId: part.id,
+    attachment: {
+      id: part.id,
+      name: part.filename ?? path.split(/[\\/]/).pop() ?? "attachment",
+      mime,
+      size: 0,
+      path,
+      kind: mime === "inode/directory" ? "directory" : "file",
+    },
+  }
+}
+
 /** 把 OpenCode 的 message {info, parts} 规范化为 ChatMessage（切换会话加载历史用）。 */
 export function normalizeMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
   const info = message.info as { id?: string; role?: ChatRole; time?: { created?: number } } | undefined
@@ -221,21 +260,9 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         parts.push({ kind: "text", partId: part.id, text })
       }
     } else if (part.type === "file") {
-      const path = attachmentPath(part)
-      if (path) {
-        const mime = part.mime ?? "application/octet-stream"
-        parts.push({
-          kind: "attachment",
-          partId: part.id,
-          attachment: {
-            id: part.id,
-            name: part.filename ?? path.split(/[\\/]/).pop() ?? "attachment",
-            mime,
-            size: 0,
-            path,
-            kind: mime === "inode/directory" ? "directory" : "file",
-          },
-        })
+      const attachment = attachmentPart(part)
+      if (attachment.attachment) {
+        parts.push(attachment)
       }
     } else if (part.type === "tool" && part.state && part.callID && part.tool) {
       const state = part.state

@@ -149,17 +149,10 @@ export default defineConfig(({ command, mode }) => {
       port: 5273,
       strictPort: true,
     },
-    // 重型依赖（含 lazy chunk 里才用到的 streamdown / shiki / motion）显式预打包：server 启动时
+    // 重型依赖（含 lazy chunk 里才用到的 streamdown / motion）显式预打包：server 启动时
     // 一次性 esbuild 预构建，避免渲染进程首次触达这些依赖时才即时优化、进而触发整页 reload 的卡顿。
     optimizeDeps: {
-      include: [
-        "streamdown",
-        "shiki/core",
-        "shiki/engine/oniguruma",
-        "motion/react",
-        "radix-ui",
-        "use-stick-to-bottom",
-      ],
+      include: ["streamdown", "motion/react", "radix-ui", "use-stick-to-bottom"],
     },
   }
 })

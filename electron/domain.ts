@@ -18,6 +18,12 @@ export const connectorBaseUrl = `https://connector.${ooEndpoint}`
 /** 控制台基址，如 `https://console.oomol.com`。 */
 export const consoleBaseUrl = `https://console.${ooEndpoint}`
 
+/** 控制台 API 基址，如 `https://console-server.oomol.com`。 */
+export const consoleServerBaseUrl = `https://console-server.${ooEndpoint}`
+
+/** 用量 / 余额查询服务基址，如 `https://insight.oomol.com`。 */
+export const insightBaseUrl = `https://insight.${ooEndpoint}`
+
 /** 账号 API 基址，如 `https://api.oomol.com`（登录换 token / api-key / profile）。 */
 export const apiBaseUrl = `https://api.${ooEndpoint}`
 

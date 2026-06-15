@@ -2,14 +2,22 @@ import type { UIMessage } from "ai"
 import type { ComponentProps, HTMLAttributes } from "react"
 import type { StreamdownProps } from "streamdown"
 
-import { lazy, memo, Suspense } from "react"
+import { CheckIcon, CopyIcon } from "lucide-react"
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react"
+import { MarkdownImage } from "./message-image.tsx"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 // streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
 // 懒加载：聊天外壳先渲染，首条助手消息出现时才加载，不阻塞 AppShell 首帧。
 const Streamdown = lazy(() => import("streamdown").then((m) => ({ default: m.Streamdown })))
+const localImagePathPattern =
+  /(?:file:\/\/[^\s<>"'`，。；：、]+|(?:~?\/|[A-Za-z]:[\\/]).*?\.(?:avif|bmp|gif|jpe?g|png|svg|webp))(?=$|[\s<>"'`，。；：、,;:!?)\]])/gi
+const localPathStartPattern = /^(?:file:\/\/|~?[\\/]|[A-Za-z]:[\\/])/
+const singleLocalPathFencePattern =
+  /(^|\n)([ \t]{0,3})(`{3,}|~{3,})[ \t]*(?:text|txt|path|file)?[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*\3[ \t]*(?=\n|$)/gi
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"]
@@ -94,43 +102,262 @@ type MarkdownTableProps = ComponentProps<"table"> & {
   node?: unknown
 }
 
+type MarkdownInlineCodeProps = ComponentProps<"code"> & {
+  node?: unknown
+}
+
+type MarkdownLocalPathProps = Omit<ComponentProps<"button">, "value"> & {
+  value: string
+}
+
+function isSingleLocalPath(value: string): boolean {
+  const trimmed = value.trim()
+  return trimmed.length > 0 && !trimmed.includes("\n") && !trimmed.includes("`") && localPathStartPattern.test(trimmed)
+}
+
+function inlineCodeText(children: MarkdownInlineCodeProps["children"]): string | null {
+  if (typeof children === "string") {
+    return children
+  }
+  if (Array.isArray(children) && children.every((child) => typeof child === "string")) {
+    return children.join("")
+  }
+  return null
+}
+
+function normalizedLocalPath(value: string): string {
+  const trimmed = value.trim()
+  if (/^file:\/\//i.test(trimmed)) {
+    try {
+      const decoded = decodeURIComponent(new URL(trimmed).pathname)
+      return /^\/[A-Za-z]:[\\/]/.test(decoded) ? decoded.slice(1) : decoded
+    } catch {
+      // URL 解析失败时保留原始内容。
+    }
+  }
+  return trimmed
+}
+
+async function writeClipboardText(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value)
+    return true
+  } catch {
+    // 继续使用下方 DOM 兜底。
+  }
+
+  const textarea = document.createElement("textarea")
+  textarea.value = value
+  textarea.setAttribute("readonly", "")
+  textarea.style.position = "fixed"
+  textarea.style.top = "-9999px"
+  textarea.style.left = "-9999px"
+  document.body.append(textarea)
+  textarea.select()
+  textarea.setSelectionRange(0, value.length)
+  try {
+    return document.execCommand("copy")
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
+}
+
+export function compactLocalPath(value: string, maxLength = 72): string {
+  const normalized = normalizedLocalPath(value)
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+  const ellipsis = "..."
+  const keep = Math.max(8, maxLength - ellipsis.length)
+  const head = Math.ceil(keep * 0.45)
+  const tail = keep - head
+  return `${normalized.slice(0, head)}${ellipsis}${normalized.slice(-tail)}`
+}
+
 function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
   return (
-    <div className="my-3 min-w-0 overflow-x-auto rounded-md border border-border bg-background">
-      <table className={cn("w-full min-w-max divide-y divide-border text-sm", className)} {...props}>
+    <div className="my-3 min-w-0 overflow-x-auto">
+      <table className={cn("w-full min-w-max border-collapse border border-border text-sm", className)} {...props}>
         {children}
       </table>
     </div>
   )
 }
 
+function MarkdownLocalPath({ className, value, ...props }: MarkdownLocalPathProps) {
+  const t = useT()
+  const [copied, setCopied] = useState(false)
+  const copiedTimerRef = useRef<number | null>(null)
+  const normalized = normalizedLocalPath(value)
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current)
+      }
+    }
+  }, [])
+
+  const copyPath = async (): Promise<void> => {
+    if (await writeClipboardText(normalized)) {
+      setCopied(true)
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current)
+      }
+      copiedTimerRef.current = window.setTimeout(() => setCopied(false), 1200)
+    }
+  }
+
+  return (
+    <Tooltip delayDuration={650}>
+      <TooltipTrigger asChild>
+        <button type="button" {...props} className={cn("oo-markdown-path-token", className)} aria-label={normalized}>
+          <span className="oo-markdown-path-text">{compactLocalPath(normalized)}</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="oo-markdown-path-tooltip">
+        <span className="oo-markdown-path-tooltip-text">{normalized}</span>
+        <button
+          type="button"
+          className={cn("oo-markdown-path-tooltip-copy", copied && "is-copied")}
+          aria-label={copied ? t("chat.copiedMessage") : t("chat.copyMessage")}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void copyPath()
+          }}
+        >
+          {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+        </button>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function MarkdownInlineCode({ children, className, node: _, ref: _ref, ...props }: MarkdownInlineCodeProps) {
+  const text = inlineCodeText(children)
+
+  if (text && isSingleLocalPath(text)) {
+    return <MarkdownLocalPath {...props} className={className} value={text} />
+  }
+  return (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  )
+}
+
 const messageResponseComponents = {
+  img: MarkdownImage,
   table: MarkdownTable,
 } satisfies MessageResponseProps["components"]
 
-function messageResponseControls(controls: MessageResponseProps["controls"]): MessageResponseProps["controls"] {
+interface LocalImagePreview {
+  path: string
+  alt: string
+}
+
+function localImageAltText(value: string): string {
+  let normalized = value.replace(/[\\/]+$/, "")
+  if (/^file:\/\//i.test(normalized)) {
+    try {
+      normalized = decodeURIComponent(new URL(normalized).pathname)
+    } catch {
+      // Keep the original value when URL parsing fails.
+    }
+  }
+  return normalized.split(/[\\/]/).pop() || "image"
+}
+
+function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
+  const previews: LocalImagePreview[] = []
+  for (const match of markdown.matchAll(localImagePathPattern)) {
+    const candidate = match[0]?.trim()
+    if (
+      candidate &&
+      !markdown.includes(`](${candidate})`) &&
+      !markdown.includes(`](<${candidate}>)`) &&
+      !previews.some((preview) => preview.path === candidate)
+    ) {
+      previews.push({ path: candidate, alt: localImageAltText(candidate) })
+    }
+  }
+  return previews
+}
+
+export function normalizeSingleLocalPathCodeFences(markdown: string): string {
+  return markdown.replace(
+    singleLocalPathFencePattern,
+    (match, prefix: string, indent: string, _fence: string, body: string) => {
+      const value = body.trim()
+      if (!isSingleLocalPath(value)) {
+        return match
+      }
+      return `${prefix}${indent}\`${value}\``
+    },
+  )
+}
+
+const defaultMessageResponseControls = {
+  table: false,
+  code: {
+    copy: true,
+    download: false,
+  },
+} satisfies Exclude<MessageResponseProps["controls"], boolean | undefined>
+
+export function messageResponseControls(controls: MessageResponseProps["controls"]): MessageResponseProps["controls"] {
   if (controls === undefined) {
-    return { table: false }
+    return defaultMessageResponseControls
   }
   if (typeof controls === "boolean") {
     return controls
   }
-  return { table: false, ...controls }
+  return {
+    ...defaultMessageResponseControls,
+    ...controls,
+    ...(typeof controls.code === "object"
+      ? { code: { ...defaultMessageResponseControls.code, ...controls.code } }
+      : {}),
+  }
 }
 
 export const MessageResponse = memo(
-  ({ className, components, controls, ...props }: MessageResponseProps) => (
-    // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
-    <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{props.children}</div>}>
-      <Streamdown
-        className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-        components={{ ...messageResponseComponents, ...components }}
-        controls={messageResponseControls(controls)}
-        {...props}
-      />
-    </Suspense>
-  ),
-  (prevProps, nextProps) => prevProps.children === nextProps.children,
+  ({ className, components, controls, children, lineNumbers, ...props }: MessageResponseProps) => {
+    const responseChildren = typeof children === "string" ? normalizeSingleLocalPathCodeFences(children) : children
+    const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
+    return (
+      // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
+      <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{responseChildren}</div>}>
+        <>
+          <Streamdown
+            className={cn("oo-message-response size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+            components={{ ...messageResponseComponents, inlineCode: MarkdownInlineCode, ...components }}
+            controls={messageResponseControls(controls)}
+            lineNumbers={lineNumbers ?? false}
+            {...props}
+          >
+            {responseChildren}
+          </Streamdown>
+          {localImagePreviews.length > 0 ? (
+            <div className="mt-3 grid gap-3">
+              {localImagePreviews.map((preview) => (
+                <MarkdownImage key={preview.path} src={preview.path} alt={preview.alt} />
+              ))}
+            </div>
+          ) : null}
+        </>
+      </Suspense>
+    )
+  },
+  (prevProps, nextProps) =>
+    prevProps.children === nextProps.children &&
+    prevProps.className === nextProps.className &&
+    prevProps.components === nextProps.components &&
+    prevProps.controls === nextProps.controls &&
+    prevProps.lineNumbers === nextProps.lineNumbers,
 )
 
 MessageResponse.displayName = "MessageResponse"

@@ -17,6 +17,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
+import type { StickToBottomContext } from "use-stick-to-bottom"
 
 import {
   AlertTriangle,
@@ -55,18 +56,19 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { toast } from "sonner"
+import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
+import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import {
   compactPathDetail,
   compactToolDetail,
-  classifyToolPart,
   formatToolActivityDuration,
   formatToolDuration,
   shouldShowRunningNoOutput,
   summarizeToolCategory,
   toolActivityTitle,
-  toolCategoryLabel,
 } from "./tool-activity.ts"
 import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
@@ -103,6 +105,7 @@ import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 interface ChatAreaProps {
+  billingCacheScope: string
   messages: ChatMessage[]
   status: ChatStatus
   showEmptyState: boolean
@@ -117,6 +120,7 @@ interface ChatAreaProps {
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onViewBilling?: () => void
 }
 
 type DraftAttachment = ChatAttachment & {
@@ -132,7 +136,7 @@ interface AttachmentInput {
   file?: File
 }
 
-const CHAT_CONTENT_MAX_WIDTH_CLASS = "max-w-[50rem]"
+const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 
 const attachmentPreviewUrlByPath = new Map<string, string>()
 
@@ -429,6 +433,14 @@ function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
   return isToolCancellation(part) ? t("chat.toolStatusStopped") : toolStatusLabel(t, part.status)
 }
 
+function toolInlineDetail(part: ChatMessagePart): string {
+  if (part.tool !== "bash") {
+    return ""
+  }
+  const command = str(part.input?.command).split("\n")[0]
+  return command ? compactToolDetail(command, 96) : ""
+}
+
 function formatToolOutput(output: string | undefined): string {
   if (!output) {
     return ""
@@ -535,8 +547,8 @@ function ToolActivityStep({
   const details = hasToolDetails(part, auth)
   const duration = formatToolDuration(part, now)
   const statusText = toolPartStatusLabel(t, part)
-  const category = classifyToolPart(part)
-  const categoryText = toolCategoryLabel(t, category)
+  const inlineDetail = toolInlineDetail(part)
+  const metaText = [provider?.displayName, statusText, duration].filter(Boolean).join(" · ")
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
       {provider ? (
@@ -551,20 +563,12 @@ function ToolActivityStep({
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="min-w-0 truncate text-xs text-foreground">{toolActionSummary(t, part)}</span>
-          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            {provider ? (
-              <>
-                <span>{provider.displayName}</span>
-                <span>·</span>
-              </>
-            ) : (
-              <ToolCategoryIcon category={category} />
-            )}
-            <span>{provider ? t("chat.toolCategoryConnector") : categoryText}</span>
-            <span>·</span>
-            <span>{statusText}</span>
-          </span>
-          {duration && <span className="text-xs text-muted-foreground">{duration}</span>}
+          {inlineDetail && (
+            <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+              {inlineDetail}
+            </code>
+          )}
+          <span className="shrink-0 text-xs text-muted-foreground">{metaText}</span>
         </div>
         {auth && (
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -650,7 +654,7 @@ function ToolActivity({
   const hasAuth = parts.some(
     (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
   )
-  const shouldOpen = hasActive || hasError || hasAuth
+  const shouldOpen = hasError || hasAuth
   const statusKey = parts.map((part) => `${part.partId}:${part.status}`).join("|")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
@@ -853,20 +857,23 @@ function AssistantMessageActions({ text, cancelled }: { text: string; cancelled:
 }
 
 function MessageBubble({
+  billingCacheScope,
   message,
+  pending,
   providerByService,
   onAuthorize,
-  onOpenArtifacts,
-  onArtifactsAvailable,
+  onViewBilling,
   assistantActionsText,
 }: {
+  billingCacheScope: string
   message: ChatMessage
+  pending: boolean
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
-  onOpenArtifacts: (selection: ArtifactSelection) => void
-  onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onViewBilling?: () => void
   assistantActionsText: string | null
 }) {
+  const t = useT()
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
   if (message.role === "user") {
@@ -899,13 +906,23 @@ function MessageBubble({
     )
   }
   const blocks = renderBlocks(message.parts)
+  if (blocks.length === 0 && pending) {
+    return (
+      <Message from="assistant">
+        <MessageContent>
+          <div className="flex items-center gap-2 py-0.5" role="status" aria-live="polite">
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+            <Shimmer as="span" className="oo-text-caption" duration={1}>
+              {t("chat.thinking")}
+            </Shimmer>
+          </div>
+        </MessageContent>
+      </Message>
+    )
+  }
   if (blocks.length === 0) {
     return null
   }
-  const assistantText = message.parts
-    .filter((part) => part.kind === "text")
-    .map((part) => part.text ?? "")
-    .join("")
   const blockClassName = (index: number): string | undefined => {
     if (index === 0) {
       return undefined
@@ -927,22 +944,25 @@ function MessageBubble({
     <Message from="assistant">
       <MessageContent className="gap-0">
         {blocks.map((block, index) => (
-          <div key={block.kind === "text" ? block.part.partId : block.key} className={blockClassName(index)}>
+          <div key={block.kind === "tools" ? block.key : block.part.partId} className={blockClassName(index)}>
             {block.kind === "text" ? (
               block.part.text ? (
                 <MessageResponse>{block.part.text}</MessageResponse>
               ) : null
+            ) : block.kind === "error" ? (
+              <ChatErrorNotice
+                autoOpenKey={block.part.partId}
+                billingCacheScope={billingCacheScope}
+                errorCode={block.part.errorCode}
+                errorKind={block.part.errorKind}
+                message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
+                onViewBilling={onViewBilling}
+              />
             ) : (
               <ToolActivity parts={block.parts} providerByService={providerByService} onAuthorize={onAuthorize} />
             )}
           </div>
         ))}
-        <GeneratedArtifacts
-          messageId={message.id}
-          text={assistantText}
-          onOpen={onOpenArtifacts}
-          onAvailable={onArtifactsAvailable}
-        />
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
@@ -1034,9 +1054,11 @@ function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) 
 
 function AttachmentImageCard({
   attachment,
+  onOpen,
   onRemove,
 }: {
   attachment: DraftAttachment
+  onOpen: (attachment: DraftAttachment) => void
   onRemove?: (id: string) => void
 }) {
   const chatService = useChatService()
@@ -1065,23 +1087,27 @@ function AttachmentImageCard({
   }, [attachment, chatService])
 
   return (
-    <div
-      title={attachment.path}
-      className="group relative size-20 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-xs"
-    >
-      {previewUrl ? (
-        <img
-          src={previewUrl}
-          alt=""
-          className="size-full object-cover object-center"
-          draggable={false}
-          decoding="async"
-        />
-      ) : (
-        <span className="flex size-full items-center justify-center text-muted-foreground/65">
-          <FileImage className="size-6" />
-        </span>
-      )}
+    <div className="group relative size-20 shrink-0">
+      <button
+        type="button"
+        title={attachment.path}
+        className="size-full overflow-hidden rounded-xl border border-border/60 bg-background text-left shadow-xs hover:border-border hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        onClick={() => onOpen(attachment)}
+      >
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt=""
+            className="size-full object-cover object-center"
+            draggable={false}
+            decoding="async"
+          />
+        ) : (
+          <span className="flex size-full items-center justify-center text-muted-foreground/65">
+            <FileImage className="size-6" />
+          </span>
+        )}
+      </button>
       {onRemove ? (
         <button
           type="button"
@@ -1106,31 +1132,53 @@ function AttachmentList({
   onRemove?: (id: string) => void
 }) {
   const t = useT()
+  const chatService = useChatService()
+
+  const openAttachment = React.useCallback(
+    (attachment: DraftAttachment): void => {
+      void chatService.invoke("openLocalPath", { path: attachment.path }).catch((cause: unknown) => {
+        toast.error(t("chat.openAttachmentFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+      })
+    },
+    [chatService, t],
+  )
+
   return (
     <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
       {attachments.map((attachment) =>
         isImageAttachment(attachment) ? (
-          <AttachmentImageCard key={attachment.id} attachment={attachment} onRemove={onRemove} />
-        ) : (
-          <div
+          <AttachmentImageCard
             key={attachment.id}
-            title={attachment.path}
-            className="oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pr-2 pl-2 text-left shadow-xs"
-          >
-            <AttachmentPreviewTile attachment={attachment} />
-            <span className="min-w-0 flex-1">
-              <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
-                {attachment.name}
+            attachment={attachment}
+            onOpen={openAttachment}
+            onRemove={onRemove}
+          />
+        ) : (
+          <div key={attachment.id} className="relative max-w-full min-w-0">
+            <button
+              type="button"
+              title={attachment.path}
+              className={cn(
+                "oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pl-2 text-left shadow-xs hover:border-border hover:bg-accent/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+                onRemove ? "pr-8" : "pr-2",
+              )}
+              onClick={() => openAttachment(attachment)}
+            >
+              <AttachmentPreviewTile attachment={attachment} />
+              <span className="min-w-0 flex-1">
+                <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
+                  {attachment.name}
+                </span>
+                <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
+                  {attachmentSummary(t, attachment)}
+                </span>
               </span>
-              <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
-                {attachmentSummary(t, attachment)}
-              </span>
-            </span>
+            </button>
             {onRemove ? (
               <button
                 type="button"
                 aria-label="Remove attachment"
-                className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => onRemove(attachment.id)}
               >
                 <X className="size-3.5" />
@@ -1227,21 +1275,6 @@ function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; dur
         {voiceDurationLabel(durationMs)}
       </span>
     </div>
-  )
-}
-
-function AssistantPendingMessage() {
-  const t = useT()
-  return (
-    <Message from="assistant">
-      <MessageContent>
-        <div className="py-0.5" role="status" aria-live="polite">
-          <Shimmer as="span" className="oo-text-caption" duration={1}>
-            {t("chat.thinking")}
-          </Shimmer>
-        </div>
-      </MessageContent>
-    </Message>
   )
 }
 
@@ -1639,6 +1672,7 @@ function AddCustomModelDialog({
 }
 
 export function ChatArea({
+  billingCacheScope,
   messages,
   status,
   showEmptyState,
@@ -1653,6 +1687,7 @@ export function ChatArea({
   onArtifactsReset,
   onArtifactsOpen,
   onArtifactsAvailable,
+  onViewBilling,
 }: ChatAreaProps) {
   const t = useT()
   const chatService = useChatService()
@@ -1668,6 +1703,9 @@ export function ChatArea({
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
+  const deferredSubmitClearRef = React.useRef<DraftAttachment[] | null>(null)
+  const conversationRef = React.useRef<StickToBottomContext | null>(null)
+  const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const voiceRecorder = useVoiceRecorder()
   const hasMessages = messages.length > 0
   const isSubmitted = status === "submitted"
@@ -1678,14 +1716,27 @@ export function ChatArea({
     [providers],
   )
   const voiceActive = voiceRecorder.isRecording || voiceTranscribing || Boolean(voiceError || voiceRecorder.error)
-  const showPendingMessage =
-    hasMessages &&
-    (isSubmitted || (status === "streaming" && latestAssistant ? !latestAssistant.parts.some(isRenderablePart) : false))
+  const pendingAssistantMessageId =
+    latestAssistant &&
+    (isSubmitted || (status === "streaming" && !latestAssistant.parts.some(isRenderablePart))) &&
+    !hasStoppedTool(latestAssistant.parts)
+      ? latestAssistant.id
+      : null
   const activeAssistantMessageId =
     status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
   const assistantActionTextByMessageId = React.useMemo(() => {
     return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
   }, [activeAssistantMessageId, messages])
+  const artifactSources = React.useMemo(() => {
+    return collectGeneratedArtifactSources(messages)
+  }, [messages])
+  const visibleArtifactSources = React.useMemo(() => {
+    const latestAssistantMessageId = latestAssistant?.id
+    if (!isGenerating || !latestAssistantMessageId) {
+      return artifactSources
+    }
+    return artifactSources.filter((source) => source.messageId !== latestAssistantMessageId)
+  }, [artifactSources, isGenerating, latestAssistant?.id])
 
   React.useEffect(() => {
     attachmentsRef.current = attachments
@@ -1694,8 +1745,37 @@ export function ChatArea({
   React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
 
   React.useEffect(() => {
+    const deferredAttachments = deferredSubmitClearRef.current
+    if (initialSendPending || !deferredAttachments) {
+      return
+    }
+    deferredSubmitClearRef.current = null
+    revokeAttachmentPreviewUrls(deferredAttachments)
+    setDraft("")
+    setAttachments([])
+    setInputError(null)
+  }, [initialSendPending])
+
+  React.useEffect(() => {
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])
+
+  React.useEffect(() => {
+    const lastMessage = messages.at(-1)
+    if (
+      !isGenerating ||
+      !lastMessage ||
+      lastMessage.role !== "user" ||
+      lastMessage.id === lastAutoScrolledUserMessageIdRef.current
+    ) {
+      return
+    }
+    lastAutoScrolledUserMessageIdRef.current = lastMessage.id
+    void conversationRef.current?.scrollToBottom({
+      animation: "instant",
+      ignoreEscapes: true,
+    })
+  }, [isGenerating, messages])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1762,7 +1842,13 @@ export function ChatArea({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
+    const deferClear = !hasMessages
     onSend(text, attachments, modelCatalog?.selected)
+    if (deferClear) {
+      deferredSubmitClearRef.current = attachments
+      setInputError(null)
+      return
+    }
     revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
@@ -1909,20 +1995,21 @@ export function ChatArea({
       {visibleError}
     </div>
   ) : null
-  const canSubmit = !disabled && !voiceActive && (draft.trim().length > 0 || attachments.length > 0)
+  const composerDisabled = disabled || voiceActive || initialSendPending
+  const canSubmit = !composerDisabled && (draft.trim().length > 0 || attachments.length > 0)
 
   const promptInput = (
     <PromptInput
       onSubmit={handleSubmit}
       className={cn(hasMessages && "shrink-0")}
       onDragOver={(event) => {
-        if (!disabled && !voiceActive && event.dataTransfer.types.includes("Files")) {
+        if (!composerDisabled && event.dataTransfer.types.includes("Files")) {
           event.preventDefault()
         }
       }}
       onDrop={(event) => {
         const files = filesFromDataTransfer(event.dataTransfer)
-        if (disabled || voiceActive || files.length === 0) {
+        if (composerDisabled || files.length === 0) {
           return
         }
         event.preventDefault()
@@ -1933,11 +2020,14 @@ export function ChatArea({
         <PromptInputAttachments>
           <AttachmentList
             attachments={attachments}
-            onRemove={(id) =>
-              setAttachments((current) => {
-                revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
-                return current.filter((attachment) => attachment.id !== id)
-              })
+            onRemove={
+              composerDisabled
+                ? undefined
+                : (id) =>
+                    setAttachments((current) => {
+                      revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
+                      return current.filter((attachment) => attachment.id !== id)
+                    })
             }
           />
         </PromptInputAttachments>
@@ -1946,12 +2036,12 @@ export function ChatArea({
         <PromptInputTextarea
           className={cn(attachments.length > 0 && "pt-2")}
           value={draft}
-          disabled={disabled || voiceActive}
+          disabled={composerDisabled}
           placeholder={placeholder}
           onChange={(e) => setDraft(e.target.value)}
           onPaste={(event) => {
             const files = filesFromDataTransfer(event.clipboardData)
-            if (disabled || voiceActive || files.length === 0) {
+            if (composerDisabled || files.length === 0) {
               return
             }
             event.preventDefault()
@@ -1967,6 +2057,10 @@ export function ChatArea({
             multiple
             className="hidden"
             onChange={(event) => {
+              if (composerDisabled) {
+                event.currentTarget.value = ""
+                return
+              }
               if (event.currentTarget.files) {
                 void addFiles(event.currentTarget.files)
               }
@@ -1981,7 +2075,7 @@ export function ChatArea({
                 size="icon"
                 title={t("chat.attachFile")}
                 aria-label={t("chat.attachFile")}
-                disabled={disabled || voiceActive || initialSendPending}
+                disabled={composerDisabled}
                 className="size-8 rounded-full"
               >
                 <Plus className="size-4" />
@@ -2054,7 +2148,7 @@ export function ChatArea({
             <>
               <ModelPicker
                 catalog={modelCatalog}
-                disabled={disabled || initialSendPending}
+                disabled={composerDisabled}
                 onSelect={handleSelectModel}
                 onDelete={handleDeleteModel}
                 onAdd={() => {
@@ -2068,7 +2162,7 @@ export function ChatArea({
                 size="icon"
                 title={t("chat.voiceInput")}
                 aria-label={t("chat.voiceInput")}
-                disabled={disabled || initialSendPending}
+                disabled={composerDisabled}
                 className="size-8 rounded-full"
                 onClick={() => {
                   setVoiceError(null)
@@ -2081,8 +2175,7 @@ export function ChatArea({
                 size="icon-xs"
                 className="!size-7"
                 status={isGenerating ? status : undefined}
-                visualStatus={initialSendPending ? "streaming" : undefined}
-                disabled={initialSendPending ? false : isSubmitted ? true : status === "streaming" ? false : !canSubmit}
+                disabled={isSubmitted ? true : status === "streaming" ? false : !canSubmit}
                 aria-label={
                   initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")
                 }
@@ -2092,11 +2185,7 @@ export function ChatArea({
                         e.preventDefault()
                         onStop()
                       }
-                    : initialSendPending
-                      ? (e) => {
-                          e.preventDefault()
-                        }
-                      : undefined
+                    : undefined
                 }
               />
             </>
@@ -2137,25 +2226,32 @@ export function ChatArea({
   }
 
   return (
-    <div className="flex h-full min-h-0 animate-in duration-300 fade-in slide-in-from-bottom-2">
+    <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col pb-4">
-        <Conversation className="min-h-0 flex-1">
+        <Conversation className="min-h-0 flex-1" contextRef={conversationRef}>
           <ConversationContent
             data-selectable="true"
             className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
           >
             {messages.map((message) => (
               <MessageBubble
-                key={message.id}
+                key={message.clientId ?? message.id}
                 message={message}
+                billingCacheScope={billingCacheScope}
+                pending={message.id === pendingAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
-                onOpenArtifacts={onArtifactsOpen}
-                onArtifactsAvailable={onArtifactsAvailable}
+                onViewBilling={onViewBilling}
                 assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               />
             ))}
-            {showPendingMessage && <AssistantPendingMessage />}
+            {visibleArtifactSources.length > 0 ? (
+              <GeneratedArtifacts
+                sources={visibleArtifactSources}
+                onOpen={onArtifactsOpen}
+                onAvailable={onArtifactsAvailable}
+              />
+            ) : null}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>

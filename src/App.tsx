@@ -11,7 +11,7 @@ import { useT } from "@/i18n/i18n"
 import { I18nProvider } from "@/i18n/I18nProvider"
 import { LoginRoute } from "@/routes/Login"
 
-// 已登录才需要的主界面：懒加载，把聊天渲染的重型依赖（streamdown / shiki / motion，约 2MB）
+// 已登录才需要的主界面：懒加载，把聊天渲染的重型依赖（streamdown / motion）
 // 移出首帧关键路径。登录页 / 未知态可立即绘制，窗口 ready-to-show 不再被整棵依赖树拖住。
 const AppShell = lazy(() => import("@/components/app-shell/AppShell").then((m) => ({ default: m.AppShell })))
 

@@ -1,4 +1,5 @@
 import type { ModelChoice } from "../models/common.ts"
+import type { ChatErrorKind } from "./error.ts"
 import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
@@ -33,6 +34,17 @@ export interface MessageDeltaEvent {
   text: string
   /** OpenCode 流式增量；某些 provider 在最终事件前不会持续更新 text。 */
   delta?: string
+}
+export interface MessageAttachmentEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+  attachment: ChatAttachment
+}
+export interface MessageArtifactsEvent {
+  sessionId: string
+  messageId: string
+  artifactRoot: string
 }
 export interface ToolCallStartedEvent {
   sessionId: string
@@ -71,6 +83,14 @@ export interface AuthorizationRequiredEvent {
 export interface MessageCompletedEvent {
   sessionId: string
 }
+export interface MessageErrorEvent {
+  sessionId: string
+  messageId?: string
+  partId: string
+  message: string
+  errorKind?: ChatErrorKind
+  errorCode?: string
+}
 export interface GenerationStoppedEvent {
   sessionId: string
 }
@@ -81,9 +101,12 @@ export interface AgentErrorEvent {
 
 // ── 规范化消息（切换会话时加载历史用）──
 export interface ChatMessagePart {
-  kind: "text" | "tool" | "attachment"
+  kind: "text" | "tool" | "attachment" | "error"
   partId: string
   text?: string
+  errorText?: string
+  errorKind?: ChatErrorKind
+  errorCode?: string
   attachment?: ChatAttachment
   callId?: string
   tool?: string
@@ -100,9 +123,12 @@ export interface ChatMessagePart {
 }
 export interface ChatMessage {
   id: string
+  /** UI 身份：不同于服务端 id，乐观消息绑定到真实消息后仍保持稳定。 */
+  clientId?: string
   role: ChatRole
   parts: ChatMessagePart[]
   createdAt: number
+  artifactRoot?: string
 }
 
 export interface SendMessageRequest {
@@ -157,7 +183,8 @@ export interface LocalArtifactGroup {
 }
 
 export interface ResolveLocalArtifactsRequest {
-  text: string
+  text?: string
+  artifactRoot?: string
   maxDirectoryItems?: number
 }
 
@@ -169,15 +196,122 @@ export interface OpenLocalPathRequest {
   path: string
 }
 
+export type BillingPageTarget = "recharge" | "usage"
+export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
+export type BillingPeriodDays = 7 | 30 | 90
+export type SubscriptionPlanTag = "ai_pro" | "ai_max"
+
+export interface OpenBillingPageRequest {
+  target: BillingPageTarget
+}
+
+export interface OpenTopUpCheckoutRequest {
+  price: RechargePrice
+}
+
+export interface CreditBalanceResult {
+  balance: string | null
+  hasCredits: boolean
+}
+
+export interface CreditItem {
+  id: string
+  sourceType: string
+  paymentAmount?: number
+  currency?: string
+  originalCredit: string
+  currentCredit: string
+  available: boolean
+  serviceScope: string
+  orderNumber?: string
+  expiresAt?: number
+  promoCode?: string
+  createdAt: number
+}
+
+export interface CreditUsages {
+  items: CreditItem[]
+  nextToken?: string
+  total: {
+    originalCredit: string
+    currentCredit: string
+  }
+  deficit: string
+}
+
+export interface BillingStatsItem {
+  source: string
+  subject: string
+  time: number
+  totalCredit?: string
+  totalUsage?: string
+  eventCount?: number
+}
+
+export interface BillingSpendStats {
+  items: BillingStatsItem[]
+  sourceTotals: Record<string, { totalCredit?: string; eventCount?: number; totalUsage?: string }>
+  total: { totalCredit?: string; eventCount?: number; totalUsage?: string }
+}
+
+export interface BillingLogItem {
+  debitCredit: string
+  eventID: string
+  userID: string
+  source: string
+  subject: string
+  sourceType: string
+  serviceScope: string
+  traceID: string
+  payload: Record<string, unknown>
+  createdAt: number
+}
+
+export interface SubscriptionStatus {
+  plans: string[]
+  plan: string | null
+  features: string[]
+  platforms: Record<string, string[]>
+}
+
+export interface SubscriptionSchedule {
+  plan: string
+  scheduled: boolean
+  reason?: "cancel" | "update"
+  targetPlan?: string
+  cancelAt?: number
+  currentPeriodEnd?: number
+}
+
+export interface BillingOverviewRequest {
+  days: BillingPeriodDays
+}
+
+export interface BillingOverviewResult {
+  balance: CreditUsages | null
+  spend: BillingSpendStats | null
+  metering: BillingSpendStats | null
+  logs: BillingLogItem[]
+  subscription: SubscriptionStatus | null
+  schedules: SubscriptionSchedule[]
+}
+
+export interface OpenSubscriptionCheckoutRequest {
+  plan: SubscriptionPlanTag
+}
+
 export type ChatService = typeof ChatService
 export const ChatService = serviceName("chat-service") as ServiceName<{
   ServerEvents: {
     messageStarted: MessageStartedEvent
     messageDelta: MessageDeltaEvent
+    messageAttachment: MessageAttachmentEvent
+    messageArtifacts: MessageArtifactsEvent
     toolCallStarted: ToolCallStartedEvent
     toolCallResult: ToolCallResultEvent
     authorizationRequired: AuthorizationRequiredEvent
     messageCompleted: MessageCompletedEvent
+    messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
     agentError: AgentErrorEvent
   }
@@ -186,6 +320,12 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
+    openBillingPage(req: OpenBillingPageRequest): Promise<void>
+    openTopUpCheckout(req: OpenTopUpCheckoutRequest): Promise<void>
+    openSubscriptionCheckout(req: OpenSubscriptionCheckoutRequest): Promise<void>
+    openSubscriptionPortal(): Promise<void>
+    getBillingOverview(req: BillingOverviewRequest): Promise<BillingOverviewResult>
+    getCreditBalance(): Promise<CreditBalanceResult>
     transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>

@@ -1,5 +1,9 @@
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { loadEnv } from "vite"
 import { defineConfig } from "vitest/config"
+
+const dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // 与 vite.config.ts 同机制：经 loadEnv 读取 .env(.local) 的 LUMO_ENDPOINT 并常量替换到
 // electron/domain.ts 的 __OO_ENDPOINT__，缺省 oomol.com。无需任何运行时注入。
@@ -9,6 +13,11 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "")
   const ooEndpoint = env.LUMO_ENDPOINT?.trim() || "oomol.com"
   return {
+    resolve: {
+      alias: {
+        "@": path.resolve(dirname, "src"),
+      },
+    },
     define: {
       __OO_ENDPOINT__: JSON.stringify(ooEndpoint),
     },

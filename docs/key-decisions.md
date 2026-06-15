@@ -64,9 +64,9 @@
 ## 8. UI 框架迁移至 ai-elements
 
 - **背景**：用户目标"前端组件全部换成 ai-elements"（Vercel 经 shadcn registry 分发的 AI 聊天组件库）。
-- **决策**：**vendoring 而非 CLI 整装**——registry canonical 源码手工落地 `src/components/ai-elements/` 并裁剪（CLI 假定 Next.js；原版 prompt-input 37KB 深耦合无用 Radix 原语）。Markdown 渲染换 streamdown（MessageResponse 内置）+ shiki。**迁移边界（用户拍板）**：只迁聊天界面等有真实对应物的部分；侧边栏/登录/连接器列表/表单保留 shadcn 原语（ai-elements 没有这些组件，勿强行全化）。
+- **决策**：**vendoring 而非 CLI 整装**——registry canonical 源码手工落地 `src/components/ai-elements/` 并裁剪（CLI 假定 Next.js；原版 prompt-input 37KB 深耦合无用 Radix 原语）。Markdown 渲染换 streamdown（MessageResponse 内置）。**迁移边界（用户拍板）**：只迁聊天界面等有真实对应物的部分；侧边栏/登录/连接器列表/表单保留 shadcn 原语（ai-elements 没有这些组件，勿强行全化）。
 - **理由**：控制依赖面（新增 Radix 收敛到 collapsible/input-group/slot）；保持源码 canonical 以便对照升级（`.claude/skills/ai-elements/references/` 是权威 API 参考，`skills-lock.json` 记录来源 hash）。
-- **后果（13-agent 审查确认 9 个运行时问题，已修）**：streaming 时 Enter 只发送不停止（曾是 HIGH 回归）；shiki 改 `shiki/core` 按需 JSON 高亮（dist 从 ~10MB/304 chunk 降到 1.6MB/7 chunk，勿改回顶层 API）；`src/index.css` 须 `@source "../node_modules/streamdown/dist"`（Tailwind v4 不扫 node_modules）；vendored 目录享受 oxlint override（`react/only-export-components` off）。
+- **后果（13-agent 审查确认 9 个运行时问题，已修）**：streaming 时 Enter 只发送不停止（曾是 HIGH 回归）；工具调用 UI 迁移为 `Task` 折叠摘要后，未接入的独立 Tool/CodeBlock 组件已移除；`src/index.css` 须 `@source "../node_modules/streamdown/dist"`（Tailwind v4 不扫 node_modules）；vendored 目录享受 oxlint override（`react/only-export-components` off）。
 
 ## 9. 放开 tools 权限
 

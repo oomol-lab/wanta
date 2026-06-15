@@ -56,6 +56,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { toast } from "sonner"
 import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
@@ -1037,9 +1038,11 @@ function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) 
 
 function AttachmentImageCard({
   attachment,
+  onOpen,
   onRemove,
 }: {
   attachment: DraftAttachment
+  onOpen: (attachment: DraftAttachment) => void
   onRemove?: (id: string) => void
 }) {
   const chatService = useChatService()
@@ -1068,23 +1071,27 @@ function AttachmentImageCard({
   }, [attachment, chatService])
 
   return (
-    <div
-      title={attachment.path}
-      className="group relative size-20 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-xs"
-    >
-      {previewUrl ? (
-        <img
-          src={previewUrl}
-          alt=""
-          className="size-full object-cover object-center"
-          draggable={false}
-          decoding="async"
-        />
-      ) : (
-        <span className="flex size-full items-center justify-center text-muted-foreground/65">
-          <FileImage className="size-6" />
-        </span>
-      )}
+    <div className="group relative size-20 shrink-0">
+      <button
+        type="button"
+        title={attachment.path}
+        className="size-full overflow-hidden rounded-xl border border-border/60 bg-background text-left shadow-xs hover:border-border hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        onClick={() => onOpen(attachment)}
+      >
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt=""
+            className="size-full object-cover object-center"
+            draggable={false}
+            decoding="async"
+          />
+        ) : (
+          <span className="flex size-full items-center justify-center text-muted-foreground/65">
+            <FileImage className="size-6" />
+          </span>
+        )}
+      </button>
       {onRemove ? (
         <button
           type="button"
@@ -1109,31 +1116,53 @@ function AttachmentList({
   onRemove?: (id: string) => void
 }) {
   const t = useT()
+  const chatService = useChatService()
+
+  const openAttachment = React.useCallback(
+    (attachment: DraftAttachment): void => {
+      void chatService.invoke("openLocalPath", { path: attachment.path }).catch((cause: unknown) => {
+        toast.error(t("chat.openAttachmentFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+      })
+    },
+    [chatService, t],
+  )
+
   return (
     <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
       {attachments.map((attachment) =>
         isImageAttachment(attachment) ? (
-          <AttachmentImageCard key={attachment.id} attachment={attachment} onRemove={onRemove} />
-        ) : (
-          <div
+          <AttachmentImageCard
             key={attachment.id}
-            title={attachment.path}
-            className="oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pr-2 pl-2 text-left shadow-xs"
-          >
-            <AttachmentPreviewTile attachment={attachment} />
-            <span className="min-w-0 flex-1">
-              <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
-                {attachment.name}
+            attachment={attachment}
+            onOpen={openAttachment}
+            onRemove={onRemove}
+          />
+        ) : (
+          <div key={attachment.id} className="relative max-w-full min-w-0">
+            <button
+              type="button"
+              title={attachment.path}
+              className={cn(
+                "oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pl-2 text-left shadow-xs hover:border-border hover:bg-accent/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+                onRemove ? "pr-8" : "pr-2",
+              )}
+              onClick={() => openAttachment(attachment)}
+            >
+              <AttachmentPreviewTile attachment={attachment} />
+              <span className="min-w-0 flex-1">
+                <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
+                  {attachment.name}
+                </span>
+                <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
+                  {attachmentSummary(t, attachment)}
+                </span>
               </span>
-              <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
-                {attachmentSummary(t, attachment)}
-              </span>
-            </span>
+            </button>
             {onRemove ? (
               <button
                 type="button"
                 aria-label="Remove attachment"
-                className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => onRemove(attachment.id)}
               >
                 <X className="size-3.5" />

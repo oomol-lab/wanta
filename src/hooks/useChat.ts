@@ -331,6 +331,7 @@ export interface UseChat {
   messagesLoaded: boolean
   error: string | null
   getSessionStatus: (sessionId: string) => ChatStatus
+  hasUnreadSession: (sessionId: string) => boolean
   send: (
     sessionId: string,
     text: string,
@@ -340,13 +341,40 @@ export interface UseChat {
   stop: (sessionId: string) => Promise<void>
 }
 
-export function useChat(activeSessionId: string | null): UseChat {
+export function markSessionCompletedUnread(
+  unreadSessionIds: Set<string>,
+  completedSessionId: string,
+  visibleSessionId: string | null,
+): Set<string> {
+  if (completedSessionId === visibleSessionId || unreadSessionIds.has(completedSessionId)) {
+    return unreadSessionIds
+  }
+  return new Set(unreadSessionIds).add(completedSessionId)
+}
+
+export function markSessionViewed(unreadSessionIds: Set<string>, visibleSessionId: string | null): Set<string> {
+  if (!visibleSessionId || !unreadSessionIds.has(visibleSessionId)) {
+    return unreadSessionIds
+  }
+  const next = new Set(unreadSessionIds)
+  next.delete(visibleSessionId)
+  return next
+}
+
+export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
   const chatService = useChatService()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
+  const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
   const [error, setError] = React.useState<string | null>(null)
+  const visibleSessionIdRef = React.useRef<string | null>(visibleSessionId)
   const userStoppedSessions = React.useRef(new Map<string, number>())
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
+
+  React.useEffect(() => {
+    visibleSessionIdRef.current = visibleSessionId
+    setUnreadSessionIds((current) => markSessionViewed(current, visibleSessionId))
+  }, [visibleSessionId])
 
   const patch = React.useCallback((sessionId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
     setMessagesMap((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }))
@@ -483,6 +511,7 @@ export function useChat(activeSessionId: string | null): UseChat {
       }),
       chatService.serverEvents.on("messageCompleted", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
+        setUnreadSessionIds((current) => markSessionCompletedUnread(current, e.sessionId, visibleSessionIdRef.current))
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("messageError", (e) => {
@@ -573,5 +602,9 @@ export function useChat(activeSessionId: string | null): UseChat {
     (sessionId: string): ChatStatus => statuses[sessionId] ?? "ready",
     [statuses],
   )
-  return { messages, status, messagesLoaded, error, getSessionStatus, send, stop }
+  const hasUnreadSession = React.useCallback(
+    (sessionId: string): boolean => unreadSessionIds.has(sessionId),
+    [unreadSessionIds],
+  )
+  return { messages, status, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop }
 }

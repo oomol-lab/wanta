@@ -1,7 +1,14 @@
 import type { ChatAttachment, ChatMessage } from "../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { appendOptimisticConversationTurn, ensureMessage, mergeFetchedMessages, setErrorPart } from "./useChat.ts"
+import {
+  appendOptimisticConversationTurn,
+  ensureMessage,
+  markSessionCompletedUnread,
+  markSessionViewed,
+  mergeFetchedMessages,
+  setErrorPart,
+} from "./useChat.ts"
 
 const pdfAttachment: ChatAttachment = {
   id: "att-1",
@@ -109,5 +116,19 @@ describe("chat message identity reconciliation", () => {
     expect(mergeFetchedMessages(current, fetched)[0]?.parts).toEqual([
       { kind: "error", partId: "error-1", errorText: "Payment Required" },
     ])
+  })
+
+  it("tracks completed sessions as unread only when they are not visible", () => {
+    const current = new Set<string>()
+
+    expect(markSessionCompletedUnread(current, "s1", "s1")).toBe(current)
+
+    const unread = markSessionCompletedUnread(current, "s2", "s1")
+    expect([...unread]).toEqual(["s2"])
+    expect(markSessionCompletedUnread(unread, "s2", "s1")).toBe(unread)
+
+    const viewed = markSessionViewed(unread, "s2")
+    expect([...viewed]).toEqual([])
+    expect(markSessionViewed(viewed, "s2")).toBe(viewed)
   })
 })

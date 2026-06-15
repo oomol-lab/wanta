@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils"
 // streamdown 拉入整套 markdown 渲染管线（micromark/remark/rehype + mermaid + katex，约 1.1MB）。
 // 懒加载：聊天外壳先渲染，首条助手消息出现时才加载，不阻塞 AppShell 首帧。
 const Streamdown = lazy(() => import("streamdown").then((m) => ({ default: m.Streamdown })))
+const localImagePathPattern =
+  /(?:file:\/\/[^\s<>"'`，。；：、]+|(?:~?\/|[A-Za-z]:[\\/]).*?\.(?:avif|bmp|gif|jpe?g|png|svg|webp))(?=$|[\s<>"'`，。；：、,;:!?)\]])/gi
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"]
@@ -110,6 +112,39 @@ const messageResponseComponents = {
   table: MarkdownTable,
 } satisfies MessageResponseProps["components"]
 
+interface LocalImagePreview {
+  path: string
+  alt: string
+}
+
+function localImageAltText(value: string): string {
+  let normalized = value.replace(/[\\/]+$/, "")
+  if (/^file:\/\//i.test(normalized)) {
+    try {
+      normalized = decodeURIComponent(new URL(normalized).pathname)
+    } catch {
+      // Keep the original value when URL parsing fails.
+    }
+  }
+  return normalized.split(/[\\/]/).pop() || "image"
+}
+
+function extractLocalImagePreviews(markdown: string): LocalImagePreview[] {
+  const previews: LocalImagePreview[] = []
+  for (const match of markdown.matchAll(localImagePathPattern)) {
+    const candidate = match[0]?.trim()
+    if (
+      candidate &&
+      !markdown.includes(`](${candidate})`) &&
+      !markdown.includes(`](<${candidate}>)`) &&
+      !previews.some((preview) => preview.path === candidate)
+    ) {
+      previews.push({ path: candidate, alt: localImageAltText(candidate) })
+    }
+  }
+  return previews
+}
+
 function messageResponseControls(controls: MessageResponseProps["controls"]): MessageResponseProps["controls"] {
   if (controls === undefined) {
     return { table: false }
@@ -121,18 +156,35 @@ function messageResponseControls(controls: MessageResponseProps["controls"]): Me
 }
 
 export const MessageResponse = memo(
-  ({ className, components, controls, ...props }: MessageResponseProps) => (
-    // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
-    <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{props.children}</div>}>
-      <Streamdown
-        className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-        components={{ ...messageResponseComponents, ...components }}
-        controls={messageResponseControls(controls)}
-        {...props}
-      />
-    </Suspense>
-  ),
-  (prevProps, nextProps) => prevProps.children === nextProps.children,
+  ({ className, components, controls, children, ...props }: MessageResponseProps) => {
+    const localImagePreviews = typeof children === "string" ? extractLocalImagePreviews(children) : []
+    return (
+      // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
+      <Suspense fallback={<div className={cn("size-full whitespace-pre-wrap", className)}>{children}</div>}>
+        <>
+          <Streamdown
+            className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
+            components={{ ...messageResponseComponents, ...components }}
+            controls={messageResponseControls(controls)}
+            {...props}
+          >
+            {children}
+          </Streamdown>
+          {localImagePreviews.length > 0 ? (
+            <div className="mt-3 grid gap-3">
+              {localImagePreviews.map((preview) => (
+                <MarkdownImage key={preview.path} src={preview.path} alt={preview.alt} />
+              ))}
+            </div>
+          ) : null}
+        </>
+      </Suspense>
+    )
+  },
+  (prevProps, nextProps) =>
+    prevProps.children === nextProps.children &&
+    prevProps.className === nextProps.className &&
+    prevProps.controls === nextProps.controls,
 )
 
 MessageResponse.displayName = "MessageResponse"

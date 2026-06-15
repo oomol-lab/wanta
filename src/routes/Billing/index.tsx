@@ -84,148 +84,142 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
   )
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[280px_minmax(0,1fr)] bg-background text-foreground max-[760px]:grid-cols-1">
-      <aside className="oo-border-divider flex min-h-0 flex-col border-r bg-sidebar">
-        <header
-          className="flex h-[var(--app-titlebar-height)] shrink-0 items-center [-webkit-app-region:drag]"
-          style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
-        />
-        <div className="flex min-h-0 flex-1 flex-col gap-5 px-4 pb-5">
-          <button
-            type="button"
-            onClick={onBack}
-            className="oo-sidebar-nav-item oo-text-control flex h-8 w-fit items-center gap-2 rounded-md px-2 text-sidebar-foreground [-webkit-app-region:no-drag]"
-          >
-            <ArrowLeftIcon className="size-4" />
-            <span>{t("billing.backToChat")}</span>
-          </button>
-        </div>
-      </aside>
+    <div className="grid h-full min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)] bg-background text-foreground">
+      <header
+        className="oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center border-b [-webkit-app-region:drag]"
+        style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          className="oo-sidebar-nav-item oo-text-control flex h-8 w-fit items-center gap-2 rounded-md px-2 text-muted-foreground [-webkit-app-region:no-drag] hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" />
+          <span>{t("billing.backToChat")}</span>
+        </button>
+      </header>
 
-      <main className="grid min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
-        <header className="h-[var(--app-titlebar-height)] shrink-0 [-webkit-app-region:drag]" />
-        <div className="min-h-0 overflow-y-auto">
-          <div className="mx-auto grid w-full max-w-[110rem] gap-6 px-10 pt-10 pb-16 max-[760px]:px-5 max-[760px]:pt-8">
-            <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("billing.title")}</h1>
+      <main className="min-h-0 overflow-y-auto">
+        <div className="mx-auto grid w-full max-w-[110rem] gap-6 px-10 pt-10 pb-16 max-[760px]:px-5 max-[760px]:pt-8">
+          <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("billing.title")}</h1>
 
-            <section className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
-              <div className="grid gap-3">
-                <p className="text-base leading-7 text-muted-foreground">{t("billing.subtitle")}</p>
+          <section className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
+            <div className="grid gap-3">
+              <p className="text-base leading-7 text-muted-foreground">{t("billing.subtitle")}</p>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <div
+                className="inline-flex rounded-lg border border-border bg-muted p-1"
+                role="radiogroup"
+                aria-label={t("billing.period")}
+              >
+                {periods.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={period === value}
+                    className={cn(
+                      "h-9 rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors",
+                      period === value && "bg-background text-foreground shadow-sm",
+                    )}
+                    onClick={() => setPeriod(value)}
+                  >
+                    {t(`billing.period${value}`)}
+                  </button>
+                ))}
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <div
-                  className="inline-flex rounded-lg border border-border bg-muted p-1"
-                  role="radiogroup"
-                  aria-label={t("billing.period")}
-                >
-                  {periods.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={period === value}
-                      className={cn(
-                        "h-9 rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors",
-                        period === value && "bg-background text-foreground shadow-sm",
-                      )}
-                      onClick={() => setPeriod(value)}
-                    >
-                      {t(`billing.period${value}`)}
-                    </button>
-                  ))}
-                </div>
-                <Button type="button" variant="outline" disabled={loading} onClick={refresh}>
-                  <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
-                  {t("billing.refresh")}
-                </Button>
-                <Button type="button" onClick={() => setPurchaseOpen(true)}>
-                  <CreditCardIcon className="size-4" />
-                  {t("billing.purchaseCredits")}
-                </Button>
-              </div>
-            </section>
+              <Button type="button" variant="outline" disabled={loading} onClick={refresh}>
+                <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
+                {t("billing.refresh")}
+              </Button>
+              <Button type="button" onClick={() => setPurchaseOpen(true)}>
+                <CreditCardIcon className="size-4" />
+                {t("billing.purchaseCredits")}
+              </Button>
+            </div>
+          </section>
 
-            {error ? (
-              <div className="rounded-lg border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-4 py-3 text-sm text-destructive">
-                {error}
-              </div>
-            ) : null}
+          {error ? (
+            <div className="rounded-lg border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-4 py-3 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
 
-            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label={t("billing.summary")}>
-              <Metric
-                icon={<PiggyBankIcon className="size-4" />}
-                label={t("billing.availableCredits")}
-                value={loading && !data ? "..." : formatCredit(currentCredit)}
-                meta={totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
-              />
-              <Metric
-                icon={<SparklesIcon className="size-4" />}
-                label={t("billing.periodSpend")}
-                value={loading && !data ? "..." : formatCredit(totalSpend)}
-                meta={t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}
-              />
-              <Metric
-                icon={<MessageCircleIcon className="size-4" />}
-                label={t("billing.chatSpend")}
-                value={loading && !data ? "..." : formatCredit(getSummary(summaries, "chat").credit)}
-                meta={t("billing.chatSpendMeta")}
-              />
-              <Metric
-                icon={<ListIcon className="size-4" />}
-                label={t("billing.callCount")}
-                value={loading && !data ? "..." : Intl.NumberFormat().format(totalEvents)}
-                meta={t("billing.callCountMeta", { days: period })}
-              />
-            </section>
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label={t("billing.summary")}>
+            <Metric
+              icon={<PiggyBankIcon className="size-4" />}
+              label={t("billing.availableCredits")}
+              value={loading && !data ? "..." : formatCredit(currentCredit)}
+              meta={totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
+            />
+            <Metric
+              icon={<SparklesIcon className="size-4" />}
+              label={t("billing.periodSpend")}
+              value={loading && !data ? "..." : formatCredit(totalSpend)}
+              meta={t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}
+            />
+            <Metric
+              icon={<MessageCircleIcon className="size-4" />}
+              label={t("billing.chatSpend")}
+              value={loading && !data ? "..." : formatCredit(getSummary(summaries, "chat").credit)}
+              meta={t("billing.chatSpendMeta")}
+            />
+            <Metric
+              icon={<ListIcon className="size-4" />}
+              label={t("billing.callCount")}
+              value={loading && !data ? "..." : Intl.NumberFormat().format(totalEvents)}
+              meta={t("billing.callCountMeta", { days: period })}
+            />
+          </section>
 
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
-              <Panel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")}>
-                {loading && !data ? (
-                  <LoadingRows count={3} />
-                ) : (
-                  <CategorySpendList summaries={summaries} total={totalSpend} />
-                )}
-              </Panel>
-              <Panel title={t("billing.balanceLotsTitle")} meta={t("billing.balanceLotsMeta")}>
-                {loading && !data ? <LoadingRows count={3} /> : <BalanceLots lots={data?.balance?.items ?? []} />}
-              </Panel>
-            </section>
-
-            <Panel title={t("billing.trendTitle")} meta={t("billing.trendMeta", { days: period })}>
+          <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
+            <Panel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")}>
               {loading && !data ? (
-                <Skeleton className="h-44 w-full rounded-lg" />
+                <LoadingRows count={3} />
               ) : (
-                <div className="flex h-44 items-end gap-1" aria-label={t("billing.trendTitle")}>
-                  {dailyBuckets.map((bucket) => {
-                    const height = maxDailySpend > 0 ? Math.max(2, (bucket.credit / maxDailySpend) * 100) : 0
-                    return (
-                      <div
-                        key={bucket.key}
-                        className="flex min-w-0 flex-1 items-end rounded-t bg-muted"
-                        title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
-                      >
-                        <div className="w-full rounded-t bg-foreground" style={{ height: `${height}%` }} />
-                      </div>
-                    )
-                  })}
-                </div>
+                <CategorySpendList summaries={summaries} total={totalSpend} />
               )}
             </Panel>
-
-            <Panel title={t("billing.recordsTitle")} meta={t("billing.recordsMeta")}>
-              {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
+            <Panel title={t("billing.balanceLotsTitle")} meta={t("billing.balanceLotsMeta")}>
+              {loading && !data ? <LoadingRows count={3} /> : <BalanceLots lots={data?.balance?.items ?? []} />}
             </Panel>
-          </div>
+          </section>
+
+          <Panel title={t("billing.trendTitle")} meta={t("billing.trendMeta", { days: period })}>
+            {loading && !data ? (
+              <Skeleton className="h-44 w-full rounded-lg" />
+            ) : (
+              <div className="flex h-44 items-end gap-1" aria-label={t("billing.trendTitle")}>
+                {dailyBuckets.map((bucket) => {
+                  const height = maxDailySpend > 0 ? Math.max(2, (bucket.credit / maxDailySpend) * 100) : 0
+                  return (
+                    <div
+                      key={bucket.key}
+                      className="flex min-w-0 flex-1 items-end rounded-t bg-muted"
+                      title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
+                    >
+                      <div className="w-full rounded-t bg-foreground" style={{ height: `${height}%` }} />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </Panel>
+
+          <Panel title={t("billing.recordsTitle")} meta={t("billing.recordsMeta")}>
+            {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
+          </Panel>
         </div>
-        <CreditPurchaseModal
-          open={purchaseOpen}
-          showViewDetails={false}
-          onClose={() => {
-            setPurchaseOpen(false)
-            refresh()
-          }}
-        />
       </main>
+      <CreditPurchaseModal
+        open={purchaseOpen}
+        showViewDetails={false}
+        onClose={() => {
+          setPurchaseOpen(false)
+          refresh()
+        }}
+      />
     </div>
   )
 }

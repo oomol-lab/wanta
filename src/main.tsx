@@ -16,7 +16,7 @@ import "./index.css"
 
 const rootElement = document.querySelector("#root")
 if (!rootElement) {
-  throw new Error("Lumo: missing #root mount node")
+  throw new Error("Gimo: missing #root mount node")
 }
 
 document.documentElement.dataset.platform = globalThis.lumo?.platform ?? "browser"

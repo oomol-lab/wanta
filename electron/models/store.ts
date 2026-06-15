@@ -18,6 +18,7 @@ export interface PersistedCustomModel {
   apiKey: string
   modelName: string
   displayName?: string
+  supportsImages?: boolean
 }
 
 export interface PersistedModels {
@@ -25,7 +26,7 @@ export interface PersistedModels {
   customModels?: PersistedCustomModel[]
 }
 
-export const BUILTIN_MODELS: BuiltinModelSummary[] = [{ id: "oomol-chat", displayName: "Auto", providerName: "OOMOL" }]
+export const BUILTIN_MODELS: BuiltinModelSummary[] = [{ id: "oopilot", displayName: "Auto", providerName: "OOMOL" }]
 
 export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
@@ -87,6 +88,7 @@ export function publicCustomModel(model: PersistedCustomModel): CustomModelSumma
     modelName: model.modelName,
     displayName: customModelDisplayName(model),
     apiKeyConfigured: model.apiKey.length > 0,
+    supportsImages: model.supportsImages === true,
   }
 }
 
@@ -108,7 +110,7 @@ export function sanitizeBaseUrl(value: string): string {
 }
 
 export function defaultModelChoice(): ModelChoice {
-  return { kind: "builtin", id: "oomol-chat" }
+  return { kind: "builtin", id: "oopilot" }
 }
 
 export function isKnownModelChoice(models: PersistedModels, choice: ModelChoice | undefined): choice is ModelChoice {
@@ -116,7 +118,7 @@ export function isKnownModelChoice(models: PersistedModels, choice: ModelChoice 
     return false
   }
   if (choice.kind === "builtin") {
-    return choice.id === "oomol-chat"
+    return choice.id === "oopilot"
   }
   return Boolean(models.customModels?.some((model) => model.id === choice.id))
 }
@@ -179,6 +181,7 @@ function isPersistedCustomModel(value: unknown): value is PersistedCustomModel {
     typeof model.baseUrl === "string" &&
     typeof model.apiKey === "string" &&
     typeof model.modelName === "string" &&
-    (model.displayName === undefined || typeof model.displayName === "string")
+    (model.displayName === undefined || typeof model.displayName === "string") &&
+    (model.supportsImages === undefined || typeof model.supportsImages === "boolean")
   )
 }

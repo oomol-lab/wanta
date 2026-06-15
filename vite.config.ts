@@ -6,7 +6,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { defineConfig, loadEnv } from "vite"
 import electron from "vite-plugin-electron/simple"
-import { storageKey } from "./electron/branding.ts"
+import { branding, storageKey } from "./electron/branding.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -104,11 +104,11 @@ export default defineConfig(({ command, mode }) => {
       },
     },
     plugins: [
-      // index.html 内联首帧主题脚本里的持久化 key 由 branding 单一来源注入（守 R1，避免硬编码品牌前缀）。
+      // index.html 内联首帧主题脚本里的品牌值由 branding 单一来源注入（守 R1，避免硬编码品牌前缀）。
       {
         name: "lumo-inline-boot-theme-key",
         transformIndexHtml(html: string) {
-          return html.replaceAll("%LUMO_THEME_KEY%", storageKey("theme"))
+          return html.replaceAll("%APP_NAME%", branding.appName).replaceAll("%LUMO_THEME_KEY%", storageKey("theme"))
         },
       },
       tailwindcss(),

@@ -285,6 +285,7 @@ export interface SubscriptionSchedule {
 
 export interface BillingOverviewRequest {
   days: BillingPeriodDays
+  forceRefresh?: boolean
 }
 
 export interface BillingOverviewResult {
@@ -295,6 +296,8 @@ export interface BillingOverviewResult {
   subscription: SubscriptionStatus | null
   schedules: SubscriptionSchedule[]
 }
+
+export type BillingSummaryResult = BillingOverviewResult
 
 export interface OpenSubscriptionCheckoutRequest {
   plan: SubscriptionPlanTag
@@ -324,6 +327,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     openTopUpCheckout(req: OpenTopUpCheckoutRequest): Promise<void>
     openSubscriptionCheckout(req: OpenSubscriptionCheckoutRequest): Promise<void>
     openSubscriptionPortal(): Promise<void>
+    getBillingSummary(req: BillingOverviewRequest): Promise<BillingSummaryResult>
     getBillingOverview(req: BillingOverviewRequest): Promise<BillingOverviewResult>
     getCreditBalance(): Promise<CreditBalanceResult>
     transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>

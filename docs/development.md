@@ -16,7 +16,7 @@
 cp .env.example .env.local   # .env.local 已 gitignore
 ```
 
-- `LUMO_ENDPOINT`：endpoint 主域，缺省 `oomol.com`，对接开发环境改 `oomol.dev`。**读取规则**（`vite.config.ts` 的 `resolveOoEndpoint`）：dev 与 vitest 经 `loadEnv` 读 `.env(.local)`；**build 刻意不读文件**（防开发域名进发布包）；两种模式都尊重显式环境变量，内部联调包用 `LUMO_ENDPOINT=oomol.dev npm run build`。已知坑：`oomol.dev` 的 LLM 网关曾对 `oomol-chat` 返回 403 "Model disabled"（后端限制，非代码问题），dev endpoint 主要用于 connector 联调，聊天 403 时先怀疑网关侧。
+- `LUMO_ENDPOINT`：endpoint 主域，缺省 `oomol.com`，对接开发环境改 `oomol.dev`。**读取规则**（`vite.config.ts` 的 `resolveOoEndpoint`）：dev 与 vitest 经 `loadEnv` 读 `.env(.local)`；**build 刻意不读文件**（防开发域名进发布包）；两种模式都尊重显式环境变量，内部联调包用 `LUMO_ENDPOINT=oomol.dev npm run build`。已知坑：`oomol.dev` 的 LLM 网关曾对 `oopilot` 返回 403 "Model disabled"（后端限制，非代码问题），dev endpoint 主要用于 connector 联调，聊天 403 时先怀疑网关侧。
 - `LUMO_OO_BIN`（可选，进程环境变量而非 .env 文件读取）：覆盖 oo 二进制路径，`LUMO_OO_BIN=/abs/path/to/oo npm run dev`。设置后 predev 守卫跳过检查。
 
 ## 3. 日常开发

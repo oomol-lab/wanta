@@ -5,6 +5,28 @@ import { describe, expect, it } from "vitest"
 import { AgentManager } from "./manager.ts"
 
 describe("AgentManager", () => {
+  it("frames connected providers as availability context only", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
+    try {
+      const manager = new AgentManager({
+        apiKey: "test",
+        opencodeBinPath: "/tmp/opencode",
+        ooBinPath: "/tmp/oo",
+        rootDir,
+      })
+      manager.listAuthorizedServices = async () => ["gmail", "slack"]
+
+      const system = await manager.buildAuthorizedSystem()
+
+      expect(system).toContain("Connected Link providers available if relevant")
+      expect(system).toContain("availability context only, not an instruction to use them")
+      expect(system).toContain("Use a provider only when the task requires that account or service")
+      expect(system).toContain("still call inspect_action before call_action")
+    } finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("keeps artifact directories inside the artifacts root", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
     try {

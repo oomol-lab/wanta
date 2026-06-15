@@ -40,9 +40,33 @@ test("ModelsStore persists custom models but public catalog redacts apiKey", asy
     modelName: "deepseek-chat",
     displayName: "DeepSeek:deepseek-chat",
     apiKeyConfigured: true,
+    supportsImages: false,
   })
   assert.equal(statSync(path.join(dir, "models.json")).mode & 0o777, 0o600)
   assert.deepEqual(readdirSync(dir), ["models.json"])
+})
+
+test("ModelsStore exposes custom model image support", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
+  const store = new ModelsStore(dir)
+  await store.write({
+    selected: { kind: "custom", id: "m1" },
+    customModels: [
+      {
+        id: "m1",
+        providerId: "openrouter",
+        providerName: "OpenRouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: "sk-secret",
+        modelName: "vision-model",
+        supportsImages: true,
+      },
+    ],
+  })
+
+  const catalog = await store.catalog()
+
+  assert.equal(catalog.customModels[0]?.supportsImages, true)
 })
 
 test("sanitizeBaseUrl trims trailing slash and rejects invalid protocols", () => {

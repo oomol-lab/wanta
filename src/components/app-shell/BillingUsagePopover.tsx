@@ -31,6 +31,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
     enabled: open,
+    summaryOnly: true,
     staleMs: cacheFreshMs,
   })
 

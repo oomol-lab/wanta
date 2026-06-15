@@ -1,9 +1,9 @@
 {
   "name": "lumo",
-  "displayName": "Lumo",
+  "displayName": "Gimo",
   "version": "0.0.0",
   "private": true,
-  "description": "Lumo — AI agent chat client for non-coding analysis and automation over OOMOL connectors.",
+  "description": "Gimo — AI agent chat client for non-coding analysis and automation over OOMOL connectors.",
   "author": "OOMOL",
   "type": "module",
   "main": "dist-electron/main.js",

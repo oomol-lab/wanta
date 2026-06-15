@@ -15,7 +15,7 @@ const OO_BIN = process.env.LUMO_OO_BIN || "oo"
 
 export default tool({
   description:
-    "Search the OOMOL connector catalog (~600 SaaS providers, 6000+ actions) for actions matching a natural-language query. Returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current user has already connected that service). Use this to discover the exact service + action. The search result does NOT include the input parameters — after picking an action, call inspect_action to read its inputSchema before call_action.",
+    "Search the OOMOL connector catalog (~600 SaaS providers, 6000+ actions) for Link actions matching a natural-language query. Use this only when the user's task requires data or actions inside a SaaS account and the exact service + action is unknown. Returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current user has already connected that service). The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
     keywords: tool.schema.string().optional().describe("Optional comma-separated keywords to refine the search"),
@@ -44,7 +44,7 @@ const OO_BIN = process.env.LUMO_OO_BIN || "oo"
 
 export default tool({
   description:
-    "Fetch the contract for one OOMOL connector action. Returns a JSON object with description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS call this after picking a service+action and before call_action, so the call_action params use the real declared field names instead of guesses. The schema is identity-independent and read-only; calling it never sends or changes anything.",
+    "Fetch the contract for one selected OOMOL Link action. Returns a JSON object with description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS call this after selecting a service+action and before call_action, so the call_action params use the real declared field names instead of guesses. The schema is identity-independent and read-only; calling it never sends or changes anything.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_item'"),
@@ -81,7 +81,7 @@ const AUTH_BLOCKING = new Set([
 
 export default tool({
   description:
-    "Execute one OOMOL connector action. Provide the exact service slug and action name (discover them with search_actions first). params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. If the service is not authorized this returns a JSON object with status 'authorization_required' and an authUrl; when you see that, STOP for this service, tell the user it needs authorization and surface the authUrl. Do NOT retry or fabricate a result.",
+    "Execute one selected OOMOL Link action. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. If the service is not authorized this returns a JSON object with status 'authorization_required' and an authUrl; when you see that, stop trying this provider/action, tell the user it needs authorization, and surface the authUrl. Do NOT retry this provider/action or fabricate a result.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),

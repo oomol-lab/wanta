@@ -7,6 +7,7 @@ import type { ChatStatus } from "ai"
 import {
   LogOut,
   LoaderCircle,
+  MessageSquarePlus,
   Package,
   PanelLeftClose,
   PanelLeftOpen,
@@ -19,11 +20,16 @@ import {
   Trash2,
 } from "lucide-react"
 import * as React from "react"
-import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import {
+  buildFallbackSessionTitle,
+  shouldAutoRefreshSessionTitle,
+  trimTitleToColumns,
+} from "../../../electron/session/title.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
+import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -164,7 +170,7 @@ function SessionItem({
   unread,
   now,
   onSelect,
-  onRename,
+  onRenameRequest,
   onDelete,
 }: {
   session: SessionInfo
@@ -173,40 +179,13 @@ function SessionItem({
   unread: boolean
   now: number
   onSelect: () => void
-  onRename: (title: string) => void
+  onRenameRequest: () => void
   onDelete: () => void
 }) {
   const t = useT()
   const { locale } = useI18n()
-  const [editing, setEditing] = React.useState(false)
-  const [draft, setDraft] = React.useState(session.title)
   const relativeTime = formatSessionRelativeTime(session.updatedAt, now, locale)
   const absoluteTime = formatSessionAbsoluteTime(session.updatedAt, locale)
-
-  if (editing) {
-    return (
-      <Input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          setEditing(false)
-          if (draft.trim() && draft !== session.title) {
-            onRename(draft.trim())
-          }
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.currentTarget.blur()
-          } else if (e.key === "Escape") {
-            setDraft(session.title)
-            setEditing(false)
-          }
-        }}
-        className="oo-text-control h-8"
-      />
-    )
-  }
 
   return (
     <div
@@ -218,7 +197,7 @@ function SessionItem({
       <button
         type="button"
         onClick={onSelect}
-        onDoubleClick={() => setEditing(true)}
+        onDoubleClick={onRenameRequest}
         title={session.title}
         className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
@@ -257,6 +236,217 @@ function SessionItem({
         <Trash2 className="size-3.5" />
       </button>
     </div>
+  )
+}
+
+function RenameSessionDialog({
+  session,
+  open,
+  onClose,
+  onRename,
+}: {
+  session: SessionInfo | null
+  open: boolean
+  onClose: () => void
+  onRename: (sessionId: string, title: string) => void
+}) {
+  const t = useT()
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const [draft, setDraft] = React.useState("")
+  const trimmedDraft = draft.trim()
+  const canSave = Boolean(session && trimmedDraft)
+
+  React.useEffect(() => {
+    if (!open || !session) {
+      return
+    }
+    setDraft(session.title)
+    window.setTimeout(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 0)
+  }, [open, session])
+
+  if (!open || !session) {
+    return null
+  }
+
+  const save = (): void => {
+    if (!canSave) {
+      return
+    }
+    const nextTitle = trimTitleToColumns(trimmedDraft)
+    if (nextTitle !== session.title) {
+      onRename(session.id, nextTitle)
+    }
+    onClose()
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rename-session-title"
+      aria-describedby="rename-session-description"
+      className="oo-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-5"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose()
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault()
+          onClose()
+        }
+      }}
+    >
+      <form
+        className="oo-modal-surface w-full max-w-[440px] rounded-xl p-6"
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 id="rename-session-title" className="oo-text-title text-lg font-semibold text-foreground">
+              {t("session.renameTitle")}
+            </h2>
+            <p id="rename-session-description" className="oo-text-caption mt-1 text-muted-foreground">
+              {t("session.renameDescription")}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label={t("session.renameClose")}
+            onClick={onClose}
+            className="oo-icon-muted -mt-1 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          aria-label={t("session.renameInputLabel")}
+          className="oo-text-value mt-6 block h-8 w-full min-w-0 border-0 bg-transparent p-0 text-foreground shadow-none ring-0 outline-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus:border-0 focus:ring-0 focus:outline-none focus-visible:outline-none"
+        />
+
+        <div className="mt-6 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" disabled={!canSave}>
+            {t("common.save")}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function EditableTitlebarTitle({
+  title,
+  editable,
+  onRename,
+}: {
+  title: string
+  editable: boolean
+  onRename: (title: string) => void
+}) {
+  const t = useT()
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const cancelNextBlur = React.useRef(false)
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(title)
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(title)
+    }
+  }, [editing, title])
+
+  React.useEffect(() => {
+    if (!editing) {
+      return
+    }
+    window.setTimeout(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 0)
+  }, [editing])
+
+  const startEditing = (): void => {
+    if (!editable) {
+      return
+    }
+    setDraft(title)
+    setEditing(true)
+  }
+
+  const commit = (): void => {
+    const trimmedDraft = draft.trim()
+    setEditing(false)
+    if (!trimmedDraft) {
+      return
+    }
+    const nextTitle = trimTitleToColumns(trimmedDraft)
+    if (nextTitle && nextTitle !== title) {
+      onRename(nextTitle)
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (cancelNextBlur.current) {
+            cancelNextBlur.current = false
+            return
+          }
+          commit()
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault()
+            commit()
+          } else if (event.key === "Escape") {
+            event.preventDefault()
+            cancelNextBlur.current = true
+            setDraft(title)
+            setEditing(false)
+          }
+        }}
+        aria-label={t("session.renameInputLabel")}
+        className="oo-toolbar-title oo-text-title block h-[var(--oo-line-control)] w-full min-w-0 border-0 bg-transparent p-0 shadow-none ring-0 outline-none [-webkit-app-region:no-drag] selection:bg-primary selection:text-primary-foreground focus:border-0 focus:ring-0 focus:outline-none focus-visible:outline-none"
+      />
+    )
+  }
+
+  if (!editable) {
+    return (
+      <span className="oo-toolbar-title oo-text-title inline-block max-w-full min-w-0 truncate" title={title}>
+        {title}
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onDoubleClick={startEditing}
+      title={title}
+      aria-label={t("session.renameFromTitlebar")}
+      className="oo-toolbar-title oo-text-title inline-block max-w-full min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left outline-none [-webkit-app-region:no-drag]"
+    >
+      {title}
+    </button>
   )
 }
 
@@ -342,6 +532,22 @@ function SessionSearchOverlay({
           </div>
         </div>
       </section>
+    </div>
+  )
+}
+
+function SidebarEmptyState() {
+  const t = useT()
+
+  return (
+    <div className="flex min-h-full flex-1 items-center justify-center px-5 py-8 text-center">
+      <div className="max-w-40">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/65 text-sidebar-foreground shadow-sm">
+          <MessageSquarePlus className="size-5" aria-hidden="true" />
+        </div>
+        <div className="oo-text-label mt-3 text-sidebar-accent-foreground">{t("sidebar.emptyTitle")}</div>
+        <p className="oo-text-caption mt-1 text-sidebar-foreground/75">{t("sidebar.emptyDescription")}</p>
+      </div>
     </div>
   )
 }
@@ -488,6 +694,7 @@ export function AppShell() {
   const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
@@ -589,6 +796,7 @@ export function AppShell() {
   }, [connections.summary, send])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const pendingCaughtUp = Boolean(
     pendingChatTransition?.sessionId &&
     activeSessionId === pendingChatTransition.sessionId &&
@@ -618,12 +826,19 @@ export function AppShell() {
           : route === "skills"
             ? t("skills.title")
             : (activeSession?.title ?? t("chat.newSession"))
+  const titlebarEditable = route === "chat" && Boolean(activeSession)
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
       setPendingChatTransition(null)
     }
   }, [pendingCaughtUp])
+
+  React.useEffect(() => {
+    if (renameSessionId && !renameSession) {
+      setRenameSessionId(null)
+    }
+  }, [renameSession, renameSessionId])
 
   React.useEffect(() => {
     setArtifactSelection(null)
@@ -835,6 +1050,9 @@ export function AppShell() {
   }
 
   const handleDelete = async (id: string): Promise<void> => {
+    if (renameSessionId === id) {
+      setRenameSessionId(null)
+    }
     await remove(id)
     if (activeSessionId === id) {
       setActiveSessionId(null)
@@ -927,6 +1145,9 @@ export function AppShell() {
     }
   }
   const handleOpenSearch = (): void => setSearchOpen(true)
+  const handleRenameSession = (sessionId: string, title: string): void => {
+    void rename(sessionId, title)
+  }
   const handleArtifactsReset = React.useCallback(() => {
     setArtifactSelection(null)
     setArtifactsPanelOpen(false)
@@ -1022,26 +1243,29 @@ export function AppShell() {
           <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
             <div className="oo-text-caption shrink-0 px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
             <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-              <div className="grid gap-0.5">
-                {sessions.map((session) => (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    active={route === "chat" && activeSessionId === session.id}
-                    running={isSessionRunning(session.id)}
-                    unread={hasUnreadSession(session.id)}
-                    now={relativeTimeNow}
-                    onSelect={() => {
-                      setActiveSessionId(session.id)
-                      setIsDraftSession(false)
-                      setRoute("chat")
-                    }}
-                    onRename={(title) => void rename(session.id, title)}
-                    onDelete={() => void handleDelete(session.id)}
-                  />
-                ))}
-                {sessions.length === 0 && <p className="oo-text-caption px-3 py-3">{t("sidebar.empty")}</p>}
-              </div>
+              {sessions.length > 0 ? (
+                <div className="grid gap-0.5">
+                  {sessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      active={route === "chat" && activeSessionId === session.id}
+                      running={isSessionRunning(session.id)}
+                      unread={hasUnreadSession(session.id)}
+                      now={relativeTimeNow}
+                      onSelect={() => {
+                        setActiveSessionId(session.id)
+                        setIsDraftSession(false)
+                        setRoute("chat")
+                      }}
+                      onRenameRequest={() => setRenameSessionId(session.id)}
+                      onDelete={() => void handleDelete(session.id)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <SidebarEmptyState />
+              )}
             </div>
 
             <SidebarAccountMenu
@@ -1083,13 +1307,19 @@ export function AppShell() {
             </div>
             <div
               className={cn(
-                "oo-main-titlebar-title flex min-w-0 items-center gap-2",
+                "oo-main-titlebar-title flex w-full min-w-0 items-center gap-2",
                 isSidebarRestoring && "is-restoring",
               )}
             >
-              <span className="oo-toolbar-title oo-text-title truncate" title={titlebarTitle}>
-                {titlebarTitle}
-              </span>
+              <EditableTitlebarTitle
+                title={titlebarTitle}
+                editable={titlebarEditable}
+                onRename={(title) => {
+                  if (activeSession) {
+                    handleRenameSession(activeSession.id, title)
+                  }
+                }}
+              />
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
               <BillingUsagePopover cacheScope={billingCacheScope} onViewDetails={() => setRoute("billing")} />
@@ -1180,6 +1410,12 @@ export function AppShell() {
           setRoute("chat")
           setSearchOpen(false)
         }}
+      />
+      <RenameSessionDialog
+        session={renameSession}
+        open={Boolean(renameSession)}
+        onClose={() => setRenameSessionId(null)}
+        onRename={handleRenameSession}
       />
     </div>
   )

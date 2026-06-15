@@ -4,10 +4,12 @@ import { llmBaseUrl } from "../domain.ts"
 import { customModelDisplayName } from "../models/store.ts"
 import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
 
+type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string]
+
 // OpenCode 内部标识（产品内部约定，可随品牌改，但 OO_/connector 协议契约不改）。
 export const LUMO_AGENT_NAME = "lumo"
 export const LUMO_PROVIDER_ID = "oomol"
-export const LUMO_MODEL_ID = "oomol-chat"
+export const LUMO_MODEL_ID = "oopilot"
 
 export interface OpencodeCustomModel {
   id: string
@@ -16,6 +18,7 @@ export interface OpencodeCustomModel {
   apiKey: string
   modelName: string
   displayName?: string
+  supportsImages?: boolean
 }
 
 // 全量放开内置工具 + 权限：bash/read/write/edit/grep/glob/list/webfetch/task/todo* 与自定义
@@ -44,7 +47,7 @@ export function buildOpencodeConfig({ apiKey, customModels = [] }: OpencodeConfi
         name: "OOMOL",
         npm: "@ai-sdk/openai-compatible",
         options: { baseURL: llmBaseUrl, apiKey },
-        models: { [LUMO_MODEL_ID]: { name: "OOMOL Chat", tool_call: true } },
+        models: { [LUMO_MODEL_ID]: modelCapabilities("OOMOL Chat", true) },
       },
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),
     },
@@ -74,10 +77,23 @@ function customProviderConfig(model: OpencodeCustomModel): NonNullable<Config["p
       apiKey: model.apiKey,
     },
     models: {
-      [model.modelName]: {
-        name: customModelDisplayName(model),
-        tool_call: true,
-      },
+      [model.modelName]: modelCapabilities(customModelDisplayName(model), model.supportsImages === true),
     },
+  }
+}
+
+function modelCapabilities(name: string, supportsImages: boolean): OpencodeModelConfig {
+  return {
+    name,
+    tool_call: true,
+    ...(supportsImages
+      ? {
+          attachment: true,
+          modalities: {
+            input: ["text", "image"],
+            output: ["text"],
+          },
+        }
+      : {}),
   }
 }

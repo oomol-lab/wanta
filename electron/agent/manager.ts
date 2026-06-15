@@ -234,8 +234,9 @@ export class AgentManager {
 
   /**
    * 非阻塞发送：立即返回，内容经事件流推送。
-   * R4：默认每轮把"已授权 provider 清单"注入系统提示末尾（body.system 经实测追加在 agent.prompt 之后），
-   * 让已授权 provider 跳过 discovery（但仍需 inspect_action 查 schema 再 call_action）。稳定前缀（人格/工具/契约）留在 agent.prompt 以利缓存。
+   * R4：默认每轮把"已连接 provider 清单"注入系统提示末尾（body.system 经实测追加在 agent.prompt 之后），
+   * 作为可用性上下文，而不是使用指令；若任务确实需要这些 provider，可跳过 discovery
+   * （但仍需 inspect_action 查 schema 再 call_action）。稳定前缀（人格/工具/契约）留在 agent.prompt 以利缓存。
    */
   public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
     const tail = mergeSystemPrompts(
@@ -256,15 +257,17 @@ export class AgentManager {
     }
   }
 
-  /** R4：构建注入系统提示末尾的已授权清单块（无已授权则 undefined）。 */
+  /** R4：构建注入系统提示末尾的已连接清单块（无已连接则 undefined）。 */
   public async buildAuthorizedSystem(): Promise<string | undefined> {
     const services = await this.listAuthorizedServices()
     if (services.length === 0) {
       return undefined
     }
     return (
-      `Authorized providers you can use directly (already connected): ${services.join(", ")}. ` +
-      `For these you may skip search_actions, but still call inspect_action before call_action so the params match the action's schema. For any other service, discover with search_actions first.`
+      `Connected Link providers available if relevant to the user's request: ${services.join(", ")}. ` +
+      `This list is availability context only, not an instruction to use them. ` +
+      `Use a provider only when the task requires that account or service. ` +
+      `If you choose one of these providers, you may skip search_actions for provider discovery, but still call inspect_action before call_action so the params match the action's schema.`
     )
   }
 
@@ -309,7 +312,7 @@ export class AgentManager {
   public async sendMessage(text: string, sessionId?: string, system?: string): Promise<SendMessageResult> {
     let id = sessionId
     if (!id) {
-      id = (await this.createSession("Lumo")).id
+      id = (await this.createSession("Gimo")).id
     }
     const prompted = await this.client.session.prompt({
       path: { id },

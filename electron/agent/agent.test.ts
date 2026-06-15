@@ -7,6 +7,7 @@ import { ooEndpoint } from "../domain.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { AgentManager } from "./manager.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
+import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 test("buildOpencodeConfig wires the oomol openai-compatible provider (derived baseURL)", () => {
@@ -17,10 +18,13 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider (derived ba
   assert.equal(provider.npm, "@ai-sdk/openai-compatible")
   assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
   assert.equal(provider.options?.apiKey, "api-test")
-  assert.ok(provider.models?.[LUMO_MODEL_ID])
+  const model = provider.models?.[LUMO_MODEL_ID]
+  assert.ok(model)
+  assert.equal(model.attachment, true)
+  assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
 
-test("buildOpencodeConfig wires custom openai-compatible providers without changing the default model", () => {
+test("buildOpencodeConfig wires text-only custom openai-compatible providers without changing the default model", () => {
   const config = buildOpencodeConfig({
     apiKey: "api-test",
     customModels: [
@@ -39,7 +43,31 @@ test("buildOpencodeConfig wires custom openai-compatible providers without chang
   assert.equal(provider.npm, "@ai-sdk/openai-compatible")
   assert.equal(provider.options?.baseURL, "https://api.deepseek.com/v1")
   assert.equal(provider.options?.apiKey, "sk-custom")
-  assert.equal(provider.models?.["deepseek-chat"]?.tool_call, true)
+  const model = provider.models?.["deepseek-chat"]
+  assert.equal(model?.tool_call, true)
+  assert.equal(model?.attachment, undefined)
+  assert.equal(model?.modalities, undefined)
+})
+
+test("buildOpencodeConfig marks custom providers as image-capable only when requested", () => {
+  const config = buildOpencodeConfig({
+    apiKey: "api-test",
+    customModels: [
+      {
+        id: "custom-vision",
+        providerName: "OpenRouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: "sk-custom",
+        modelName: "vision-model",
+        supportsImages: true,
+      },
+    ],
+  })
+
+  const model = config.provider?.[customProviderId("custom-vision")]?.models?.["vision-model"]
+
+  assert.equal(model?.attachment, true)
+  assert.deepEqual(model?.modalities, { input: ["text", "image"], output: ["text"] })
 })
 
 test("lumo agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {
@@ -57,6 +85,17 @@ test("lumo agent enables built-in coding/shell tools alongside connector tools, 
   assert.equal(agent.permission?.edit, "allow")
   assert.equal(agent.permission?.webfetch, "allow")
   assert.equal(config.permission?.bash, "allow")
+})
+
+test("system prompt treats Link as a contextual capability, not the default path", () => {
+  assert.match(LUMO_SYSTEM_PROMPT, /general-purpose AI agent/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Start from the user's real goal/)
+  assert.match(
+    LUMO_SYSTEM_PROMPT,
+    /Use Link tools only when the task requires data or actions inside a connected SaaS account/,
+  )
+  assert.match(LUMO_SYSTEM_PROMPT, /Do not use Link tools just because a provider is connected/)
+  assert.match(LUMO_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
@@ -91,6 +130,7 @@ test("isAuthBlocking flags the upstream authorization-blocking codes", () => {
 test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("@opencode-ai/plugin"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("requires data or actions inside a SaaS account"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authorization_required"))

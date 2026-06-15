@@ -2,7 +2,6 @@ import type { BillingLogItem, BillingPeriodDays, CreditItem } from "../../../ele
 import type { CategorySummary, UsageCategory } from "./usage.ts"
 
 import {
-  ArrowLeftIcon,
   CreditCardIcon,
   ImageIcon,
   ListIcon,
@@ -27,10 +26,12 @@ import {
   toNumber,
   usageCategory,
 } from "./usage.ts"
+import { PageRouteShell } from "@/components/PageRouteShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -57,8 +58,16 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
   const categoryEventTotal = summaries.reduce((sum, item) => sum + item.eventCount, 0)
   const totalEvents = categoryEventTotal > 0 ? categoryEventTotal : statsTotalEvents(data?.metering)
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
+  const originalCredit = toNumber(data?.balance?.total.originalCredit)
+  const chatSpend = getSummary(summaries, "chat").credit
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
+  const availableShare =
+    originalCredit > 0
+      ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
+      : currentCredit > 0
+        ? 100
+        : 0
   const dailyBuckets = React.useMemo(
     () => buildDailySpendBuckets(data?.spend?.items ?? [], period, totalSpend),
     [data?.spend, period, totalSpend],
@@ -74,147 +83,84 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
   )
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)] bg-background text-foreground">
-      <header
-        className="oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center border-b [-webkit-app-region:drag]"
-        style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          className="oo-sidebar-nav-item oo-text-control flex h-8 w-fit items-center gap-2 rounded-md px-2 text-muted-foreground [-webkit-app-region:no-drag] hover:text-foreground"
-        >
-          <ArrowLeftIcon className="size-4" />
-          <span>{t("billing.backToChat")}</span>
-        </button>
-      </header>
+    <>
+      <PageRouteShell backLabel={t("billing.backToChat")} contentClassName="max-w-[84rem] gap-5" onBack={onBack}>
+        <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("billing.title")}</h1>
 
-      <main className="min-h-0 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-[110rem] gap-6 px-10 pt-10 pb-16 max-[760px]:px-5 max-[760px]:pt-8">
-          <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("billing.title")}</h1>
+        <section className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--oo-divider)] pb-5">
+          <div className="min-w-0">
+            <p className="oo-text-body text-muted-foreground">{t("billing.subtitle")}</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <PeriodToggle period={period} onChange={setPeriod} />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loading}
+              onClick={() => void refresh({ force: true })}
+            >
+              <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
+              {t("billing.refresh")}
+            </Button>
+            <Button type="button" size="sm" onClick={() => setPurchaseOpen(true)}>
+              <CreditCardIcon className="size-4" />
+              {t("billing.purchaseCredits")}
+            </Button>
+          </div>
+        </section>
 
-          <section className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
-            <div className="grid gap-3">
-              <p className="text-base leading-7 text-muted-foreground">{t("billing.subtitle")}</p>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <div
-                className="inline-flex h-[var(--oo-control-height)] items-center rounded-md border border-border bg-muted p-0.5"
-                role="radiogroup"
-                aria-label={t("billing.period")}
-              >
-                {periods.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={period === value}
-                    className={cn(
-                      "h-full rounded-sm px-3 text-sm font-medium text-muted-foreground transition-colors",
-                      period === value && "bg-background text-foreground shadow-sm",
-                    )}
-                    onClick={() => setPeriod(value)}
-                  >
-                    {t(`billing.period${value}`)}
-                  </button>
-                ))}
-              </div>
-              <Button type="button" variant="outline" disabled={loading} onClick={() => void refresh({ force: true })}>
-                <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
-                {t("billing.refresh")}
-              </Button>
-              <Button type="button" onClick={() => setPurchaseOpen(true)}>
-                <CreditCardIcon className="size-4" />
-                {t("billing.purchaseCredits")}
-              </Button>
-            </div>
-          </section>
+        {error ? (
+          <div className="oo-text-body rounded-md border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-3 py-2.5 text-destructive">
+            {error}
+          </div>
+        ) : null}
 
-          {error ? (
-            <div className="rounded-lg border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-4 py-3 text-sm text-destructive">
-              {error}
-            </div>
-          ) : null}
+        <BalanceOverview
+          averageDailySpend={averageDailySpend}
+          chatSpend={chatSpend}
+          coverageDays={coverageDays}
+          currentCredit={currentCredit}
+          loading={loading && !data}
+          totalEvents={totalEvents}
+          totalSpend={totalSpend}
+          availableShare={availableShare}
+          onPurchase={() => setPurchaseOpen(true)}
+        />
 
-          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label={t("billing.summary")}>
-            <Metric
-              icon={<PiggyBankIcon className="size-4" />}
-              label={t("billing.availableCredits")}
-              value={loading && !data ? "..." : formatCredit(currentCredit)}
-              meta={totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
-            />
-            <Metric
-              icon={<SparklesIcon className="size-4" />}
-              label={t("billing.periodSpend")}
-              value={loading && !data ? "..." : formatCredit(totalSpend)}
-              meta={t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}
-            />
-            <Metric
-              icon={<MessageCircleIcon className="size-4" />}
-              label={t("billing.chatSpend")}
-              value={loading && !data ? "..." : formatCredit(getSummary(summaries, "chat").credit)}
-              meta={t("billing.chatSpendMeta")}
-            />
-            <Metric
-              icon={<ListIcon className="size-4" />}
-              label={t("billing.callCount")}
-              value={loading && !data ? "..." : Intl.NumberFormat().format(totalEvents)}
-              meta={t("billing.callCountMeta", { days: period })}
-            />
-          </section>
-
-          <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
-            <Panel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")}>
-              {loading && !data ? (
-                <LoadingRows count={3} />
-              ) : (
-                <CategorySpendList summaries={summaries} total={totalSpend} />
-              )}
-            </Panel>
-            <Panel title={t("billing.balanceLotsTitle")} meta={t("billing.balanceLotsMeta")}>
-              {loading && !data ? <LoadingRows count={3} /> : <BalanceLots lots={data?.balance?.items ?? []} />}
-            </Panel>
-          </section>
-
-          <Panel
-            title={t("billing.trendTitle")}
-            meta={t(hasEstimatedTrend ? "billing.trendEstimatedMeta" : "billing.trendMeta", { days: period })}
-          >
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
+          <BillingPanel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")} bodyClassName="p-0">
             {loading && !data ? (
-              <Skeleton className="h-44 w-full rounded-lg" />
+              <LoadingRows count={3} />
             ) : (
-              <div
-                className="grid min-h-40 items-end gap-1 px-4 py-4"
-                style={{ gridTemplateColumns: `repeat(${dailyBuckets.length}, minmax(0, 1fr))` }}
-                aria-label={t("billing.trendTitle")}
-              >
-                {dailyBuckets.map((bucket) => {
-                  const height = maxDailySpend > 0 ? Math.max(2, (bucket.credit / maxDailySpend) * 100) : 0
-                  return (
-                    <div
-                      key={bucket.key}
-                      className="flex h-32 min-w-0 items-end justify-center"
-                      title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
-                    >
-                      <div
-                        className={cn(
-                          "w-full max-w-[18px] rounded-t-full rounded-b-sm",
-                          bucket.credit > 0 ? "bg-foreground" : "bg-muted",
-                        )}
-                        style={{ height: `${height}%`, minHeight: 2 }}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
+              <CategorySpendList summaries={summaries} total={totalSpend} />
             )}
-          </Panel>
+          </BillingPanel>
+          <BillingPanel title={t("billing.balanceLotsTitle")} meta={t("billing.balanceLotsMeta")} bodyClassName="p-0">
+            {loading && !data ? <LoadingRows count={3} /> : <BalanceLots lots={data?.balance?.items ?? []} />}
+          </BillingPanel>
+        </section>
 
-          <Panel title={t("billing.recordsTitle")} meta={t("billing.recordsMeta", { days: period })}>
-            {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
-          </Panel>
-        </div>
-      </main>
+        <BillingPanel
+          title={t("billing.trendTitle")}
+          meta={t(hasEstimatedTrend ? "billing.trendEstimatedMeta" : "billing.trendMeta", { days: period })}
+          bodyClassName="p-0"
+        >
+          {loading && !data ? (
+            <Skeleton className="m-3 h-36 rounded-md" />
+          ) : (
+            <TrendChart buckets={dailyBuckets} maxDailySpend={maxDailySpend} />
+          )}
+        </BillingPanel>
+
+        <BillingPanel
+          title={t("billing.recordsTitle")}
+          meta={t("billing.recordsMeta", { days: period })}
+          bodyClassName="p-0"
+        >
+          {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
+        </BillingPanel>
+      </PageRouteShell>
       <CreditPurchaseModal
         cacheScope={cacheScope}
         open={purchaseOpen}
@@ -224,40 +170,156 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
           void refresh({ force: true })
         }}
       />
+    </>
+  )
+}
+
+function PeriodToggle({
+  onChange,
+  period,
+}: {
+  onChange: (period: BillingPeriodDays) => void
+  period: BillingPeriodDays
+}) {
+  const t = useT()
+  return (
+    <ToggleGroup
+      type="single"
+      value={String(period)}
+      onValueChange={(value) => {
+        const next = Number(value)
+        if (periods.includes(next as BillingPeriodDays)) {
+          onChange(next as BillingPeriodDays)
+        }
+      }}
+      variant="outline"
+      size="sm"
+      aria-label={t("billing.period")}
+      className="flex-wrap"
+    >
+      {periods.map((value) => (
+        <ToggleGroupItem key={value} value={String(value)}>
+          {t(`billing.period${value}`)}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  )
+}
+
+function BalanceOverview({
+  averageDailySpend,
+  availableShare,
+  chatSpend,
+  coverageDays,
+  currentCredit,
+  loading,
+  onPurchase,
+  totalEvents,
+  totalSpend,
+}: {
+  averageDailySpend: number
+  availableShare: number
+  chatSpend: number
+  coverageDays: number
+  currentCredit: number
+  loading: boolean
+  onPurchase: () => void
+  totalEvents: number
+  totalSpend: number
+}) {
+  const t = useT()
+  return (
+    <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+      <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+        <div className="grid min-w-0 gap-3">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <PiggyBankIcon className="oo-icon-muted size-4 shrink-0" />
+                <h2 className="oo-text-title truncate">{t("billing.availableCredits")}</h2>
+              </div>
+              <div className="mt-2 text-[1.75rem] leading-9 font-semibold tracking-normal text-foreground">
+                {loading ? "..." : formatCredit(currentCredit)}
+              </div>
+            </div>
+            <Button type="button" size="sm" onClick={onPurchase}>
+              <CreditCardIcon className="size-4" />
+              {t("billing.purchaseCredits")}
+            </Button>
+          </div>
+
+          <div className="grid gap-2">
+            <Progress value={availableShare} className="h-1.5 bg-muted" />
+            <div className="oo-text-caption flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
+              </span>
+              <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid min-w-0 grid-cols-3 gap-2 max-[760px]:grid-cols-1">
+          <MiniStat
+            icon={<SparklesIcon className="size-4" />}
+            label={t("billing.periodSpend")}
+            value={loading ? "..." : formatCredit(totalSpend)}
+          />
+          <MiniStat
+            icon={<MessageCircleIcon className="size-4" />}
+            label={t("billing.chatSpend")}
+            value={loading ? "..." : formatCredit(chatSpend)}
+          />
+          <MiniStat
+            icon={<ListIcon className="size-4" />}
+            label={t("billing.callCount")}
+            value={loading ? "..." : Intl.NumberFormat().format(totalEvents)}
+          />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="grid min-w-0 gap-1 rounded-md bg-[var(--oo-inspector-surface)] px-3 py-2.5">
+      <div className="oo-text-caption flex min-w-0 items-center gap-1.5">
+        <span className="oo-icon-muted shrink-0">{icon}</span>
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="oo-text-value truncate text-foreground">{value}</div>
     </div>
   )
 }
 
-function Metric({ icon, label, meta, value }: { icon: React.ReactNode; label: string; meta: string; value: string }) {
+function BillingPanel({
+  bodyClassName,
+  children,
+  meta,
+  title,
+}: {
+  bodyClassName?: string
+  children: React.ReactNode
+  meta?: string
+  title: string
+}) {
   return (
-    <div className="grid gap-2 rounded-lg border border-border p-4">
-      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-        {icon}
-        <span>{label}</span>
+    <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
+        <h2 className="oo-text-title truncate text-foreground">{title}</h2>
+        {meta ? <span className="oo-text-caption shrink-0 truncate text-right">{meta}</span> : null}
       </div>
-      <div className="text-3xl font-semibold tracking-normal text-foreground">{value}</div>
-      <div className="text-sm text-muted-foreground">{meta}</div>
-    </div>
-  )
-}
-
-function Panel({ children, meta, title }: { children: React.ReactNode; meta?: string; title: string }) {
-  return (
-    <section className="overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
-        {meta ? <span className="text-sm text-muted-foreground">{meta}</span> : null}
-      </div>
-      <div className="p-4">{children}</div>
+      <div className={cn("p-3", bodyClassName)}>{children}</div>
     </section>
   )
 }
 
 function LoadingRows({ count }: { count: number }) {
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-2 p-3">
       {Array.from({ length: count }, (_, index) => (
-        <Skeleton key={index} className="h-16 w-full rounded-lg" />
+        <Skeleton key={index} className="h-12 w-full rounded-md" />
       ))}
     </div>
   )
@@ -273,19 +335,25 @@ function CategorySpendList({ summaries, total }: { summaries: CategorySummary[];
         return (
           <div
             key={category}
-            className="grid grid-cols-[3rem_minmax(0,1fr)_auto] gap-4 border-b border-border py-4 last:border-b-0"
+            className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0"
           >
-            <div className="grid size-10 place-items-center rounded-lg bg-muted">{categoryIcon(category)}</div>
-            <div className="grid min-w-0 gap-2">
-              <div className="font-semibold text-foreground">{t(`billing.category.${category}`)}</div>
-              <div className="text-sm text-muted-foreground">
-                {t("billing.categoryCalls", { count: Intl.NumberFormat().format(summary.eventCount) })}
+            <div className="grid size-8 place-items-center rounded-md bg-[var(--oo-inspector-surface)] text-muted-foreground">
+              {categoryIcon(category)}
+            </div>
+            <div className="grid min-w-0 gap-1.5">
+              <div className="flex min-w-0 items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="oo-text-title truncate text-foreground">{t(`billing.category.${category}`)}</div>
+                  <div className="oo-text-caption truncate">
+                    {t("billing.categoryCalls", { count: Intl.NumberFormat().format(summary.eventCount) })}
+                  </div>
+                </div>
               </div>
               <Progress value={share} className="h-1.5 bg-muted" />
             </div>
             <div className="text-right">
-              <div className="font-semibold text-foreground">{formatCredit(summary.credit)}</div>
-              <div className="text-sm text-muted-foreground">{formatPercent(share)}</div>
+              <div className="oo-text-title text-foreground">{formatCredit(summary.credit)}</div>
+              <div className="oo-text-caption">{formatPercent(share)}</div>
             </div>
           </div>
         )
@@ -298,7 +366,7 @@ function BalanceLots({ lots }: { lots: CreditItem[] }) {
   const t = useT()
   const sortedLots = [...lots].sort((left, right) => Number(right.currentCredit) - Number(left.currentCredit))
   if (sortedLots.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted-foreground">{t("billing.emptyBalanceLots")}</div>
+    return <div className="oo-text-body py-8 text-center text-muted-foreground">{t("billing.emptyBalanceLots")}</div>
   }
   return (
     <div className="grid gap-0">
@@ -306,7 +374,7 @@ function BalanceLots({ lots }: { lots: CreditItem[] }) {
         <BalanceLotRow key={lot.id} lot={lot} />
       ))}
       {sortedLots.length > 3 ? (
-        <div className="flex items-center justify-between border-t border-border pt-4 text-sm text-muted-foreground">
+        <div className="oo-text-caption flex items-center justify-between gap-3 border-t border-[var(--oo-divider)] px-3 py-2.5">
           <span>{t("billing.hiddenBalanceLots", { count: sortedLots.length - 3 })}</span>
           <Badge variant="outline">{t("billing.viewAllBalanceLots")}</Badge>
         </div>
@@ -321,17 +389,17 @@ function BalanceLotRow({ lot }: { lot: CreditItem }) {
   const original = toNumber(lot.originalCredit)
   const share = original > 0 ? Math.max(0, Math.min(100, (current / original) * 100)) : 0
   return (
-    <div className="grid gap-2 border-b border-border py-4 last:border-b-0">
+    <div className="grid min-h-14 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-semibold text-foreground">{balanceSourceLabel(lot.sourceType, t)}</div>
-          <div className="text-sm text-muted-foreground">
+        <div className="min-w-0">
+          <div className="oo-text-title truncate text-foreground">{balanceSourceLabel(lot.sourceType, t)}</div>
+          <div className="oo-text-caption truncate">
             {lot.expiresAt ? t("billing.expiresAt", { date: formatDate(lot.expiresAt) }) : t("billing.neverExpires")}
           </div>
         </div>
-        <div className="text-right font-semibold text-foreground">
+        <div className="oo-text-title shrink-0 text-right text-foreground">
           {formatCredit(current)}
-          <div className="text-sm text-muted-foreground">{formatCredit(original)}</div>
+          <div className="oo-text-caption">{formatCredit(original)}</div>
         </div>
       </div>
       <Progress value={share} className="h-1.5 bg-muted" />
@@ -339,46 +407,72 @@ function BalanceLotRow({ lot }: { lot: CreditItem }) {
   )
 }
 
+function TrendChart({
+  buckets,
+  maxDailySpend,
+}: {
+  buckets: ReturnType<typeof buildDailySpendBuckets>
+  maxDailySpend: number
+}) {
+  const t = useT()
+  return (
+    <div
+      className="grid min-h-36 items-end gap-1 px-3 py-3"
+      style={{ gridTemplateColumns: `repeat(${buckets.length}, minmax(0, 1fr))` }}
+      aria-label={t("billing.trendTitle")}
+    >
+      {buckets.map((bucket) => {
+        const height = maxDailySpend > 0 ? Math.max(2, (bucket.credit / maxDailySpend) * 100) : 0
+        return (
+          <div
+            key={bucket.key}
+            className="flex h-28 min-w-0 items-end justify-center"
+            title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
+          >
+            <div
+              className={cn(
+                "w-full max-w-[12px] rounded-t-md rounded-b-sm",
+                bucket.credit > 0 ? "bg-[var(--accent-strong)]" : "bg-muted",
+              )}
+              style={{ height: `${height}%`, minHeight: 2 }}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function RecentRecords({ logs }: { logs: BillingLogItem[] }) {
   const t = useT()
   if (logs.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted-foreground">{t("billing.emptyRecords")}</div>
+    return <div className="oo-text-body py-8 text-center text-muted-foreground">{t("billing.emptyRecords")}</div>
   }
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-muted-foreground">
-          <tr className="border-b border-border">
-            <th className="py-2 text-left font-medium">{t("billing.recordType")}</th>
-            <th className="py-2 text-left font-medium">{t("billing.recordSubject")}</th>
-            <th className="py-2 text-right font-medium">{t("billing.recordCost")}</th>
-            <th className="py-2 text-right font-medium">{t("billing.recordTime")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map((log, index) => {
-            const category = usageCategory(log.source, log.subject)
-            return (
-              <tr
-                key={`${log.eventID}-${log.traceID}-${log.createdAt}-${index}`}
-                className="border-b border-border last:border-b-0"
-              >
-                <td className="py-3">
-                  <Badge variant={category === "other" ? "outline" : "secondary"}>
-                    {t(`billing.category.${category}`)}
-                  </Badge>
-                </td>
-                <td className="max-w-[28rem] py-3">
-                  <div className="truncate text-foreground">{log.subject || log.source}</div>
-                  <div className="truncate text-xs text-muted-foreground">{sourceLabel(log.source, t)}</div>
-                </td>
-                <td className="py-3 text-right text-foreground">{formatCredit(toNumber(log.debitCredit))}</td>
-                <td className="py-3 text-right text-muted-foreground">{formatDateTime(log.createdAt)}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+    <div className="grid gap-0">
+      {logs.map((log, index) => {
+        const category = usageCategory(log.source, log.subject)
+        return (
+          <div
+            key={`${log.eventID}-${log.traceID}-${log.createdAt}-${index}`}
+            className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 max-[760px]:grid-cols-[auto_minmax(0,1fr)]"
+          >
+            <Badge className="justify-self-start" variant={category === "other" ? "outline" : "secondary"}>
+              {t(`billing.category.${category}`)}
+            </Badge>
+            <div className="min-w-0">
+              <div className="oo-text-title truncate text-foreground">{log.subject || log.source}</div>
+              <div className="oo-text-caption truncate">{sourceLabel(log.source, t)}</div>
+            </div>
+            <div className="min-w-28 text-right max-[760px]:col-span-2 max-[760px]:justify-self-start max-[760px]:text-left">
+              <div className="oo-text-title text-foreground tabular-nums">
+                {formatCredit(toNumber(log.debitCredit))}
+              </div>
+              <div className="oo-text-caption tabular-nums">{formatDateTime(log.createdAt)}</div>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

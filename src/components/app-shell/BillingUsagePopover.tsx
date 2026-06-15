@@ -43,14 +43,19 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
   const categoryEventTotal = summaries.reduce((sum, item) => sum + item.eventCount, 0)
   const totalEvents = categoryEventTotal > 0 ? categoryEventTotal : statsTotalEvents(data?.metering)
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
+  const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const averageDailySpend = totalSpend / usagePeriodDays
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const chatSpend = getSummary(summaries, "chat").credit
   const sourceCount = data?.balance?.items.length ?? 0
   const availableSourceCount =
     data?.balance?.items.filter((item) => item.available && toNumber(item.currentCredit) > 0).length ?? 0
-  const usedShare =
-    totalSpend + currentCredit > 0 ? Math.min(100, (totalSpend / (totalSpend + currentCredit)) * 100) : 0
+  const availableShare =
+    originalCredit > 0
+      ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
+      : currentCredit > 0
+        ? 100
+        : 0
   const hasNoCredits = Boolean(data && currentCredit <= 0)
 
   return (
@@ -124,7 +129,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
                   </div>
                 </div>
                 <div className="grid gap-2">
-                  <Progress value={usedShare} className="h-1.5 bg-muted" />
+                  <Progress value={availableShare} className="h-1.5 bg-muted" />
                   <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                     <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
                     <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>

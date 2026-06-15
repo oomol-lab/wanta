@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { test } from "vitest"
+import { afterEach, test, vi } from "vitest"
 import {
   buildVoiceAsrRequest,
   billingLogRanges,
@@ -12,6 +12,10 @@ import {
   parseVoiceAsrTranscript,
   readBillingLogs,
 } from "./node.ts"
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 test("buildVoiceAsrRequest matches Studio voice ASR request shape", () => {
   const init = buildVoiceAsrRequest("oomol-token", "wav-base64", "request-1")
@@ -90,6 +94,48 @@ test("billingLogRanges splits long record queries into backend-safe windows", ()
     { endTime: endTime - 60 * dayMs, startTime: endTime - 90 * dayMs },
   ])
   assert.deepEqual(billingLogRanges(Number.NaN, endTime), [{ endTime, startTime: endTime - 30 * dayMs }])
+})
+
+test("getBillingSummary caches the lightweight billing requests", async () => {
+  const paths: string[] = []
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
+    paths.push(url.pathname)
+    if (url.pathname === "/v1/balance/available") {
+      return Response.json({
+        data: {
+          items: [],
+          total: { currentCredit: "10", originalCredit: "10" },
+          deficit: "0",
+        },
+      })
+    }
+    if (url.pathname === "/v1/stats/billing" || url.pathname === "/v1/stats/metering") {
+      return Response.json({
+        data: {
+          items: [],
+          sourceTotals: {},
+          total: { totalCredit: "0", eventCount: 0, totalUsage: "0" },
+        },
+      })
+    }
+    throw new Error(`Unexpected billing endpoint: ${url.pathname}`)
+  })
+
+  const service = new ChatServiceImpl(null)
+  service.setBillingAccountContext({ token: "oomol-token", userId: "user-1" })
+
+  const first = await service.getBillingSummary({ days: 30 })
+  assert.equal(first.logs.length, 0)
+  assert.equal(first.subscription, null)
+  assert.equal(first.schedules.length, 0)
+  assert.deepEqual([...paths].sort(), ["/v1/balance/available", "/v1/stats/billing", "/v1/stats/metering"].sort())
+
+  await service.getBillingSummary({ days: 30 })
+  assert.equal(paths.length, 3)
+
+  await service.getBillingSummary({ days: 30, forceRefresh: true })
+  assert.equal(paths.length, 6)
 })
 
 test("resolveLocalArtifacts resolves an explicit artifact root without scanning unrelated text paths", async () => {

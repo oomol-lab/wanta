@@ -21,10 +21,12 @@ import { branding } from "./branding.ts"
 import { mimeFromPath } from "./chat/artifacts.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
+import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { ConnectionsServiceImpl } from "./connections/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
+import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
@@ -83,8 +85,10 @@ let modelConfigVersion = 0
 let appliedModelConfigVersion = -1
 
 const authStore = new AuthStore(app.getPath("userData"))
-const chatService = new ChatServiceImpl()
-const sessionService = new SessionServiceImpl()
+const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
+const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
+const chatService = new ChatServiceImpl(null, { stoppedGenerationStore })
+const sessionService = new SessionServiceImpl(null, { activityStore: sessionActivityStore })
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,
   onCustomModelsChanged: restartAgentForModelConfig,
@@ -105,6 +109,10 @@ const settingsService = new SettingsServiceImpl({
 // 更新渠道（stable/beta）持久化在同一 settings.json；服务内部仅打包态联网。
 const updateService = new UpdateServiceImpl({
   store: settingsStore,
+})
+
+chatService.sessionActivity.on(({ sessionId, usedAt }) => {
+  void sessionService.recordUseAndEmit(sessionId, usedAt).catch(() => undefined)
 })
 
 registerProtocolClient(protocolScheme)

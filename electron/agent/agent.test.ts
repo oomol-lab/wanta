@@ -7,6 +7,7 @@ import { ooEndpoint } from "../domain.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { AgentManager } from "./manager.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
+import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 test("buildOpencodeConfig wires the oomol openai-compatible provider (derived baseURL)", () => {
@@ -59,6 +60,17 @@ test("lumo agent enables built-in coding/shell tools alongside connector tools, 
   assert.equal(config.permission?.bash, "allow")
 })
 
+test("system prompt treats Link as a contextual capability, not the default path", () => {
+  assert.match(LUMO_SYSTEM_PROMPT, /general-purpose AI agent/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Start from the user's real goal/)
+  assert.match(
+    LUMO_SYSTEM_PROMPT,
+    /Use Link tools only when the task requires data or actions inside a connected SaaS account/,
+  )
+  assert.match(LUMO_SYSTEM_PROMPT, /Do not use Link tools just because a provider is connected/)
+  assert.match(LUMO_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
+})
+
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
   const env = buildOoEnv({ apiKey: "api-x", storeDir: "/tmp/store", ooBinPath: "/usr/bin/oo" })
   assert.equal(env.OO_API_KEY, "api-x")
@@ -91,6 +103,7 @@ test("isAuthBlocking flags the upstream authorization-blocking codes", () => {
 test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("@opencode-ai/plugin"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("requires data or actions inside a SaaS account"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authorization_required"))

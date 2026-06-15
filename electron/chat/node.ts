@@ -5,6 +5,7 @@ import type {
   BillingLogItem,
   BillingOverviewRequest,
   BillingOverviewResult,
+  BillingSummaryResult,
   BillingSpendStats,
   CreditItem,
   ChatMessage,
@@ -26,6 +27,7 @@ import type {
   TranscribeVoiceRequest,
   TranscribeVoiceResult,
 } from "./common.ts"
+import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -35,6 +37,7 @@ import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl, voiceAsrBaseUrl } from "../domain.ts"
+import { ServiceEvent } from "../service-events.ts"
 import {
   extractLocalPathCandidates,
   imageMimeFromPath,
@@ -43,6 +46,7 @@ import {
 } from "./artifacts.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import { normalizeChatError } from "./error.ts"
+import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 const userStopAbortWindowMs = 30_000
@@ -52,6 +56,8 @@ const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingLogsMaxRangeDays = 30
 const billingLogsMaxPagesPerRange = 100
+const billingSummaryCacheMs = 30_000
+const billingOverviewCacheMs = 60_000
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -226,6 +232,21 @@ export interface BillingLogRange {
   startTime: number
 }
 
+interface ChatServiceDeps {
+  stoppedGenerationStore?: StoppedGenerationStore
+}
+
+interface BillingCacheEntry<T> {
+  accountKey: string
+  data: T
+  fetchedAt: number
+}
+
+interface BillingInFlight<T> {
+  accountKey: string
+  promise: Promise<T>
+}
+
 export function billingLogRanges(days: number, endTime = Date.now()): BillingLogRange[] {
   const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30
   const ranges: BillingLogRange[] = []
@@ -263,6 +284,10 @@ function logSettledFailure(label: string, result: PromiseSettledResult<unknown>)
   if (result.status === "rejected") {
     console.warn("[lumo] billing overview request failed", { label, error: errorMessage(result.reason) })
   }
+}
+
+function createEmptyBillingOverviewResult(): BillingOverviewResult {
+  return { balance: null, spend: null, metering: null, logs: [], subscription: null, schedules: [] }
 }
 
 export function isAbortErrorMessage(message: string): boolean {
@@ -397,17 +422,27 @@ async function fileArtifact(filePath: string): Promise<LocalArtifactGroup | null
 }
 
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
+  public readonly sessionActivity = new ServiceEvent<{ sessionId: string; usedAt: number }>()
+
   private agent: AgentManager | null
   private voiceAuthToken: string | undefined
   private billingUserId: string | undefined
+  private readonly billingCache = new Map<string, BillingCacheEntry<BillingOverviewResult>>()
+  private readonly billingInFlight = new Map<string, BillingInFlight<BillingOverviewResult>>()
   private bridged = false
   private userStoppedSessions = new Map<string, number>()
   private pendingArtifactDirs = new Map<string, string[]>()
   private activeAssistantMessages = new Map<string, string>()
+  private activeToolParts = new Map<string, Set<string>>()
+  private readonly deps: ChatServiceDeps
+  private stoppedGenerations: StoppedGenerations = new Map()
+  private stoppedGenerationsLoaded = false
+  private stoppedGenerationsLoadPromise: Promise<void> | null = null
 
-  public constructor(agent: AgentManager | null = null) {
+  public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
     this.agent = agent
+    this.deps = deps
   }
 
   /** 登录 / 登出时由 main 重新装配 agent（旧 agent 的事件流随其 dispose 终止）。 */
@@ -417,17 +452,28 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.userStoppedSessions.clear()
     this.pendingArtifactDirs.clear()
     this.activeAssistantMessages.clear()
+    this.activeToolParts.clear()
+    this.stoppedGenerations.clear()
+    this.stoppedGenerationsLoaded = false
+    this.stoppedGenerationsLoadPromise = null
   }
 
   /** 登录 / 登出时由 main 更新 Studio ASR 需要的 oomol-token。只在主进程内使用，renderer 不可见。 */
   public setVoiceAuthToken(token: string | undefined): void {
+    if (this.voiceAuthToken !== token) {
+      this.clearBillingCache()
+    }
     this.voiceAuthToken = token
   }
 
   /** 登录 / 登出时由 main 更新额度中心所需上下文。凭证只留在主进程内。 */
   public setBillingAccountContext(context: { token?: string; userId?: string }): void {
+    const previousAccountKey = this.billingAccountKey()
     this.voiceAuthToken = context.token
     this.billingUserId = context.userId
+    if (this.billingAccountKey() !== previousAccountKey) {
+      this.clearBillingCache()
+    }
   }
 
   /** agent 就绪后调用：订阅 OpenCode SSE，转译为 ServerEvents 广播给渲染层。 */
@@ -445,11 +491,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.consumeUserStopAbort(translated.data.sessionId, translated.data.message)
         ) {
           this.activeAssistantMessages.delete(translated.data.sessionId)
+          this.activeToolParts.delete(translated.data.sessionId)
+          this.emitSessionActivity(translated.data.sessionId)
           void emit("generationStopped", { sessionId: translated.data.sessionId })
           continue
         }
+        if (translated.event === "messageStarted") {
+          this.emitSessionActivity(translated.data.sessionId)
+        }
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+          this.activeToolParts.set(translated.data.sessionId, new Set())
           const artifactRoot = this.consumePendingArtifactDir(translated.data.sessionId)
           if (artifactRoot) {
             void emit("messageArtifacts", {
@@ -459,9 +511,24 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
           }
         }
+        if (translated.event === "toolCallStarted") {
+          this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+          const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
+          partIds.add(translated.data.partId)
+          this.activeToolParts.set(translated.data.sessionId, partIds)
+        }
+        if (translated.event === "toolCallResult") {
+          const partIds = this.activeToolParts.get(translated.data.sessionId)
+          partIds?.delete(translated.data.partId)
+          if (partIds?.size === 0) {
+            this.activeToolParts.delete(translated.data.sessionId)
+          }
+        }
         if (translated.event === "agentError" && translated.data.sessionId) {
           const messageId = this.activeAssistantMessages.get(translated.data.sessionId)
           this.activeAssistantMessages.delete(translated.data.sessionId)
+          this.activeToolParts.delete(translated.data.sessionId)
+          this.emitSessionActivity(translated.data.sessionId)
           void emit(
             "messageError",
             createMessageErrorPayload(translated.data.sessionId, translated.data.message, messageId),
@@ -471,6 +538,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         void emit(translated.event, translated.data)
         if (translated.event === "messageCompleted") {
           this.activeAssistantMessages.delete(translated.data.sessionId)
+          this.activeToolParts.delete(translated.data.sessionId)
+          this.emitSessionActivity(translated.data.sessionId)
         }
       }
     })
@@ -539,6 +608,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    this.emitSessionActivity(req.sessionId)
     const artifactDir = await this.agent.createArtifactDir(req.sessionId)
     this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
@@ -550,6 +620,33 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.activeAssistantMessages.delete(req.sessionId)
         void this.send("messageError", createMessageErrorPayload(req.sessionId, errorMessage(error), messageId))
       })
+  }
+
+  private emitSessionActivity(sessionId: string): void {
+    this.sessionActivity.emit({ sessionId, usedAt: Date.now() })
+  }
+
+  private async ensureStoppedGenerationsLoaded(): Promise<void> {
+    if (this.stoppedGenerationsLoaded) {
+      return
+    }
+    if (this.stoppedGenerationsLoadPromise) {
+      return this.stoppedGenerationsLoadPromise
+    }
+    this.stoppedGenerationsLoadPromise = (async () => {
+      this.stoppedGenerations = (await this.deps.stoppedGenerationStore?.read()) ?? new Map()
+      this.stoppedGenerationsLoaded = true
+      this.stoppedGenerationsLoadPromise = null
+    })()
+    return this.stoppedGenerationsLoadPromise
+  }
+
+  private async rememberStoppedGeneration(sessionId: string, messageId: string, partIds: string[]): Promise<void> {
+    await this.ensureStoppedGenerationsLoaded()
+    if (!recordStoppedGeneration(this.stoppedGenerations, sessionId, messageId, partIds)) {
+      return
+    }
+    await this.deps.stoppedGenerationStore?.write(this.stoppedGenerations)
   }
 
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
@@ -659,15 +756,54 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await shell.openExternal(ensureHttpUrl(portalUrl))
   }
 
+  public async getBillingSummary(req: BillingOverviewRequest): Promise<BillingSummaryResult> {
+    if (!this.voiceAuthToken) {
+      return createEmptyBillingOverviewResult()
+    }
+    return this.getCachedBillingResult(`summary:${req.days}`, billingSummaryCacheMs, Boolean(req.forceRefresh), () =>
+      this.fetchBillingSummary(req.days),
+    )
+  }
+
   public async getBillingOverview(req: BillingOverviewRequest): Promise<BillingOverviewResult> {
     if (!this.voiceAuthToken) {
-      return { balance: null, spend: null, metering: null, logs: [], subscription: null, schedules: [] }
+      return createEmptyBillingOverviewResult()
     }
+    return this.getCachedBillingResult(`overview:${req.days}`, billingOverviewCacheMs, Boolean(req.forceRefresh), () =>
+      this.fetchBillingOverview(req.days),
+    )
+  }
+
+  private async fetchBillingSummary(days: number): Promise<BillingSummaryResult> {
+    const [balance, spend, metering] = await Promise.allSettled([
+      this.getAllCreditUsages(),
+      this.getCreditSpendStats(days),
+      this.getCreditMeteringStats(days),
+    ])
+    logSettledFailure("balance", balance)
+    logSettledFailure("spend", spend)
+    logSettledFailure("metering", metering)
+    const criticalResults = [balance, spend, metering]
+    const allCriticalFailed = criticalResults.every((result) => result.status === "rejected")
+    if (allCriticalFailed && balance.status === "rejected") {
+      throw balance.reason
+    }
+    return {
+      balance: balance.status === "fulfilled" ? filterGeneralCreditUsages(balance.value) : null,
+      spend: spend.status === "fulfilled" ? spend.value : null,
+      metering: metering.status === "fulfilled" ? metering.value : null,
+      logs: [],
+      subscription: null,
+      schedules: [],
+    }
+  }
+
+  private async fetchBillingOverview(days: number): Promise<BillingOverviewResult> {
     const [balance, spend, metering, logs, subscription, schedules] = await Promise.allSettled([
       this.getAllCreditUsages(),
-      this.getCreditSpendStats(req.days),
-      this.getCreditMeteringStats(req.days),
-      this.getBillingLogs(req.days),
+      this.getCreditSpendStats(days),
+      this.getCreditMeteringStats(days),
+      this.getBillingLogs(days),
       this.getSubscriptionStatus(),
       this.getSubscriptionSchedules(),
     ])
@@ -690,6 +826,61 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       subscription: subscription.status === "fulfilled" ? subscription.value : null,
       schedules: schedules.status === "fulfilled" ? schedules.value : [],
     }
+  }
+
+  private async getCachedBillingResult(
+    key: string,
+    ttlMs: number,
+    forceRefresh: boolean,
+    load: () => Promise<BillingOverviewResult>,
+  ): Promise<BillingOverviewResult> {
+    const accountKey = this.billingAccountKey()
+    if (!accountKey) {
+      return createEmptyBillingOverviewResult()
+    }
+
+    const cached = this.billingCache.get(key)
+    const now = Date.now()
+    if (!forceRefresh && cached?.accountKey === accountKey && now - cached.fetchedAt < ttlMs) {
+      return cached.data
+    }
+
+    const inFlight = this.billingInFlight.get(key)
+    if (!forceRefresh && inFlight?.accountKey === accountKey) {
+      return inFlight.promise
+    }
+
+    const request = load()
+      .then((data) => {
+        if (this.billingAccountKey() === accountKey) {
+          this.billingCache.set(key, { accountKey, data, fetchedAt: Date.now() })
+        }
+        return data
+      })
+      .catch((error: unknown) => {
+        if (cached?.accountKey === accountKey) {
+          console.warn("[lumo] using stale billing cache after refresh failed", { key, error: errorMessage(error) })
+          return cached.data
+        }
+        throw error
+      })
+      .finally(() => {
+        if (this.billingInFlight.get(key)?.promise === request) {
+          this.billingInFlight.delete(key)
+        }
+      })
+
+    this.billingInFlight.set(key, { accountKey, promise: request })
+    return request
+  }
+
+  private billingAccountKey(): string | undefined {
+    return this.billingUserId ?? this.voiceAuthToken
+  }
+
+  private clearBillingCache(): void {
+    this.billingCache.clear()
+    this.billingInFlight.clear()
   }
 
   public async getCreditBalance(): Promise<CreditBalanceResult> {
@@ -850,11 +1041,18 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     this.markUserStopped(sessionId)
+    const messageId = this.activeAssistantMessages.get(sessionId)
+    const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
     try {
       await this.agent.abort(sessionId)
     } catch (error) {
       this.userStoppedSessions.delete(sessionId)
       throw error
+    }
+    if (messageId) {
+      await this.rememberStoppedGeneration(sessionId, messageId, partIds).catch((error: unknown) => {
+        console.warn("[lumo] failed to record stopped generation", error)
+      })
     }
   }
 
@@ -862,7 +1060,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return []
     }
-    return this.agent.getMessages(sessionId)
+    const messages = await this.agent.getMessages(sessionId)
+    await this.ensureStoppedGenerationsLoaded()
+    return applyStoppedGenerations(messages, this.stoppedGenerations.get(sessionId))
   }
 }
 

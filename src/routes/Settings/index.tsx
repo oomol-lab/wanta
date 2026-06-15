@@ -5,6 +5,7 @@ import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { Locale } from "@/i18n/i18n"
 
 import {
+  CheckIcon,
   CopyIcon,
   DownloadIcon,
   LogOutIcon,
@@ -15,6 +16,7 @@ import {
   SunIcon,
 } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
@@ -41,6 +43,8 @@ const channelOptions = [
   { value: "stable", labelKey: "settings.channelStable" },
   { value: "beta", labelKey: "settings.channelBeta" },
 ] as const
+
+const copyFeedbackMs = 3000
 
 export function SettingsRoute({ onBack }: { onBack: () => void }) {
   const { preference, setPreference } = useTheme()
@@ -120,7 +124,9 @@ function AccountSettings({
   onLogout: () => void
 }) {
   const { t } = useI18n()
+  const accountCopy = useClipboardCopy()
   const displayName = account?.name.trim() || t("settings.account")
+  const AccountCopyIcon = accountCopy.copied ? CheckIcon : CopyIcon
 
   return (
     <>
@@ -134,9 +140,15 @@ function AccountSettings({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:justify-start">
           {account ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => copyAccountInfo(account, t)}>
-              <CopyIcon className="size-4" />
-              {t("settings.copyAccountInfo")}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn(accountCopy.copied && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
+              onClick={() => void accountCopy.copyText(formatAccountInfo(account, t))}
+            >
+              <AccountCopyIcon className="size-4" />
+              {accountCopy.copied ? t("settings.copied") : t("settings.copyAccountInfo")}
             </Button>
           ) : null}
           <Button type="button" variant="outline" size="sm" disabled={loggingOut || !account} onClick={onLogout}>
@@ -146,15 +158,7 @@ function AccountSettings({
         </div>
       </section>
 
-      {account ? (
-        <AccountField
-          label={t("settings.userId")}
-          value={account.id}
-          onCopy={() => {
-            void navigator.clipboard?.writeText(account.id)
-          }}
-        />
-      ) : null}
+      {account ? <AccountField label={t("settings.userId")} value={account.id} /> : null}
 
       {error ? (
         <p className="oo-text-body border-b border-[var(--oo-divider)] px-3 py-2.5 text-destructive">{error}</p>
@@ -163,18 +167,26 @@ function AccountSettings({
   )
 }
 
-function AccountField({ label, onCopy, value }: { label: string; onCopy: () => void; value: string }) {
+function AccountField({ label, value }: { label: string; value: string }) {
+  const { t } = useI18n()
+  const fieldCopy = useClipboardCopy()
+  const FieldCopyIcon = fieldCopy.copied ? CheckIcon : CopyIcon
+
   return (
     <div className="grid min-h-12 grid-cols-[minmax(8rem,0.35fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 max-[760px]:grid-cols-[minmax(0,1fr)_auto]">
       <div className="oo-text-label text-muted-foreground max-[760px]:col-span-2">{label}</div>
       <div className="oo-text-control min-w-0 truncate font-mono text-foreground">{value}</div>
       <button
         type="button"
-        onClick={onCopy}
-        className="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-        aria-label={label}
+        onClick={() => void fieldCopy.copyText(value)}
+        className={cn(
+          "grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
+          fieldCopy.copied && "bg-accent text-foreground hover:bg-accent hover:text-foreground",
+        )}
+        aria-label={fieldCopy.copied ? t("settings.copied") : t("settings.copyField", { field: label })}
+        title={fieldCopy.copied ? t("settings.copied") : t("settings.copyField", { field: label })}
       >
-        <CopyIcon className="size-4" />
+        <FieldCopyIcon className="size-4" />
       </button>
     </div>
   )
@@ -383,7 +395,79 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   )
 }
 
-function copyAccountInfo(account: AuthAccountSummary, t: ReturnType<typeof useI18n>["t"]): void {
-  const lines = [`${t("settings.accountName")}: ${account.name}`, `${t("settings.userId")}: ${account.id}`]
-  void navigator.clipboard?.writeText(lines.join("\n"))
+function useClipboardCopy(): { copied: boolean; copyText: (text: string) => Promise<boolean> } {
+  const { t } = useI18n()
+  const [copied, setCopied] = React.useState(false)
+  const timeoutRef = React.useRef<number | undefined>(undefined)
+
+  React.useEffect(
+    () => () => {
+      if (timeoutRef.current !== undefined) {
+        window.clearTimeout(timeoutRef.current)
+      }
+    },
+    [],
+  )
+
+  const copyText = React.useCallback(
+    async (text: string): Promise<boolean> => {
+      const didCopy = await writeClipboardText(text)
+      if (!didCopy) {
+        setCopied(false)
+        toast.error(t("settings.copyFailed"))
+        return false
+      }
+
+      setCopied(true)
+      if (timeoutRef.current !== undefined) {
+        window.clearTimeout(timeoutRef.current)
+      }
+      timeoutRef.current = window.setTimeout(() => setCopied(false), copyFeedbackMs)
+      return true
+    },
+    [t],
+  )
+
+  return { copied, copyText }
+}
+
+async function writeClipboardText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // 继续走 DOM fallback。
+    }
+  }
+
+  const textarea = document.createElement("textarea")
+  textarea.value = text
+  textarea.setAttribute("readonly", "")
+  textarea.style.position = "fixed"
+  textarea.style.top = "-9999px"
+  textarea.style.left = "-9999px"
+  document.body.append(textarea)
+  textarea.select()
+  try {
+    return document.execCommand("copy")
+  } finally {
+    textarea.remove()
+  }
+}
+
+function formatAccountInfo(account: AuthAccountSummary, t: ReturnType<typeof useI18n>["t"]): string {
+  const lumo = globalThis.lumo
+  const version = lumo?.version ?? "unknown"
+  const platform = lumo?.platform ?? "browser"
+  const appCommit = lumo?.appCommit ?? "unknown"
+  const lines = [
+    t("settings.accountDiagnosticsTitle"),
+    `${t("settings.accountName")}: ${account.name}`,
+    `${t("settings.userId")}: ${account.id}`,
+    `${t("settings.appVersion")}: ${version}`,
+    `${t("settings.appCommit")}: ${appCommit}`,
+    `${t("settings.platformName")}: ${platform}`,
+  ]
+  return lines.join("\n")
 }

@@ -66,8 +66,10 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
     () => buildCategorySummaries(data?.spend, data?.metering),
     [data?.spend, data?.metering],
   )
-  const totalSpend = summaries.reduce((sum, item) => sum + item.credit, 0)
-  const totalEvents = Number(data?.metering?.total.eventCount ?? 0)
+  const categorySpendTotal = summaries.reduce((sum, item) => sum + item.credit, 0)
+  const totalSpend = categorySpendTotal > 0 ? categorySpendTotal : statsTotalCredit(data?.spend)
+  const categoryEventTotal = summaries.reduce((sum, item) => sum + item.eventCount, 0)
+  const totalEvents = categoryEventTotal > 0 ? categoryEventTotal : statsTotalEvents(data?.metering)
   const currentCredit = toNumber(data?.balance?.total.currentCredit)
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
@@ -82,128 +84,148 @@ export function BillingRoute({ onBack }: BillingRouteProps) {
   )
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-background">
-      <main className="mx-auto grid w-full max-w-[110rem] gap-6 px-8 py-7">
-        <section className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
-          <div className="grid gap-3">
-            <Button type="button" variant="secondary" className="w-fit" onClick={onBack}>
-              <ArrowLeftIcon className="size-4" />
-              {t("billing.backToChat")}
-            </Button>
-            <p className="text-base leading-7 text-muted-foreground">{t("billing.subtitle")}</p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div
-              className="inline-flex rounded-lg border border-border bg-muted p-1"
-              role="radiogroup"
-              aria-label={t("billing.period")}
-            >
-              {periods.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={period === value}
-                  className={cn(
-                    "h-9 rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors",
-                    period === value && "bg-background text-foreground shadow-sm",
-                  )}
-                  onClick={() => setPeriod(value)}
+    <div className="grid h-full min-h-0 grid-cols-[280px_minmax(0,1fr)] bg-background text-foreground max-[760px]:grid-cols-1">
+      <aside className="oo-border-divider flex min-h-0 flex-col border-r bg-sidebar">
+        <header
+          className="flex h-[var(--app-titlebar-height)] shrink-0 items-center [-webkit-app-region:drag]"
+          style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
+        />
+        <div className="flex min-h-0 flex-1 flex-col gap-5 px-4 pb-5">
+          <button
+            type="button"
+            onClick={onBack}
+            className="oo-sidebar-nav-item oo-text-control flex h-8 w-fit items-center gap-2 rounded-md px-2 text-sidebar-foreground [-webkit-app-region:no-drag]"
+          >
+            <ArrowLeftIcon className="size-4" />
+            <span>{t("billing.backToChat")}</span>
+          </button>
+        </div>
+      </aside>
+
+      <main className="grid min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
+        <header className="h-[var(--app-titlebar-height)] shrink-0 [-webkit-app-region:drag]" />
+        <div className="min-h-0 overflow-y-auto">
+          <div className="mx-auto grid w-full max-w-[110rem] gap-6 px-10 pt-10 pb-16 max-[760px]:px-5 max-[760px]:pt-8">
+            <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("billing.title")}</h1>
+
+            <section className="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-6">
+              <div className="grid gap-3">
+                <p className="text-base leading-7 text-muted-foreground">{t("billing.subtitle")}</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <div
+                  className="inline-flex rounded-lg border border-border bg-muted p-1"
+                  role="radiogroup"
+                  aria-label={t("billing.period")}
                 >
-                  {t(`billing.period${value}`)}
-                </button>
-              ))}
-            </div>
-            <Button type="button" variant="outline" disabled={loading} onClick={refresh}>
-              <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
-              {t("billing.refresh")}
-            </Button>
-            <Button type="button" onClick={() => setPurchaseOpen(true)}>
-              <CreditCardIcon className="size-4" />
-              {t("billing.purchaseCredits")}
-            </Button>
+                  {periods.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={period === value}
+                      className={cn(
+                        "h-9 rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors",
+                        period === value && "bg-background text-foreground shadow-sm",
+                      )}
+                      onClick={() => setPeriod(value)}
+                    >
+                      {t(`billing.period${value}`)}
+                    </button>
+                  ))}
+                </div>
+                <Button type="button" variant="outline" disabled={loading} onClick={refresh}>
+                  <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
+                  {t("billing.refresh")}
+                </Button>
+                <Button type="button" onClick={() => setPurchaseOpen(true)}>
+                  <CreditCardIcon className="size-4" />
+                  {t("billing.purchaseCredits")}
+                </Button>
+              </div>
+            </section>
+
+            {error ? (
+              <div className="rounded-lg border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-4 py-3 text-sm text-destructive">
+                {error}
+              </div>
+            ) : null}
+
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label={t("billing.summary")}>
+              <Metric
+                icon={<PiggyBankIcon className="size-4" />}
+                label={t("billing.availableCredits")}
+                value={loading && !data ? "..." : formatCredit(currentCredit)}
+                meta={totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
+              />
+              <Metric
+                icon={<SparklesIcon className="size-4" />}
+                label={t("billing.periodSpend")}
+                value={loading && !data ? "..." : formatCredit(totalSpend)}
+                meta={t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}
+              />
+              <Metric
+                icon={<MessageCircleIcon className="size-4" />}
+                label={t("billing.chatSpend")}
+                value={loading && !data ? "..." : formatCredit(getSummary(summaries, "chat").credit)}
+                meta={t("billing.chatSpendMeta")}
+              />
+              <Metric
+                icon={<ListIcon className="size-4" />}
+                label={t("billing.callCount")}
+                value={loading && !data ? "..." : Intl.NumberFormat().format(totalEvents)}
+                meta={t("billing.callCountMeta", { days: period })}
+              />
+            </section>
+
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
+              <Panel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")}>
+                {loading && !data ? (
+                  <LoadingRows count={3} />
+                ) : (
+                  <CategorySpendList summaries={summaries} total={totalSpend} />
+                )}
+              </Panel>
+              <Panel title={t("billing.balanceLotsTitle")} meta={t("billing.balanceLotsMeta")}>
+                {loading && !data ? <LoadingRows count={3} /> : <BalanceLots lots={data?.balance?.items ?? []} />}
+              </Panel>
+            </section>
+
+            <Panel title={t("billing.trendTitle")} meta={t("billing.trendMeta", { days: period })}>
+              {loading && !data ? (
+                <Skeleton className="h-44 w-full rounded-lg" />
+              ) : (
+                <div className="flex h-44 items-end gap-1" aria-label={t("billing.trendTitle")}>
+                  {dailyBuckets.map((bucket) => {
+                    const height = maxDailySpend > 0 ? Math.max(2, (bucket.credit / maxDailySpend) * 100) : 0
+                    return (
+                      <div
+                        key={bucket.key}
+                        className="flex min-w-0 flex-1 items-end rounded-t bg-muted"
+                        title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
+                      >
+                        <div className="w-full rounded-t bg-foreground" style={{ height: `${height}%` }} />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </Panel>
+
+            <Panel title={t("billing.recordsTitle")} meta={t("billing.recordsMeta")}>
+              {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
+            </Panel>
           </div>
-        </section>
-
-        {error ? (
-          <div className="rounded-lg border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-4 py-3 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" aria-label={t("billing.summary")}>
-          <Metric
-            icon={<PiggyBankIcon className="size-4" />}
-            label={t("billing.availableCredits")}
-            value={loading && !data ? "..." : formatCredit(currentCredit)}
-            meta={totalSpend > 0 ? t("billing.coverage", { days: coverageDays }) : t("billing.coverageStable")}
-          />
-          <Metric
-            icon={<SparklesIcon className="size-4" />}
-            label={t("billing.periodSpend")}
-            value={loading && !data ? "..." : formatCredit(totalSpend)}
-            meta={t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}
-          />
-          <Metric
-            icon={<MessageCircleIcon className="size-4" />}
-            label={t("billing.chatSpend")}
-            value={loading && !data ? "..." : formatCredit(getSummary(summaries, "chat").credit)}
-            meta={t("billing.chatSpendMeta")}
-          />
-          <Metric
-            icon={<ListIcon className="size-4" />}
-            label={t("billing.callCount")}
-            value={loading && !data ? "..." : Intl.NumberFormat().format(totalEvents)}
-            meta={t("billing.callCountMeta", { days: period })}
-          />
-        </section>
-
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
-          <Panel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")}>
-            {loading && !data ? (
-              <LoadingRows count={3} />
-            ) : (
-              <CategorySpendList summaries={summaries} total={totalSpend} />
-            )}
-          </Panel>
-          <Panel title={t("billing.balanceLotsTitle")} meta={t("billing.balanceLotsMeta")}>
-            {loading && !data ? <LoadingRows count={3} /> : <BalanceLots lots={data?.balance?.items ?? []} />}
-          </Panel>
-        </section>
-
-        <Panel title={t("billing.trendTitle")} meta={t("billing.trendMeta", { days: period })}>
-          {loading && !data ? (
-            <Skeleton className="h-44 w-full rounded-lg" />
-          ) : (
-            <div className="flex h-44 items-end gap-1" aria-label={t("billing.trendTitle")}>
-              {dailyBuckets.map((bucket) => {
-                const height = maxDailySpend > 0 ? Math.max(2, (bucket.credit / maxDailySpend) * 100) : 0
-                return (
-                  <div
-                    key={bucket.key}
-                    className="flex min-w-0 flex-1 items-end rounded-t bg-muted"
-                    title={`${bucket.label}: ${formatCredit(bucket.credit)}`}
-                  >
-                    <div className="w-full rounded-t bg-foreground" style={{ height: `${height}%` }} />
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </Panel>
-
-        <Panel title={t("billing.recordsTitle")} meta={t("billing.recordsMeta")}>
-          {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
-        </Panel>
+        </div>
+        <CreditPurchaseModal
+          open={purchaseOpen}
+          showViewDetails={false}
+          onClose={() => {
+            setPurchaseOpen(false)
+            refresh()
+          }}
+        />
       </main>
-      <CreditPurchaseModal
-        open={purchaseOpen}
-        showViewDetails={false}
-        onClose={() => {
-          setPurchaseOpen(false)
-          refresh()
-        }}
-      />
     </div>
   )
 }
@@ -368,16 +390,36 @@ function buildCategorySummaries(
   for (const category of categoryOrder) {
     summaries.set(category, { category, credit: 0, eventCount: 0 })
   }
-  for (const item of spend?.items ?? []) {
+  const spendItems = spend?.items ?? []
+  const meteringItems = metering?.items ?? []
+  for (const item of spendItems) {
     const summary = summaries.get(usageCategory(item.source, item.subject))
     if (summary) {
-      summary.credit += toNumber(item.totalCredit)
+      summary.credit += billingCredit(item)
     }
   }
-  for (const item of metering?.items ?? []) {
+  if (spendItems.length === 0) {
+    const fallbackSpend = statsTotalCredit(spend)
+    if (fallbackSpend > 0) {
+      const summary = summaries.get("other")
+      if (summary) {
+        summary.credit += fallbackSpend
+      }
+    }
+  }
+  for (const item of meteringItems) {
     const summary = summaries.get(usageCategory(item.source, item.subject))
     if (summary) {
-      summary.eventCount += Number(item.eventCount ?? 0)
+      summary.eventCount += billingEventCount(item)
+    }
+  }
+  if (meteringItems.length === 0) {
+    const fallbackEvents = statsTotalEvents(metering)
+    if (fallbackEvents > 0) {
+      const summary = summaries.get("other")
+      if (summary) {
+        summary.eventCount += fallbackEvents
+      }
     }
   }
   return categoryOrder.map((category) => summaries.get(category) ?? { category, credit: 0, eventCount: 0 })
@@ -395,9 +437,9 @@ function buildDailySpendBuckets(items: BillingSpendStats["items"], period: Billi
   })
   const byKey = new Map(buckets.map((bucket) => [bucket.key, bucket]))
   for (const item of items) {
-    const bucket = byKey.get(String(startOfDay(item.time)))
+    const bucket = byKey.get(String(startOfDay(normalizeTimestamp(item.time))))
     if (bucket) {
-      bucket.credit += toNumber(item.totalCredit)
+      bucket.credit += billingCredit(item)
     }
   }
   return buckets
@@ -465,6 +507,40 @@ function toNumber(value: string | number | undefined): number {
   return Number.isFinite(amount) ? amount : 0
 }
 
+function numberField(value: unknown, keys: string[]): number {
+  if (!value || typeof value !== "object") {
+    return 0
+  }
+  const record = value as Record<string, unknown>
+  for (const key of keys) {
+    const amount = Number(record[key])
+    if (Number.isFinite(amount)) {
+      return amount
+    }
+  }
+  return 0
+}
+
+function billingCredit(item: BillingSpendStats["items"][number]): number {
+  return numberField(item, ["totalCredit", "debitCredit", "credit", "totalUsage", "usage"])
+}
+
+function billingEventCount(item: BillingSpendStats["items"][number]): number {
+  return numberField(item, ["eventCount", "totalEventCount", "count", "calls"])
+}
+
+function statsTotalCredit(stats: BillingSpendStats | null | undefined): number {
+  return numberField(stats?.total, ["totalCredit", "debitCredit", "credit", "totalUsage", "usage"])
+}
+
+function statsTotalEvents(stats: BillingSpendStats | null | undefined): number {
+  return numberField(stats?.total, ["eventCount", "totalEventCount", "count", "calls"])
+}
+
+function normalizeTimestamp(timestamp: number): number {
+  return timestamp > 0 && timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp
+}
+
 function formatCredit(value: number | string | undefined): string {
   const amount = toNumber(value)
   return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: amount >= 100 ? 0 : 2 }).format(amount)}`
@@ -485,7 +561,7 @@ function formatDate(timestamp: number): string {
 }
 
 function formatDateTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString(undefined, {
+  return new Date(normalizeTimestamp(timestamp)).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "2-digit",

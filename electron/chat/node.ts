@@ -49,6 +49,7 @@ const userStopAbortWindowMs = 30_000
 const defaultMaxDirectoryItems = 80
 const billingPath = "/billing"
 const dayMs = 24 * 60 * 60 * 1000
+const billingRequestTimeoutMs = 12_000
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -210,6 +211,19 @@ function unwrapConsoleData<T>(payload: unknown): T {
     return wrapped.data
   }
   return payload as T
+}
+
+function unwrapApiData<T>(payload: unknown): T {
+  if (payload && typeof payload === "object" && "data" in payload) {
+    return (payload as { data: T }).data
+  }
+  return payload as T
+}
+
+function logSettledFailure(label: string, result: PromiseSettledResult<unknown>): void {
+  if (result.status === "rejected") {
+    console.warn("[lumo] billing overview request failed", { label, error: errorMessage(result.reason) })
+  }
 }
 
 export function isAbortErrorMessage(message: string): boolean {
@@ -615,6 +629,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.getSubscriptionStatus(),
       this.getSubscriptionSchedules(),
     ])
+    logSettledFailure("balance", balance)
+    logSettledFailure("spend", spend)
+    logSettledFailure("metering", metering)
+    logSettledFailure("logs", logs)
+    logSettledFailure("subscription", subscription)
+    logSettledFailure("schedules", schedules)
     const criticalResults = [balance, spend, metering]
     const allCriticalFailed = criticalResults.every((result) => result.status === "rejected")
     if (allCriticalFailed && balance.status === "rejected") {
@@ -652,7 +672,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.voiceAuthToken) {
       throw new Error("Sign in is required.")
     }
-    const response = await fetch(url, authRequest(this.voiceAuthToken))
+    const response = await fetch(url, {
+      ...authRequest(this.voiceAuthToken),
+      signal: AbortSignal.timeout(billingRequestTimeoutMs),
+    })
     const text = await response.text()
     if (!response.ok) {
       throw new Error(text || `Request failed with status ${response.status}`)
@@ -664,7 +687,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.voiceAuthToken) {
       throw new Error("Sign in is required.")
     }
-    const response = await fetch(url, authRequest(this.voiceAuthToken))
+    const response = await fetch(url, {
+      ...authRequest(this.voiceAuthToken),
+      signal: AbortSignal.timeout(billingRequestTimeoutMs),
+    })
     const text = await response.text()
     if (!response.ok) {
       throw new Error(text || `Request failed with status ${response.status}`)
@@ -689,7 +715,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (nextToken) {
       url.searchParams.set("nextToken", nextToken)
     }
-    return readCreditUsages(await this.fetchInsightJson(url))
+    return readCreditUsages(unwrapApiData<unknown>(await this.fetchInsightJson(url)))
   }
 
   private async getCreditSpendStats(days: number): Promise<BillingSpendStats> {
@@ -698,7 +724,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     url.searchParams.set("granularity", "daily")
     url.searchParams.set("startTime", String(startTime))
     url.searchParams.set("endTime", String(endTime))
-    return (await this.fetchInsightJson(url)) as BillingSpendStats
+    return unwrapApiData<BillingSpendStats>(await this.fetchInsightJson(url))
   }
 
   private async getCreditMeteringStats(days: number): Promise<BillingSpendStats> {
@@ -707,7 +733,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     url.searchParams.set("granularity", "daily")
     url.searchParams.set("startTime", String(startTime))
     url.searchParams.set("endTime", String(endTime))
-    return (await this.fetchInsightJson(url)) as BillingSpendStats
+    return unwrapApiData<BillingSpendStats>(await this.fetchInsightJson(url))
   }
 
   private async getBillingLogs(days: number): Promise<BillingLogItem[]> {
@@ -716,7 +742,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     url.searchParams.set("from", String(startTime))
     url.searchParams.set("to", String(endTime))
     url.searchParams.set("page", "1")
-    const payload = await this.fetchInsightJson(url)
+    const payload = unwrapApiData<unknown>(await this.fetchInsightJson(url))
     return payload && typeof payload === "object" && Array.isArray((payload as Record<string, unknown>)["items"])
       ? ((payload as Record<string, unknown>)["items"] as BillingLogItem[])
       : []

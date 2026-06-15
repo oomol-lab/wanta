@@ -5,7 +5,6 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
-  CreditCard,
   LogOut,
   LoaderCircle,
   Package,
@@ -931,6 +930,10 @@ export function AppShell() {
     return <SettingsRoute onBack={() => setRoute("chat")} />
   }
 
+  if (route === "billing") {
+    return <BillingRoute onBack={() => setRoute("chat")} />
+  }
+
   return (
     <div
       className={cn(
@@ -973,17 +976,6 @@ export function AppShell() {
             >
               <SquarePen className="size-4 shrink-0" />
               <span className="oo-sidebar-nav-label truncate">{t("sidebar.newSession")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoute("billing")}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                route === "billing" && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
-            >
-              <CreditCard className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("billing.title")}</span>
             </button>
             <button
               type="button"
@@ -1100,9 +1092,7 @@ export function AppShell() {
           </header>
 
           <main className="oo-content-surface min-h-0">
-            {route === "billing" ? (
-              <BillingRoute onBack={() => setRoute("chat")} />
-            ) : route === "connections" ? (
+            {route === "connections" ? (
               <div className="h-full min-h-0 p-0">
                 <ConnectionsPanel connections={connections} selectedService={selectedService} />
               </div>

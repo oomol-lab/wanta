@@ -1090,6 +1090,7 @@
     font-weight: 600;
   }
 
+  /* Markdown 图片专用渲染器样式：不要挂到 .oo-markdown 或通用 img，避免影响表格/其它 Markdown。 */
   .oo-markdown-image-preview {
     position: relative;
     display: block;
@@ -1097,9 +1098,7 @@
     height: min(52vh, 20rem);
     margin: 0.75rem 0;
     overflow: hidden;
-    border: 1px solid var(--oo-divider);
     border-radius: 8px;
-    background: var(--background);
     line-height: 0;
   }
 
@@ -1109,7 +1108,7 @@
     height: 100%;
     object-fit: contain;
     border: 0;
-    border-radius: 0;
+    border-radius: 8px;
     background: transparent;
   }
 
@@ -1126,7 +1125,16 @@
     background: color-mix(in oklab, var(--background) 86%, transparent);
     padding: 0.25rem;
     box-shadow: 0 6px 18px color-mix(in oklab, black 18%, transparent);
+    opacity: 0;
     backdrop-filter: blur(10px);
+    pointer-events: none;
+    transition: opacity 120ms ease-out;
+  }
+
+  .oo-markdown-image-preview:hover .oo-markdown-image-actions,
+  .oo-markdown-image-preview:focus-within .oo-markdown-image-actions {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .oo-markdown-image-action {

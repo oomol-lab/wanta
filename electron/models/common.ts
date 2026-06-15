@@ -2,7 +2,7 @@ import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
 
-export type BuiltinModelId = "oomol-chat"
+export type BuiltinModelId = "oopilot"
 
 export interface BuiltinModelSummary {
   id: BuiltinModelId

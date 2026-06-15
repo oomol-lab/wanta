@@ -17,7 +17,7 @@ describe("billing usage helpers", () => {
       [
         {
           source: "SERVICE_LLM",
-          subject: "oomol-chat",
+          subject: "oopilot",
           time: now,
           totalCredit: "6.05",
           eventCount: 1,

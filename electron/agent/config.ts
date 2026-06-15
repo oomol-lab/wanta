@@ -7,7 +7,7 @@ import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
 // OpenCode 内部标识（产品内部约定，可随品牌改，但 OO_/connector 协议契约不改）。
 export const LUMO_AGENT_NAME = "lumo"
 export const LUMO_PROVIDER_ID = "oomol"
-export const LUMO_MODEL_ID = "oomol-chat"
+export const LUMO_MODEL_ID = "oopilot"
 
 export interface OpencodeCustomModel {
   id: string

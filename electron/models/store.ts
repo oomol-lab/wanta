@@ -25,7 +25,7 @@ export interface PersistedModels {
   customModels?: PersistedCustomModel[]
 }
 
-export const BUILTIN_MODELS: BuiltinModelSummary[] = [{ id: "oomol-chat", displayName: "Auto", providerName: "OOMOL" }]
+export const BUILTIN_MODELS: BuiltinModelSummary[] = [{ id: "oopilot", displayName: "Auto", providerName: "OOMOL" }]
 
 export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
@@ -108,7 +108,7 @@ export function sanitizeBaseUrl(value: string): string {
 }
 
 export function defaultModelChoice(): ModelChoice {
-  return { kind: "builtin", id: "oomol-chat" }
+  return { kind: "builtin", id: "oopilot" }
 }
 
 export function isKnownModelChoice(models: PersistedModels, choice: ModelChoice | undefined): choice is ModelChoice {
@@ -116,7 +116,7 @@ export function isKnownModelChoice(models: PersistedModels, choice: ModelChoice 
     return false
   }
   if (choice.kind === "builtin") {
-    return choice.id === "oomol-chat"
+    return choice.id === "oopilot"
   }
   return Boolean(models.customModels?.some((model) => model.id === choice.id))
 }

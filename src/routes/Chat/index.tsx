@@ -1295,7 +1295,7 @@ function selectedModelSummary(catalog: ModelCatalog | null): { label: string } {
   }
   const builtin =
     (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
-    catalog.builtins.find((model) => model.id === "oomol-chat") ??
+    catalog.builtins.find((model) => model.id === "oopilot") ??
     catalog.builtins[0]
   return { label: builtin?.displayName ?? "Auto" }
 }

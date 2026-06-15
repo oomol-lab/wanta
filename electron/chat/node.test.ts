@@ -68,7 +68,7 @@ test("readBillingLogs accepts common response envelope shapes", () => {
     eventID: "event-1",
     userID: "user-1",
     source: "SERVICE_LLM",
-    subject: "oomol-chat",
+    subject: "oopilot",
     sourceType: "quota",
     serviceScope: "general",
     traceID: "trace-1",

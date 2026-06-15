@@ -106,9 +106,9 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 
 - 入口：主进程 `electron/main.ts`，preload `electron/preload.ts`，渲染 `src/main.tsx`；
   无路由库，`src/components/app-shell/AppShell.tsx` 内部 state 切换 `"chat" | "settings"`。
-- LLM：OOMOL OpenAI 兼容网关 `llm.<endpoint>/v1`，模型名固定 `oomol-chat`，
+- LLM：OOMOL OpenAI 兼容网关 `llm.<endpoint>/v1`，模型名固定 `oopilot`，
   provider id `oomol`，agent 名 `lumo`（`electron/agent/config.ts`）。
-  网关 `/v1/models` **不会列出** `oomol-chat`（网关侧别名），勿据此"纠正"模型名。
+  网关 `/v1/models` **不会列出** `oopilot`（网关侧别名），勿据此"纠正"模型名。
 - 登录：浏览器登录 + deep-link（生产 `lumo://signin`，dev `lumo-local://signin`），
   唯一落盘凭证是 default-api-key（`userData/auth.json`）。
 - 连接器三工具：`search_actions` → `inspect_action` → `call_action`

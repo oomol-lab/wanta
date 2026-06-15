@@ -16,16 +16,26 @@ export interface ArtifactSelection {
 }
 
 interface GeneratedArtifactsProps {
+  sources: GeneratedArtifactSource[]
+  onOpen: (selection: ArtifactSelection) => void
+  onAvailable: (selection: ArtifactSelection) => void
+}
+
+export interface GeneratedArtifactSource {
   messageId: string
   text: string
   artifactRoot?: string
-  onOpen: (selection: ArtifactSelection) => void
-  onAvailable: (selection: ArtifactSelection) => void
+  sourcePaths: string[]
 }
 
 interface ArtifactsPanelProps {
   selection: ArtifactSelection | null
   onCollapse: () => void
+}
+
+interface ResolvedArtifactGroup {
+  messageId: string
+  group: LocalArtifactGroup
 }
 
 function itemCount(group: LocalArtifactGroup): number {
@@ -171,23 +181,102 @@ function GeneratedArtifactsGroup({
   )
 }
 
-export function GeneratedArtifacts({ messageId, text, artifactRoot, onOpen, onAvailable }: GeneratedArtifactsProps) {
+function artifactGroupPaths(group: LocalArtifactGroup): string[] {
+  return [group.root?.path, ...group.items.map((item) => item.path)].filter((item): item is string => Boolean(item))
+}
+
+function isDisplayableArtifactGroup(group: LocalArtifactGroup): boolean {
+  return group.items.length > 0
+}
+
+function excludeSourcePaths(groups: LocalArtifactGroup[], sourcePaths: Set<string>): LocalArtifactGroup[] {
+  return groups.flatMap((group) => {
+    const rootExcluded = group.root && sourcePaths.has(group.root.path)
+    const items = group.items.filter((item) => !sourcePaths.has(item.path))
+    if (items.length === 0) {
+      return []
+    }
+    if (rootExcluded) {
+      return [{ items, totalItems: items.length, truncated: false }]
+    }
+    return [{ ...group, items, totalItems: group.root?.kind === "directory" ? items.length : group.totalItems }]
+  })
+}
+
+function mergeArtifactGroups(groups: LocalArtifactGroup[][], sourcePaths: readonly string[]): LocalArtifactGroup[] {
+  const merged: LocalArtifactGroup[] = []
+  const seenPaths = new Set<string>()
+  const sourcePathSet = new Set(sourcePaths)
+  for (const groupList of groups) {
+    for (const group of excludeSourcePaths(groupList.filter(isDisplayableArtifactGroup), sourcePathSet)) {
+      const paths = artifactGroupPaths(group)
+      if (paths.length > 0 && paths.every((item) => seenPaths.has(item))) {
+        continue
+      }
+      merged.push(group)
+      for (const item of paths) {
+        seenPaths.add(item)
+      }
+    }
+  }
+  return merged
+}
+
+function mergeResolvedArtifactGroups(groups: ResolvedArtifactGroup[][]): ResolvedArtifactGroup[] {
+  const merged: ResolvedArtifactGroup[] = []
+  const seenPaths = new Set<string>()
+  for (const groupList of groups) {
+    for (const resolved of groupList) {
+      const paths = artifactGroupPaths(resolved.group)
+      if (paths.length > 0 && paths.every((item) => seenPaths.has(item))) {
+        continue
+      }
+      merged.push(resolved)
+      for (const item of paths) {
+        seenPaths.add(item)
+      }
+    }
+  }
+  return merged
+}
+
+export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
   const t = useT()
   const chatService = useChatService()
-  const [groups, setGroups] = React.useState<LocalArtifactGroup[]>([])
+  const [groups, setGroups] = React.useState<ResolvedArtifactGroup[]>([])
 
   React.useEffect(() => {
-    const trimmed = text.trim()
-    if (!artifactRoot && !trimmed) {
+    if (sources.length === 0) {
       setGroups([])
       return
     }
     let cancelled = false
-    void chatService
-      .invoke("resolveLocalArtifacts", artifactRoot ? { artifactRoot } : { text: trimmed })
-      .then((result) => {
+    const sourceRequests = sources.map(async (source): Promise<ResolvedArtifactGroup[]> => {
+      const trimmed = source.text.trim()
+      if (!source.artifactRoot && !trimmed) {
+        return []
+      }
+      const requests: Array<Promise<LocalArtifactGroup[]>> = []
+      if (source.artifactRoot) {
+        requests.push(
+          chatService
+            .invoke("resolveLocalArtifacts", { artifactRoot: source.artifactRoot })
+            .then((result) => result.groups),
+        )
+      }
+      if (trimmed) {
+        requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then((result) => result.groups))
+      }
+      const resultGroups = await Promise.all(requests)
+      return mergeArtifactGroups(resultGroups, source.sourcePaths).map((group) => ({
+        messageId: source.messageId,
+        group,
+      }))
+    })
+    void Promise.all(sourceRequests)
+      .then((resultGroups) => {
         if (!cancelled) {
-          setGroups(result.groups)
+          setGroups(mergeResolvedArtifactGroups(resultGroups))
         }
       })
       .catch(() => {
@@ -198,14 +287,14 @@ export function GeneratedArtifacts({ messageId, text, artifactRoot, onOpen, onAv
     return () => {
       cancelled = true
     }
-  }, [artifactRoot, chatService, messageId, text])
+  }, [chatService, sources])
 
   React.useEffect(() => {
-    const group = groups[0]
-    if (group) {
-      onAvailable({ messageId, group })
+    const resolved = groups[0]
+    if (resolved) {
+      onAvailable(resolved)
     }
-  }, [groups, messageId, onAvailable])
+  }, [groups, onAvailable])
 
   if (groups.length === 0) {
     return null
@@ -215,7 +304,7 @@ export function GeneratedArtifacts({ messageId, text, artifactRoot, onOpen, onAv
     <section className="not-prose mt-3 grid gap-2">
       <div className="oo-text-caption font-medium text-muted-foreground">{t("artifacts.title")}</div>
       <div className="grid gap-2">
-        {groups.map((group) => (
+        {groups.map(({ messageId, group }) => (
           <GeneratedArtifactsGroup
             key={group.root?.path ?? group.items.map((item) => item.path).join("\n")}
             group={group}

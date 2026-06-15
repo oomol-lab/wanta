@@ -56,6 +56,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { turnArtifactSourcesByRenderMessage } from "./artifact-sources.ts"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
 import {
@@ -856,16 +857,12 @@ function MessageBubble({
   pending,
   providerByService,
   onAuthorize,
-  onOpenArtifacts,
-  onArtifactsAvailable,
   assistantActionsText,
 }: {
   message: ChatMessage
   pending: boolean
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
-  onOpenArtifacts: (selection: ArtifactSelection) => void
-  onArtifactsAvailable: (selection: ArtifactSelection) => void
   assistantActionsText: string | null
 }) {
   const t = useT()
@@ -918,10 +915,6 @@ function MessageBubble({
   if (blocks.length === 0) {
     return null
   }
-  const assistantText = message.parts
-    .filter((part) => part.kind === "text")
-    .map((part) => part.text ?? "")
-    .join("")
   const blockClassName = (index: number): string | undefined => {
     if (index === 0) {
       return undefined
@@ -953,13 +946,6 @@ function MessageBubble({
             )}
           </div>
         ))}
-        <GeneratedArtifacts
-          messageId={message.id}
-          text={assistantText}
-          artifactRoot={message.artifactRoot}
-          onOpen={onOpenArtifacts}
-          onAvailable={onArtifactsAvailable}
-        />
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
@@ -1694,6 +1680,9 @@ export function ChatArea({
   const assistantActionTextByMessageId = React.useMemo(() => {
     return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
   }, [activeAssistantMessageId, messages])
+  const artifactSources = React.useMemo(() => {
+    return Array.from(turnArtifactSourcesByRenderMessage(messages).values())
+  }, [messages])
 
   React.useEffect(() => {
     attachmentsRef.current = attachments
@@ -1952,20 +1941,21 @@ export function ChatArea({
       {visibleError}
     </div>
   ) : null
-  const canSubmit = !disabled && !voiceActive && (draft.trim().length > 0 || attachments.length > 0)
+  const composerDisabled = disabled || voiceActive || initialSendPending
+  const canSubmit = !composerDisabled && (draft.trim().length > 0 || attachments.length > 0)
 
   const promptInput = (
     <PromptInput
       onSubmit={handleSubmit}
       className={cn(hasMessages && "shrink-0")}
       onDragOver={(event) => {
-        if (!disabled && !voiceActive && event.dataTransfer.types.includes("Files")) {
+        if (!composerDisabled && event.dataTransfer.types.includes("Files")) {
           event.preventDefault()
         }
       }}
       onDrop={(event) => {
         const files = filesFromDataTransfer(event.dataTransfer)
-        if (disabled || voiceActive || files.length === 0) {
+        if (composerDisabled || files.length === 0) {
           return
         }
         event.preventDefault()
@@ -1976,11 +1966,14 @@ export function ChatArea({
         <PromptInputAttachments>
           <AttachmentList
             attachments={attachments}
-            onRemove={(id) =>
-              setAttachments((current) => {
-                revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
-                return current.filter((attachment) => attachment.id !== id)
-              })
+            onRemove={
+              composerDisabled
+                ? undefined
+                : (id) =>
+                    setAttachments((current) => {
+                      revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
+                      return current.filter((attachment) => attachment.id !== id)
+                    })
             }
           />
         </PromptInputAttachments>
@@ -1989,12 +1982,12 @@ export function ChatArea({
         <PromptInputTextarea
           className={cn(attachments.length > 0 && "pt-2")}
           value={draft}
-          disabled={disabled || voiceActive}
+          disabled={composerDisabled}
           placeholder={placeholder}
           onChange={(e) => setDraft(e.target.value)}
           onPaste={(event) => {
             const files = filesFromDataTransfer(event.clipboardData)
-            if (disabled || voiceActive || files.length === 0) {
+            if (composerDisabled || files.length === 0) {
               return
             }
             event.preventDefault()
@@ -2010,6 +2003,10 @@ export function ChatArea({
             multiple
             className="hidden"
             onChange={(event) => {
+              if (composerDisabled) {
+                event.currentTarget.value = ""
+                return
+              }
               if (event.currentTarget.files) {
                 void addFiles(event.currentTarget.files)
               }
@@ -2024,7 +2021,7 @@ export function ChatArea({
                 size="icon"
                 title={t("chat.attachFile")}
                 aria-label={t("chat.attachFile")}
-                disabled={disabled || voiceActive || initialSendPending}
+                disabled={composerDisabled}
                 className="size-8 rounded-full"
               >
                 <Plus className="size-4" />
@@ -2097,7 +2094,7 @@ export function ChatArea({
             <>
               <ModelPicker
                 catalog={modelCatalog}
-                disabled={disabled || initialSendPending}
+                disabled={composerDisabled}
                 onSelect={handleSelectModel}
                 onDelete={handleDeleteModel}
                 onAdd={() => {
@@ -2111,7 +2108,7 @@ export function ChatArea({
                 size="icon"
                 title={t("chat.voiceInput")}
                 aria-label={t("chat.voiceInput")}
-                disabled={disabled || initialSendPending}
+                disabled={composerDisabled}
                 className="size-8 rounded-full"
                 onClick={() => {
                   setVoiceError(null)
@@ -2124,8 +2121,7 @@ export function ChatArea({
                 size="icon-xs"
                 className="!size-7"
                 status={isGenerating ? status : undefined}
-                visualStatus={initialSendPending ? "streaming" : undefined}
-                disabled={initialSendPending ? false : isSubmitted ? true : status === "streaming" ? false : !canSubmit}
+                disabled={isSubmitted ? true : status === "streaming" ? false : !canSubmit}
                 aria-label={
                   initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")
                 }
@@ -2135,11 +2131,7 @@ export function ChatArea({
                         e.preventDefault()
                         onStop()
                       }
-                    : initialSendPending
-                      ? (e) => {
-                          e.preventDefault()
-                        }
-                      : undefined
+                    : undefined
                 }
               />
             </>
@@ -2194,11 +2186,16 @@ export function ChatArea({
                 pending={message.id === pendingAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
-                onOpenArtifacts={onArtifactsOpen}
-                onArtifactsAvailable={onArtifactsAvailable}
                 assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               />
             ))}
+            {artifactSources.length > 0 ? (
+              <GeneratedArtifacts
+                sources={artifactSources}
+                onOpen={onArtifactsOpen}
+                onAvailable={onArtifactsAvailable}
+              />
+            ) : null}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>

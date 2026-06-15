@@ -96,6 +96,7 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("settings.searchPlaceholder")}
+              aria-label={t("settings.searchPlaceholder")}
               className="oo-text-control min-w-0 flex-1 border-0 bg-transparent p-0 text-foreground outline-none placeholder:text-muted-foreground"
             />
           </label>

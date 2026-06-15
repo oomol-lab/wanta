@@ -1090,8 +1090,59 @@
     font-weight: 600;
   }
 
-  .oo-markdown img {
-    max-width: 100%;
-    border-radius: 6px;
+  .oo-markdown-image-preview {
+    position: relative;
+    display: block;
+    width: min(100%, 20rem);
+    height: min(52vh, 20rem);
+    margin: 0.75rem 0;
+    overflow: hidden;
+    border: 1px solid var(--oo-divider);
+    border-radius: 8px;
+    background: var(--background);
+    line-height: 0;
+  }
+
+  .oo-markdown-image-preview img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .oo-markdown-image-actions {
+    position: absolute;
+    bottom: 0.75rem;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateX(-50%);
+    border: 1px solid color-mix(in oklab, var(--oo-divider) 82%, transparent);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--background) 86%, transparent);
+    padding: 0.25rem;
+    box-shadow: 0 6px 18px color-mix(in oklab, black 18%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .oo-markdown-image-action {
+    display: flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--muted-foreground);
+    text-decoration: none;
+  }
+
+  .oo-markdown-image-action:hover {
+    background: var(--accent);
+    color: var(--foreground);
+    text-decoration: none;
   }
 }

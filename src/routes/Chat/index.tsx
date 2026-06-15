@@ -17,6 +17,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
+import type { StickToBottomContext } from "use-stick-to-bottom"
 
 import {
   AlertTriangle,
@@ -1668,6 +1669,8 @@ export function ChatArea({
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
+  const conversationRef = React.useRef<StickToBottomContext | null>(null)
+  const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const voiceRecorder = useVoiceRecorder()
   const hasMessages = messages.length > 0
   const isSubmitted = status === "submitted"
@@ -1696,6 +1699,24 @@ export function ChatArea({
   React.useEffect(() => {
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])
+
+  React.useEffect(() => {
+    const lastMessage = messages.at(-1)
+    if (
+      !isGenerating ||
+      !lastMessage ||
+      lastMessage.role !== "user" ||
+      lastMessage.id === lastAutoScrolledUserMessageIdRef.current
+    ) {
+      return
+    }
+    lastAutoScrolledUserMessageIdRef.current = lastMessage.id
+    void conversationRef.current?.scrollToBottom({
+      animation: "smooth",
+      ignoreEscapes: true,
+      duration: 250,
+    })
+  }, [isGenerating, messages])
 
   React.useEffect(() => {
     let cancelled = false
@@ -2139,7 +2160,7 @@ export function ChatArea({
   return (
     <div className="flex h-full min-h-0 animate-in duration-300 fade-in slide-in-from-bottom-2">
       <div className="flex min-w-0 flex-1 flex-col pb-4">
-        <Conversation className="min-h-0 flex-1">
+        <Conversation className="min-h-0 flex-1" contextRef={conversationRef}>
           <ConversationContent
             data-selectable="true"
             className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}

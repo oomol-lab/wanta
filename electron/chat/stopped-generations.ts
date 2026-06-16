@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatMessagePart } from "./common.ts"
 
+import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 
@@ -170,7 +171,7 @@ export class StoppedGenerationStore {
 
   public async write(records: StoppedGenerations): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp-${process.pid}`
+    const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
     try {
       await writeFile(tmp, JSON.stringify(serializeStoppedGenerations(records), null, 2), "utf-8")
       await rename(tmp, this.file)

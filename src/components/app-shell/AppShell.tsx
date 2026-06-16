@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import {
   buildFallbackSessionTitle,
   shouldAutoRefreshSessionTitle,
@@ -186,6 +187,12 @@ function SessionItem({
   const { locale } = useI18n()
   const relativeTime = formatSessionRelativeTime(session.updatedAt, now, locale)
   const absoluteTime = formatSessionAbsoluteTime(session.updatedAt, locale)
+  const handleRenameKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === "F2") {
+      event.preventDefault()
+      onRenameRequest()
+    }
+  }
 
   return (
     <div
@@ -198,6 +205,7 @@ function SessionItem({
         type="button"
         onClick={onSelect}
         onDoubleClick={onRenameRequest}
+        onKeyDown={handleRenameKeyDown}
         title={session.title}
         className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
@@ -386,6 +394,12 @@ function EditableTitlebarTitle({
     setDraft(title)
     setEditing(true)
   }
+  const handleRenameKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === "F2" || event.key === "Enter") {
+      event.preventDefault()
+      startEditing()
+    }
+  }
 
   const commit = (): void => {
     const trimmedDraft = draft.trim()
@@ -441,6 +455,7 @@ function EditableTitlebarTitle({
     <button
       type="button"
       onDoubleClick={startEditing}
+      onKeyDown={handleRenameKeyDown}
       title={title}
       aria-label={t("session.renameFromTitlebar")}
       className="oo-toolbar-title oo-text-title inline-block max-w-full min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left outline-none [-webkit-app-region:no-drag]"
@@ -1146,7 +1161,9 @@ export function AppShell() {
   }
   const handleOpenSearch = (): void => setSearchOpen(true)
   const handleRenameSession = (sessionId: string, title: string): void => {
-    void rename(sessionId, title)
+    void rename(sessionId, title).catch((cause: unknown) => {
+      toast.error(t("session.renameFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+    })
   }
   const handleArtifactsReset = React.useCallback(() => {
     setArtifactSelection(null)

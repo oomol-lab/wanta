@@ -1269,6 +1269,23 @@
     background: transparent;
   }
 
+  .oo-markdown-image-open {
+    display: block;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: zoom-in;
+    line-height: 0;
+    text-align: left;
+  }
+
+  .oo-markdown-image-open:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
   .oo-markdown-image-actions {
     position: absolute;
     bottom: 0.75rem;
@@ -1309,5 +1326,136 @@
     background: var(--accent);
     color: var(--foreground);
     text-decoration: none;
+  }
+
+  .oo-markdown-image-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    overflow: hidden;
+    background: rgb(0 0 0 / 74%);
+  }
+
+  .oo-markdown-image-viewer-stage {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .oo-markdown-image-viewer-stage.is-dragging {
+    cursor: grabbing;
+  }
+
+  .oo-markdown-image-viewer-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .oo-markdown-image-viewer-offset {
+    will-change: transform;
+  }
+
+  .oo-markdown-image-viewer-image {
+    display: block;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    object-fit: contain;
+    pointer-events: none;
+    transform-origin: center;
+    user-select: none;
+    will-change: transform;
+  }
+
+  .oo-markdown-image-viewer-actions {
+    position: absolute;
+    top: 1.25rem;
+    right: 1.25rem;
+    z-index: 2;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .oo-markdown-image-viewer-action {
+    display: flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in oklab, white 92%, transparent);
+    color: oklch(0.18 0.005 260);
+    text-decoration: none;
+    box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+    transition:
+      background 120ms ease-out,
+      transform 120ms ease-out;
+  }
+
+  .oo-markdown-image-viewer-action:hover {
+    background: white;
+    color: oklch(0.14 0.006 260);
+    text-decoration: none;
+    transform: translateY(-1px);
+  }
+
+  .oo-markdown-image-viewer-action:focus-visible,
+  .oo-markdown-image-viewer-zoom-button:focus-visible {
+    outline: 2px solid white;
+    outline-offset: 2px;
+  }
+
+  .oo-markdown-image-viewer-zoom {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 50%;
+    z-index: 2;
+    display: flex;
+    height: 2.625rem;
+    align-items: center;
+    gap: 0.5rem;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: color-mix(in oklab, white 92%, transparent);
+    padding: 0.25rem;
+    color: oklch(0.18 0.005 260);
+    box-shadow: 0 8px 20px rgb(0 0 0 / 20%);
+  }
+
+  .oo-markdown-image-viewer-zoom-button {
+    display: flex;
+    width: 2.125rem;
+    height: 2.125rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in oklab, black 8%, transparent);
+    color: currentColor;
+  }
+
+  .oo-markdown-image-viewer-zoom-button:hover {
+    background: color-mix(in oklab, black 14%, transparent);
+  }
+
+  .oo-markdown-image-viewer-zoom-button:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  .oo-markdown-image-viewer-percent {
+    min-width: 2.875rem;
+    text-align: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1;
   }
 }

@@ -13,6 +13,7 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
+import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn } from "./chat-turns.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
@@ -65,6 +66,7 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
+import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
@@ -615,7 +617,7 @@ function ToolActivityStep({
 
   return (
     <Collapsible defaultOpen={(part.status === "error" && !stopped) || Boolean(auth)}>
-      <div className="rounded-md px-1 py-0.5">
+      <div className="rounded-md py-0.5">
         {details ? (
           <CollapsibleTrigger className="group flex w-full items-start justify-between gap-2 text-left">
             {row}
@@ -752,13 +754,21 @@ function ProcessStatusIcon({ status, animated = true }: { status: TurnProcessSta
 }
 
 function TurnProcessActivity({
+  blocks,
   process,
+  billingCacheScope,
+  smoothAssistantMessageId,
   providerByService,
   onAuthorize,
+  onViewBilling,
 }: {
+  blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
+  billingCacheScope: string
+  smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
 }) {
   const t = useT()
   const status = processStatus(process)
@@ -777,6 +787,7 @@ function TurnProcessActivity({
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
   const title = processTitle(t, status, formatProcessDuration(process, now))
+  const renderBlocks = blocks.map((item) => item.block)
 
   React.useEffect(() => {
     setOpen(shouldOpen)
@@ -803,20 +814,21 @@ function TurnProcessActivity({
           <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
         </button>
       </TaskTrigger>
-      <TaskContent className="[&>div]:mt-0 [&>div]:space-y-1 [&>div]:border-l [&>div]:border-border/60 [&>div]:pt-2.5 [&>div]:pl-4">
-        <div className="space-y-1 border-border/60">
-          {process.tools.map((part) => {
-            const service = toolServiceSlug(part)
-            return (
-              <ToolActivityStep
-                key={part.partId}
-                part={part}
-                now={now}
-                provider={service ? providerByService.get(service) : undefined}
-                onAuthorize={onAuthorize}
-              />
-            )
-          })}
+      <TaskContent>
+        <div className="space-y-3 pt-3">
+          {blocks.map(({ message, block }, index) => (
+            <AssistantBlock
+              key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
+              block={block}
+              blockClassName={assistantBlockClassName(renderBlocks, index)}
+              billingCacheScope={billingCacheScope}
+              smoothText={message.id === smoothAssistantMessageId}
+              now={now}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+              onViewBilling={onViewBilling}
+            />
+          ))}
           <LiveStatusBar process={process} />
         </div>
       </TaskContent>
@@ -876,7 +888,7 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
   const duration = formatProcessDuration(process, now)
 
   return (
-    <div className="oo-text-caption flex min-h-7 items-center gap-2 rounded-md px-1 py-0.5 text-muted-foreground">
+    <div className="oo-text-caption flex min-h-7 items-center gap-2 rounded-md py-0.5 text-muted-foreground">
       <Loader2 className="size-3.5 shrink-0 animate-spin" />
       <span className="min-w-0 truncate">{text}</span>
       {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
@@ -991,16 +1003,17 @@ function MessageFeedbackAction({
       label={label}
       tooltip={label}
       aria-pressed={active}
-      className={cn(active && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
+      className={cn(active && "oo-message-feedback-action-active")}
       onClick={() => onRatingChange(active ? null : rating)}
     >
-      <Icon className="size-3.5" />
+      <Icon className={cn("size-3.5", active && "fill-current")} />
     </MessageAction>
   )
 }
 
 function AssistantMessageActions({ text, cancelled }: { text: string; cancelled: boolean }) {
   const t = useT()
+  // TODO(lumo-feedback-api): 接入反馈 API 后，将这里的本地状态同步为服务端的消息反馈结果。
   const [activeRating, setActiveRating] = React.useState<MessageRating | null>(null)
 
   if (!text && !cancelled) {
@@ -1035,15 +1048,79 @@ function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): 
   }
 }
 
-function prioritizeAssistantBlocks(blocks: ReturnType<typeof renderBlocks>): ReturnType<typeof renderBlocks> {
-  if (!blocks.some((block) => block.kind === "text")) {
-    return blocks
+type AssistantBlockType = ReturnType<typeof renderBlocks>[number]
+
+function assistantBlockClassName(blocks: AssistantBlockType[], index: number): string | undefined {
+  if (index === 0) {
+    return undefined
   }
-  return [
-    ...blocks.filter((block) => block.kind === "text"),
-    ...blocks.filter((block) => block.kind === "error"),
-    ...blocks.filter((block) => block.kind === "tools"),
-  ]
+  const previous = blocks[index - 1]
+  const current = blocks[index]
+  if (!previous || !current) {
+    return undefined
+  }
+  if (previous.kind === "tools" && current.kind === "tools") {
+    return "mt-1"
+  }
+  if (previous.kind !== current.kind) {
+    return "mt-3"
+  }
+  return "mt-2"
+}
+
+function AssistantBlock({
+  block,
+  blockClassName,
+  billingCacheScope,
+  smoothText,
+  now,
+  providerByService,
+  onAuthorize,
+  onViewBilling,
+}: {
+  block: AssistantBlockType
+  blockClassName?: string
+  billingCacheScope: string
+  smoothText: boolean
+  now: number
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
+}) {
+  const t = useT()
+  return (
+    <div className={blockClassName}>
+      {block.kind === "text" ? (
+        block.part.text ? (
+          <MessageResponse smooth={smoothText}>{block.part.text}</MessageResponse>
+        ) : null
+      ) : block.kind === "error" ? (
+        <ChatErrorNotice
+          autoOpenKey={block.part.partId}
+          billingCacheScope={billingCacheScope}
+          errorCode={block.part.errorCode}
+          errorKind={block.part.errorKind}
+          message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
+          onViewBilling={onViewBilling}
+        />
+      ) : (
+        <div className="space-y-1">
+          {block.parts.map((part) => {
+            const service = toolServiceSlug(part)
+            return (
+              <ToolActivityStep
+                key={part.partId}
+                part={part}
+                now={now}
+                provider={service ? providerByService.get(service) : undefined}
+                onAuthorize={onAuthorize}
+              />
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function MessageBubble({
@@ -1052,16 +1129,33 @@ function MessageBubble({
   smoothText,
   onViewBilling,
   assistantActionsText,
+  providerByService,
+  onAuthorize,
 }: {
   billingCacheScope: string
   message: ChatMessage
   smoothText: boolean
   onViewBilling?: () => void
   assistantActionsText: string | null
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
 }) {
-  const t = useT()
+  const [now, setNow] = React.useState(() => Date.now())
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
+  const hasActiveToolPart = message.parts.some(
+    (part) => part.kind === "tool" && (part.status === "pending" || part.status === "running"),
+  )
+
+  React.useEffect(() => {
+    if (!hasActiveToolPart) {
+      return
+    }
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [hasActiveToolPart])
+
   if (message.role === "user") {
     const text = message.parts
       .filter((p) => p.kind === "text")
@@ -1091,48 +1185,87 @@ function MessageBubble({
       </Message>
     )
   }
-  const blocks = renderBlocks(message.parts).filter((block) => block.kind !== "tools")
+  const blocks = renderBlocks(message.parts)
   if (blocks.length === 0) {
     return null
-  }
-  const displayBlocks = prioritizeAssistantBlocks(blocks)
-  const blockClassName = (index: number): string | undefined => {
-    if (index === 0) {
-      return undefined
-    }
-    const previous = displayBlocks[index - 1]
-    const current = displayBlocks[index]
-    if (!previous || !current) {
-      return undefined
-    }
-    if (previous.kind === "tools" && current.kind === "tools") {
-      return "mt-1"
-    }
-    if (previous.kind !== current.kind) {
-      return "mt-3"
-    }
-    return "mt-2"
   }
   return (
     <Message from="assistant">
       <MessageContent className="gap-0">
-        {displayBlocks.map((block, index) => (
-          <div key={block.kind === "tools" ? block.key : block.part.partId} className={blockClassName(index)}>
-            {block.kind === "text" ? (
-              block.part.text ? (
-                <MessageResponse smooth={smoothText}>{block.part.text}</MessageResponse>
-              ) : null
-            ) : block.kind === "error" ? (
-              <ChatErrorNotice
-                autoOpenKey={block.part.partId}
-                billingCacheScope={billingCacheScope}
-                errorCode={block.part.errorCode}
-                errorKind={block.part.errorKind}
-                message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
-                onViewBilling={onViewBilling}
-              />
-            ) : null}
-          </div>
+        {blocks.map((block, index) => (
+          <AssistantBlock
+            key={block.kind === "tools" ? block.key : block.part.partId}
+            block={block}
+            blockClassName={assistantBlockClassName(blocks, index)}
+            billingCacheScope={billingCacheScope}
+            smoothText={smoothText}
+            now={now}
+            providerByService={providerByService}
+            onAuthorize={onAuthorize}
+            onViewBilling={onViewBilling}
+          />
+        ))}
+      </MessageContent>
+      {assistantActionsText || assistantCancelled ? (
+        <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
+      ) : null}
+    </Message>
+  )
+}
+
+function AssistantTimelineMessage({
+  blocks,
+  billingCacheScope,
+  smoothAssistantMessageId,
+  assistantActionsText,
+  assistantCancelled,
+  providerByService,
+  onAuthorize,
+  onViewBilling,
+}: {
+  blocks: AssistantTimelineBlock[]
+  billingCacheScope: string
+  smoothAssistantMessageId?: string
+  assistantActionsText: string | null
+  assistantCancelled: boolean
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
+}) {
+  const [now, setNow] = React.useState(() => Date.now())
+  const renderBlocks = blocks.map((item) => item.block)
+  const hasActiveToolPart = renderBlocks.some((block) =>
+    block.kind === "tools" ? block.parts.some((part) => part.status === "pending" || part.status === "running") : false,
+  )
+
+  React.useEffect(() => {
+    if (!hasActiveToolPart) {
+      return
+    }
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [hasActiveToolPart])
+
+  if (blocks.length === 0) {
+    return null
+  }
+
+  return (
+    <Message from="assistant">
+      <MessageContent className="gap-0">
+        {blocks.map(({ message, block }, index) => (
+          <AssistantBlock
+            key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
+            block={block}
+            blockClassName={assistantBlockClassName(renderBlocks, index)}
+            billingCacheScope={billingCacheScope}
+            smoothText={message.id === smoothAssistantMessageId}
+            now={now}
+            providerByService={providerByService}
+            onAuthorize={onAuthorize}
+            onViewBilling={onViewBilling}
+          />
         ))}
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
@@ -1168,6 +1301,13 @@ function ChatTurnView({
   assistantActionTextByMessageId: Map<string, string>
 }) {
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
+  const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
+  const lastAssistant = turn.assistants.at(-1)
+  const assistantActionsText = lastAssistant ? assistantActionTextByMessageId.get(lastAssistant.id) : null
+  const assistantCancelled = turn.assistants.some((message) => hasStoppedTool(message.parts))
+  const responseActionsText =
+    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseBlocks) || null
+  const processActionsText = responseBlocks.length > 0 ? null : assistantActionsText
 
   return (
     <React.Fragment>
@@ -1178,25 +1318,55 @@ function ChatTurnView({
           smoothText={false}
           onViewBilling={onViewBilling}
           assistantActionsText={null}
+          providerByService={providerByService}
+          onAuthorize={onAuthorize}
         />
       ) : null}
       {shouldShowTurnProcess(process) ? (
-        <Message from="assistant">
-          <MessageContent className="w-full">
-            <TurnProcessActivity process={process} providerByService={providerByService} onAuthorize={onAuthorize} />
-          </MessageContent>
-        </Message>
-      ) : null}
-      {turn.assistants.map((message) => (
-        <MessageBubble
-          key={message.clientId ?? message.id}
-          message={message}
-          billingCacheScope={billingCacheScope}
-          smoothText={message.id === smoothAssistantMessageId}
-          onViewBilling={onViewBilling}
-          assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
-        />
-      ))}
+        <>
+          <Message from="assistant">
+            <MessageContent className="w-full">
+              <TurnProcessActivity
+                blocks={processBlocks}
+                process={process}
+                billingCacheScope={billingCacheScope}
+                smoothAssistantMessageId={smoothAssistantMessageId}
+                providerByService={providerByService}
+                onAuthorize={onAuthorize}
+                onViewBilling={onViewBilling}
+              />
+            </MessageContent>
+            {processActionsText || (assistantCancelled && responseBlocks.length === 0) ? (
+              <AssistantMessageActions text={processActionsText ?? ""} cancelled={assistantCancelled} />
+            ) : null}
+          </Message>
+          {responseBlocks.length > 0 ? (
+            <AssistantTimelineMessage
+              blocks={responseBlocks}
+              billingCacheScope={billingCacheScope}
+              smoothAssistantMessageId={smoothAssistantMessageId}
+              assistantActionsText={responseActionsText}
+              assistantCancelled={assistantCancelled}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+              onViewBilling={onViewBilling}
+            />
+          ) : null}
+        </>
+      ) : (
+        turn.assistants.map((message) => (
+          <MessageBubble
+            key={message.clientId ?? message.id}
+            message={message}
+            billingCacheScope={billingCacheScope}
+            smoothText={message.id === smoothAssistantMessageId}
+            onViewBilling={onViewBilling}
+            assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
+            providerByService={providerByService}
+            onAuthorize={onAuthorize}
+          />
+        ))
+      )}
     </React.Fragment>
   )
 }

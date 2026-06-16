@@ -139,6 +139,7 @@
   --oo-tooltip-shadow: 0 6px 16px color-mix(in oklab, var(--foreground) 10%, transparent);
   --oo-path-tooltip-surface: oklch(1 0 0);
   --oo-path-tooltip-foreground: var(--foreground);
+  --oo-feedback-active-foreground: oklch(0.43 0.008 265);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
   --oo-warning-surface: color-mix(in oklab, var(--warning) 12%, transparent);
@@ -216,6 +217,7 @@
   --oo-tooltip-shadow: 0 8px 18px color-mix(in oklab, var(--background) 78%, transparent);
   --oo-path-tooltip-surface: oklch(0.145 0.004 286);
   --oo-path-tooltip-foreground: var(--foreground);
+  --oo-feedback-active-foreground: oklch(0.64 0.006 286);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
   --oo-warning-surface: color-mix(in oklab, var(--warning) 14%, transparent);
@@ -1164,6 +1166,16 @@
   .oo-markdown-path-tooltip-copy svg {
     background: transparent;
     fill: none;
+  }
+
+  .oo-message-feedback-action-active {
+    background: transparent !important;
+    color: var(--oo-feedback-active-foreground);
+  }
+
+  .oo-message-feedback-action-active:hover {
+    background: transparent !important;
+    color: var(--oo-feedback-active-foreground);
   }
 
   /* Streamdown 默认代码块是外层容器 + 内层高亮容器的双层卡片，聊天里显得过重。 */

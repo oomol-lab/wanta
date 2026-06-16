@@ -2,9 +2,16 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
-import { AgentManager } from "./manager.ts"
+import { AgentManager, isUserVisibleSession } from "./manager.ts"
 
 describe("AgentManager", () => {
+  it("hides OpenCode subagent sessions from the user task list", () => {
+    expect(isUserVisibleSession({ id: "root", title: "Root" })).toBe(true)
+    expect(isUserVisibleSession({ id: "child", parentID: "root", title: "Child" })).toBe(false)
+    expect(isUserVisibleSession({ id: "child", parentId: "root", title: "Child" })).toBe(false)
+    expect(isUserVisibleSession({ id: "child", parent_id: "root", title: "Child" })).toBe(false)
+  })
+
   it("frames connected providers as availability context only", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
     try {

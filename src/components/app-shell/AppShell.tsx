@@ -734,6 +734,7 @@ export function AppShell() {
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
+  const sendInFlightRef = React.useRef(false)
 
   React.useEffect(() => {
     sessionsRef.current = sessions
@@ -1015,52 +1016,61 @@ export function AppShell() {
   }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
 
   const handleSend = async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
-    setRoute("chat")
-    let sessionId = activeSessionId
-    const titleInput = buildSessionTitleInput(messages, text, attachments)
-    const fallbackTitle = buildFallbackSessionTitle(titleInput)
-    const allowPlaceholderTitle =
-      !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
-    const shouldRefreshTitle =
-      !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
-    const bridgeEmptySend = messagesLoaded && messages.length === 0
-    const createdAt = Date.now()
-    if (bridgeEmptySend) {
-      setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+    if (sendInFlightRef.current) {
+      return
     }
-    if (!sessionId) {
-      let info: SessionInfo
+    sendInFlightRef.current = true
+    try {
+      setRoute("chat")
+      let sessionId = activeSessionId
+      const titleInput = buildSessionTitleInput(messages, text, attachments)
+      const fallbackTitle = buildFallbackSessionTitle(titleInput)
+      const allowPlaceholderTitle =
+        !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
+      const shouldRefreshTitle =
+        !sessionId ||
+        (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
+      const bridgeEmptySend = messagesLoaded && messages.length === 0
+      const createdAt = Date.now()
+      if (bridgeEmptySend) {
+        setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+      }
+      if (!sessionId) {
+        let info: SessionInfo
+        try {
+          info = await create(fallbackTitle)
+        } catch (error) {
+          if (bridgeEmptySend) {
+            setPendingChatTransition(null)
+          }
+          throw error
+        }
+        sessionId = info.id
+        setActiveSessionId(sessionId)
+        setIsDraftSession(false)
+        setPendingChatTransition((pending) =>
+          pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
+        )
+      }
+      if (shouldRefreshTitle) {
+        void refreshGeneratedTitle(
+          sessionId,
+          titleInput,
+          allowPlaceholderTitle,
+          !activeSessionId ? fallbackTitle : undefined,
+        )
+      }
+      lastModelBySession.current.set(sessionId, model)
       try {
-        info = await create(fallbackTitle)
+        await send(sessionId, text, attachments, { model })
       } catch (error) {
         if (bridgeEmptySend) {
           setPendingChatTransition(null)
         }
         throw error
       }
-      sessionId = info.id
-      setActiveSessionId(sessionId)
-      setIsDraftSession(false)
-      setPendingChatTransition((pending) =>
-        pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
-      )
-    }
-    if (shouldRefreshTitle) {
-      void refreshGeneratedTitle(
-        sessionId,
-        titleInput,
-        allowPlaceholderTitle,
-        !activeSessionId ? fallbackTitle : undefined,
-      )
-    }
-    lastModelBySession.current.set(sessionId, model)
-    try {
-      await send(sessionId, text, attachments, { model })
-    } catch (error) {
-      if (bridgeEmptySend) {
-        setPendingChatTransition(null)
-      }
-      throw error
+    } finally {
+      sendInFlightRef.current = false
     }
   }
 

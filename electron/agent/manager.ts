@@ -44,9 +44,12 @@ export interface PromptStreamingOptions {
   artifactDir?: string
 }
 
-interface RawSession {
+export interface RawSession {
   id: string
   title?: string
+  parentID?: string
+  parentId?: string
+  parent_id?: string
   time?: { created?: number; updated?: number }
 }
 
@@ -61,6 +64,10 @@ function toSessionInfo(session: RawSession): SessionInfo {
     createdAt: session.time?.created ?? 0,
     updatedAt: session.time?.updated ?? session.time?.created ?? 0,
   }
+}
+
+export function isUserVisibleSession(session: RawSession): boolean {
+  return !(session.parentID || session.parentId || session.parent_id)
 }
 
 /** Agent 内核管理器：编排 OpenCode sidecar + 非编码 agent + 自定义连接器工具。electron-free，便于 headless 测试。 */
@@ -155,7 +162,10 @@ export class AgentManager {
     }
     const result = await this.client.session.list()
     const sessions = (result.data ?? []) as RawSession[]
-    return sessions.map(toSessionInfo).sort((a, b) => b.updatedAt - a.updatedAt)
+    return sessions
+      .filter(isUserVisibleSession)
+      .map(toSessionInfo)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   public async createSession(title?: string): Promise<SessionInfo> {

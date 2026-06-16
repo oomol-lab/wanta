@@ -168,5 +168,5 @@ export function isBroadLocalArtifactPath(filePath: string, homeDir: string): boo
   if (broadPosixArtifactPaths.has(normalized)) {
     return true
   }
-  return normalized === withoutTrailingPathSeparators(homeDir)
+  return normalized.toLowerCase() === withoutTrailingPathSeparators(homeDir).toLowerCase()
 }

@@ -32,6 +32,22 @@ test("message.updated with assistant error emits agentError after messageStarted
   ])
 })
 
+test("message.updated with assistant abort skips agentError", () => {
+  const out = translateOpencodeEvent({
+    type: "message.updated",
+    properties: {
+      info: {
+        id: "m1",
+        sessionID: "s1",
+        role: "assistant",
+        error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+      },
+    },
+  })
+
+  assert.deepEqual(out, [{ event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant" } }])
+})
+
 test("text part.updated → messageDelta carrying cumulative text", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -299,6 +315,15 @@ test("session.idle → messageCompleted; session.error → agentError", () => {
   })
   assert.equal(err[0].event, "agentError")
   assert.equal((err[0].data as { message: string }).message, "boom")
+})
+
+test("session.error skips message aborts", () => {
+  const out = translateOpencodeEvent({
+    type: "session.error",
+    properties: { sessionID: "s1", error: { name: "MessageAbortedError", data: { message: "Aborted" } } },
+  })
+
+  assert.deepEqual(out, [])
 })
 
 test("parseAuthorization accepts auth json, rejects plain results", () => {

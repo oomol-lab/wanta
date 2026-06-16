@@ -51,7 +51,15 @@ interface OpencodeError {
 }
 
 function isOpencodeError(value: unknown): value is OpencodeError {
-  return Boolean(value && typeof value === "object")
+  if (!value || typeof value !== "object") {
+    return false
+  }
+  const error = value as OpencodeError
+  return typeof error.name === "string" || Boolean(error.data && typeof error.data === "object")
+}
+
+function isMessageAbortedError(error: unknown): boolean {
+  return isOpencodeError(error) && error.name === "MessageAbortedError"
 }
 
 /** 若工具输出是 call_action 的结构化授权信号，解析出授权信息。 */
@@ -86,8 +94,8 @@ function errorMessage(error: unknown): string {
   return error.data?.message ?? error.name ?? "Agent error"
 }
 
-function messageErrorPart(error: OpencodeError | undefined): ChatMessagePart | undefined {
-  if (!error || error.name === "MessageAbortedError") {
+function messageErrorPart(error: unknown): ChatMessagePart | undefined {
+  if (!isOpencodeError(error) || isMessageAbortedError(error)) {
     return undefined
   }
   const message = errorMessage(error)
@@ -109,7 +117,7 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
       const emits: ChatEmit[] = [
         { event: "messageStarted", data: { sessionId: info.sessionID, messageId: info.id, role: info.role } },
       ]
-      if (info.role === "assistant" && info.error) {
+      if (info.role === "assistant" && isOpencodeError(info.error) && !isMessageAbortedError(info.error)) {
         emits.push({ event: "agentError", data: { sessionId: info.sessionID, message: errorMessage(info.error) } })
       }
       return emits
@@ -163,6 +171,9 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
     }
     case "session.error": {
       const p = props as { sessionID?: string; error?: unknown }
+      if (isMessageAbortedError(p.error)) {
+        return []
+      }
       return [{ event: "agentError", data: { sessionId: p.sessionID, message: errorMessage(p.error) } }]
     }
     default:
@@ -417,7 +428,7 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
       parts.push(tool)
     }
   }
-  if (info.role === "assistant" && isOpencodeError(info.error)) {
+  if (info.role === "assistant") {
     const part = messageErrorPart(info.error)
     if (part) {
       parts.push(part)

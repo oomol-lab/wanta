@@ -329,6 +329,7 @@ function ImageViewer({
   viewerStateRef,
 }: ImageViewerProps) {
   const t = useT()
+  const [isDragging, setIsDragging] = useState(false)
   const canZoomOut = viewerState.scale > imageViewerMinScale
   const canZoomIn = viewerState.scale < imageViewerMaxScale
 
@@ -415,6 +416,7 @@ function ImageViewer({
       startX: event.clientX,
       startY: event.clientY,
     }
+    setIsDragging(true)
   }
 
   const handlePointerMove = (event: PointerEvent<HTMLDivElement>): void => {
@@ -439,6 +441,7 @@ function ImageViewer({
   const stopDrag = (event: PointerEvent<HTMLDivElement>): void => {
     if (dragRef.current?.pointerId === event.pointerId) {
       dragRef.current = null
+      setIsDragging(false)
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
   }
@@ -466,7 +469,7 @@ function ImageViewer({
 
       <div
         ref={stageRef}
-        className={cn("oo-markdown-image-viewer-stage", dragRef.current && "is-dragging")}
+        className={cn("oo-markdown-image-viewer-stage", isDragging && "is-dragging")}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={stopDrag}

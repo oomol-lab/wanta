@@ -70,6 +70,10 @@ describe("isBroadLocalArtifactPath", () => {
     expect(isBroadLocalArtifactPath("/Users/wushuang", "/Users/wushuang")).toBe(true)
   })
 
+  it("compares the Windows home directory case-insensitively", () => {
+    expect(isBroadLocalArtifactPath("C:\\Users\\Alice", "c:\\users\\alice")).toBe(true)
+  })
+
   it("allows specific output descendants", () => {
     expect(isBroadLocalArtifactPath("/Users/wushuang/Desktop/out.png", "/Users/wushuang")).toBe(false)
     expect(isBroadLocalArtifactPath("/tmp/lumo-artifacts/out.png", "/Users/wushuang")).toBe(false)

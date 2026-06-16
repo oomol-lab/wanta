@@ -1439,7 +1439,7 @@
     border: 0;
     border-radius: 999px;
     background: color-mix(in oklab, black 8%, transparent);
-    color: currentColor;
+    color: currentcolor;
   }
 
   .oo-markdown-image-viewer-zoom-button:hover {

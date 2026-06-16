@@ -1,5 +1,7 @@
 import type { AssistantActivityEvent, ChatMessage, ChatMessagePart } from "../../../electron/chat/common.ts"
 
+import { hasBlockingToolError, hasStoppedTool } from "./tool-state.ts"
+
 export interface ChatTurn {
   id: string
   user: ChatMessage | null
@@ -93,8 +95,8 @@ export function summarizeTurnProcess(
     errors,
     hasFinalAnswer,
     hasActiveTool: tools.some((part) => part.status === "pending" || part.status === "running"),
-    hasBlockingError: tools.some((part) => part.status === "error" && !part.cancelled) || errors.length > 0,
-    hasStoppedTool: tools.some((part) => part.cancelled),
+    hasBlockingError: hasBlockingToolError(tools) || errors.length > 0,
+    hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization: tools.some(
       (part) =>
         part.tool === "call_action" &&

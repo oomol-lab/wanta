@@ -80,4 +80,19 @@ describe("summarizeTurnProcess", () => {
 
     expect(parts).toEqual([text("t1", "visible answer")])
   })
+
+  it("treats semantically cancelled tool errors as stopped instead of blocking", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "stop")]),
+      message("a1", "assistant", [
+        tool("tool-1", { status: "error", error: "AbortError: The operation was aborted." }),
+      ]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.hasStoppedTool).toBe(true)
+    expect(process.hasBlockingError).toBe(false)
+  })
 })

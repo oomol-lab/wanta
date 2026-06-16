@@ -40,6 +40,19 @@ describe("isPendingChatCaughtUp", () => {
     assert.equal(isPendingChatCaughtUp(pending("session-1"), "session-1", messages), true)
   })
 
+  test("ignores visible user messages created before the pending transition", () => {
+    const messages = [
+      message({
+        role: "user",
+        id: "old-user-1",
+        createdAt: 1_699_999_999_999,
+        parts: [{ kind: "text", partId: "text-1", text: "old hello" }],
+      }),
+    ]
+
+    assert.equal(isPendingChatCaughtUp(pending("session-1"), "session-1", messages), false)
+  })
+
   test("treats attachment-only user messages as visible", () => {
     const messages = [
       message({

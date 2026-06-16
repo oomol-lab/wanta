@@ -27,6 +27,6 @@ export function isPendingChatCaughtUp(
   return Boolean(
     pending?.sessionId &&
     activeSessionId === pending.sessionId &&
-    messages.some((message) => hasUserVisibleContent(message)),
+    messages.some((message) => message.createdAt >= pending.createdAt && hasUserVisibleContent(message)),
   )
 }

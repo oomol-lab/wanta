@@ -16,6 +16,7 @@ import type {
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn } from "./chat-turns.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
+import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
@@ -122,9 +123,12 @@ interface ChatAreaProps {
   disabled: boolean
   initialSendPending: boolean
   providers: ConnectionProvider[]
+  queuedMessages: QueuedChatMessage[]
   placeholder: string
   onSend: (text: string, attachments: ChatAttachment[], model?: ModelChoice) => void
   onStop: () => void
+  onQueuedMessageRemove: (id: string) => void
+  onQueuedMessagesClear: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
@@ -134,6 +138,11 @@ interface ChatAreaProps {
 
 type DraftAttachment = ChatAttachment & {
   previewUrl?: string
+}
+
+function stripDraftAttachment(attachment: DraftAttachment): ChatAttachment {
+  const { previewUrl: _previewUrl, ...chatAttachment } = attachment
+  return chatAttachment
 }
 
 interface AttachmentInput {
@@ -1572,6 +1581,96 @@ function AttachmentList({
   )
 }
 
+function queuedMessagePreview(message: QueuedChatMessage): string {
+  const text = message.text.trim()
+  if (text) {
+    return text
+  }
+  return message.attachments.map((attachment) => attachment.name).join(", ")
+}
+
+function QueuedMessagePanel({
+  messages,
+  onRemove,
+  onClear,
+}: {
+  messages: QueuedChatMessage[]
+  onRemove: (id: string) => void
+  onClear: () => void
+}) {
+  const t = useT()
+  if (messages.length === 0) {
+    return null
+  }
+  const latestId = messages.at(-1)?.id
+
+  return (
+    <section className="oo-border-divider overflow-hidden rounded-lg border bg-background/95 shadow-xs">
+      <div className="flex min-h-9 items-center gap-2 border-b border-border/60 px-3">
+        <ListChecks className="size-4 shrink-0 text-muted-foreground" />
+        <div className="oo-text-control min-w-0 flex-1 truncate text-muted-foreground">
+          {t("chat.queueTitle", { count: messages.length })}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-7 rounded-full"
+          title={t("chat.queueClear")}
+          aria-label={t("chat.queueClear")}
+          onClick={onClear}
+        >
+          <X className="size-3.5" />
+        </Button>
+      </div>
+      <div className="max-h-36 overflow-auto">
+        {messages.map((message) => {
+          const preview = queuedMessagePreview(message)
+          const isLatest = message.id === latestId
+          return (
+            <div
+              key={message.id}
+              className="flex min-h-10 items-center gap-2 border-b border-border/40 px-3 py-2 last:border-b-0"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="oo-text-control min-w-0 truncate text-foreground">
+                    {preview || t("chat.queueAttachmentOnly")}
+                  </span>
+                  {isLatest ? (
+                    <span className="oo-text-caption shrink-0 rounded-sm bg-primary/10 px-1.5 py-0.5 text-primary">
+                      {t("chat.queueWillSend")}
+                    </span>
+                  ) : null}
+                </div>
+                {message.attachments.length > 0 ? (
+                  <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
+                    {t("chat.queueAttachments", { count: message.attachments.length })}
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 rounded-full"
+                title={t("chat.queueRemove")}
+                aria-label={t("chat.queueRemove")}
+                onClick={() => onRemove(message.id)}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="oo-text-caption border-t border-border/60 px-3 py-2 text-muted-foreground">
+        {t("chat.queueHint")}
+      </div>
+    </section>
+  )
+}
+
 function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; height?: number }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
   const [sizeRevision, setSizeRevision] = React.useState(0)
@@ -2084,9 +2183,12 @@ export function ChatArea({
   disabled,
   initialSendPending,
   providers,
+  queuedMessages,
   placeholder,
   onSend,
   onStop,
+  onQueuedMessageRemove,
+  onQueuedMessagesClear,
   onAuthorize,
   onArtifactsReset,
   onArtifactsOpen,
@@ -2236,7 +2338,7 @@ export function ChatArea({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
-    onSend(text, attachments, modelCatalog?.selected)
+    onSend(text, attachments.map(stripDraftAttachment), modelCatalog?.selected)
     revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
@@ -2592,6 +2694,9 @@ export function ChatArea({
       onSave={handleSaveModel}
     />
   )
+  const queuePanel = (
+    <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} onClear={onQueuedMessagesClear} />
+  )
 
   if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
     return (
@@ -2606,6 +2711,7 @@ export function ChatArea({
             <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
           </div>
           {errorBanner}
+          {queuePanel}
           {promptInput}
           {modelDialog}
         </div>
@@ -2653,6 +2759,7 @@ export function ChatArea({
           )}
         >
           {errorBanner}
+          {queuePanel}
           {promptInput}
           {modelDialog}
         </div>

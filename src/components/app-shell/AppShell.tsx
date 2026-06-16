@@ -1162,7 +1162,8 @@ export function AppShell() {
   const handleOpenSearch = (): void => setSearchOpen(true)
   const handleRenameSession = (sessionId: string, title: string): void => {
     void rename(sessionId, title).catch((cause: unknown) => {
-      toast.error(t("session.renameFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+      console.error("[lumo] rename session failed", cause)
+      toast.error(t("session.renameFailed"))
     })
   }
   const handleArtifactsReset = React.useCallback(() => {

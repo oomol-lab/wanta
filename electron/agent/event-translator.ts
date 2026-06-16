@@ -37,6 +37,19 @@ interface OpencodeEvent {
   properties?: Record<string, unknown>
 }
 
+interface OpencodeError {
+  name?: string
+  data?: {
+    message?: string
+    statusCode?: number
+    code?: string
+  }
+}
+
+function isOpencodeError(value: unknown): value is OpencodeError {
+  return Boolean(value && typeof value === "object")
+}
+
 /** 若工具输出是 call_action 的结构化授权信号，解析出授权信息。 */
 export function parseAuthorization(output: string | undefined): AuthorizationInfo | null {
   if (!output) {
@@ -63,22 +76,39 @@ export function parseAuthorization(output: string | undefined): AuthorizationInf
 }
 
 function errorMessage(error: unknown): string {
-  if (!error || typeof error !== "object") {
+  if (!isOpencodeError(error)) {
     return "Agent error"
   }
-  const e = error as { name?: string; data?: { message?: string } }
-  return e.data?.message ?? e.name ?? "Agent error"
+  return error.data?.message ?? error.name ?? "Agent error"
+}
+
+function messageErrorPart(error: OpencodeError | undefined): ChatMessagePart | undefined {
+  if (!error || error.name === "MessageAbortedError") {
+    return undefined
+  }
+  const message = errorMessage(error)
+  return {
+    kind: "error",
+    partId: `message-error-${error.name ?? "unknown"}`,
+    errorText: message,
+  }
 }
 
 export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
   const props = event.properties ?? {}
   switch (event.type) {
     case "message.updated": {
-      const info = props.info as { id?: string; sessionID?: string; role?: ChatRole } | undefined
+      const info = props.info as { id?: string; sessionID?: string; role?: ChatRole; error?: unknown } | undefined
       if (!info?.id || !info.sessionID || !info.role) {
         return []
       }
-      return [{ event: "messageStarted", data: { sessionId: info.sessionID, messageId: info.id, role: info.role } }]
+      const emits: ChatEmit[] = [
+        { event: "messageStarted", data: { sessionId: info.sessionID, messageId: info.id, role: info.role } },
+      ]
+      if (info.role === "assistant" && info.error) {
+        emits.push({ event: "agentError", data: { sessionId: info.sessionID, message: errorMessage(info.error) } })
+      }
+      return emits
     }
     case "message.part.updated": {
       const part = props.part as OpencodePart | undefined
@@ -136,9 +166,11 @@ interface OpencodePart {
 }
 
 function toolContext(state: NonNullable<OpencodePart["state"]>) {
+  const description = typeof state.input?.description === "string" ? state.input.description : undefined
+  const title = state.title ?? description
   return {
     input: state.input ?? {},
-    ...(state.title ? { title: state.title } : {}),
+    ...(title ? { title } : {}),
     ...(state.metadata ? { metadata: state.metadata } : {}),
     ...(state.time ? { timing: { start: state.time.start, end: state.time.end } } : {}),
     ...(Array.isArray(state.attachments) ? { attachmentsCount: state.attachments.length } : {}),
@@ -264,7 +296,9 @@ function attachmentPart(part: OpencodePart): ChatMessagePart {
 
 /** 把 OpenCode 的 message {info, parts} 规范化为 ChatMessage（切换会话加载历史用）。 */
 export function normalizeMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
-  const info = message.info as { id?: string; role?: ChatRole; time?: { created?: number } } | undefined
+  const info = message.info as
+    | { id?: string; role?: ChatRole; time?: { created?: number }; error?: unknown }
+    | undefined
   if (!info?.id || !info.role) {
     return null
   }
@@ -297,7 +331,7 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         input: state.input ?? {},
         output: state.output,
         error: state.error,
-        title: state.title,
+        title: state.title ?? (typeof state.input?.description === "string" ? state.input.description : undefined),
         metadata: state.metadata,
         timing: state.time ? { start: state.time.start, end: state.time.end } : undefined,
         attachmentsCount: Array.isArray(state.attachments) ? state.attachments.length : undefined,
@@ -309,6 +343,12 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         }
       }
       parts.push(tool)
+    }
+  }
+  if (info.role === "assistant" && isOpencodeError(info.error)) {
+    const part = messageErrorPart(info.error)
+    if (part) {
+      parts.push(part)
     }
   }
   return { id: info.id, role: info.role, parts, createdAt: info.time?.created ?? 0 }

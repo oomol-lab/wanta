@@ -1,6 +1,7 @@
 import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { PendingChatTransition } from "./pending-chat.ts"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
@@ -28,6 +29,7 @@ import {
   shouldAutoRefreshSessionTitle,
   trimTitleToColumns,
 } from "../../../electron/session/title.ts"
+import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
@@ -68,14 +70,6 @@ const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
-
-interface PendingChatTransition {
-  sessionId: string | null
-  text: string
-  attachments: ChatAttachment[]
-  model?: ModelChoice
-  createdAt: number
-}
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
@@ -121,22 +115,6 @@ function chatMessageText(message: ChatMessage): string {
     .filter((part) => part.kind === "text")
     .map((part) => part.text ?? "")
     .join("")
-}
-
-function hasAssistantContent(messages: ChatMessage[]): boolean {
-  return messages.some(
-    (message) =>
-      message.role === "assistant" &&
-      !message.id.startsWith("local-assistant-") &&
-      message.parts.some(
-        (part) =>
-          part.kind === "tool" ||
-          part.kind === "attachment" ||
-          part.kind === "error" ||
-          (part.kind === "reasoning" && Boolean(part.text?.trim())) ||
-          (part.kind === "text" && Boolean(part.text?.trim())),
-      ),
-  )
 }
 
 function normalizeSearchText(value: string): string {
@@ -889,11 +867,7 @@ export function AppShell() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
-  const pendingCaughtUp = Boolean(
-    pendingChatTransition?.sessionId &&
-    activeSessionId === pendingChatTransition.sessionId &&
-    hasAssistantContent(messages),
-  )
+  const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending

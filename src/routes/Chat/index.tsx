@@ -1772,7 +1772,6 @@ export function ChatArea({
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
-  const deferredSubmitClearRef = React.useRef<DraftAttachment[] | null>(null)
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const voiceRecorder = useVoiceRecorder()
@@ -1822,18 +1821,6 @@ export function ChatArea({
   }, [attachments])
 
   React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
-
-  React.useEffect(() => {
-    const deferredAttachments = deferredSubmitClearRef.current
-    if (initialSendPending || !deferredAttachments) {
-      return
-    }
-    deferredSubmitClearRef.current = null
-    revokeAttachmentPreviewUrls(deferredAttachments)
-    setDraft("")
-    setAttachments([])
-    setInputError(null)
-  }, [initialSendPending])
 
   React.useEffect(() => {
     onArtifactsReset()
@@ -1921,13 +1908,7 @@ export function ChatArea({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
-    const deferClear = !hasMessages
     onSend(text, attachments, modelCatalog?.selected)
-    if (deferClear) {
-      deferredSubmitClearRef.current = attachments
-      setInputError(null)
-      return
-    }
     revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])

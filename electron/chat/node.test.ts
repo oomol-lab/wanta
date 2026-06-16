@@ -160,3 +160,12 @@ test("resolveLocalArtifacts resolves an explicit artifact root without scanning 
     ["fresh.png"],
   )
 })
+
+test("resolveLocalArtifacts ignores broad directories extracted from assistant text", async () => {
+  const service = new ChatServiceImpl(null)
+  const result = await service.resolveLocalArtifacts({
+    text: "The path separator is `/`, and CI/CD is green.",
+  })
+
+  assert.deepEqual(result.groups, [])
+})

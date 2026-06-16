@@ -35,6 +35,14 @@ export interface MessageDeltaEvent {
   /** OpenCode 流式增量；某些 provider 在最终事件前不会持续更新 text。 */
   delta?: string
 }
+export interface MessageReasoningDeltaEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+  /** OpenCode 暴露的 reasoning/processing part 当前累计内容。 */
+  text: string
+  delta?: string
+}
 export interface MessageAttachmentEvent {
   sessionId: string
   messageId: string
@@ -45,6 +53,16 @@ export interface MessageArtifactsEvent {
   sessionId: string
   messageId: string
   artifactRoot: string
+}
+export type AssistantActivityPhase = "thinking" | "finalizing" | "retrying"
+
+export interface AssistantActivityEvent {
+  sessionId: string
+  messageId?: string
+  phase: AssistantActivityPhase
+  message?: string
+  attempt?: number
+  nextRetryAt?: number
 }
 export interface ToolCallStartedEvent {
   sessionId: string
@@ -83,6 +101,11 @@ export interface AuthorizationRequiredEvent {
 export interface MessageCompletedEvent {
   sessionId: string
 }
+export interface MessagePartRemovedEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+}
 export interface MessageErrorEvent {
   sessionId: string
   messageId?: string
@@ -101,7 +124,7 @@ export interface AgentErrorEvent {
 
 // ── 规范化消息（切换会话时加载历史用）──
 export interface ChatMessagePart {
-  kind: "text" | "tool" | "attachment" | "error"
+  kind: "text" | "reasoning" | "tool" | "attachment" | "error"
   partId: string
   text?: string
   errorText?: string
@@ -308,12 +331,15 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   ServerEvents: {
     messageStarted: MessageStartedEvent
     messageDelta: MessageDeltaEvent
+    messageReasoningDelta: MessageReasoningDeltaEvent
     messageAttachment: MessageAttachmentEvent
     messageArtifacts: MessageArtifactsEvent
+    assistantActivity: AssistantActivityEvent
     toolCallStarted: ToolCallStartedEvent
     toolCallResult: ToolCallResultEvent
     authorizationRequired: AuthorizationRequiredEvent
     messageCompleted: MessageCompletedEvent
+    messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
     agentError: AgentErrorEvent

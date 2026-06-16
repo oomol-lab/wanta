@@ -10,6 +10,44 @@ test("message.updated → messageStarted with role", () => {
   assert.deepEqual(out, [{ event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant" } }])
 })
 
+test("message.updated with assistant error emits agentError after messageStarted", () => {
+  const out = translateOpencodeEvent({
+    type: "message.updated",
+    properties: {
+      info: {
+        id: "m1",
+        sessionID: "s1",
+        role: "assistant",
+        error: {
+          name: "APIError",
+          data: { message: "Payment Required: account is in deficit", statusCode: 402 },
+        },
+      },
+    },
+  })
+
+  assert.deepEqual(out, [
+    { event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant" } },
+    { event: "agentError", data: { sessionId: "s1", message: "Payment Required: account is in deficit" } },
+  ])
+})
+
+test("message.updated with assistant abort skips agentError", () => {
+  const out = translateOpencodeEvent({
+    type: "message.updated",
+    properties: {
+      info: {
+        id: "m1",
+        sessionID: "s1",
+        role: "assistant",
+        error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+      },
+    },
+  })
+
+  assert.deepEqual(out, [{ event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant" } }])
+})
+
 test("text part.updated → messageDelta carrying cumulative text", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -27,6 +65,63 @@ test("text part.updated forwards streaming delta when cumulative text is unavail
   })
   assert.deepEqual(out, [
     { event: "messageDelta", data: { sessionId: "s1", messageId: "m1", partId: "p1", text: "", delta: "Hi" } },
+  ])
+})
+
+test("reasoning part.updated → messageReasoningDelta", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "r1", sessionID: "s1", messageID: "m1", type: "reasoning", text: "Need to inspect files" },
+    },
+  })
+  assert.deepEqual(out, [
+    {
+      event: "messageReasoningDelta",
+      data: { sessionId: "s1", messageId: "m1", partId: "r1", text: "Need to inspect files" },
+    },
+  ])
+})
+
+test("step parts update assistant activity without creating visible message parts", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.part.updated",
+      properties: { part: { id: "step-1", sessionID: "s1", messageID: "m1", type: "step-start" } },
+    }),
+    [{ event: "assistantActivity", data: { sessionId: "s1", messageId: "m1", phase: "thinking" } }],
+  )
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.part.updated",
+      properties: {
+        part: { id: "step-2", sessionID: "s1", messageID: "m1", type: "step-finish", reason: "tool-calls" },
+      },
+    }),
+    [{ event: "assistantActivity", data: { sessionId: "s1", messageId: "m1", phase: "finalizing" } }],
+  )
+})
+
+test("retry signals update assistant activity", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "retry-1",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "retry",
+        attempt: 2,
+        error: { name: "APIError", data: { message: "upstream timeout" } },
+      },
+    },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "assistantActivity",
+      data: { sessionId: "s1", messageId: "m1", phase: "retrying", message: "upstream timeout", attempt: 2 },
+    },
   ])
 })
 
@@ -125,6 +220,41 @@ test("tool events preserve title, metadata and timing for renderer summaries", (
   })
 })
 
+test("tool events use input description as title fallback", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "p2",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "tool",
+        callID: "c1",
+        tool: "bash",
+        state: {
+          status: "running",
+          input: { command: "curl wttr.in/Hangzhou", description: "获取杭州天气" },
+          time: { start: 100 },
+        },
+      },
+    },
+  })
+
+  assert.equal(out.length, 1)
+  assert.equal(out[0].event, "toolCallStarted")
+  assert.deepEqual(out[0].data, {
+    sessionId: "s1",
+    messageId: "m1",
+    partId: "p2",
+    callId: "c1",
+    tool: "bash",
+    input: { command: "curl wttr.in/Hangzhou", description: "获取杭州天气" },
+    status: "running",
+    title: "获取杭州天气",
+    timing: { start: 100, end: undefined },
+  })
+})
+
 test("call_action completed with auth output → toolCallResult + authorizationRequired", () => {
   const output = JSON.stringify({
     status: "authorization_required",
@@ -152,6 +282,29 @@ test("call_action completed with auth output → toolCallResult + authorizationR
   assert.equal((out[1].data as { service: string }).service, "slack")
 })
 
+test("message.part.removed → messagePartRemoved", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.removed",
+    properties: { sessionID: "s1", messageID: "m1", partID: "p1" },
+  })
+
+  assert.deepEqual(out, [{ event: "messagePartRemoved", data: { sessionId: "s1", messageId: "m1", partId: "p1" } }])
+})
+
+test("session.status retry → assistantActivity", () => {
+  const out = translateOpencodeEvent({
+    type: "session.status",
+    properties: { sessionID: "s1", status: { type: "retry", attempt: 3, message: "rate limited", next: 1000 } },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "assistantActivity",
+      data: { sessionId: "s1", phase: "retrying", message: "rate limited", attempt: 3, nextRetryAt: 1000 },
+    },
+  ])
+})
+
 test("session.idle → messageCompleted; session.error → agentError", () => {
   assert.deepEqual(translateOpencodeEvent({ type: "session.idle", properties: { sessionID: "s1" } }), [
     { event: "messageCompleted", data: { sessionId: "s1" } },
@@ -162,6 +315,15 @@ test("session.idle → messageCompleted; session.error → agentError", () => {
   })
   assert.equal(err[0].event, "agentError")
   assert.equal((err[0].data as { message: string }).message, "boom")
+})
+
+test("session.error skips message aborts", () => {
+  const out = translateOpencodeEvent({
+    type: "session.error",
+    properties: { sessionID: "s1", error: { name: "MessageAbortedError", data: { message: "Aborted" } } },
+  })
+
+  assert.deepEqual(out, [])
 })
 
 test("parseAuthorization accepts auth json, rejects plain results", () => {
@@ -204,11 +366,12 @@ test("normalizeMessage marks directory attachments from inode mime", () => {
   ])
 })
 
-test("normalizeMessage builds ChatMessage with text + tool parts in order", () => {
+test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in order", () => {
   const msg = normalizeMessage({
     info: { id: "m1", role: "assistant", time: { created: 123 } },
     parts: [
       { id: "p1", type: "text", text: "Result:" },
+      { id: "r1", type: "reasoning", text: "Checked local context" },
       {
         id: "p2",
         type: "tool",
@@ -222,7 +385,48 @@ test("normalizeMessage builds ChatMessage with text + tool parts in order", () =
   assert.ok(msg)
   assert.equal(msg.id, "m1")
   assert.equal(msg.role, "assistant")
-  assert.equal(msg.parts.length, 2)
+  assert.equal(msg.parts.length, 3)
   assert.equal(msg.parts[0].kind, "text")
-  assert.equal(msg.parts[1].kind, "tool")
+  assert.equal(msg.parts[1].kind, "reasoning")
+  assert.equal(msg.parts[2].kind, "tool")
+})
+
+test("normalizeMessage appends assistant message-level errors", () => {
+  const msg = normalizeMessage({
+    info: {
+      id: "m1",
+      role: "assistant",
+      time: { created: 123 },
+      error: {
+        name: "APIError",
+        data: { message: "Payment Required: account is in deficit", statusCode: 402 },
+      },
+    },
+    parts: [{ id: "p1", type: "text", text: "Partial answer" }],
+  })
+
+  assert.ok(msg)
+  assert.deepEqual(msg.parts, [
+    { kind: "text", partId: "p1", text: "Partial answer" },
+    {
+      kind: "error",
+      partId: "message-error-APIError",
+      errorText: "Payment Required: account is in deficit",
+    },
+  ])
+})
+
+test("normalizeMessage skips aborted message-level errors for stopped history", () => {
+  const msg = normalizeMessage({
+    info: {
+      id: "m1",
+      role: "assistant",
+      time: { created: 123 },
+      error: { name: "MessageAbortedError", data: { message: "Aborted" } },
+    },
+    parts: [{ id: "p1", type: "text", text: "Partial answer" }],
+  })
+
+  assert.ok(msg)
+  assert.deepEqual(msg.parts, [{ kind: "text", partId: "p1", text: "Partial answer" }])
 })

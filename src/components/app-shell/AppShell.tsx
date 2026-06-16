@@ -1,10 +1,12 @@
 import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { PendingChatTransition } from "./pending-chat.ts"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  Download,
   LogOut,
   LoaderCircle,
   MessageSquarePlus,
@@ -14,6 +16,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plug,
+  RefreshCw,
   Search,
   Settings,
   SquarePen,
@@ -26,6 +29,7 @@ import {
   shouldAutoRefreshSessionTitle,
   trimTitleToColumns,
 } from "../../../electron/session/title.ts"
+import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
@@ -40,6 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
@@ -65,14 +70,6 @@ const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
-
-interface PendingChatTransition {
-  sessionId: string | null
-  text: string
-  attachments: ChatAttachment[]
-  model?: ModelChoice
-  createdAt: number
-}
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
@@ -118,21 +115,6 @@ function chatMessageText(message: ChatMessage): string {
     .filter((part) => part.kind === "text")
     .map((part) => part.text ?? "")
     .join("")
-}
-
-function hasAssistantContent(messages: ChatMessage[]): boolean {
-  return messages.some(
-    (message) =>
-      message.role === "assistant" &&
-      !message.id.startsWith("local-assistant-") &&
-      message.parts.some(
-        (part) =>
-          part.kind === "tool" ||
-          part.kind === "attachment" ||
-          part.kind === "error" ||
-          (part.kind === "text" && Boolean(part.text?.trim())),
-      ),
-  )
 }
 
 function normalizeSearchText(value: string): string {
@@ -694,6 +676,78 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   )
 }
 
+function AppUpdateTitlebarEntry() {
+  const t = useT()
+  const update = useAppUpdate()
+  const state = update.state
+
+  if (!state?.isPackaged) {
+    return null
+  }
+
+  switch (state.status.status) {
+    case "available": {
+      const label = t("nav.updateDownload")
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          aria-label={label}
+          disabled={update.isDownloadInFlight}
+          onClick={() => void update.download()}
+        >
+          {update.isDownloadInFlight ? (
+            <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <Download className="size-3.5 shrink-0" />
+          )}
+          <span className="truncate">{label}</span>
+        </Button>
+      )
+    }
+    case "downloading": {
+      const percent = Math.round(state.status.percent ?? 0)
+      const label = t("nav.updateDownloading", { percent })
+      return (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          aria-label={label}
+          disabled
+        >
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+          <span className="truncate">{label}</span>
+        </Button>
+      )
+    }
+    case "downloaded": {
+      const label = t("nav.restartToUpdate")
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          aria-label={label}
+          disabled={update.isInstallTriggered}
+          onClick={() => void update.install()}
+        >
+          {update.isInstallTriggered ? (
+            <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <RefreshCw className="size-3.5 shrink-0" />
+          )}
+          <span className="truncate">{label}</span>
+        </Button>
+      )
+    }
+    default:
+      return null
+  }
+}
+
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
@@ -716,7 +770,7 @@ export function AppShell() {
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
 
-  const { messages, status, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
+  const { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
     activeSessionId,
     route === "chat" ? activeSessionId : null,
   )
@@ -813,11 +867,7 @@ export function AppShell() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
-  const pendingCaughtUp = Boolean(
-    pendingChatTransition?.sessionId &&
-    activeSessionId === pendingChatTransition.sessionId &&
-    hasAssistantContent(messages),
-  )
+  const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending
@@ -1350,6 +1400,7 @@ export function AppShell() {
               />
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+              <AppUpdateTitlebarEntry />
               <BillingUsagePopover cacheScope={billingCacheScope} onViewDetails={() => setRoute("billing")} />
               {showArtifactsToggle ? (
                 <button
@@ -1382,6 +1433,7 @@ export function AppShell() {
                   billingCacheScope={billingCacheScope}
                   messages={initialSendPending ? [] : messages}
                   status={displayedStatus}
+                  activity={initialSendPending ? null : activity}
                   showEmptyState={showChatEmptyState}
                   error={error}
                   disabled={!ready}

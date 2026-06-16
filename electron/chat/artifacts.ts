@@ -63,9 +63,19 @@ function stripCandidate(value: string): string {
   return next
 }
 
+function isRootOnlyCandidate(value: string): boolean {
+  const candidate = stripCandidate(value)
+  return (
+    /^\/+$/.test(candidate) ||
+    /^~[\\/]*$/.test(candidate) ||
+    /^[A-Za-z]:[\\/]*$/.test(candidate) ||
+    /^file:\/\/\/?$/i.test(candidate)
+  )
+}
+
 function pushCandidate(candidates: string[], value: string): void {
   const candidate = stripCandidate(value)
-  if (!candidate || candidates.includes(candidate)) {
+  if (!candidate || isRootOnlyCandidate(candidate) || candidates.includes(candidate)) {
     return
   }
   candidates.push(candidate)
@@ -82,29 +92,81 @@ export function extractLocalPathCandidates(text: string): string[] {
   }
 
   const plainPattern =
-    /(?:file:\/\/[^\s<>"'`，。；：、]+|[A-Za-z]:[\\/][^<>"'`，。；：、\r\n]*\.[A-Za-z0-9]{1,16}(?=$|[\s<>"'`，。；：、,;:!?.)])|[A-Za-z]:[\\/][^\s<>"'`，。；：、]+|~?\/[^\s<>"'`，。；：、]+)/g
+    /(?<![A-Za-z0-9_:/\\.-])(?:file:\/\/[^\s<>"'`，。；：、]+|[A-Za-z]:[\\/][^<>"'`，。；：、\r\n]*\.[A-Za-z0-9]{1,16}(?=$|[\s<>"'`，。；：、,;:!?.)])|[A-Za-z]:[\\/][^\s<>"'`，。；：、]+|~?\/[^\s<>"'`，。；：、]+)/g
   for (const match of text.matchAll(plainPattern)) {
     pushCandidate(candidates, match[0])
   }
   return candidates
 }
 
+function isRootLocalPath(filePath: string): boolean {
+  if (/^[A-Za-z]:[\\/]*$/.test(filePath)) {
+    return true
+  }
+  const resolved = path.resolve(filePath)
+  return resolved === path.parse(resolved).root
+}
+
 export function normalizeLocalPathCandidate(candidate: string, homeDir: string): string | null {
+  if (isRootOnlyCandidate(candidate)) {
+    return null
+  }
   if (candidate.startsWith("file://")) {
     try {
-      return fileURLToPath(candidate)
+      const filePath = fileURLToPath(candidate)
+      return isRootLocalPath(filePath) ? null : filePath
     } catch {
       return null
     }
   }
   if (candidate === "~") {
-    return homeDir
+    return null
   }
   if (candidate.startsWith("~/") || candidate.startsWith("~\\")) {
-    return path.join(homeDir, candidate.slice(2))
+    const filePath = path.join(homeDir, candidate.slice(2))
+    return isRootLocalPath(filePath) ? null : filePath
   }
   if (path.isAbsolute(candidate) || /^[A-Za-z]:[\\/]/.test(candidate)) {
-    return candidate
+    return isRootLocalPath(candidate) ? null : candidate
   }
   return null
+}
+
+function withoutTrailingPathSeparators(filePath: string): string {
+  const resolved = path.resolve(filePath)
+  const root = path.parse(resolved).root
+  if (resolved === root) {
+    return resolved
+  }
+  return resolved.replace(/[\\/]+$/, "")
+}
+
+const broadPosixArtifactPaths = new Set([
+  "/Applications",
+  "/Library",
+  "/System",
+  "/Users",
+  "/Volumes",
+  "/bin",
+  "/cores",
+  "/dev",
+  "/etc",
+  "/home",
+  "/opt",
+  "/private",
+  "/sbin",
+  "/tmp",
+  "/usr",
+  "/var",
+])
+
+export function isBroadLocalArtifactPath(filePath: string, homeDir: string): boolean {
+  if (isRootLocalPath(filePath)) {
+    return true
+  }
+  const normalized = withoutTrailingPathSeparators(filePath)
+  if (broadPosixArtifactPaths.has(normalized)) {
+    return true
+  }
+  return normalized.toLowerCase() === withoutTrailingPathSeparators(homeDir).toLowerCase()
 }

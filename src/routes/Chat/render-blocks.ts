@@ -6,7 +6,7 @@ export type RenderBlock =
   | { kind: "tools"; key: string; parts: ChatMessagePart[] }
 
 export function isRenderablePart(part: ChatMessagePart): boolean {
-  return part.kind === "tool" || part.kind === "error" || Boolean(part.text?.trim())
+  return part.kind === "tool" || part.kind === "error" || (part.kind === "text" && Boolean(part.text?.trim()))
 }
 
 export function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
@@ -30,7 +30,7 @@ export function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
     flushTools()
     if (part.kind === "error") {
       blocks.push({ kind: "error", part })
-    } else {
+    } else if (part.kind === "text") {
       blocks.push({ kind: "text", part })
     }
   }

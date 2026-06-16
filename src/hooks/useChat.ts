@@ -1,4 +1,5 @@
 import type {
+  AssistantActivityEvent,
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
@@ -7,6 +8,8 @@ import type {
   MessageArtifactsEvent,
   MessageDeltaEvent,
   MessageErrorEvent,
+  MessagePartRemovedEvent,
+  MessageReasoningDeltaEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
@@ -77,6 +80,14 @@ export function ensureMessage(msgs: ChatMessage[], id: string, role: ChatRole): 
 function setPart(msgs: ChatMessage[], messageId: string, part: ChatMessagePart): ChatMessage[] {
   const ensured = ensureMessage(msgs, messageId, "assistant")
   return ensured.map((m) => (m.id === messageId ? { ...m, parts: upsertPart(m.parts, part) } : m))
+}
+
+function removePart(msgs: ChatMessage[], event: MessagePartRemovedEvent): ChatMessage[] {
+  return msgs.map((message) =>
+    message.id === event.messageId
+      ? { ...message, parts: message.parts.filter((part) => part.partId !== event.partId) }
+      : message,
+  )
 }
 
 function latestAssistantMessageId(msgs: ChatMessage[]): string | null {
@@ -157,6 +168,19 @@ function setTextPart(msgs: ChatMessage[], event: MessageDeltaEvent): ChatMessage
     const currentText = existing?.kind === "text" ? (existing.text ?? "") : ""
     const text = event.text || (event.delta ? currentText + event.delta : currentText)
     return { ...message, parts: upsertPart(parts, { kind: "text", partId: event.partId, text }) }
+  })
+}
+
+function setReasoningPart(msgs: ChatMessage[], event: MessageReasoningDeltaEvent): ChatMessage[] {
+  const ensured = ensureMessage(msgs, event.messageId, "assistant")
+  return ensured.map((message) => {
+    if (message.id !== event.messageId) {
+      return message
+    }
+    const existing = message.parts.find((part) => part.partId === event.partId)
+    const currentText = existing?.kind === "reasoning" ? (existing.text ?? "") : ""
+    const text = event.text || (event.delta ? currentText + event.delta : currentText)
+    return { ...message, parts: upsertPart(message.parts, { kind: "reasoning", partId: event.partId, text }) }
   })
 }
 
@@ -328,6 +352,7 @@ function preserveLocalErrorParts(
 export interface UseChat {
   messages: ChatMessage[]
   status: ChatStatus
+  activity: AssistantActivityEvent | null
   messagesLoaded: boolean
   error: string | null
   getSessionStatus: (sessionId: string) => ChatStatus
@@ -365,6 +390,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const chatService = useChatService()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
+  const [activities, setActivities] = React.useState<Record<string, AssistantActivityEvent | undefined>>({})
   const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
   const [error, setError] = React.useState<string | null>(null)
   const visibleSessionIdRef = React.useRef<string | null>(visibleSessionId)
@@ -457,11 +483,24 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         patch(e.sessionId, (msgs) => ensureMessage(msgs, e.messageId, e.role))
         if (e.role === "assistant") {
           setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+          setActivities((current) => ({
+            ...current,
+            [e.sessionId]: { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" },
+          }))
         }
       }),
       chatService.serverEvents.on("messageDelta", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         patch(e.sessionId, (msgs) => setTextPart(msgs, e))
+      }),
+      chatService.serverEvents.on("messageReasoningDelta", (e) => {
+        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+        setActivities((current) => ({
+          ...current,
+          [e.sessionId]: { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" },
+        }))
+        patch(e.sessionId, (msgs) => setReasoningPart(msgs, e))
       }),
       chatService.serverEvents.on("messageAttachment", (e) => {
         patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
@@ -471,6 +510,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         patch(e.sessionId, (msgs) =>
           setPart(msgs, e.messageId, {
             kind: "tool",
@@ -488,6 +528,12 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("toolCallResult", (e) => {
         const cancelled = e.status === "error" && isSessionUserStopped(e.sessionId)
         setStatuses((s) => ({ ...s, [e.sessionId]: cancelled ? "ready" : "streaming" }))
+        if (!cancelled) {
+          setActivities((current) => ({
+            ...current,
+            [e.sessionId]: { sessionId: e.sessionId, messageId: e.messageId, phase: "finalizing" },
+          }))
+        }
         if (cancelled) {
           rememberCancelledToolParts(e.sessionId, [e.partId])
         }
@@ -509,18 +555,28 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           }),
         )
       }),
+      chatService.serverEvents.on("assistantActivity", (e) => {
+        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+        setActivities((current) => ({ ...current, [e.sessionId]: e }))
+      }),
+      chatService.serverEvents.on("messagePartRemoved", (e) => {
+        patch(e.sessionId, (msgs) => removePart(msgs, e))
+      }),
       chatService.serverEvents.on("messageCompleted", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
+        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         setUnreadSessionIds((current) => markSessionCompletedUnread(current, e.sessionId, visibleSessionIdRef.current))
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("messageError", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "error" }))
+        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         setError(null)
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
       chatService.serverEvents.on("generationStopped", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
+        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         setError(null)
         markCurrentToolsCancelled(e.sessionId)
         void reload(e.sessionId)
@@ -528,6 +584,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("agentError", (e) => {
         if (e.sessionId) {
           setStatuses((s) => ({ ...s, [e.sessionId!]: "error" }))
+          setActivities((current) => ({ ...current, [e.sessionId!]: undefined }))
         }
         setError(e.message)
       }),
@@ -556,6 +613,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
       setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
+      setActivities((current) => ({ ...current, [sessionId]: { sessionId, phase: "thinking" } }))
       patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments))
       try {
         await chatService.invoke("sendMessage", {
@@ -566,6 +624,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         })
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))
+        setActivities((current) => ({ ...current, [sessionId]: undefined }))
         setError(null)
         patch(sessionId, (msgs) =>
           setErrorPart(msgs, {
@@ -587,8 +646,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       try {
         await chatService.invoke("stopGeneration", sessionId)
         setStatuses((s) => ({ ...s, [sessionId]: "ready" }))
+        setActivities((current) => ({ ...current, [sessionId]: undefined }))
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))
+        setActivities((current) => ({ ...current, [sessionId]: undefined }))
         setError(String(err))
       }
     },
@@ -597,6 +658,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? []) : []
   const status = activeSessionId ? (statuses[activeSessionId] ?? "ready") : "ready"
+  const activity = activeSessionId ? (activities[activeSessionId] ?? null) : null
   const messagesLoaded = activeSessionId ? Object.hasOwn(messagesMap, activeSessionId) : true
   const getSessionStatus = React.useCallback(
     (sessionId: string): ChatStatus => statuses[sessionId] ?? "ready",
@@ -606,5 +668,5 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     (sessionId: string): boolean => unreadSessionIds.has(sessionId),
     [unreadSessionIds],
   )
-  return { messages, status, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop }
+  return { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop }
 }

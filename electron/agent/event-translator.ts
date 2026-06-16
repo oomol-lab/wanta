@@ -1,11 +1,14 @@
 import type {
   AuthorizationInfo,
+  AssistantActivityEvent,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
   MessageAttachmentEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
+  MessagePartRemovedEvent,
+  MessageReasoningDeltaEvent,
   MessageStartedEvent,
   ToolCallResultEvent,
   ToolCallStartedEvent,
@@ -18,11 +21,14 @@ import type {
 export type ChatEmit =
   | { event: "messageStarted"; data: MessageStartedEvent }
   | { event: "messageDelta"; data: MessageDeltaEvent }
+  | { event: "messageReasoningDelta"; data: MessageReasoningDeltaEvent }
   | { event: "messageAttachment"; data: MessageAttachmentEvent }
+  | { event: "assistantActivity"; data: AssistantActivityEvent }
   | { event: "toolCallStarted"; data: ToolCallStartedEvent }
   | { event: "toolCallResult"; data: ToolCallResultEvent }
   | { event: "authorizationRequired"; data: AuthorizationRequiredEmit }
   | { event: "messageCompleted"; data: MessageCompletedEvent }
+  | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
   | { event: "agentError"; data: { sessionId?: string; message: string } }
 
 interface AuthorizationRequiredEmit extends AuthorizationInfo {
@@ -33,6 +39,27 @@ interface AuthorizationRequiredEmit extends AuthorizationInfo {
 interface OpencodeEvent {
   type: string
   properties?: Record<string, unknown>
+}
+
+interface OpencodeError {
+  name?: string
+  data?: {
+    message?: string
+    statusCode?: number
+    code?: string
+  }
+}
+
+function isOpencodeError(value: unknown): value is OpencodeError {
+  if (!value || typeof value !== "object") {
+    return false
+  }
+  const error = value as OpencodeError
+  return typeof error.name === "string" || Boolean(error.data && typeof error.data === "object")
+}
+
+function isMessageAbortedError(error: unknown): boolean {
+  return isOpencodeError(error) && error.name === "MessageAbortedError"
 }
 
 /** 若工具输出是 call_action 的结构化授权信号，解析出授权信息。 */
@@ -61,22 +88,39 @@ export function parseAuthorization(output: string | undefined): AuthorizationInf
 }
 
 function errorMessage(error: unknown): string {
-  if (!error || typeof error !== "object") {
+  if (!isOpencodeError(error)) {
     return "Agent error"
   }
-  const e = error as { name?: string; data?: { message?: string } }
-  return e.data?.message ?? e.name ?? "Agent error"
+  return error.data?.message ?? error.name ?? "Agent error"
+}
+
+function messageErrorPart(error: unknown): ChatMessagePart | undefined {
+  if (!isOpencodeError(error) || isMessageAbortedError(error)) {
+    return undefined
+  }
+  const message = errorMessage(error)
+  return {
+    kind: "error",
+    partId: `message-error-${error.name ?? "unknown"}`,
+    errorText: message,
+  }
 }
 
 export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
   const props = event.properties ?? {}
   switch (event.type) {
     case "message.updated": {
-      const info = props.info as { id?: string; sessionID?: string; role?: ChatRole } | undefined
+      const info = props.info as { id?: string; sessionID?: string; role?: ChatRole; error?: unknown } | undefined
       if (!info?.id || !info.sessionID || !info.role) {
         return []
       }
-      return [{ event: "messageStarted", data: { sessionId: info.sessionID, messageId: info.id, role: info.role } }]
+      const emits: ChatEmit[] = [
+        { event: "messageStarted", data: { sessionId: info.sessionID, messageId: info.id, role: info.role } },
+      ]
+      if (info.role === "assistant" && isOpencodeError(info.error) && !isMessageAbortedError(info.error)) {
+        emits.push({ event: "agentError", data: { sessionId: info.sessionID, message: errorMessage(info.error) } })
+      }
+      return emits
     }
     case "message.part.updated": {
       const part = props.part as OpencodePart | undefined
@@ -84,6 +128,39 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
         return []
       }
       return translatePart(part, typeof props.delta === "string" ? props.delta : undefined)
+    }
+    case "message.part.removed": {
+      const p = props as { sessionID?: string; messageID?: string; partID?: string }
+      if (!p.sessionID || !p.messageID || !p.partID) {
+        return []
+      }
+      return [
+        {
+          event: "messagePartRemoved",
+          data: { sessionId: p.sessionID, messageId: p.messageID, partId: p.partID },
+        },
+      ]
+    }
+    case "session.status": {
+      const p = props as {
+        sessionID?: string
+        status?: { type?: string; attempt?: number; message?: string; next?: number }
+      }
+      if (!p.sessionID || p.status?.type !== "retry") {
+        return []
+      }
+      return [
+        {
+          event: "assistantActivity",
+          data: {
+            sessionId: p.sessionID,
+            phase: "retrying",
+            message: p.status.message,
+            attempt: p.status.attempt,
+            nextRetryAt: p.status.next,
+          },
+        },
+      ]
     }
     case "session.idle": {
       const sessionID = (props as { sessionID?: string }).sessionID
@@ -94,6 +171,9 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
     }
     case "session.error": {
       const p = props as { sessionID?: string; error?: unknown }
+      if (isMessageAbortedError(p.error)) {
+        return []
+      }
       return [{ event: "agentError", data: { sessionId: p.sessionID, message: errorMessage(p.error) } }]
     }
     default:
@@ -131,12 +211,19 @@ interface OpencodePart {
     }
     attachments?: unknown[]
   }
+  attempt?: number
+  error?: unknown
+  time?: {
+    created?: number
+  }
 }
 
 function toolContext(state: NonNullable<OpencodePart["state"]>) {
+  const description = typeof state.input?.description === "string" ? state.input.description : undefined
+  const title = state.title ?? description
   return {
     input: state.input ?? {},
-    ...(state.title ? { title: state.title } : {}),
+    ...(title ? { title } : {}),
     ...(state.metadata ? { metadata: state.metadata } : {}),
     ...(state.time ? { timing: { start: state.time.start, end: state.time.end } } : {}),
     ...(Array.isArray(state.attachments) ? { attachmentsCount: state.attachments.length } : {}),
@@ -144,6 +231,36 @@ function toolContext(state: NonNullable<OpencodePart["state"]>) {
 }
 
 function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
+  if (part.type === "step-start") {
+    return [
+      {
+        event: "assistantActivity",
+        data: { sessionId: part.sessionID, messageId: part.messageID, phase: "thinking" },
+      },
+    ]
+  }
+  if (part.type === "step-finish") {
+    return [
+      {
+        event: "assistantActivity",
+        data: { sessionId: part.sessionID, messageId: part.messageID, phase: "finalizing" },
+      },
+    ]
+  }
+  if (part.type === "retry") {
+    return [
+      {
+        event: "assistantActivity",
+        data: {
+          sessionId: part.sessionID,
+          messageId: part.messageID,
+          phase: "retrying",
+          message: errorMessage(part.error),
+          attempt: part.attempt,
+        },
+      },
+    ]
+  }
   if (part.type === "text") {
     const data: MessageDeltaEvent = {
       sessionId: part.sessionID,
@@ -155,6 +272,21 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
     return [
       {
         event: "messageDelta",
+        data,
+      },
+    ]
+  }
+  if (part.type === "reasoning") {
+    const data: MessageReasoningDeltaEvent = {
+      sessionId: part.sessionID,
+      messageId: part.messageID,
+      partId: part.id,
+      text: part.text ?? "",
+      ...(delta === undefined ? {} : { delta }),
+    }
+    return [
+      {
+        event: "messageReasoningDelta",
         data,
       },
     ]
@@ -247,7 +379,9 @@ function attachmentPart(part: OpencodePart): ChatMessagePart {
 
 /** 把 OpenCode 的 message {info, parts} 规范化为 ChatMessage（切换会话加载历史用）。 */
 export function normalizeMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
-  const info = message.info as { id?: string; role?: ChatRole; time?: { created?: number } } | undefined
+  const info = message.info as
+    | { id?: string; role?: ChatRole; time?: { created?: number }; error?: unknown }
+    | undefined
   if (!info?.id || !info.role) {
     return null
   }
@@ -258,6 +392,11 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
       const text = part.text ?? ""
       if (text.length > 0) {
         parts.push({ kind: "text", partId: part.id, text })
+      }
+    } else if (part.type === "reasoning") {
+      const text = part.text ?? ""
+      if (text.length > 0) {
+        parts.push({ kind: "reasoning", partId: part.id, text })
       }
     } else if (part.type === "file") {
       const attachment = attachmentPart(part)
@@ -275,7 +414,7 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         input: state.input ?? {},
         output: state.output,
         error: state.error,
-        title: state.title,
+        title: state.title ?? (typeof state.input?.description === "string" ? state.input.description : undefined),
         metadata: state.metadata,
         timing: state.time ? { start: state.time.start, end: state.time.end } : undefined,
         attachmentsCount: Array.isArray(state.attachments) ? state.attachments.length : undefined,
@@ -287,6 +426,12 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         }
       }
       parts.push(tool)
+    }
+  }
+  if (info.role === "assistant") {
+    const part = messageErrorPart(info.error)
+    if (part) {
+      parts.push(part)
     }
   }
   return { id: info.id, role: info.role, parts, createdAt: info.time?.created ?? 0 }

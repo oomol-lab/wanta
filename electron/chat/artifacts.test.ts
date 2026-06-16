@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { extractLocalPathCandidates, normalizeLocalPathCandidate } from "./artifacts.ts"
+import { extractLocalPathCandidates, isBroadLocalArtifactPath, normalizeLocalPathCandidate } from "./artifacts.ts"
 
 describe("extractLocalPathCandidates", () => {
   it("extracts inline-code and plain macOS paths", () => {
@@ -27,6 +27,18 @@ describe("extractLocalPathCandidates", () => {
       "C:\\Program Files\\Lumo\\out file.png",
     ])
   })
+
+  it("rejects bare roots and slash-like prose fragments", () => {
+    expect(extractLocalPathCandidates("Use `/` as the separator")).toEqual([])
+    expect(extractLocalPathCandidates("Use ` / ` as the separator")).toEqual([])
+    expect(extractLocalPathCandidates("Check CI/CD status")).toEqual([])
+  })
+
+  it("keeps adjacent Chinese prose paths", () => {
+    expect(extractLocalPathCandidates("结果保存到/Users/wushuang/Desktop/out.png")).toEqual([
+      "/Users/wushuang/Desktop/out.png",
+    ])
+  })
 })
 
 describe("normalizeLocalPathCandidate", () => {
@@ -40,5 +52,30 @@ describe("normalizeLocalPathCandidate", () => {
   it("rejects non-local paths", () => {
     expect(normalizeLocalPathCandidate("https://example.com/file.png", "/Users/wushuang")).toBeNull()
     expect(normalizeLocalPathCandidate("relative/file.png", "/Users/wushuang")).toBeNull()
+  })
+
+  it("rejects filesystem roots", () => {
+    expect(normalizeLocalPathCandidate("/", "/Users/wushuang")).toBeNull()
+    expect(normalizeLocalPathCandidate("~", "/Users/wushuang")).toBeNull()
+    expect(normalizeLocalPathCandidate("~/", "/Users/wushuang")).toBeNull()
+    expect(normalizeLocalPathCandidate("file:///", "/Users/wushuang")).toBeNull()
+    expect(normalizeLocalPathCandidate("C:\\", "/Users/wushuang")).toBeNull()
+  })
+})
+
+describe("isBroadLocalArtifactPath", () => {
+  it("rejects system-level directories and the home directory", () => {
+    expect(isBroadLocalArtifactPath("/", "/Users/wushuang")).toBe(true)
+    expect(isBroadLocalArtifactPath("/Applications", "/Users/wushuang")).toBe(true)
+    expect(isBroadLocalArtifactPath("/Users/wushuang", "/Users/wushuang")).toBe(true)
+  })
+
+  it("compares the Windows home directory case-insensitively", () => {
+    expect(isBroadLocalArtifactPath("C:\\Users\\Alice", "c:\\users\\alice")).toBe(true)
+  })
+
+  it("allows specific output descendants", () => {
+    expect(isBroadLocalArtifactPath("/Users/wushuang/Desktop/out.png", "/Users/wushuang")).toBe(false)
+    expect(isBroadLocalArtifactPath("/tmp/lumo-artifacts/out.png", "/Users/wushuang")).toBe(false)
   })
 })

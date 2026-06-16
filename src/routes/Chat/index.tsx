@@ -65,7 +65,7 @@ import {
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
-import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
+import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
@@ -2154,16 +2154,9 @@ export function ChatArea({
   const assistantActionTextByMessageId = React.useMemo(() => {
     return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
   }, [activeAssistantMessageId, messages])
-  const artifactSources = React.useMemo(() => {
-    return collectGeneratedArtifactSources(messages)
-  }, [messages])
   const visibleArtifactSources = React.useMemo(() => {
-    const latestAssistantMessageId = latestAssistant?.id
-    if (!isGenerating || !latestAssistantMessageId) {
-      return artifactSources
-    }
-    return artifactSources.filter((source) => source.messageId !== latestAssistantMessageId)
-  }, [artifactSources, isGenerating, latestAssistant?.id])
+    return collectVisibleGeneratedArtifactSources(messages, isGenerating)
+  }, [isGenerating, messages])
   React.useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
@@ -2173,6 +2166,12 @@ export function ChatArea({
   React.useEffect(() => {
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])
+
+  React.useEffect(() => {
+    if (isGenerating) {
+      onArtifactsReset()
+    }
+  }, [isGenerating, onArtifactsReset])
 
   React.useEffect(() => {
     const lastMessage = messages.at(-1)

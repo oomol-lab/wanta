@@ -83,3 +83,18 @@ export function collectGeneratedArtifactSources(messages: ChatMessage[]): Genera
   flushTurn()
   return sources
 }
+
+export function collectVisibleGeneratedArtifactSources(
+  messages: ChatMessage[],
+  isGenerating: boolean,
+): GeneratedArtifactSource[] {
+  if (isGenerating) {
+    return []
+  }
+  const latestAssistantMessageId = messages.findLast((message) => message.role === "assistant")?.id
+  if (!latestAssistantMessageId) {
+    return []
+  }
+  const latestSource = collectGeneratedArtifactSources(messages).at(-1)
+  return latestSource?.messageId === latestAssistantMessageId ? [latestSource] : []
+}

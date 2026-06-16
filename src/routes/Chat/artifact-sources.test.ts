@@ -1,7 +1,7 @@
 import type { ChatMessage } from "../../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
+import { collectGeneratedArtifactSources, collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 
 function user(id: string, text: string, attachmentPath?: string): ChatMessage {
   return {
@@ -103,5 +103,42 @@ describe("collectGeneratedArtifactSources", () => {
     const sources = collectGeneratedArtifactSources([user("user-1", "Hello"), assistant("assistant-1", "")])
 
     expect(sources).toHaveLength(0)
+  })
+})
+
+describe("collectVisibleGeneratedArtifactSources", () => {
+  it("hides all artifact sources while a new turn is generating", () => {
+    const messages = [user("user-1", "Create an image"), assistant("assistant-1", "Output file: `/tmp/lumo/image.png`")]
+
+    expect(collectVisibleGeneratedArtifactSources(messages, true)).toEqual([])
+  })
+
+  it("shows only the latest turn after generation has stopped", () => {
+    const messages = [
+      user("user-1", "Create an image"),
+      assistant("assistant-1", "Output file: `/tmp/lumo/image.png`"),
+      user("user-2", "Describe the result"),
+      assistant("assistant-2", "The image is ready."),
+    ]
+
+    expect(collectVisibleGeneratedArtifactSources(messages, false)).toEqual([
+      {
+        messageId: "assistant-2",
+        requestText: "Describe the result",
+        sourcePaths: [],
+        text: "The image is ready.",
+      },
+    ])
+  })
+
+  it("does not fall back to an older artifact source when the latest assistant turn is empty", () => {
+    const messages = [
+      user("user-1", "Create an image"),
+      assistant("assistant-1", "Output file: `/tmp/lumo/image.png`"),
+      user("user-2", "Say nothing"),
+      assistant("assistant-2", ""),
+    ]
+
+    expect(collectVisibleGeneratedArtifactSources(messages, false)).toEqual([])
   })
 })

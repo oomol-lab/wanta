@@ -405,7 +405,7 @@ function ConnectionListToolbar({
   const t = useT()
 
   return (
-    <div className="grid gap-2 py-2">
+    <div className="grid gap-2 pt-3 pb-2">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <SearchField
           value={query}

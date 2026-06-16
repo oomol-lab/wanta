@@ -1,11 +1,13 @@
 import type {
   AuthorizationInfo,
+  AssistantActivityEvent,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
   MessageAttachmentEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
+  MessagePartRemovedEvent,
   MessageReasoningDeltaEvent,
   MessageStartedEvent,
   ToolCallResultEvent,
@@ -21,10 +23,12 @@ export type ChatEmit =
   | { event: "messageDelta"; data: MessageDeltaEvent }
   | { event: "messageReasoningDelta"; data: MessageReasoningDeltaEvent }
   | { event: "messageAttachment"; data: MessageAttachmentEvent }
+  | { event: "assistantActivity"; data: AssistantActivityEvent }
   | { event: "toolCallStarted"; data: ToolCallStartedEvent }
   | { event: "toolCallResult"; data: ToolCallResultEvent }
   | { event: "authorizationRequired"; data: AuthorizationRequiredEmit }
   | { event: "messageCompleted"; data: MessageCompletedEvent }
+  | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
   | { event: "agentError"; data: { sessionId?: string; message: string } }
 
 interface AuthorizationRequiredEmit extends AuthorizationInfo {
@@ -117,6 +121,39 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
       }
       return translatePart(part, typeof props.delta === "string" ? props.delta : undefined)
     }
+    case "message.part.removed": {
+      const p = props as { sessionID?: string; messageID?: string; partID?: string }
+      if (!p.sessionID || !p.messageID || !p.partID) {
+        return []
+      }
+      return [
+        {
+          event: "messagePartRemoved",
+          data: { sessionId: p.sessionID, messageId: p.messageID, partId: p.partID },
+        },
+      ]
+    }
+    case "session.status": {
+      const p = props as {
+        sessionID?: string
+        status?: { type?: string; attempt?: number; message?: string; next?: number }
+      }
+      if (!p.sessionID || p.status?.type !== "retry") {
+        return []
+      }
+      return [
+        {
+          event: "assistantActivity",
+          data: {
+            sessionId: p.sessionID,
+            phase: "retrying",
+            message: p.status.message,
+            attempt: p.status.attempt,
+            nextRetryAt: p.status.next,
+          },
+        },
+      ]
+    }
     case "session.idle": {
       const sessionID = (props as { sessionID?: string }).sessionID
       if (!sessionID) {
@@ -163,6 +200,11 @@ interface OpencodePart {
     }
     attachments?: unknown[]
   }
+  attempt?: number
+  error?: unknown
+  time?: {
+    created?: number
+  }
 }
 
 function toolContext(state: NonNullable<OpencodePart["state"]>) {
@@ -178,6 +220,36 @@ function toolContext(state: NonNullable<OpencodePart["state"]>) {
 }
 
 function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
+  if (part.type === "step-start") {
+    return [
+      {
+        event: "assistantActivity",
+        data: { sessionId: part.sessionID, messageId: part.messageID, phase: "thinking" },
+      },
+    ]
+  }
+  if (part.type === "step-finish") {
+    return [
+      {
+        event: "assistantActivity",
+        data: { sessionId: part.sessionID, messageId: part.messageID, phase: "finalizing" },
+      },
+    ]
+  }
+  if (part.type === "retry") {
+    return [
+      {
+        event: "assistantActivity",
+        data: {
+          sessionId: part.sessionID,
+          messageId: part.messageID,
+          phase: "retrying",
+          message: errorMessage(part.error),
+          attempt: part.attempt,
+        },
+      },
+    ]
+  }
   if (part.type === "text") {
     const data: MessageDeltaEvent = {
       sessionId: part.sessionID,

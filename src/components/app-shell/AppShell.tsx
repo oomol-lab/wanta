@@ -770,7 +770,7 @@ export function AppShell() {
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
 
-  const { messages, status, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
+  const { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
     activeSessionId,
     route === "chat" ? activeSessionId : null,
   )
@@ -1433,6 +1433,7 @@ export function AppShell() {
                   billingCacheScope={billingCacheScope}
                   messages={initialSendPending ? [] : messages}
                   status={displayedStatus}
+                  activity={initialSendPending ? null : activity}
                   showEmptyState={showChatEmptyState}
                   error={error}
                   disabled={!ready}

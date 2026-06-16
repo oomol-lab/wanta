@@ -54,6 +54,16 @@ export interface MessageArtifactsEvent {
   messageId: string
   artifactRoot: string
 }
+export type AssistantActivityPhase = "thinking" | "finalizing" | "retrying"
+
+export interface AssistantActivityEvent {
+  sessionId: string
+  messageId?: string
+  phase: AssistantActivityPhase
+  message?: string
+  attempt?: number
+  nextRetryAt?: number
+}
 export interface ToolCallStartedEvent {
   sessionId: string
   messageId: string
@@ -90,6 +100,11 @@ export interface AuthorizationRequiredEvent {
 }
 export interface MessageCompletedEvent {
   sessionId: string
+}
+export interface MessagePartRemovedEvent {
+  sessionId: string
+  messageId: string
+  partId: string
 }
 export interface MessageErrorEvent {
   sessionId: string
@@ -319,10 +334,12 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messageReasoningDelta: MessageReasoningDeltaEvent
     messageAttachment: MessageAttachmentEvent
     messageArtifacts: MessageArtifactsEvent
+    assistantActivity: AssistantActivityEvent
     toolCallStarted: ToolCallStartedEvent
     toolCallResult: ToolCallResultEvent
     authorizationRequired: AuthorizationRequiredEvent
     messageCompleted: MessageCompletedEvent
+    messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
     agentError: AgentErrorEvent

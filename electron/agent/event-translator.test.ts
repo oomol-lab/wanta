@@ -67,6 +67,48 @@ test("reasoning part.updated → messageReasoningDelta", () => {
   ])
 })
 
+test("step parts update assistant activity without creating visible message parts", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.part.updated",
+      properties: { part: { id: "step-1", sessionID: "s1", messageID: "m1", type: "step-start" } },
+    }),
+    [{ event: "assistantActivity", data: { sessionId: "s1", messageId: "m1", phase: "thinking" } }],
+  )
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.part.updated",
+      properties: {
+        part: { id: "step-2", sessionID: "s1", messageID: "m1", type: "step-finish", reason: "tool-calls" },
+      },
+    }),
+    [{ event: "assistantActivity", data: { sessionId: "s1", messageId: "m1", phase: "finalizing" } }],
+  )
+})
+
+test("retry signals update assistant activity", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "retry-1",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "retry",
+        attempt: 2,
+        error: { name: "APIError", data: { message: "upstream timeout" } },
+      },
+    },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "assistantActivity",
+      data: { sessionId: "s1", messageId: "m1", phase: "retrying", message: "upstream timeout", attempt: 2 },
+    },
+  ])
+})
+
 test("file part.updated → messageAttachment", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -222,6 +264,29 @@ test("call_action completed with auth output → toolCallResult + authorizationR
   assert.equal(out[0].event, "toolCallResult")
   assert.equal(out[1].event, "authorizationRequired")
   assert.equal((out[1].data as { service: string }).service, "slack")
+})
+
+test("message.part.removed → messagePartRemoved", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.removed",
+    properties: { sessionID: "s1", messageID: "m1", partID: "p1" },
+  })
+
+  assert.deepEqual(out, [{ event: "messagePartRemoved", data: { sessionId: "s1", messageId: "m1", partId: "p1" } }])
+})
+
+test("session.status retry → assistantActivity", () => {
+  const out = translateOpencodeEvent({
+    type: "session.status",
+    properties: { sessionID: "s1", status: { type: "retry", attempt: 3, message: "rate limited", next: 1000 } },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "assistantActivity",
+      data: { sessionId: "s1", phase: "retrying", message: "rate limited", attempt: 3, nextRetryAt: 1000 },
+    },
+  ])
 })
 
 test("session.idle → messageCompleted; session.error → agentError", () => {

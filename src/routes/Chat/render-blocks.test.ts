@@ -64,15 +64,12 @@ describe("renderBlocks", () => {
     ])
   })
 
-  it("keeps reasoning separate from final text", () => {
+  it("keeps reasoning out of the default message blocks", () => {
     const reasoning = reasoningPart("reasoning-1", "Check the current state")
     const answer = textPart("text-1", "Done")
 
     const blocks = renderBlocks([reasoning, answer])
 
-    expect(blocks).toEqual([
-      { kind: "reasoning", part: reasoning },
-      { kind: "text", part: answer },
-    ])
+    expect(blocks).toEqual([{ kind: "text", part: answer }])
   })
 })

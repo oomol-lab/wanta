@@ -1,5 +1,6 @@
 import type {
   AuthorizationInfo,
+  AssistantActivityEvent,
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
@@ -108,6 +109,7 @@ interface ChatAreaProps {
   billingCacheScope: string
   messages: ChatMessage[]
   status: ChatStatus
+  activity: AssistantActivityEvent | null
   showEmptyState: boolean
   error: string | null
   disabled: boolean
@@ -857,49 +859,53 @@ function AssistantMessageActions({ text, cancelled }: { text: string; cancelled:
   )
 }
 
-function ReasoningActivity({ text, active }: { text: string; active: boolean }) {
-  const t = useT()
-  const [open, setOpen] = React.useState(active)
-  const visibleText = text.trim()
-
-  React.useEffect(() => {
-    setOpen(active)
-  }, [active])
-
-  if (!visibleText) {
-    return null
+function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): string {
+  switch (activity?.phase) {
+    case "retrying":
+      return activity.attempt
+        ? t("chat.activityRetryingWithAttempt", { attempt: activity.attempt })
+        : t("chat.activityRetrying")
+    case "finalizing":
+      return t("chat.activityFinalizing")
+    case "thinking":
+    default:
+      return t("chat.activityThinking")
   }
+}
+
+function AssistantActivityLine({ activity }: { activity: AssistantActivityEvent | null }) {
+  const t = useT()
 
   return (
-    <Task open={open} onOpenChange={setOpen} className="not-prose my-0 w-full">
-      <TaskTrigger title={t("chat.reasoningTitle")}>
-        <button
-          type="button"
-          className="group flex w-fit max-w-full items-center gap-2 rounded-md py-0.5 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {active ? (
-            <Loader2 className="size-3.5 shrink-0 animate-spin" />
-          ) : (
-            <BrainCircuit className="size-3.5 shrink-0" />
-          )}
-          <span className="min-w-0 truncate">{t("chat.reasoningTitle")}</span>
-          <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-        </button>
-      </TaskTrigger>
-      <TaskContent className="[&>div]:mt-1 [&>div]:border-l [&>div]:pl-2.5">
-        <div className="oo-text-caption max-w-[46rem] text-muted-foreground">
-          <MessageResponse smooth={active}>{visibleText}</MessageResponse>
-        </div>
-      </TaskContent>
-    </Task>
+    <div
+      className="flex w-fit max-w-full items-center gap-2 py-0.5 text-xs text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className="size-3.5 shrink-0 animate-spin" />
+      <Shimmer as="span" className="min-w-0 truncate" duration={1}>
+        {activityText(t, activity)}
+      </Shimmer>
+    </div>
   )
+}
+
+function prioritizeAssistantBlocks(blocks: ReturnType<typeof renderBlocks>): ReturnType<typeof renderBlocks> {
+  if (!blocks.some((block) => block.kind === "text")) {
+    return blocks
+  }
+  return [
+    ...blocks.filter((block) => block.kind === "text"),
+    ...blocks.filter((block) => block.kind === "error"),
+    ...blocks.filter((block) => block.kind === "tools"),
+  ]
 }
 
 function MessageBubble({
   billingCacheScope,
   message,
   pending,
-  reasoningActive,
+  activity,
   smoothText,
   providerByService,
   onAuthorize,
@@ -909,7 +915,7 @@ function MessageBubble({
   billingCacheScope: string
   message: ChatMessage
   pending: boolean
-  reasoningActive: boolean
+  activity: AssistantActivityEvent | null
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
@@ -953,12 +959,7 @@ function MessageBubble({
     return (
       <Message from="assistant">
         <MessageContent>
-          <div className="flex items-center gap-2 py-0.5" role="status" aria-live="polite">
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-            <Shimmer as="span" className="oo-text-caption" duration={1}>
-              {t("chat.thinking")}
-            </Shimmer>
-          </div>
+          <AssistantActivityLine activity={activity} />
         </MessageContent>
       </Message>
     )
@@ -966,12 +967,18 @@ function MessageBubble({
   if (blocks.length === 0) {
     return null
   }
+  const displayBlocks = prioritizeAssistantBlocks(blocks)
+  const hasTextBlock = displayBlocks.some((block) => block.kind === "text")
+  const hasActiveTool = message.parts.some(
+    (part) => part.kind === "tool" && (part.status === "pending" || part.status === "running"),
+  )
+  const showActivityWithBlocks = Boolean(activity && !hasTextBlock && (activity.phase === "retrying" || !hasActiveTool))
   const blockClassName = (index: number): string | undefined => {
     if (index === 0) {
       return undefined
     }
-    const previous = blocks[index - 1]
-    const current = blocks[index]
+    const previous = displayBlocks[index - 1]
+    const current = displayBlocks[index]
     if (!previous || !current) {
       return undefined
     }
@@ -986,15 +993,16 @@ function MessageBubble({
   return (
     <Message from="assistant">
       <MessageContent className="gap-0">
-        {blocks.map((block, index) => (
+        {showActivityWithBlocks ? (
+          <div className="mb-2">
+            <AssistantActivityLine activity={activity} />
+          </div>
+        ) : null}
+        {displayBlocks.map((block, index) => (
           <div key={block.kind === "tools" ? block.key : block.part.partId} className={blockClassName(index)}>
             {block.kind === "text" ? (
               block.part.text ? (
                 <MessageResponse smooth={smoothText}>{block.part.text}</MessageResponse>
-              ) : null
-            ) : block.kind === "reasoning" ? (
-              block.part.text ? (
-                <ReasoningActivity text={block.part.text} active={reasoningActive} />
               ) : null
             ) : block.kind === "error" ? (
               <ChatErrorNotice
@@ -1744,6 +1752,7 @@ export function ChatArea({
   billingCacheScope,
   messages,
   status,
+  activity,
   showEmptyState,
   error,
   disabled,
@@ -2299,7 +2308,7 @@ export function ChatArea({
                 message={message}
                 billingCacheScope={billingCacheScope}
                 pending={message.id === pendingAssistantMessageId}
-                reasoningActive={message.id === activeAssistantMessageId}
+                activity={message.id === activeAssistantMessageId ? activity : null}
                 smoothText={message.id === smoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}

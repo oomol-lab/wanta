@@ -620,9 +620,9 @@ function ToolActivityStep({
     <Collapsible defaultOpen={(part.status === "error" && !stopped) || Boolean(auth)}>
       <div className="rounded-md py-0.5">
         {details ? (
-          <CollapsibleTrigger className="group flex w-full items-start justify-between gap-2 text-left">
+          <CollapsibleTrigger className="group/tool-step flex w-full items-start justify-between gap-2 text-left">
             {row}
-            <ChevronDown className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+            <ChevronRight className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] group-hover/tool-step:opacity-100 group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:rotate-90 group-data-[state=open]/tool-step:opacity-100" />
           </CollapsibleTrigger>
         ) : (
           row
@@ -693,12 +693,13 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
 }
 
 function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>, now: number): string | null {
-  const toolDuration = process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
-  if (toolDuration) {
+  const isLive = process.hasActiveTool || Boolean(process.activity)
+  const toolDuration = !isLive && process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
+  if (!isLive && toolDuration) {
     return toolDuration
   }
   const start = process.startedAt
-  const end = process.endedAt ?? (process.activity || process.hasActiveTool ? now : undefined)
+  const end = isLive ? now : process.endedAt
   if (typeof start !== "number" || typeof end !== "number" || end < start) {
     return null
   }

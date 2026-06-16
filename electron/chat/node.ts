@@ -41,6 +41,7 @@ import { ServiceEvent } from "../service-events.ts"
 import {
   extractLocalPathCandidates,
   imageMimeFromPath,
+  isBroadLocalArtifactPath,
   mimeFromPath,
   normalizeLocalPathCandidate,
 } from "./artifacts.ts"
@@ -669,12 +670,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult> {
     const candidates = req.artifactRoot ? [req.artifactRoot] : extractLocalPathCandidates(req.text ?? "")
+    const fromText = !req.artifactRoot
     const maxDirectoryItems = Math.max(1, Math.min(req.maxDirectoryItems ?? defaultMaxDirectoryItems, 200))
     const seen = new Set<string>()
     const groups: LocalArtifactGroup[] = []
     for (const candidate of candidates) {
       const filePath = normalizeLocalPathCandidate(candidate, os.homedir())
       if (!filePath || seen.has(filePath)) {
+        continue
+      }
+      if (fromText && isBroadLocalArtifactPath(filePath, os.homedir())) {
         continue
       }
       seen.add(filePath)

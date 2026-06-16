@@ -2,7 +2,7 @@ import type { ChatMessage } from "./common.ts"
 import type { StoppedGenerations } from "./stopped-generations.ts"
 
 import assert from "node:assert/strict"
-import { mkdtemp } from "node:fs/promises"
+import { mkdtemp, readdir } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
@@ -77,4 +77,22 @@ test("StoppedGenerationStore persists stopped generation overlays", async () => 
   const restored = await store.read()
   assert.equal(restored.get("session-1")?.get("assistant-1")?.stoppedAt, 100)
   assert.deepEqual([...(restored.get("session-1")?.get("assistant-1")?.partIds ?? [])], ["tool-stopped"])
+})
+
+test("StoppedGenerationStore supports concurrent writes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-stopped-generations-"))
+  const store = new StoppedGenerationStore(root)
+  const first: StoppedGenerations = new Map()
+  const second: StoppedGenerations = new Map()
+  recordStoppedGeneration(first, "session-1", "assistant-1", ["tool-a"], 100)
+  recordStoppedGeneration(second, "session-2", "assistant-2", ["tool-b"], 200)
+
+  await Promise.all([store.write(first), store.write(second)])
+
+  const restored = await store.read()
+  assert.equal(restored.size, 1)
+  assert.deepEqual(
+    (await readdir(root)).filter((file) => file.includes(".tmp-")),
+    [],
+  )
 })

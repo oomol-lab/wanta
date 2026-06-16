@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import {
   buildFallbackSessionTitle,
   shouldAutoRefreshSessionTitle,
@@ -186,6 +187,12 @@ function SessionItem({
   const { locale } = useI18n()
   const relativeTime = formatSessionRelativeTime(session.updatedAt, now, locale)
   const absoluteTime = formatSessionAbsoluteTime(session.updatedAt, locale)
+  const handleRenameKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === "F2") {
+      event.preventDefault()
+      onRenameRequest()
+    }
+  }
 
   return (
     <div
@@ -198,6 +205,7 @@ function SessionItem({
         type="button"
         onClick={onSelect}
         onDoubleClick={onRenameRequest}
+        onKeyDown={handleRenameKeyDown}
         title={session.title}
         className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
@@ -386,6 +394,12 @@ function EditableTitlebarTitle({
     setDraft(title)
     setEditing(true)
   }
+  const handleRenameKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === "F2" || event.key === "Enter") {
+      event.preventDefault()
+      startEditing()
+    }
+  }
 
   const commit = (): void => {
     const trimmedDraft = draft.trim()
@@ -441,6 +455,7 @@ function EditableTitlebarTitle({
     <button
       type="button"
       onDoubleClick={startEditing}
+      onKeyDown={handleRenameKeyDown}
       title={title}
       aria-label={t("session.renameFromTitlebar")}
       className="oo-toolbar-title oo-text-title inline-block max-w-full min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left outline-none [-webkit-app-region:no-drag]"
@@ -719,6 +734,7 @@ export function AppShell() {
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
+  const sendInFlightRef = React.useRef(false)
 
   React.useEffect(() => {
     sessionsRef.current = sessions
@@ -1000,52 +1016,61 @@ export function AppShell() {
   }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
 
   const handleSend = async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
-    setRoute("chat")
-    let sessionId = activeSessionId
-    const titleInput = buildSessionTitleInput(messages, text, attachments)
-    const fallbackTitle = buildFallbackSessionTitle(titleInput)
-    const allowPlaceholderTitle =
-      !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
-    const shouldRefreshTitle =
-      !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
-    const bridgeEmptySend = messagesLoaded && messages.length === 0
-    const createdAt = Date.now()
-    if (bridgeEmptySend) {
-      setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+    if (sendInFlightRef.current) {
+      return
     }
-    if (!sessionId) {
-      let info: SessionInfo
+    sendInFlightRef.current = true
+    try {
+      setRoute("chat")
+      let sessionId = activeSessionId
+      const titleInput = buildSessionTitleInput(messages, text, attachments)
+      const fallbackTitle = buildFallbackSessionTitle(titleInput)
+      const allowPlaceholderTitle =
+        !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
+      const shouldRefreshTitle =
+        !sessionId ||
+        (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
+      const bridgeEmptySend = messagesLoaded && messages.length === 0
+      const createdAt = Date.now()
+      if (bridgeEmptySend) {
+        setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+      }
+      if (!sessionId) {
+        let info: SessionInfo
+        try {
+          info = await create(fallbackTitle)
+        } catch (error) {
+          if (bridgeEmptySend) {
+            setPendingChatTransition(null)
+          }
+          throw error
+        }
+        sessionId = info.id
+        setActiveSessionId(sessionId)
+        setIsDraftSession(false)
+        setPendingChatTransition((pending) =>
+          pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
+        )
+      }
+      if (shouldRefreshTitle) {
+        void refreshGeneratedTitle(
+          sessionId,
+          titleInput,
+          allowPlaceholderTitle,
+          !activeSessionId ? fallbackTitle : undefined,
+        )
+      }
+      lastModelBySession.current.set(sessionId, model)
       try {
-        info = await create(fallbackTitle)
+        await send(sessionId, text, attachments, { model })
       } catch (error) {
         if (bridgeEmptySend) {
           setPendingChatTransition(null)
         }
         throw error
       }
-      sessionId = info.id
-      setActiveSessionId(sessionId)
-      setIsDraftSession(false)
-      setPendingChatTransition((pending) =>
-        pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
-      )
-    }
-    if (shouldRefreshTitle) {
-      void refreshGeneratedTitle(
-        sessionId,
-        titleInput,
-        allowPlaceholderTitle,
-        !activeSessionId ? fallbackTitle : undefined,
-      )
-    }
-    lastModelBySession.current.set(sessionId, model)
-    try {
-      await send(sessionId, text, attachments, { model })
-    } catch (error) {
-      if (bridgeEmptySend) {
-        setPendingChatTransition(null)
-      }
-      throw error
+    } finally {
+      sendInFlightRef.current = false
     }
   }
 
@@ -1146,7 +1171,10 @@ export function AppShell() {
   }
   const handleOpenSearch = (): void => setSearchOpen(true)
   const handleRenameSession = (sessionId: string, title: string): void => {
-    void rename(sessionId, title)
+    void rename(sessionId, title).catch((cause: unknown) => {
+      console.error("[lumo] rename session failed", cause)
+      toast.error(t("session.renameFailed"))
+    })
   }
   const handleArtifactsReset = React.useCallback(() => {
     setArtifactSelection(null)

@@ -13,7 +13,7 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
-import type { ToolCategory } from "./tool-activity.ts"
+import type { ChatTurn } from "./chat-turns.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -33,45 +33,50 @@ import {
   FileArchive,
   FileCode,
   FileImage,
+  FilePenLine,
+  FilePlus2,
+  FileSearch,
   FileSpreadsheet,
   FileText,
   FileVideoCamera,
   Folder,
+  FolderOpen,
   Globe,
-  Eye,
+  ListChecks,
   Loader2,
   Mic,
+  Package,
   Plug,
   Plus,
+  PlayCircle,
   RotateCcw,
+  Search,
   Settings2,
+  SlidersHorizontal,
   Square,
-  Terminal,
+  SquareTerminal,
   ThumbsDown,
   ThumbsUp,
   Trash2,
   Wrench,
   X,
-  Package,
-  ListChecks,
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
+import { groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
-import { isRenderablePart, renderBlocks } from "./render-blocks.ts"
+import { renderBlocks } from "./render-blocks.ts"
 import {
   compactPathDetail,
   compactToolDetail,
   formatToolActivityDuration,
   formatToolDuration,
   shouldShowRunningNoOutput,
-  summarizeToolCategory,
-  toolActivityTitle,
 } from "./tool-activity.ts"
-import { hasBlockingToolError, hasStoppedTool, isToolCancellation } from "./tool-state.ts"
+import { hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import {
@@ -90,7 +95,6 @@ import {
   PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
-import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { useChatService, useModelsService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
@@ -467,7 +471,7 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
     case "running":
       return <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
     case "completed":
-      return <CheckCircle2 className="size-3.5 text-green-600" />
+      return <Circle className="size-3.5 text-muted-foreground" />
     case "error":
       return <AlertTriangle className="size-3.5 text-destructive" />
     case "pending":
@@ -476,26 +480,52 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
   }
 }
 
-function ToolCategoryIcon({ category, className }: { category: ToolCategory; className?: string }) {
-  const iconClassName = cn("size-3.5 shrink-0", className)
-  switch (category) {
-    case "shell":
-      return <Terminal className={iconClassName} />
-    case "connector":
-      return <Plug className={iconClassName} />
-    case "file":
-      return <FileText className={iconClassName} />
-    case "web":
-      return <Globe className={iconClassName} />
+function ToolActionIcon({ part }: { part: ChatMessagePart }) {
+  const className = "size-3.5 text-muted-foreground"
+  switch (part.tool) {
+    case "search_actions":
+      return <Search className={className} />
+    case "inspect_action":
+      return <SlidersHorizontal className={className} />
+    case "call_action":
+      return <PlayCircle className={className} />
+    case "bash":
+      return <SquareTerminal className={className} />
+    case "read":
+      return <FileText className={className} />
+    case "write":
+      return <FilePlus2 className={className} />
+    case "edit":
+      return <FilePenLine className={className} />
+    case "list":
+      return <FolderOpen className={className} />
+    case "grep":
+    case "glob":
+      return <FileSearch className={className} />
+    case "webfetch":
+      return <Globe className={className} />
     case "task":
-      return <ListChecks className={iconClassName} />
-    case "skill":
-      return <Package className={iconClassName} />
-    case "custom":
-      return <Wrench className={iconClassName} />
-    case "mixed":
-      return <Eye className={iconClassName} />
+      return <ListChecks className={className} />
+    default:
+      if (part.tool?.startsWith("todo")) {
+        return <ListChecks className={className} />
+      }
+      if (part.title?.match(/^Loaded skill:/i)) {
+        return <Package className={className} />
+      }
+      return <Wrench className={className} />
   }
+}
+
+function ToolStepIcon({ part, provider }: { part: ChatMessagePart; provider?: ConnectionProvider }) {
+  const stopped = isToolCancellation(part)
+  if (provider && part.status !== "running" && part.status !== "error" && !stopped) {
+    return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
+  }
+  if (part.status === "running" || part.status === "error" || stopped) {
+    return <ToolStatusIcon status={part.status} stopped={stopped} />
+  }
+  return <ToolActionIcon part={part} />
 }
 
 function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
@@ -554,15 +584,12 @@ function ToolActivityStep({
   const metaText = [provider?.displayName, statusText, duration].filter(Boolean).join(" · ")
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
-      {provider ? (
-        <span className="flex h-4 shrink-0 items-center" title={`${provider.displayName} · ${statusText}`}>
-          <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
-        </span>
-      ) : (
-        <span className="flex h-4 shrink-0 items-center" title={statusText}>
-          <ToolStatusIcon status={part.status} stopped={stopped} />
-        </span>
-      )}
+      <span
+        className="flex h-4 shrink-0 items-center"
+        title={provider ? `${provider.displayName} · ${statusText}` : statusText}
+      >
+        <ToolStepIcon part={part} provider={provider} />
+      </span>
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="min-w-0 truncate text-xs text-foreground">{toolActionSummary(t, part)}</span>
@@ -641,48 +668,124 @@ function ToolActivityStep({
   )
 }
 
-function ToolActivity({
-  parts,
+type TurnProcessStatus = "running" | "completed" | "retrying" | "needsAction" | "error" | "stopped"
+
+function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnProcessStatus {
+  if (process.hasAuthorization) {
+    return "needsAction"
+  }
+  if (process.activity?.phase === "retrying") {
+    return "retrying"
+  }
+  if (process.hasBlockingError) {
+    return "error"
+  }
+  if (process.hasActiveTool || process.activity) {
+    return "running"
+  }
+  if (process.hasStoppedTool) {
+    return "stopped"
+  }
+  return "completed"
+}
+
+function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>, now: number): string | null {
+  const toolDuration = process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
+  if (toolDuration) {
+    return toolDuration
+  }
+  const start = process.startedAt
+  const end = process.endedAt ?? (process.activity || process.hasActiveTool ? now : undefined)
+  if (typeof start !== "number" || typeof end !== "number" || end < start) {
+    return null
+  }
+  const ms = end - start
+  if (ms < 1000) {
+    return "< 1s"
+  }
+  if (ms < 60_000) {
+    return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
+  }
+  const minutes = Math.floor(ms / 60_000)
+  const seconds = Math.round((ms % 60_000) / 1000)
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
+}
+
+function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: string | null): string {
+  const title = (() => {
+    switch (status) {
+      case "running":
+        return t("chat.processRunning")
+      case "retrying":
+        return t("chat.processRetrying")
+      case "needsAction":
+        return t("chat.processNeedsAction")
+      case "error":
+        return t("chat.processError")
+      case "stopped":
+        return t("chat.processStopped")
+      case "completed":
+        return t("chat.processCompleted")
+    }
+  })()
+  return duration ? `${title} ${duration}` : title
+}
+
+function ProcessStatusIcon({ status }: { status: TurnProcessStatus }) {
+  switch (status) {
+    case "running":
+    case "retrying":
+      return <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+    case "needsAction":
+      return <Plug className="size-3.5 shrink-0 text-orange-600" />
+    case "error":
+      return <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
+    case "stopped":
+      return <Square className="size-3.5 shrink-0 text-muted-foreground" />
+    case "completed":
+      return <CheckCircle2 className="size-3.5 shrink-0 text-muted-foreground" />
+  }
+}
+
+function TurnProcessActivity({
+  process,
   providerByService,
   onAuthorize,
 }: {
-  parts: ChatMessagePart[]
+  process: ReturnType<typeof summarizeTurnProcess>
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
-  const hasActive = parts.some((part) => part.status === "pending" || part.status === "running")
-  const hasError = hasBlockingToolError(parts)
-  const hasStopped = hasStoppedTool(parts)
-  const hasAuth = parts.some(
-    (part) => part.tool === "call_action" && part.status === "completed" && Boolean(parseAuthorization(part.output)),
-  )
-  const shouldOpen = hasError || hasAuth
-  const statusKey = parts.map((part) => `${part.partId}:${part.status}`).join("|")
+  const status = processStatus(process)
+  const shouldOpen =
+    status === "running" ||
+    status === "retrying" ||
+    status === "needsAction" ||
+    status === "error" ||
+    !process.hasFinalAnswer
+  const statusKey = [
+    status,
+    process.activity?.phase,
+    process.tools.map((part) => `${part.partId}:${part.status}`).join("|"),
+    process.errors.map((part) => part.partId).join("|"),
+  ].join(":")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
-  const activityDuration = formatToolActivityDuration(parts, now)
-  const category = summarizeToolCategory(parts)
-  const title = toolActivityTitle(t, parts, {
-    hasActive,
-    hasError,
-    hasStopped,
-    duration: activityDuration,
-    category,
-  })
+  const title = processTitle(t, status, formatProcessDuration(process, now))
 
   React.useEffect(() => {
     setOpen(shouldOpen)
   }, [shouldOpen, statusKey])
 
   React.useEffect(() => {
-    if (!hasActive) {
+    if (status !== "running" && status !== "retrying") {
       return
     }
     setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [hasActive])
+  }, [status])
 
   return (
     <Task open={open} onOpenChange={setOpen} className="not-prose my-0 w-full">
@@ -691,32 +794,32 @@ function ToolActivity({
           type="button"
           className="group flex w-fit max-w-full items-center gap-2 rounded-md py-0.5 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          {hasActive ? (
-            <Loader2 className="size-3.5 shrink-0 animate-spin" />
-          ) : hasError ? (
-            <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
-          ) : hasStopped ? (
-            <Square className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ToolCategoryIcon category={category} className="text-muted-foreground" />
-          )}
+          <ProcessStatusIcon status={status} />
           <span className="min-w-0 truncate">{title}</span>
           <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
         </button>
       </TaskTrigger>
-      <TaskContent className="[&>div]:mt-1 [&>div]:space-y-1 [&>div]:border-l [&>div]:pl-2.5">
-        {parts.map((part) => {
-          const service = toolServiceSlug(part)
-          return (
-            <ToolActivityStep
-              key={part.partId}
-              part={part}
-              now={now}
-              provider={service ? providerByService.get(service) : undefined}
-              onAuthorize={onAuthorize}
-            />
-          )
-        })}
+      <TaskContent className="[&>div]:mt-1 [&>div]:space-y-1 [&>div]:border-t [&>div]:pt-2.5">
+        <div className="space-y-1 border-border/60">
+          {process.activity && status !== "completed" && status !== "stopped" ? (
+            <div className="oo-text-caption flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
+              <span>{activityText(t, process.activity)}</span>
+            </div>
+          ) : null}
+          {process.tools.map((part) => {
+            const service = toolServiceSlug(part)
+            return (
+              <ToolActivityStep
+                key={part.partId}
+                part={part}
+                now={now}
+                provider={service ? providerByService.get(service) : undefined}
+                onAuthorize={onAuthorize}
+              />
+            )
+          })}
+        </div>
       </TaskContent>
     </Task>
   )
@@ -873,23 +976,6 @@ function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): 
   }
 }
 
-function AssistantActivityLine({ activity }: { activity: AssistantActivityEvent | null }) {
-  const t = useT()
-
-  return (
-    <div
-      className="flex w-fit max-w-full items-center gap-2 py-0.5 text-xs text-muted-foreground"
-      role="status"
-      aria-live="polite"
-    >
-      <Loader2 className="size-3.5 shrink-0 animate-spin" />
-      <Shimmer as="span" className="min-w-0 truncate" duration={1}>
-        {activityText(t, activity)}
-      </Shimmer>
-    </div>
-  )
-}
-
 function prioritizeAssistantBlocks(blocks: ReturnType<typeof renderBlocks>): ReturnType<typeof renderBlocks> {
   if (!blocks.some((block) => block.kind === "text")) {
     return blocks
@@ -904,21 +990,13 @@ function prioritizeAssistantBlocks(blocks: ReturnType<typeof renderBlocks>): Ret
 function MessageBubble({
   billingCacheScope,
   message,
-  pending,
-  activity,
   smoothText,
-  providerByService,
-  onAuthorize,
   onViewBilling,
   assistantActionsText,
 }: {
   billingCacheScope: string
   message: ChatMessage
-  pending: boolean
-  activity: AssistantActivityEvent | null
   smoothText: boolean
-  providerByService: Map<string, ConnectionProvider>
-  onAuthorize: (auth: AuthorizationInfo) => void
   onViewBilling?: () => void
   assistantActionsText: string | null
 }) {
@@ -954,25 +1032,11 @@ function MessageBubble({
       </Message>
     )
   }
-  const blocks = renderBlocks(message.parts)
-  if (blocks.length === 0 && pending) {
-    return (
-      <Message from="assistant">
-        <MessageContent>
-          <AssistantActivityLine activity={activity} />
-        </MessageContent>
-      </Message>
-    )
-  }
+  const blocks = renderBlocks(message.parts).filter((block) => block.kind !== "tools")
   if (blocks.length === 0) {
     return null
   }
   const displayBlocks = prioritizeAssistantBlocks(blocks)
-  const hasTextBlock = displayBlocks.some((block) => block.kind === "text")
-  const hasActiveTool = message.parts.some(
-    (part) => part.kind === "tool" && (part.status === "pending" || part.status === "running"),
-  )
-  const showActivityWithBlocks = Boolean(activity && !hasTextBlock && (activity.phase === "retrying" || !hasActiveTool))
   const blockClassName = (index: number): string | undefined => {
     if (index === 0) {
       return undefined
@@ -993,11 +1057,6 @@ function MessageBubble({
   return (
     <Message from="assistant">
       <MessageContent className="gap-0">
-        {showActivityWithBlocks ? (
-          <div className="mb-2">
-            <AssistantActivityLine activity={activity} />
-          </div>
-        ) : null}
         {displayBlocks.map((block, index) => (
           <div key={block.kind === "tools" ? block.key : block.part.partId} className={blockClassName(index)}>
             {block.kind === "text" ? (
@@ -1013,9 +1072,7 @@ function MessageBubble({
                 message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
                 onViewBilling={onViewBilling}
               />
-            ) : (
-              <ToolActivity parts={block.parts} providerByService={providerByService} onAuthorize={onAuthorize} />
-            )}
+            ) : null}
           </div>
         ))}
       </MessageContent>
@@ -1023,6 +1080,65 @@ function MessageBubble({
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
       ) : null}
     </Message>
+  )
+}
+
+function shouldShowTurnProcess(process: ReturnType<typeof summarizeTurnProcess>): boolean {
+  return process.tools.length > 0 || Boolean(process.activity && !process.hasFinalAnswer)
+}
+
+function ChatTurnView({
+  billingCacheScope,
+  turn,
+  activity,
+  activeAssistantMessageId,
+  smoothAssistantMessageId,
+  providerByService,
+  onAuthorize,
+  onViewBilling,
+  assistantActionTextByMessageId,
+}: {
+  billingCacheScope: string
+  turn: ChatTurn
+  activity: AssistantActivityEvent | null
+  activeAssistantMessageId?: string
+  smoothAssistantMessageId?: string
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
+  assistantActionTextByMessageId: Map<string, string>
+}) {
+  const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
+
+  return (
+    <React.Fragment>
+      {turn.user ? (
+        <MessageBubble
+          message={turn.user}
+          billingCacheScope={billingCacheScope}
+          smoothText={false}
+          onViewBilling={onViewBilling}
+          assistantActionsText={null}
+        />
+      ) : null}
+      {shouldShowTurnProcess(process) ? (
+        <Message from="assistant">
+          <MessageContent>
+            <TurnProcessActivity process={process} providerByService={providerByService} onAuthorize={onAuthorize} />
+          </MessageContent>
+        </Message>
+      ) : null}
+      {turn.assistants.map((message) => (
+        <MessageBubble
+          key={message.clientId ?? message.id}
+          message={message}
+          billingCacheScope={billingCacheScope}
+          smoothText={message.id === smoothAssistantMessageId}
+          onViewBilling={onViewBilling}
+          assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
+        />
+      ))}
+    </React.Fragment>
   )
 }
 
@@ -1788,17 +1904,12 @@ export function ChatArea({
   const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
   const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant")
+  const turns = React.useMemo(() => groupChatTurns(messages), [messages])
   const providerByService = React.useMemo(
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
     [providers],
   )
   const voiceActive = voiceRecorder.isRecording || voiceTranscribing || Boolean(voiceError || voiceRecorder.error)
-  const pendingAssistantMessageId =
-    latestAssistant &&
-    (isSubmitted || (status === "streaming" && !latestAssistant.parts.some(isRenderablePart))) &&
-    !hasStoppedTool(latestAssistant.parts)
-      ? latestAssistant.id
-      : null
   const activeAssistantMessageId =
     status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
   const smoothAssistantMessageId = (() => {
@@ -2302,18 +2413,18 @@ export function ChatArea({
             data-selectable="true"
             className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
           >
-            {messages.map((message) => (
-              <MessageBubble
-                key={message.clientId ?? message.id}
-                message={message}
+            {turns.map((turn, index) => (
+              <ChatTurnView
+                key={turn.id}
+                turn={turn}
                 billingCacheScope={billingCacheScope}
-                pending={message.id === pendingAssistantMessageId}
-                activity={message.id === activeAssistantMessageId ? activity : null}
-                smoothText={message.id === smoothAssistantMessageId}
+                activity={activity?.messageId || index === turns.length - 1 ? activity : null}
+                activeAssistantMessageId={activeAssistantMessageId}
+                smoothAssistantMessageId={smoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
                 onViewBilling={onViewBilling}
-                assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
+                assistantActionTextByMessageId={assistantActionTextByMessageId}
               />
             ))}
             {visibleArtifactSources.length > 0 ? (

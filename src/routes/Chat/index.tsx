@@ -27,6 +27,7 @@ import {
   CheckIcon,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Circle,
   CopyIcon,
   ExternalLink,
@@ -733,26 +734,6 @@ function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: strin
   return duration ? `${title} ${duration}` : title
 }
 
-function ProcessStatusIcon({ status, animated = true }: { status: TurnProcessStatus; animated?: boolean }) {
-  switch (status) {
-    case "running":
-    case "retrying":
-      return animated ? (
-        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-      ) : (
-        <Circle className="size-3.5 shrink-0 text-muted-foreground" />
-      )
-    case "needsAction":
-      return <Plug className="size-3.5 shrink-0 text-orange-600" />
-    case "error":
-      return <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
-    case "stopped":
-      return <Square className="size-3.5 shrink-0 text-muted-foreground" />
-    case "completed":
-      return <CheckCircle2 className="size-3.5 shrink-0 text-muted-foreground" />
-  }
-}
-
 function TurnProcessActivity({
   blocks,
   process,
@@ -807,11 +788,10 @@ function TurnProcessActivity({
       <TaskTrigger title={title}>
         <button
           type="button"
-          className="group flex w-full max-w-full items-center gap-2 border-b border-border/60 py-1.5 pr-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ProcessStatusIcon status={status} animated={!open} />
           <span className="min-w-0 truncate">{title}</span>
-          <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+          <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         </button>
       </TaskTrigger>
       <TaskContent>

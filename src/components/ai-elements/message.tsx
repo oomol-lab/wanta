@@ -96,7 +96,10 @@ export const MessageAction = ({
   </Tooltip>
 )
 
-export type MessageResponseProps = StreamdownProps
+export type MessageResponseProps = StreamdownProps & {
+  /** 对正在生成的文本做前端平滑展示；不改变消息真实内容。 */
+  smooth?: boolean
+}
 
 type MarkdownTableProps = ComponentProps<"table"> & {
   node?: unknown
@@ -324,9 +327,83 @@ export function messageResponseControls(controls: MessageResponseProps["controls
   }
 }
 
+export function smoothedTextRevealStep(remaining: number): number {
+  if (remaining > 1200) {
+    return 24
+  }
+  if (remaining > 600) {
+    return 16
+  }
+  if (remaining > 240) {
+    return 10
+  }
+  if (remaining > 80) {
+    return 6
+  }
+  return 3
+}
+
+export function nextSmoothedText(current: string, target: string): string {
+  if (!target.startsWith(current) || current.length >= target.length) {
+    return target
+  }
+  const remaining = target.length - current.length
+  return target.slice(0, current.length + smoothedTextRevealStep(remaining))
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  )
+}
+
+function useSmoothedText(target: string, enabled: boolean): string {
+  const [visible, setVisible] = useState(enabled && !prefersReducedMotion() ? "" : target)
+  const timerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+
+    if (!enabled || prefersReducedMotion()) {
+      setVisible(target)
+      return
+    }
+
+    const tick = () => {
+      setVisible((current) => {
+        const next = nextSmoothedText(current, target)
+        if (next.length < target.length) {
+          timerRef.current = window.setTimeout(tick, 24)
+        } else {
+          timerRef.current = null
+        }
+        return next
+      })
+    }
+
+    timerRef.current = window.setTimeout(tick, 24)
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [enabled, target])
+
+  return visible
+}
+
 export const MessageResponse = memo(
-  ({ className, components, controls, children, lineNumbers, ...props }: MessageResponseProps) => {
-    const responseChildren = typeof children === "string" ? normalizeSingleLocalPathCodeFences(children) : children
+  ({ className, components, controls, children, lineNumbers, smooth = false, ...props }: MessageResponseProps) => {
+    const visibleChildren = useSmoothedText(typeof children === "string" ? children : "", smooth)
+    const sourceChildren = typeof children === "string" && smooth ? visibleChildren : children
+    const responseChildren =
+      typeof sourceChildren === "string" ? normalizeSingleLocalPathCodeFences(sourceChildren) : sourceChildren
     const localImagePreviews = typeof responseChildren === "string" ? extractLocalImagePreviews(responseChildren) : []
     return (
       // fallback 直接铺原始 markdown 文本：streamdown chunk 首次加载时内容即可见，加载完再升级为富渲染。
@@ -357,7 +434,8 @@ export const MessageResponse = memo(
     prevProps.className === nextProps.className &&
     prevProps.components === nextProps.components &&
     prevProps.controls === nextProps.controls &&
-    prevProps.lineNumbers === nextProps.lineNumbers,
+    prevProps.lineNumbers === nextProps.lineNumbers &&
+    prevProps.smooth === nextProps.smooth,
 )
 
 MessageResponse.displayName = "MessageResponse"

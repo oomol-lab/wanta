@@ -35,6 +35,14 @@ export interface MessageDeltaEvent {
   /** OpenCode 流式增量；某些 provider 在最终事件前不会持续更新 text。 */
   delta?: string
 }
+export interface MessageReasoningDeltaEvent {
+  sessionId: string
+  messageId: string
+  partId: string
+  /** OpenCode 暴露的 reasoning/processing part 当前累计内容。 */
+  text: string
+  delta?: string
+}
 export interface MessageAttachmentEvent {
   sessionId: string
   messageId: string
@@ -101,7 +109,7 @@ export interface AgentErrorEvent {
 
 // ── 规范化消息（切换会话时加载历史用）──
 export interface ChatMessagePart {
-  kind: "text" | "tool" | "attachment" | "error"
+  kind: "text" | "reasoning" | "tool" | "attachment" | "error"
   partId: string
   text?: string
   errorText?: string
@@ -308,6 +316,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   ServerEvents: {
     messageStarted: MessageStartedEvent
     messageDelta: MessageDeltaEvent
+    messageReasoningDelta: MessageReasoningDeltaEvent
     messageAttachment: MessageAttachmentEvent
     messageArtifacts: MessageArtifactsEvent
     toolCallStarted: ToolCallStartedEvent

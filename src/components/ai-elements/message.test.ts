@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { compactLocalPath, messageResponseControls, normalizeSingleLocalPathCodeFences } from "./message.tsx"
+import {
+  compactLocalPath,
+  messageResponseControls,
+  nextSmoothedText,
+  normalizeSingleLocalPathCodeFences,
+  smoothedTextRevealStep,
+} from "./message.tsx"
 
 describe("messageResponseControls", () => {
   it("keeps code blocks copyable but disables text downloads by default", () => {
@@ -64,5 +70,19 @@ describe("compactLocalPath", () => {
     expect(compactLocalPath("file:///C:/Users/me/output%20files/report.pdf")).toBe(
       "C:/Users/me/output files/report.pdf",
     )
+  })
+})
+
+describe("nextSmoothedText", () => {
+  it("reveals a prefix incrementally", () => {
+    expect(nextSmoothedText("", "Lumo 正在处理一段较长的回复")).toBe("Lum")
+  })
+
+  it("jumps to target when text is replaced instead of appended", () => {
+    expect(nextSmoothedText("old answer", "new answer")).toBe("new answer")
+  })
+
+  it("uses larger steps for large pending chunks", () => {
+    expect(smoothedTextRevealStep(1300)).toBeGreaterThan(smoothedTextRevealStep(80))
   })
 })

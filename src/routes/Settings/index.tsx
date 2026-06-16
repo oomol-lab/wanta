@@ -335,7 +335,7 @@ function UpdateAction({ update }: { update: UseAppUpdate }) {
       )
     default:
       return (
-        <Button variant="outline" size="sm" onClick={() => void update.check()}>
+        <Button variant="outline" size="sm" onClick={() => void update.checkAndDownload()}>
           <RefreshCwIcon className="size-4" />
           {t("settings.updateCheck")}
         </Button>

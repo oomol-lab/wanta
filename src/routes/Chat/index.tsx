@@ -137,6 +137,7 @@ interface AttachmentInput {
 }
 
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
+const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
 
 const attachmentPreviewUrlByPath = new Map<string, string>()
 
@@ -856,10 +857,50 @@ function AssistantMessageActions({ text, cancelled }: { text: string; cancelled:
   )
 }
 
+function ReasoningActivity({ text, active }: { text: string; active: boolean }) {
+  const t = useT()
+  const [open, setOpen] = React.useState(active)
+  const visibleText = text.trim()
+
+  React.useEffect(() => {
+    setOpen(active)
+  }, [active])
+
+  if (!visibleText) {
+    return null
+  }
+
+  return (
+    <Task open={open} onOpenChange={setOpen} className="not-prose my-0 w-full">
+      <TaskTrigger title={t("chat.reasoningTitle")}>
+        <button
+          type="button"
+          className="group flex w-fit max-w-full items-center gap-2 rounded-md py-0.5 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {active ? (
+            <Loader2 className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <BrainCircuit className="size-3.5 shrink-0" />
+          )}
+          <span className="min-w-0 truncate">{t("chat.reasoningTitle")}</span>
+          <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+        </button>
+      </TaskTrigger>
+      <TaskContent className="[&>div]:mt-1 [&>div]:border-l [&>div]:pl-2.5">
+        <div className="oo-text-caption max-w-[46rem] text-muted-foreground">
+          <MessageResponse smooth={active}>{visibleText}</MessageResponse>
+        </div>
+      </TaskContent>
+    </Task>
+  )
+}
+
 function MessageBubble({
   billingCacheScope,
   message,
   pending,
+  reasoningActive,
+  smoothText,
   providerByService,
   onAuthorize,
   onViewBilling,
@@ -868,6 +909,8 @@ function MessageBubble({
   billingCacheScope: string
   message: ChatMessage
   pending: boolean
+  reasoningActive: boolean
+  smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
   onViewBilling?: () => void
@@ -947,7 +990,11 @@ function MessageBubble({
           <div key={block.kind === "tools" ? block.key : block.part.partId} className={blockClassName(index)}>
             {block.kind === "text" ? (
               block.part.text ? (
-                <MessageResponse>{block.part.text}</MessageResponse>
+                <MessageResponse smooth={smoothText}>{block.part.text}</MessageResponse>
+              ) : null
+            ) : block.kind === "reasoning" ? (
+              block.part.text ? (
+                <ReasoningActivity text={block.part.text} active={reasoningActive} />
               ) : null
             ) : block.kind === "error" ? (
               <ChatErrorNotice
@@ -1746,6 +1793,16 @@ export function ChatArea({
       : null
   const activeAssistantMessageId =
     status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
+  const smoothAssistantMessageId = (() => {
+    if (!latestAssistant || hasStoppedTool(latestAssistant.parts)) {
+      return undefined
+    }
+    if (activeAssistantMessageId) {
+      return activeAssistantMessageId
+    }
+    const ageMs = Date.now() - latestAssistant.createdAt
+    return ageMs >= 0 && ageMs <= ASSISTANT_TEXT_SMOOTH_WINDOW_MS ? latestAssistant.id : undefined
+  })()
   const assistantActionTextByMessageId = React.useMemo(() => {
     return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
   }, [activeAssistantMessageId, messages])
@@ -2261,6 +2318,8 @@ export function ChatArea({
                 message={message}
                 billingCacheScope={billingCacheScope}
                 pending={message.id === pendingAssistantMessageId}
+                reasoningActive={message.id === activeAssistantMessageId}
+                smoothText={message.id === smoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={onAuthorize}
                 onViewBilling={onViewBilling}

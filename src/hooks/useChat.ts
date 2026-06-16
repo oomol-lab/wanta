@@ -7,6 +7,7 @@ import type {
   MessageArtifactsEvent,
   MessageDeltaEvent,
   MessageErrorEvent,
+  MessageReasoningDeltaEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
@@ -157,6 +158,19 @@ function setTextPart(msgs: ChatMessage[], event: MessageDeltaEvent): ChatMessage
     const currentText = existing?.kind === "text" ? (existing.text ?? "") : ""
     const text = event.text || (event.delta ? currentText + event.delta : currentText)
     return { ...message, parts: upsertPart(parts, { kind: "text", partId: event.partId, text }) }
+  })
+}
+
+function setReasoningPart(msgs: ChatMessage[], event: MessageReasoningDeltaEvent): ChatMessage[] {
+  const ensured = ensureMessage(msgs, event.messageId, "assistant")
+  return ensured.map((message) => {
+    if (message.id !== event.messageId) {
+      return message
+    }
+    const existing = message.parts.find((part) => part.partId === event.partId)
+    const currentText = existing?.kind === "reasoning" ? (existing.text ?? "") : ""
+    const text = event.text || (event.delta ? currentText + event.delta : currentText)
+    return { ...message, parts: upsertPart(message.parts, { kind: "reasoning", partId: event.partId, text }) }
   })
 }
 
@@ -462,6 +476,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("messageDelta", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
         patch(e.sessionId, (msgs) => setTextPart(msgs, e))
+      }),
+      chatService.serverEvents.on("messageReasoningDelta", (e) => {
+        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+        patch(e.sessionId, (msgs) => setReasoningPart(msgs, e))
       }),
       chatService.serverEvents.on("messageAttachment", (e) => {
         patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))

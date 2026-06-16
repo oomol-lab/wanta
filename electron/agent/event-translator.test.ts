@@ -30,6 +30,21 @@ test("text part.updated forwards streaming delta when cumulative text is unavail
   ])
 })
 
+test("reasoning part.updated → messageReasoningDelta", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "r1", sessionID: "s1", messageID: "m1", type: "reasoning", text: "Need to inspect files" },
+    },
+  })
+  assert.deepEqual(out, [
+    {
+      event: "messageReasoningDelta",
+      data: { sessionId: "s1", messageId: "m1", partId: "r1", text: "Need to inspect files" },
+    },
+  ])
+})
+
 test("file part.updated → messageAttachment", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -204,11 +219,12 @@ test("normalizeMessage marks directory attachments from inode mime", () => {
   ])
 })
 
-test("normalizeMessage builds ChatMessage with text + tool parts in order", () => {
+test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in order", () => {
   const msg = normalizeMessage({
     info: { id: "m1", role: "assistant", time: { created: 123 } },
     parts: [
       { id: "p1", type: "text", text: "Result:" },
+      { id: "r1", type: "reasoning", text: "Checked local context" },
       {
         id: "p2",
         type: "tool",
@@ -222,7 +238,8 @@ test("normalizeMessage builds ChatMessage with text + tool parts in order", () =
   assert.ok(msg)
   assert.equal(msg.id, "m1")
   assert.equal(msg.role, "assistant")
-  assert.equal(msg.parts.length, 2)
+  assert.equal(msg.parts.length, 3)
   assert.equal(msg.parts[0].kind, "text")
-  assert.equal(msg.parts[1].kind, "tool")
+  assert.equal(msg.parts[1].kind, "reasoning")
+  assert.equal(msg.parts[2].kind, "tool")
 })

@@ -5,6 +5,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  Download,
   LogOut,
   LoaderCircle,
   MessageSquarePlus,
@@ -14,6 +15,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plug,
+  RefreshCw,
   Search,
   Settings,
   SquarePen,
@@ -40,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
@@ -130,6 +133,7 @@ function hasAssistantContent(messages: ChatMessage[]): boolean {
           part.kind === "tool" ||
           part.kind === "attachment" ||
           part.kind === "error" ||
+          (part.kind === "reasoning" && Boolean(part.text?.trim())) ||
           (part.kind === "text" && Boolean(part.text?.trim())),
       ),
   )
@@ -692,6 +696,78 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
       )}
     </div>
   )
+}
+
+function AppUpdateTitlebarEntry() {
+  const t = useT()
+  const update = useAppUpdate()
+  const state = update.state
+
+  if (!state?.isPackaged) {
+    return null
+  }
+
+  switch (state.status.status) {
+    case "available": {
+      const label = t("nav.updateDownload")
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          aria-label={label}
+          disabled={update.isDownloadInFlight}
+          onClick={() => void update.download()}
+        >
+          {update.isDownloadInFlight ? (
+            <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <Download className="size-3.5 shrink-0" />
+          )}
+          <span className="truncate">{label}</span>
+        </Button>
+      )
+    }
+    case "downloading": {
+      const percent = Math.round(state.status.percent ?? 0)
+      const label = t("nav.updateDownloading", { percent })
+      return (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          aria-label={label}
+          disabled
+        >
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+          <span className="truncate">{label}</span>
+        </Button>
+      )
+    }
+    case "downloaded": {
+      const label = t("nav.restartToUpdate")
+      return (
+        <Button
+          type="button"
+          size="sm"
+          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          aria-label={label}
+          disabled={update.isInstallTriggered}
+          onClick={() => void update.install()}
+        >
+          {update.isInstallTriggered ? (
+            <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
+          ) : (
+            <RefreshCw className="size-3.5 shrink-0" />
+          )}
+          <span className="truncate">{label}</span>
+        </Button>
+      )
+    }
+    default:
+      return null
+  }
 }
 
 export function AppShell() {
@@ -1350,6 +1426,7 @@ export function AppShell() {
               />
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+              <AppUpdateTitlebarEntry />
               <BillingUsagePopover cacheScope={billingCacheScope} onViewDetails={() => setRoute("billing")} />
               {showArtifactsToggle ? (
                 <button

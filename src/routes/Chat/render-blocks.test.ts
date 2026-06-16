@@ -22,6 +22,10 @@ function errorPart(partId: string, errorText: string): ChatMessagePart {
   return { kind: "error", partId, errorText }
 }
 
+function reasoningPart(partId: string, text: string): ChatMessagePart {
+  return { kind: "reasoning", partId, text }
+}
+
 describe("renderBlocks", () => {
   it("ignores whitespace-only text parts so adjacent tools stay grouped", () => {
     const firstTool = toolPart("tool-1")
@@ -57,6 +61,18 @@ describe("renderBlocks", () => {
       { kind: "tools", key: "tool-1", parts: [firstTool] },
       { kind: "error", part: error },
       { kind: "tools", key: "tool-2", parts: [secondTool] },
+    ])
+  })
+
+  it("keeps reasoning separate from final text", () => {
+    const reasoning = reasoningPart("reasoning-1", "Check the current state")
+    const answer = textPart("text-1", "Done")
+
+    const blocks = renderBlocks([reasoning, answer])
+
+    expect(blocks).toEqual([
+      { kind: "reasoning", part: reasoning },
+      { kind: "text", part: answer },
     ])
   })
 })

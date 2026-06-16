@@ -6,6 +6,7 @@ import type {
   MessageAttachmentEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
+  MessageReasoningDeltaEvent,
   MessageStartedEvent,
   ToolCallResultEvent,
   ToolCallStartedEvent,
@@ -18,6 +19,7 @@ import type {
 export type ChatEmit =
   | { event: "messageStarted"; data: MessageStartedEvent }
   | { event: "messageDelta"; data: MessageDeltaEvent }
+  | { event: "messageReasoningDelta"; data: MessageReasoningDeltaEvent }
   | { event: "messageAttachment"; data: MessageAttachmentEvent }
   | { event: "toolCallStarted"; data: ToolCallStartedEvent }
   | { event: "toolCallResult"; data: ToolCallResultEvent }
@@ -159,6 +161,21 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       },
     ]
   }
+  if (part.type === "reasoning") {
+    const data: MessageReasoningDeltaEvent = {
+      sessionId: part.sessionID,
+      messageId: part.messageID,
+      partId: part.id,
+      text: part.text ?? "",
+      ...(delta === undefined ? {} : { delta }),
+    }
+    return [
+      {
+        event: "messageReasoningDelta",
+        data,
+      },
+    ]
+  }
   if (part.type === "file") {
     const attachment = attachmentPart(part)
     if (!attachment.attachment) {
@@ -258,6 +275,11 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
       const text = part.text ?? ""
       if (text.length > 0) {
         parts.push({ kind: "text", partId: part.id, text })
+      }
+    } else if (part.type === "reasoning") {
+      const text = part.text ?? ""
+      if (text.length > 0) {
+        parts.push({ kind: "reasoning", partId: part.id, text })
       }
     } else if (part.type === "file") {
       const attachment = attachmentPart(part)

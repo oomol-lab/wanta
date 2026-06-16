@@ -2,6 +2,7 @@ import type { ChatMessagePart } from "../../../electron/chat/common.ts"
 
 export type RenderBlock =
   | { kind: "text"; part: ChatMessagePart }
+  | { kind: "reasoning"; part: ChatMessagePart }
   | { kind: "error"; part: ChatMessagePart }
   | { kind: "tools"; key: string; parts: ChatMessagePart[] }
 
@@ -30,6 +31,8 @@ export function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
     flushTools()
     if (part.kind === "error") {
       blocks.push({ kind: "error", part })
+    } else if (part.kind === "reasoning") {
+      blocks.push({ kind: "reasoning", part })
     } else {
       blocks.push({ kind: "text", part })
     }

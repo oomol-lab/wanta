@@ -1334,15 +1334,18 @@
     z-index: 50;
     overflow: hidden;
     background: rgb(0 0 0 / 74%);
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-stage {
     position: absolute;
     inset: 0;
+    z-index: 1;
     overflow: hidden;
     cursor: grab;
     touch-action: none;
     user-select: none;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-stage.is-dragging {
@@ -1378,9 +1381,11 @@
     position: absolute;
     top: 1.25rem;
     right: 1.25rem;
-    z-index: 2;
+    z-index: 3;
     display: flex;
     gap: 0.5rem;
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-action {
@@ -1395,6 +1400,8 @@
     color: oklch(0.18 0.005 260);
     text-decoration: none;
     box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
     transition:
       background 120ms ease-out,
       transform 120ms ease-out;
@@ -1417,7 +1424,7 @@
     position: absolute;
     bottom: 1.5rem;
     left: 50%;
-    z-index: 2;
+    z-index: 3;
     display: flex;
     height: 2.625rem;
     align-items: center;
@@ -1428,6 +1435,8 @@
     padding: 0.25rem;
     color: oklch(0.18 0.005 260);
     box-shadow: 0 8px 20px rgb(0 0 0 / 20%);
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-zoom-button {
@@ -1440,6 +1449,8 @@
     border-radius: 999px;
     background: color-mix(in oklab, black 8%, transparent);
     color: currentcolor;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-zoom-button:hover {

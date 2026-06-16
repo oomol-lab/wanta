@@ -5,7 +5,7 @@
   $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   appId: "com.oomol.lumo",
   asar: true,
-  productName: "Gimo",
+  productName: "Lumo",
   directories: {
     buildResources: "resources",
     output: "release/${version}",
@@ -43,7 +43,7 @@
     icon: "branding/icon.icns",
     electronLanguages: ["en", "zh_CN"],
     extendInfo: {
-      NSMicrophoneUsageDescription: "Gimo uses the microphone to record voice messages for chat input.",
+      NSMicrophoneUsageDescription: "Lumo uses the microphone to record voice messages for chat input.",
     },
     entitlements: "electron/entitlements.mac.plist",
     entitlementsInherit: "electron/entitlements.mac.plist",

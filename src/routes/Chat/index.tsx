@@ -731,11 +731,15 @@ function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: strin
   return duration ? `${title} ${duration}` : title
 }
 
-function ProcessStatusIcon({ status }: { status: TurnProcessStatus }) {
+function ProcessStatusIcon({ status, animated = true }: { status: TurnProcessStatus; animated?: boolean }) {
   switch (status) {
     case "running":
     case "retrying":
-      return <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+      return animated ? (
+        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+      ) : (
+        <Circle className="size-3.5 shrink-0 text-muted-foreground" />
+      )
     case "needsAction":
       return <Plug className="size-3.5 shrink-0 text-orange-600" />
     case "error":
@@ -792,21 +796,15 @@ function TurnProcessActivity({
       <TaskTrigger title={title}>
         <button
           type="button"
-          className="group flex w-fit max-w-full items-center gap-2 rounded-md py-0.5 pr-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="group flex w-full max-w-full items-center gap-2 border-b border-border/60 py-1.5 pr-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ProcessStatusIcon status={status} />
+          <ProcessStatusIcon status={status} animated={!open} />
           <span className="min-w-0 truncate">{title}</span>
-          <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+          <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
         </button>
       </TaskTrigger>
-      <TaskContent className="[&>div]:mt-1 [&>div]:space-y-1 [&>div]:border-t [&>div]:pt-2.5">
+      <TaskContent className="[&>div]:mt-0 [&>div]:space-y-1 [&>div]:border-l [&>div]:border-border/60 [&>div]:pt-2.5 [&>div]:pl-4">
         <div className="space-y-1 border-border/60">
-          {process.activity && status !== "completed" && status !== "stopped" ? (
-            <div className="oo-text-caption flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="size-3.5 shrink-0 animate-spin" />
-              <span>{activityText(t, process.activity)}</span>
-            </div>
-          ) : null}
           {process.tools.map((part) => {
             const service = toolServiceSlug(part)
             return (
@@ -819,9 +817,70 @@ function TurnProcessActivity({
               />
             )
           })}
+          <LiveStatusBar process={process} />
         </div>
       </TaskContent>
     </Task>
+  )
+}
+
+function latestActiveTool(process: ReturnType<typeof summarizeTurnProcess>): ChatMessagePart | null {
+  for (let index = process.tools.length - 1; index >= 0; index -= 1) {
+    const part = process.tools[index]
+    if (part?.status === "running" || part?.status === "pending") {
+      return part
+    }
+  }
+  return null
+}
+
+function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnProcess> | null }) {
+  const t = useT()
+  const [now, setNow] = React.useState(() => Date.now())
+
+  React.useEffect(() => {
+    if (!process) {
+      return
+    }
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [process])
+
+  if (!process) {
+    return null
+  }
+
+  const status = processStatus(process)
+  const activeTool = latestActiveTool(process)
+  const shouldShow =
+    (status === "running" && !activeTool) ||
+    status === "retrying" ||
+    Boolean(process.activity && status !== "completed" && status !== "stopped")
+  if (!shouldShow) {
+    return null
+  }
+
+  const text = (() => {
+    if (status === "retrying" && process.activity) {
+      return activityText(t, process.activity)
+    }
+    if (activeTool) {
+      return t("chat.liveStatusTool", { action: toolActionSummary(t, activeTool) })
+    }
+    if (process.activity) {
+      return activityText(t, process.activity)
+    }
+    return processTitle(t, status, null)
+  })()
+  const duration = formatProcessDuration(process, now)
+
+  return (
+    <div className="oo-text-caption flex min-h-7 items-center gap-2 rounded-md px-1 py-0.5 text-muted-foreground">
+      <Loader2 className="size-3.5 shrink-0 animate-spin" />
+      <span className="min-w-0 truncate">{text}</span>
+      {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
+    </div>
   )
 }
 
@@ -1123,7 +1182,7 @@ function ChatTurnView({
       ) : null}
       {shouldShowTurnProcess(process) ? (
         <Message from="assistant">
-          <MessageContent>
+          <MessageContent className="w-full">
             <TurnProcessActivity process={process} providerByService={providerByService} onAuthorize={onAuthorize} />
           </MessageContent>
         </Message>
@@ -1935,7 +1994,6 @@ export function ChatArea({
     }
     return artifactSources.filter((source) => source.messageId !== latestAssistantMessageId)
   }, [artifactSources, isGenerating, latestAssistant?.id])
-
   React.useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])

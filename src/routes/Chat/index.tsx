@@ -602,7 +602,7 @@ function ToolActivityStep({
   const actionText = toolActionSummary(t, part)
   const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
   const row = (
-    <div className="flex min-h-7 min-w-0 flex-1 items-center gap-2">
+    <div className="flex min-h-6 min-w-0 flex-1 items-center gap-2">
       <span
         className="flex size-5 shrink-0 items-center justify-center"
         title={provider ? `${provider.displayName} · ${statusText}` : statusText}
@@ -615,10 +615,12 @@ function ToolActivityStep({
             <LoadingShimmerText className="min-w-0 truncate">{activeText}</LoadingShimmerText>
           </div>
         ) : (
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="min-w-0 truncate text-foreground">{actionText}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={cn("min-w-0 truncate text-foreground", inlineDetail ? "shrink-0" : "flex-1")}>
+              {actionText}
+            </span>
             {inlineDetail && (
-              <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
+              <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
                 {inlineDetail}
               </code>
             )}
@@ -647,7 +649,7 @@ function ToolActivityStep({
 
   return (
     <Collapsible defaultOpen={(part.status === "error" && !stopped) || Boolean(auth)}>
-      <div className="rounded-md py-0.5">
+      <div className="rounded-md">
         {details ? (
           <CollapsibleTrigger className="group/tool-step flex w-full items-center justify-between gap-2 text-left">
             {row}
@@ -832,8 +834,8 @@ function TurnProcessActivity({
           <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         </button>
       </TaskTrigger>
-      <TaskContent>
-        <div className="space-y-3 pt-3">
+      <TaskContent className="[&>div]:mt-0">
+        <div className="space-y-2 pt-2">
           {blocks.map(({ message, block }, index) => (
             <AssistantBlock
               key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
@@ -909,11 +911,8 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
   })()
 
   return (
-    <div className="rounded-md py-0.5 text-muted-foreground">
-      <div className="flex min-h-7 min-w-0 items-center gap-2">
-        <span className="flex size-5 shrink-0 items-center justify-center">
-          <Loader2 className="size-3.5 animate-spin" />
-        </span>
+    <div className="rounded-md text-muted-foreground">
+      <div className="flex min-h-6 min-w-0 items-center">
         <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
       </div>
     </div>
@@ -1126,7 +1125,7 @@ function AssistantBlock({
           onViewBilling={onViewBilling}
         />
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {block.parts.map((part) => {
             const service = toolServiceSlug(part)
             return (

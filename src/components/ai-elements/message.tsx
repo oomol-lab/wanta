@@ -1,9 +1,18 @@
 import type { UIMessage } from "ai"
 import type { ComponentProps, HTMLAttributes } from "react"
-import type { StreamdownProps } from "streamdown"
+import type { CustomRendererProps, StreamdownProps } from "streamdown"
 
+import { code as streamdownCode } from "@streamdown/code"
 import { CheckIcon, CopyIcon } from "lucide-react"
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react"
+import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockCopyButton,
+  CodeBlockFilename,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "./code-block.tsx"
 import { MarkdownImage } from "./message-image.tsx"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -39,9 +48,9 @@ export type MessageContentProps = HTMLAttributes<HTMLDivElement>
 export const MessageContent = ({ children, className, ...props }: MessageContentProps) => (
   <div
     className={cn(
-      "flex w-fit max-w-full min-w-0 flex-col gap-2 overflow-hidden text-sm",
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
-      "group-[.is-assistant]:text-foreground",
+      "flex max-w-full min-w-0 flex-col gap-2 overflow-hidden text-sm",
+      "group-[.is-user]:ml-auto group-[.is-user]:w-fit group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
+      "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       className,
     )}
     {...props}
@@ -257,6 +266,112 @@ const messageResponseComponents = {
   table: MarkdownTable,
 } satisfies MessageResponseProps["components"]
 
+const messageCodeBlockLanguages: string[] = [
+  "bash",
+  "c",
+  "cpp",
+  "cs",
+  "css",
+  "diff",
+  "go",
+  "html",
+  "java",
+  "js",
+  "javascript",
+  "json",
+  "jsx",
+  "markdown",
+  "md",
+  "php",
+  "plain",
+  "plaintext",
+  "py",
+  "python",
+  "rb",
+  "rs",
+  "ruby",
+  "rust",
+  "scss",
+  "sh",
+  "shell",
+  "sql",
+  "text",
+  "ts",
+  "tsx",
+  "txt",
+  "typescript",
+  "xml",
+  "yaml",
+  "yml",
+  "zsh",
+]
+
+function codeBlockLanguageLabel(language: string): string {
+  const normalized = language.trim().toLowerCase()
+  switch (normalized) {
+    case "js":
+      return "javascript"
+    case "md":
+      return "markdown"
+    case "py":
+      return "python"
+    case "rb":
+      return "ruby"
+    case "rs":
+      return "rust"
+    case "sh":
+    case "shell":
+    case "zsh":
+      return "bash"
+    case "ts":
+      return "typescript"
+    case "txt":
+      return "text"
+    default:
+      return normalized || "text"
+  }
+}
+
+function MarkdownCodeBlock({ code, language }: CustomRendererProps) {
+  const label = codeBlockLanguageLabel(language)
+
+  return (
+    <CodeBlock className="my-3 w-full" code={code} language={language}>
+      <CodeBlockHeader>
+        <CodeBlockTitle>
+          <CodeBlockFilename>{label}</CodeBlockFilename>
+        </CodeBlockTitle>
+        <CodeBlockActions>
+          <CodeBlockCopyButton aria-label="Copy code" />
+        </CodeBlockActions>
+      </CodeBlockHeader>
+    </CodeBlock>
+  )
+}
+
+const defaultMessageCodeRenderers = [
+  {
+    component: MarkdownCodeBlock,
+    language: messageCodeBlockLanguages,
+  },
+] satisfies NonNullable<MessageResponseProps["plugins"]>["renderers"]
+
+const defaultMessageResponsePlugins = {
+  code: streamdownCode,
+  renderers: defaultMessageCodeRenderers,
+} satisfies NonNullable<MessageResponseProps["plugins"]>
+
+function messageResponsePlugins(plugins: MessageResponseProps["plugins"]): MessageResponseProps["plugins"] {
+  if (!plugins) {
+    return defaultMessageResponsePlugins
+  }
+  return {
+    ...plugins,
+    code: plugins.code ?? streamdownCode,
+    renderers: [...(plugins.renderers ?? []), ...defaultMessageCodeRenderers],
+  }
+}
+
 interface LocalImagePreview {
   path: string
   alt: string
@@ -399,7 +514,16 @@ function useSmoothedText(target: string, enabled: boolean): string {
 }
 
 export const MessageResponse = memo(
-  ({ className, components, controls, children, lineNumbers, smooth = false, ...props }: MessageResponseProps) => {
+  ({
+    className,
+    components,
+    controls,
+    children,
+    lineNumbers,
+    plugins,
+    smooth = false,
+    ...props
+  }: MessageResponseProps) => {
     const visibleChildren = useSmoothedText(typeof children === "string" ? children : "", smooth)
     const sourceChildren = typeof children === "string" && smooth ? visibleChildren : children
     const responseChildren =
@@ -411,9 +535,14 @@ export const MessageResponse = memo(
         <>
           <Streamdown
             className={cn("oo-message-response size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
-            components={{ ...messageResponseComponents, inlineCode: MarkdownInlineCode, ...components }}
+            components={{
+              ...messageResponseComponents,
+              inlineCode: MarkdownInlineCode,
+              ...components,
+            }}
             controls={messageResponseControls(controls)}
             lineNumbers={lineNumbers ?? false}
+            plugins={messageResponsePlugins(plugins)}
             {...props}
           >
             {responseChildren}
@@ -435,6 +564,7 @@ export const MessageResponse = memo(
     prevProps.components === nextProps.components &&
     prevProps.controls === nextProps.controls &&
     prevProps.lineNumbers === nextProps.lineNumbers &&
+    prevProps.plugins === nextProps.plugins &&
     prevProps.smooth === nextProps.smooth,
 )
 

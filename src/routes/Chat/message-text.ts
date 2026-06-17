@@ -65,6 +65,18 @@ export function assistantResponseActionTextByMessageId(
   return textByMessageId
 }
 
+export function reuseStableTextMap(previous: Map<string, string>, next: Map<string, string>): Map<string, string> {
+  if (previous.size !== next.size) {
+    return next
+  }
+  for (const [key, value] of next) {
+    if (previous.get(key) !== value) {
+      return next
+    }
+  }
+  return previous
+}
+
 function jsonObjectEnd(text: string): number {
   if (!text.startsWith("{")) {
     return -1

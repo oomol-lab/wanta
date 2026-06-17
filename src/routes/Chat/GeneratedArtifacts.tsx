@@ -87,6 +87,32 @@ interface ResolvedArtifactGroup {
   group: LocalArtifactGroup
 }
 
+const artifactResolveCacheLimit = 24
+
+function artifactSourceCacheKey(source: GeneratedArtifactSource): string {
+  return JSON.stringify({
+    artifactRoot: source.artifactRoot ?? "",
+    requestText: source.requestText,
+    sourcePaths: source.sourcePaths,
+    text: source.text,
+  })
+}
+
+function rememberArtifactGroups(
+  cache: Map<string, LocalArtifactGroup[]>,
+  key: string,
+  groups: LocalArtifactGroup[],
+): void {
+  cache.set(key, groups)
+  while (cache.size > artifactResolveCacheLimit) {
+    const oldest = cache.keys().next().value
+    if (!oldest) {
+      return
+    }
+    cache.delete(oldest)
+  }
+}
+
 function itemCount(group: LocalArtifactGroup): number {
   return group.root?.kind === "directory" ? group.totalItems : group.items.length
 }
@@ -327,6 +353,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
   const t = useT()
   const chatService = useChatService()
   const [groups, setGroups] = React.useState<ResolvedArtifactGroup[]>([])
+  const resolvedGroupsCache = React.useRef(new Map<string, LocalArtifactGroup[]>())
 
   React.useEffect(() => {
     if (sources.length === 0) {
@@ -335,8 +362,14 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
     }
     let cancelled = false
     const sourceRequests = sources.map(async (source): Promise<ResolvedArtifactGroup[]> => {
+      const cacheKey = artifactSourceCacheKey(source)
+      const cached = resolvedGroupsCache.current.get(cacheKey)
+      if (cached) {
+        return cached.map((group) => ({ messageId: source.messageId, group }))
+      }
       const trimmed = source.text.trim()
       if (!source.artifactRoot && !trimmed) {
+        rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, [])
         return []
       }
       const requests: Array<Promise<LocalArtifactGroup[]>> = []
@@ -351,7 +384,9 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
         requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then((result) => result.groups))
       }
       const resultGroups = await Promise.all(requests)
-      return mergeArtifactGroups(resultGroups, source).map((group) => ({
+      const mergedGroups = mergeArtifactGroups(resultGroups, source)
+      rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, mergedGroups)
+      return mergedGroups.map((group) => ({
         messageId: source.messageId,
         group,
       }))

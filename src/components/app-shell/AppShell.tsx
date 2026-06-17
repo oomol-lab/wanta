@@ -8,6 +8,7 @@ import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
+import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
@@ -38,7 +39,7 @@ import {
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  consumeNextQueuedMessage,
+  latestQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -66,6 +67,7 @@ import { useI18n, useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { BillingRoute } from "@/routes/Billing"
 import { ChatArea } from "@/routes/Chat"
+import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
@@ -83,6 +85,12 @@ const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
+const TURN_RETRY_OPTIONS_LIMIT = 48
+
+interface TurnRetryOptions {
+  contextMentions?: ChatContextMention[]
+  model?: ModelChoice
+}
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
@@ -137,6 +145,24 @@ function normalizeSearchText(value: string): string {
 function accountInitial(name?: string): string {
   const trimmed = name?.trim()
   return trimmed ? trimmed.charAt(0).toLocaleUpperCase() : "L"
+}
+
+function rememberTurnRetryOptions(
+  store: Map<string, Map<string, TurnRetryOptions>>,
+  sessionId: string,
+  key: string,
+  options: TurnRetryOptions,
+): void {
+  const sessionStore = store.get(sessionId) ?? new Map<string, TurnRetryOptions>()
+  sessionStore.set(key, options)
+  while (sessionStore.size > TURN_RETRY_OPTIONS_LIMIT) {
+    const first = sessionStore.keys().next()
+    if (first.done) {
+      break
+    }
+    sessionStore.delete(first.value)
+  }
+  store.set(sessionId, sessionStore)
 }
 
 function buildSessionTitleInput(
@@ -821,6 +847,7 @@ export function AppShell() {
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
+  const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
@@ -1157,7 +1184,23 @@ export function AppShell() {
         }
         lastModelBySession.current.set(sessionId, model)
         lastContextMentionsBySession.current.set(sessionId, contextMentions)
-        await send(sessionId, text, attachments, { contextMentions, model })
+        rememberTurnRetryOptions(
+          turnRetryOptionsBySession.current,
+          sessionId,
+          chatTurnInputKey({ text, attachments }),
+          {
+            contextMentions,
+            model,
+          },
+        )
+        try {
+          await send(sessionId, text, attachments, { contextMentions, model })
+        } catch (error) {
+          if (bridgeEmptySend) {
+            setPendingChatTransition(null)
+          }
+          throw error
+        }
         return true
       } finally {
         sendInFlightRef.current = false
@@ -1194,15 +1237,23 @@ export function AppShell() {
     if (queue.length === 0) {
       return
     }
-    const { message } = consumeNextQueuedMessage(queuedMessagesBySession, activeSessionId)
+    const message = latestQueuedMessage(queuedMessagesBySession, activeSessionId)
     if (!message) {
       return
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
-    setQueuedMessagesBySession((current) => consumeNextQueuedMessage(current, activeSessionId).queues)
-    void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model).finally(() => {
-      dispatchingQueuedSessionsRef.current.delete(activeSessionId)
-    })
+    void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model)
+      .then((accepted) => {
+        if (accepted) {
+          setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
+        }
+      })
+      .catch((cause: unknown) => {
+        console.error("[lumo] dispatch queued message failed", cause)
+      })
+      .finally(() => {
+        dispatchingQueuedSessionsRef.current.delete(activeSessionId)
+      })
   }, [activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
 
   const handleDelete = async (id: string): Promise<void> => {
@@ -1219,39 +1270,29 @@ export function AppShell() {
     setQueuedMessagesBySession((current) => clearQueuedMessages(current, id))
     lastModelBySession.current.delete(id)
     lastContextMentionsBySession.current.delete(id)
+    turnRetryOptionsBySession.current.delete(id)
   }
 
-  const handleAuthorize = (auth: AuthorizationInfo): void => {
-    // R5 闭环：打开连接页并定位该 provider；记录原 action，待用户完成授权后自动重试。
-    setRoute("connections")
-    setSelectedService(auth.service)
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")
-    const text = (lastUser?.parts ?? [])
-      .filter((p) => p.kind === "text")
-      .map((p) => p.text ?? "")
-      .join("")
-    const attachments = (lastUser?.parts ?? [])
-      .filter((p) => p.kind === "attachment" && p.attachment)
-      .map((p) => p.attachment as ChatAttachment)
-    if (activeSessionId && (text || attachments.length > 0)) {
-      const model =
-        pendingChatTransition?.sessionId === activeSessionId
-          ? pendingChatTransition.model
-          : lastModelBySession.current.get(activeSessionId)
-      const contextMentions =
-        pendingChatTransition?.sessionId === activeSessionId
-          ? pendingChatTransition.contextMentions
-          : lastContextMentionsBySession.current.get(activeSessionId)
-      pendingRetry.current = {
-        sessionId: activeSessionId,
-        service: auth.service,
-        text,
-        attachments,
-        contextMentions,
-        model,
+  const handleAuthorize = React.useCallback(
+    (auth: AuthorizationInfo, source?: ChatTurnRetrySource): void => {
+      // R5 闭环：打开连接页并定位该 provider；记录原 action，待用户完成授权后自动重试。
+      setRoute("connections")
+      setSelectedService(auth.service)
+      if (activeSessionId && source && (source.text || source.attachments.length > 0)) {
+        const retryKey = chatTurnInputKey(source)
+        const storedOptions = turnRetryOptionsBySession.current.get(activeSessionId)?.get(retryKey)
+        pendingRetry.current = {
+          sessionId: activeSessionId,
+          service: auth.service,
+          text: source.text,
+          attachments: source.attachments,
+          contextMentions: storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeSessionId),
+          model: storedOptions?.model ?? lastModelBySession.current.get(activeSessionId),
+        }
       }
-    }
-  }
+    },
+    [activeSessionId],
+  )
   const handleToggleSidebar = (): void => {
     if (sidebarCollapsed) {
       setIsSidebarRestoring(true)

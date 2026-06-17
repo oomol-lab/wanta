@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
+import {
+  assistantResponseActionTextByMessageId,
+  copyableMessageText,
+  reuseStableTextMap,
+  visibleUserText,
+} from "./message-text.ts"
 
 describe("visibleUserText", () => {
   it("strips OpenCode read-tool prelude from attachment user messages", () => {
@@ -90,5 +95,21 @@ describe("assistantResponseActionTextByMessageId", () => {
     )
 
     expect(actions.size).toBe(0)
+  })
+})
+
+describe("reuseStableTextMap", () => {
+  it("keeps the previous map when text entries are unchanged", () => {
+    const previous = new Map([["assistant-1", "answer"]])
+    const next = new Map([["assistant-1", "answer"]])
+
+    expect(reuseStableTextMap(previous, next)).toBe(previous)
+  })
+
+  it("uses the next map when an entry changes", () => {
+    const previous = new Map([["assistant-1", "answer"]])
+    const next = new Map([["assistant-1", "updated"]])
+
+    expect(reuseStableTextMap(previous, next)).toBe(next)
   })
 })

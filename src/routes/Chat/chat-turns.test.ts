@@ -1,7 +1,16 @@
 import type { ChatMessage, ChatMessagePart } from "../../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { assistantTextParts, groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
+import {
+  activityForChatTurn,
+  assistantTextParts,
+  chatTurnInputKey,
+  groupChatTurns,
+  latestAssistantMessage,
+  retrySourceFromTurn,
+  reuseStableChatTurns,
+  summarizeTurnProcess,
+} from "./chat-turns.ts"
 
 function message(id: string, role: ChatMessage["role"], parts: ChatMessagePart[] = []): ChatMessage {
   return { id, role, parts, createdAt: Number(id.replace(/\D/g, "")) || 1 }
@@ -38,6 +47,78 @@ describe("groupChatTurns", () => {
     expect(turns[0]?.assistants).toEqual([assistant1, assistant2])
     expect(turns[1]?.user).toBe(user2)
     expect(turns[1]?.assistants).toEqual([assistant3])
+  })
+
+  it("reuses unchanged turn objects across streaming updates", () => {
+    const user1 = message("u1", "user", [text("u1-text", "first")])
+    const assistant1 = message("a1", "assistant", [text("a1-text", "done")])
+    const user2 = message("u2", "user", [text("u2-text", "second")])
+    const assistant2 = message("a2", "assistant", [text("a2-text", "partial")])
+    const previous = groupChatTurns([user1, assistant1, user2, assistant2])
+    const updatedAssistant2 = message("a2", "assistant", [text("a2-text", "partial answer")])
+    const next = groupChatTurns([user1, assistant1, user2, updatedAssistant2])
+
+    const stable = reuseStableChatTurns(previous, next)
+
+    expect(stable[0]).toBe(previous[0])
+    expect(stable[1]).toBe(next[1])
+  })
+
+  it("finds the latest assistant message without changing message order", () => {
+    const user1 = message("u1", "user", [text("u1-text", "first")])
+    const assistant1 = message("a1", "assistant", [text("a1-text", "one")])
+    const assistant2 = message("a2", "assistant", [text("a2-text", "two")])
+    const messages = [user1, assistant1, assistant2]
+
+    expect(latestAssistantMessage(messages)).toBe(assistant2)
+    expect(messages).toEqual([user1, assistant1, assistant2])
+  })
+
+  it("builds retry source from the clicked turn user message", () => {
+    const attachment = {
+      id: "att-1",
+      name: "report.csv",
+      mime: "text/csv",
+      size: 42,
+      path: "/tmp/report.csv",
+      kind: "file" as const,
+    }
+    const turn = groupChatTurns([
+      {
+        ...message("u1", "user", [text("u1-text", "analyze"), { kind: "attachment", partId: "att", attachment }]),
+        clientId: "client-u1",
+      },
+      message("a1", "assistant", [tool("tool-1")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const source = retrySourceFromTurn(turn!)
+
+    expect(source).toEqual({
+      text: "analyze",
+      attachments: [attachment],
+      userMessageId: "u1",
+      userClientId: "client-u1",
+    })
+    expect(chatTurnInputKey(source!)).toBe(chatTurnInputKey({ text: "analyze", attachments: [attachment] }))
+  })
+
+  it("targets activity to the matching assistant turn only", () => {
+    const turns = groupChatTurns([
+      message("u1", "user", [text("u1-text", "first")]),
+      message("a1", "assistant", [text("a1-text", "done")]),
+      message("u2", "user", [text("u2-text", "second")]),
+      message("a2", "assistant", [tool("tool-2", { status: "running" })]),
+    ])
+    const activity = { sessionId: "s1", messageId: "a2", phase: "thinking" as const }
+
+    expect(activityForChatTurn(turns[0]!, activity, "a2", false)).toBeNull()
+    expect(activityForChatTurn(turns[1]!, activity, "a2", true)).toBe(activity)
+    expect(activityForChatTurn(turns[0]!, { sessionId: "s1", phase: "thinking" }, undefined, false)).toBeNull()
+    expect(activityForChatTurn(turns[1]!, { sessionId: "s1", phase: "thinking" }, undefined, true)).toEqual({
+      sessionId: "s1",
+      phase: "thinking",
+    })
   })
 })
 

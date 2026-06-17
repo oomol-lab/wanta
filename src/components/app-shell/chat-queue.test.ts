@@ -5,7 +5,8 @@ import { describe, test } from "vitest"
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  consumeNextQueuedMessage,
+  consumeLatestQueuedMessage,
+  latestQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -30,18 +31,18 @@ describe("chat queue", () => {
     )
   })
 
-  test("consumes the next queued message in insertion order and keeps later messages", () => {
+  test("consumes only the latest queued message and keeps earlier messages", () => {
     const queues = {
       "session-1": [message("first"), message("second")],
       "session-2": [message("other", "session-2")],
     }
 
-    const result = consumeNextQueuedMessage(queues, "session-1")
+    const result = consumeLatestQueuedMessage(queues, "session-1")
 
-    assert.equal(result.message?.id, "first")
+    assert.equal(result.message?.id, "second")
     assert.deepEqual(
       result.queues["session-1"]?.map((item) => item.id),
-      ["second"],
+      ["first"],
     )
     assert.deepEqual(
       result.queues["session-2"]?.map((item) => item.id),
@@ -49,8 +50,18 @@ describe("chat queue", () => {
     )
   })
 
+  test("peeks the latest queued message without mutating the queue", () => {
+    const queues = { "session-1": [message("first"), message("second")] }
+
+    assert.equal(latestQueuedMessage(queues, "session-1")?.id, "second")
+    assert.deepEqual(
+      queues["session-1"]?.map((item) => item.id),
+      ["first", "second"],
+    )
+  })
+
   test("drops the session bucket after consuming its only queued message", () => {
-    const result = consumeNextQueuedMessage({ "session-1": [message("only")] }, "session-1")
+    const result = consumeLatestQueuedMessage({ "session-1": [message("only")] }, "session-1")
 
     assert.equal(result.message?.id, "only")
     assert.equal(result.queues["session-1"], undefined)

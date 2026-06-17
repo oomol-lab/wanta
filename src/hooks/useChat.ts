@@ -60,6 +60,50 @@ export interface UseChat {
   stop: (sessionId: string) => Promise<void>
 }
 
+function setSessionStatus(
+  statuses: Record<string, ChatStatus>,
+  sessionId: string,
+  status: ChatStatus,
+): Record<string, ChatStatus> {
+  return statuses[sessionId] === status ? statuses : { ...statuses, [sessionId]: status }
+}
+
+function sameAssistantActivity(
+  left: AssistantActivityEvent | undefined,
+  right: AssistantActivityEvent | undefined,
+): boolean {
+  if (!left || !right) {
+    return left === right
+  }
+  return (
+    left.sessionId === right.sessionId &&
+    left.messageId === right.messageId &&
+    left.phase === right.phase &&
+    left.message === right.message &&
+    left.attempt === right.attempt &&
+    left.nextRetryAt === right.nextRetryAt
+  )
+}
+
+function setSessionActivity(
+  activities: Record<string, AssistantActivityEvent | undefined>,
+  sessionId: string,
+  activity: AssistantActivityEvent | undefined,
+): Record<string, AssistantActivityEvent | undefined> {
+  if (sameAssistantActivity(activities[sessionId], activity)) {
+    return activities
+  }
+  if (!activity) {
+    if (!Object.hasOwn(activities, sessionId)) {
+      return activities
+    }
+    const next = { ...activities }
+    delete next[sessionId]
+    return next
+  }
+  return { ...activities, [sessionId]: activity }
+}
+
 export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
   const chatService = useChatService()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
@@ -103,6 +147,14 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
             [sessionId]: message,
           },
     )
+  }, [])
+
+  const setStatus = React.useCallback((sessionId: string, status: ChatStatus) => {
+    setStatuses((current) => setSessionStatus(current, sessionId, status))
+  }, [])
+
+  const setActivity = React.useCallback((sessionId: string, activity: AssistantActivityEvent | undefined) => {
+    setActivities((current) => setSessionActivity(current, sessionId, activity))
   }, [])
 
   const flushPendingTextDeltas = React.useCallback(() => {
@@ -238,26 +290,20 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("messageStarted", (e) => {
         patch(e.sessionId, (msgs) => ensureMessage(msgs, e.messageId, e.role))
         if (e.role === "assistant") {
-          setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
-          setActivities((current) => ({
-            ...current,
-            [e.sessionId]: { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" },
-          }))
+          setStatus(e.sessionId, "streaming")
+          setActivity(e.sessionId, { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" })
         }
       }),
       chatService.serverEvents.on("messageDelta", (e) => {
-        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
+        setStatus(e.sessionId, "streaming")
         if (hasVisibleMessageDelta(e)) {
-          setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
+          setActivity(e.sessionId, undefined)
         }
         enqueueTextDelta("text", e)
       }),
       chatService.serverEvents.on("messageReasoningDelta", (e) => {
-        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
-        setActivities((current) => ({
-          ...current,
-          [e.sessionId]: { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" },
-        }))
+        setStatus(e.sessionId, "streaming")
+        setActivity(e.sessionId, { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" })
         enqueueTextDelta("reasoning", e)
       }),
       chatService.serverEvents.on("messageAttachment", (e) => {
@@ -269,8 +315,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
         flushPendingTextDeltas()
-        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
-        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
+        setStatus(e.sessionId, "streaming")
+        setActivity(e.sessionId, undefined)
         patch(e.sessionId, (msgs) =>
           setPart(msgs, e.messageId, {
             kind: "tool",
@@ -288,12 +334,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("toolCallResult", (e) => {
         flushPendingTextDeltas()
         const cancelled = e.status === "error" && isSessionUserStopped(e.sessionId)
-        setStatuses((s) => ({ ...s, [e.sessionId]: cancelled ? "ready" : "streaming" }))
+        setStatus(e.sessionId, cancelled ? "ready" : "streaming")
         if (!cancelled) {
-          setActivities((current) => ({
-            ...current,
-            [e.sessionId]: { sessionId: e.sessionId, messageId: e.messageId, phase: "finalizing" },
-          }))
+          setActivity(e.sessionId, { sessionId: e.sessionId, messageId: e.messageId, phase: "finalizing" })
         }
         if (cancelled) {
           rememberCancelledToolParts(e.sessionId, [e.partId])
@@ -317,8 +360,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         )
       }),
       chatService.serverEvents.on("assistantActivity", (e) => {
-        setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
-        setActivities((current) => ({ ...current, [e.sessionId]: e }))
+        setStatus(e.sessionId, "streaming")
+        setActivity(e.sessionId, e)
       }),
       chatService.serverEvents.on("messagePartRemoved", (e) => {
         flushPendingTextDeltas()
@@ -326,22 +369,22 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }),
       chatService.serverEvents.on("messageCompleted", (e) => {
         flushPendingTextDeltas()
-        setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
-        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
+        setStatus(e.sessionId, "ready")
+        setActivity(e.sessionId, undefined)
         setUnreadSessionIds((current) => markSessionCompletedUnread(current, e.sessionId, visibleSessionIdRef.current))
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("messageError", (e) => {
         flushPendingTextDeltas()
-        setStatuses((s) => ({ ...s, [e.sessionId]: "error" }))
-        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
+        setStatus(e.sessionId, "error")
+        setActivity(e.sessionId, undefined)
         clearSessionError(e.sessionId)
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
       chatService.serverEvents.on("generationStopped", (e) => {
         flushPendingTextDeltas()
-        setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
-        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
+        setStatus(e.sessionId, "ready")
+        setActivity(e.sessionId, undefined)
         clearSessionError(e.sessionId)
         markCurrentToolsCancelled(e.sessionId)
         void reload(e.sessionId)
@@ -350,8 +393,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         flushPendingTextDeltas()
         if (e.sessionId) {
           const sessionId = e.sessionId
-          setStatuses((s) => ({ ...s, [sessionId]: "error" }))
-          setActivities((current) => ({ ...current, [sessionId]: undefined }))
+          setStatus(sessionId, "error")
+          setActivity(sessionId, undefined)
           setSessionError(sessionId, e.message)
           return
         }
@@ -373,7 +416,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     patch,
     reload,
     rememberCancelledToolParts,
+    setActivity,
     setSessionError,
+    setStatus,
   ])
 
   React.useEffect(() => {
@@ -393,8 +438,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       clearSessionError(sessionId)
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
-      setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
-      setActivities((current) => ({ ...current, [sessionId]: { sessionId, phase: "thinking" } }))
+      setStatus(sessionId, "submitted")
+      setActivity(sessionId, { sessionId, phase: "thinking" })
       patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments))
       try {
         await chatService.invoke("sendMessage", {
@@ -405,8 +450,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           model: options.model,
         })
       } catch (err) {
-        setStatuses((s) => ({ ...s, [sessionId]: "error" }))
-        setActivities((current) => ({ ...current, [sessionId]: undefined }))
+        setStatus(sessionId, "error")
+        setActivity(sessionId, undefined)
         clearSessionError(sessionId)
         patch(sessionId, (msgs) =>
           setErrorPart(msgs, {
@@ -417,7 +462,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         )
       }
     },
-    [chatService, clearSessionError, patch],
+    [chatService, clearSessionError, patch, setActivity, setStatus],
   )
 
   const stop = React.useCallback(
@@ -428,15 +473,23 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       markCurrentToolsCancelled(sessionId)
       try {
         await chatService.invoke("stopGeneration", sessionId)
-        setStatuses((s) => ({ ...s, [sessionId]: "ready" }))
-        setActivities((current) => ({ ...current, [sessionId]: undefined }))
+        setStatus(sessionId, "ready")
+        setActivity(sessionId, undefined)
       } catch (err) {
-        setStatuses((s) => ({ ...s, [sessionId]: "error" }))
-        setActivities((current) => ({ ...current, [sessionId]: undefined }))
+        setStatus(sessionId, "error")
+        setActivity(sessionId, undefined)
         setSessionError(sessionId, String(err))
       }
     },
-    [chatService, clearSessionError, markCurrentToolsCancelled, markSessionUserStopped, setSessionError],
+    [
+      chatService,
+      clearSessionError,
+      markCurrentToolsCancelled,
+      markSessionUserStopped,
+      setActivity,
+      setSessionError,
+      setStatus,
+    ],
   )
 
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? []) : []

@@ -48,16 +48,16 @@ export function clearQueuedMessages(queues: ChatQueueMap, sessionId: string): Ch
   return next
 }
 
-export function consumeNextQueuedMessage(
+export function consumeLatestQueuedMessage(
   queues: ChatQueueMap,
   sessionId: string,
 ): { queues: ChatQueueMap; message: QueuedChatMessage | null } {
   const queue = queues[sessionId] ?? []
-  const message = queue[0] ?? null
+  const message = queue.at(-1) ?? null
   if (!message) {
     return { queues, message: null }
   }
-  const nextQueue = queue.slice(1)
+  const nextQueue = queue.slice(0, -1)
   const next = { ...queues }
   if (nextQueue.length === 0) {
     delete next[sessionId]
@@ -65,6 +65,10 @@ export function consumeNextQueuedMessage(
     next[sessionId] = nextQueue
   }
   return { queues: next, message }
+}
+
+export function latestQueuedMessage(queues: ChatQueueMap, sessionId: string): QueuedChatMessage | null {
+  return queues[sessionId]?.at(-1) ?? null
 }
 
 export function shouldDispatchQueuedMessage(status: ChatStatus, initialSendPending: boolean): boolean {

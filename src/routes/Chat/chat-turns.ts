@@ -1,4 +1,9 @@
-import type { AssistantActivityEvent, ChatMessage, ChatMessagePart } from "../../../electron/chat/common.ts"
+import type {
+  AssistantActivityEvent,
+  ChatAttachment,
+  ChatMessage,
+  ChatMessagePart,
+} from "../../../electron/chat/common.ts"
 
 import { hasBlockingToolError, hasStoppedTool } from "./tool-state.ts"
 
@@ -6,6 +11,13 @@ export interface ChatTurn {
   id: string
   user: ChatMessage | null
   assistants: ChatMessage[]
+}
+
+export interface ChatTurnRetrySource {
+  text: string
+  attachments: ChatAttachment[]
+  userMessageId: string
+  userClientId?: string
 }
 
 export interface ChatTurnProcess {
@@ -47,6 +59,101 @@ export function groupChatTurns(messages: ChatMessage[]): ChatTurn[] {
 
   pushCurrent()
   return turns
+}
+
+function sameChatTurn(left: ChatTurn, right: ChatTurn): boolean {
+  return (
+    left.id === right.id &&
+    left.user === right.user &&
+    left.assistants.length === right.assistants.length &&
+    left.assistants.every((message, index) => message === right.assistants[index])
+  )
+}
+
+export function reuseStableChatTurns(previous: ChatTurn[], next: ChatTurn[]): ChatTurn[] {
+  let changed = previous.length !== next.length
+  const turns = next.map((turn, index) => {
+    const current = previous[index]
+    if (current && sameChatTurn(current, turn)) {
+      return current
+    }
+    changed = true
+    return turn
+  })
+  return changed ? turns : previous
+}
+
+export function latestAssistantMessage(messages: ChatMessage[]): ChatMessage | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role === "assistant") {
+      return message
+    }
+  }
+  return undefined
+}
+
+export function userMessageText(message: Pick<ChatMessage, "parts">): string {
+  return message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text ?? "")
+    .join("")
+}
+
+export function userMessageAttachments(message: Pick<ChatMessage, "parts">): ChatAttachment[] {
+  return message.parts
+    .filter((part) => part.kind === "attachment" && part.attachment)
+    .map((part) => part.attachment as ChatAttachment)
+}
+
+export function chatTurnInputKey(input: Pick<ChatTurnRetrySource, "attachments" | "text">): string {
+  const attachmentsKey = input.attachments
+    .map((attachment) =>
+      [
+        attachment.path,
+        attachment.id,
+        attachment.name,
+        attachment.mime,
+        String(attachment.size),
+        attachment.kind ?? "",
+      ].join("\0"),
+    )
+    .sort()
+    .join("\0\0")
+  return `${input.text}\0---\0${attachmentsKey}`
+}
+
+export function retrySourceFromTurn(turn: ChatTurn): ChatTurnRetrySource | null {
+  if (!turn.user) {
+    return null
+  }
+  const text = userMessageText(turn.user)
+  const attachments = userMessageAttachments(turn.user)
+  if (!text && attachments.length === 0) {
+    return null
+  }
+  return {
+    text,
+    attachments,
+    userMessageId: turn.user.id,
+    ...(turn.user.clientId ? { userClientId: turn.user.clientId } : {}),
+  }
+}
+
+export function activityForChatTurn(
+  turn: ChatTurn,
+  activity: AssistantActivityEvent | null,
+  activeAssistantMessageId: string | undefined,
+  isLatestTurn: boolean,
+): AssistantActivityEvent | null {
+  if (!activity) {
+    return null
+  }
+  const targetMessageId = activity.messageId ?? activeAssistantMessageId
+  if (!targetMessageId) {
+    return isLatestTurn ? activity : null
+  }
+  return turn.assistants.some((message) => message.id === targetMessageId) ? activity : null
 }
 
 export function assistantTextParts(message: ChatMessage): ChatMessagePart[] {

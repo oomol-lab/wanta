@@ -183,7 +183,7 @@ export function ChatComposer({
   // 的按钮点击触发，避免生成中按回车误中止流。
   const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
     const text = message.text
-    if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceInput.busy) {
+    if ((text.trim().length === 0 && attachments.length === 0) || disabled || initialSendPending || voiceInput.busy) {
       return
     }
     const queuedWhileGenerating = isGenerating

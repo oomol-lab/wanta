@@ -93,6 +93,7 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
 const highlighterCache = new Map<string, Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>>()
 const tokensCache = new Map<string, TokenizedCode>()
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>()
+const maxTokensCacheEntries = 300
 
 function normalizeLanguage(language: string | undefined): string {
   const normalized = language?.trim().toLowerCase() || "text"
@@ -113,10 +114,30 @@ function resolveBundledLanguage(language: string | undefined): BundledLanguage |
   return null
 }
 
-const getTokensCacheKey = (code: string, language: string): string => {
-  const start = code.slice(0, 100)
-  const end = code.length > 100 ? code.slice(-100) : ""
-  return `${language}:${code.length}:${start}:${end}`
+const getTokensCacheKey = (code: string, language: string): string => `${language}:${code}`
+
+function getCachedTokens(key: string): TokenizedCode | undefined {
+  const cached = tokensCache.get(key)
+  if (!cached) {
+    return undefined
+  }
+  tokensCache.delete(key)
+  tokensCache.set(key, cached)
+  return cached
+}
+
+function setCachedTokens(key: string, value: TokenizedCode): void {
+  if (tokensCache.has(key)) {
+    tokensCache.delete(key)
+  }
+  while (tokensCache.size >= maxTokensCacheEntries) {
+    const oldestKey = tokensCache.keys().next().value as string | undefined
+    if (!oldestKey) {
+      break
+    }
+    tokensCache.delete(oldestKey)
+  }
+  tokensCache.set(key, value)
 }
 
 function getHighlighter(language: BundledLanguage): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
@@ -190,7 +211,7 @@ export function highlightCode(
   }
 
   const tokensCacheKey = getTokensCacheKey(code, bundledLanguage)
-  const cached = tokensCache.get(tokensCacheKey)
+  const cached = getCachedTokens(tokensCacheKey)
   if (cached) {
     return cached
   }
@@ -217,7 +238,7 @@ export function highlightCode(
         tokens: result.tokens,
       }
 
-      tokensCache.set(tokensCacheKey, tokenized)
+      setCachedTokens(tokensCacheKey, tokenized)
       const cacheSubscribers = subscribers.get(tokensCacheKey)
       if (cacheSubscribers) {
         for (const subscriber of cacheSubscribers) {

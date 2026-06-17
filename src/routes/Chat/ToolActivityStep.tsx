@@ -241,18 +241,18 @@ export function ToolActivityStep({
             </span>
           </div>
         )}
-        {auth && (
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span>{t("chat.authNeeded", { name: auth.displayName })}</span>
-            <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
-              <Plug className="size-3.5" />
-              {t("chat.authorize")}
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   )
+  const authPrompt = auth ? (
+    <div className="mt-1 ml-7 flex flex-wrap items-center gap-2">
+      <span>{t("chat.authNeeded", { name: auth.displayName })}</span>
+      <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
+        <Plug className="size-3.5" />
+        {t("chat.authorize")}
+      </Button>
+    </div>
+  ) : null
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -265,6 +265,7 @@ export function ToolActivityStep({
         ) : (
           row
         )}
+        {authPrompt}
       </div>
       {details && (
         <CollapsibleContent className="data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">

@@ -75,9 +75,16 @@ export function useComposerAttachments({
       if (next.length === 0) {
         return
       }
-      const existing = new Set(attachmentsRef.current.map((attachment) => attachment.path))
-      const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
-      revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
+      const seen = new Set(attachmentsRef.current.map((attachment) => attachment.path))
+      const uniqueNext = next.filter((attachment) => {
+        if (seen.has(attachment.path)) {
+          return false
+        }
+        seen.add(attachment.path)
+        return true
+      })
+      const acceptedIds = new Set(uniqueNext.map((attachment) => attachment.id))
+      revokeAttachmentPreviewUrls(next.filter((attachment) => !acceptedIds.has(attachment.id)))
       for (const attachment of uniqueNext) {
         if (attachment.previewUrl) {
           setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
@@ -166,22 +173,22 @@ export function useComposerAttachments({
     revokeAttachmentPreviewUrls(attachmentsRef.current)
   }, [])
 
-  const handleDragOver = React.useCallback(
-    (event: React.DragEvent<HTMLFormElement>) => {
-      if (!disabled && event.dataTransfer.types.includes("Files")) {
-        event.preventDefault()
-      }
-    },
-    [disabled],
-  )
+  const handleDragOver = React.useCallback((event: React.DragEvent<HTMLFormElement>) => {
+    if (event.dataTransfer.types.includes("Files")) {
+      event.preventDefault()
+    }
+  }, [])
 
   const handleDrop = React.useCallback(
     (event: React.DragEvent<HTMLFormElement>) => {
+      if (!event.dataTransfer.types.includes("Files")) {
+        return
+      }
+      event.preventDefault()
       const files = filesFromDataTransfer(event.dataTransfer)
       if (disabled || files.length === 0) {
         return
       }
-      event.preventDefault()
       void addFiles(files)
     },
     [addFiles, disabled],

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 import {
   appendOptimisticConversationTurn,
   ensureMessage,
+  hasVisibleMessageDelta,
   markSessionCompletedUnread,
   markSessionViewed,
   mergeFetchedMessages,
@@ -130,5 +131,16 @@ describe("chat message identity reconciliation", () => {
     const viewed = markSessionViewed(unread, "s2")
     expect([...viewed]).toEqual([])
     expect(markSessionViewed(viewed, "s2")).toBe(viewed)
+  })
+
+  it("keeps finalizing activity for empty assistant text deltas", () => {
+    expect(hasVisibleMessageDelta({ sessionId: "s1", messageId: "a1", partId: "text-1", text: "" })).toBe(false)
+    expect(
+      hasVisibleMessageDelta({ sessionId: "s1", messageId: "a1", partId: "text-1", text: "  ", delta: "\n" }),
+    ).toBe(false)
+    expect(hasVisibleMessageDelta({ sessionId: "s1", messageId: "a1", partId: "text-1", text: "Done" })).toBe(true)
+    expect(hasVisibleMessageDelta({ sessionId: "s1", messageId: "a1", partId: "text-1", text: "", delta: "D" })).toBe(
+      true,
+    )
   })
 })

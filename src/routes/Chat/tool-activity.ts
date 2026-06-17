@@ -280,9 +280,13 @@ export function formatToolActivityDuration(parts: ChatMessagePart[], now = Date.
   if (start === undefined || end === undefined) {
     return null
   }
-  return formatMs(end - start)
+  return formatWholeSecondMs(end - start)
 }
 
 function formatMs(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
+}
+
+function formatWholeSecondMs(ms: number): string {
+  return `${Math.max(1, Math.round(ms / 1000))}s`
 }

@@ -442,7 +442,16 @@ function ImageViewer({
     if (dragRef.current?.pointerId === event.pointerId) {
       dragRef.current = null
       setIsDragging(false)
-      event.currentTarget.releasePointerCapture(event.pointerId)
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+    }
+  }
+
+  const clearDrag = (event: PointerEvent<HTMLDivElement>): void => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null
+      setIsDragging(false)
     }
   }
 
@@ -474,6 +483,7 @@ function ImageViewer({
         onPointerMove={handlePointerMove}
         onPointerUp={stopDrag}
         onPointerCancel={stopDrag}
+        onLostPointerCapture={clearDrag}
         onWheel={handleWheel}
       >
         <div className="oo-markdown-image-viewer-center">

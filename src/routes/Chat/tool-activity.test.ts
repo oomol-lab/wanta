@@ -149,12 +149,12 @@ describe("formatToolActivityDuration", () => {
         toolPart("tool-1", { timing: { start: 1000, end: 1800 } }),
         toolPart("tool-2", { timing: { start: 2000, end: 3600 } }),
       ]),
-    ).toBe("2.6s")
+    ).toBe("3s")
   })
 
   it("uses current time for running activity duration", () => {
     expect(formatToolActivityDuration([toolPart("tool-1", { status: "running", timing: { start: 1000 } })], 3200)).toBe(
-      "2.2s",
+      "2s",
     )
   })
 })

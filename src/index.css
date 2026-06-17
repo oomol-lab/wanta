@@ -139,6 +139,7 @@
   --oo-tooltip-shadow: 0 6px 16px color-mix(in oklab, var(--foreground) 10%, transparent);
   --oo-path-tooltip-surface: oklch(1 0 0);
   --oo-path-tooltip-foreground: var(--foreground);
+  --oo-feedback-active-foreground: oklch(0.43 0.008 265);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
   --oo-warning-surface: color-mix(in oklab, var(--warning) 12%, transparent);
@@ -216,6 +217,7 @@
   --oo-tooltip-shadow: 0 8px 18px color-mix(in oklab, var(--background) 78%, transparent);
   --oo-path-tooltip-surface: oklch(0.145 0.004 286);
   --oo-path-tooltip-foreground: var(--foreground);
+  --oo-feedback-active-foreground: oklch(0.64 0.006 286);
   --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
   --oo-warning-surface: color-mix(in oklab, var(--warning) 14%, transparent);
@@ -1166,6 +1168,16 @@
     fill: none;
   }
 
+  .oo-message-feedback-action-active {
+    background: transparent !important;
+    color: var(--oo-feedback-active-foreground);
+  }
+
+  .oo-message-feedback-action-active:hover {
+    background: transparent !important;
+    color: var(--oo-feedback-active-foreground);
+  }
+
   /* Streamdown 默认代码块是外层容器 + 内层高亮容器的双层卡片，聊天里显得过重。 */
   .oo-message-response [data-streamdown="code-block"] {
     position: relative;
@@ -1334,15 +1346,18 @@
     z-index: 50;
     overflow: hidden;
     background: rgb(0 0 0 / 74%);
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-stage {
     position: absolute;
     inset: 0;
+    z-index: 1;
     overflow: hidden;
     cursor: grab;
     touch-action: none;
     user-select: none;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-stage.is-dragging {
@@ -1378,9 +1393,12 @@
     position: absolute;
     top: 1.25rem;
     right: 1.25rem;
-    z-index: 2;
+    /* 高于可拖拽舞台，确保按钮接收点击而不是触发图片拖动。 */
+    z-index: 3;
     display: flex;
     gap: 0.5rem;
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-action {
@@ -1395,6 +1413,8 @@
     color: oklch(0.18 0.005 260);
     text-decoration: none;
     box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
     transition:
       background 120ms ease-out,
       transform 120ms ease-out;
@@ -1417,7 +1437,8 @@
     position: absolute;
     bottom: 1.5rem;
     left: 50%;
-    z-index: 2;
+    /* 高于可拖拽舞台，确保缩放控件接收点击而不是触发图片拖动。 */
+    z-index: 3;
     display: flex;
     height: 2.625rem;
     align-items: center;
@@ -1428,6 +1449,8 @@
     padding: 0.25rem;
     color: oklch(0.18 0.005 260);
     box-shadow: 0 8px 20px rgb(0 0 0 / 20%);
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-zoom-button {
@@ -1440,6 +1463,8 @@
     border-radius: 999px;
     background: color-mix(in oklab, black 8%, transparent);
     color: currentcolor;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
   }
 
   .oo-markdown-image-viewer-zoom-button:hover {

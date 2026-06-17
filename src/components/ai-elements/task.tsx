@@ -52,6 +52,6 @@ export type TaskContentProps = ComponentProps<typeof CollapsibleContent>
 
 export const TaskContent = ({ children, className, ...props }: TaskContentProps) => (
   <CollapsibleContent className={cn("text-popover-foreground outline-none", className)} {...props}>
-    <div className="mt-4 space-y-2 border-l-2 border-muted pl-4">{children}</div>
+    <div className="mt-3 space-y-2">{children}</div>
   </CollapsibleContent>
 )

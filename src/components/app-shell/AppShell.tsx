@@ -1,6 +1,7 @@
 import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
@@ -29,6 +30,13 @@ import {
   shouldAutoRefreshSessionTitle,
   trimTitleToColumns,
 } from "../../../electron/session/title.ts"
+import {
+  appendQueuedMessage,
+  clearQueuedMessages,
+  consumeLatestQueuedMessage,
+  removeQueuedMessage,
+  shouldDispatchQueuedMessage,
+} from "./chat-queue.ts"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
@@ -146,6 +154,22 @@ function buildSessionTitleInput(
   }
 }
 
+function createQueuedChatMessage(
+  sessionId: string,
+  text: string,
+  attachments: ChatAttachment[],
+  model?: ModelChoice,
+): QueuedChatMessage {
+  return {
+    id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    sessionId,
+    text,
+    attachments,
+    model,
+    createdAt: Date.now(),
+  }
+}
+
 function SessionItem({
   session,
   active,
@@ -198,7 +222,7 @@ function SessionItem({
             aria-label={t("aria.sessionRunning")}
             className="oo-sidebar-session-activity ml-auto flex size-5 shrink-0 items-center justify-center group-hover:hidden"
           >
-            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+            <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
           </span>
         ) : unread ? (
           <span
@@ -757,6 +781,7 @@ export function AppShell() {
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
+  const [queuedMessagesBySession, setQueuedMessagesBySession] = React.useState<ChatQueueMap>({})
   const [ready, setReady] = React.useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
   const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
@@ -789,6 +814,7 @@ export function AppShell() {
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
+  const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
 
   React.useEffect(() => {
     sessionsRef.current = sessions
@@ -867,6 +893,7 @@ export function AppShell() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
+  const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
@@ -1065,64 +1092,101 @@ export function AppShell() {
     void refreshGeneratedTitle(activeSession.id, titleInput, true, activeSession.title)
   }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
 
-  const handleSend = async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
-    if (sendInFlightRef.current) {
-      return
-    }
-    sendInFlightRef.current = true
-    try {
-      setRoute("chat")
-      let sessionId = activeSessionId
-      const titleInput = buildSessionTitleInput(messages, text, attachments)
-      const fallbackTitle = buildFallbackSessionTitle(titleInput)
-      const allowPlaceholderTitle =
-        !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
-      const shouldRefreshTitle =
-        !sessionId ||
-        (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
-      const bridgeEmptySend = messagesLoaded && messages.length === 0
-      const createdAt = Date.now()
-      if (bridgeEmptySend) {
-        setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+  const sendNow = React.useCallback(
+    async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice) => {
+      if (sendInFlightRef.current) {
+        return
       }
-      if (!sessionId) {
-        let info: SessionInfo
+      sendInFlightRef.current = true
+      try {
+        setRoute("chat")
+        let sessionId = activeSessionId
+        const titleInput = buildSessionTitleInput(messages, text, attachments)
+        const fallbackTitle = buildFallbackSessionTitle(titleInput)
+        const allowPlaceholderTitle =
+          !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
+        const shouldRefreshTitle =
+          !sessionId ||
+          (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
+        const bridgeEmptySend = messagesLoaded && messages.length === 0
+        const createdAt = Date.now()
+        if (bridgeEmptySend) {
+          setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+        }
+        if (!sessionId) {
+          let info: SessionInfo
+          try {
+            info = await create(fallbackTitle)
+          } catch (error) {
+            if (bridgeEmptySend) {
+              setPendingChatTransition(null)
+            }
+            throw error
+          }
+          sessionId = info.id
+          setActiveSessionId(sessionId)
+          setIsDraftSession(false)
+          setPendingChatTransition((pending) =>
+            pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
+          )
+        }
+        if (shouldRefreshTitle) {
+          void refreshGeneratedTitle(
+            sessionId,
+            titleInput,
+            allowPlaceholderTitle,
+            !activeSessionId ? fallbackTitle : undefined,
+          )
+        }
+        lastModelBySession.current.set(sessionId, model)
         try {
-          info = await create(fallbackTitle)
+          await send(sessionId, text, attachments, { model })
         } catch (error) {
           if (bridgeEmptySend) {
             setPendingChatTransition(null)
           }
           throw error
         }
-        sessionId = info.id
-        setActiveSessionId(sessionId)
-        setIsDraftSession(false)
-        setPendingChatTransition((pending) =>
-          pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
-        )
+      } finally {
+        sendInFlightRef.current = false
       }
-      if (shouldRefreshTitle) {
-        void refreshGeneratedTitle(
-          sessionId,
-          titleInput,
-          allowPlaceholderTitle,
-          !activeSessionId ? fallbackTitle : undefined,
-        )
+    },
+    [activeSession, activeSessionId, create, messages, messagesLoaded, refreshGeneratedTitle, send],
+  )
+
+  const handleSend = React.useCallback(
+    async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
+      if (activeSessionId && isSessionRunning(activeSessionId)) {
+        const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, model)
+        setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
+        return
       }
-      lastModelBySession.current.set(sessionId, model)
-      try {
-        await send(sessionId, text, attachments, { model })
-      } catch (error) {
-        if (bridgeEmptySend) {
-          setPendingChatTransition(null)
-        }
-        throw error
-      }
-    } finally {
-      sendInFlightRef.current = false
+      await sendNow(text, attachments, model)
+    },
+    [activeSessionId, isSessionRunning, sendNow],
+  )
+
+  React.useEffect(() => {
+    if (!activeSessionId || !shouldDispatchQueuedMessage(status, initialSendPending)) {
+      return
     }
-  }
+    if (dispatchingQueuedSessionsRef.current.has(activeSessionId)) {
+      return
+    }
+    const queue = queuedMessagesBySession[activeSessionId] ?? []
+    if (queue.length === 0) {
+      return
+    }
+    const { message } = consumeLatestQueuedMessage(queuedMessagesBySession, activeSessionId)
+    if (!message) {
+      return
+    }
+    dispatchingQueuedSessionsRef.current.add(activeSessionId)
+    setQueuedMessagesBySession((current) => consumeLatestQueuedMessage(current, activeSessionId).queues)
+    void sendNow(message.text, message.attachments, message.model).finally(() => {
+      dispatchingQueuedSessionsRef.current.delete(activeSessionId)
+    })
+  }, [activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
 
   const handleDelete = async (id: string): Promise<void> => {
     if (renameSessionId === id) {
@@ -1134,6 +1198,8 @@ export function AppShell() {
       setIsDraftSession(false)
       setPendingChatTransition(null)
     }
+    dispatchingQueuedSessionsRef.current.delete(id)
+    setQueuedMessagesBySession((current) => clearQueuedMessages(current, id))
     lastModelBySession.current.delete(id)
   }
 
@@ -1439,9 +1505,14 @@ export function AppShell() {
                   disabled={!ready}
                   initialSendPending={initialSendPending}
                   providers={connections.summary?.providers ?? []}
+                  queuedMessages={activeQueuedMessages}
                   placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
                   onSend={(text, attachments, model) => void handleSend(text, attachments, model)}
                   onStop={() => activeSessionId && void stop(activeSessionId)}
+                  onQueuedMessageRemove={(messageId) =>
+                    activeSessionId &&
+                    setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, messageId))
+                  }
                   onAuthorize={handleAuthorize}
                   onArtifactsReset={handleArtifactsReset}
                   onArtifactsOpen={handleArtifactsOpen}

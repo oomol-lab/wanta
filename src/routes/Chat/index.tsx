@@ -13,8 +13,10 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
+import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn } from "./chat-turns.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
+import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
@@ -26,6 +28,7 @@ import {
   CheckIcon,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Circle,
   CopyIcon,
   ExternalLink,
@@ -64,7 +67,8 @@ import {
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
-import { collectGeneratedArtifactSources } from "./artifact-sources.ts"
+import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
+import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
@@ -73,7 +77,6 @@ import {
   compactPathDetail,
   compactToolDetail,
   formatToolActivityDuration,
-  formatToolDuration,
   shouldShowRunningNoOutput,
 } from "./tool-activity.ts"
 import { hasStoppedTool, isToolCancellation } from "./tool-state.ts"
@@ -95,6 +98,7 @@ import {
   PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { useChatService, useModelsService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
@@ -119,9 +123,11 @@ interface ChatAreaProps {
   disabled: boolean
   initialSendPending: boolean
   providers: ConnectionProvider[]
+  queuedMessages: QueuedChatMessage[]
   placeholder: string
   onSend: (text: string, attachments: ChatAttachment[], model?: ModelChoice) => void
   onStop: () => void
+  onQueuedMessageRemove: (id: string) => void
   onAuthorize: (auth: AuthorizationInfo) => void
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
@@ -131,6 +137,11 @@ interface ChatAreaProps {
 
 type DraftAttachment = ChatAttachment & {
   previewUrl?: string
+}
+
+function stripDraftAttachment(attachment: DraftAttachment): ChatAttachment {
+  const { previewUrl: _previewUrl, ...chatAttachment } = attachment
+  return chatAttachment
 }
 
 interface AttachmentInput {
@@ -519,13 +530,21 @@ function ToolActionIcon({ part }: { part: ChatMessagePart }) {
 
 function ToolStepIcon({ part, provider }: { part: ChatMessagePart; provider?: ConnectionProvider }) {
   const stopped = isToolCancellation(part)
-  if (provider && part.status !== "running" && part.status !== "error" && !stopped) {
+  if (provider && part.status !== "error" && !stopped) {
     return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
   }
-  if (part.status === "running" || part.status === "error" || stopped) {
+  if (part.status === "error" || stopped) {
     return <ToolStatusIcon status={part.status} stopped={stopped} />
   }
   return <ToolActionIcon part={part} />
+}
+
+function LoadingShimmerText({ children, className }: { children: string; className?: string }) {
+  return (
+    <Shimmer as="span" className={className} duration={2.4} spread={2.4}>
+      {children}
+    </Shimmer>
+  )
 }
 
 function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
@@ -565,12 +584,10 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
 
 function ToolActivityStep({
   part,
-  now,
   provider,
   onAuthorize,
 }: {
   part: ChatMessagePart
-  now: number
   provider?: ConnectionProvider
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
@@ -578,31 +595,48 @@ function ToolActivityStep({
   const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
   const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
-  const duration = formatToolDuration(part, now)
   const statusText = toolPartStatusLabel(t, part)
   const inlineDetail = toolInlineDetail(part)
-  const metaText = [provider?.displayName, statusText, duration].filter(Boolean).join(" · ")
+  const active = part.status === "pending" || part.status === "running"
+  const metaItems = [provider?.displayName, statusText].filter(Boolean)
+  const actionText = toolActionSummary(t, part)
+  const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
   const row = (
-    <div className="flex min-w-0 flex-1 items-start gap-2">
+    <div className="flex min-h-6 min-w-0 flex-1 items-center gap-2">
       <span
-        className="flex h-4 shrink-0 items-center"
+        className="flex size-5 shrink-0 items-center justify-center"
         title={provider ? `${provider.displayName} · ${statusText}` : statusText}
       >
         <ToolStepIcon part={part} provider={provider} />
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="min-w-0 truncate text-xs text-foreground">{toolActionSummary(t, part)}</span>
-          {inlineDetail && (
-            <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-              {inlineDetail}
-            </code>
-          )}
-          <span className="shrink-0 text-xs text-muted-foreground">{metaText}</span>
-        </div>
+        {active ? (
+          <div className="flex min-w-0 items-center">
+            <LoadingShimmerText className="min-w-0 truncate">{activeText}</LoadingShimmerText>
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={cn("min-w-0 truncate text-foreground", inlineDetail ? "shrink-0" : "flex-1")}>
+              {actionText}
+            </span>
+            {inlineDetail && (
+              <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
+                {inlineDetail}
+              </code>
+            )}
+            <span className="flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
+              {metaItems.map((item, index) => (
+                <React.Fragment key={`${index}:${item}`}>
+                  {index > 0 ? <span className="text-muted-foreground/70">·</span> : null}
+                  <span>{item}</span>
+                </React.Fragment>
+              ))}
+            </span>
+          </div>
+        )}
         {auth && (
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="oo-text-caption">{t("chat.authNeeded", { name: auth.displayName })}</span>
+            <span>{t("chat.authNeeded", { name: auth.displayName })}</span>
             <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
               <Plug className="size-3.5" />
               {t("chat.authorize")}
@@ -615,11 +649,11 @@ function ToolActivityStep({
 
   return (
     <Collapsible defaultOpen={(part.status === "error" && !stopped) || Boolean(auth)}>
-      <div className="rounded-md px-1 py-0.5">
+      <div className="rounded-md">
         {details ? (
-          <CollapsibleTrigger className="group flex w-full items-start justify-between gap-2 text-left">
+          <CollapsibleTrigger className="group/tool-step flex w-full items-center justify-between gap-2 text-left">
             {row}
-            <ChevronDown className="mt-0.5 size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] group-hover/tool-step:opacity-100 group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:rotate-90 group-data-[state=open]/tool-step:opacity-100" />
           </CollapsibleTrigger>
         ) : (
           row
@@ -690,75 +724,61 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
 }
 
 function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>, now: number): string | null {
-  const toolDuration = process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
-  if (toolDuration) {
+  const isLive = process.hasActiveTool || Boolean(process.activity)
+  const toolDuration = !isLive && process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
+  if (!isLive && toolDuration) {
     return toolDuration
   }
   const start = process.startedAt
-  const end = process.endedAt ?? (process.activity || process.hasActiveTool ? now : undefined)
+  const end = isLive ? now : process.endedAt
   if (typeof start !== "number" || typeof end !== "number" || end < start) {
     return null
   }
-  const ms = end - start
-  if (ms < 1000) {
-    return "< 1s"
+  return formatWholeSecondDuration(end - start)
+}
+
+function formatWholeSecondDuration(ms: number): string {
+  return `${Math.max(1, Math.round(ms / 1000))}s`
+}
+
+function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {
+  switch (status) {
+    case "running":
+      return t("chat.processRunning")
+    case "retrying":
+      return t("chat.processRetrying")
+    case "needsAction":
+      return t("chat.processNeedsAction")
+    case "error":
+      return t("chat.processError")
+    case "stopped":
+      return t("chat.processStopped")
+    case "completed":
+      return t("chat.processCompleted")
   }
-  if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
-  }
-  const minutes = Math.floor(ms / 60_000)
-  const seconds = Math.round((ms % 60_000) / 1000)
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
 }
 
 function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: string | null): string {
-  const title = (() => {
-    switch (status) {
-      case "running":
-        return t("chat.processRunning")
-      case "retrying":
-        return t("chat.processRetrying")
-      case "needsAction":
-        return t("chat.processNeedsAction")
-      case "error":
-        return t("chat.processError")
-      case "stopped":
-        return t("chat.processStopped")
-      case "completed":
-        return t("chat.processCompleted")
-    }
-  })()
+  const title = processStatusText(t, status)
   return duration ? `${title} ${duration}` : title
 }
 
-function ProcessStatusIcon({ status, animated = true }: { status: TurnProcessStatus; animated?: boolean }) {
-  switch (status) {
-    case "running":
-    case "retrying":
-      return animated ? (
-        <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-      ) : (
-        <Circle className="size-3.5 shrink-0 text-muted-foreground" />
-      )
-    case "needsAction":
-      return <Plug className="size-3.5 shrink-0 text-orange-600" />
-    case "error":
-      return <AlertTriangle className="size-3.5 shrink-0 text-destructive" />
-    case "stopped":
-      return <Square className="size-3.5 shrink-0 text-muted-foreground" />
-    case "completed":
-      return <CheckCircle2 className="size-3.5 shrink-0 text-muted-foreground" />
-  }
-}
-
 function TurnProcessActivity({
+  blocks,
   process,
+  billingCacheScope,
+  smoothAssistantMessageId,
   providerByService,
   onAuthorize,
+  onViewBilling,
 }: {
+  blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
+  billingCacheScope: string
+  smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
 }) {
   const t = useT()
   const status = processStatus(process)
@@ -776,7 +796,12 @@ function TurnProcessActivity({
   ].join(":")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
-  const title = processTitle(t, status, formatProcessDuration(process, now))
+  const duration = formatProcessDuration(process, now)
+  const title = processTitle(t, status, duration)
+  const titleText = processStatusText(t, status)
+  const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
+  const renderBlocks = blocks.map((item) => item.block)
+  const showLiveStatus = renderBlocks.length === 0
 
   React.useEffect(() => {
     setOpen(shouldOpen)
@@ -796,28 +821,34 @@ function TurnProcessActivity({
       <TaskTrigger title={title}>
         <button
           type="button"
-          className="group flex w-full max-w-full items-center gap-2 border-b border-border/60 py-1.5 pr-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ProcessStatusIcon status={status} animated={!open} />
-          <span className="min-w-0 truncate">{title}</span>
-          <ChevronDown className="ml-auto size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+          <span className="flex min-w-0 items-center gap-1">
+            {activeTitle ? (
+              <LoadingShimmerText className="min-w-0 truncate">{titleText}</LoadingShimmerText>
+            ) : (
+              titleText
+            )}
+            {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
+          </span>
+          <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         </button>
       </TaskTrigger>
-      <TaskContent className="[&>div]:mt-0 [&>div]:space-y-1 [&>div]:border-l [&>div]:border-border/60 [&>div]:pt-2.5 [&>div]:pl-4">
-        <div className="space-y-1 border-border/60">
-          {process.tools.map((part) => {
-            const service = toolServiceSlug(part)
-            return (
-              <ToolActivityStep
-                key={part.partId}
-                part={part}
-                now={now}
-                provider={service ? providerByService.get(service) : undefined}
-                onAuthorize={onAuthorize}
-              />
-            )
-          })}
-          <LiveStatusBar process={process} />
+      <TaskContent className="[&>div]:mt-0">
+        <div className="space-y-2 pt-2">
+          {blocks.map(({ message, block }, index) => (
+            <AssistantBlock
+              key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
+              block={block}
+              blockClassName={assistantBlockClassName(renderBlocks, index)}
+              billingCacheScope={billingCacheScope}
+              smoothText={message.id === smoothAssistantMessageId}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+              onViewBilling={onViewBilling}
+            />
+          ))}
+          {showLiveStatus ? <LiveStatusBar process={process} /> : null}
         </div>
       </TaskContent>
     </Task>
@@ -834,18 +865,27 @@ function latestActiveTool(process: ReturnType<typeof summarizeTurnProcess>): Cha
   return null
 }
 
+function shouldShowLiveStatus(
+  process: ReturnType<typeof summarizeTurnProcess>,
+  status = processStatus(process),
+): boolean {
+  const activeTool = latestActiveTool(process)
+  return (
+    (status === "running" && !activeTool) ||
+    status === "retrying" ||
+    Boolean(process.activity && status !== "completed" && status !== "stopped")
+  )
+}
+
+function hasNestedLoadingIndicator(
+  process: ReturnType<typeof summarizeTurnProcess>,
+  status = processStatus(process),
+): boolean {
+  return process.hasActiveTool || shouldShowLiveStatus(process, status)
+}
+
 function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnProcess> | null }) {
   const t = useT()
-  const [now, setNow] = React.useState(() => Date.now())
-
-  React.useEffect(() => {
-    if (!process) {
-      return
-    }
-    setNow(Date.now())
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [process])
 
   if (!process) {
     return null
@@ -853,11 +893,7 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
 
   const status = processStatus(process)
   const activeTool = latestActiveTool(process)
-  const shouldShow =
-    (status === "running" && !activeTool) ||
-    status === "retrying" ||
-    Boolean(process.activity && status !== "completed" && status !== "stopped")
-  if (!shouldShow) {
+  if (!shouldShowLiveStatus(process, status)) {
     return null
   }
 
@@ -873,13 +909,12 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
     }
     return processTitle(t, status, null)
   })()
-  const duration = formatProcessDuration(process, now)
 
   return (
-    <div className="oo-text-caption flex min-h-7 items-center gap-2 rounded-md px-1 py-0.5 text-muted-foreground">
-      <Loader2 className="size-3.5 shrink-0 animate-spin" />
-      <span className="min-w-0 truncate">{text}</span>
-      {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
+    <div className="rounded-md text-muted-foreground">
+      <div className="flex min-h-6 min-w-0 items-center">
+        <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
+      </div>
     </div>
   )
 }
@@ -991,16 +1026,17 @@ function MessageFeedbackAction({
       label={label}
       tooltip={label}
       aria-pressed={active}
-      className={cn(active && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
+      className={cn(active && "oo-message-feedback-action-active")}
       onClick={() => onRatingChange(active ? null : rating)}
     >
-      <Icon className="size-3.5" />
+      <Icon className={cn("size-3.5", active && "fill-current")} />
     </MessageAction>
   )
 }
 
 function AssistantMessageActions({ text, cancelled }: { text: string; cancelled: boolean }) {
   const t = useT()
+  // TODO(lumo-feedback-api): 接入反馈 API 后，将这里的本地状态同步为服务端的消息反馈结果。
   const [activeRating, setActiveRating] = React.useState<MessageRating | null>(null)
 
   if (!text && !cancelled) {
@@ -1035,15 +1071,76 @@ function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): 
   }
 }
 
-function prioritizeAssistantBlocks(blocks: ReturnType<typeof renderBlocks>): ReturnType<typeof renderBlocks> {
-  if (!blocks.some((block) => block.kind === "text")) {
-    return blocks
+type AssistantBlockType = ReturnType<typeof renderBlocks>[number]
+
+function assistantBlockClassName(blocks: AssistantBlockType[], index: number): string | undefined {
+  if (index === 0) {
+    return undefined
   }
-  return [
-    ...blocks.filter((block) => block.kind === "text"),
-    ...blocks.filter((block) => block.kind === "error"),
-    ...blocks.filter((block) => block.kind === "tools"),
-  ]
+  const previous = blocks[index - 1]
+  const current = blocks[index]
+  if (!previous || !current) {
+    return undefined
+  }
+  if (previous.kind === "tools" && current.kind === "tools") {
+    return "mt-1"
+  }
+  if (previous.kind !== current.kind) {
+    return "mt-3"
+  }
+  return "mt-2"
+}
+
+function AssistantBlock({
+  block,
+  blockClassName,
+  billingCacheScope,
+  smoothText,
+  providerByService,
+  onAuthorize,
+  onViewBilling,
+}: {
+  block: AssistantBlockType
+  blockClassName?: string
+  billingCacheScope: string
+  smoothText: boolean
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
+}) {
+  const t = useT()
+  return (
+    <div className={blockClassName}>
+      {block.kind === "text" ? (
+        block.part.text ? (
+          <MessageResponse smooth={smoothText}>{block.part.text}</MessageResponse>
+        ) : null
+      ) : block.kind === "error" ? (
+        <ChatErrorNotice
+          autoOpenKey={block.part.partId}
+          billingCacheScope={billingCacheScope}
+          errorCode={block.part.errorCode}
+          errorKind={block.part.errorKind}
+          message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
+          onViewBilling={onViewBilling}
+        />
+      ) : (
+        <div className="space-y-0.5">
+          {block.parts.map((part) => {
+            const service = toolServiceSlug(part)
+            return (
+              <ToolActivityStep
+                key={part.partId}
+                part={part}
+                provider={service ? providerByService.get(service) : undefined}
+                onAuthorize={onAuthorize}
+              />
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function MessageBubble({
@@ -1052,16 +1149,20 @@ function MessageBubble({
   smoothText,
   onViewBilling,
   assistantActionsText,
+  providerByService,
+  onAuthorize,
 }: {
   billingCacheScope: string
   message: ChatMessage
   smoothText: boolean
   onViewBilling?: () => void
   assistantActionsText: string | null
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
 }) {
-  const t = useT()
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
+
   if (message.role === "user") {
     const text = message.parts
       .filter((p) => p.kind === "text")
@@ -1091,48 +1192,72 @@ function MessageBubble({
       </Message>
     )
   }
-  const blocks = renderBlocks(message.parts).filter((block) => block.kind !== "tools")
+  const blocks = renderBlocks(message.parts)
   if (blocks.length === 0) {
     return null
-  }
-  const displayBlocks = prioritizeAssistantBlocks(blocks)
-  const blockClassName = (index: number): string | undefined => {
-    if (index === 0) {
-      return undefined
-    }
-    const previous = displayBlocks[index - 1]
-    const current = displayBlocks[index]
-    if (!previous || !current) {
-      return undefined
-    }
-    if (previous.kind === "tools" && current.kind === "tools") {
-      return "mt-1"
-    }
-    if (previous.kind !== current.kind) {
-      return "mt-3"
-    }
-    return "mt-2"
   }
   return (
     <Message from="assistant">
       <MessageContent className="gap-0">
-        {displayBlocks.map((block, index) => (
-          <div key={block.kind === "tools" ? block.key : block.part.partId} className={blockClassName(index)}>
-            {block.kind === "text" ? (
-              block.part.text ? (
-                <MessageResponse smooth={smoothText}>{block.part.text}</MessageResponse>
-              ) : null
-            ) : block.kind === "error" ? (
-              <ChatErrorNotice
-                autoOpenKey={block.part.partId}
-                billingCacheScope={billingCacheScope}
-                errorCode={block.part.errorCode}
-                errorKind={block.part.errorKind}
-                message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
-                onViewBilling={onViewBilling}
-              />
-            ) : null}
-          </div>
+        {blocks.map((block, index) => (
+          <AssistantBlock
+            key={block.kind === "tools" ? block.key : block.part.partId}
+            block={block}
+            blockClassName={assistantBlockClassName(blocks, index)}
+            billingCacheScope={billingCacheScope}
+            smoothText={smoothText}
+            providerByService={providerByService}
+            onAuthorize={onAuthorize}
+            onViewBilling={onViewBilling}
+          />
+        ))}
+      </MessageContent>
+      {assistantActionsText || assistantCancelled ? (
+        <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
+      ) : null}
+    </Message>
+  )
+}
+
+function AssistantTimelineMessage({
+  blocks,
+  billingCacheScope,
+  smoothAssistantMessageId,
+  assistantActionsText,
+  assistantCancelled,
+  providerByService,
+  onAuthorize,
+  onViewBilling,
+}: {
+  blocks: AssistantTimelineBlock[]
+  billingCacheScope: string
+  smoothAssistantMessageId?: string
+  assistantActionsText: string | null
+  assistantCancelled: boolean
+  providerByService: Map<string, ConnectionProvider>
+  onAuthorize: (auth: AuthorizationInfo) => void
+  onViewBilling?: () => void
+}) {
+  const renderBlocks = blocks.map((item) => item.block)
+
+  if (blocks.length === 0) {
+    return null
+  }
+
+  return (
+    <Message from="assistant">
+      <MessageContent className="gap-0">
+        {blocks.map(({ message, block }, index) => (
+          <AssistantBlock
+            key={`${message.id}:${block.kind === "tools" ? block.key : block.part.partId}`}
+            block={block}
+            blockClassName={assistantBlockClassName(renderBlocks, index)}
+            billingCacheScope={billingCacheScope}
+            smoothText={message.id === smoothAssistantMessageId}
+            providerByService={providerByService}
+            onAuthorize={onAuthorize}
+            onViewBilling={onViewBilling}
+          />
         ))}
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
@@ -1168,6 +1293,13 @@ function ChatTurnView({
   assistantActionTextByMessageId: Map<string, string>
 }) {
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
+  const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
+  const lastAssistant = turn.assistants.at(-1)
+  const assistantActionsText = lastAssistant ? assistantActionTextByMessageId.get(lastAssistant.id) : null
+  const assistantCancelled = turn.assistants.some((message) => hasStoppedTool(message.parts))
+  const responseActionsText =
+    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseBlocks) || null
+  const processActionsText = responseBlocks.length > 0 ? null : assistantActionsText
 
   return (
     <React.Fragment>
@@ -1178,25 +1310,55 @@ function ChatTurnView({
           smoothText={false}
           onViewBilling={onViewBilling}
           assistantActionsText={null}
+          providerByService={providerByService}
+          onAuthorize={onAuthorize}
         />
       ) : null}
       {shouldShowTurnProcess(process) ? (
-        <Message from="assistant">
-          <MessageContent className="w-full">
-            <TurnProcessActivity process={process} providerByService={providerByService} onAuthorize={onAuthorize} />
-          </MessageContent>
-        </Message>
-      ) : null}
-      {turn.assistants.map((message) => (
-        <MessageBubble
-          key={message.clientId ?? message.id}
-          message={message}
-          billingCacheScope={billingCacheScope}
-          smoothText={message.id === smoothAssistantMessageId}
-          onViewBilling={onViewBilling}
-          assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
-        />
-      ))}
+        <>
+          <Message from="assistant">
+            <MessageContent className="w-full">
+              <TurnProcessActivity
+                blocks={processBlocks}
+                process={process}
+                billingCacheScope={billingCacheScope}
+                smoothAssistantMessageId={smoothAssistantMessageId}
+                providerByService={providerByService}
+                onAuthorize={onAuthorize}
+                onViewBilling={onViewBilling}
+              />
+            </MessageContent>
+            {processActionsText || (assistantCancelled && responseBlocks.length === 0) ? (
+              <AssistantMessageActions text={processActionsText ?? ""} cancelled={assistantCancelled} />
+            ) : null}
+          </Message>
+          {responseBlocks.length > 0 ? (
+            <AssistantTimelineMessage
+              blocks={responseBlocks}
+              billingCacheScope={billingCacheScope}
+              smoothAssistantMessageId={smoothAssistantMessageId}
+              assistantActionsText={responseActionsText}
+              assistantCancelled={assistantCancelled}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+              onViewBilling={onViewBilling}
+            />
+          ) : null}
+        </>
+      ) : (
+        turn.assistants.map((message) => (
+          <MessageBubble
+            key={message.clientId ?? message.id}
+            message={message}
+            billingCacheScope={billingCacheScope}
+            smoothText={message.id === smoothAssistantMessageId}
+            onViewBilling={onViewBilling}
+            assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
+            providerByService={providerByService}
+            onAuthorize={onAuthorize}
+          />
+        ))
+      )}
     </React.Fragment>
   )
 }
@@ -1421,6 +1583,82 @@ function AttachmentList({
   )
 }
 
+function queuedMessagePreview(message: QueuedChatMessage): string {
+  const text = message.text.trim()
+  if (text) {
+    return text
+  }
+  return message.attachments.map((attachment) => attachment.name).join(", ")
+}
+
+function QueuedMessagePanel({ messages, onRemove }: { messages: QueuedChatMessage[]; onRemove: (id: string) => void }) {
+  const t = useT()
+  const [open, setOpen] = React.useState(true)
+  if (messages.length === 0) {
+    return null
+  }
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="oo-border-divider overflow-hidden rounded-xl border bg-background/95 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-background/85"
+    >
+      <div className={cn("flex h-9 items-center px-2", open && "border-b border-border/50")}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-accent/45 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            aria-label={open ? t("chat.queueCollapse") : t("chat.queueExpand")}
+          >
+            <ListChecks className="size-4 shrink-0 text-muted-foreground" />
+            <span className="oo-text-control min-w-0 flex-1 truncate text-muted-foreground">
+              {t("chat.queueTitle", { count: messages.length })}
+            </span>
+            <ChevronRight
+              className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+            />
+          </button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent>
+        <div className="max-h-40 overflow-auto">
+          {messages.map((message) => {
+            const preview = queuedMessagePreview(message)
+            return (
+              <div key={message.id} className="flex h-10 items-center gap-2 px-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="oo-text-control min-w-0 truncate text-foreground/90">
+                      {preview || t("chat.queueAttachmentOnly")}
+                    </span>
+                  </div>
+                  {message.attachments.length > 0 ? (
+                    <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
+                      {t("chat.queueAttachments", { count: message.attachments.length })}
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                  title={t("chat.queueRemove")}
+                  aria-label={t("chat.queueRemove")}
+                  onClick={() => onRemove(message.id)}
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </div>
+            )
+          })}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; height?: number }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
   const [sizeRevision, setSizeRevision] = React.useState(0)
@@ -1467,14 +1705,17 @@ function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; heigh
     const step = barWidth + gap
     const centerY = canvasHeight / 2
     const drawableHeight = canvasHeight - 8 * dpr
-    const visibleCount = Math.ceil(width / step)
-    const visibleBars = bars.slice(-visibleCount)
-    const startX = width - visibleBars.length * step
+    const visibleCount = Math.max(1, Math.ceil(width / step))
+    const recentBars = bars.slice(-visibleCount)
+    const visibleBars =
+      recentBars.length >= visibleCount
+        ? recentBars
+        : [...Array<number>(visibleCount - recentBars.length).fill(0), ...recentBars]
 
     visibleBars.forEach((bar, index) => {
       const normalized = Math.max(0, Math.min(1, bar))
       const barHeight = Math.max(3 * dpr, normalized * drawableHeight)
-      const x = startX + index * step
+      const x = index * step
       const y = centerY - barHeight / 2
       context.globalAlpha = 0.35 + normalized * 0.65
       context.beginPath()
@@ -1933,9 +2174,11 @@ export function ChatArea({
   disabled,
   initialSendPending,
   providers,
+  queuedMessages,
   placeholder,
   onSend,
   onStop,
+  onQueuedMessageRemove,
   onAuthorize,
   onArtifactsReset,
   onArtifactsOpen,
@@ -1984,16 +2227,9 @@ export function ChatArea({
   const assistantActionTextByMessageId = React.useMemo(() => {
     return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
   }, [activeAssistantMessageId, messages])
-  const artifactSources = React.useMemo(() => {
-    return collectGeneratedArtifactSources(messages)
-  }, [messages])
   const visibleArtifactSources = React.useMemo(() => {
-    const latestAssistantMessageId = latestAssistant?.id
-    if (!isGenerating || !latestAssistantMessageId) {
-      return artifactSources
-    }
-    return artifactSources.filter((source) => source.messageId !== latestAssistantMessageId)
-  }, [artifactSources, isGenerating, latestAssistant?.id])
+    return collectVisibleGeneratedArtifactSources(messages, isGenerating)
+  }, [isGenerating, messages])
   React.useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
@@ -2003,6 +2239,12 @@ export function ChatArea({
   React.useEffect(() => {
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])
+
+  React.useEffect(() => {
+    if (isGenerating) {
+      onArtifactsReset()
+    }
+  }, [isGenerating, onArtifactsReset])
 
   React.useEffect(() => {
     const lastMessage = messages.at(-1)
@@ -2086,7 +2328,7 @@ export function ChatArea({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
-    onSend(text, attachments, modelCatalog?.selected)
+    onSend(text, attachments.map(stripDraftAttachment), modelCatalog?.selected)
     revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
@@ -2442,6 +2684,13 @@ export function ChatArea({
       onSave={handleSaveModel}
     />
   )
+  const queuePanel = <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} />
+  const composerStack = (
+    <div className="flex flex-col gap-2">
+      {queuePanel}
+      {promptInput}
+    </div>
+  )
 
   if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
     return (
@@ -2456,7 +2705,7 @@ export function ChatArea({
             <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
           </div>
           {errorBanner}
-          {promptInput}
+          {composerStack}
           {modelDialog}
         </div>
       </div>
@@ -2503,7 +2752,7 @@ export function ChatArea({
           )}
         >
           {errorBanner}
-          {promptInput}
+          {composerStack}
           {modelDialog}
         </div>
       </div>

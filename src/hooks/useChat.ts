@@ -184,6 +184,10 @@ function setReasoningPart(msgs: ChatMessage[], event: MessageReasoningDeltaEvent
   })
 }
 
+export function hasVisibleMessageDelta(event: MessageDeltaEvent): boolean {
+  return Boolean(event.text.trim() || event.delta?.trim())
+}
+
 function setAttachmentPart(msgs: ChatMessage[], event: MessageAttachmentEvent): ChatMessage[] {
   const ensured = ensureMessage(msgs, event.messageId, "user")
   return ensured.map((message) =>
@@ -491,7 +495,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }),
       chatService.serverEvents.on("messageDelta", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
-        setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
+        if (hasVisibleMessageDelta(e)) {
+          setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
+        }
         patch(e.sessionId, (msgs) => setTextPart(msgs, e))
       }),
       chatService.serverEvents.on("messageReasoningDelta", (e) => {

@@ -18,6 +18,7 @@ import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { readOomolSessionCookie } from "./auth/session-cookie.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
+import { ArtifactRootStore } from "./chat/artifact-roots.ts"
 import { mimeFromPath } from "./chat/artifacts.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
@@ -86,8 +87,9 @@ let appliedModelConfigVersion = -1
 
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
+const artifactRootStore = new ArtifactRootStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
-const chatService = new ChatServiceImpl(null, { stoppedGenerationStore })
+const chatService = new ChatServiceImpl(null, { artifactRootStore, stoppedGenerationStore })
 const sessionService = new SessionServiceImpl(null, { activityStore: sessionActivityStore })
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,

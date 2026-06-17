@@ -83,3 +83,13 @@ export function collectGeneratedArtifactSources(messages: ChatMessage[]): Genera
   flushTurn()
   return sources
 }
+
+export function collectVisibleGeneratedArtifactSources(
+  messages: ChatMessage[],
+  isGenerating: boolean,
+): GeneratedArtifactSource[] {
+  if (isGenerating) {
+    return []
+  }
+  return collectGeneratedArtifactSources(messages)
+}

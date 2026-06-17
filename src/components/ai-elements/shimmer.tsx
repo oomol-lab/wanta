@@ -36,13 +36,14 @@ const ShimmerComponent = ({ children, as: Component = "p", className, duration =
       animate={{ backgroundPosition: "0% center" }}
       className={cn(
         "relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent",
-        "[background-repeat:no-repeat,padding-box] [--bg:linear-gradient(90deg,#0000_calc(50%-var(--spread)),var(--color-background),#0000_calc(50%+var(--spread)))]",
+        "[background-repeat:no-repeat,padding-box] [--bg:linear-gradient(90deg,#0000_calc(50%-var(--spread)),var(--shimmer-highlight),#0000_calc(50%+var(--spread)))]",
         className,
       )}
       initial={{ backgroundPosition: "100% center" }}
       style={
         {
           "--spread": `${dynamicSpread}px`,
+          "--shimmer-highlight": "color-mix(in oklab, var(--color-foreground) 35%, white)",
           backgroundImage: "var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))",
         } as CSSProperties
       }

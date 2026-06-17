@@ -99,6 +99,7 @@ import {
   PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
+import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { useChatService, useModelsService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
@@ -128,7 +129,6 @@ interface ChatAreaProps {
   onSend: (text: string, attachments: ChatAttachment[], model?: ModelChoice) => void
   onStop: () => void
   onQueuedMessageRemove: (id: string) => void
-  onQueuedMessagesClear: () => void
   onAuthorize: (auth: AuthorizationInfo) => void
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
@@ -531,13 +531,21 @@ function ToolActionIcon({ part }: { part: ChatMessagePart }) {
 
 function ToolStepIcon({ part, provider }: { part: ChatMessagePart; provider?: ConnectionProvider }) {
   const stopped = isToolCancellation(part)
-  if (provider && part.status !== "running" && part.status !== "error" && !stopped) {
+  if (provider && part.status !== "error" && !stopped) {
     return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
   }
-  if (part.status === "running" || part.status === "error" || stopped) {
+  if (part.status === "error" || stopped) {
     return <ToolStatusIcon status={part.status} stopped={stopped} />
   }
   return <ToolActionIcon part={part} />
+}
+
+function LoadingShimmerText({ children, className }: { children: string; className?: string }) {
+  return (
+    <Shimmer as="span" className={className} duration={2.4} spread={2.4}>
+      {children}
+    </Shimmer>
+  )
 }
 
 function ToolDetailSection({ label, children }: { label: string; children: React.ReactNode }) {
@@ -593,7 +601,10 @@ function ToolActivityStep({
   const duration = formatToolDuration(part, now)
   const statusText = toolPartStatusLabel(t, part)
   const inlineDetail = toolInlineDetail(part)
-  const metaText = [provider?.displayName, statusText, duration].filter(Boolean).join(" · ")
+  const active = part.status === "pending" || part.status === "running"
+  const metaItems = [provider?.displayName, statusText, duration].filter(Boolean)
+  const actionText = toolActionSummary(t, part)
+  const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
   const row = (
     <div className="flex min-w-0 flex-1 items-start gap-2">
       <span
@@ -603,15 +614,28 @@ function ToolActivityStep({
         <ToolStepIcon part={part} provider={provider} />
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="min-w-0 truncate text-xs text-foreground">{toolActionSummary(t, part)}</span>
-          {inlineDetail && (
-            <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-              {inlineDetail}
-            </code>
-          )}
-          <span className="shrink-0 text-xs text-muted-foreground">{metaText}</span>
-        </div>
+        {active ? (
+          <div className="flex min-w-0 items-center text-xs">
+            <LoadingShimmerText className="min-w-0 truncate">{activeText}</LoadingShimmerText>
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="min-w-0 truncate text-xs text-foreground">{actionText}</span>
+            {inlineDetail && (
+              <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                {inlineDetail}
+              </code>
+            )}
+            <span className="flex min-w-0 shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              {metaItems.map((item, index) => (
+                <React.Fragment key={`${index}:${item}`}>
+                  {index > 0 ? <span className="text-muted-foreground/70">·</span> : null}
+                  <span>{item}</span>
+                </React.Fragment>
+              ))}
+            </span>
+          </div>
+        )}
         {auth && (
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="oo-text-caption">{t("chat.authNeeded", { name: auth.displayName })}</span>
@@ -724,23 +748,25 @@ function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>,
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
 }
 
+function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {
+  switch (status) {
+    case "running":
+      return t("chat.processRunning")
+    case "retrying":
+      return t("chat.processRetrying")
+    case "needsAction":
+      return t("chat.processNeedsAction")
+    case "error":
+      return t("chat.processError")
+    case "stopped":
+      return t("chat.processStopped")
+    case "completed":
+      return t("chat.processCompleted")
+  }
+}
+
 function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: string | null): string {
-  const title = (() => {
-    switch (status) {
-      case "running":
-        return t("chat.processRunning")
-      case "retrying":
-        return t("chat.processRetrying")
-      case "needsAction":
-        return t("chat.processNeedsAction")
-      case "error":
-        return t("chat.processError")
-      case "stopped":
-        return t("chat.processStopped")
-      case "completed":
-        return t("chat.processCompleted")
-    }
-  })()
+  const title = processStatusText(t, status)
   return duration ? `${title} ${duration}` : title
 }
 
@@ -777,7 +803,10 @@ function TurnProcessActivity({
   ].join(":")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
-  const title = processTitle(t, status, formatProcessDuration(process, now))
+  const duration = formatProcessDuration(process, now)
+  const title = processTitle(t, status, duration)
+  const titleText = processStatusText(t, status)
+  const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
 
   React.useEffect(() => {
@@ -800,7 +829,14 @@ function TurnProcessActivity({
           type="button"
           className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          <span className="min-w-0 truncate">{title}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            {activeTitle ? (
+              <LoadingShimmerText className="min-w-0 truncate">{titleText}</LoadingShimmerText>
+            ) : (
+              titleText
+            )}
+            {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
+          </span>
           <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
         </button>
       </TaskTrigger>
@@ -836,6 +872,25 @@ function latestActiveTool(process: ReturnType<typeof summarizeTurnProcess>): Cha
   return null
 }
 
+function shouldShowLiveStatus(
+  process: ReturnType<typeof summarizeTurnProcess>,
+  status = processStatus(process),
+): boolean {
+  const activeTool = latestActiveTool(process)
+  return (
+    (status === "running" && !activeTool) ||
+    status === "retrying" ||
+    Boolean(process.activity && status !== "completed" && status !== "stopped")
+  )
+}
+
+function hasNestedLoadingIndicator(
+  process: ReturnType<typeof summarizeTurnProcess>,
+  status = processStatus(process),
+): boolean {
+  return process.hasActiveTool || shouldShowLiveStatus(process, status)
+}
+
 function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnProcess> | null }) {
   const t = useT()
   const [now, setNow] = React.useState(() => Date.now())
@@ -855,11 +910,7 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
 
   const status = processStatus(process)
   const activeTool = latestActiveTool(process)
-  const shouldShow =
-    (status === "running" && !activeTool) ||
-    status === "retrying" ||
-    Boolean(process.activity && status !== "completed" && status !== "stopped")
-  if (!shouldShow) {
+  if (!shouldShowLiveStatus(process, status)) {
     return null
   }
 
@@ -879,8 +930,7 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
 
   return (
     <div className="oo-text-caption flex min-h-7 items-center gap-2 rounded-md py-0.5 text-muted-foreground">
-      <Loader2 className="size-3.5 shrink-0 animate-spin" />
-      <span className="min-w-0 truncate">{text}</span>
+      <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
       {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
     </div>
   )
@@ -1589,85 +1639,71 @@ function queuedMessagePreview(message: QueuedChatMessage): string {
   return message.attachments.map((attachment) => attachment.name).join(", ")
 }
 
-function QueuedMessagePanel({
-  messages,
-  onRemove,
-  onClear,
-}: {
-  messages: QueuedChatMessage[]
-  onRemove: (id: string) => void
-  onClear: () => void
-}) {
+function QueuedMessagePanel({ messages, onRemove }: { messages: QueuedChatMessage[]; onRemove: (id: string) => void }) {
   const t = useT()
+  const [open, setOpen] = React.useState(true)
   if (messages.length === 0) {
     return null
   }
-  const latestId = messages.at(-1)?.id
 
   return (
-    <section className="oo-border-divider overflow-hidden rounded-lg border bg-background/95 shadow-xs">
-      <div className="flex min-h-9 items-center gap-2 border-b border-border/60 px-3">
-        <ListChecks className="size-4 shrink-0 text-muted-foreground" />
-        <div className="oo-text-control min-w-0 flex-1 truncate text-muted-foreground">
-          {t("chat.queueTitle", { count: messages.length })}
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 rounded-full"
-          title={t("chat.queueClear")}
-          aria-label={t("chat.queueClear")}
-          onClick={onClear}
-        >
-          <X className="size-3.5" />
-        </Button>
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className="oo-border-divider overflow-hidden rounded-xl border bg-background/95 shadow-xs backdrop-blur supports-[backdrop-filter]:bg-background/85"
+    >
+      <div className={cn("flex h-9 items-center px-2", open && "border-b border-border/50")}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left hover:bg-accent/45 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            aria-label={open ? t("chat.queueCollapse") : t("chat.queueExpand")}
+          >
+            <ListChecks className="size-4 shrink-0 text-muted-foreground" />
+            <span className="oo-text-control min-w-0 flex-1 truncate text-muted-foreground">
+              {t("chat.queueTitle", { count: messages.length })}
+            </span>
+            <ChevronRight
+              className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
+            />
+          </button>
+        </CollapsibleTrigger>
       </div>
-      <div className="max-h-36 overflow-auto">
-        {messages.map((message) => {
-          const preview = queuedMessagePreview(message)
-          const isLatest = message.id === latestId
-          return (
-            <div
-              key={message.id}
-              className="flex min-h-10 items-center gap-2 border-b border-border/40 px-3 py-2 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="oo-text-control min-w-0 truncate text-foreground">
-                    {preview || t("chat.queueAttachmentOnly")}
-                  </span>
-                  {isLatest ? (
-                    <span className="oo-text-caption shrink-0 rounded-sm bg-primary/10 px-1.5 py-0.5 text-primary">
-                      {t("chat.queueWillSend")}
+      <CollapsibleContent>
+        <div className="max-h-40 overflow-auto">
+          {messages.map((message) => {
+            const preview = queuedMessagePreview(message)
+            return (
+              <div key={message.id} className="flex h-10 items-center gap-2 px-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="oo-text-control min-w-0 truncate text-foreground/90">
+                      {preview || t("chat.queueAttachmentOnly")}
                     </span>
+                  </div>
+                  {message.attachments.length > 0 ? (
+                    <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
+                      {t("chat.queueAttachments", { count: message.attachments.length })}
+                    </div>
                   ) : null}
                 </div>
-                {message.attachments.length > 0 ? (
-                  <div className="oo-text-caption mt-0.5 truncate text-muted-foreground">
-                    {t("chat.queueAttachments", { count: message.attachments.length })}
-                  </div>
-                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                  title={t("chat.queueRemove")}
+                  aria-label={t("chat.queueRemove")}
+                  onClick={() => onRemove(message.id)}
+                >
+                  <X className="size-3.5" />
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7 shrink-0 rounded-full"
-                title={t("chat.queueRemove")}
-                aria-label={t("chat.queueRemove")}
-                onClick={() => onRemove(message.id)}
-              >
-                <X className="size-3.5" />
-              </Button>
-            </div>
-          )
-        })}
-      </div>
-      <div className="oo-text-caption border-t border-border/60 px-3 py-2 text-muted-foreground">
-        {t("chat.queueHint")}
-      </div>
-    </section>
+            )
+          })}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -2188,7 +2224,6 @@ export function ChatArea({
   onSend,
   onStop,
   onQueuedMessageRemove,
-  onQueuedMessagesClear,
   onAuthorize,
   onArtifactsReset,
   onArtifactsOpen,
@@ -2694,8 +2729,12 @@ export function ChatArea({
       onSave={handleSaveModel}
     />
   )
-  const queuePanel = (
-    <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} onClear={onQueuedMessagesClear} />
+  const queuePanel = <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} />
+  const composerStack = (
+    <div className="flex flex-col gap-2">
+      {queuePanel}
+      {promptInput}
+    </div>
   )
 
   if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
@@ -2711,8 +2750,7 @@ export function ChatArea({
             <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
           </div>
           {errorBanner}
-          {queuePanel}
-          {promptInput}
+          {composerStack}
           {modelDialog}
         </div>
       </div>
@@ -2759,8 +2797,7 @@ export function ChatArea({
           )}
         >
           {errorBanner}
-          {queuePanel}
-          {promptInput}
+          {composerStack}
           {modelDialog}
         </div>
       </div>

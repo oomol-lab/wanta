@@ -222,7 +222,7 @@ function SessionItem({
             aria-label={t("aria.sessionRunning")}
             className="oo-sidebar-session-activity ml-auto flex size-5 shrink-0 items-center justify-center group-hover:hidden"
           >
-            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+            <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
           </span>
         ) : unread ? (
           <span
@@ -1512,10 +1512,6 @@ export function AppShell() {
                   onQueuedMessageRemove={(messageId) =>
                     activeSessionId &&
                     setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, messageId))
-                  }
-                  onQueuedMessagesClear={() =>
-                    activeSessionId &&
-                    setQueuedMessagesBySession((current) => clearQueuedMessages(current, activeSessionId))
                   }
                   onAuthorize={handleAuthorize}
                   onArtifactsReset={handleArtifactsReset}

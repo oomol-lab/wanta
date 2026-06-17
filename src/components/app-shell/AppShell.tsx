@@ -1,4 +1,9 @@
-import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
+import type {
+  AuthorizationInfo,
+  ChatAttachment,
+  ChatContextMention,
+  ChatMessage,
+} from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
@@ -158,6 +163,7 @@ function createQueuedChatMessage(
   sessionId: string,
   text: string,
   attachments: ChatAttachment[],
+  contextMentions: ChatContextMention[] | undefined,
   model?: ModelChoice,
 ): QueuedChatMessage {
   return {
@@ -165,6 +171,7 @@ function createQueuedChatMessage(
     sessionId,
     text,
     attachments,
+    ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
     model,
     createdAt: Date.now(),
   }
@@ -807,11 +814,13 @@ export function AppShell() {
     service: string
     text: string
     attachments: ChatAttachment[]
+    contextMentions?: ChatContextMention[]
     model?: ModelChoice
   } | null>(null)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
+  const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
@@ -887,7 +896,10 @@ export function AppShell() {
       pendingRetry.current = null
       setSelectedService(null)
       setRoute("chat")
-      void send(pending.sessionId, pending.text, pending.attachments, { model: pending.model })
+      void send(pending.sessionId, pending.text, pending.attachments, {
+        contextMentions: pending.contextMentions ?? [],
+        model: pending.model,
+      })
     }
   }, [connections.summary, send])
 
@@ -1093,7 +1105,12 @@ export function AppShell() {
   }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
 
   const sendNow = React.useCallback(
-    async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice) => {
+    async (
+      text: string,
+      attachments: ChatAttachment[] = [],
+      contextMentions: ChatContextMention[] = [],
+      model?: ModelChoice,
+    ) => {
       if (sendInFlightRef.current) {
         return
       }
@@ -1111,7 +1128,7 @@ export function AppShell() {
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()
         if (bridgeEmptySend) {
-          setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+          setPendingChatTransition({ sessionId, text, attachments, contextMentions, model, createdAt })
         }
         if (!sessionId) {
           let info: SessionInfo
@@ -1139,8 +1156,9 @@ export function AppShell() {
           )
         }
         lastModelBySession.current.set(sessionId, model)
+        lastContextMentionsBySession.current.set(sessionId, contextMentions)
         try {
-          await send(sessionId, text, attachments, { model })
+          await send(sessionId, text, attachments, { contextMentions, model })
         } catch (error) {
           if (bridgeEmptySend) {
             setPendingChatTransition(null)
@@ -1155,13 +1173,18 @@ export function AppShell() {
   )
 
   const handleSend = React.useCallback(
-    async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
+    async (
+      text: string,
+      attachments: ChatAttachment[] = [],
+      contextMentions: ChatContextMention[] = [],
+      model?: ModelChoice,
+    ): Promise<void> => {
       if (activeSessionId && isSessionRunning(activeSessionId)) {
-        const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, model)
+        const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, contextMentions, model)
         setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
         return
       }
-      await sendNow(text, attachments, model)
+      await sendNow(text, attachments, contextMentions, model)
     },
     [activeSessionId, isSessionRunning, sendNow],
   )
@@ -1183,7 +1206,7 @@ export function AppShell() {
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
     setQueuedMessagesBySession((current) => consumeLatestQueuedMessage(current, activeSessionId).queues)
-    void sendNow(message.text, message.attachments, message.model).finally(() => {
+    void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model).finally(() => {
       dispatchingQueuedSessionsRef.current.delete(activeSessionId)
     })
   }, [activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
@@ -1201,6 +1224,7 @@ export function AppShell() {
     dispatchingQueuedSessionsRef.current.delete(id)
     setQueuedMessagesBySession((current) => clearQueuedMessages(current, id))
     lastModelBySession.current.delete(id)
+    lastContextMentionsBySession.current.delete(id)
   }
 
   const handleAuthorize = (auth: AuthorizationInfo): void => {
@@ -1220,7 +1244,18 @@ export function AppShell() {
         pendingChatTransition?.sessionId === activeSessionId
           ? pendingChatTransition.model
           : lastModelBySession.current.get(activeSessionId)
-      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments, model }
+      const contextMentions =
+        pendingChatTransition?.sessionId === activeSessionId
+          ? pendingChatTransition.contextMentions
+          : lastContextMentionsBySession.current.get(activeSessionId)
+      pendingRetry.current = {
+        sessionId: activeSessionId,
+        service: auth.service,
+        text,
+        attachments,
+        contextMentions,
+        model,
+      }
     }
   }
   const handleToggleSidebar = (): void => {
@@ -1507,7 +1542,9 @@ export function AppShell() {
                   providers={connections.summary?.providers ?? []}
                   queuedMessages={activeQueuedMessages}
                   placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                  onSend={(text, attachments, model) => void handleSend(text, attachments, model)}
+                  onSend={(text, attachments, contextMentions, model) =>
+                    void handleSend(text, attachments, contextMentions, model)
+                  }
                   onStop={() => activeSessionId && void stop(activeSessionId)}
                   onQueuedMessageRemove={(messageId) =>
                     activeSessionId &&

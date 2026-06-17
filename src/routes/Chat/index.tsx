@@ -2,6 +2,7 @@ import type {
   AuthorizationInfo,
   AssistantActivityEvent,
   ChatAttachment,
+  ChatContextMention,
   ChatMessage,
   ChatMessagePart,
   ToolStatus,
@@ -13,8 +14,11 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
+import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn } from "./chat-turns.ts"
+import type { ComposerTrigger } from "./composer-triggers.ts"
+import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 import type { TranslateFn } from "@/i18n/i18n"
@@ -71,6 +75,8 @@ import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
+import { detectComposerTrigger, replaceComposerTrigger } from "./composer-triggers.ts"
+import { ComposerPalette } from "./ComposerPalette.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
 import { renderBlocks } from "./render-blocks.ts"
 import {
@@ -101,6 +107,7 @@ import {
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { useChatService, useModelsService } from "@/components/AppContext"
+import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Dialog } from "@/components/ui/dialog"
@@ -125,7 +132,12 @@ interface ChatAreaProps {
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
   placeholder: string
-  onSend: (text: string, attachments: ChatAttachment[], model?: ModelChoice) => void
+  onSend: (
+    text: string,
+    attachments: ChatAttachment[],
+    contextMentions: ChatContextMention[],
+    model?: ModelChoice,
+  ) => void
   onStop: () => void
   onQueuedMessageRemove: (id: string) => void
   onAuthorize: (auth: AuthorizationInfo) => void
@@ -1583,6 +1595,58 @@ function AttachmentList({
   )
 }
 
+function contextMentionKey(mention: ChatContextMention): string {
+  return mention.kind === "skill" ? `skill:${mention.id}` : `connection:${mention.service}:${mention.appId ?? ""}`
+}
+
+function contextMentionLabel(mention: ChatContextMention): string {
+  return mention.kind === "skill" ? mention.name : mention.displayName
+}
+
+function ContextMentionChips({
+  mentions,
+  onRemove,
+}: {
+  mentions: ChatContextMention[]
+  onRemove?: (mention: ChatContextMention) => void
+}) {
+  const t = useT()
+  if (mentions.length === 0) {
+    return null
+  }
+  return (
+    <div className="flex w-full flex-wrap gap-2">
+      {mentions.map((mention) => (
+        <span
+          key={contextMentionKey(mention)}
+          className="oo-border-divider flex h-8 max-w-full items-center gap-2 rounded-lg border bg-background/70 px-2 text-sm shadow-xs"
+          title={mention.kind === "skill" ? mention.description : mention.accountLabel}
+        >
+          <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            {mention.kind === "skill" ? <Package className="size-3.5" /> : <Plug className="size-3.5" />}
+          </span>
+          <span className="min-w-0 truncate">
+            <span className="text-muted-foreground">
+              {mention.kind === "skill" ? t("chat.contextSkillPrefix") : t("chat.contextConnectionPrefix")}
+            </span>
+            <span className="ml-1 font-medium text-foreground">{contextMentionLabel(mention)}</span>
+          </span>
+          {onRemove ? (
+            <button
+              type="button"
+              aria-label={t("chat.contextRemove", { name: contextMentionLabel(mention) })}
+              className="-mr-1 flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => onRemove(mention)}
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function queuedMessagePreview(message: QueuedChatMessage): string {
   const text = message.text.trim()
   if (text) {
@@ -2164,6 +2228,159 @@ function AddCustomModelDialog({
   )
 }
 
+type PaletteMode = "connections" | "root" | "skills"
+type SlashCommandAction = "billing" | "connections" | "insert" | "skills"
+
+interface SlashCommandPaletteItem extends ComposerPaletteItem {
+  action: SlashCommandAction
+  prompt?: string
+}
+
+interface ConnectionPaletteItem extends ComposerPaletteItem {
+  appId?: string
+  accountLabel?: string
+  displayName: string
+  service: string
+}
+
+interface SkillPaletteItem extends ComposerPaletteItem {
+  descriptionText: string
+  skillId: string
+  skillName: string
+}
+
+function normalizedSearchText(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function matchesComposerQuery(item: ComposerPaletteItem, query: string): boolean {
+  const normalized = normalizedSearchText(query)
+  if (!normalized) {
+    return true
+  }
+  return [item.id, item.title, item.description, item.meta ?? ""].some((value) =>
+    normalizedSearchText(value).includes(normalized),
+  )
+}
+
+function installedSkillHostCount(group: ManagedSkillGroup): number {
+  return group.hosts.filter((host) => host.status === "installed").length
+}
+
+function skillKindMeta(group: ManagedSkillGroup): string {
+  if (group.kind === "bundled") {
+    return "bundled"
+  }
+  if (group.kind === "registry") {
+    return "registry"
+  }
+  if (group.kind === "local") {
+    return "local"
+  }
+  return ""
+}
+
+function buildSkillPaletteItems(groups: ManagedSkillGroup[], fallbackDescription: string): SkillPaletteItem[] {
+  return groups
+    .filter((group) => installedSkillHostCount(group) > 0)
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((group) => ({
+      description: group.description || fallbackDescription,
+      descriptionText: group.description || fallbackDescription,
+      icon: <Package className="size-4" />,
+      id: `skill:${group.id}`,
+      meta: skillKindMeta(group),
+      skillId: group.id,
+      skillName: group.name || group.id,
+      title: group.name || group.id,
+    }))
+}
+
+function buildConnectionPaletteItems(
+  providers: ConnectionProvider[],
+  fallbackDescription: (service: string) => string,
+): ConnectionPaletteItem[] {
+  return providers
+    .filter((provider) => provider.status === "connected" && provider.appStatus === "active")
+    .slice()
+    .sort((left, right) => left.displayName.localeCompare(right.displayName))
+    .map((provider) => ({
+      accountLabel: provider.accountLabel,
+      appId: provider.appId,
+      description: provider.accountLabel || fallbackDescription(provider.service),
+      displayName: provider.displayName,
+      icon: <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />,
+      id: `connection:${provider.service}:${provider.appId ?? "default"}`,
+      meta: provider.service,
+      service: provider.service,
+      title: provider.displayName,
+    }))
+}
+
+function slashCommandItems({
+  canViewBilling,
+  t,
+}: {
+  canViewBilling: boolean
+  t: TranslateFn
+}): SlashCommandPaletteItem[] {
+  return [
+    {
+      action: "skills",
+      description: t("chat.commandSkillsDescription"),
+      icon: <Package className="size-4" />,
+      id: "skills",
+      meta: "context",
+      title: t("chat.commandSkills"),
+    },
+    {
+      action: "connections",
+      description: t("chat.commandConnectionsDescription"),
+      icon: <Plug className="size-4" />,
+      id: "connections",
+      meta: "context",
+      title: t("chat.commandConnections"),
+    },
+    {
+      action: "billing",
+      description: t("chat.commandBillingDescription"),
+      disabled: !canViewBilling,
+      icon: <SlidersHorizontal className="size-4" />,
+      id: "billing",
+      meta: "ui",
+      title: t("chat.commandBilling"),
+    },
+    {
+      action: "insert",
+      description: t("chat.commandReviewDescription"),
+      icon: <FileSearch className="size-4" />,
+      id: "review",
+      meta: "prompt",
+      prompt: t("chat.commandReviewPrompt"),
+      title: t("chat.commandReview"),
+    },
+    {
+      action: "insert",
+      description: t("chat.commandSummarizeDescription"),
+      icon: <FileText className="size-4" />,
+      id: "summarize",
+      meta: "prompt",
+      prompt: t("chat.commandSummarizePrompt"),
+      title: t("chat.commandSummarize"),
+    },
+    {
+      action: "insert",
+      description: t("chat.commandStatusDescription"),
+      icon: <Circle className="size-4" />,
+      id: "status",
+      meta: "prompt",
+      prompt: t("chat.commandStatusPrompt"),
+      title: t("chat.commandStatus"),
+    },
+  ]
+}
+
 export function ChatArea({
   billingCacheScope,
   messages,
@@ -2188,6 +2405,7 @@ export function ChatArea({
   const t = useT()
   const chatService = useChatService()
   const modelsService = useModelsService()
+  const skillInventory = useSkillInventoryResource()
   const [draft, setDraft] = React.useState("")
   const [attachments, setAttachments] = React.useState<DraftAttachment[]>([])
   const [inputError, setInputError] = React.useState<string | null>(null)
@@ -2198,9 +2416,15 @@ export function ChatArea({
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
+  const [draftSelection, setDraftSelection] = React.useState({ end: 0, start: 0 })
+  const [dismissedTriggerKey, setDismissedTriggerKey] = React.useState<string | null>(null)
+  const [activePaletteIndex, setActivePaletteIndex] = React.useState(0)
+  const [paletteMode, setPaletteMode] = React.useState<PaletteMode>("root")
+  const [contextMentions, setContextMentions] = React.useState<ChatContextMention[]>([])
   const voiceRecorder = useVoiceRecorder()
   const hasMessages = messages.length > 0
   const isSubmitted = status === "submitted"
@@ -2212,6 +2436,43 @@ export function ChatArea({
     [providers],
   )
   const voiceActive = voiceRecorder.isRecording || voiceTranscribing || Boolean(voiceError || voiceRecorder.error)
+  const composerDisabled = disabled || voiceActive || initialSendPending
+  const trigger = React.useMemo(
+    () => (composerDisabled ? null : detectComposerTrigger(draft, draftSelection.start, draftSelection.end)),
+    [composerDisabled, draft, draftSelection.end, draftSelection.start],
+  )
+  const triggerKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : null
+  const activeTrigger = triggerKey && triggerKey !== dismissedTriggerKey ? trigger : null
+  const slashItems = React.useMemo(
+    () =>
+      slashCommandItems({
+        canViewBilling: Boolean(onViewBilling),
+        t,
+      }),
+    [onViewBilling, t],
+  )
+  const skillItems = React.useMemo(
+    () => buildSkillPaletteItems(skillInventory.data?.groups ?? [], t("chat.skillFallbackDescription")),
+    [skillInventory.data?.groups, t],
+  )
+  const connectionItems = React.useMemo(
+    () => buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service })),
+    [providers, t],
+  )
+  const paletteItems = React.useMemo<ComposerPaletteItem[]>(() => {
+    if (!activeTrigger) {
+      return []
+    }
+    const sourceItems =
+      activeTrigger.kind === "skill" || paletteMode === "skills"
+        ? skillItems
+        : paletteMode === "connections"
+          ? connectionItems
+          : slashItems
+    return sourceItems.filter((item) => matchesComposerQuery(item, activeTrigger.query)).slice(0, 8)
+  }, [activeTrigger, connectionItems, paletteMode, skillItems, slashItems])
+  const paletteOpen = Boolean(activeTrigger)
+  const activePaletteItem = paletteItems[Math.min(activePaletteIndex, Math.max(0, paletteItems.length - 1))]
   const activeAssistantMessageId =
     status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
   const smoothAssistantMessageId = (() => {
@@ -2321,6 +2582,226 @@ export function ChatArea({
     [modelsService],
   )
 
+  React.useEffect(() => {
+    setActivePaletteIndex(0)
+  }, [activeTrigger?.kind, activeTrigger?.query, paletteMode])
+
+  React.useEffect(() => {
+    if (!activeTrigger) {
+      setPaletteMode("root")
+      return
+    }
+    setPaletteMode(activeTrigger.kind === "skill" ? "skills" : "root")
+  }, [activeTrigger?.kind, activeTrigger?.start])
+
+  const updateDraftSelection = React.useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) {
+      return
+    }
+    setDraftSelection({
+      end: textarea.selectionEnd,
+      start: textarea.selectionStart,
+    })
+  }, [])
+
+  const focusDraftAt = React.useCallback((index: number) => {
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) {
+        return
+      }
+      textarea.focus()
+      textarea.setSelectionRange(index, index)
+      setDraftSelection({ end: index, start: index })
+    })
+  }, [])
+
+  const addContextMention = React.useCallback((mention: ChatContextMention) => {
+    setContextMentions((current) => {
+      const nextId =
+        mention.kind === "skill" ? `skill:${mention.id}` : `connection:${mention.service}:${mention.appId ?? ""}`
+      if (
+        current.some((item) =>
+          item.kind === "skill"
+            ? nextId === `skill:${item.id}`
+            : nextId === `connection:${item.service}:${item.appId ?? ""}`,
+        )
+      ) {
+        return current
+      }
+      return [...current, mention]
+    })
+  }, [])
+
+  const removeContextMention = React.useCallback((mention: ChatContextMention) => {
+    setContextMentions((current) =>
+      current.filter((item) => {
+        if (item.kind !== mention.kind) {
+          return true
+        }
+        if (item.kind === "skill" && mention.kind === "skill") {
+          return item.id !== mention.id
+        }
+        if (item.kind === "connection" && mention.kind === "connection") {
+          return item.service !== mention.service || (item.appId ?? "") !== (mention.appId ?? "")
+        }
+        return true
+      }),
+    )
+  }, [])
+
+  const returnToRootPalette = React.useCallback(() => {
+    const parentId = paletteMode === "connections" ? "connections" : "skills"
+    const parentIndex = slashItems.findIndex((item) => item.id === parentId)
+    setPaletteMode("root")
+    setActivePaletteIndex(parentIndex >= 0 ? parentIndex : 0)
+  }, [paletteMode, slashItems])
+
+  const applySlashCommand = React.useCallback(
+    (item: SlashCommandPaletteItem, currentTrigger: ComposerTrigger) => {
+      if (item.disabled) {
+        return
+      }
+      if (item.action === "skills") {
+        setDraft((current) => replaceComposerTrigger(current, currentTrigger, "/"))
+        setDismissedTriggerKey(null)
+        setPaletteMode("skills")
+        focusDraftAt(currentTrigger.start + 1)
+        return
+      }
+      if (item.action === "connections") {
+        setDraft((current) => replaceComposerTrigger(current, currentTrigger, "/"))
+        setDismissedTriggerKey(null)
+        setPaletteMode("connections")
+        focusDraftAt(currentTrigger.start + 1)
+        return
+      }
+      if (item.action === "billing") {
+        setDraft((current) => replaceComposerTrigger(current, currentTrigger, ""))
+        setDismissedTriggerKey(null)
+        onViewBilling?.()
+        focusDraftAt(currentTrigger.start)
+        return
+      }
+
+      const replacement = `${item.prompt ?? ""} `
+      setDraft((current) => replaceComposerTrigger(current, currentTrigger, replacement))
+      setDismissedTriggerKey(null)
+      focusDraftAt(currentTrigger.start + replacement.length)
+    },
+    [focusDraftAt, onViewBilling],
+  )
+
+  const applySkillItem = React.useCallback(
+    (item: SkillPaletteItem, currentTrigger: ComposerTrigger) => {
+      addContextMention({
+        description: item.descriptionText,
+        id: item.skillId,
+        kind: "skill",
+        name: item.skillName,
+      })
+      setDraft((current) => replaceComposerTrigger(current, currentTrigger, ""))
+      setDismissedTriggerKey(null)
+      focusDraftAt(currentTrigger.start)
+    },
+    [addContextMention, focusDraftAt],
+  )
+
+  const applyConnectionItem = React.useCallback(
+    (item: ConnectionPaletteItem, currentTrigger: ComposerTrigger) => {
+      addContextMention({
+        ...(item.accountLabel ? { accountLabel: item.accountLabel } : {}),
+        ...(item.appId ? { appId: item.appId } : {}),
+        displayName: item.displayName,
+        kind: "connection",
+        service: item.service,
+      })
+      setDraft((current) => replaceComposerTrigger(current, currentTrigger, ""))
+      setDismissedTriggerKey(null)
+      focusDraftAt(currentTrigger.start)
+    },
+    [addContextMention, focusDraftAt],
+  )
+
+  const applyPaletteItem = React.useCallback(
+    (item: ComposerPaletteItem | undefined) => {
+      if (!item || !activeTrigger) {
+        return
+      }
+      if (activeTrigger.kind === "slash" && paletteMode === "root") {
+        applySlashCommand(item as SlashCommandPaletteItem, activeTrigger)
+      } else if (paletteMode === "connections") {
+        applyConnectionItem(item as ConnectionPaletteItem, activeTrigger)
+      } else {
+        applySkillItem(item as SkillPaletteItem, activeTrigger)
+      }
+    },
+    [activeTrigger, applyConnectionItem, applySkillItem, applySlashCommand, paletteMode],
+  )
+
+  const handleComposerKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.nativeEvent.isComposing) {
+        return
+      }
+      if (!paletteOpen) {
+        return
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault()
+        setActivePaletteIndex((current) => (paletteItems.length === 0 ? 0 : (current + 1) % paletteItems.length))
+        return
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault()
+        setActivePaletteIndex((current) =>
+          paletteItems.length === 0 ? 0 : (current - 1 + paletteItems.length) % paletteItems.length,
+        )
+        return
+      }
+      if (event.key === "ArrowLeft") {
+        if (activeTrigger?.kind === "slash" && paletteMode !== "root") {
+          event.preventDefault()
+          returnToRootPalette()
+        }
+        return
+      }
+      if (event.key === "ArrowRight") {
+        if (activeTrigger?.kind === "slash" && paletteMode === "root" && activePaletteItem) {
+          const item = activePaletteItem as SlashCommandPaletteItem
+          if (item.action === "skills" || item.action === "connections") {
+            event.preventDefault()
+            applySlashCommand(item, activeTrigger)
+          }
+        }
+        return
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        if (activePaletteItem) {
+          event.preventDefault()
+          applyPaletteItem(activePaletteItem)
+        }
+        return
+      }
+      if (event.key === "Escape") {
+        event.preventDefault()
+        setDismissedTriggerKey(triggerKey)
+      }
+    },
+    [
+      activePaletteItem,
+      activeTrigger,
+      applyPaletteItem,
+      applySlashCommand,
+      paletteItems.length,
+      paletteMode,
+      paletteOpen,
+      returnToRootPalette,
+      triggerKey,
+    ],
+  )
+
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
   // 的 onClick），避免生成中按回车误中止流。
   const handleSubmit = (message: PromptInputMessage): void => {
@@ -2328,10 +2809,11 @@ export function ChatArea({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
       return
     }
-    onSend(text, attachments.map(stripDraftAttachment), modelCatalog?.selected)
+    onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
     revokeAttachmentPreviewUrls(attachments)
     setDraft("")
     setAttachments([])
+    setContextMentions([])
     setInputError(null)
   }
 
@@ -2475,7 +2957,6 @@ export function ChatArea({
       {visibleError}
     </div>
   ) : null
-  const composerDisabled = disabled || voiceActive || initialSendPending
   const canSubmit = !composerDisabled && (draft.trim().length > 0 || attachments.length > 0)
 
   const promptInput = (
@@ -2496,29 +2977,48 @@ export function ChatArea({
         void addFiles(files)
       }}
     >
-      {attachments.length > 0 ? (
+      {attachments.length > 0 || contextMentions.length > 0 ? (
         <PromptInputAttachments>
-          <AttachmentList
-            attachments={attachments}
-            onRemove={
-              composerDisabled
-                ? undefined
-                : (id) =>
-                    setAttachments((current) => {
-                      revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
-                      return current.filter((attachment) => attachment.id !== id)
-                    })
-            }
-          />
+          <div className="flex w-full flex-col gap-2">
+            <ContextMentionChips
+              mentions={contextMentions}
+              onRemove={composerDisabled ? undefined : removeContextMention}
+            />
+            {attachments.length > 0 ? (
+              <AttachmentList
+                attachments={attachments}
+                onRemove={
+                  composerDisabled
+                    ? undefined
+                    : (id) =>
+                        setAttachments((current) => {
+                          revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
+                          return current.filter((attachment) => attachment.id !== id)
+                        })
+                }
+              />
+            ) : null}
+          </div>
         </PromptInputAttachments>
       ) : null}
       <PromptInputBody>
         <PromptInputTextarea
-          className={cn(attachments.length > 0 && "pt-2")}
+          ref={textareaRef}
+          className={cn((attachments.length > 0 || contextMentions.length > 0) && "pt-2")}
           value={draft}
           disabled={composerDisabled}
           placeholder={placeholder}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            setDraftSelection({
+              end: e.target.selectionEnd,
+              start: e.target.selectionStart,
+            })
+          }}
+          onClick={updateDraftSelection}
+          onKeyDown={handleComposerKeyDown}
+          onKeyUp={updateDraftSelection}
+          onSelect={updateDraftSelection}
           onPaste={(event) => {
             const files = filesFromDataTransfer(event.clipboardData)
             if (composerDisabled || files.length === 0) {
@@ -2685,10 +3185,39 @@ export function ChatArea({
     />
   )
   const queuePanel = <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} />
+  const paletteEmptyLabel =
+    paletteMode === "connections"
+      ? t("chat.connectionPaletteEmpty")
+      : paletteMode === "skills"
+        ? skillInventory.isInitialLoading
+          ? t("chat.skillPaletteLoading")
+          : t("chat.skillPaletteEmpty")
+        : t("chat.commandPaletteEmpty")
+  const paletteHeaderLabel =
+    paletteMode === "connections"
+      ? t("chat.paletteConnectionsHeader")
+      : paletteMode === "skills"
+        ? t("chat.paletteSkillsHeader")
+        : undefined
+  const handlePaletteBack = activeTrigger?.kind === "slash" && paletteMode !== "root" ? returnToRootPalette : undefined
+  const palette =
+    paletteOpen && activeTrigger ? (
+      <ComposerPalette
+        activeId={activePaletteItem?.id}
+        emptyLabel={paletteEmptyLabel}
+        headerLabel={paletteHeaderLabel}
+        items={paletteItems}
+        onBack={handlePaletteBack}
+        onSelect={applyPaletteItem}
+      />
+    ) : null
   const composerStack = (
     <div className="flex flex-col gap-2">
       {queuePanel}
-      {promptInput}
+      <div className="relative">
+        {palette}
+        {promptInput}
+      </div>
     </div>
   )
 

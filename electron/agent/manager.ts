@@ -250,7 +250,8 @@ export class AgentManager {
    */
   public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
     const tail = mergeSystemPrompts(
-      options.system ?? (await this.buildAuthorizedSystem()),
+      await this.buildAuthorizedSystem(),
+      options.system,
       buildArtifactSystem(options.artifactDir),
     )
     const result = await this.client.session.promptAsync({

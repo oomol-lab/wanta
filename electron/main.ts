@@ -45,6 +45,9 @@ const titleBarHeight = 48
 const macTrafficLightPosition = { x: 15, y: 17 }
 const darkWindowColor = "#171717"
 const lightWindowColor = "#ffffff"
+const skillRuntimeRefreshDelayMs = 1_500
+const skillRuntimeRefreshBusyRetryMs = 2_000
+const skillRuntimeRefreshMaxBusyRetries = 10
 
 interface SelectedAttachmentPath {
   name: string
@@ -82,8 +85,9 @@ process.env.OO_CLI_PATH = ooBinPath
 let agent: AgentManager | null = null
 // 装配串行化：登录后紧接登出时避免 dispose/start 交错。
 let applyChain: Promise<void> = Promise.resolve()
-let modelConfigVersion = 0
-let appliedModelConfigVersion = -1
+let agentRuntimeVersion = 0
+let appliedAgentRuntimeVersion = -1
+let pendingSkillRuntimeRefresh: NodeJS.Timeout | undefined
 
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
@@ -104,7 +108,9 @@ const authManager = new AuthManager({
   applyAccount: applyAuthAccount,
 })
 const authService = new AuthServiceImpl(authManager)
-const skillService = new SkillServiceImpl(authManager)
+const skillService = new SkillServiceImpl(authManager, {
+  onRuntimeSkillsChanged: scheduleAgentRefreshForSkillChange,
+})
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
 })
@@ -180,6 +186,10 @@ if (isLocked) {
   })
 
   app.on("before-quit", () => {
+    if (pendingSkillRuntimeRefresh) {
+      clearTimeout(pendingSkillRuntimeRefresh)
+      pendingSkillRuntimeRefresh = undefined
+    }
     agent?.dispose()
     server.dispose()
   })
@@ -251,7 +261,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     effectiveAccount &&
     appliedAccount &&
     agent?.isReady() &&
-    appliedModelConfigVersion === modelConfigVersion &&
+    appliedAgentRuntimeVersion === agentRuntimeVersion &&
     effectiveAccount.id === appliedAccount.id &&
     effectiveAccount.apiKey === appliedAccount.apiKey &&
     effectiveAccount.sessionToken === appliedAccount.sessionToken
@@ -293,15 +303,53 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     throw error
   }
   appliedAccount = effectiveAccount
-  appliedModelConfigVersion = modelConfigVersion
+  appliedAgentRuntimeVersion = agentRuntimeVersion
   chatService.startEventBridge()
   console.log("[lumo] agent sidecar ready at", nextAgent.url)
 }
 
 function restartAgentForModelConfig(): void {
-  modelConfigVersion += 1
+  agentRuntimeVersion += 1
   void applyAuthAccount(authManager.activeAccount()).catch((error: unknown) => {
     console.error("[lumo] failed to restart agent after model config change:", error)
+  })
+}
+
+function scheduleAgentRefreshForSkillChange(
+  reason: string,
+  delayMs = skillRuntimeRefreshDelayMs,
+  busyRetryCount = 0,
+): void {
+  if (pendingSkillRuntimeRefresh) {
+    clearTimeout(pendingSkillRuntimeRefresh)
+  }
+
+  pendingSkillRuntimeRefresh = setTimeout(() => {
+    pendingSkillRuntimeRefresh = undefined
+    refreshAgentForSkillChange(reason, busyRetryCount)
+  }, delayMs)
+  pendingSkillRuntimeRefresh.unref()
+}
+
+function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
+  if (!authManager.activeAccount() || !agent?.isReady()) {
+    return
+  }
+
+  if (chatService.hasActiveGeneration()) {
+    if (busyRetryCount < skillRuntimeRefreshMaxBusyRetries) {
+      scheduleAgentRefreshForSkillChange(reason, skillRuntimeRefreshBusyRetryMs, busyRetryCount + 1)
+      return
+    }
+    console.warn("[lumo] refreshing agent after skill change while generation is still active:", {
+      busyRetryCount,
+      reason,
+    })
+  }
+
+  agentRuntimeVersion += 1
+  void applyAuthAccount(authManager.activeAccount()).catch((error: unknown) => {
+    console.error("[lumo] failed to restart agent after skill change:", { error, reason })
   })
 }
 

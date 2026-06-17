@@ -49,12 +49,19 @@ export type PromptInputTextareaProps = ComponentProps<typeof InputGroupTextarea>
 
 export const PromptInputTextarea = ({
   className,
+  onCompositionEnd,
+  onCompositionStart,
+  onKeyDown,
   placeholder = "What would you like to know?",
   ...props
 }: PromptInputTextareaProps) => {
   const [isComposing, setIsComposing] = useState(false)
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    onKeyDown?.(e)
+    if (e.defaultPrevented) {
+      return
+    }
     if (e.key === "Enter") {
       if (isComposing || e.nativeEvent.isComposing) {
         return
@@ -81,8 +88,14 @@ export const PromptInputTextarea = ({
         className,
       )}
       name="message"
-      onCompositionEnd={() => setIsComposing(false)}
-      onCompositionStart={() => setIsComposing(true)}
+      onCompositionEnd={(event) => {
+        setIsComposing(false)
+        onCompositionEnd?.(event)
+      }}
+      onCompositionStart={(event) => {
+        setIsComposing(true)
+        onCompositionStart?.(event)
+      }}
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
       {...props}

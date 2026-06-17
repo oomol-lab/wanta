@@ -158,8 +158,24 @@ export interface SendMessageRequest {
   sessionId: string
   text: string
   attachments?: ChatAttachment[]
+  contextMentions?: ChatContextMention[]
   model?: ModelChoice
 }
+
+export type ChatContextMention =
+  | {
+      description?: string
+      id: string
+      kind: "skill"
+      name: string
+    }
+  | {
+      accountLabel?: string
+      appId?: string
+      displayName: string
+      kind: "connection"
+      service: string
+    }
 
 export interface ChatAttachment {
   id: string

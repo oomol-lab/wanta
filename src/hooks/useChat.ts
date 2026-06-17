@@ -20,6 +20,12 @@ import { useChatService } from "@/components/AppContext"
 
 type MessagesMap = Record<string, ChatMessage[]>
 type CancelledToolPartsMap = Map<string, Set<string>>
+type TextDeltaKind = "reasoning" | "text"
+type TextDeltaEvent = MessageDeltaEvent | MessageReasoningDeltaEvent
+type PendingTextDelta = {
+  event: TextDeltaEvent
+  kind: TextDeltaKind
+}
 
 const userStoppedToolCancelWindowMs = 30_000
 let localMessageSequence = 0
@@ -32,6 +38,26 @@ function upsertPart(parts: ChatMessagePart[], part: ChatMessagePart): ChatMessag
   const next = parts.slice()
   next[index] = { ...next[index], ...part }
   return next
+}
+
+function textDeltaKey(kind: TextDeltaKind, event: TextDeltaEvent): string {
+  return `${kind}\0${event.sessionId}\0${event.messageId}\0${event.partId}`
+}
+
+export function coalesceTextDeltaEvent<T extends TextDeltaEvent>(current: T | undefined, next: T): T {
+  if (!current) {
+    return next
+  }
+  if (next.text) {
+    return next
+  }
+  if (!next.delta) {
+    return current
+  }
+  if (current.text) {
+    return { ...next, text: current.text + next.delta, delta: undefined }
+  }
+  return { ...next, delta: `${current.delta ?? ""}${next.delta}` }
 }
 
 function createClientId(kind: ChatRole): string {
@@ -401,6 +427,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const visibleSessionIdRef = React.useRef<string | null>(visibleSessionId)
   const userStoppedSessions = React.useRef(new Map<string, number>())
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
+  const pendingTextDeltas = React.useRef(new Map<string, PendingTextDelta>())
+  const pendingTextFrame = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     visibleSessionIdRef.current = visibleSessionId
@@ -409,6 +437,62 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const patch = React.useCallback((sessionId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
     setMessagesMap((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }))
+  }, [])
+
+  const flushPendingTextDeltas = React.useCallback(() => {
+    if (pendingTextFrame.current !== null) {
+      window.cancelAnimationFrame(pendingTextFrame.current)
+      pendingTextFrame.current = null
+    }
+    if (pendingTextDeltas.current.size === 0) {
+      return
+    }
+    const queued = Array.from(pendingTextDeltas.current.values())
+    pendingTextDeltas.current.clear()
+    setMessagesMap((prev) => {
+      let nextMap: MessagesMap | null = null
+      for (const { event, kind } of queued) {
+        const baseMap = nextMap ?? prev
+        const currentMessages = baseMap[event.sessionId] ?? []
+        const nextMessages =
+          kind === "text"
+            ? setTextPart(currentMessages, event as MessageDeltaEvent)
+            : setReasoningPart(currentMessages, event as MessageReasoningDeltaEvent)
+        if (!nextMap) {
+          nextMap = { ...prev }
+        }
+        nextMap[event.sessionId] = nextMessages
+      }
+      return nextMap ?? prev
+    })
+  }, [])
+
+  const enqueueTextDelta = React.useCallback(
+    (kind: TextDeltaKind, event: TextDeltaEvent) => {
+      const key = textDeltaKey(kind, event)
+      const pending = pendingTextDeltas.current.get(key)
+      pendingTextDeltas.current.set(key, {
+        event: coalesceTextDeltaEvent(pending?.event, event),
+        kind,
+      })
+      if (pendingTextFrame.current === null) {
+        pendingTextFrame.current = window.requestAnimationFrame(() => {
+          pendingTextFrame.current = null
+          flushPendingTextDeltas()
+        })
+      }
+    },
+    [flushPendingTextDeltas],
+  )
+
+  React.useEffect(() => {
+    return () => {
+      if (pendingTextFrame.current !== null) {
+        window.cancelAnimationFrame(pendingTextFrame.current)
+        pendingTextFrame.current = null
+      }
+      pendingTextDeltas.current.clear()
+    }
   }, [])
 
   const rememberCancelledToolParts = React.useCallback((sessionId: string, partIds: string[]) => {
@@ -458,6 +542,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const reload = React.useCallback(
     async (sessionId: string) => {
+      flushPendingTextDeltas()
       try {
         const msgs = await chatService.invoke("getMessages", sessionId)
         setMessagesMap((prev) => ({
@@ -479,7 +564,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         console.error("[lumo] getMessages failed", err)
       }
     },
-    [chatService, isSessionUserStopped, rememberCancelledToolParts],
+    [chatService, flushPendingTextDeltas, isSessionUserStopped, rememberCancelledToolParts],
   )
 
   React.useEffect(() => {
@@ -499,7 +584,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if (hasVisibleMessageDelta(e)) {
           setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         }
-        patch(e.sessionId, (msgs) => setTextPart(msgs, e))
+        enqueueTextDelta("text", e)
       }),
       chatService.serverEvents.on("messageReasoningDelta", (e) => {
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
@@ -507,15 +592,17 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           ...current,
           [e.sessionId]: { sessionId: e.sessionId, messageId: e.messageId, phase: "thinking" },
         }))
-        patch(e.sessionId, (msgs) => setReasoningPart(msgs, e))
+        enqueueTextDelta("reasoning", e)
       }),
       chatService.serverEvents.on("messageAttachment", (e) => {
+        flushPendingTextDeltas()
         patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
       }),
       chatService.serverEvents.on("messageArtifacts", (e) => {
         patch(e.sessionId, (msgs) => setMessageArtifactRoot(msgs, e))
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
+        flushPendingTextDeltas()
         setStatuses((s) => ({ ...s, [e.sessionId]: "streaming" }))
         setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         patch(e.sessionId, (msgs) =>
@@ -533,6 +620,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         )
       }),
       chatService.serverEvents.on("toolCallResult", (e) => {
+        flushPendingTextDeltas()
         const cancelled = e.status === "error" && isSessionUserStopped(e.sessionId)
         setStatuses((s) => ({ ...s, [e.sessionId]: cancelled ? "ready" : "streaming" }))
         if (!cancelled) {
@@ -567,21 +655,25 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         setActivities((current) => ({ ...current, [e.sessionId]: e }))
       }),
       chatService.serverEvents.on("messagePartRemoved", (e) => {
+        flushPendingTextDeltas()
         patch(e.sessionId, (msgs) => removePart(msgs, e))
       }),
       chatService.serverEvents.on("messageCompleted", (e) => {
+        flushPendingTextDeltas()
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
         setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         setUnreadSessionIds((current) => markSessionCompletedUnread(current, e.sessionId, visibleSessionIdRef.current))
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("messageError", (e) => {
+        flushPendingTextDeltas()
         setStatuses((s) => ({ ...s, [e.sessionId]: "error" }))
         setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         setError(null)
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
       chatService.serverEvents.on("generationStopped", (e) => {
+        flushPendingTextDeltas()
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
         setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
         setError(null)
@@ -589,6 +681,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("agentError", (e) => {
+        flushPendingTextDeltas()
         if (e.sessionId) {
           setStatuses((s) => ({ ...s, [e.sessionId!]: "error" }))
           setActivities((current) => ({ ...current, [e.sessionId!]: undefined }))
@@ -601,7 +694,16 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         off()
       }
     }
-  }, [chatService, isSessionUserStopped, markCurrentToolsCancelled, patch, reload, rememberCancelledToolParts])
+  }, [
+    chatService,
+    enqueueTextDelta,
+    flushPendingTextDeltas,
+    isSessionUserStopped,
+    markCurrentToolsCancelled,
+    patch,
+    reload,
+    rememberCancelledToolParts,
+  ])
 
   React.useEffect(() => {
     if (activeSessionId) {

@@ -3,6 +3,7 @@ import type { ChatAttachment, ChatMessage } from "../../electron/chat/common.ts"
 import { describe, expect, it } from "vitest"
 import {
   appendOptimisticConversationTurn,
+  coalesceTextDeltaEvent,
   ensureMessage,
   hasVisibleMessageDelta,
   markSessionCompletedUnread,
@@ -142,5 +143,38 @@ describe("chat message identity reconciliation", () => {
     expect(hasVisibleMessageDelta({ sessionId: "s1", messageId: "a1", partId: "text-1", text: "", delta: "D" })).toBe(
       true,
     )
+  })
+
+  it("coalesces delta-only text events before a render flush", () => {
+    const first = { sessionId: "s1", messageId: "a1", partId: "text-1", text: "", delta: "Hel" }
+    const second = { sessionId: "s1", messageId: "a1", partId: "text-1", text: "", delta: "lo" }
+
+    expect(coalesceTextDeltaEvent(first, second)).toEqual({
+      sessionId: "s1",
+      messageId: "a1",
+      partId: "text-1",
+      text: "",
+      delta: "Hello",
+    })
+  })
+
+  it("coalesces delta-only text events after cumulative text", () => {
+    const current = { sessionId: "s1", messageId: "a1", partId: "text-1", text: "Hello" }
+    const next = { sessionId: "s1", messageId: "a1", partId: "text-1", text: "", delta: " world" }
+
+    expect(coalesceTextDeltaEvent(current, next)).toEqual({
+      sessionId: "s1",
+      messageId: "a1",
+      partId: "text-1",
+      text: "Hello world",
+      delta: undefined,
+    })
+  })
+
+  it("keeps pending delta text when a blank text event arrives before render flush", () => {
+    const current = { sessionId: "s1", messageId: "a1", partId: "text-1", text: "", delta: "Hello" }
+    const next = { sessionId: "s1", messageId: "a1", partId: "text-1", text: "" }
+
+    expect(coalesceTextDeltaEvent(current, next)).toEqual(current)
   })
 })

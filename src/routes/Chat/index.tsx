@@ -8,15 +8,11 @@ import type {
   ToolStatus,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type {
-  CustomModelProvider,
-  ModelCatalog,
-  ModelChoice,
-  SaveCustomModelRequest,
-} from "../../../electron/models/common.ts"
+import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn } from "./chat-turns.ts"
+import type { DraftAttachment } from "./composer-state.ts"
 import type { ComposerTrigger } from "./composer-triggers.ts"
 import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
@@ -28,14 +24,10 @@ import type { StickToBottomContext } from "use-stick-to-bottom"
 
 import {
   AlertTriangle,
-  BrainCircuit,
   CheckIcon,
-  CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Circle,
   CopyIcon,
-  ExternalLink,
   File as FileIcon,
   FileArchive,
   FileCode,
@@ -58,26 +50,25 @@ import {
   PlayCircle,
   RotateCcw,
   Search,
-  Settings2,
   SlidersHorizontal,
   Square,
   SquareTerminal,
   ThumbsDown,
   ThumbsUp,
-  Trash2,
   Wrench,
   X,
 } from "lucide-react"
 import * as React from "react"
-import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
-import { detectComposerTrigger, replaceComposerTrigger } from "./composer-triggers.ts"
+import { composerReducer, contextMentionKey, initialComposerState } from "./composer-state.ts"
+import { detectComposerTrigger } from "./composer-triggers.ts"
 import { ComposerPalette } from "./ComposerPalette.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
+import { AddCustomModelDialog, ModelPicker } from "./ModelControls.tsx"
 import { renderBlocks } from "./render-blocks.ts"
 import {
   compactPathDetail,
@@ -86,6 +77,7 @@ import {
   shouldShowRunningNoOutput,
 } from "./tool-activity.ts"
 import { hasStoppedTool, isToolCancellation } from "./tool-state.ts"
+import { useModelCatalog } from "./useModelCatalog.ts"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import {
@@ -106,15 +98,11 @@ import {
 } from "@/components/ai-elements/prompt-input"
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
-import { useChatService, useModelsService } from "@/components/AppContext"
+import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
-import { Dialog } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
@@ -137,7 +125,7 @@ interface ChatAreaProps {
     attachments: ChatAttachment[],
     contextMentions: ChatContextMention[],
     model?: ModelChoice,
-  ) => void
+  ) => Promise<boolean>
   onStop: () => void
   onQueuedMessageRemove: (id: string) => void
   onAuthorize: (auth: AuthorizationInfo) => void
@@ -145,10 +133,6 @@ interface ChatAreaProps {
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onViewBilling?: () => void
-}
-
-type DraftAttachment = ChatAttachment & {
-  previewUrl?: string
 }
 
 function stripDraftAttachment(attachment: DraftAttachment): ChatAttachment {
@@ -167,6 +151,7 @@ interface AttachmentInput {
 
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
+const ATTACHMENT_PREVIEW_CACHE_LIMIT = 80
 
 const attachmentPreviewUrlByPath = new Map<string, string>()
 
@@ -180,6 +165,13 @@ function setAttachmentPreviewUrl(path: string, url: string): void {
   const current = attachmentPreviewUrlByPath.get(path)
   if (current && current !== url) {
     revokePreviewUrl(current)
+  }
+  if (!current && attachmentPreviewUrlByPath.size >= ATTACHMENT_PREVIEW_CACHE_LIMIT) {
+    const oldestPath = attachmentPreviewUrlByPath.keys().next().value as string | undefined
+    if (oldestPath) {
+      revokePreviewUrl(attachmentPreviewUrlByPath.get(oldestPath))
+      attachmentPreviewUrlByPath.delete(oldestPath)
+    }
   }
   attachmentPreviewUrlByPath.set(path, url)
 }
@@ -1283,17 +1275,7 @@ function shouldShowTurnProcess(process: ReturnType<typeof summarizeTurnProcess>)
   return process.tools.length > 0 || Boolean(process.activity && !process.hasFinalAnswer)
 }
 
-function ChatTurnView({
-  billingCacheScope,
-  turn,
-  activity,
-  activeAssistantMessageId,
-  smoothAssistantMessageId,
-  providerByService,
-  onAuthorize,
-  onViewBilling,
-  assistantActionTextByMessageId,
-}: {
+interface ChatTurnViewProps {
   billingCacheScope: string
   turn: ChatTurn
   activity: AssistantActivityEvent | null
@@ -1303,7 +1285,46 @@ function ChatTurnView({
   onAuthorize: (auth: AuthorizationInfo) => void
   onViewBilling?: () => void
   assistantActionTextByMessageId: Map<string, string>
-}) {
+}
+
+function assistantActionTextsEqual(previous: ChatTurnViewProps, next: ChatTurnViewProps): boolean {
+  const messageIds = new Set([
+    ...previous.turn.assistants.map((message) => message.id),
+    ...next.turn.assistants.map((message) => message.id),
+  ])
+  for (const messageId of messageIds) {
+    if (previous.assistantActionTextByMessageId.get(messageId) !== next.assistantActionTextByMessageId.get(messageId)) {
+      return false
+    }
+  }
+  return true
+}
+
+function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewProps): boolean {
+  return (
+    previous.billingCacheScope === next.billingCacheScope &&
+    previous.turn === next.turn &&
+    previous.activity === next.activity &&
+    previous.activeAssistantMessageId === next.activeAssistantMessageId &&
+    previous.smoothAssistantMessageId === next.smoothAssistantMessageId &&
+    previous.providerByService === next.providerByService &&
+    previous.onAuthorize === next.onAuthorize &&
+    previous.onViewBilling === next.onViewBilling &&
+    assistantActionTextsEqual(previous, next)
+  )
+}
+
+const ChatTurnView = React.memo(function ChatTurnView({
+  billingCacheScope,
+  turn,
+  activity,
+  activeAssistantMessageId,
+  smoothAssistantMessageId,
+  providerByService,
+  onAuthorize,
+  onViewBilling,
+  assistantActionTextByMessageId,
+}: ChatTurnViewProps) {
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
   const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
   const lastAssistant = turn.assistants.at(-1)
@@ -1373,7 +1394,7 @@ function ChatTurnView({
       )}
     </React.Fragment>
   )
-}
+}, chatTurnViewPropsEqual)
 
 function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) {
   if (isDirectoryAttachment(attachment)) {
@@ -1467,28 +1488,32 @@ function AttachmentImageCard({
 }) {
   const chatService = useChatService()
   const [previewUrl, setPreviewUrl] = React.useState(attachment.previewUrl ?? null)
+  const attachmentPath = attachment.path
+  const attachmentMime = attachment.mime
+  const initialPreviewUrl = attachment.previewUrl ?? null
+  const imageAttachment = isImageAttachment(attachment)
 
   React.useEffect(() => {
-    const cached = attachmentPreviewUrlByPath.get(attachment.path) ?? attachment.previewUrl ?? null
+    const cached = attachmentPreviewUrlByPath.get(attachmentPath) ?? initialPreviewUrl
     setPreviewUrl(cached)
-    if (cached || !isImageAttachment(attachment)) {
+    if (cached || !imageAttachment) {
       return
     }
     let cancelled = false
     void chatService
-      .invoke("getAttachmentPreview", { path: attachment.path, mime: attachment.mime })
+      .invoke("getAttachmentPreview", { path: attachmentPath, mime: attachmentMime })
       .then((result) => {
         if (cancelled || !result.dataUrl) {
           return
         }
-        setAttachmentPreviewUrl(attachment.path, result.dataUrl)
+        setAttachmentPreviewUrl(attachmentPath, result.dataUrl)
         setPreviewUrl(result.dataUrl)
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [attachment, chatService])
+  }, [attachmentMime, attachmentPath, chatService, imageAttachment, initialPreviewUrl])
 
   return (
     <div className="group relative size-20 shrink-0">
@@ -1593,10 +1618,6 @@ function AttachmentList({
       )}
     </div>
   )
-}
-
-function contextMentionKey(mention: ChatContextMention): string {
-  return mention.kind === "skill" ? `skill:${mention.id}` : `connection:${mention.service}:${mention.appId ?? ""}`
 }
 
 function contextMentionLabel(mention: ChatContextMention): string {
@@ -1723,6 +1744,163 @@ function QueuedMessagePanel({ messages, onRemove }: { messages: QueuedChatMessag
   )
 }
 
+function sameChatTurn(previous: ChatTurn, next: ChatTurn): boolean {
+  if (previous.id !== next.id || previous.user !== next.user || previous.assistants.length !== next.assistants.length) {
+    return false
+  }
+  return previous.assistants.every((message, index) => message === next.assistants[index])
+}
+
+function reuseStableChatTurns(previousTurns: ChatTurn[], nextTurns: ChatTurn[]): ChatTurn[] {
+  const previousById = new Map(previousTurns.map((turn) => [turn.id, turn]))
+  let changed = previousTurns.length !== nextTurns.length
+  const turns = nextTurns.map((turn) => {
+    const previous = previousById.get(turn.id)
+    if (previous && sameChatTurn(previous, turn)) {
+      return previous
+    }
+    changed = true
+    return turn
+  })
+  return changed ? turns : previousTurns
+}
+
+function chatTurnHasAssistantMessage(turn: ChatTurn, messageId: string | undefined): boolean {
+  return Boolean(messageId && turn.assistants.some((message) => message.id === messageId))
+}
+
+function activityBelongsToTurn(
+  activity: AssistantActivityEvent | null,
+  turn: ChatTurn,
+  fallbackToLastTurn: boolean,
+): boolean {
+  if (!activity) {
+    return false
+  }
+  if (!activity.messageId) {
+    return fallbackToLastTurn
+  }
+  return turn.assistants.some((message) => message.id === activity.messageId)
+}
+
+interface ChatTimelineProps {
+  billingCacheScope: string
+  messages: ChatMessage[]
+  status: ChatStatus
+  activity: AssistantActivityEvent | null
+  isGenerating: boolean
+  providers: ConnectionProvider[]
+  onAuthorize: (auth: AuthorizationInfo) => void
+  onArtifactsOpen: (selection: ArtifactSelection) => void
+  onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onViewBilling?: () => void
+}
+
+const ChatTimeline = React.memo(function ChatTimeline({
+  billingCacheScope,
+  messages,
+  status,
+  activity,
+  isGenerating,
+  providers,
+  onAuthorize,
+  onArtifactsOpen,
+  onArtifactsAvailable,
+  onViewBilling,
+}: ChatTimelineProps) {
+  const conversationRef = React.useRef<StickToBottomContext | null>(null)
+  const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
+  const stableTurnsRef = React.useRef<ChatTurn[]>([])
+  const latestAssistant = React.useMemo(() => messages.findLast((message) => message.role === "assistant"), [messages])
+  const groupedTurns = React.useMemo(() => groupChatTurns(messages), [messages])
+  const turns = React.useMemo(() => {
+    const stableTurns = reuseStableChatTurns(stableTurnsRef.current, groupedTurns)
+    stableTurnsRef.current = stableTurns
+    return stableTurns
+  }, [groupedTurns])
+  const providerByService = React.useMemo(
+    () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
+    [providers],
+  )
+  const activeAssistantMessageId =
+    status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
+  const smoothAssistantMessageId = React.useMemo(() => {
+    if (!latestAssistant || hasStoppedTool(latestAssistant.parts)) {
+      return undefined
+    }
+    if (activeAssistantMessageId) {
+      return activeAssistantMessageId
+    }
+    const ageMs = Date.now() - latestAssistant.createdAt
+    return ageMs >= 0 && ageMs <= ASSISTANT_TEXT_SMOOTH_WINDOW_MS ? latestAssistant.id : undefined
+  }, [activeAssistantMessageId, latestAssistant])
+  const assistantActionTextByMessageId = React.useMemo(() => {
+    return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
+  }, [activeAssistantMessageId, messages])
+  const visibleArtifactSources = React.useMemo(() => {
+    return collectVisibleGeneratedArtifactSources(messages, isGenerating)
+  }, [isGenerating, messages])
+
+  React.useEffect(() => {
+    const lastMessage = messages.at(-1)
+    if (
+      !isGenerating ||
+      !lastMessage ||
+      lastMessage.role !== "user" ||
+      lastMessage.id === lastAutoScrolledUserMessageIdRef.current
+    ) {
+      return
+    }
+    lastAutoScrolledUserMessageIdRef.current = lastMessage.id
+    void conversationRef.current?.scrollToBottom({
+      animation: "instant",
+      ignoreEscapes: true,
+    })
+  }, [isGenerating, messages])
+
+  return (
+    <Conversation className="min-h-0 flex-1" contextRef={conversationRef}>
+      <ConversationContent
+        data-selectable="true"
+        className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
+      >
+        {turns.map((turn, index) => {
+          const fallbackActivity = index === turns.length - 1
+          const shouldPassActivity = activityBelongsToTurn(activity, turn, fallbackActivity)
+          const turnActiveAssistantMessageId = chatTurnHasAssistantMessage(turn, activeAssistantMessageId)
+            ? activeAssistantMessageId
+            : undefined
+          const turnSmoothAssistantMessageId = chatTurnHasAssistantMessage(turn, smoothAssistantMessageId)
+            ? smoothAssistantMessageId
+            : undefined
+          return (
+            <ChatTurnView
+              key={turn.id}
+              turn={turn}
+              billingCacheScope={billingCacheScope}
+              activity={shouldPassActivity ? activity : null}
+              activeAssistantMessageId={turnActiveAssistantMessageId}
+              smoothAssistantMessageId={turnSmoothAssistantMessageId}
+              providerByService={providerByService}
+              onAuthorize={onAuthorize}
+              onViewBilling={onViewBilling}
+              assistantActionTextByMessageId={assistantActionTextByMessageId}
+            />
+          )
+        })}
+        {visibleArtifactSources.length > 0 ? (
+          <GeneratedArtifacts
+            sources={visibleArtifactSources}
+            onOpen={onArtifactsOpen}
+            onAvailable={onArtifactsAvailable}
+          />
+        ) : null}
+      </ConversationContent>
+      <ConversationScrollButton />
+    </Conversation>
+  )
+})
+
 function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; height?: number }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
   const [sizeRevision, setSizeRevision] = React.useState(0)
@@ -1813,422 +1991,182 @@ function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; dur
   )
 }
 
-function sameModelChoice(a: ModelChoice | undefined, b: ModelChoice | undefined): boolean {
-  return Boolean(a && b && a.kind === b.kind && a.id === b.id)
-}
-
-function selectedModelSummary(catalog: ModelCatalog | null): { label: string } {
-  if (!catalog) {
-    return { label: "Auto" }
-  }
-  const selected = catalog.selected
-  if (selected.kind === "custom") {
-    const custom = catalog.customModels.find((model) => model.id === selected.id)
-    if (custom) {
-      return { label: custom.modelName }
-    }
-  }
-  const builtin =
-    (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
-    catalog.builtins.find((model) => model.id === "oopilot") ??
-    catalog.builtins[0]
-  return { label: builtin?.displayName ?? "Auto" }
-}
-
-function providerInitial(name: string): string {
-  return (name.trim()[0] ?? "M").toUpperCase()
-}
-
-function ProviderMark({ name }: { name: string }) {
-  return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-medium text-muted-foreground">
-      {providerInitial(name)}
-    </span>
-  )
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
-
-function ModelRow({
-  active,
-  icon,
-  title,
-  subtitle,
-  deleteLabel,
-  onSelect,
-  onDelete,
+function ComposerTrailingControls({
+  canSubmit,
+  composerDisabled,
+  initialSendPending,
+  isGenerating,
+  isSubmitted,
+  modelCatalog,
+  status,
+  voiceActive,
+  voiceBars,
+  voiceDurationMs,
+  voiceError,
+  voiceProblem,
+  voiceRecorderError,
+  voiceRetryBlob,
+  voiceTranscribing,
+  onAddModel,
+  onCancelVoice,
+  onDeleteModel,
+  onRetryVoice,
+  onSelectModel,
+  onStartVoice,
+  onStop,
+  onStopVoice,
 }: {
-  active: boolean
-  icon: React.ReactNode
-  title: string
-  subtitle?: string
-  deleteLabel?: string
-  onSelect: () => void
-  onDelete?: () => void
-}) {
-  return (
-    <div className="group flex min-w-0 items-center gap-1">
-      <button
-        type="button"
-        className={cn(
-          "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-accent-foreground",
-          active && "bg-accent text-accent-foreground",
-        )}
-        onClick={onSelect}
-      >
-        {icon}
-        <span className="min-w-0 flex-1">
-          <span className={cn("block truncate text-sm", subtitle ? "leading-5" : "leading-none")}>{title}</span>
-          {subtitle ? <span className="block truncate text-xs leading-4 text-muted-foreground">{subtitle}</span> : null}
-        </span>
-        {active ? <CheckCircle2 className="size-3.5 shrink-0 text-green-600" /> : null}
-      </button>
-      {onDelete ? (
-        <button
-          type="button"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100"
-          aria-label={deleteLabel}
-          onClick={(event) => {
-            event.stopPropagation()
-            onDelete()
-          }}
-        >
-          <Trash2 className="size-3.5" />
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-function ModelPicker({
-  catalog,
-  disabled,
-  onSelect,
-  onDelete,
-  onAdd,
-}: {
-  catalog: ModelCatalog | null
-  disabled: boolean
-  onSelect: (choice: ModelChoice) => void
-  onDelete: (id: string) => void
-  onAdd: () => void
+  canSubmit: boolean
+  composerDisabled: boolean
+  initialSendPending: boolean
+  isGenerating: boolean
+  isSubmitted: boolean
+  modelCatalog: ModelCatalog | null
+  status: ChatStatus
+  voiceActive: boolean
+  voiceBars: readonly number[]
+  voiceDurationMs: number
+  voiceError: string | null
+  voiceProblem: boolean
+  voiceRecorderError?: string
+  voiceRetryBlob: Blob | null
+  voiceTranscribing: boolean
+  onAddModel: () => void
+  onCancelVoice: () => void
+  onDeleteModel: (id: string) => void
+  onRetryVoice: () => void
+  onSelectModel: (choice: ModelChoice) => void
+  onStartVoice: () => void
+  onStop: () => void
+  onStopVoice: () => void
 }) {
   const t = useT()
-  const [open, setOpen] = React.useState(false)
-  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({})
-  const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const menuRef = React.useRef<HTMLDivElement | null>(null)
-  const selected = selectedModelSummary(catalog)
-
-  const updateMenuPosition = React.useCallback(() => {
-    const anchor = rootRef.current
-    if (!anchor) {
-      return
-    }
-    const rect = anchor.getBoundingClientRect()
-    const margin = 16
-    const gap = 8
-    const width = Math.min(320, window.innerWidth - margin * 2)
-    const left = clampNumber(rect.right - width, margin, window.innerWidth - width - margin)
-    const bottom = Math.max(margin, window.innerHeight - rect.top + gap)
-    const maxHeight = Math.max(180, rect.top - margin - gap)
-    setMenuStyle({ left, bottom, width, maxHeight })
-  }, [])
-
-  React.useLayoutEffect(() => {
-    if (open) {
-      updateMenuPosition()
-    }
-  }, [open, updateMenuPosition])
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-    const onMouseDown = (event: MouseEvent): void => {
-      const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        setOpen(false)
-      }
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        setOpen(false)
-      }
-    }
-    const onReposition = (): void => updateMenuPosition()
-    document.addEventListener("mousedown", onMouseDown)
-    document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("resize", onReposition)
-    window.addEventListener("scroll", onReposition, true)
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown)
-      document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("resize", onReposition)
-      window.removeEventListener("scroll", onReposition, true)
-    }
-  }, [open, updateMenuPosition])
-
-  const menu = open
-    ? createPortal(
-        <div
-          ref={menuRef}
-          style={menuStyle}
-          className="oo-border-divider fixed z-50 overflow-y-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-xl"
-        >
-          <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelBuiltIn")}</div>
-          {catalog?.builtins.map((model) => {
-            const choice: ModelChoice = { kind: "builtin", id: model.id }
-            return (
-              <ModelRow
-                key={model.id}
-                active={sameModelChoice(catalog.selected, choice)}
-                icon={<BrainCircuit className="size-4 shrink-0 text-muted-foreground" />}
-                title={model.displayName}
-                onSelect={() => {
-                  onSelect(choice)
-                  setOpen(false)
-                }}
-              />
-            )
-          }) ?? (
-            <ModelRow
-              active
-              icon={<BrainCircuit className="size-4 shrink-0 text-muted-foreground" />}
-              title="Auto"
-              onSelect={() => setOpen(false)}
-            />
-          )}
-
-          {catalog && catalog.customModels.length > 0 ? (
-            <>
-              <div className="mt-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelCustom")}</div>
-              {catalog.customModels.map((model) => {
-                const choice: ModelChoice = { kind: "custom", id: model.id }
-                return (
-                  <ModelRow
-                    key={model.id}
-                    active={sameModelChoice(catalog.selected, choice)}
-                    icon={<ProviderMark name={model.providerName} />}
-                    title={model.modelName}
-                    subtitle={
-                      model.supportsImages ? `${model.providerName} / ${t("chat.modelVision")}` : model.providerName
-                    }
-                    deleteLabel={t("chat.modelDelete")}
-                    onSelect={() => {
-                      onSelect(choice)
-                      setOpen(false)
-                    }}
-                    onDelete={() => onDelete(model.id)}
-                  />
-                )
-              })}
-            </>
-          ) : null}
-
-          <div className="oo-border-divider mt-1 border-t pt-1">
-            <button
-              type="button"
-              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setOpen(false)
-                onAdd()
-              }}
-            >
-              <Settings2 className="size-4 text-muted-foreground" />
-              <span>{t("chat.modelAdd")}</span>
-            </button>
-          </div>
-        </div>,
-        document.body,
-      )
-    : null
+  const visibleVoiceError = voiceError ?? voiceRecorderError
 
   return (
-    <div ref={rootRef}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        title={t("chat.modelPicker")}
-        aria-label={t("chat.modelPicker")}
-        aria-expanded={open}
-        disabled={disabled}
-        className="h-8 max-w-40 rounded-full px-2"
-        onClick={() => setOpen((value) => !value)}
-      >
-        <BrainCircuit className="size-4" />
-        <span className="min-w-0 truncate">{selected.label}</span>
-        <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
-      </Button>
-      {menu}
-    </div>
-  )
-}
-
-function providerBaseUrl(provider: CustomModelProvider | undefined): string {
-  return provider?.baseUrl ?? ""
-}
-
-function AddCustomModelDialog({
-  open,
-  providers,
-  error,
-  onClose,
-  onSave,
-}: {
-  open: boolean
-  providers: CustomModelProvider[]
-  error: string | null
-  onClose: () => void
-  onSave: (req: SaveCustomModelRequest) => Promise<void>
-}) {
-  const t = useT()
-  const firstProvider = providers[0]
-  const [providerId, setProviderId] = React.useState(firstProvider?.id ?? "custom")
-  const [baseUrl, setBaseUrl] = React.useState(providerBaseUrl(firstProvider))
-  const [apiKey, setApiKey] = React.useState("")
-  const [modelName, setModelName] = React.useState("")
-  const [supportsImages, setSupportsImages] = React.useState(false)
-  const [saving, setSaving] = React.useState(false)
-  const supportsImagesId = React.useId()
-  const provider = providers.find((item) => item.id === providerId)
-
-  React.useEffect(() => {
-    if (open) {
-      const initial = providers[0]
-      setProviderId(initial?.id ?? "custom")
-      setBaseUrl(providerBaseUrl(initial))
-      setApiKey("")
-      setModelName("")
-      setSupportsImages(false)
-      setSaving(false)
-    }
-  }, [open, providers])
-
-  const handleProviderChange = (nextId: string): void => {
-    const next = providers.find((item) => item.id === nextId)
-    setProviderId(nextId)
-    setBaseUrl(providerBaseUrl(next))
-  }
-
-  const canSave = Boolean(
-    providerId && apiKey.trim() && modelName.trim() && (!(provider?.requiresBaseUrl ?? true) || baseUrl.trim()),
-  )
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={t("chat.modelAddTitle")}
-      description={t("chat.modelAddDescription")}
-      closeLabel={t("common.cancel")}
-      footer={
-        <>
-          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
-            {t("common.cancel")}
-          </Button>
-          <Button
-            type="button"
-            disabled={!canSave || saving}
-            onClick={() => {
-              setSaving(true)
-              void onSave({
-                providerId,
-                providerName: provider?.displayName,
-                baseUrl,
-                apiKey,
-                modelName,
-                supportsImages,
-              }).finally(() => setSaving(false))
-            }}
-          >
-            {t("common.save")}
-          </Button>
-        </>
-      }
-    >
-      <div className="grid gap-4">
-        <div className="grid gap-1.5">
-          <Label>{t("chat.modelProvider")}</Label>
-          <Select value={providerId} onValueChange={handleProviderChange}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {providers.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="grid gap-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label>{t("chat.modelBaseUrl")}</Label>
-            {provider?.documentationUrl ? (
-              <a
-                href={provider.documentationUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-normal text-primary hover:underline"
+    <>
+      {voiceActive ? <VoiceRecorderPanel bars={voiceBars} durationMs={voiceDurationMs} /> : null}
+      <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
+        {voiceActive ? (
+          <>
+            {visibleVoiceError ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title={visibleVoiceError}
+                aria-label={t("chat.voiceRetry")}
+                className="size-8 rounded-full"
+                disabled={!voiceRetryBlob || voiceTranscribing}
+                onClick={onRetryVoice}
               >
-                {t("chat.modelDocs")}
-                <ExternalLink className="size-3" />
-              </a>
+                <RotateCcw className="size-4" />
+              </Button>
+            ) : voiceTranscribing ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("chat.voiceCancel")}
+                className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
+                onClick={onCancelVoice}
+              >
+                <Loader2 className="size-[18px] animate-spin" />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("chat.voiceStop")}
+                className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
+                onClick={onStopVoice}
+              >
+                <Square className="size-3.5" fill="currentColor" />
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("chat.voiceCancel")}
+              className="size-8 rounded-full bg-foreground text-background hover:bg-foreground/85 hover:text-background"
+              onClick={onCancelVoice}
+            >
+              <X className="size-4" />
+            </Button>
+          </>
+        ) : (
+          <>
+            {voiceProblem ? (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  title={visibleVoiceError}
+                  aria-label={t("chat.voiceRetry")}
+                  className="size-8 rounded-full"
+                  disabled={!voiceRetryBlob || voiceTranscribing}
+                  onClick={onRetryVoice}
+                >
+                  <RotateCcw className="size-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("chat.voiceCancel")}
+                  className="size-8 rounded-full"
+                  onClick={onCancelVoice}
+                >
+                  <X className="size-4" />
+                </Button>
+              </>
             ) : null}
-          </div>
-          <Input
-            value={baseUrl}
-            onChange={(event) => setBaseUrl(event.target.value)}
-            placeholder="https://api.example.com/v1"
-            readOnly={!provider?.requiresBaseUrl}
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label>{t("chat.modelApiKey")}</Label>
-          <Input
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            type="password"
-            placeholder="sk-..."
-            autoComplete="off"
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label>{t("chat.modelName")}</Label>
-          <Input value={modelName} onChange={(event) => setModelName(event.target.value)} placeholder="deepseek-chat" />
-        </div>
-
-        <div className="rounded-md border border-border/70 px-3 py-2.5">
-          <label htmlFor={supportsImagesId} className="flex cursor-pointer items-start gap-3">
-            <input
-              id={supportsImagesId}
-              type="checkbox"
-              checked={supportsImages}
-              onChange={(event) => setSupportsImages(event.target.checked)}
-              className="mt-0.5 size-4 shrink-0 accent-primary"
+            <ModelPicker
+              catalog={modelCatalog}
+              disabled={composerDisabled}
+              onSelect={onSelectModel}
+              onDelete={onDeleteModel}
+              onAdd={onAddModel}
             />
-            <span className="grid gap-1">
-              <span className="text-sm font-medium">{t("chat.modelSupportsImages")}</span>
-              <span className="oo-text-caption text-muted-foreground">{t("chat.modelSupportsImagesDescription")}</span>
-            </span>
-          </label>
-        </div>
-
-        {error ? <div className="oo-error flex items-center gap-2">{error}</div> : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title={t("chat.voiceInput")}
+              aria-label={t("chat.voiceInput")}
+              disabled={composerDisabled}
+              className="size-8 rounded-full"
+              onClick={onStartVoice}
+            >
+              <Mic className="size-4" />
+            </Button>
+            <PromptInputSubmit
+              size="icon-xs"
+              className="!size-7"
+              status={isGenerating ? status : undefined}
+              disabled={isSubmitted ? true : status === "streaming" ? false : !canSubmit}
+              aria-label={
+                initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")
+              }
+              onClick={
+                status === "streaming"
+                  ? (event) => {
+                      event.preventDefault()
+                      onStop()
+                    }
+                  : undefined
+              }
+            />
+          </>
+        )}
       </div>
-    </Dialog>
+    </>
   )
 }
 
-type PaletteMode = "connections" | "root" | "skills"
 type SlashCommandAction = "billing" | "connections" | "insert" | "skills"
 
 interface SlashCommandPaletteItem extends ComposerPaletteItem {
@@ -2404,39 +2342,28 @@ export function ChatArea({
 }: ChatAreaProps) {
   const t = useT()
   const chatService = useChatService()
-  const modelsService = useModelsService()
   const skillInventory = useSkillInventoryResource()
-  const [draft, setDraft] = React.useState("")
-  const [attachments, setAttachments] = React.useState<DraftAttachment[]>([])
+  const modelCatalogState = useModelCatalog()
+  const [composer, dispatchComposer] = React.useReducer(composerReducer, undefined, initialComposerState)
   const [inputError, setInputError] = React.useState<string | null>(null)
-  const [modelCatalog, setModelCatalog] = React.useState<ModelCatalog | null>(null)
-  const [modelDialogOpen, setModelDialogOpen] = React.useState(false)
-  const [modelError, setModelError] = React.useState<string | null>(null)
   const [voiceTranscribing, setVoiceTranscribing] = React.useState(false)
   const [voiceError, setVoiceError] = React.useState<string | null>(null)
   const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
-  const conversationRef = React.useRef<StickToBottomContext | null>(null)
-  const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
-  const [draftSelection, setDraftSelection] = React.useState({ end: 0, start: 0 })
-  const [dismissedTriggerKey, setDismissedTriggerKey] = React.useState<string | null>(null)
-  const [activePaletteIndex, setActivePaletteIndex] = React.useState(0)
-  const [paletteMode, setPaletteMode] = React.useState<PaletteMode>("root")
-  const [contextMentions, setContextMentions] = React.useState<ChatContextMention[]>([])
   const voiceRecorder = useVoiceRecorder()
+  const { activePaletteIndex, attachments, contextMentions, dismissedTriggerKey, draft, draftSelection, paletteMode } =
+    composer
   const hasMessages = messages.length > 0
   const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
-  const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant")
-  const turns = React.useMemo(() => groupChatTurns(messages), [messages])
-  const providerByService = React.useMemo(
-    () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
-    [providers],
-  )
-  const voiceActive = voiceRecorder.isRecording || voiceTranscribing || Boolean(voiceError || voiceRecorder.error)
-  const composerDisabled = disabled || voiceActive || initialSendPending
+  const voiceBusy = voiceRecorder.isRecording || voiceTranscribing
+  const voiceProblem = Boolean(voiceError || voiceRecorder.error)
+  const voiceActive = voiceBusy
+  const composerDisabled = disabled || voiceBusy || initialSendPending
+  const modelCatalog = modelCatalogState.catalog
+  const modelError = modelCatalogState.error
   const trigger = React.useMemo(
     () => (composerDisabled ? null : detectComposerTrigger(draft, draftSelection.start, draftSelection.end)),
     [composerDisabled, draft, draftSelection.end, draftSelection.start],
@@ -2473,24 +2400,6 @@ export function ChatArea({
   }, [activeTrigger, connectionItems, paletteMode, skillItems, slashItems])
   const paletteOpen = Boolean(activeTrigger)
   const activePaletteItem = paletteItems[Math.min(activePaletteIndex, Math.max(0, paletteItems.length - 1))]
-  const activeAssistantMessageId =
-    status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
-  const smoothAssistantMessageId = (() => {
-    if (!latestAssistant || hasStoppedTool(latestAssistant.parts)) {
-      return undefined
-    }
-    if (activeAssistantMessageId) {
-      return activeAssistantMessageId
-    }
-    const ageMs = Date.now() - latestAssistant.createdAt
-    return ageMs >= 0 && ageMs <= ASSISTANT_TEXT_SMOOTH_WINDOW_MS ? latestAssistant.id : undefined
-  })()
-  const assistantActionTextByMessageId = React.useMemo(() => {
-    return assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
-  }, [activeAssistantMessageId, messages])
-  const visibleArtifactSources = React.useMemo(() => {
-    return collectVisibleGeneratedArtifactSources(messages, isGenerating)
-  }, [isGenerating, messages])
   React.useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
@@ -2508,90 +2417,15 @@ export function ChatArea({
   }, [isGenerating, onArtifactsReset])
 
   React.useEffect(() => {
-    const lastMessage = messages.at(-1)
-    if (
-      !isGenerating ||
-      !lastMessage ||
-      lastMessage.role !== "user" ||
-      lastMessage.id === lastAutoScrolledUserMessageIdRef.current
-    ) {
-      return
-    }
-    lastAutoScrolledUserMessageIdRef.current = lastMessage.id
-    void conversationRef.current?.scrollToBottom({
-      animation: "instant",
-      ignoreEscapes: true,
-    })
-  }, [isGenerating, messages])
-
-  React.useEffect(() => {
-    let cancelled = false
-    void modelsService
-      .invoke("listModels")
-      .then((catalog) => {
-        if (!cancelled) {
-          setModelCatalog(catalog)
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setModelError(error instanceof Error ? error.message : String(error))
-        }
-      })
-    const off = modelsService.serverEvents.on("modelsChanged", (catalog) => setModelCatalog(catalog))
-    return () => {
-      cancelled = true
-      off()
-    }
-  }, [modelsService])
-
-  const handleSelectModel = React.useCallback(
-    (choice: ModelChoice) => {
-      setModelError(null)
-      void modelsService
-        .invoke("setSelectedModel", choice)
-        .then(setModelCatalog)
-        .catch((error) => setModelError(error instanceof Error ? error.message : String(error)))
-    },
-    [modelsService],
-  )
-
-  const handleDeleteModel = React.useCallback(
-    (id: string) => {
-      setModelError(null)
-      void modelsService
-        .invoke("deleteCustomModel", id)
-        .then(setModelCatalog)
-        .catch((error) => setModelError(error instanceof Error ? error.message : String(error)))
-    },
-    [modelsService],
-  )
-
-  const handleSaveModel = React.useCallback(
-    async (req: SaveCustomModelRequest) => {
-      setModelError(null)
-      try {
-        const catalog = await modelsService.invoke("saveCustomModel", req)
-        setModelCatalog(catalog)
-        setModelDialogOpen(false)
-      } catch (error) {
-        setModelError(error instanceof Error ? error.message : String(error))
-        throw error
-      }
-    },
-    [modelsService],
-  )
-
-  React.useEffect(() => {
-    setActivePaletteIndex(0)
+    dispatchComposer({ type: "set-active-palette-index", index: 0 })
   }, [activeTrigger?.kind, activeTrigger?.query, paletteMode])
 
   React.useEffect(() => {
     if (!activeTrigger) {
-      setPaletteMode("root")
+      dispatchComposer({ type: "set-palette-mode", mode: "root" })
       return
     }
-    setPaletteMode(activeTrigger.kind === "skill" ? "skills" : "root")
+    dispatchComposer({ type: "set-palette-mode", mode: activeTrigger.kind === "skill" ? "skills" : "root" })
   }, [activeTrigger?.kind, activeTrigger?.start])
 
   const updateDraftSelection = React.useCallback(() => {
@@ -2599,9 +2433,12 @@ export function ChatArea({
     if (!textarea) {
       return
     }
-    setDraftSelection({
-      end: textarea.selectionEnd,
-      start: textarea.selectionStart,
+    dispatchComposer({
+      type: "set-draft-selection",
+      selection: {
+        end: textarea.selectionEnd,
+        start: textarea.selectionStart,
+      },
     })
   }, [])
 
@@ -2613,49 +2450,23 @@ export function ChatArea({
       }
       textarea.focus()
       textarea.setSelectionRange(index, index)
-      setDraftSelection({ end: index, start: index })
+      dispatchComposer({ type: "set-draft-selection", selection: { end: index, start: index } })
     })
   }, [])
 
   const addContextMention = React.useCallback((mention: ChatContextMention) => {
-    setContextMentions((current) => {
-      const nextId =
-        mention.kind === "skill" ? `skill:${mention.id}` : `connection:${mention.service}:${mention.appId ?? ""}`
-      if (
-        current.some((item) =>
-          item.kind === "skill"
-            ? nextId === `skill:${item.id}`
-            : nextId === `connection:${item.service}:${item.appId ?? ""}`,
-        )
-      ) {
-        return current
-      }
-      return [...current, mention]
-    })
+    dispatchComposer({ type: "add-context-mention", mention })
   }, [])
 
   const removeContextMention = React.useCallback((mention: ChatContextMention) => {
-    setContextMentions((current) =>
-      current.filter((item) => {
-        if (item.kind !== mention.kind) {
-          return true
-        }
-        if (item.kind === "skill" && mention.kind === "skill") {
-          return item.id !== mention.id
-        }
-        if (item.kind === "connection" && mention.kind === "connection") {
-          return item.service !== mention.service || (item.appId ?? "") !== (mention.appId ?? "")
-        }
-        return true
-      }),
-    )
+    dispatchComposer({ type: "remove-context-mention", mention })
   }, [])
 
   const returnToRootPalette = React.useCallback(() => {
     const parentId = paletteMode === "connections" ? "connections" : "skills"
     const parentIndex = slashItems.findIndex((item) => item.id === parentId)
-    setPaletteMode("root")
-    setActivePaletteIndex(parentIndex >= 0 ? parentIndex : 0)
+    dispatchComposer({ type: "set-palette-mode", mode: "root" })
+    dispatchComposer({ type: "set-active-palette-index", index: parentIndex >= 0 ? parentIndex : 0 })
   }, [paletteMode, slashItems])
 
   const applySlashCommand = React.useCallback(
@@ -2664,30 +2475,26 @@ export function ChatArea({
         return
       }
       if (item.action === "skills") {
-        setDraft((current) => replaceComposerTrigger(current, currentTrigger, "/"))
-        setDismissedTriggerKey(null)
-        setPaletteMode("skills")
+        dispatchComposer({ type: "replace-trigger", trigger: currentTrigger, replacement: "/" })
+        dispatchComposer({ type: "set-palette-mode", mode: "skills" })
         focusDraftAt(currentTrigger.start + 1)
         return
       }
       if (item.action === "connections") {
-        setDraft((current) => replaceComposerTrigger(current, currentTrigger, "/"))
-        setDismissedTriggerKey(null)
-        setPaletteMode("connections")
+        dispatchComposer({ type: "replace-trigger", trigger: currentTrigger, replacement: "/" })
+        dispatchComposer({ type: "set-palette-mode", mode: "connections" })
         focusDraftAt(currentTrigger.start + 1)
         return
       }
       if (item.action === "billing") {
-        setDraft((current) => replaceComposerTrigger(current, currentTrigger, ""))
-        setDismissedTriggerKey(null)
+        dispatchComposer({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
         onViewBilling?.()
         focusDraftAt(currentTrigger.start)
         return
       }
 
       const replacement = `${item.prompt ?? ""} `
-      setDraft((current) => replaceComposerTrigger(current, currentTrigger, replacement))
-      setDismissedTriggerKey(null)
+      dispatchComposer({ type: "replace-trigger", trigger: currentTrigger, replacement })
       focusDraftAt(currentTrigger.start + replacement.length)
     },
     [focusDraftAt, onViewBilling],
@@ -2701,8 +2508,7 @@ export function ChatArea({
         kind: "skill",
         name: item.skillName,
       })
-      setDraft((current) => replaceComposerTrigger(current, currentTrigger, ""))
-      setDismissedTriggerKey(null)
+      dispatchComposer({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
       focusDraftAt(currentTrigger.start)
     },
     [addContextMention, focusDraftAt],
@@ -2717,8 +2523,7 @@ export function ChatArea({
         kind: "connection",
         service: item.service,
       })
-      setDraft((current) => replaceComposerTrigger(current, currentTrigger, ""))
-      setDismissedTriggerKey(null)
+      dispatchComposer({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
       focusDraftAt(currentTrigger.start)
     },
     [addContextMention, focusDraftAt],
@@ -2750,14 +2555,18 @@ export function ChatArea({
       }
       if (event.key === "ArrowDown") {
         event.preventDefault()
-        setActivePaletteIndex((current) => (paletteItems.length === 0 ? 0 : (current + 1) % paletteItems.length))
+        dispatchComposer({
+          type: "set-active-palette-index",
+          index: paletteItems.length === 0 ? 0 : (activePaletteIndex + 1) % paletteItems.length,
+        })
         return
       }
       if (event.key === "ArrowUp") {
         event.preventDefault()
-        setActivePaletteIndex((current) =>
-          paletteItems.length === 0 ? 0 : (current - 1 + paletteItems.length) % paletteItems.length,
-        )
+        dispatchComposer({
+          type: "set-active-palette-index",
+          index: paletteItems.length === 0 ? 0 : (activePaletteIndex - 1 + paletteItems.length) % paletteItems.length,
+        })
         return
       }
       if (event.key === "ArrowLeft") {
@@ -2786,11 +2595,12 @@ export function ChatArea({
       }
       if (event.key === "Escape") {
         event.preventDefault()
-        setDismissedTriggerKey(triggerKey)
+        dispatchComposer({ type: "set-dismissed-trigger-key", key: triggerKey })
       }
     },
     [
       activePaletteItem,
+      activePaletteIndex,
       activeTrigger,
       applyPaletteItem,
       applySlashCommand,
@@ -2804,16 +2614,18 @@ export function ChatArea({
 
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
   // 的 onClick），避免生成中按回车误中止流。
-  const handleSubmit = (message: PromptInputMessage): void => {
+  const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
     const text = message.text
-    if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceActive) {
+    if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceBusy) {
       return
     }
-    onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
+    const accepted = await onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
+    if (!accepted) {
+      setInputError(t("chat.sendNotAccepted"))
+      return
+    }
     revokeAttachmentPreviewUrls(attachments)
-    setDraft("")
-    setAttachments([])
-    setContextMentions([])
+    dispatchComposer({ type: "reset-after-submit" })
     setInputError(null)
   }
 
@@ -2834,17 +2646,15 @@ export function ChatArea({
       next.push(attachment)
     }
     if (next.length > 0) {
-      setAttachments((current) => {
-        const existing = new Set(current.map((attachment) => attachment.path))
-        const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
-        revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
-        for (const attachment of uniqueNext) {
-          if (attachment.previewUrl) {
-            setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
-          }
+      const existing = new Set(attachmentsRef.current.map((attachment) => attachment.path))
+      const uniqueNext = next.filter((attachment) => !existing.has(attachment.path))
+      revokeAttachmentPreviewUrls(next.filter((attachment) => existing.has(attachment.path)))
+      for (const attachment of uniqueNext) {
+        if (attachment.previewUrl) {
+          setAttachmentPreviewUrl(attachment.path, attachment.previewUrl)
         }
-        return [...current, ...uniqueNext]
-      })
+      }
+      dispatchComposer({ type: "add-attachments", attachments: uniqueNext })
     }
   }, [])
 
@@ -2922,9 +2732,7 @@ export function ChatArea({
       try {
         const audioBase64 = arrayBufferToBase64(await blob.arrayBuffer())
         const result = await chatService.invoke("transcribeVoice", { audioBase64 })
-        setDraft((current) =>
-          current.trim() ? `${current}${/\s$/.test(current) ? "" : " "}${result.text}` : result.text,
-        )
+        dispatchComposer({ type: "append-transcription", text: result.text })
         setVoiceRetryBlob(null)
         voiceRecorder.cancel()
       } catch (error) {
@@ -2990,11 +2798,10 @@ export function ChatArea({
                 onRemove={
                   composerDisabled
                     ? undefined
-                    : (id) =>
-                        setAttachments((current) => {
-                          revokeAttachmentPreviewUrls(current.filter((attachment) => attachment.id === id))
-                          return current.filter((attachment) => attachment.id !== id)
-                        })
+                    : (id) => {
+                        revokeAttachmentPreviewUrls(attachmentsRef.current.filter((attachment) => attachment.id === id))
+                        dispatchComposer({ type: "remove-attachment", id })
+                      }
                 }
               />
             ) : null}
@@ -3009,10 +2816,13 @@ export function ChatArea({
           disabled={composerDisabled}
           placeholder={placeholder}
           onChange={(e) => {
-            setDraft(e.target.value)
-            setDraftSelection({
-              end: e.target.selectionEnd,
-              start: e.target.selectionStart,
+            dispatchComposer({
+              type: "set-draft",
+              draft: e.target.value,
+              selection: {
+                end: e.target.selectionEnd,
+                start: e.target.selectionStart,
+              },
             })
           }}
           onClick={updateDraftSelection}
@@ -3073,115 +2883,45 @@ export function ChatArea({
             </DropdownMenuContent>
           </DropdownMenu>
         </PromptInputTools>
-        {voiceActive ? <VoiceRecorderPanel bars={voiceRecorder.bars} durationMs={voiceRecorder.durationMs} /> : null}
-        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
-          {voiceActive ? (
-            <>
-              {voiceError || voiceRecorder.error ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  title={voiceError ?? voiceRecorder.error}
-                  aria-label={t("chat.voiceRetry")}
-                  className="size-8 rounded-full"
-                  disabled={!voiceRetryBlob || voiceTranscribing}
-                  onClick={() => voiceRetryBlob && void transcribeBlob(voiceRetryBlob)}
-                >
-                  <RotateCcw className="size-4" />
-                </Button>
-              ) : voiceTranscribing ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("chat.voiceCancel")}
-                  className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
-                  onClick={handleCancelVoice}
-                >
-                  <Loader2 className="size-[18px] animate-spin" />
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("chat.voiceStop")}
-                  className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
-                  onClick={() => void handleStopVoice()}
-                >
-                  <Square className="size-3.5" fill="currentColor" />
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("chat.voiceCancel")}
-                className="size-8 rounded-full bg-foreground text-background hover:bg-foreground/85 hover:text-background"
-                onClick={handleCancelVoice}
-              >
-                <X className="size-4" />
-              </Button>
-            </>
-          ) : (
-            <>
-              <ModelPicker
-                catalog={modelCatalog}
-                disabled={composerDisabled}
-                onSelect={handleSelectModel}
-                onDelete={handleDeleteModel}
-                onAdd={() => {
-                  setModelError(null)
-                  setModelDialogOpen(true)
-                }}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                title={t("chat.voiceInput")}
-                aria-label={t("chat.voiceInput")}
-                disabled={composerDisabled}
-                className="size-8 rounded-full"
-                onClick={() => {
-                  setVoiceError(null)
-                  void voiceRecorder.start()
-                }}
-              >
-                <Mic className="size-4" />
-              </Button>
-              <PromptInputSubmit
-                size="icon-xs"
-                className="!size-7"
-                status={isGenerating ? status : undefined}
-                disabled={isSubmitted ? true : status === "streaming" ? false : !canSubmit}
-                aria-label={
-                  initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")
-                }
-                onClick={
-                  status === "streaming"
-                    ? (e) => {
-                        e.preventDefault()
-                        onStop()
-                      }
-                    : undefined
-                }
-              />
-            </>
-          )}
-        </div>
+        <ComposerTrailingControls
+          canSubmit={canSubmit}
+          composerDisabled={composerDisabled}
+          initialSendPending={initialSendPending}
+          isGenerating={isGenerating}
+          isSubmitted={isSubmitted}
+          modelCatalog={modelCatalog}
+          status={status}
+          voiceActive={voiceActive}
+          voiceBars={voiceRecorder.bars}
+          voiceDurationMs={voiceRecorder.durationMs}
+          voiceError={voiceError}
+          voiceProblem={voiceProblem}
+          voiceRecorderError={voiceRecorder.error}
+          voiceRetryBlob={voiceRetryBlob}
+          voiceTranscribing={voiceTranscribing}
+          onAddModel={modelCatalogState.openDialog}
+          onCancelVoice={handleCancelVoice}
+          onDeleteModel={modelCatalogState.deleteModel}
+          onRetryVoice={() => voiceRetryBlob && void transcribeBlob(voiceRetryBlob)}
+          onSelectModel={modelCatalogState.selectModel}
+          onStartVoice={() => {
+            setVoiceError(null)
+            void voiceRecorder.start()
+          }}
+          onStop={onStop}
+          onStopVoice={() => void handleStopVoice()}
+        />
       </PromptInputToolbar>
     </PromptInput>
   )
 
   const modelDialog = (
     <AddCustomModelDialog
-      open={modelDialogOpen}
+      open={modelCatalogState.dialogOpen}
       providers={modelCatalog?.providers ?? []}
       error={modelError}
-      onClose={() => setModelDialogOpen(false)}
-      onSave={handleSaveModel}
+      onClose={modelCatalogState.closeDialog}
+      onSave={modelCatalogState.saveModel}
     />
   )
   const queuePanel = <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} />
@@ -3244,35 +2984,18 @@ export function ChatArea({
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col pb-4">
-        <Conversation className="min-h-0 flex-1" contextRef={conversationRef}>
-          <ConversationContent
-            data-selectable="true"
-            className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
-          >
-            {turns.map((turn, index) => (
-              <ChatTurnView
-                key={turn.id}
-                turn={turn}
-                billingCacheScope={billingCacheScope}
-                activity={activity?.messageId || index === turns.length - 1 ? activity : null}
-                activeAssistantMessageId={activeAssistantMessageId}
-                smoothAssistantMessageId={smoothAssistantMessageId}
-                providerByService={providerByService}
-                onAuthorize={onAuthorize}
-                onViewBilling={onViewBilling}
-                assistantActionTextByMessageId={assistantActionTextByMessageId}
-              />
-            ))}
-            {visibleArtifactSources.length > 0 ? (
-              <GeneratedArtifacts
-                sources={visibleArtifactSources}
-                onOpen={onArtifactsOpen}
-                onAvailable={onArtifactsAvailable}
-              />
-            ) : null}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
+        <ChatTimeline
+          billingCacheScope={billingCacheScope}
+          messages={messages}
+          status={status}
+          activity={activity}
+          isGenerating={isGenerating}
+          providers={providers}
+          onAuthorize={onAuthorize}
+          onArtifactsOpen={onArtifactsOpen}
+          onArtifactsAvailable={onArtifactsAvailable}
+          onViewBilling={onViewBilling}
+        />
 
         <div
           className={cn(

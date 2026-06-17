@@ -77,7 +77,6 @@ import {
   compactPathDetail,
   compactToolDetail,
   formatToolActivityDuration,
-  formatToolDuration,
   shouldShowRunningNoOutput,
 } from "./tool-activity.ts"
 import { hasStoppedTool, isToolCancellation } from "./tool-state.ts"
@@ -585,12 +584,10 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
 
 function ToolActivityStep({
   part,
-  now,
   provider,
   onAuthorize,
 }: {
   part: ChatMessagePart
-  now: number
   provider?: ConnectionProvider
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
@@ -598,11 +595,10 @@ function ToolActivityStep({
   const auth = part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
   const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
-  const duration = formatToolDuration(part, now)
   const statusText = toolPartStatusLabel(t, part)
   const inlineDetail = toolInlineDetail(part)
   const active = part.status === "pending" || part.status === "running"
-  const metaItems = [provider?.displayName, statusText, duration].filter(Boolean)
+  const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const actionText = toolActionSummary(t, part)
   const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
   const row = (
@@ -615,18 +611,18 @@ function ToolActivityStep({
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
         {active ? (
-          <div className="flex min-w-0 items-center text-xs">
+          <div className="flex min-w-0 items-center">
             <LoadingShimmerText className="min-w-0 truncate">{activeText}</LoadingShimmerText>
           </div>
         ) : (
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span className="min-w-0 truncate text-xs text-foreground">{actionText}</span>
+            <span className="min-w-0 truncate text-foreground">{actionText}</span>
             {inlineDetail && (
-              <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+              <code className="max-w-full min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
                 {inlineDetail}
               </code>
             )}
-            <span className="flex min-w-0 shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            <span className="flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
               {metaItems.map((item, index) => (
                 <React.Fragment key={`${index}:${item}`}>
                   {index > 0 ? <span className="text-muted-foreground/70">·</span> : null}
@@ -638,7 +634,7 @@ function ToolActivityStep({
         )}
         {auth && (
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="oo-text-caption">{t("chat.authNeeded", { name: auth.displayName })}</span>
+            <span>{t("chat.authNeeded", { name: auth.displayName })}</span>
             <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
               <Plug className="size-3.5" />
               {t("chat.authorize")}
@@ -736,16 +732,11 @@ function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>,
   if (typeof start !== "number" || typeof end !== "number" || end < start) {
     return null
   }
-  const ms = end - start
-  if (ms < 1000) {
-    return "< 1s"
-  }
-  if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
-  }
-  const minutes = Math.floor(ms / 60_000)
-  const seconds = Math.round((ms % 60_000) / 1000)
-  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
+  return formatWholeSecondDuration(end - start)
+}
+
+function formatWholeSecondDuration(ms: number): string {
+  return `${Math.max(1, Math.round(ms / 1000))}s`
 }
 
 function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {
@@ -827,7 +818,7 @@ function TurnProcessActivity({
       <TaskTrigger title={title}>
         <button
           type="button"
-          className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-muted-foreground transition-colors hover:text-foreground"
         >
           <span className="flex min-w-0 items-center gap-1">
             {activeTitle ? (
@@ -849,7 +840,6 @@ function TurnProcessActivity({
               blockClassName={assistantBlockClassName(renderBlocks, index)}
               billingCacheScope={billingCacheScope}
               smoothText={message.id === smoothAssistantMessageId}
-              now={now}
               providerByService={providerByService}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
@@ -893,16 +883,6 @@ function hasNestedLoadingIndicator(
 
 function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnProcess> | null }) {
   const t = useT()
-  const [now, setNow] = React.useState(() => Date.now())
-
-  React.useEffect(() => {
-    if (!process) {
-      return
-    }
-    setNow(Date.now())
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [process])
 
   if (!process) {
     return null
@@ -926,12 +906,10 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
     }
     return processTitle(t, status, null)
   })()
-  const duration = formatProcessDuration(process, now)
 
   return (
-    <div className="oo-text-caption flex min-h-7 items-center gap-2 rounded-md py-0.5 text-muted-foreground">
+    <div className="flex min-h-7 items-center gap-2 rounded-md py-0.5 text-muted-foreground">
       <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
-      {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
     </div>
   )
 }
@@ -1113,7 +1091,6 @@ function AssistantBlock({
   blockClassName,
   billingCacheScope,
   smoothText,
-  now,
   providerByService,
   onAuthorize,
   onViewBilling,
@@ -1122,7 +1099,6 @@ function AssistantBlock({
   blockClassName?: string
   billingCacheScope: string
   smoothText: boolean
-  now: number
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
   onViewBilling?: () => void
@@ -1151,7 +1127,6 @@ function AssistantBlock({
               <ToolActivityStep
                 key={part.partId}
                 part={part}
-                now={now}
                 provider={service ? providerByService.get(service) : undefined}
                 onAuthorize={onAuthorize}
               />
@@ -1180,21 +1155,8 @@ function MessageBubble({
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
-  const [now, setNow] = React.useState(() => Date.now())
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
-  const hasActiveToolPart = message.parts.some(
-    (part) => part.kind === "tool" && (part.status === "pending" || part.status === "running"),
-  )
-
-  React.useEffect(() => {
-    if (!hasActiveToolPart) {
-      return
-    }
-    setNow(Date.now())
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [hasActiveToolPart])
 
   if (message.role === "user") {
     const text = message.parts
@@ -1239,7 +1201,6 @@ function MessageBubble({
             blockClassName={assistantBlockClassName(blocks, index)}
             billingCacheScope={billingCacheScope}
             smoothText={smoothText}
-            now={now}
             providerByService={providerByService}
             onAuthorize={onAuthorize}
             onViewBilling={onViewBilling}
@@ -1272,20 +1233,7 @@ function AssistantTimelineMessage({
   onAuthorize: (auth: AuthorizationInfo) => void
   onViewBilling?: () => void
 }) {
-  const [now, setNow] = React.useState(() => Date.now())
   const renderBlocks = blocks.map((item) => item.block)
-  const hasActiveToolPart = renderBlocks.some((block) =>
-    block.kind === "tools" ? block.parts.some((part) => part.status === "pending" || part.status === "running") : false,
-  )
-
-  React.useEffect(() => {
-    if (!hasActiveToolPart) {
-      return
-    }
-    setNow(Date.now())
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [hasActiveToolPart])
 
   if (blocks.length === 0) {
     return null
@@ -1301,7 +1249,6 @@ function AssistantTimelineMessage({
             blockClassName={assistantBlockClassName(renderBlocks, index)}
             billingCacheScope={billingCacheScope}
             smoothText={message.id === smoothAssistantMessageId}
-            now={now}
             providerByService={providerByService}
             onAuthorize={onAuthorize}
             onViewBilling={onViewBilling}

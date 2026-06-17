@@ -91,10 +91,5 @@ export function collectVisibleGeneratedArtifactSources(
   if (isGenerating) {
     return []
   }
-  const latestAssistantMessageId = messages.findLast((message) => message.role === "assistant")?.id
-  if (!latestAssistantMessageId) {
-    return []
-  }
-  const latestSource = collectGeneratedArtifactSources(messages).at(-1)
-  return latestSource?.messageId === latestAssistantMessageId ? [latestSource] : []
+  return collectGeneratedArtifactSources(messages)
 }

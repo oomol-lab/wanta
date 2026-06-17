@@ -1,4 +1,5 @@
 import type { AgentManager } from "../agent/manager.ts"
+import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type {
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
@@ -38,6 +39,7 @@ import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl, voiceAsrBaseUrl } from "../domain.ts"
 import { ServiceEvent } from "../service-events.ts"
+import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
 import {
   extractLocalPathCandidates,
   imageMimeFromPath,
@@ -234,6 +236,7 @@ export interface BillingLogRange {
 }
 
 interface ChatServiceDeps {
+  artifactRootStore?: ArtifactRootStore
   stoppedGenerationStore?: StoppedGenerationStore
 }
 
@@ -436,6 +439,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private readonly deps: ChatServiceDeps
+  private artifactRoots: ArtifactRoots = new Map()
+  private artifactRootsLoaded = false
+  private artifactRootsLoadPromise: Promise<void> | null = null
   private stoppedGenerations: StoppedGenerations = new Map()
   private stoppedGenerationsLoaded = false
   private stoppedGenerationsLoadPromise: Promise<void> | null = null
@@ -454,6 +460,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.pendingArtifactDirs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
+    this.artifactRoots.clear()
+    this.artifactRootsLoaded = false
+    this.artifactRootsLoadPromise = null
     this.stoppedGenerations.clear()
     this.stoppedGenerationsLoaded = false
     this.stoppedGenerationsLoadPromise = null
@@ -510,6 +519,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               messageId: translated.data.messageId,
               artifactRoot,
             })
+            void this.rememberArtifactRoot(translated.data.sessionId, translated.data.messageId, artifactRoot).catch(
+              (error: unknown) => {
+                console.warn("[lumo] failed to record artifact root", error)
+              },
+            )
           }
         }
         if (translated.event === "toolCallStarted") {
@@ -640,6 +654,29 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.stoppedGenerationsLoadPromise = null
     })()
     return this.stoppedGenerationsLoadPromise
+  }
+
+  private async ensureArtifactRootsLoaded(): Promise<void> {
+    if (this.artifactRootsLoaded) {
+      return
+    }
+    if (this.artifactRootsLoadPromise) {
+      return this.artifactRootsLoadPromise
+    }
+    this.artifactRootsLoadPromise = (async () => {
+      this.artifactRoots = (await this.deps.artifactRootStore?.read()) ?? new Map()
+      this.artifactRootsLoaded = true
+      this.artifactRootsLoadPromise = null
+    })()
+    return this.artifactRootsLoadPromise
+  }
+
+  private async rememberArtifactRoot(sessionId: string, messageId: string, artifactRoot: string): Promise<void> {
+    await this.ensureArtifactRootsLoaded()
+    if (!recordArtifactRoot(this.artifactRoots, sessionId, messageId, artifactRoot)) {
+      return
+    }
+    await this.deps.artifactRootStore?.write(this.artifactRoots)
   }
 
   private async rememberStoppedGeneration(sessionId: string, messageId: string, partIds: string[]): Promise<void> {
@@ -1066,8 +1103,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return []
     }
     const messages = await this.agent.getMessages(sessionId)
+    await this.ensureArtifactRootsLoaded()
     await this.ensureStoppedGenerationsLoaded()
-    return applyStoppedGenerations(messages, this.stoppedGenerations.get(sessionId))
+    return applyStoppedGenerations(
+      applyArtifactRoots(messages, this.artifactRoots.get(sessionId)),
+      this.stoppedGenerations.get(sessionId),
+    )
   }
 }
 

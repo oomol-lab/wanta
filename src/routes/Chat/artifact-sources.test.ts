@@ -113,7 +113,7 @@ describe("collectVisibleGeneratedArtifactSources", () => {
     expect(collectVisibleGeneratedArtifactSources(messages, true)).toEqual([])
   })
 
-  it("shows only the latest turn after generation has stopped", () => {
+  it("keeps historical candidates after generation has stopped", () => {
     const messages = [
       user("user-1", "Create an image"),
       assistant("assistant-1", "Output file: `/tmp/lumo/image.png`"),
@@ -123,6 +123,12 @@ describe("collectVisibleGeneratedArtifactSources", () => {
 
     expect(collectVisibleGeneratedArtifactSources(messages, false)).toEqual([
       {
+        messageId: "assistant-1",
+        requestText: "Create an image",
+        sourcePaths: [],
+        text: "Output file: `/tmp/lumo/image.png`",
+      },
+      {
         messageId: "assistant-2",
         requestText: "Describe the result",
         sourcePaths: [],
@@ -131,7 +137,7 @@ describe("collectVisibleGeneratedArtifactSources", () => {
     ])
   })
 
-  it("does not fall back to an older artifact source when the latest assistant turn is empty", () => {
+  it("keeps older artifact sources when the latest assistant turn is empty", () => {
     const messages = [
       user("user-1", "Create an image"),
       assistant("assistant-1", "Output file: `/tmp/lumo/image.png`"),
@@ -139,6 +145,13 @@ describe("collectVisibleGeneratedArtifactSources", () => {
       assistant("assistant-2", ""),
     ]
 
-    expect(collectVisibleGeneratedArtifactSources(messages, false)).toEqual([])
+    expect(collectVisibleGeneratedArtifactSources(messages, false)).toEqual([
+      {
+        messageId: "assistant-1",
+        requestText: "Create an image",
+        sourcePaths: [],
+        text: "Output file: `/tmp/lumo/image.png`",
+      },
+    ])
   })
 })

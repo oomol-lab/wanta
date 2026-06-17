@@ -814,11 +814,13 @@ export function AppShell() {
     service: string
     text: string
     attachments: ChatAttachment[]
+    contextMentions?: ChatContextMention[]
     model?: ModelChoice
   } | null>(null)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
+  const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
@@ -894,7 +896,10 @@ export function AppShell() {
       pendingRetry.current = null
       setSelectedService(null)
       setRoute("chat")
-      void send(pending.sessionId, pending.text, pending.attachments, { model: pending.model })
+      void send(pending.sessionId, pending.text, pending.attachments, {
+        contextMentions: pending.contextMentions ?? [],
+        model: pending.model,
+      })
     }
   }, [connections.summary, send])
 
@@ -1123,7 +1128,7 @@ export function AppShell() {
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()
         if (bridgeEmptySend) {
-          setPendingChatTransition({ sessionId, text, attachments, model, createdAt })
+          setPendingChatTransition({ sessionId, text, attachments, contextMentions, model, createdAt })
         }
         if (!sessionId) {
           let info: SessionInfo
@@ -1151,6 +1156,7 @@ export function AppShell() {
           )
         }
         lastModelBySession.current.set(sessionId, model)
+        lastContextMentionsBySession.current.set(sessionId, contextMentions)
         try {
           await send(sessionId, text, attachments, { contextMentions, model })
         } catch (error) {
@@ -1218,6 +1224,7 @@ export function AppShell() {
     dispatchingQueuedSessionsRef.current.delete(id)
     setQueuedMessagesBySession((current) => clearQueuedMessages(current, id))
     lastModelBySession.current.delete(id)
+    lastContextMentionsBySession.current.delete(id)
   }
 
   const handleAuthorize = (auth: AuthorizationInfo): void => {
@@ -1237,7 +1244,18 @@ export function AppShell() {
         pendingChatTransition?.sessionId === activeSessionId
           ? pendingChatTransition.model
           : lastModelBySession.current.get(activeSessionId)
-      pendingRetry.current = { sessionId: activeSessionId, service: auth.service, text, attachments, model }
+      const contextMentions =
+        pendingChatTransition?.sessionId === activeSessionId
+          ? pendingChatTransition.contextMentions
+          : lastContextMentionsBySession.current.get(activeSessionId)
+      pendingRetry.current = {
+        sessionId: activeSessionId,
+        service: auth.service,
+        text,
+        attachments,
+        contextMentions,
+        model,
+      }
     }
   }
   const handleToggleSidebar = (): void => {

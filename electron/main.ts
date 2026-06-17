@@ -47,6 +47,7 @@ const darkWindowColor = "#171717"
 const lightWindowColor = "#ffffff"
 const skillRuntimeRefreshDelayMs = 1_500
 const skillRuntimeRefreshBusyRetryMs = 2_000
+const skillRuntimeRefreshMaxBusyRetries = 10
 
 interface SelectedAttachmentPath {
   name: string
@@ -314,26 +315,36 @@ function restartAgentForModelConfig(): void {
   })
 }
 
-function scheduleAgentRefreshForSkillChange(reason: string, delayMs = skillRuntimeRefreshDelayMs): void {
+function scheduleAgentRefreshForSkillChange(
+  reason: string,
+  delayMs = skillRuntimeRefreshDelayMs,
+  busyRetryCount = 0,
+): void {
   if (pendingSkillRuntimeRefresh) {
     clearTimeout(pendingSkillRuntimeRefresh)
   }
 
   pendingSkillRuntimeRefresh = setTimeout(() => {
     pendingSkillRuntimeRefresh = undefined
-    refreshAgentForSkillChange(reason)
+    refreshAgentForSkillChange(reason, busyRetryCount)
   }, delayMs)
   pendingSkillRuntimeRefresh.unref()
 }
 
-function refreshAgentForSkillChange(reason: string): void {
+function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
   if (!authManager.activeAccount() || !agent?.isReady()) {
     return
   }
 
   if (chatService.hasActiveGeneration()) {
-    scheduleAgentRefreshForSkillChange(reason, skillRuntimeRefreshBusyRetryMs)
-    return
+    if (busyRetryCount < skillRuntimeRefreshMaxBusyRetries) {
+      scheduleAgentRefreshForSkillChange(reason, skillRuntimeRefreshBusyRetryMs, busyRetryCount + 1)
+      return
+    }
+    console.warn("[lumo] refreshing agent after skill change while generation is still active:", {
+      busyRetryCount,
+      reason,
+    })
   }
 
   agentRuntimeVersion += 1

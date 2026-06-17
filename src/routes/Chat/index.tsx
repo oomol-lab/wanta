@@ -2742,6 +2742,9 @@ export function ChatArea({
 
   const handleComposerKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.nativeEvent.isComposing) {
+        return
+      }
       if (!paletteOpen) {
         return
       }

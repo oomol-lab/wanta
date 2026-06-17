@@ -1705,14 +1705,17 @@ function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; heigh
     const step = barWidth + gap
     const centerY = canvasHeight / 2
     const drawableHeight = canvasHeight - 8 * dpr
-    const visibleCount = Math.ceil(width / step)
-    const visibleBars = bars.slice(-visibleCount)
-    const startX = width - visibleBars.length * step
+    const visibleCount = Math.max(1, Math.ceil(width / step))
+    const recentBars = bars.slice(-visibleCount)
+    const visibleBars =
+      recentBars.length >= visibleCount
+        ? recentBars
+        : [...Array<number>(visibleCount - recentBars.length).fill(0), ...recentBars]
 
     visibleBars.forEach((bar, index) => {
       const normalized = Math.max(0, Math.min(1, bar))
       const barHeight = Math.max(3 * dpr, normalized * drawableHeight)
-      const x = startX + index * step
+      const x = index * step
       const y = centerY - barHeight / 2
       context.globalAlpha = 0.35 + normalized * 0.65
       context.beginPath()

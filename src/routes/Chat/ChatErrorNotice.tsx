@@ -4,6 +4,7 @@ import { AlertTriangle, CheckIcon, CopyIcon, ExternalLink, RefreshCw } from "luc
 import * as React from "react"
 import { toast } from "sonner"
 import { resolveChatError } from "./chat-error.ts"
+import { canAutoPromptPayment } from "./payment-auto-prompt.ts"
 import { useChatService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -96,7 +97,9 @@ export function ChatErrorNotice({
   const [purchaseDialogOpen, setPurchaseDialogOpen] = React.useState(false)
   const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false)
   const [balanceLoading, setBalanceLoading] = React.useState(false)
+  const [balanceChecked, setBalanceChecked] = React.useState(false)
   const [balance, setBalance] = React.useState<string | null>(null)
+  const [hasCredits, setHasCredits] = React.useState<boolean | null>(null)
   const [recovered, setRecovered] = React.useState(false)
   const [refreshFailed, setRefreshFailed] = React.useState(false)
   const confirmAutoPromptedRef = React.useRef(false)
@@ -108,15 +111,28 @@ export function ChatErrorNotice({
     try {
       const result = await chatService.invoke("getCreditBalance")
       setBalance(result.balance)
+      setHasCredits(result.hasCredits)
       return result.hasCredits
     } catch {
       setBalance(null)
+      setHasCredits(null)
       setRefreshFailed(true)
       return false
     } finally {
+      setBalanceChecked(true)
       setBalanceLoading(false)
     }
   }, [chatService])
+
+  React.useEffect(() => {
+    setBalance(null)
+    setBalanceChecked(false)
+    setHasCredits(null)
+    setRecovered(false)
+    setRefreshFailed(false)
+    setPurchaseDialogOpen(false)
+    setConfirmDialogOpen(false)
+  }, [autoOpenKey])
 
   React.useEffect(() => {
     if (!isPaymentRequired) {
@@ -130,6 +146,8 @@ export function ChatErrorNotice({
       if (hasCredits) {
         clearPaymentRecoveryPending()
         setRecovered(true)
+        setPurchaseDialogOpen(false)
+        setConfirmDialogOpen(false)
       }
     })
     return () => {
@@ -138,7 +156,7 @@ export function ChatErrorNotice({
   }, [isPaymentRequired, refreshBalance])
 
   React.useEffect(() => {
-    if (!isPaymentRequired || recovered || !autoOpenKey) {
+    if (!canAutoPromptPayment({ autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered })) {
       return
     }
     const storageKey = `lumo-payment-dialog-opened:${autoOpenKey}`
@@ -154,21 +172,25 @@ export function ChatErrorNotice({
       return
     }
     setPurchaseDialogOpen(true)
-  }, [autoOpenKey, isPaymentRequired, recovered])
+  }, [autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered])
 
   React.useEffect(() => {
     confirmAutoPromptedRef.current = false
   }, [autoOpenKey])
 
   React.useEffect(() => {
-    if (!isPaymentRequired || recovered || confirmDialogOpen || confirmAutoPromptedRef.current) {
+    if (
+      !canAutoPromptPayment({ autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered }) ||
+      confirmDialogOpen ||
+      confirmAutoPromptedRef.current
+    ) {
       return
     }
     if (hasPaymentRecoveryPending()) {
       confirmAutoPromptedRef.current = true
       setConfirmDialogOpen(true)
     }
-  }, [confirmDialogOpen, isPaymentRequired, recovered])
+  }, [balanceChecked, confirmDialogOpen, hasCredits, isPaymentRequired, recovered])
 
   const handleCopyDiagnostics = React.useCallback(() => {
     navigator.clipboard.writeText(error.diagnostics).catch(() => {

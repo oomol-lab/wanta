@@ -5,7 +5,7 @@ import voiceRecorderWorkletUrl from "./voice-recorder-worklet.ts?worker&url"
 import { encodePcm16Wav } from "./voice-wav.ts"
 
 const barIntervalMs = 50
-const maxBars = 72
+const maxBars = 240
 
 export type VoiceRecorderStatus = "idle" | "requesting-permission" | "recording" | "stopping" | "error"
 

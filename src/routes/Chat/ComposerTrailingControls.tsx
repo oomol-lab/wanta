@@ -262,8 +262,8 @@ export function ComposerTrailingControls({
               <Mic className="size-4" />
             </Button>
             <PromptInputSubmit
-              size="icon-xs"
-              className="!size-7"
+              size="icon-sm"
+              className="size-8"
               status={submit.visualStatus}
               disabled={submit.disabled}
               aria-label={

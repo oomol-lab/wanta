@@ -10,6 +10,7 @@ import {
   markSessionViewed,
   mergeFetchedMessages,
   setErrorPart,
+  visibleChatError,
 } from "./useChat.ts"
 
 const pdfAttachment: ChatAttachment = {
@@ -176,5 +177,12 @@ describe("chat message identity reconciliation", () => {
     const next = { sessionId: "s1", messageId: "a1", partId: "text-1", text: "" }
 
     expect(coalesceTextDeltaEvent(current, next)).toEqual(current)
+  })
+
+  it("shows session-scoped banner errors only for the active session", () => {
+    expect(visibleChatError({ background: "Background failed" }, null, "active")).toBeNull()
+    expect(visibleChatError({ active: "Active failed" }, null, "active")).toBe("Active failed")
+    expect(visibleChatError({}, "Global failed", "active")).toBe("Global failed")
+    expect(visibleChatError({ active: "Active failed" }, "Global failed", "active")).toBe("Active failed")
   })
 })

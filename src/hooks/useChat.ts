@@ -417,13 +417,22 @@ export function markSessionViewed(unreadSessionIds: Set<string>, visibleSessionI
   return next
 }
 
+export function visibleChatError(
+  errorsBySession: Record<string, string | undefined>,
+  globalError: string | null,
+  activeSessionId: string | null,
+): string | null {
+  return activeSessionId ? (errorsBySession[activeSessionId] ?? globalError) : globalError
+}
+
 export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
   const chatService = useChatService()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
   const [activities, setActivities] = React.useState<Record<string, AssistantActivityEvent | undefined>>({})
   const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
-  const [error, setError] = React.useState<string | null>(null)
+  const [globalError, setGlobalError] = React.useState<string | null>(null)
+  const [errorsBySession, setErrorsBySession] = React.useState<Record<string, string | undefined>>({})
   const visibleSessionIdRef = React.useRef<string | null>(visibleSessionId)
   const userStoppedSessions = React.useRef(new Map<string, number>())
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
@@ -437,6 +446,28 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const patch = React.useCallback((sessionId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
     setMessagesMap((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }))
+  }, [])
+
+  const clearSessionError = React.useCallback((sessionId: string) => {
+    setErrorsBySession((current) => {
+      if (!current[sessionId]) {
+        return current
+      }
+      const next = { ...current }
+      delete next[sessionId]
+      return next
+    })
+  }, [])
+
+  const setSessionError = React.useCallback((sessionId: string, message: string) => {
+    setErrorsBySession((current) =>
+      current[sessionId] === message
+        ? current
+        : {
+            ...current,
+            [sessionId]: message,
+          },
+    )
   }, [])
 
   const flushPendingTextDeltas = React.useCallback(() => {
@@ -669,24 +700,27 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         flushPendingTextDeltas()
         setStatuses((s) => ({ ...s, [e.sessionId]: "error" }))
         setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
-        setError(null)
+        clearSessionError(e.sessionId)
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
       chatService.serverEvents.on("generationStopped", (e) => {
         flushPendingTextDeltas()
         setStatuses((s) => ({ ...s, [e.sessionId]: "ready" }))
         setActivities((current) => ({ ...current, [e.sessionId]: undefined }))
-        setError(null)
+        clearSessionError(e.sessionId)
         markCurrentToolsCancelled(e.sessionId)
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("agentError", (e) => {
         flushPendingTextDeltas()
         if (e.sessionId) {
-          setStatuses((s) => ({ ...s, [e.sessionId!]: "error" }))
-          setActivities((current) => ({ ...current, [e.sessionId!]: undefined }))
+          const sessionId = e.sessionId
+          setStatuses((s) => ({ ...s, [sessionId]: "error" }))
+          setActivities((current) => ({ ...current, [sessionId]: undefined }))
+          setSessionError(sessionId, e.message)
+          return
         }
-        setError(e.message)
+        setGlobalError(e.message)
       }),
     ]
     return () => {
@@ -696,6 +730,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     }
   }, [
     chatService,
+    clearSessionError,
     enqueueTextDelta,
     flushPendingTextDeltas,
     isSessionUserStopped,
@@ -703,6 +738,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     patch,
     reload,
     rememberCancelledToolParts,
+    setSessionError,
   ])
 
   React.useEffect(() => {
@@ -718,7 +754,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       attachments: ChatAttachment[] = [],
       options: { contextMentions?: ChatContextMention[]; model?: ModelChoice } = {},
     ) => {
-      setError(null)
+      setGlobalError(null)
+      clearSessionError(sessionId)
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
       setStatuses((s) => ({ ...s, [sessionId]: "submitted" }))
@@ -735,7 +772,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))
         setActivities((current) => ({ ...current, [sessionId]: undefined }))
-        setError(null)
+        clearSessionError(sessionId)
         patch(sessionId, (msgs) =>
           setErrorPart(msgs, {
             sessionId,
@@ -745,12 +782,13 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         )
       }
     },
-    [chatService, patch],
+    [chatService, clearSessionError, patch],
   )
 
   const stop = React.useCallback(
     async (sessionId: string) => {
-      setError(null)
+      setGlobalError(null)
+      clearSessionError(sessionId)
       markSessionUserStopped(sessionId)
       markCurrentToolsCancelled(sessionId)
       try {
@@ -760,10 +798,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       } catch (err) {
         setStatuses((s) => ({ ...s, [sessionId]: "error" }))
         setActivities((current) => ({ ...current, [sessionId]: undefined }))
-        setError(String(err))
+        setSessionError(sessionId, String(err))
       }
     },
-    [chatService, markCurrentToolsCancelled, markSessionUserStopped],
+    [chatService, clearSessionError, markCurrentToolsCancelled, markSessionUserStopped, setSessionError],
   )
 
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? []) : []
@@ -778,5 +816,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     (sessionId: string): boolean => unreadSessionIds.has(sessionId),
     [unreadSessionIds],
   )
+  const error = visibleChatError(errorsBySession, globalError, activeSessionId)
   return { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop }
 }

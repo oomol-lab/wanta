@@ -11,13 +11,13 @@ export interface ComposerPaletteItem {
   title: string
 }
 
-export interface ComposerPaletteProps {
+export interface ComposerPaletteProps<TItem extends ComposerPaletteItem = ComposerPaletteItem> {
   activeId?: string
   emptyLabel: string
   headerLabel?: string
-  items: ComposerPaletteItem[]
+  items: TItem[]
   onBack?: () => void
-  onSelect: (item: ComposerPaletteItem) => void
+  onSelect: (item: TItem) => void
 }
 
 function readTitlebarHeight(): number {
@@ -26,7 +26,14 @@ function readTitlebarHeight(): number {
   return Number.isFinite(parsed) ? parsed : 48
 }
 
-export function ComposerPalette({ activeId, emptyLabel, headerLabel, items, onBack, onSelect }: ComposerPaletteProps) {
+export function ComposerPalette<TItem extends ComposerPaletteItem>({
+  activeId,
+  emptyLabel,
+  headerLabel,
+  items,
+  onBack,
+  onSelect,
+}: ComposerPaletteProps<TItem>) {
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const activeItemRef = React.useRef<HTMLButtonElement | null>(null)
   const [maxHeight, setMaxHeight] = React.useState<number | undefined>(undefined)

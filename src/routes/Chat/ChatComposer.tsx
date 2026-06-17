@@ -7,6 +7,7 @@ import type { ChatStatus } from "ai"
 
 import { AlertTriangle, File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { buildConnectionPaletteItems, buildSkillPaletteItems, slashCommandItems } from "./composer-palette-items.ts"
 import { composerReducer, initialComposerState } from "./composer-state.ts"
@@ -101,8 +102,7 @@ export function ChatComposer({
     dispatchComposer({ type: "append-transcription", text })
   }, [])
   const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
-  const { activePaletteIndex, attachments, contextMentions, dismissedTriggerKey, draft, draftSelection, paletteMode } =
-    composer
+  const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
   const composerDisabled = disabled || voiceInput.busy || initialSendPending
@@ -166,7 +166,6 @@ export function ChatComposer({
   }, [])
 
   const composerPalette = useComposerPalette({
-    activePaletteIndex,
     connectionItems,
     disabled: composerDisabled,
     dismissedTriggerKey,
@@ -176,7 +175,6 @@ export function ChatComposer({
     focusDraftAt,
     onAddContextMention: addContextMention,
     onViewBilling,
-    paletteMode,
     skillItems,
     slashItems,
   })
@@ -188,10 +186,14 @@ export function ChatComposer({
     if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceInput.busy) {
       return
     }
+    const queuedWhileGenerating = isGenerating
     const accepted = await onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
       return
+    }
+    if (queuedWhileGenerating) {
+      toast.success(t("chat.queueAdded"))
     }
     composerAttachments.revokeCurrentPreviews()
     dispatchComposer({ type: "reset-after-submit" })
@@ -329,7 +331,7 @@ export function ChatComposer({
   const queuePanel = <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} />
   const { emptyLabel, headerLabel } = paletteLabels({
     isSkillInventoryLoading: skillInventory.isInitialLoading,
-    mode: paletteMode,
+    mode: composerPalette.mode,
     t,
   })
   const palette =

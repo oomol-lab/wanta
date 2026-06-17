@@ -187,8 +187,12 @@ function TurnProcessActivity({
   const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
   const showLiveStatus = renderBlocks.length === 0
+  const userChangedOpenRef = React.useRef(false)
 
   React.useEffect(() => {
+    if (userChangedOpenRef.current) {
+      return
+    }
     setOpen(shouldOpen)
   }, [shouldOpen, statusKey])
 
@@ -201,8 +205,13 @@ function TurnProcessActivity({
     return () => window.clearInterval(timer)
   }, [status])
 
+  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+    userChangedOpenRef.current = true
+    setOpen(nextOpen)
+  }, [])
+
   return (
-    <Task open={open} onOpenChange={setOpen} className="not-prose my-0 w-full">
+    <Task open={open} onOpenChange={handleOpenChange} className="not-prose my-0 w-full">
       <TaskTrigger title={title}>
         <button
           type="button"

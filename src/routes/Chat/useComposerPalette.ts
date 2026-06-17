@@ -10,11 +10,15 @@ import type { ComposerTrigger } from "./composer-triggers.ts"
 
 import * as React from "react"
 import { matchesComposerQuery } from "./composer-palette-items.ts"
-import { initialPaletteMode, resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
+import { resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
+import {
+  initialComposerPaletteNavigation,
+  resolveComposerPaletteNavigation,
+  updateComposerPaletteNavigation,
+} from "./composer-palette-state.ts"
 import { detectComposerTrigger } from "./composer-triggers.ts"
 
 interface UseComposerPaletteOptions {
-  activePaletteIndex: number
   connectionItems: ConnectionPaletteItem[]
   disabled: boolean
   dismissedTriggerKey: string | null
@@ -24,7 +28,6 @@ interface UseComposerPaletteOptions {
   focusDraftAt: (index: number) => void
   onAddContextMention: (mention: ChatContextMention) => void
   onViewBilling?: () => void
-  paletteMode: PaletteMode
   skillItems: SkillPaletteItem[]
   slashItems: SlashCommandPaletteItem[]
 }
@@ -35,12 +38,12 @@ export interface UseComposerPaletteResult {
   handleBack: (() => void) | undefined
   handleKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void
   items: ChatComposerPaletteItem[]
+  mode: PaletteMode
   onSelect: (item: ChatComposerPaletteItem | undefined) => void
   open: boolean
 }
 
 export function useComposerPalette({
-  activePaletteIndex,
   connectionItems,
   disabled,
   dismissedTriggerKey,
@@ -50,16 +53,28 @@ export function useComposerPalette({
   focusDraftAt,
   onAddContextMention,
   onViewBilling,
-  paletteMode,
   skillItems,
   slashItems,
 }: UseComposerPaletteOptions): UseComposerPaletteResult {
+  const [paletteNavigation, setPaletteNavigation] = React.useState(initialComposerPaletteNavigation)
   const trigger = React.useMemo(
     () => (disabled ? null : detectComposerTrigger(draft, draftSelection.start, draftSelection.end)),
     [disabled, draft, draftSelection.end, draftSelection.start],
   )
   const triggerKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : null
   const activeTrigger = triggerKey && triggerKey !== dismissedTriggerKey ? trigger : null
+  const resolvedPaletteNavigation = React.useMemo(
+    () => resolveComposerPaletteNavigation(paletteNavigation, activeTrigger),
+    [activeTrigger, paletteNavigation],
+  )
+  const paletteMode = resolvedPaletteNavigation.mode
+  const activePaletteIndex = resolvedPaletteNavigation.activeIndex
+  const updatePaletteNavigation = React.useCallback(
+    (updater: (current: typeof resolvedPaletteNavigation) => typeof resolvedPaletteNavigation) => {
+      setPaletteNavigation((current) => updateComposerPaletteNavigation(current, activeTrigger, updater))
+    },
+    [activeTrigger],
+  )
   const items = React.useMemo<ChatComposerPaletteItem[]>(() => {
     if (!activeTrigger) {
       return []
@@ -77,24 +92,15 @@ export function useComposerPalette({
   const open = Boolean(activeTrigger)
   const activeItem = items[Math.min(activePaletteIndex, Math.max(0, items.length - 1))]
 
-  React.useEffect(() => {
-    dispatch({ type: "set-active-palette-index", index: 0 })
-  }, [activeTrigger?.kind, activeTrigger?.query, dispatch, paletteMode])
-
-  React.useEffect(() => {
-    if (!activeTrigger) {
-      dispatch({ type: "set-palette-mode", mode: "root" })
-      return
-    }
-    dispatch({ type: "set-palette-mode", mode: initialPaletteMode(activeTrigger.kind) })
-  }, [activeTrigger?.kind, activeTrigger?.start, dispatch])
-
   const handleBack = React.useCallback(() => {
     const parentId = paletteMode === "connections" ? "connections" : "skills"
     const parentIndex = slashItems.findIndex((item) => item.id === parentId)
-    dispatch({ type: "set-palette-mode", mode: "root" })
-    dispatch({ type: "set-active-palette-index", index: parentIndex >= 0 ? parentIndex : 0 })
-  }, [dispatch, paletteMode, slashItems])
+    updatePaletteNavigation((current) => ({
+      ...current,
+      activeIndex: parentIndex >= 0 ? parentIndex : 0,
+      mode: "root",
+    }))
+  }, [paletteMode, slashItems, updatePaletteNavigation])
 
   const applySlashCommand = React.useCallback(
     (item: SlashCommandPaletteItem, currentTrigger: ComposerTrigger) => {
@@ -103,13 +109,13 @@ export function useComposerPalette({
       }
       if (item.action === "skills") {
         dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "/" })
-        dispatch({ type: "set-palette-mode", mode: "skills" })
+        updatePaletteNavigation((current) => ({ ...current, activeIndex: 0, mode: "skills" }))
         focusDraftAt(currentTrigger.start + 1)
         return
       }
       if (item.action === "connections") {
         dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "/" })
-        dispatch({ type: "set-palette-mode", mode: "connections" })
+        updatePaletteNavigation((current) => ({ ...current, activeIndex: 0, mode: "connections" }))
         focusDraftAt(currentTrigger.start + 1)
         return
       }
@@ -124,7 +130,7 @@ export function useComposerPalette({
       dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement })
       focusDraftAt(currentTrigger.start + replacement.length)
     },
-    [dispatch, focusDraftAt, onViewBilling],
+    [dispatch, focusDraftAt, onViewBilling, updatePaletteNavigation],
   )
 
   const applySkillItem = React.useCallback(
@@ -201,7 +207,7 @@ export function useComposerPalette({
       }
       event.preventDefault()
       if (action.type === "move") {
-        dispatch({ type: "set-active-palette-index", index: action.index })
+        updatePaletteNavigation((current) => ({ ...current, activeIndex: action.index }))
       } else if (action.type === "back") {
         handleBack()
       } else if (action.type === "open-root-item" && activeTrigger && activeItem?.kind === "slash") {
@@ -224,6 +230,7 @@ export function useComposerPalette({
       open,
       paletteMode,
       triggerKey,
+      updatePaletteNavigation,
     ],
   )
 
@@ -233,6 +240,7 @@ export function useComposerPalette({
     handleBack: activeTrigger?.kind === "slash" && paletteMode !== "root" ? handleBack : undefined,
     handleKeyDown,
     items,
+    mode: paletteMode,
     onSelect,
     open,
   }

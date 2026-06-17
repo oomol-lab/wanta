@@ -1,3 +1,4 @@
+import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentManager } from "../agent/manager.ts"
 import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type {
@@ -506,6 +507,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           void emit("generationStopped", { sessionId: translated.data.sessionId })
           continue
         }
+        if (this.shouldSuppressUserStoppedEvent(translated)) {
+          continue
+        }
         if (translated.event === "messageStarted") {
           this.emitSessionActivity(translated.data.sessionId)
         }
@@ -615,6 +619,28 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return true
   }
 
+  private hasActiveUserStop(sessionId: string | undefined): boolean {
+    if (!sessionId) {
+      return false
+    }
+    const expiresAt = this.userStoppedSessions.get(sessionId)
+    if (!expiresAt) {
+      return false
+    }
+    if (Date.now() <= expiresAt) {
+      return true
+    }
+    this.userStoppedSessions.delete(sessionId)
+    return false
+  }
+
+  private shouldSuppressUserStoppedEvent(translated: ChatEmit): boolean {
+    if (!this.hasActiveUserStop(translated.data.sessionId)) {
+      return false
+    }
+    return translated.event !== "messageCompleted"
+  }
+
   public async isReady(): Promise<boolean> {
     return this.agent?.isReady() ?? false
   }
@@ -623,6 +649,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    this.userStoppedSessions.delete(req.sessionId)
     this.emitSessionActivity(req.sessionId)
     const artifactDir = await this.agent.createArtifactDir(req.sessionId)
     this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
@@ -1096,6 +1123,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         console.warn("[lumo] failed to record stopped generation", error)
       })
     }
+    this.activeAssistantMessages.delete(sessionId)
+    this.activeToolParts.delete(sessionId)
+    await this.send("generationStopped", { sessionId }).catch(() => undefined)
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {

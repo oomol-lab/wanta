@@ -1,3 +1,5 @@
+import type { AgentManager } from "../agent/manager.ts"
+
 import assert from "node:assert/strict"
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -16,6 +18,41 @@ import {
 afterEach(() => {
   vi.unstubAllGlobals()
 })
+
+function createBridgeAgent(): {
+  agent: AgentManager
+  abort: ReturnType<typeof vi.fn>
+  emit: (event: { type: string; properties?: Record<string, unknown> }) => void
+} {
+  let listener: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
+  const abort = vi.fn(async () => undefined)
+  const agent = {
+    isReady: () => true,
+    subscribe: (callback: (event: { type: string; properties?: Record<string, unknown> }) => void) => {
+      listener = callback
+      return () => {
+        listener = undefined
+      }
+    },
+    abort,
+    createArtifactDir: vi.fn(async () => path.join(os.tmpdir(), "lumo-test-artifacts")),
+    promptStreaming: vi.fn(async () => undefined),
+    getMessages: vi.fn(async () => []),
+  } as unknown as AgentManager
+  return {
+    agent,
+    abort,
+    emit: (event) => listener?.(event),
+  }
+}
+
+function captureServiceEvents(service: ChatServiceImpl): Array<{ event: string; data: unknown }> {
+  const events: Array<{ event: string; data: unknown }> = []
+  ;(service as unknown as { send: (event: string, data: unknown) => Promise<void> }).send = async (event, data) => {
+    events.push({ event, data })
+  }
+  return events
+}
 
 test("buildVoiceAsrRequest matches Studio voice ASR request shape", () => {
   const init = buildVoiceAsrRequest("oomol-token", "wav-base64", "request-1")
@@ -52,6 +89,60 @@ test("isAbortErrorMessage recognizes controlled stop errors only", () => {
   assert.equal(isAbortErrorMessage("The operation was aborted."), true)
   assert.equal(isAbortErrorMessage("Task failed"), false)
   assert.equal(isAbortErrorMessage("Remote service cancelled the request"), false)
+})
+
+test("stopGeneration suppresses delayed streaming events until the next send", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  assert.deepEqual(
+    events.map((event) => event.event),
+    ["messageStarted"],
+  )
+
+  await service.stopGeneration("session-1")
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.equal(events.at(-1)?.event, "generationStopped")
+
+  const stoppedEventCount = events.length
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "text-1", sessionID: "session-1", messageID: "assistant-1", type: "text", text: "late" },
+    },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "tool-1",
+        sessionID: "session-1",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "search_actions",
+        state: { status: "running", input: {} },
+      },
+    },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: { part: { id: "step-1", sessionID: "session-1", messageID: "assistant-1", type: "step-start" } },
+  })
+  assert.equal(events.length, stoppedEventCount)
+
+  await service.sendMessage({ sessionId: "session-1", text: "next" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
+  })
+  assert.equal(events.at(-1)?.event, "messageStarted")
 })
 
 test("describeVoiceAsrFetchFailure includes network cause details", () => {

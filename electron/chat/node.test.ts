@@ -319,3 +319,29 @@ test("resolveLocalArtifacts ignores broad directories extracted from assistant t
 
   assert.deepEqual(result.groups, [])
 })
+
+test("getLocalArtifactPreview returns text for code artifacts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifact-preview-"))
+  const filePath = path.join(root, "script.py")
+  await writeFile(filePath, "print('hello')\n")
+
+  const service = new ChatServiceImpl(null)
+  const result = await service.getLocalArtifactPreview({ path: filePath })
+
+  assert.equal(result.kind, "text")
+  assert.equal(result.mime, "text/plain")
+  assert.equal(result.text, "print('hello')\n")
+  assert.equal(result.truncated, false)
+})
+
+test("getLocalArtifactPreview rejects binary-looking text files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifact-preview-"))
+  const filePath = path.join(root, "output.txt")
+  await writeFile(filePath, Buffer.from([0, 1, 2, 3]))
+
+  const service = new ChatServiceImpl(null)
+  const result = await service.getLocalArtifactPreview({ path: filePath })
+
+  assert.equal(result.kind, "unsupported")
+  assert.equal(result.mime, "text/plain")
+})

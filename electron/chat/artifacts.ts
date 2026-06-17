@@ -36,6 +36,44 @@ export function mimeFromPath(filePath: string): string {
     case "htm":
     case "html":
       return "text/html"
+    case "bash":
+    case "c":
+    case "cc":
+    case "cjs":
+    case "cpp":
+    case "cs":
+    case "css":
+    case "cxx":
+    case "dart":
+    case "fish":
+    case "go":
+    case "h":
+    case "hpp":
+    case "java":
+    case "js":
+    case "jsx":
+    case "kt":
+    case "kts":
+    case "less":
+    case "lua":
+    case "mjs":
+    case "php":
+    case "pl":
+    case "py":
+    case "r":
+    case "rb":
+    case "rs":
+    case "sass":
+    case "scala":
+    case "scss":
+    case "sh":
+    case "svelte":
+    case "swift":
+    case "ts":
+    case "tsx":
+    case "vue":
+    case "zsh":
+      return "text/plain"
     case "json":
       return "application/json"
     case "md":

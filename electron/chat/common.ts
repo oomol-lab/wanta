@@ -203,6 +203,21 @@ export interface AttachmentPreviewResult {
   dataUrl: string | null
 }
 
+export type LocalArtifactPreviewKind = "image" | "text" | "unsupported"
+
+export interface LocalArtifactPreviewRequest {
+  path: string
+}
+
+export interface LocalArtifactPreviewResult {
+  kind: LocalArtifactPreviewKind
+  mime: string
+  size?: number
+  dataUrl?: string
+  text?: string
+  truncated?: boolean
+}
+
 export type LocalArtifactKind = "file" | "directory"
 
 export interface LocalArtifactItem {
@@ -363,6 +378,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
+    getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
     openBillingPage(req: OpenBillingPageRequest): Promise<void>

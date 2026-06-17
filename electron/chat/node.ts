@@ -15,6 +15,8 @@ import type {
   CreditUsages,
   CreditBalanceResult,
   ChatContextMention,
+  LocalArtifactPreviewRequest,
+  LocalArtifactPreviewResult,
   LocalArtifactGroup,
   LocalArtifactItem,
   MessageErrorEvent,
@@ -35,7 +37,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
-import { readdir, readFile, stat } from "node:fs/promises"
+import { open, readdir, readFile, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
@@ -54,6 +56,7 @@ import { normalizeChatError } from "./error.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
+const artifactTextPreviewMaxBytes = 512 * 1024
 const userStopAbortWindowMs = 30_000
 const defaultMaxDirectoryItems = 80
 const billingPath = "/billing"
@@ -363,6 +366,44 @@ function attachmentPreviewMime(req: AttachmentPreviewRequest): string | null {
     return req.mime
   }
   return imageMimeFromPath(req.path)
+}
+
+function isTextArtifactMime(mime: string): boolean {
+  return (
+    mime.startsWith("text/") ||
+    mime === "application/json" ||
+    mime === "application/javascript" ||
+    mime === "application/x-javascript" ||
+    mime === "application/xml" ||
+    mime === "application/yaml" ||
+    mime === "application/x-yaml"
+  )
+}
+
+function isProbablyBinary(bytes: Buffer): boolean {
+  return bytes.includes(0)
+}
+
+async function readTextPreview(filePath: string, size: number): Promise<{ text: string; truncated: boolean } | null> {
+  const length = Math.min(size, artifactTextPreviewMaxBytes)
+  if (length <= 0) {
+    return { text: "", truncated: false }
+  }
+  const file = await open(filePath, "r")
+  try {
+    const bytes = Buffer.alloc(length)
+    const { bytesRead } = await file.read(bytes, 0, length, 0)
+    const chunk = bytes.subarray(0, bytesRead)
+    if (isProbablyBinary(chunk)) {
+      return null
+    }
+    return {
+      text: chunk.toString("utf8"),
+      truncated: size > bytesRead,
+    }
+  } finally {
+    await file.close()
+  }
 }
 
 export function createVoiceAsrRequestId(): string {
@@ -785,6 +826,53 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     } catch (error) {
       console.error("[lumo] getAttachmentPreview failed", { path: req.path, error: errorMessage(error) })
       return { dataUrl: null }
+    }
+  }
+
+  public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
+    const item = await localArtifactItem(req.path)
+    if (!item || item.kind !== "file") {
+      return { kind: "unsupported", mime: "application/octet-stream" }
+    }
+
+    const size = item.size ?? 0
+    if (item.mime.toLowerCase().startsWith("image/")) {
+      if (size > attachmentPreviewMaxBytes) {
+        return { kind: "unsupported", mime: item.mime, size }
+      }
+      try {
+        const bytes = await readFile(item.path)
+        return {
+          kind: "image",
+          mime: item.mime,
+          size,
+          dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
+        }
+      } catch (error) {
+        console.error("[lumo] getLocalArtifactPreview image failed", { path: req.path, error: errorMessage(error) })
+        return { kind: "unsupported", mime: item.mime, size }
+      }
+    }
+
+    if (!isTextArtifactMime(item.mime)) {
+      return { kind: "unsupported", mime: item.mime, size }
+    }
+
+    try {
+      const preview = await readTextPreview(item.path, size)
+      if (!preview) {
+        return { kind: "unsupported", mime: item.mime, size }
+      }
+      return {
+        kind: "text",
+        mime: item.mime,
+        size,
+        text: preview.text,
+        truncated: preview.truncated,
+      }
+    } catch (error) {
+      console.error("[lumo] getLocalArtifactPreview text failed", { path: req.path, error: errorMessage(error) })
+      return { kind: "unsupported", mime: item.mime, size }
     }
   }
 

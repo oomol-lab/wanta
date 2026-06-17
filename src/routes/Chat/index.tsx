@@ -602,9 +602,9 @@ function ToolActivityStep({
   const actionText = toolActionSummary(t, part)
   const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
   const row = (
-    <div className="flex min-w-0 flex-1 items-start gap-2">
+    <div className="flex min-h-7 min-w-0 flex-1 items-center gap-2">
       <span
-        className="flex h-4 shrink-0 items-center"
+        className="flex size-5 shrink-0 items-center justify-center"
         title={provider ? `${provider.displayName} · ${statusText}` : statusText}
       >
         <ToolStepIcon part={part} provider={provider} />
@@ -649,9 +649,9 @@ function ToolActivityStep({
     <Collapsible defaultOpen={(part.status === "error" && !stopped) || Boolean(auth)}>
       <div className="rounded-md py-0.5">
         {details ? (
-          <CollapsibleTrigger className="group/tool-step flex w-full items-start justify-between gap-2 text-left">
+          <CollapsibleTrigger className="group/tool-step flex w-full items-center justify-between gap-2 text-left">
             {row}
-            <ChevronRight className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] group-hover/tool-step:opacity-100 group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:rotate-90 group-data-[state=open]/tool-step:opacity-100" />
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] group-hover/tool-step:opacity-100 group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:rotate-90 group-data-[state=open]/tool-step:opacity-100" />
           </CollapsibleTrigger>
         ) : (
           row
@@ -799,6 +799,7 @@ function TurnProcessActivity({
   const titleText = processStatusText(t, status)
   const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
+  const showLiveStatus = renderBlocks.length === 0
 
   React.useEffect(() => {
     setOpen(shouldOpen)
@@ -845,7 +846,7 @@ function TurnProcessActivity({
               onViewBilling={onViewBilling}
             />
           ))}
-          <LiveStatusBar process={process} />
+          {showLiveStatus ? <LiveStatusBar process={process} /> : null}
         </div>
       </TaskContent>
     </Task>
@@ -908,8 +909,13 @@ function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnPr
   })()
 
   return (
-    <div className="flex min-h-7 items-center gap-2 rounded-md py-0.5 text-muted-foreground">
-      <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
+    <div className="rounded-md py-0.5 text-muted-foreground">
+      <div className="flex min-h-7 min-w-0 items-center gap-2">
+        <span className="flex size-5 shrink-0 items-center justify-center">
+          <Loader2 className="size-3.5 animate-spin" />
+        </span>
+        <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
+      </div>
     </div>
   )
 }

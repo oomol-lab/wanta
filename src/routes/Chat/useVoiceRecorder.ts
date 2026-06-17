@@ -5,6 +5,7 @@ import voiceRecorderWorkletUrl from "./voice-recorder-worklet.ts?worker&url"
 import { encodePcm16Wav } from "./voice-wav.ts"
 
 const barIntervalMs = 50
+const durationIntervalMs = 125
 const maxBars = 240
 
 export type VoiceRecorderStatus = "idle" | "requesting-permission" | "recording" | "stopping" | "error"
@@ -30,6 +31,7 @@ interface RecorderRuntime {
   chunks: Float32Array[]
   startedAt: number
   lastBarAt: number
+  lastStateAt: number
   smoothedLevel: number
   animationFrame: number
 }
@@ -93,6 +95,7 @@ export function useVoiceRecorder(): VoiceRecorderControls {
         chunks,
         startedAt: now,
         lastBarAt: now,
+        lastStateAt: now,
         smoothedLevel: 0,
         animationFrame: 0,
       }
@@ -120,19 +123,25 @@ export function useVoiceRecorder(): VoiceRecorderControls {
         const level = getNormalizedRms(samples)
         currentRuntime.smoothedLevel = currentRuntime.smoothedLevel * 0.72 + level * 0.28
 
-        setState((previous) => {
+        const shouldAppendBar = currentTime - currentRuntime.lastBarAt >= barIntervalMs
+        const shouldUpdateDuration = currentTime - currentRuntime.lastStateAt >= durationIntervalMs
+        if (shouldAppendBar || shouldUpdateDuration) {
           const elapsedMs = currentTime - currentRuntime.startedAt
-          if (currentTime - currentRuntime.lastBarAt < barIntervalMs) {
-            return { ...previous, durationMs: elapsedMs }
-          }
-          currentRuntime.lastBarAt = currentTime
-          return {
-            status: "recording",
-            bars: [...previous.bars, currentRuntime.smoothedLevel].slice(-maxBars),
-            durationMs: elapsedMs,
-            error: undefined,
-          }
-        })
+          currentRuntime.lastStateAt = currentTime
+          setState((previous) => {
+            if (!shouldAppendBar) {
+              return { ...previous, durationMs: elapsedMs }
+            }
+
+            currentRuntime.lastBarAt = currentTime
+            return {
+              status: "recording",
+              bars: [...previous.bars, currentRuntime.smoothedLevel].slice(-maxBars),
+              durationMs: elapsedMs,
+              error: undefined,
+            }
+          })
+        }
 
         currentRuntime.animationFrame = requestAnimationFrame(update)
       }

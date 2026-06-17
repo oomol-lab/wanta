@@ -38,7 +38,7 @@ import {
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  consumeLatestQueuedMessage,
+  consumeNextQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -1110,9 +1110,9 @@ export function AppShell() {
       attachments: ChatAttachment[] = [],
       contextMentions: ChatContextMention[] = [],
       model?: ModelChoice,
-    ) => {
+    ): Promise<boolean> => {
       if (sendInFlightRef.current) {
-        return
+        return false
       }
       sendInFlightRef.current = true
       try {
@@ -1157,14 +1157,8 @@ export function AppShell() {
         }
         lastModelBySession.current.set(sessionId, model)
         lastContextMentionsBySession.current.set(sessionId, contextMentions)
-        try {
-          await send(sessionId, text, attachments, { contextMentions, model })
-        } catch (error) {
-          if (bridgeEmptySend) {
-            setPendingChatTransition(null)
-          }
-          throw error
-        }
+        await send(sessionId, text, attachments, { contextMentions, model })
+        return true
       } finally {
         sendInFlightRef.current = false
       }
@@ -1178,13 +1172,13 @@ export function AppShell() {
       attachments: ChatAttachment[] = [],
       contextMentions: ChatContextMention[] = [],
       model?: ModelChoice,
-    ): Promise<void> => {
-      if (activeSessionId && isSessionRunning(activeSessionId)) {
+    ): Promise<boolean> => {
+      if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
         const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, contextMentions, model)
         setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
-        return
+        return true
       }
-      await sendNow(text, attachments, contextMentions, model)
+      return sendNow(text, attachments, contextMentions, model)
     },
     [activeSessionId, isSessionRunning, sendNow],
   )
@@ -1200,12 +1194,12 @@ export function AppShell() {
     if (queue.length === 0) {
       return
     }
-    const { message } = consumeLatestQueuedMessage(queuedMessagesBySession, activeSessionId)
+    const { message } = consumeNextQueuedMessage(queuedMessagesBySession, activeSessionId)
     if (!message) {
       return
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
-    setQueuedMessagesBySession((current) => consumeLatestQueuedMessage(current, activeSessionId).queues)
+    setQueuedMessagesBySession((current) => consumeNextQueuedMessage(current, activeSessionId).queues)
     void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model).finally(() => {
       dispatchingQueuedSessionsRef.current.delete(activeSessionId)
     })
@@ -1543,7 +1537,7 @@ export function AppShell() {
                   queuedMessages={activeQueuedMessages}
                   placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
                   onSend={(text, attachments, contextMentions, model) =>
-                    void handleSend(text, attachments, contextMentions, model)
+                    handleSend(text, attachments, contextMentions, model)
                   }
                   onStop={() => activeSessionId && void stop(activeSessionId)}
                   onQueuedMessageRemove={(messageId) =>

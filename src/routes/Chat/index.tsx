@@ -8,7 +8,7 @@ import type {
   ToolStatus,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
+import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn } from "./chat-turns.ts"
@@ -43,12 +43,10 @@ import {
   Globe,
   ListChecks,
   Loader2,
-  Mic,
   Package,
   Plug,
   Plus,
   PlayCircle,
-  RotateCcw,
   Search,
   SlidersHorizontal,
   Square,
@@ -64,11 +62,13 @@ import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { groupChatTurns, summarizeTurnProcess } from "./chat-turns.ts"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
+import { initialPaletteMode, resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
 import { composerReducer, contextMentionKey, initialComposerState } from "./composer-state.ts"
 import { detectComposerTrigger } from "./composer-triggers.ts"
 import { ComposerPalette } from "./ComposerPalette.tsx"
+import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
 import { assistantResponseActionTextByMessageId, copyableMessageText, visibleUserText } from "./message-text.ts"
-import { AddCustomModelDialog, ModelPicker } from "./ModelControls.tsx"
+import { AddCustomModelDialog } from "./ModelControls.tsx"
 import { renderBlocks } from "./render-blocks.ts"
 import {
   compactPathDetail,
@@ -78,7 +78,7 @@ import {
 } from "./tool-activity.ts"
 import { hasStoppedTool, isToolCancellation } from "./tool-state.ts"
 import { useModelCatalog } from "./useModelCatalog.ts"
-import { useVoiceRecorder } from "./useVoiceRecorder.ts"
+import { useVoiceComposerInput } from "./useVoiceComposerInput.ts"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import {
   Message,
@@ -91,7 +91,6 @@ import {
   PromptInput,
   PromptInputAttachments,
   PromptInputBody,
-  PromptInputSubmit,
   PromptInputTextarea,
   PromptInputToolbar,
   PromptInputTools,
@@ -288,23 +287,6 @@ function filesFromDataTransfer(dataTransfer: DataTransfer): File[] {
     .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile())
     .filter((file): file is File => Boolean(file))
-}
-
-function voiceDurationLabel(durationMs: number): string {
-  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  const chunkSize = 0x8000
-  let binary = ""
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
-  }
-  return btoa(binary)
 }
 
 function hasKeys(value: Record<string, unknown> | undefined): boolean {
@@ -1901,272 +1883,6 @@ const ChatTimeline = React.memo(function ChatTimeline({
   )
 })
 
-function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; height?: number }) {
-  const canvasRef = React.useRef<HTMLCanvasElement | null>(null)
-  const [sizeRevision, setSizeRevision] = React.useState(0)
-
-  React.useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || typeof ResizeObserver === "undefined") {
-      return
-    }
-    const observer = new ResizeObserver(() => {
-      setSizeRevision((revision) => revision + 1)
-    })
-    observer.observe(canvas)
-    return () => observer.disconnect()
-  }, [])
-
-  React.useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) {
-      return
-    }
-
-    const rect = canvas.getBoundingClientRect()
-    const dpr = window.devicePixelRatio || 1
-    const width = Math.max(1, Math.floor(rect.width * dpr))
-    const canvasHeight = Math.max(1, Math.floor(height * dpr))
-    if (canvas.width !== width) {
-      canvas.width = width
-    }
-    if (canvas.height !== canvasHeight) {
-      canvas.height = canvasHeight
-    }
-
-    const context = canvas.getContext("2d")
-    if (!context) {
-      return
-    }
-
-    context.clearRect(0, 0, width, canvasHeight)
-    context.fillStyle = getComputedStyle(canvas).color || "#18181b"
-
-    const barWidth = 3 * dpr
-    const gap = 3 * dpr
-    const step = barWidth + gap
-    const centerY = canvasHeight / 2
-    const drawableHeight = canvasHeight - 8 * dpr
-    const visibleCount = Math.max(1, Math.ceil(width / step))
-    const recentBars = bars.slice(-visibleCount)
-    const visibleBars =
-      recentBars.length >= visibleCount
-        ? recentBars
-        : [...Array<number>(visibleCount - recentBars.length).fill(0), ...recentBars]
-
-    visibleBars.forEach((bar, index) => {
-      const normalized = Math.max(0, Math.min(1, bar))
-      const barHeight = Math.max(3 * dpr, normalized * drawableHeight)
-      const x = index * step
-      const y = centerY - barHeight / 2
-      context.globalAlpha = 0.35 + normalized * 0.65
-      context.beginPath()
-      context.roundRect(x, y, barWidth, barHeight, barWidth / 2)
-      context.fill()
-    })
-    context.globalAlpha = 1
-  }, [bars, height, sizeRevision])
-
-  return (
-    <canvas
-      ref={canvasRef}
-      height={height}
-      className="h-8 w-full text-foreground/85"
-      aria-hidden
-      data-testid="voice-wave-canvas"
-    />
-  )
-}
-
-function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; durationMs: number }) {
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-3">
-      <div className="flex h-8 min-w-0 flex-1 items-center justify-center overflow-hidden">
-        <VoiceWaveCanvas bars={bars} height={32} />
-      </div>
-      <span className="min-w-9 shrink-0 text-right text-sm leading-none font-normal text-muted-foreground tabular-nums">
-        {voiceDurationLabel(durationMs)}
-      </span>
-    </div>
-  )
-}
-
-function ComposerTrailingControls({
-  canSubmit,
-  composerDisabled,
-  initialSendPending,
-  isGenerating,
-  isSubmitted,
-  modelCatalog,
-  status,
-  voiceActive,
-  voiceBars,
-  voiceDurationMs,
-  voiceError,
-  voiceProblem,
-  voiceRecorderError,
-  voiceRetryBlob,
-  voiceTranscribing,
-  onAddModel,
-  onCancelVoice,
-  onDeleteModel,
-  onRetryVoice,
-  onSelectModel,
-  onStartVoice,
-  onStop,
-  onStopVoice,
-}: {
-  canSubmit: boolean
-  composerDisabled: boolean
-  initialSendPending: boolean
-  isGenerating: boolean
-  isSubmitted: boolean
-  modelCatalog: ModelCatalog | null
-  status: ChatStatus
-  voiceActive: boolean
-  voiceBars: readonly number[]
-  voiceDurationMs: number
-  voiceError: string | null
-  voiceProblem: boolean
-  voiceRecorderError?: string
-  voiceRetryBlob: Blob | null
-  voiceTranscribing: boolean
-  onAddModel: () => void
-  onCancelVoice: () => void
-  onDeleteModel: (id: string) => void
-  onRetryVoice: () => void
-  onSelectModel: (choice: ModelChoice) => void
-  onStartVoice: () => void
-  onStop: () => void
-  onStopVoice: () => void
-}) {
-  const t = useT()
-  const visibleVoiceError = voiceError ?? voiceRecorderError
-
-  return (
-    <>
-      {voiceActive ? <VoiceRecorderPanel bars={voiceBars} durationMs={voiceDurationMs} /> : null}
-      <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
-        {voiceActive ? (
-          <>
-            {visibleVoiceError ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                title={visibleVoiceError}
-                aria-label={t("chat.voiceRetry")}
-                className="size-8 rounded-full"
-                disabled={!voiceRetryBlob || voiceTranscribing}
-                onClick={onRetryVoice}
-              >
-                <RotateCcw className="size-4" />
-              </Button>
-            ) : voiceTranscribing ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("chat.voiceCancel")}
-                className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
-                onClick={onCancelVoice}
-              >
-                <Loader2 className="size-[18px] animate-spin" />
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("chat.voiceStop")}
-                className="size-8 rounded-full bg-foreground/8 text-muted-foreground hover:bg-foreground/12 hover:text-foreground"
-                onClick={onStopVoice}
-              >
-                <Square className="size-3.5" fill="currentColor" />
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={t("chat.voiceCancel")}
-              className="size-8 rounded-full bg-foreground text-background hover:bg-foreground/85 hover:text-background"
-              onClick={onCancelVoice}
-            >
-              <X className="size-4" />
-            </Button>
-          </>
-        ) : (
-          <>
-            {voiceProblem ? (
-              <>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  title={visibleVoiceError}
-                  aria-label={t("chat.voiceRetry")}
-                  className="size-8 rounded-full"
-                  disabled={!voiceRetryBlob || voiceTranscribing}
-                  onClick={onRetryVoice}
-                >
-                  <RotateCcw className="size-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("chat.voiceCancel")}
-                  className="size-8 rounded-full"
-                  onClick={onCancelVoice}
-                >
-                  <X className="size-4" />
-                </Button>
-              </>
-            ) : null}
-            <ModelPicker
-              catalog={modelCatalog}
-              disabled={composerDisabled}
-              onSelect={onSelectModel}
-              onDelete={onDeleteModel}
-              onAdd={onAddModel}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              title={t("chat.voiceInput")}
-              aria-label={t("chat.voiceInput")}
-              disabled={composerDisabled}
-              className="size-8 rounded-full"
-              onClick={onStartVoice}
-            >
-              <Mic className="size-4" />
-            </Button>
-            <PromptInputSubmit
-              size="icon-xs"
-              className="!size-7"
-              status={isGenerating ? status : undefined}
-              disabled={isSubmitted ? true : status === "streaming" ? false : !canSubmit}
-              aria-label={
-                initialSendPending ? t("aria.sending") : status === "streaming" ? t("aria.stop") : t("aria.send")
-              }
-              onClick={
-                status === "streaming"
-                  ? (event) => {
-                      event.preventDefault()
-                      onStop()
-                    }
-                  : undefined
-              }
-            />
-          </>
-        )}
-      </div>
-    </>
-  )
-}
-
 type SlashCommandAction = "billing" | "connections" | "insert" | "skills"
 
 interface SlashCommandPaletteItem extends ComposerPaletteItem {
@@ -2341,27 +2057,23 @@ export function ChatArea({
   onViewBilling,
 }: ChatAreaProps) {
   const t = useT()
-  const chatService = useChatService()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
   const [composer, dispatchComposer] = React.useReducer(composerReducer, undefined, initialComposerState)
   const [inputError, setInputError] = React.useState<string | null>(null)
-  const [voiceTranscribing, setVoiceTranscribing] = React.useState(false)
-  const [voiceError, setVoiceError] = React.useState<string | null>(null)
-  const [voiceRetryBlob, setVoiceRetryBlob] = React.useState<Blob | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const attachmentsRef = React.useRef<DraftAttachment[]>([])
-  const voiceRecorder = useVoiceRecorder()
+  const appendVoiceTranscription = React.useCallback((text: string) => {
+    dispatchComposer({ type: "append-transcription", text })
+  }, [])
+  const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
   const { activePaletteIndex, attachments, contextMentions, dismissedTriggerKey, draft, draftSelection, paletteMode } =
     composer
   const hasMessages = messages.length > 0
   const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
-  const voiceBusy = voiceRecorder.isRecording || voiceTranscribing
-  const voiceProblem = Boolean(voiceError || voiceRecorder.error)
-  const voiceActive = voiceBusy
-  const composerDisabled = disabled || voiceBusy || initialSendPending
+  const composerDisabled = disabled || voiceInput.busy || initialSendPending
   const modelCatalog = modelCatalogState.catalog
   const modelError = modelCatalogState.error
   const trigger = React.useMemo(
@@ -2425,7 +2137,7 @@ export function ChatArea({
       dispatchComposer({ type: "set-palette-mode", mode: "root" })
       return
     }
-    dispatchComposer({ type: "set-palette-mode", mode: activeTrigger.kind === "skill" ? "skills" : "root" })
+    dispatchComposer({ type: "set-palette-mode", mode: initialPaletteMode(activeTrigger.kind) })
   }, [activeTrigger?.kind, activeTrigger?.start])
 
   const updateDraftSelection = React.useCallback(() => {
@@ -2553,48 +2265,30 @@ export function ChatArea({
       if (!paletteOpen) {
         return
       }
-      if (event.key === "ArrowDown") {
-        event.preventDefault()
-        dispatchComposer({
-          type: "set-active-palette-index",
-          index: paletteItems.length === 0 ? 0 : (activePaletteIndex + 1) % paletteItems.length,
-        })
+      const action = resolveComposerPaletteKeyAction({
+        activeIndex: activePaletteIndex,
+        activeRootAction:
+          activeTrigger?.kind === "slash" && paletteMode === "root" && activePaletteItem
+            ? (activePaletteItem as SlashCommandPaletteItem).action
+            : undefined,
+        itemCount: paletteItems.length,
+        key: event.key,
+        paletteMode,
+        triggerKind: activeTrigger?.kind,
+      })
+      if (action.type === "none") {
         return
       }
-      if (event.key === "ArrowUp") {
-        event.preventDefault()
-        dispatchComposer({
-          type: "set-active-palette-index",
-          index: paletteItems.length === 0 ? 0 : (activePaletteIndex - 1 + paletteItems.length) % paletteItems.length,
-        })
-        return
-      }
-      if (event.key === "ArrowLeft") {
-        if (activeTrigger?.kind === "slash" && paletteMode !== "root") {
-          event.preventDefault()
-          returnToRootPalette()
-        }
-        return
-      }
-      if (event.key === "ArrowRight") {
-        if (activeTrigger?.kind === "slash" && paletteMode === "root" && activePaletteItem) {
-          const item = activePaletteItem as SlashCommandPaletteItem
-          if (item.action === "skills" || item.action === "connections") {
-            event.preventDefault()
-            applySlashCommand(item, activeTrigger)
-          }
-        }
-        return
-      }
-      if (event.key === "Enter" || event.key === "Tab") {
-        if (activePaletteItem) {
-          event.preventDefault()
-          applyPaletteItem(activePaletteItem)
-        }
-        return
-      }
-      if (event.key === "Escape") {
-        event.preventDefault()
+      event.preventDefault()
+      if (action.type === "move") {
+        dispatchComposer({ type: "set-active-palette-index", index: action.index })
+      } else if (action.type === "back") {
+        returnToRootPalette()
+      } else if (action.type === "open-root-item" && activeTrigger && activePaletteItem) {
+        applySlashCommand(activePaletteItem as SlashCommandPaletteItem, activeTrigger)
+      } else if (action.type === "select") {
+        applyPaletteItem(activePaletteItem)
+      } else if (action.type === "dismiss") {
         dispatchComposer({ type: "set-dismissed-trigger-key", key: triggerKey })
       }
     },
@@ -2612,11 +2306,11 @@ export function ChatArea({
     ],
   )
 
-  // 表单提交（含回车）始终走"发送"路径；"停止"只通过按钮的显式点击触发（见 PromptInputSubmit
-  // 的 onClick），避免生成中按回车误中止流。
+  // 表单提交（含回车）始终走"发送"路径；"停止"只通过 ComposerTrailingControls
+  // 的按钮点击触发，避免生成中按回车误中止流。
   const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
     const text = message.text
-    if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceBusy) {
+    if ((!text && attachments.length === 0) || disabled || initialSendPending || voiceInput.busy) {
       return
     }
     const accepted = await onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
@@ -2724,41 +2418,7 @@ export function ChatArea({
     [addAttachments, t],
   )
 
-  const transcribeBlob = React.useCallback(
-    async (blob: Blob) => {
-      setVoiceTranscribing(true)
-      setVoiceError(null)
-      setVoiceRetryBlob(blob)
-      try {
-        const audioBase64 = arrayBufferToBase64(await blob.arrayBuffer())
-        const result = await chatService.invoke("transcribeVoice", { audioBase64 })
-        dispatchComposer({ type: "append-transcription", text: result.text })
-        setVoiceRetryBlob(null)
-        voiceRecorder.cancel()
-      } catch (error) {
-        setVoiceError(error instanceof Error ? error.message : String(error))
-      } finally {
-        setVoiceTranscribing(false)
-      }
-    },
-    [chatService, voiceRecorder],
-  )
-
-  const handleStopVoice = React.useCallback(async () => {
-    const recorded = await voiceRecorder.stop()
-    if (recorded) {
-      await transcribeBlob(recorded.blob)
-    }
-  }, [transcribeBlob, voiceRecorder])
-
-  const handleCancelVoice = React.useCallback(() => {
-    setVoiceTranscribing(false)
-    setVoiceError(null)
-    setVoiceRetryBlob(null)
-    voiceRecorder.cancel()
-  }, [voiceRecorder])
-
-  const visibleError = error ?? inputError ?? modelError ?? voiceError ?? voiceRecorder.error
+  const visibleError = error ?? inputError ?? modelError ?? voiceInput.error ?? voiceInput.recorderError
   const errorBanner = visibleError ? (
     <div className="oo-error flex items-center gap-2">
       <AlertTriangle className="size-4" />
@@ -2891,25 +2551,21 @@ export function ChatArea({
           isSubmitted={isSubmitted}
           modelCatalog={modelCatalog}
           status={status}
-          voiceActive={voiceActive}
-          voiceBars={voiceRecorder.bars}
-          voiceDurationMs={voiceRecorder.durationMs}
-          voiceError={voiceError}
-          voiceProblem={voiceProblem}
-          voiceRecorderError={voiceRecorder.error}
-          voiceRetryBlob={voiceRetryBlob}
-          voiceTranscribing={voiceTranscribing}
+          voiceActive={voiceInput.active}
+          voiceBars={voiceInput.bars}
+          voiceDurationMs={voiceInput.durationMs}
+          voiceError={voiceInput.error}
+          voiceRecorderError={voiceInput.recorderError}
+          voiceRetryBlob={voiceInput.retryBlob}
+          voiceTranscribing={voiceInput.transcribing}
           onAddModel={modelCatalogState.openDialog}
-          onCancelVoice={handleCancelVoice}
+          onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
-          onRetryVoice={() => voiceRetryBlob && void transcribeBlob(voiceRetryBlob)}
+          onRetryVoice={voiceInput.retry}
           onSelectModel={modelCatalogState.selectModel}
-          onStartVoice={() => {
-            setVoiceError(null)
-            void voiceRecorder.start()
-          }}
+          onStartVoice={voiceInput.start}
           onStop={onStop}
-          onStopVoice={() => void handleStopVoice()}
+          onStopVoice={() => void voiceInput.stop()}
         />
       </PromptInputToolbar>
     </PromptInput>

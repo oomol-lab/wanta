@@ -149,6 +149,36 @@ const createRawTokens = (code: string): TokenizedCode => ({
   ),
 })
 
+function themedCssValue(property: "backgroundColor" | "color", value: string | undefined): CSSProperties {
+  if (!value) {
+    return {}
+  }
+  const [baseValue, ...declarations] = value.split(";")
+  const style: Record<string, string> = {}
+  if (baseValue) {
+    style[property] = baseValue
+  }
+  for (const declaration of declarations) {
+    const separator = declaration.indexOf(":")
+    if (separator <= 0) {
+      continue
+    }
+    const name = declaration.slice(0, separator).trim()
+    const declarationValue = declaration.slice(separator + 1).trim()
+    if (name && declarationValue) {
+      style[name] = declarationValue
+    }
+  }
+  return style as CSSProperties
+}
+
+export function tokenizedCodeStyle(tokenized: Pick<TokenizedCode, "bg" | "fg">): CSSProperties {
+  return {
+    ...themedCssValue("backgroundColor", tokenized.bg),
+    ...themedCssValue("color", tokenized.fg),
+  }
+}
+
 export function highlightCode(
   code: string,
   language: string | undefined,
@@ -213,13 +243,7 @@ const CodeBlockBody = memo(
     showLineNumbers: boolean
     className?: string
   }) => {
-    const preStyle = useMemo(
-      () => ({
-        backgroundColor: tokenized.bg,
-        color: tokenized.fg,
-      }),
-      [tokenized.bg, tokenized.fg],
-    )
+    const preStyle = useMemo(() => tokenizedCodeStyle(tokenized), [tokenized])
     const keyedLines = useMemo(() => addKeysToTokens(tokenized.tokens), [tokenized.tokens])
 
     return (
@@ -315,11 +339,14 @@ export const CodeBlockContent = ({
     setAsyncTokens(null)
     let cancelled = false
 
-    highlightCode(code, normalizedLanguage, (result) => {
+    const highlighted = highlightCode(code, normalizedLanguage, (result) => {
       if (!cancelled) {
         setAsyncTokens(result)
       }
     })
+    if (highlighted) {
+      setAsyncTokens(highlighted)
+    }
 
     return () => {
       cancelled = true

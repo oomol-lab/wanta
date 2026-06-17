@@ -14,6 +14,7 @@ import type {
   ChatService,
   CreditUsages,
   CreditBalanceResult,
+  ChatContextMention,
   LocalArtifactGroup,
   LocalArtifactItem,
   MessageErrorEvent,
@@ -84,6 +85,52 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
     errorKind: normalized.kind,
     ...(normalized.code ? { errorCode: normalized.code } : {}),
   }
+}
+
+function quoted(value: string): string {
+  return JSON.stringify(value)
+}
+
+export function buildContextMentionsSystem(mentions: ChatContextMention[] | undefined): string | undefined {
+  if (!mentions || mentions.length === 0) {
+    return undefined
+  }
+  const skills = mentions.filter(
+    (mention): mention is Extract<ChatContextMention, { kind: "skill" }> => mention.kind === "skill",
+  )
+  const connections = mentions.filter(
+    (mention): mention is Extract<ChatContextMention, { kind: "connection" }> => mention.kind === "connection",
+  )
+  const lines = [
+    "User-selected context for this turn:",
+    "- Treat these selections as explicit intent hints from the user, not as mandatory tool calls.",
+    "- Use them only when they are relevant to the user's actual request.",
+  ]
+  if (skills.length > 0) {
+    lines.push("Selected skills:")
+    for (const skill of skills) {
+      const detail = skill.description ? `; description: ${quoted(skill.description)}` : ""
+      lines.push(`- ${quoted(skill.name)}; id: ${quoted(skill.id)}${detail}`)
+    }
+    lines.push(
+      "If a selected skill is relevant, follow its instructions for this turn and mention that you used it only when useful to the user.",
+    )
+  }
+  if (connections.length > 0) {
+    lines.push("Selected connections:")
+    for (const connection of connections) {
+      const details = [
+        `service: ${quoted(connection.service)}`,
+        connection.appId ? `appId: ${quoted(connection.appId)}` : "",
+        connection.accountLabel ? `account: ${quoted(connection.accountLabel)}` : "",
+      ].filter(Boolean)
+      lines.push(`- ${quoted(connection.displayName)}; ${details.join("; ")}`)
+    }
+    lines.push(
+      "If the task needs account data or SaaS actions, prefer the selected connection. Still inspect the action schema before calling connector tools.",
+    )
+  }
+  return lines.join("\n")
 }
 
 function formatCredits(value: unknown): string | null {
@@ -469,6 +516,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.stoppedGenerationsLoadPromise = null
   }
 
+  public hasActiveGeneration(): boolean {
+    return this.activeAssistantMessages.size > 0 || this.pendingArtifactDirs.size > 0
+  }
+
   /** 登录 / 登出时由 main 更新 Studio ASR 需要的 oomol-token。只在主进程内使用，renderer 不可见。 */
   public setVoiceAuthToken(token: string | undefined): void {
     if (this.voiceAuthToken !== token) {
@@ -655,7 +706,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
     void this.agent
-      .promptStreaming(req.sessionId, req.text, { attachments: req.attachments, model: req.model, artifactDir })
+      .promptStreaming(req.sessionId, req.text, {
+        attachments: req.attachments,
+        artifactDir,
+        model: req.model,
+        system: buildContextMentionsSystem(req.contextMentions),
+      })
       .catch((error: unknown) => {
         this.removePendingArtifactDir(req.sessionId, artifactDir)
         const messageId = this.activeAssistantMessages.get(req.sessionId)

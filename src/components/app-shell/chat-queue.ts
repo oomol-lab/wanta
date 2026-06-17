@@ -1,4 +1,4 @@
-import type { ChatAttachment } from "../../../electron/chat/common.ts"
+import type { ChatAttachment, ChatContextMention } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
 
@@ -7,6 +7,7 @@ export interface QueuedChatMessage {
   sessionId: string
   text: string
   attachments: ChatAttachment[]
+  contextMentions?: ChatContextMention[]
   model?: ModelChoice
   createdAt: number
 }

@@ -1,6 +1,7 @@
 import type {
   AssistantActivityEvent,
   ChatAttachment,
+  ChatContextMention,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
@@ -365,7 +366,7 @@ export interface UseChat {
     sessionId: string,
     text: string,
     attachments?: ChatAttachment[],
-    options?: { model?: ModelChoice },
+    options?: { contextMentions?: ChatContextMention[]; model?: ModelChoice },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
 }
@@ -613,7 +614,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       sessionId: string,
       text: string,
       attachments: ChatAttachment[] = [],
-      options: { model?: ModelChoice } = {},
+      options: { contextMentions?: ChatContextMention[]; model?: ModelChoice } = {},
     ) => {
       setError(null)
       userStoppedSessions.current.delete(sessionId)
@@ -626,6 +627,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           sessionId,
           text,
           attachments: agentAttachments(attachments),
+          contextMentions: options.contextMentions,
           model: options.model,
         })
       } catch (err) {

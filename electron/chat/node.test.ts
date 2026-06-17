@@ -8,6 +8,7 @@ import { afterEach, test, vi } from "vitest"
 import {
   buildVoiceAsrRequest,
   billingLogRanges,
+  buildContextMentionsSystem,
   ChatServiceImpl,
   describeVoiceAsrFetchFailure,
   isAbortErrorMessage,
@@ -23,9 +24,11 @@ function createBridgeAgent(): {
   agent: AgentManager
   abort: ReturnType<typeof vi.fn>
   emit: (event: { type: string; properties?: Record<string, unknown> }) => void
+  promptStreaming: ReturnType<typeof vi.fn>
 } {
   let listener: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
   const abort = vi.fn(async () => undefined)
+  const promptStreaming = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
     subscribe: (callback: (event: { type: string; properties?: Record<string, unknown> }) => void) => {
@@ -36,13 +39,14 @@ function createBridgeAgent(): {
     },
     abort,
     createArtifactDir: vi.fn(async () => path.join(os.tmpdir(), "lumo-test-artifacts")),
-    promptStreaming: vi.fn(async () => undefined),
+    promptStreaming,
     getMessages: vi.fn(async () => []),
   } as unknown as AgentManager
   return {
     agent,
     abort,
     emit: (event) => listener?.(event),
+    promptStreaming,
   }
 }
 
@@ -143,6 +147,61 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
   })
   assert.equal(events.at(-1)?.event, "messageStarted")
+})
+
+test("hasActiveGeneration tracks pending and completed assistant turns", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  captureServiceEvents(service)
+  service.startEventBridge()
+
+  assert.equal(service.hasActiveGeneration(), false)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  bridge.emit({
+    type: "session.idle",
+    properties: { sessionID: "session-1" },
+  })
+  assert.equal(service.hasActiveGeneration(), false)
+})
+
+test("sendMessage passes selected context mentions as per-turn system prompt", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+
+  await service.sendMessage({
+    contextMentions: [
+      { description: "Generate market-ready assets", id: "ecommerce-image-studio", kind: "skill", name: "Ecommerce" },
+      {
+        accountLabel: "work",
+        appId: "app-1",
+        displayName: "Gmail",
+        kind: "connection",
+        service: "gmail",
+      },
+    ],
+    sessionId: "session-1",
+    text: "summarize new leads",
+  })
+
+  assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+  const options = bridge.promptStreaming.mock.calls[0]?.[2] as { system?: string } | undefined
+  assert.match(options?.system ?? "", /User-selected context for this turn/)
+  assert.match(options?.system ?? "", /ecommerce-image-studio/)
+  assert.match(options?.system ?? "", /gmail/)
+})
+
+test("buildContextMentionsSystem returns undefined without selected context", () => {
+  assert.equal(buildContextMentionsSystem(undefined), undefined)
+  assert.equal(buildContextMentionsSystem([]), undefined)
 })
 
 test("describeVoiceAsrFetchFailure includes network cause details", () => {

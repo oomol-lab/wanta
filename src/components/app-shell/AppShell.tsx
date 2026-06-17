@@ -1,4 +1,9 @@
-import type { AuthorizationInfo, ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
+import type {
+  AuthorizationInfo,
+  ChatAttachment,
+  ChatContextMention,
+  ChatMessage,
+} from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
@@ -158,6 +163,7 @@ function createQueuedChatMessage(
   sessionId: string,
   text: string,
   attachments: ChatAttachment[],
+  contextMentions: ChatContextMention[] | undefined,
   model?: ModelChoice,
 ): QueuedChatMessage {
   return {
@@ -165,6 +171,7 @@ function createQueuedChatMessage(
     sessionId,
     text,
     attachments,
+    ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
     model,
     createdAt: Date.now(),
   }
@@ -1093,7 +1100,12 @@ export function AppShell() {
   }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
 
   const sendNow = React.useCallback(
-    async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice) => {
+    async (
+      text: string,
+      attachments: ChatAttachment[] = [],
+      contextMentions: ChatContextMention[] = [],
+      model?: ModelChoice,
+    ) => {
       if (sendInFlightRef.current) {
         return
       }
@@ -1140,7 +1152,7 @@ export function AppShell() {
         }
         lastModelBySession.current.set(sessionId, model)
         try {
-          await send(sessionId, text, attachments, { model })
+          await send(sessionId, text, attachments, { contextMentions, model })
         } catch (error) {
           if (bridgeEmptySend) {
             setPendingChatTransition(null)
@@ -1155,13 +1167,18 @@ export function AppShell() {
   )
 
   const handleSend = React.useCallback(
-    async (text: string, attachments: ChatAttachment[] = [], model?: ModelChoice): Promise<void> => {
+    async (
+      text: string,
+      attachments: ChatAttachment[] = [],
+      contextMentions: ChatContextMention[] = [],
+      model?: ModelChoice,
+    ): Promise<void> => {
       if (activeSessionId && isSessionRunning(activeSessionId)) {
-        const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, model)
+        const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, contextMentions, model)
         setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
         return
       }
-      await sendNow(text, attachments, model)
+      await sendNow(text, attachments, contextMentions, model)
     },
     [activeSessionId, isSessionRunning, sendNow],
   )
@@ -1183,7 +1200,7 @@ export function AppShell() {
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
     setQueuedMessagesBySession((current) => consumeLatestQueuedMessage(current, activeSessionId).queues)
-    void sendNow(message.text, message.attachments, message.model).finally(() => {
+    void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model).finally(() => {
       dispatchingQueuedSessionsRef.current.delete(activeSessionId)
     })
   }, [activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
@@ -1507,7 +1524,9 @@ export function AppShell() {
                   providers={connections.summary?.providers ?? []}
                   queuedMessages={activeQueuedMessages}
                   placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                  onSend={(text, attachments, model) => void handleSend(text, attachments, model)}
+                  onSend={(text, attachments, contextMentions, model) =>
+                    void handleSend(text, attachments, contextMentions, model)
+                  }
                   onStop={() => activeSessionId && void stop(activeSessionId)}
                   onQueuedMessageRemove={(messageId) =>
                     activeSessionId &&

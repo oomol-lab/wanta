@@ -108,6 +108,10 @@ interface SkillVersionAuthSnapshot {
   cacheKey: string
 }
 
+interface SkillServiceOptions {
+  onRuntimeSkillsChanged?: (reason: string) => void
+}
+
 type RunSkillOoCommand = (
   args: string[],
   options: Omit<Parameters<typeof runOoCommand>[1], "env">,
@@ -130,14 +134,16 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private versionReportCacheGeneration = 0
   private inventoryInFlight: { promise: Promise<SkillInventory>; writeManifest: boolean } | undefined
   private inventoryChangeTimer: NodeJS.Timeout | undefined
+  private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
   private isDisposed = false
   public readonly cliChanged = new ServiceEvent<SkillCliChangedEvent>()
   public readonly inventoryChanged = new ServiceEvent<SkillInventoryChangedEvent>()
 
-  public constructor(authService: AuthManager) {
+  public constructor(authService: AuthManager, options: SkillServiceOptions = {}) {
     super(SkillServiceName)
     this.authService = authService
+    this.options = options
     this.unsubscribeAuthStateChanged = this.authService.stateChanged.on(() => {
       this.invalidateShareInfoCache()
       this.invalidateMyPublishedSkillCatalog()
@@ -217,6 +223,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     try {
       await resetSkillTargets(plan.targets)
+      this.notifyRuntimeSkillsChanged("repair-skill")
       await this.refreshManifestRecordsForTargets(plan.targets.map((target) => target.currentPath))
       await recordOperationHistory({
         args: historyArgs,
@@ -317,6 +324,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     await this.runOoCommand(["skills", "add", request.skillId], {
       owner: "skill-service",
     })
+    this.notifyRuntimeSkillsChanged("install-built-in-skill")
 
     return this.readAndPublishSkillInventory()
   }
@@ -361,6 +369,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       }
 
       await copyLocalSkillEnablePlanTargets(plan)
+      this.notifyRuntimeSkillsChanged("enable-local-skill")
       return this.readAndPublishSkillInventory()
     }
 
@@ -453,6 +462,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     assertOoSkillOperationResult(result, "skills.install")
     this.invalidateShareInfoCache()
     this.invalidateMyPublishedSkillCatalog()
+    this.notifyRuntimeSkillsChanged("install-registry-skill")
 
     return this.readAndPublishSkillInventory()
   }
@@ -477,6 +487,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     assertOoSkillOperationResult(result, "skills.install")
     this.invalidateShareInfoCache()
     this.invalidateMyPublishedSkillCatalog()
+    this.notifyRuntimeSkillsChanged("replace-registry-skill")
 
     return this.readAndPublishSkillInventory()
   }
@@ -489,6 +500,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     assertOoSkillOperationResult(result, "skills.update")
     this.invalidateShareInfoCache()
     this.invalidateMyPublishedSkillCatalog()
+    this.notifyRuntimeSkillsChanged("update-registry-skill")
 
     return this.readAndPublishSkillInventory()
   }
@@ -504,6 +516,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     })
     this.invalidateVersionReport()
     this.emitCliChanged()
+    this.notifyRuntimeSkillsChanged("update-skill-cli")
     await this.emitInventoryChanged()
     return this.checkSkillVersions({ forceRefresh: true })
   }
@@ -516,6 +529,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     assertOoSkillOperationResult(result, `skills.sync.${request.direction}`)
     this.invalidateShareInfoCache()
     this.invalidateMyPublishedSkillCatalog()
+    this.notifyRuntimeSkillsChanged(`sync-registry-skills:${request.direction}`)
 
     return {
       direction: request.direction,
@@ -608,6 +622,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     )
     this.invalidateShareInfoCache()
     this.invalidateMyPublishedSkillCatalog()
+    this.notifyRuntimeSkillsChanged("adopt-local-skill")
 
     return {
       inventory: await this.readAndPublishSkillInventory(),
@@ -700,6 +715,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     assertOoSkillOperationResult(result, "skills.uninstall")
     this.invalidateShareInfoCache()
     this.invalidateMyPublishedSkillCatalog()
+    this.notifyRuntimeSkillsChanged("delete-skill")
 
     return this.readAndPublishSkillInventory()
   }
@@ -771,21 +787,33 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return
     }
 
-    const watchedPaths = new Set([
-      path.dirname(this.getManifestPath()),
-      path.join(resolveOoStoreDirectory(), "skills"),
-      ...supportedAgents.map((agent) => resolveAgentSkillRoot(agent)),
-    ])
+    const watchedPaths = [
+      { pathname: path.dirname(this.getManifestPath()), affectsRuntimeSkills: false },
+      { pathname: path.join(resolveOoStoreDirectory(), "skills"), affectsRuntimeSkills: true },
+      ...supportedAgents.map((agent) => ({
+        pathname: resolveAgentSkillRoot(agent),
+        affectsRuntimeSkills: true,
+      })),
+    ]
+    const registeredPaths = new Set<string>()
     const recursive = process.platform === "darwin" || process.platform === "win32"
 
-    for (const pathname of watchedPaths) {
+    for (const { pathname, affectsRuntimeSkills } of watchedPaths) {
+      if (registeredPaths.has(pathname)) {
+        continue
+      }
+      registeredPaths.add(pathname)
       try {
         this.watchers.push(
           watch(pathname, { persistent: false, recursive }, () => {
             this.scheduleInventoryChanged()
+            if (affectsRuntimeSkills) {
+              this.notifyRuntimeSkillsChanged("skill-files-changed")
+            }
           }),
         )
         logDiagnosticOnChange(`skill-service:watch:${pathname}`, "skill-service", "watching skill path", {
+          affectsRuntimeSkills,
           pathname,
           recursive,
         })
@@ -796,13 +824,19 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
           `skill-service:watch:${pathname}`,
           "skill-service",
           "failed to watch skill path",
-          { error: message, pathname, recursive },
+          { affectsRuntimeSkills, error: message, pathname, recursive },
           isMissing ? "trace" : "warn",
-          isMissing ? { missing: true, pathname, recursive } : { error: message, pathname, recursive },
+          isMissing
+            ? { affectsRuntimeSkills, missing: true, pathname, recursive }
+            : { affectsRuntimeSkills, error: message, pathname, recursive },
         )
         // 目录可能尚不存在；focus/background refresh 仍会兜底发现后续变化。
       }
     }
+  }
+
+  private notifyRuntimeSkillsChanged(reason: string): void {
+    this.options.onRuntimeSkillsChanged?.(reason)
   }
 
   private scheduleInventoryChanged(): void {

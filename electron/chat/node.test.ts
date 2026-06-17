@@ -149,6 +149,50 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   assert.equal(events.at(-1)?.event, "messageStarted")
 })
 
+test("agent errors from multiple opencode channels produce one message error per send", async () => {
+  const bridge = createBridgeAgent()
+  let rejectPrompt: ((error: Error) => void) | undefined
+  bridge.promptStreaming.mockImplementationOnce(
+    () =>
+      new Promise<void>((_, reject) => {
+        rejectPrompt = reject
+      }),
+  )
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+
+  const error = {
+    name: "APIError",
+    data: { message: "The selected model does not exist." },
+  }
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant", error } },
+  })
+  bridge.emit({
+    type: "session.error",
+    properties: { sessionID: "session-1", error },
+  })
+  rejectPrompt?.(new Error("The selected model does not exist."))
+  await Promise.resolve()
+
+  const messageErrors = events.filter((event) => event.event === "messageError")
+  assert.equal(messageErrors.length, 1)
+  const messageError = messageErrors[0] as { data: { message?: string } }
+  assert.equal(messageError.data.message, "The selected model does not exist.")
+
+  await service.sendMessage({ sessionId: "session-1", text: "retry" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant", error } },
+  })
+
+  assert.equal(events.filter((event) => event.event === "messageError").length, 2)
+})
+
 test("hasActiveGeneration tracks pending and completed assistant turns", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

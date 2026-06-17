@@ -90,6 +90,10 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
   }
 }
 
+function messageErrorSignature(message: string): string {
+  return message.trim() || message
+}
+
 function quoted(value: string): string {
   return JSON.stringify(value)
 }
@@ -524,6 +528,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private readonly billingInFlight = new Map<string, BillingInFlight<BillingOverviewResult>>()
   private bridged = false
   private userStoppedSessions = new Map<string, number>()
+  private emittedMessageErrors = new Map<string, Set<string>>()
   private pendingArtifactDirs = new Map<string, string[]>()
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
@@ -546,6 +551,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.agent = agent
     this.bridged = false
     this.userStoppedSessions.clear()
+    this.emittedMessageErrors.clear()
     this.pendingArtifactDirs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
@@ -640,10 +646,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.activeAssistantMessages.delete(translated.data.sessionId)
           this.activeToolParts.delete(translated.data.sessionId)
           this.emitSessionActivity(translated.data.sessionId)
-          void emit(
-            "messageError",
-            createMessageErrorPayload(translated.data.sessionId, translated.data.message, messageId),
-          )
+          this.emitMessageError(emit, translated.data.sessionId, translated.data.message, messageId)
           continue
         }
         void emit(translated.event, translated.data)
@@ -682,6 +685,33 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     this.pendingArtifactDirs.set(sessionId, next)
+  }
+
+  private clearMessageErrorSignatures(sessionId: string): void {
+    this.emittedMessageErrors.delete(sessionId)
+  }
+
+  private rememberMessageError(sessionId: string, message: string): boolean {
+    const signature = messageErrorSignature(message)
+    const sessionErrors = this.emittedMessageErrors.get(sessionId) ?? new Set<string>()
+    if (sessionErrors.has(signature)) {
+      return false
+    }
+    sessionErrors.add(signature)
+    this.emittedMessageErrors.set(sessionId, sessionErrors)
+    return true
+  }
+
+  private emitMessageError(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    message: string,
+    messageId?: string,
+  ): void {
+    if (!this.rememberMessageError(sessionId, message)) {
+      return
+    }
+    void emit("messageError", createMessageErrorPayload(sessionId, message, messageId))
   }
 
   private markUserStopped(sessionId: string): void {
@@ -742,6 +772,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Agent not configured (sign in first)")
     }
     this.userStoppedSessions.delete(req.sessionId)
+    this.clearMessageErrorSignatures(req.sessionId)
     this.emitSessionActivity(req.sessionId)
     const artifactDir = await this.agent.createArtifactDir(req.sessionId)
     this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
@@ -757,7 +788,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.removePendingArtifactDir(req.sessionId, artifactDir)
         const messageId = this.activeAssistantMessages.get(req.sessionId)
         this.activeAssistantMessages.delete(req.sessionId)
-        void this.send("messageError", createMessageErrorPayload(req.sessionId, errorMessage(error), messageId))
+        this.emitMessageError(
+          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+          req.sessionId,
+          errorMessage(error),
+          messageId,
+        )
       })
   }
 

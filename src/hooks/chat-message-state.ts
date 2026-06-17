@@ -107,14 +107,38 @@ function latestAssistantMessageId(msgs: ChatMessage[]): string | null {
   return msgs.findLast((message) => message.role === "assistant")?.id ?? null
 }
 
+function errorPartSignature(part: ChatMessagePart): string | null {
+  if (part.kind !== "error" || !part.errorText) {
+    return null
+  }
+  return [part.errorText.trim(), part.errorKind ?? "", part.errorCode ?? ""].join("\0")
+}
+
 export function setErrorPart(msgs: ChatMessage[], event: MessageErrorEvent): ChatMessage[] {
   const messageId = event.messageId ?? latestAssistantMessageId(msgs) ?? `local-assistant-error-${Date.now()}`
-  return setPart(msgs, messageId, {
+  const nextPart: ChatMessagePart = {
     kind: "error",
     partId: event.partId,
     errorText: event.message,
     ...(event.errorKind ? { errorKind: event.errorKind } : {}),
     ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+  }
+  const ensured = ensureMessage(msgs, messageId, "assistant")
+  const nextSignature = errorPartSignature(nextPart)
+  return ensured.map((message) => {
+    if (message.id !== messageId) {
+      return message
+    }
+    const existingDuplicate = nextSignature
+      ? message.parts.find((part) => errorPartSignature(part) === nextSignature)
+      : undefined
+    return {
+      ...message,
+      parts: upsertPart(
+        message.parts,
+        existingDuplicate ? { ...nextPart, partId: existingDuplicate.partId } : nextPart,
+      ),
+    }
   })
 }
 
@@ -362,7 +386,16 @@ function preserveLocalErrorParts(
     return parts
   }
   const partIds = new Set(parts.map((part) => part.partId))
-  const missing = localErrorParts.filter((part) => !partIds.has(part.partId))
+  const errorSignatures = new Set(
+    parts.map((part) => errorPartSignature(part)).filter((signature): signature is string => Boolean(signature)),
+  )
+  const missing = localErrorParts.filter((part) => {
+    if (partIds.has(part.partId)) {
+      return false
+    }
+    const signature = errorPartSignature(part)
+    return !signature || !errorSignatures.has(signature)
+  })
   return missing.length === 0 ? parts : [...parts, ...missing]
 }
 

@@ -98,6 +98,31 @@ describe("chat message identity reconciliation", () => {
     ])
   })
 
+  it("deduplicates repeated message errors with different part ids", () => {
+    const current = appendOptimisticConversationTurn([], "Create a report", [])
+    const first = setErrorPart(current, {
+      sessionId: "s1",
+      partId: "error-1",
+      message: "The selected model does not exist.",
+      errorKind: "unknown",
+    })
+    const updated = setErrorPart(first, {
+      sessionId: "s1",
+      partId: "error-2",
+      message: "The selected model does not exist.",
+      errorKind: "unknown",
+    })
+
+    expect(updated[1]?.parts).toEqual([
+      {
+        kind: "error",
+        partId: "error-1",
+        errorText: "The selected model does not exist.",
+        errorKind: "unknown",
+      },
+    ])
+  })
+
   it("preserves local error parts when full history reloads", () => {
     const current: ChatMessage[] = [
       {
@@ -118,6 +143,29 @@ describe("chat message identity reconciliation", () => {
 
     expect(mergeFetchedMessages(current, fetched)[0]?.parts).toEqual([
       { kind: "error", partId: "error-1", errorText: "Payment Required" },
+    ])
+  })
+
+  it("does not preserve a local error part when fetched history already has the same error", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ kind: "error", partId: "local-error-1", errorText: "The selected model does not exist." }],
+        createdAt: 1,
+      },
+    ]
+    const fetched: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ kind: "error", partId: "message-error-APIError", errorText: "The selected model does not exist." }],
+        createdAt: 1,
+      },
+    ]
+
+    expect(mergeFetchedMessages(current, fetched)[0]?.parts).toEqual([
+      { kind: "error", partId: "message-error-APIError", errorText: "The selected model does not exist." },
     ])
   })
 

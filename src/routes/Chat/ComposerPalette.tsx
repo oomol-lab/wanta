@@ -61,8 +61,12 @@ export function ComposerPalette({ activeId, emptyLabel, headerLabel, items, onBa
   }, [updateMaxHeight])
 
   React.useEffect(() => {
+    if (activeId && activeId === items[0]?.id) {
+      rootRef.current?.scrollTo({ top: 0 })
+      return
+    }
     activeItemRef.current?.scrollIntoView({ block: "nearest" })
-  }, [activeId])
+  }, [activeId, items])
 
   return (
     <div

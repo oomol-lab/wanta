@@ -56,7 +56,14 @@ export function consumeLatestQueuedMessage(
   if (!message) {
     return { queues, message: null }
   }
-  return { queues: clearQueuedMessages(queues, sessionId), message }
+  const nextQueue = queue.slice(0, -1)
+  const next = { ...queues }
+  if (nextQueue.length === 0) {
+    delete next[sessionId]
+  } else {
+    next[sessionId] = nextQueue
+  }
+  return { queues: next, message }
 }
 
 export function shouldDispatchQueuedMessage(status: ChatStatus, initialSendPending: boolean): boolean {

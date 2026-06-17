@@ -1393,6 +1393,7 @@
     position: absolute;
     top: 1.25rem;
     right: 1.25rem;
+    /* 高于可拖拽舞台，确保按钮接收点击而不是触发图片拖动。 */
     z-index: 3;
     display: flex;
     gap: 0.5rem;
@@ -1436,6 +1437,7 @@
     position: absolute;
     bottom: 1.5rem;
     left: 50%;
+    /* 高于可拖拽舞台，确保缩放控件接收点击而不是触发图片拖动。 */
     z-index: 3;
     display: flex;
     height: 2.625rem;

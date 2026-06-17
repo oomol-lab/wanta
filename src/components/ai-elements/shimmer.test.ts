@@ -3,6 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { Shimmer } from "./shimmer.tsx"
 
+function htmlAttribute(html: string, name: string): string {
+  const match = html.match(new RegExp(`${name}="([^"]*)"`))
+  if (!match) {
+    throw new Error(`Missing ${name} attribute in rendered HTML.`)
+  }
+  return match[1]
+}
+
 describe("Shimmer", () => {
   it("uses a near-white shimmer highlight over muted text", () => {
     const html = renderToStaticMarkup(
@@ -12,13 +20,17 @@ describe("Shimmer", () => {
         "Loading",
       ),
     )
+    const classNames = new Set(htmlAttribute(html, "class").split(/\s+/))
+    const style = htmlAttribute(html, "style")
 
-    expect(html).toContain("text-transparent")
-    expect(html).toContain("truncate")
-    expect(html).toContain("bg-[length:250%_100%,auto]")
-    expect(html).toContain("[background-repeat:no-repeat,padding-box]")
-    expect(html).toContain("var(--shimmer-highlight)")
-    expect(html).toContain("color-mix(in oklab, var(--color-background) 12%, white)")
-    expect(html).toContain("var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))")
+    expect(classNames.has("text-transparent")).toBe(true)
+    expect(classNames.has("truncate")).toBe(true)
+    expect(classNames.has("bg-[length:250%_100%,auto]")).toBe(true)
+    expect(classNames.has("[background-repeat:no-repeat,padding-box]")).toBe(true)
+    expect([...classNames].some((className) => className.includes("var(--shimmer-highlight)"))).toBe(true)
+    expect(style).toContain("--shimmer-highlight:color-mix(in oklab, var(--color-background) 12%, white)")
+    expect(style).toContain(
+      "background-image:var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))",
+    )
   })
 })

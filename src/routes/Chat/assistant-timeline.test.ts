@@ -69,6 +69,26 @@ describe("assistantTimelineBlocks", () => {
     )
   })
 
+  it("joins multiple response text blocks with blank lines", () => {
+    const blocks = assistantTimelineBlocks([
+      message("a1", [textPart("text-1", "First line")]),
+      message("a2", [textPart("text-2", "Second line")]),
+      message("a3", [textPart("text-3", "Third line")]),
+    ])
+
+    expect(textFromTimelineBlocks(blocks)).toBe("First line\n\nSecond line\n\nThird line")
+  })
+
+  it("ignores empty response text blocks", () => {
+    const blocks = assistantTimelineBlocks([
+      message("a1", [textPart("text-1", "First line")]),
+      message("a2", [textPart("text-2", "")]),
+      message("a3", [textPart("text-3", "Third line")]),
+    ])
+
+    expect(textFromTimelineBlocks(blocks)).toBe("First line\n\nThird line")
+  })
+
   it("treats a text-only assistant message as final response", () => {
     const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks([
       message("a1", [textPart("response-1", "Done.")]),

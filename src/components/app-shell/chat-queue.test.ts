@@ -30,7 +30,7 @@ describe("chat queue", () => {
     )
   })
 
-  test("consumes only the latest queued message and clears that session", () => {
+  test("consumes only the latest queued message and keeps earlier messages", () => {
     const queues = {
       "session-1": [message("first"), message("second")],
       "session-2": [message("other", "session-2")],
@@ -39,11 +39,21 @@ describe("chat queue", () => {
     const result = consumeLatestQueuedMessage(queues, "session-1")
 
     assert.equal(result.message?.id, "second")
-    assert.equal(result.queues["session-1"], undefined)
+    assert.deepEqual(
+      result.queues["session-1"]?.map((item) => item.id),
+      ["first"],
+    )
     assert.deepEqual(
       result.queues["session-2"]?.map((item) => item.id),
       ["other"],
     )
+  })
+
+  test("drops the session bucket after consuming its only queued message", () => {
+    const result = consumeLatestQueuedMessage({ "session-1": [message("only")] }, "session-1")
+
+    assert.equal(result.message?.id, "only")
+    assert.equal(result.queues["session-1"], undefined)
   })
 
   test("removes a queued message and drops the empty session bucket", () => {

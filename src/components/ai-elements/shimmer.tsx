@@ -43,7 +43,7 @@ const ShimmerComponent = ({ children, as: Component = "p", className, duration =
       style={
         {
           "--spread": `${dynamicSpread}px`,
-          "--shimmer-highlight": "color-mix(in oklab, var(--color-foreground) 35%, white)",
+          "--shimmer-highlight": "color-mix(in oklab, var(--color-background) 12%, white)",
           backgroundImage: "var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))",
         } as CSSProperties
       }

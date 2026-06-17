@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 import { Shimmer } from "./shimmer.tsx"
 
 describe("Shimmer", () => {
-  it("uses a bright shimmer highlight instead of the page background", () => {
+  it("uses a near-white shimmer highlight over muted text", () => {
     const html = renderToStaticMarkup(
       React.createElement(
         Shimmer,
@@ -18,7 +18,7 @@ describe("Shimmer", () => {
     expect(html).toContain("bg-[length:250%_100%,auto]")
     expect(html).toContain("[background-repeat:no-repeat,padding-box]")
     expect(html).toContain("var(--shimmer-highlight)")
-    expect(html).toContain("color-mix(in oklab, var(--color-foreground) 35%, white)")
+    expect(html).toContain("color-mix(in oklab, var(--color-background) 12%, white)")
     expect(html).toContain("var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))")
   })
 })

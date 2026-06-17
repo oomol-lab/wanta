@@ -11,7 +11,7 @@ import {
   mergeFetchedMessages,
   setErrorPart,
   visibleChatError,
-} from "./useChat.ts"
+} from "./chat-message-state.ts"
 
 const pdfAttachment: ChatAttachment = {
   id: "att-1",

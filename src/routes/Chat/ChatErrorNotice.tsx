@@ -24,6 +24,7 @@ interface ChatErrorNoticeProps {
 
 const paymentRecoveryPendingKey = "lumo-payment-recovery-pending"
 const paymentRecoveryPendingTtlMs = 24 * 60 * 60 * 1000
+const copyFeedbackMs = 1_500
 
 function markPaymentRecoveryPending(): void {
   try {
@@ -103,7 +104,9 @@ export function ChatErrorNotice({
   const [hasCredits, setHasCredits] = React.useState<boolean | null>(null)
   const [recovered, setRecovered] = React.useState(false)
   const [refreshFailed, setRefreshFailed] = React.useState(false)
+  const [diagnosticsCopied, setDiagnosticsCopied] = React.useState(false)
   const confirmAutoPromptedRef = React.useRef(false)
+  const copyFeedbackTimerRef = React.useRef<number | undefined>(undefined)
   const isPaymentRequired = error.kind === "payment_required"
 
   const refreshBalance = React.useCallback(async (): Promise<boolean> => {
@@ -180,6 +183,22 @@ export function ChatErrorNotice({
   }, [autoOpenKey])
 
   React.useEffect(() => {
+    return () => {
+      if (copyFeedbackTimerRef.current !== undefined) {
+        window.clearTimeout(copyFeedbackTimerRef.current)
+      }
+    }
+  }, [])
+
+  React.useEffect(() => {
+    setDiagnosticsCopied(false)
+    if (copyFeedbackTimerRef.current !== undefined) {
+      window.clearTimeout(copyFeedbackTimerRef.current)
+      copyFeedbackTimerRef.current = undefined
+    }
+  }, [error.diagnostics])
+
+  React.useEffect(() => {
     if (
       !canAutoPromptPayment({ autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered }) ||
       confirmDialogOpen ||
@@ -195,10 +214,19 @@ export function ChatErrorNotice({
 
   const handleCopyDiagnostics = React.useCallback(() => {
     void writeClipboardText(error.diagnostics).then((didCopy) => {
-      if (didCopy) {
+      if (!didCopy) {
+        setDiagnosticsCopied(false)
+        toast.error(t("chatError.common.copyFailed"))
         return
       }
-      toast.error(t("chatError.common.copyFailed"))
+      setDiagnosticsCopied(true)
+      if (copyFeedbackTimerRef.current !== undefined) {
+        window.clearTimeout(copyFeedbackTimerRef.current)
+      }
+      copyFeedbackTimerRef.current = window.setTimeout(() => {
+        setDiagnosticsCopied(false)
+        copyFeedbackTimerRef.current = undefined
+      }, copyFeedbackMs)
     })
   }, [error.diagnostics, t])
 
@@ -273,9 +301,15 @@ export function ChatErrorNotice({
                     ) : null}
                   </>
                 ) : error.secondaryActionKey ? (
-                  <Button type="button" variant="outline" size="sm" onClick={handleCopyDiagnostics}>
-                    <CopyIcon className="size-3.5" />
-                    {t(error.secondaryActionKey)}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className={cn(diagnosticsCopied && "bg-background text-foreground")}
+                    onClick={handleCopyDiagnostics}
+                  >
+                    {diagnosticsCopied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+                    {diagnosticsCopied ? t("chat.copiedMessage") : t(error.secondaryActionKey)}
                   </Button>
                 ) : null}
               </div>

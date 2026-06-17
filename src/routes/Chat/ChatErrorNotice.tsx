@@ -9,6 +9,7 @@ import { useChatService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
+import { writeClipboardText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
 import { CreditPurchaseModal } from "@/routes/Billing/CreditPurchaseModal"
 
@@ -193,7 +194,10 @@ export function ChatErrorNotice({
   }, [balanceChecked, confirmDialogOpen, hasCredits, isPaymentRequired, recovered])
 
   const handleCopyDiagnostics = React.useCallback(() => {
-    navigator.clipboard.writeText(error.diagnostics).catch(() => {
+    void writeClipboardText(error.diagnostics).then((didCopy) => {
+      if (didCopy) {
+        return
+      }
       toast.error(t("chatError.common.copyFailed"))
     })
   }, [error.diagnostics, t])

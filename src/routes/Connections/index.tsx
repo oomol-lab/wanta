@@ -9,12 +9,13 @@ import type {
   ConnectionUsageServiceItem,
 } from "../../../electron/connections/common.ts"
 import type { UseConnections } from "@/hooks/useConnections"
+import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
 import {
   AlertCircle,
   ArrowLeft,
   BarChart3,
-  ChevronRight,
+  ChevronDown,
   ExternalLink,
   KeyRound,
   LoaderCircle,
@@ -33,6 +34,13 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   SplitViewBody,
   SplitViewDesktopDetailPane,
   SplitViewHeader,
@@ -41,18 +49,41 @@ import {
   SplitViewRoot,
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 const executionLogLimit = 12
 const detailPaneAnimationMs = 150
+const categoryFilterLimit = 4
+const categoryFilterPrefix = "category:"
+const uncategorizedCategoryValue = "__uncategorized__"
+const categoryMessageKeysByRawLabel: Record<string, MessageKey> = {
+  AI: "connections.category.ai",
+  Communication: "connections.category.communication",
+  "Data & Analytics": "connections.category.dataAnalytics",
+  "Design & Media": "connections.category.designMedia",
+  "Developer Tools": "connections.category.developerTools",
+  Documentation: "connections.category.documentation",
+  Efficiency: "connections.category.efficiency",
+  Finance: "connections.category.finance",
+  "Maps & Location": "connections.category.mapsLocation",
+  Marketing: "connections.category.marketing",
+  Productivity: "connections.category.productivity",
+  "Security & Identity": "connections.category.securityIdentity",
+  Social: "connections.category.social",
+  Storage: "connections.category.storage",
+}
 
-type ConnectionCatalogView = "all" | "categories" | "connected"
+type ConnectionCatalogFilter =
+  | { kind: "all" }
+  | { kind: "attention" }
+  | { kind: "category"; category: string }
+  | { kind: "connected" }
 
-interface ConnectionProviderGroup {
-  providers: ConnectionProviderSummary[]
-  title: string
+interface ConnectionCategoryFilter {
+  count: number
+  displayLabel: string
+  label: string
 }
 
 function isConnected(provider: ConnectionProviderSummary): boolean {
@@ -178,58 +209,105 @@ function getProviderStatusDisplayLabel(provider: ConnectionProviderSummary, t: R
   return getProviderStatusLabel(provider, t) ?? t("connections.connected")
 }
 
-function getProviderCategoryLabel(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
-  return provider.categoryLabels[0] ?? t("connections.categoryUnknown")
+function getProviderActionLabel(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  if (provider.actionKind === "unavailable") {
+    return t("connections.unsupported")
+  }
+  switch (provider.status) {
+    case "needs_attention":
+      return t("connections.reconnect")
+    case "connected":
+      return t("connections.manage")
+    case "available":
+      return t("connections.connect")
+  }
+}
+
+function getCategoryDisplayLabel(label: string, t: TranslateFn): string {
+  if (label === uncategorizedCategoryValue) {
+    return t("connections.categoryUnknown")
+  }
+  const key = categoryMessageKeysByRawLabel[label]
+  return key ? t(key) : label
+}
+
+function getProviderCategoryRawLabels(provider: ConnectionProviderSummary): string[] {
+  return provider.categoryLabels.length > 0 ? provider.categoryLabels : [uncategorizedCategoryValue]
+}
+
+function getProviderCategoryLabel(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  return getCategoryDisplayLabel(getProviderCategoryRawLabels(provider)[0] ?? uncategorizedCategoryValue, t)
+}
+
+function formatProviderCategoryLabels(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  return getProviderCategoryRawLabels(provider)
+    .map((label) => getCategoryDisplayLabel(label, t))
+    .join(" / ")
 }
 
 function getProviderMeta(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
-  return provider.accountLabel ?? formatAuthTypes(provider.authTypes, t)
+  return provider.accountLabel ?? getProviderCategoryLabel(provider, t)
 }
 
-function isManagedProvider(provider: ConnectionProviderSummary): boolean {
-  return provider.status === "connected" || provider.status === "needs_attention"
-}
-
-function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQuery: string): boolean {
+function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQuery: string, t: TranslateFn): boolean {
   if (!normalizedQuery) {
     return true
   }
   return (
     provider.displayName.toLowerCase().includes(normalizedQuery) ||
     provider.service.toLowerCase().includes(normalizedQuery) ||
-    provider.categoryLabels.some((label) => label.toLowerCase().includes(normalizedQuery)) ||
+    getProviderCategoryRawLabels(provider).some((label) => {
+      return (
+        label.toLowerCase().includes(normalizedQuery) ||
+        getCategoryDisplayLabel(label, t).toLowerCase().includes(normalizedQuery)
+      )
+    }) ||
     provider.accountLabel?.toLowerCase().includes(normalizedQuery) === true
   )
 }
 
-function getCatalogProviders(
-  providers: ConnectionProviderSummary[],
-  activeView: ConnectionCatalogView,
-): ConnectionProviderSummary[] {
-  if (activeView === "connected") {
-    return providers.filter(isManagedProvider)
-  }
-  return providers
+function getFilterValue(filter: ConnectionCatalogFilter): string {
+  return filter.kind === "category" ? `${categoryFilterPrefix}${filter.category}` : filter.kind
 }
 
-function groupProvidersByCategory(
+function parseFilterValue(value: string): ConnectionCatalogFilter | null {
+  if (value === "all" || value === "connected" || value === "attention") {
+    return { kind: value }
+  }
+  if (value.startsWith(categoryFilterPrefix)) {
+    const category = value.slice(categoryFilterPrefix.length)
+    return category ? { kind: "category", category } : null
+  }
+  return null
+}
+
+function buildCategoryFilters(
   providers: ConnectionProviderSummary[],
   t: ReturnType<typeof useT>,
-): ConnectionProviderGroup[] {
-  const groupMap = new Map<string, ConnectionProviderSummary[]>()
+): ConnectionCategoryFilter[] {
+  const countByCategory = new Map<string, number>()
   for (const provider of providers) {
-    const key = getProviderCategoryLabel(provider, t)
-    const group = groupMap.get(key)
-    if (group) {
-      group.push(provider)
-    } else {
-      groupMap.set(key, [provider])
+    for (const label of getProviderCategoryRawLabels(provider)) {
+      countByCategory.set(label, (countByCategory.get(label) ?? 0) + 1)
     }
   }
 
-  return [...groupMap.entries()]
-    .map(([title, groupProviders]) => ({ providers: groupProviders, title }))
-    .sort((left, right) => left.title.localeCompare(right.title))
+  return [...countByCategory.entries()]
+    .map(([label, count]) => ({ count, displayLabel: getCategoryDisplayLabel(label, t), label }))
+    .sort((left, right) => right.count - left.count || left.displayLabel.localeCompare(right.displayLabel))
+}
+
+function matchesProviderFilter(provider: ConnectionProviderSummary, filter: ConnectionCatalogFilter): boolean {
+  switch (filter.kind) {
+    case "all":
+      return true
+    case "connected":
+      return isConnected(provider)
+    case "attention":
+      return provider.status === "needs_attention"
+    case "category":
+      return getProviderCategoryRawLabels(provider).includes(filter.category)
+  }
 }
 
 interface ConnectionsPanelProps {
@@ -239,9 +317,9 @@ interface ConnectionsPanelProps {
 
 export function ConnectionsPanel({ connections, selectedService }: ConnectionsPanelProps) {
   const t = useT()
-  const { summary, busy, polling, error, refresh, connect, disconnect, cancelPolling, getProviderDetail } = connections
+  const { summary, busy, polling, error, connect, disconnect, cancelPolling, getProviderDetail } = connections
   const [query, setQuery] = React.useState("")
-  const [activeView, setActiveView] = React.useState<ConnectionCatalogView>("all")
+  const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const [detail, setDetail] = React.useState<ConnectionProviderDetail | null>(null)
@@ -258,11 +336,19 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
 
   const providers = summary?.providers ?? []
   const normalizedQuery = query.trim().toLowerCase()
-  const catalogProviders = React.useMemo(() => getCatalogProviders(providers, activeView), [activeView, providers])
+  const categoryFilters = React.useMemo(() => buildCategoryFilters(providers, t), [providers, t])
+  const connectedCount = React.useMemo(() => providers.filter(isConnected).length, [providers])
+  const attentionCount = React.useMemo(
+    () => providers.filter((provider) => provider.status === "needs_attention").length,
+    [providers],
+  )
+  const catalogProviders = React.useMemo(
+    () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
+    [activeFilter, providers],
+  )
   const filteredProviders = React.useMemo(() => {
-    return catalogProviders.filter((provider) => matchesProviderQuery(provider, normalizedQuery))
-  }, [catalogProviders, normalizedQuery])
-  const categoryGroups = React.useMemo(() => groupProvidersByCategory(filteredProviders, t), [filteredProviders, t])
+    return catalogProviders.filter((provider) => matchesProviderQuery(provider, normalizedQuery, t))
+  }, [catalogProviders, normalizedQuery, t])
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
@@ -308,11 +394,20 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     }
 
     setQuery("")
-    setActiveView("all")
+    setActiveFilter({ kind: "all" })
     selectProvider(selectedService)
   }, [selectProvider, selectedService])
 
   React.useEffect(() => clearDetailCloseTimer, [clearDetailCloseTimer])
+
+  React.useEffect(() => {
+    if (activeFilter.kind !== "category") {
+      return
+    }
+    if (!categoryFilters.some((filter) => filter.label === activeFilter.category)) {
+      setActiveFilter({ kind: "all" })
+    }
+  }, [activeFilter, categoryFilters])
 
   React.useEffect(() => {
     if (!selectedProviderService || !summary) {
@@ -384,12 +479,14 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     <SplitViewRoot narrowPane={narrowPane}>
       <SplitViewHeader narrowPane={narrowPane} className="oo-border-divider border-b sm:grid-cols-1">
         <ConnectionListToolbar
-          activeView={activeView}
-          busy={busy}
+          activeFilter={activeFilter}
+          attentionCount={attentionCount}
+          categoryFilters={categoryFilters}
+          connectedCount={connectedCount}
           query={query}
-          onActiveViewChange={setActiveView}
+          totalCount={summary?.providerCount ?? providers.length}
+          onFilterChange={setActiveFilter}
           onQueryChange={setQuery}
-          onRefresh={() => void refresh({ forceRefresh: true })}
         />
       </SplitViewHeader>
 
@@ -399,15 +496,13 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
       >
         <SplitViewListPane narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
-            <SummaryHeader activeView={activeView} filteredCount={filteredProviders.length} summary={summary} />
+            <SummaryHeader />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
             {error && <div className="oo-error oo-text-micro">{error}</div>}
             {filteredProviders.length === 0 ? (
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
               <ProviderCatalog
-                activeView={activeView}
-                categoryGroups={categoryGroups}
                 providers={filteredProviders}
                 selectedService={selectedProvider?.service ?? null}
                 onSelect={(provider) => selectProvider(provider.service)}
@@ -501,140 +596,131 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
 }
 
 function ConnectionListToolbar({
-  activeView,
-  busy,
-  onActiveViewChange,
+  activeFilter,
+  attentionCount,
+  categoryFilters,
+  connectedCount,
+  onFilterChange,
   onQueryChange,
-  onRefresh,
   query,
+  totalCount,
 }: {
-  activeView: ConnectionCatalogView
-  busy: UseConnections["busy"]
-  onActiveViewChange: (view: ConnectionCatalogView) => void
+  activeFilter: ConnectionCatalogFilter
+  attentionCount: number
+  categoryFilters: ConnectionCategoryFilter[]
+  connectedCount: number
+  onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
-  onRefresh: () => void
   query: string
+  totalCount: number
 }) {
   const t = useT()
+  const selectedCategory = activeFilter.kind === "category" ? activeFilter.category : null
+  const topCategoryFilters = categoryFilters.slice(0, categoryFilterLimit)
+  const selectedCategoryFilter = selectedCategory
+    ? categoryFilters.find((filter) => filter.label === selectedCategory)
+    : undefined
+  const visibleCategoryFilters =
+    selectedCategoryFilter && !topCategoryFilters.some((filter) => filter.label === selectedCategoryFilter.label)
+      ? [...topCategoryFilters, selectedCategoryFilter]
+      : topCategoryFilters
+  const overflowCategoryFilters = categoryFilters.filter(
+    (filter) => !visibleCategoryFilters.some((visibleFilter) => visibleFilter.label === filter.label),
+  )
+  const filterValue = getFilterValue(activeFilter)
 
   return (
-    <div className="flex w-full min-w-0 items-center gap-3">
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        className="shrink-0"
-        value={activeView}
-        aria-label={t("connections.catalogView")}
-        onValueChange={(nextValue) => {
-          if (nextValue === "all" || nextValue === "connected" || nextValue === "categories") {
-            onActiveViewChange(nextValue)
-          }
-        }}
-      >
-        <ToggleGroupItem value="all">{t("connections.filterAll")}</ToggleGroupItem>
-        <ToggleGroupItem value="connected">{t("connections.filterConnected")}</ToggleGroupItem>
-        <ToggleGroupItem value="categories">{t("connections.viewCategories")}</ToggleGroupItem>
-      </ToggleGroup>
-      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-        <SearchField
-          value={query}
-          placeholder={t("connections.search")}
-          onChange={(event) => onQueryChange(event.currentTarget.value)}
-        />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={t("aria.refresh")}
-              disabled={busy === "refresh"}
-              onClick={onRefresh}
-            >
-              <RefreshCw className={cn("size-4", busy === "refresh" && "animate-spin")} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("aria.refresh")}</TooltipContent>
-        </Tooltip>
+    <div className="grid w-full min-w-0 gap-2">
+      <SearchField
+        value={query}
+        placeholder={t("connections.search")}
+        onChange={(event) => onQueryChange(event.currentTarget.value)}
+      />
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+        <div className="oo-connection-filter-row min-w-0 overflow-x-auto overflow-y-hidden pb-0.5">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={1}
+            value={filterValue}
+            aria-label={t("connections.catalogView")}
+            className="flex min-w-max flex-nowrap gap-1"
+            onValueChange={(nextValue) => {
+              const nextFilter = parseFilterValue(nextValue)
+              if (nextFilter) {
+                onFilterChange(nextFilter)
+              }
+            }}
+          >
+            <FilterToggleItem count={totalCount} label={t("connections.filterAll")} value="all" />
+            <FilterToggleItem count={connectedCount} label={t("connections.filterConnected")} value="connected" />
+            <FilterToggleItem count={attentionCount} label={t("connections.needsAttention")} value="attention" />
+            {visibleCategoryFilters.map((filter) => (
+              <FilterToggleItem
+                key={filter.label}
+                count={filter.count}
+                label={filter.displayLabel}
+                value={`${categoryFilterPrefix}${filter.label}`}
+              />
+            ))}
+          </ToggleGroup>
+        </div>
+        {overflowCategoryFilters.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-md">
+                {t("connections.moreCategories")}
+                <ChevronDown className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={8} className="w-56">
+              <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
+              {overflowCategoryFilters.map((filter) => (
+                <DropdownMenuItem
+                  key={filter.label}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
+                  onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
+                >
+                  <span className="truncate">{filter.displayLabel}</span>
+                  <span className="oo-text-muted">{filter.count}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
     </div>
   )
 }
 
-function SummaryHeader({
-  activeView,
-  filteredCount,
-  summary,
-}: {
-  activeView: ConnectionCatalogView
-  filteredCount: number
-  summary: ConnectionSummary | null
-}) {
+function FilterToggleItem({ count, label, value }: { count: number; label: string; value: string }) {
+  return (
+    <ToggleGroupItem value={value} className="max-w-48 gap-1.5 rounded-md border px-2.5">
+      <span className="truncate">{label}</span>
+      <span className="oo-text-micro oo-text-muted">{count}</span>
+    </ToggleGroupItem>
+  )
+}
+
+function SummaryHeader() {
   const t = useT()
-  const title =
-    activeView === "connected"
-      ? t("connections.manageConnections")
-      : activeView === "categories"
-        ? t("connections.browseByCategory")
-        : t("connections.providers")
-  const total = summary?.providerCount ?? filteredCount
   return (
     <div className="grid gap-1 px-1 py-1">
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="oo-text-title truncate">{title}</div>
-        <div className="oo-text-caption oo-text-muted shrink-0">
-          {t("connections.catalogCount", { shown: filteredCount, total })}
-        </div>
-      </div>
+      <div className="oo-text-title truncate">{t("connections.providers")}</div>
     </div>
   )
 }
 
 function ProviderCatalog({
-  activeView,
-  categoryGroups,
   providers,
   selectedService,
   onSelect,
 }: {
-  activeView: ConnectionCatalogView
-  categoryGroups: ConnectionProviderGroup[]
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
   selectedService: string | null
 }) {
-  if (activeView === "connected") {
-    return (
-      <div className="grid gap-1">
-        {providers.map((provider) => (
-          <ProviderRow
-            key={provider.service}
-            provider={provider}
-            selected={provider.service === selectedService}
-            onSelect={() => onSelect(provider)}
-          />
-        ))}
-      </div>
-    )
-  }
-
-  if (activeView === "categories") {
-    return (
-      <div className="grid gap-4">
-        {categoryGroups.map((group) => (
-          <section key={group.title} className="grid min-w-0 gap-2">
-            <div className="flex min-w-0 items-center justify-between gap-3 px-1">
-              <h3 className="oo-text-label truncate">{group.title}</h3>
-              <span className="oo-text-caption oo-text-muted shrink-0">{group.providers.length}</span>
-            </div>
-            <ProviderGrid providers={group.providers} selectedService={selectedService} onSelect={onSelect} />
-          </section>
-        ))}
-      </div>
-    )
-  }
-
   return <ProviderGrid providers={providers} selectedService={selectedService} onSelect={onSelect} />
 }
 
@@ -688,7 +774,7 @@ function ProviderCard({
           <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
           <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
         </span>
-        <span className="flex size-5 shrink-0 items-center justify-center" title={statusLabel}>
+        <span className="flex shrink-0 items-center gap-1.5" title={statusLabel}>
           <span
             aria-label={statusLabel}
             className={cn(
@@ -698,6 +784,9 @@ function ProviderCard({
               tone === "available" && "bg-muted-foreground/40",
             )}
           />
+          <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">
+            {getProviderActionLabel(provider, t)}
+          </span>
         </span>
       </span>
     </button>
@@ -711,51 +800,6 @@ function ProviderStatusBadge({ provider }: { provider: ConnectionProviderSummary
     <Badge variant={tone === "connected" ? "success" : tone === "attention" ? "warning" : "muted"}>
       {getProviderStatusDisplayLabel(provider, t)}
     </Badge>
-  )
-}
-
-function ProviderRow({
-  provider,
-  selected,
-  onSelect,
-}: {
-  provider: ConnectionProviderSummary
-  selected: boolean
-  onSelect: () => void
-}) {
-  const t = useT()
-  const tone = getProviderStatusTone(provider)
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        "group grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2.5 py-2 text-left outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40",
-        selected && "bg-accent text-accent-foreground",
-      )}
-    >
-      <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
-          <span
-            className={cn(
-              "size-1.5 shrink-0 rounded-full",
-              tone === "connected" && "bg-[var(--success)]",
-              tone === "attention" && "bg-[var(--warning)]",
-              tone === "available" && "bg-muted-foreground/40",
-            )}
-          />
-        </div>
-        <div className="oo-text-micro oo-text-muted truncate">
-          {provider.accountLabel ?? formatAuthTypes(provider.authTypes, t)}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <ProviderStatusBadge provider={provider} />
-        <ChevronRight className="oo-icon-muted size-4" />
-      </div>
-    </button>
   )
 }
 
@@ -884,14 +928,7 @@ function ProviderDetail({
         <dl className="overflow-hidden rounded-md border">
           <DetailRow label={t("connections.account")} value={provider.accountLabel ?? t("connections.notConnected")} />
           <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
-          <DetailRow
-            label={t("connections.category")}
-            value={
-              provider.categoryLabels.length > 0
-                ? provider.categoryLabels.join(" / ")
-                : t("connections.categoryUnknown")
-            }
-          />
+          <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
           <DetailRow label={t("connections.service")} value={provider.service} mono />
           <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
         </dl>

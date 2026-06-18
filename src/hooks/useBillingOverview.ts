@@ -1,7 +1,9 @@
 import type { BillingOverviewResult, BillingPeriodDays } from "../../electron/chat/common.ts"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { useChatService } from "@/components/AppContext"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 const defaultStaleMs = 60_000
 
@@ -25,7 +27,7 @@ export interface RefreshBillingOverviewOptions {
 export interface UseBillingOverview {
   data: BillingOverviewResult | null
   loading: boolean
-  error: string | null
+  error: UserFacingError | null
   refresh: (options?: RefreshBillingOverviewOptions) => Promise<BillingOverviewResult | null>
 }
 
@@ -44,7 +46,7 @@ export function useBillingOverview(
   const cacheScopeKey = `${cacheScope}:${summaryOnly ? "summary" : "overview"}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
   const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
   const requestId = React.useRef(0)
   const mounted = React.useRef(true)
 
@@ -94,7 +96,7 @@ export function useBillingOverview(
         return nextData
       } catch (nextError) {
         if (mounted.current && requestId.current === currentRequest) {
-          setError(errorMessage(nextError))
+          setError(resolveUserFacingError(nextError, { area: "billing" }))
         }
         return null
       } finally {
@@ -164,11 +166,4 @@ function startBillingOverviewRequest(
     },
   )
   return promise
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
-  }
-  return String(error)
 }

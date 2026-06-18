@@ -2,6 +2,7 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentManager } from "../agent/manager.ts"
 import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type {
+  AgentRuntimeStatus,
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
   BillingLogItem,
@@ -533,6 +534,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private readonly deps: ChatServiceDeps
+  private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private artifactRoots: ArtifactRoots = new Map()
   private artifactRootsLoaded = false
   private artifactRootsLoadPromise: Promise<void> | null = null
@@ -561,6 +563,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.stoppedGenerations.clear()
     this.stoppedGenerationsLoaded = false
     this.stoppedGenerationsLoadPromise = null
+  }
+
+  public setAgentStatus(status: AgentRuntimeStatus): void {
+    this.agentStatus = status
+    void this.send("agentStatusChanged", { status }).catch(() => undefined)
   }
 
   public hasActiveGeneration(): boolean {
@@ -764,7 +771,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async isReady(): Promise<boolean> {
-    return this.agent?.isReady() ?? false
+    return this.agentStatus.status === "ready" && (this.agent?.isReady() ?? false)
+  }
+
+  public async getAgentStatus(): Promise<AgentRuntimeStatus> {
+    return this.agentStatus
   }
 
   public async sendMessage(req: SendMessageRequest): Promise<void> {

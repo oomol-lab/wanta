@@ -1,12 +1,14 @@
 import type { ModelCatalog, ModelChoice, SaveCustomModelRequest } from "../../../electron/models/common.ts"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { useModelsService } from "@/components/AppContext"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface UseModelCatalog {
   catalog: ModelCatalog | null
   dialogOpen: boolean
-  error: string | null
+  error: UserFacingError | null
   closeDialog: () => void
   deleteModel: (id: string) => void
   openDialog: () => void
@@ -14,15 +16,11 @@ export interface UseModelCatalog {
   selectModel: (choice: ModelChoice) => void
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 export function useModelCatalog(): UseModelCatalog {
   const modelsService = useModelsService()
   const [catalog, setCatalog] = React.useState<ModelCatalog | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -35,7 +33,7 @@ export function useModelCatalog(): UseModelCatalog {
       })
       .catch((cause) => {
         if (!cancelled) {
-          setError(errorText(cause))
+          setError(resolveUserFacingError(cause, { area: "model" }))
         }
       })
     const off = modelsService.serverEvents.on("modelsChanged", (nextCatalog) => setCatalog(nextCatalog))
@@ -51,7 +49,7 @@ export function useModelCatalog(): UseModelCatalog {
       void modelsService
         .invoke("setSelectedModel", choice)
         .then(setCatalog)
-        .catch((cause) => setError(errorText(cause)))
+        .catch((cause) => setError(resolveUserFacingError(cause, { area: "model" })))
     },
     [modelsService],
   )
@@ -62,7 +60,7 @@ export function useModelCatalog(): UseModelCatalog {
       void modelsService
         .invoke("deleteCustomModel", id)
         .then(setCatalog)
-        .catch((cause) => setError(errorText(cause)))
+        .catch((cause) => setError(resolveUserFacingError(cause, { area: "model" })))
     },
     [modelsService],
   )
@@ -75,7 +73,7 @@ export function useModelCatalog(): UseModelCatalog {
         setCatalog(nextCatalog)
         setDialogOpen(false)
       } catch (cause) {
-        setError(errorText(cause))
+        setError(resolveUserFacingError(cause, { area: "model" }))
         throw cause
       }
     },

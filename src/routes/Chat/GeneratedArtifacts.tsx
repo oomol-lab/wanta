@@ -24,6 +24,7 @@ import {
   Video,
 } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -38,6 +39,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 const previewLimit = 4
@@ -690,7 +692,10 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
 
   const openPath = (filePath: string | undefined): void => {
     if (filePath) {
-      void chatService.invoke("openLocalPath", { path: filePath }).catch(() => undefined)
+      void chatService.invoke("openLocalPath", { path: filePath }).catch((cause: unknown) => {
+        const error = resolveUserFacingError(cause, { area: "artifact" })
+        toast.error(userFacingErrorDescription(error, t))
+      })
     }
   }
 

@@ -7,6 +7,7 @@ import type {
   SkillInventory,
   SkillShareResult,
 } from "../../electron/skills/common.ts"
+import type { TranslateFn } from "@/i18n"
 
 import * as React from "react"
 import { toast } from "sonner"
@@ -18,6 +19,7 @@ import {
 } from "@/components/AppDataHooks"
 import { useAppI18n } from "@/i18n"
 import { getPrimarySkillSourcePath } from "@/lib/skill-utils"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 
 interface UseSkillObjectActionsOptions {
   onDeleted?: (inventory: SkillInventory) => void
@@ -26,6 +28,10 @@ interface UseSkillObjectActionsOptions {
 export type SkillRemoveTarget =
   | { scope: "all"; skill: ManagedSkillGroup }
   | { scope: "agent"; skill: ManagedSkillGroup; host: ManagedSkillHostCoverage }
+
+function skillActionErrorMessage(cause: unknown, t: TranslateFn): string {
+  return userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t)
+}
 
 export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}) {
   const { onDeleted } = options
@@ -90,7 +96,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       try {
         await skillService.invoke("openSkillFolder", { path: pathname })
       } catch (cause) {
-        toast.error(t("skills.openFolderFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.openFolderFailed", { error: skillActionErrorMessage(cause, t) }))
       }
     },
     [skillService, t],
@@ -102,7 +108,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
         await navigator.clipboard.writeText(pathname)
         toast.success(t("skills.pathCopied"))
       } catch (cause) {
-        toast.error(t("skills.pathCopyFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.pathCopyFailed", { error: skillActionErrorMessage(cause, t) }))
       }
     },
     [t],
@@ -115,7 +121,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
         toast.success(t("skills.shareCopied"))
         return true
       } catch (cause) {
-        toast.error(t("skills.shareCopyFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.shareCopyFailed", { error: skillActionErrorMessage(cause, t) }))
         return false
       }
     },
@@ -133,7 +139,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       try {
         await skillService.invoke("openSkillInEditor", { editorId, path: pathname })
       } catch (cause) {
-        toast.error(t("skills.openEditorFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.openEditorFailed", { error: skillActionErrorMessage(cause, t) }))
       } finally {
         finishActing(actingKey)
       }
@@ -170,7 +176,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
         await refreshSkillResources()
         toast.success(t("skills.publishDone"))
       } catch (cause) {
-        toast.error(t("skills.publishFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.publishFailed", { error: skillActionErrorMessage(cause, t) }))
       } finally {
         finishActing(request.key)
       }
@@ -220,11 +226,11 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
           await navigator.clipboard.writeText(result.prompt)
           copied = true
         } catch (cause) {
-          toast.error(t("skills.shareCopyFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+          toast.error(t("skills.shareCopyFailed", { error: skillActionErrorMessage(cause, t) }))
         }
         return { ...result, copied }
       } catch (cause) {
-        toast.error(t("skills.shareFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.shareFailed", { error: skillActionErrorMessage(cause, t) }))
         return undefined
       } finally {
         finishActing(actingKey)
@@ -262,7 +268,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
           : t("skills.removeAllDone", { name: target.skill.name }),
       )
     } catch (cause) {
-      toast.error(t("skills.removeFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+      toast.error(t("skills.removeFailed", { error: skillActionErrorMessage(cause, t) }))
     } finally {
       isRemovingSkillRef.current = false
       setIsRemovingSkill(false)

@@ -36,6 +36,7 @@ import {
   useSkillVersionReportResource,
 } from "@/components/AppDataHooks"
 import { AppIcons } from "@/components/AppIcons"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { InspectorAccordionItem, InspectorCard, InspectorInsetCard } from "@/components/InspectorPanel"
 import { ObjectRowSkeletonGroup, SkeletonText } from "@/components/LoadingSkeletons"
 import { objectRowLeadingClassName } from "@/components/object-row-styles"
@@ -88,11 +89,23 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { getPrimarySkillPath } from "@/lib/skill-utils"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 const builtInSelectionKey = "__built-in-skills__"
 const localProjectSelectionPrefix = "__local-project__:"
 const remotePublishedSkillSelectionPrefix = "__remote-published-skill__:"
+
+function SkillErrorNotice({ className, error }: { className?: string; error: string | null | undefined }) {
+  if (!error) {
+    return null
+  }
+  return <ErrorNotice error={resolveUserFacingError(error, { area: "skills" })} compact className={className} />
+}
+
+function skillErrorMessage(cause: unknown, t: TFunction): string {
+  return userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t)
+}
 
 type SkillSelectionKey = typeof builtInSelectionKey | string
 type SkillPageTab = "discover" | "manage"
@@ -1616,9 +1629,7 @@ export function SkillsRoute() {
         void myPublishedSkillsResource.refresh({ forceRefresh: true, silent: true }).catch(() => undefined)
         toast.success(t("skills.registryInstallDone", { name: targetSkillName }))
       } catch (cause) {
-        toast.error(
-          t("skills.registryInstallFailed", { error: cause instanceof Error ? cause.message : String(cause) }),
-        )
+        toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
         installRegistryInFlightRef.current = false
         setInstallingRegistryResultId(null)
@@ -1826,9 +1837,7 @@ export function SkillsRoute() {
         setIsEnablePlanDialogOpen(false)
         toast.success(t("skills.enableAllAgentsDone", { count: missingHostCount }))
       } catch (cause) {
-        toast.error(
-          t("skills.enableAllAgentsFailed", { error: cause instanceof Error ? cause.message : String(cause) }),
-        )
+        toast.error(t("skills.enableAllAgentsFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
         enableAllAgentsInFlightRef.current = false
         setEnablingAllAgentsSkillId(null)
@@ -1880,9 +1889,7 @@ export function SkillsRoute() {
         setEnablingAllAgentsSkillId(null)
         await executeEnableSkillForAllAgents(skill, plan)
       } catch (cause) {
-        toast.error(
-          t("skills.enableAllAgentsFailed", { error: cause instanceof Error ? cause.message : String(cause) }),
-        )
+        toast.error(t("skills.enableAllAgentsFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
         enableAllAgentsInFlightRef.current = false
         setEnablingAllAgentsSkillId(null)
@@ -1961,7 +1968,7 @@ export function SkillsRoute() {
         homeSummaryResource.invalidate()
         toast.success(t(direction === "apply" ? "skills.syncApplyDone" : "skills.syncUploadDone"))
       } catch (cause) {
-        toast.error(t("skills.syncFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.syncFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
         syncInFlightRef.current = false
         setSyncingDirection(null)
@@ -1994,9 +2001,7 @@ export function SkillsRoute() {
         homeSummaryResource.invalidate()
         void myPublishedSkillsResource.refresh({ forceRefresh: true, silent: true }).catch(() => undefined)
       } catch (cause) {
-        toast.error(
-          t("skills.registryInstallFailed", { error: cause instanceof Error ? cause.message : String(cause) }),
-        )
+        toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
         installRegistryInFlightRef.current = false
         setInstallingRegistryResultId(null)
@@ -2047,7 +2052,7 @@ export function SkillsRoute() {
         homeSummaryResource.invalidate()
         void myPublishedSkillsResource.refresh({ forceRefresh: true, silent: true }).catch(() => undefined)
       } catch (cause) {
-        toast.error(t("skills.remoteReplaceFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.remoteReplaceFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
         replaceRegistryInFlightRef.current = false
         setReplacingRegistryResultId(null)
@@ -2086,7 +2091,7 @@ export function SkillsRoute() {
         setSelectedSkillId(result.skillId)
         toast.success(t("skills.adoptDone", { name: project.name }))
       } catch (cause) {
-        toast.error(t("skills.adoptFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        toast.error(t("skills.adoptFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
         adoptLocalProjectInFlightRef.current = false
         setAdoptingLocalProjectId(null)
@@ -2202,13 +2207,11 @@ export function SkillsRoute() {
                 {inventoryResource.isInitialLoading ? (
                   <SkillListSkeleton />
                 ) : error && !inventory ? (
-                  <div className="oo-error">{error}</div>
+                  <SkillErrorNotice error={error} />
                 ) : (
                   <div className="grid gap-3">
-                    {error && <div className="oo-error">{error}</div>}
-                    {myPublishedSkillsResource.error ? (
-                      <div className="oo-error">{myPublishedSkillsResource.error}</div>
-                    ) : null}
+                    <SkillErrorNotice error={error} />
+                    <SkillErrorNotice error={myPublishedSkillsResource.error} />
                     {isMyPublishedSkillsLoading ? (
                       <RemotePublishedSkillPendingRow />
                     ) : hasPendingVisibility ? (
@@ -2774,7 +2777,7 @@ function DiscoverSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
       <div className="grid gap-3 pr-1">
-        {error ? <div className="oo-error">{error}</div> : null}
+        <SkillErrorNotice error={error} />
         {isLoading && packages.length === 0 ? (
           <PublicSkillGridSkeleton />
         ) : packages.length === 0 ? (
@@ -4242,7 +4245,7 @@ function SkillPeek({
             </AccordionTrigger>
             <AccordionContent className="grid min-w-0 gap-2 pb-3">
               {planError ? (
-                <div className="oo-error text-xs">{planError}</div>
+                <SkillErrorNotice error={planError} />
               ) : (
                 <>
                   {resetPlan?.status === "ready" && (

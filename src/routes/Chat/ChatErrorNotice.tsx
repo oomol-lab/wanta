@@ -254,6 +254,7 @@ export function ChatErrorNotice({
     ? t("chatError.paymentReturn.updatedDescription")
     : (error.descriptionText ?? t(error.descriptionKey))
   const effectiveSeverity: ChatErrorSeverity = recovered ? "info" : error.severity
+  const diagnosticsActionKey = error.secondaryActionKey ?? "chatError.common.copyDiagnostics"
 
   return (
     <>
@@ -300,7 +301,7 @@ export function ChatErrorNotice({
                       </Button>
                     ) : null}
                   </>
-                ) : error.secondaryActionKey ? (
+                ) : error.diagnostics ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -309,7 +310,7 @@ export function ChatErrorNotice({
                     onClick={handleCopyDiagnostics}
                   >
                     {diagnosticsCopied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-                    {diagnosticsCopied ? t("chat.copiedMessage") : t(error.secondaryActionKey)}
+                    {diagnosticsCopied ? t("chat.copiedMessage") : t(diagnosticsActionKey)}
                   </Button>
                 ) : null}
               </div>

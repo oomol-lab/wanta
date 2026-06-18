@@ -1,11 +1,14 @@
 import type { GenerateSessionTitleRequest, SessionInfo } from "../../electron/session/common.ts"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { useSessionService } from "@/components/AppContext"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface UseSessions {
   sessions: SessionInfo[]
   loaded: boolean
+  error: UserFacingError | null
   create: (title?: string) => Promise<SessionInfo>
   generateTitle: (req: GenerateSessionTitleRequest) => Promise<string>
   rename: (id: string, title: string) => Promise<void>
@@ -17,6 +20,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
   const sessionService = useSessionService()
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
   const [loaded, setLoaded] = React.useState(false)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
 
@@ -32,6 +36,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
     if (!enabled) {
       setSessions([])
       setLoaded(false)
+      setError(null)
       return
     }
     try {
@@ -40,8 +45,12 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
         return
       }
       setSessions(nextSessions)
+      setError(null)
     } catch (error) {
       console.error("[lumo] list sessions failed", error)
+      if (requestId === requestSequenceRef.current && enabledRef.current) {
+        setError(resolveUserFacingError(error, { area: "session" }))
+      }
     } finally {
       if (requestId === requestSequenceRef.current && enabledRef.current) {
         setLoaded(true)
@@ -53,6 +62,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
     if (!enabled) {
       setSessions([])
       setLoaded(false)
+      setError(null)
       return
     }
     void refresh()
@@ -62,6 +72,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       }
       setSessions(event.sessions)
       setLoaded(true)
+      setError(null)
     })
   }, [enabled, sessionService, refresh])
 
@@ -96,5 +107,5 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
     [sessionService],
   )
 
-  return { sessions, loaded, create, generateTitle, rename, remove, refresh }
+  return { sessions, loaded, error, create, generateTitle, rename, remove, refresh }
 }

@@ -1,5 +1,6 @@
-import { AlertCircleIcon, ArrowRightIcon, GaugeIcon, RefreshCwIcon, WalletCardsIcon, XIcon } from "lucide-react"
+import { ArrowRightIcon, GaugeIcon, RefreshCwIcon, WalletCardsIcon, XIcon } from "lucide-react"
 import * as React from "react"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
@@ -103,16 +104,15 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
           {loading && !data ? (
             <BillingUsageSkeleton />
           ) : error ? (
-            <div className="grid gap-3 rounded-lg border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] p-3 text-sm text-destructive">
-              <div className="flex items-start gap-2">
-                <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-              <Button type="button" variant="outline" size="sm" onClick={() => void refresh({ force: true })}>
-                <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
-                {t("billing.popover.retry")}
-              </Button>
-            </div>
+            <ErrorNotice
+              error={error}
+              compact
+              action={{
+                icon: <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />,
+                label: t("billing.popover.retry"),
+                onClick: () => void refresh({ force: true }),
+              }}
+            />
           ) : (
             <>
               <section className="grid gap-3">

@@ -12,6 +12,7 @@ import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
 import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 import type { TranslateFn } from "@/i18n/i18n"
+import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 import type { StickToBottomContext } from "use-stick-to-bottom"
@@ -53,6 +54,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -65,6 +67,7 @@ interface ChatAreaProps {
   activity: AssistantActivityEvent | null
   showEmptyState: boolean
   bootstrapping: boolean
+  startupError?: UserFacingError | null
   error: string | null
   submitDisabled: boolean
   initialSendPending: boolean
@@ -154,7 +157,6 @@ function TurnProcessActivity({
   blocks,
   process,
   billingCacheScope,
-  smoothAssistantMessageId,
   providerByService,
   onAuthorize,
   onViewBilling,
@@ -162,7 +164,6 @@ function TurnProcessActivity({
   blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
   billingCacheScope: string
-  smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
@@ -188,7 +189,7 @@ function TurnProcessActivity({
   const titleText = processStatusText(t, status)
   const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
-  const showLiveStatus = shouldShowLiveStatus(process, status)
+  const showLiveStatus = renderBlocks.length === 0
   const forceOpen = status === "needsAction" || status === "error"
   const userChangedOpenRef = React.useRef(false)
 
@@ -244,7 +245,7 @@ function TurnProcessActivity({
               block={block}
               blockClassName={assistantBlockClassName(renderBlocks, index)}
               billingCacheScope={billingCacheScope}
-              smoothText={message.id === smoothAssistantMessageId}
+              smoothText={false}
               providerByService={providerByService}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
@@ -760,7 +761,6 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 blocks={processBlocks}
                 process={process}
                 billingCacheScope={billingCacheScope}
-                smoothAssistantMessageId={smoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}
@@ -932,6 +932,7 @@ export const ChatArea = React.memo(function ChatArea({
   activity,
   showEmptyState,
   bootstrapping,
+  startupError,
   error,
   submitDisabled,
   initialSendPending,
@@ -978,7 +979,13 @@ export const ChatArea = React.memo(function ChatArea({
   )
   const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
 
-  const content = bootstrapping ? (
+  const content = startupError ? (
+    <div
+      className={cn("mx-auto grid min-h-full w-full place-items-center px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
+    >
+      <ErrorNotice error={startupError} />
+    </div>
+  ) : bootstrapping ? (
     <div className={cn("mx-auto min-h-full w-full px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)} aria-busy="true">
       <div className="space-y-3">
         <Skeleton className="h-3.5 w-28 rounded-sm motion-safe:animate-none" />

@@ -5,7 +5,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 import type { ChatStatus } from "ai"
 
-import { AlertTriangle, File as FileIcon, Folder, Plus } from "lucide-react"
+import { File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { AttachmentList } from "./ChatAttachments.tsx"
@@ -29,9 +29,11 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useT } from "@/i18n/i18n"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 interface ChatComposerProps {
@@ -201,12 +203,27 @@ export function ChatComposer({
     setInputError(null)
   }
 
-  const visibleError = error ?? inputError ?? modelError ?? voiceInput.error ?? voiceInput.recorderError
+  const visibleError = React.useMemo(() => {
+    if (error) {
+      return { error: resolveUserFacingError(error, { area: "chat" }), showDiagnosticsCopy: true }
+    }
+    if (inputError) {
+      return {
+        error: resolveUserFacingError(inputError, { area: "chat", preserveMessage: true }),
+        showDiagnosticsCopy: false,
+      }
+    }
+    if (modelError) {
+      return { error: modelError, showDiagnosticsCopy: true }
+    }
+    const voiceError = voiceInput.error ?? voiceInput.recorderError
+    if (voiceError) {
+      return { error: resolveUserFacingError(voiceError, { area: "voice" }), showDiagnosticsCopy: true }
+    }
+    return null
+  }, [error, inputError, modelError, voiceInput.error, voiceInput.recorderError])
   const errorBanner = visibleError ? (
-    <div className="oo-error flex items-center gap-2">
-      <AlertTriangle className="size-4" />
-      {visibleError}
-    </div>
+    <ErrorNotice error={visibleError.error} compact showDiagnosticsCopy={visibleError.showDiagnosticsCopy} />
   ) : null
   const canSubmit = !submitBlocked && !composerDisabled && (draft.trim().length > 0 || attachments.length > 0)
 

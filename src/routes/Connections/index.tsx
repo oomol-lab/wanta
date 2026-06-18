@@ -10,6 +10,7 @@ import type {
 } from "../../../electron/connections/common.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 import type { MessageKey, TranslateFn } from "@/i18n/i18n"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import {
   AlertCircle,
@@ -35,6 +36,7 @@ import {
 import { ProviderIcon } from "./ProviderIcon.tsx"
 import { authTypeLabel } from "./shared.ts"
 import { Loader } from "@/components/ai-elements/loader"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -56,6 +58,7 @@ import {
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 const executionLogLimit = 12
@@ -331,7 +334,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   const [detail, setDetail] = React.useState<ConnectionProviderDetail | null>(null)
   const [detailService, setDetailService] = React.useState<string | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
-  const [detailError, setDetailError] = React.useState<string | null>(null)
+  const [detailError, setDetailError] = React.useState<UserFacingError | null>(null)
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
     authType: "api_key" | "custom_credential" | "federated"
@@ -454,7 +457,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         if (!cancelled) {
           setDetail(null)
           setDetailService(null)
-          setDetailError(err instanceof Error ? err.message : String(err))
+          setDetailError(resolveUserFacingError(err, { area: "connections" }))
         }
       })
       .finally(() => {
@@ -505,7 +508,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
           <div className="grid gap-3">
             <SummaryHeader />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
-            {error && <div className="oo-error oo-text-micro">{error}</div>}
+            {error ? <ErrorNotice error={error} compact /> : null}
             {filteredProviders.length === 0 ? (
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
@@ -962,11 +965,11 @@ function ProviderDetail({
   provider,
   summary,
 }: {
-  actionError: string | null
+  actionError: UserFacingError | null
   busy: UseConnections["busy"]
   connections: UseConnections
   detail: ConnectionProviderDetail | null
-  detailError: string | null
+  detailError: UserFacingError | null
   detailLoading: boolean
   onCancelPolling: () => void
   onClose: () => void
@@ -1018,8 +1021,8 @@ function ProviderDetail({
             </Button>
           </div>
         </div>
-        {actionError ? <div className="oo-error oo-text-micro">{actionError}</div> : null}
-        {detailError ? <div className="oo-error oo-text-micro">{detailError}</div> : null}
+        {actionError ? <ErrorNotice error={actionError} compact /> : null}
+        {detailError ? <ErrorNotice error={detailError} compact /> : null}
         <ConnectionPanel
           busy={busy}
           currentAuthType={currentAuthType}
@@ -1209,7 +1212,7 @@ function ProviderUsagePanel({
   const [isUsageDialogOpen, setIsUsageDialogOpen] = React.useState(false)
   const [logs, setLogs] = React.useState<ConnectionExecutionLogSummary | null>(null)
   const [loading, setLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
   const providerUsage = usage ?? {
     calls: 0,
     errors: 0,
@@ -1228,7 +1231,7 @@ function ProviderUsagePanel({
     try {
       setLogs(await connections.getExecutionLogs({ service: provider.service, limit: executionLogLimit }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(resolveUserFacingError(err, { area: "connections" }))
     } finally {
       setLoading(false)
     }
@@ -1311,7 +1314,7 @@ function UsageDialog({
   onClose,
   onRefresh,
 }: {
-  error: string | null
+  error: UserFacingError | null
   loading: boolean
   logs: ConnectionExecutionLogSummary | null
   onClose: () => void
@@ -1416,7 +1419,7 @@ function ExecutionLogs({
 }: {
   logs: ConnectionExecutionLogSummary | null
   loading: boolean
-  error: string | null
+  error: UserFacingError | null
 }) {
   const t = useT()
   return (
@@ -1432,7 +1435,7 @@ function ExecutionLogs({
           <div className="h-9 animate-pulse rounded-md bg-muted" />
         </div>
       ) : error ? (
-        <div className="oo-error oo-text-micro">{error}</div>
+        <ErrorNotice error={error} compact />
       ) : !logs || logs.items.length === 0 ? (
         <div className="oo-text-caption oo-text-muted rounded-md bg-muted/35 px-3 py-2">{t("connections.noData")}</div>
       ) : (

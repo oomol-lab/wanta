@@ -26,6 +26,7 @@ import {
   toNumber,
   usageCategory,
 } from "./usage.ts"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -110,11 +111,7 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
           </div>
         </section>
 
-        {error ? (
-          <div className="oo-text-body rounded-md border border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)] px-3 py-2.5 text-destructive">
-            {error}
-          </div>
-        ) : null}
+        {error ? <ErrorNotice error={error} /> : null}
 
         <BalanceOverview
           averageDailySpend={averageDailySpend}

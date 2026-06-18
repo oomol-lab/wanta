@@ -115,6 +115,15 @@ export interface AgentErrorEvent {
   sessionId?: string
   message: string
 }
+export type AgentRuntimeStatus =
+  | { status: "signed_out" }
+  | { status: "starting" }
+  | { status: "ready" }
+  | { status: "error"; message: string }
+
+export interface AgentStatusChangedEvent {
+  status: AgentRuntimeStatus
+}
 
 // ── 规范化消息（切换会话时加载历史用）──
 export interface ChatMessagePart {
@@ -367,6 +376,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
     agentError: AgentErrorEvent
+    agentStatusChanged: AgentStatusChangedEvent
   }
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
@@ -384,6 +394,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>
+    getAgentStatus(): Promise<AgentRuntimeStatus>
     /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
     isReady(): Promise<boolean>
   }

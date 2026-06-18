@@ -4,10 +4,12 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { BrainCircuit, CheckCircle2, ChevronDown, ExternalLink, Settings2, Trash2 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -284,7 +286,7 @@ export function AddCustomModelDialog({
 }: {
   open: boolean
   providers: CustomModelProvider[]
-  error: string | null
+  error: UserFacingError | null
   onClose: () => void
   onSave: (req: SaveCustomModelRequest) => Promise<void>
 }) {
@@ -427,7 +429,7 @@ export function AddCustomModelDialog({
           </label>
         </div>
 
-        {error ? <div className="oo-error flex items-center gap-2">{error}</div> : null}
+        {error ? <ErrorNotice error={error} compact /> : null}
       </div>
     </Dialog>
   )

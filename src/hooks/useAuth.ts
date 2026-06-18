@@ -1,9 +1,9 @@
 import type { AuthState } from "../../electron/auth/common.ts"
-import type { UserFacingError } from "@/lib/user-facing-error"
+import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useAuthService } from "@/components/AppContext"
-import { resolveUserFacingError } from "@/lib/user-facing-error"
+import { useAuthService } from "../components/AppContext.ts"
+import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 export interface UseAuth {
   /** null = 初始状态尚未加载（避免登录页闪烁）。 */

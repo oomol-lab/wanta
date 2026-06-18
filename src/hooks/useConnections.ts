@@ -7,11 +7,11 @@ import type {
   ConnectionSummary,
   ConnectionSummaryRequest,
 } from "../../electron/connections/common.ts"
-import type { UserFacingError } from "@/lib/user-facing-error"
+import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useConnectionsService } from "@/components/AppContext"
-import { resolveUserFacingError } from "@/lib/user-facing-error"
+import { useConnectionsService } from "../components/AppContext.ts"
+import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 const POLL_INTERVAL_MS = 2000
 const POLL_TIMEOUT_MS = 5 * 60_000

@@ -1,3 +1,5 @@
+import { branding } from "../branding.ts"
+
 export type BuiltinProviderKind = "openai-compatible" | "openai-responses"
 
 export interface BuiltinProviderDefinition {
@@ -34,7 +36,7 @@ export const DEFAULT_BUILTIN_MODEL_ID: BuiltinModelId = "oopilot"
 export const BUILTIN_PROVIDER_DEFINITIONS: BuiltinProviderDefinition[] = [
   {
     id: "oomol",
-    displayName: "OOMOL",
+    displayName: branding.organizationName,
     kind: "openai-compatible",
     npm: "@ai-sdk/openai-compatible",
   },
@@ -49,7 +51,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   {
     id: DEFAULT_BUILTIN_MODEL_ID,
     displayName: "Auto",
-    providerName: "OOMOL",
+    providerName: branding.organizationName,
     runtime: {
       providerID: "oomol",
       modelID: "oopilot",
@@ -62,7 +64,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   {
     id: "gpt-5.5",
     displayName: "GPT 5.5",
-    providerName: "OOMOL",
+    providerName: "OpenAI",
     runtime: {
       providerID: "openai",
       modelID: "gpt-5.5",

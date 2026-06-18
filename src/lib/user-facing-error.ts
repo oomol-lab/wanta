@@ -1,4 +1,4 @@
-import type { MessageKey, TranslateFn } from "@/i18n/i18n"
+import type { MessageKey, TranslateFn } from "../i18n/i18n.ts"
 
 export type UserFacingErrorSeverity = "info" | "warning" | "destructive"
 

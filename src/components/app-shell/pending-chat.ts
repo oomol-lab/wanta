@@ -10,6 +10,8 @@ export interface PendingChatTransition {
   createdAt: number
 }
 
+const pendingServerMatchSkewMs = 30_000
+
 function hasUserVisibleContent(message: ChatMessage): boolean {
   if (message.role !== "user") {
     return false
@@ -68,7 +70,9 @@ export function isPendingChatCaughtUp(
       (message) =>
         message.role === "user" &&
         hasUserVisibleContent(message) &&
-        (message.createdAt >= pending.createdAt || matchesPendingUserMessage(pending, message)),
+        (message.createdAt >= pending.createdAt ||
+          (message.createdAt >= pending.createdAt - pendingServerMatchSkewMs &&
+            matchesPendingUserMessage(pending, message))),
     ),
   )
 }

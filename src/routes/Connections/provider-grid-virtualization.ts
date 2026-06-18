@@ -77,12 +77,13 @@ export function getProviderGridVisibleRange({
   }
 
   const rowPitch = rowHeight + rowGap
+  const safeOverscanRows = Math.max(0, overscanRows)
   const safeViewportHeight = Math.max(0, viewportHeight)
   const maxVisibleTop = Math.max(0, totalHeight - safeViewportHeight)
   const visibleTop = Math.min(Math.max(0, scrollTop - catalogTop), maxVisibleTop)
   const visibleBottom = visibleTop + safeViewportHeight
-  const startRow = Math.max(0, Math.floor(visibleTop / rowPitch) - overscanRows)
-  const endRow = Math.min(rowCount, Math.ceil(visibleBottom / rowPitch) + overscanRows)
+  const startRow = Math.max(0, Math.floor(visibleTop / rowPitch) - safeOverscanRows)
+  const endRow = Math.min(rowCount, Math.ceil(visibleBottom / rowPitch) + safeOverscanRows)
 
   return {
     endIndex: Math.min(providerCount, endRow * safeColumnCount),

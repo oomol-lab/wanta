@@ -880,8 +880,9 @@ export function AppShell() {
 
     const readStatus = async (): Promise<void> => {
       try {
+        const status = await chatService.invoke("getAgentStatus")
         if (!cancelled) {
-          applyStatus(await chatService.invoke("getAgentStatus"))
+          applyStatus(status)
         }
       } catch {
         if (!cancelled) {

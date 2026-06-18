@@ -7,19 +7,15 @@ import type {
   SkillInventory,
   SkillShareResult,
 } from "../../electron/skills/common.ts"
-import type { TranslateFn } from "@/i18n"
+import type { TranslateFn } from "../i18n/index.ts"
 
 import * as React from "react"
 import { toast } from "sonner"
-import { useSkillService } from "@/components/AppContext"
-import {
-  useSkillInventoryResource,
-  useSkillShareInfoStore,
-  useSkillVersionReportResource,
-} from "@/components/AppDataHooks"
-import { useAppI18n } from "@/i18n"
-import { getPrimarySkillSourcePath } from "@/lib/skill-utils"
-import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
+import { useAppI18n } from "../i18n/index.ts"
+import { getPrimarySkillSourcePath } from "../lib/skill-utils.ts"
+import { resolveUserFacingError, userFacingErrorDescription } from "../lib/user-facing-error.ts"
+import { useSkillService } from "./AppContext.ts"
+import { useSkillInventoryResource, useSkillShareInfoStore, useSkillVersionReportResource } from "./AppDataHooks.ts"
 
 interface UseSkillObjectActionsOptions {
   onDeleted?: (inventory: SkillInventory) => void

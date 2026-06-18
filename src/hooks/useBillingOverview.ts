@@ -1,9 +1,9 @@
 import type { BillingOverviewResult, BillingPeriodDays } from "../../electron/chat/common.ts"
-import type { UserFacingError } from "@/lib/user-facing-error"
+import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useChatService } from "@/components/AppContext"
-import { resolveUserFacingError } from "@/lib/user-facing-error"
+import { useChatService } from "../components/AppContext.ts"
+import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 const defaultStaleMs = 60_000
 

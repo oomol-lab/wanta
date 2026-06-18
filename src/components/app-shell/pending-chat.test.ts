@@ -66,6 +66,19 @@ describe("isPendingChatCaughtUp", () => {
     assert.equal(isPendingChatCaughtUp(pending("session-1"), "session-1", messages), true)
   })
 
+  test("does not catch up from an old duplicate user message", () => {
+    const messages = [
+      message({
+        role: "user",
+        id: "old-user-1",
+        createdAt: 1_699_999_900_000,
+        parts: [{ kind: "text", partId: "text-1", text: "今天杭州天气怎么样" }],
+      }),
+    ]
+
+    assert.equal(isPendingChatCaughtUp(pending("session-1"), "session-1", messages), false)
+  })
+
   test("treats attachment-only user messages as visible", () => {
     const messages = [
       message({

@@ -3,8 +3,8 @@ import type { ChatMessagePart } from "../../../electron/chat/common.ts"
 import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+import { I18nContext, translate } from "../../i18n/i18n.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
-import { I18nContext, translate } from "@/i18n/i18n"
 
 function renderToolActivityStep(part: ChatMessagePart, options: { shimmer?: boolean } = {}): string {
   return renderToStaticMarkup(

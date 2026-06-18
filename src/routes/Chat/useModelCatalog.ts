@@ -1,9 +1,9 @@
 import type { ModelCatalog, ModelChoice, SaveCustomModelRequest } from "../../../electron/models/common.ts"
-import type { UserFacingError } from "@/lib/user-facing-error"
+import type { UserFacingError } from "../../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useModelsService } from "@/components/AppContext"
-import { resolveUserFacingError } from "@/lib/user-facing-error"
+import { useModelsService } from "../../components/AppContext.ts"
+import { resolveUserFacingError } from "../../lib/user-facing-error.ts"
 
 export interface UseModelCatalog {
   catalog: ModelCatalog | null
@@ -66,7 +66,11 @@ export function useModelCatalog(): UseModelCatalog {
   const selectModel = React.useCallback(
     (choice: ModelChoice) => {
       setError(null)
-      setCatalog((current) => withSelectedModel(current, choice))
+      let previousCatalog: ModelCatalog | null = null
+      setCatalog((current) => {
+        previousCatalog = current
+        return withSelectedModel(current, choice)
+      })
       void modelsService
         .invoke("setSelectedModel", choice)
         .then(setCatalog)
@@ -75,7 +79,7 @@ export function useModelCatalog(): UseModelCatalog {
           void modelsService
             .invoke("listModels")
             .then(setCatalog)
-            .catch(() => undefined)
+            .catch(() => setCatalog(previousCatalog))
         })
     },
     [modelsService],

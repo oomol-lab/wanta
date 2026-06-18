@@ -473,6 +473,26 @@ function isDisplayableArtifactGroup(group: LocalArtifactGroup): boolean {
   return group.items.length > 0
 }
 
+function filterArtifactPack(
+  pack: LocalArtifactPack | undefined,
+  allowedPaths: Set<string>,
+): LocalArtifactPack | undefined {
+  if (!pack) {
+    return undefined
+  }
+  const items = pack.items.filter((item) => allowedPaths.has(item.path))
+  const supporting = pack.supporting.filter((item) => allowedPaths.has(item.path))
+  if (items.length === 0 && supporting.length === 0) {
+    return undefined
+  }
+  return {
+    ...pack,
+    items,
+    supporting,
+    totalItems: items.length + supporting.length,
+  }
+}
+
 function filterArtifactPayloads(
   payloads: ResolvedArtifactPayload[],
   source: GeneratedArtifactSource,
@@ -482,16 +502,23 @@ function filterArtifactPayloads(
     const { group, pack } = payload
     const rootExcluded = Boolean(group.root && sourcePaths.has(group.root.path))
     const items = group.items.filter((item) => !sourcePaths.has(item.path) && !isIntermediateCodeArtifact(item, source))
+    const allowedPaths = new Set(items.map((item) => item.path))
+    const filteredPack = filterArtifactPack(pack, allowedPaths)
     if (items.length === 0) {
       return []
     }
     if (rootExcluded) {
-      return [{ group: { items, totalItems: items.length, truncated: false }, ...(pack ? { pack } : {}) }]
+      return [
+        {
+          group: { items, totalItems: items.length, truncated: false },
+          ...(filteredPack ? { pack: filteredPack } : {}),
+        },
+      ]
     }
     return [
       {
         group: { ...group, items, totalItems: group.root?.kind === "directory" ? items.length : group.totalItems },
-        ...(pack ? { pack } : {}),
+        ...(filteredPack ? { pack: filteredPack } : {}),
       },
     ]
   })

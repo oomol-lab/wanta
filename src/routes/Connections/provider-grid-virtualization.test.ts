@@ -50,4 +50,18 @@ describe("provider grid virtualization", () => {
     expect(range.startIndex).toBe(6)
     expect(range.endIndex).toBe(12)
   })
+
+  it("clamps negative overscan rows", () => {
+    const range = getProviderGridVisibleRange({
+      catalogTop: 0,
+      columnCount: 3,
+      overscanRows: -10,
+      providerCount: 30,
+      scrollTop: providerGridCardHeightPx + providerGridGapPx,
+      viewportHeight: providerGridCardHeightPx,
+    })
+
+    expect(range.startIndex).toBe(3)
+    expect(range.endIndex).toBe(6)
+  })
 })

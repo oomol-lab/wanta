@@ -43,7 +43,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
-import { open, readdir, readFile, stat } from "node:fs/promises"
+import { open, readdir, readFile, realpath, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
@@ -601,7 +601,7 @@ function primaryPathItems(value: unknown): ArtifactManifestItem[] {
     .map((item, index) => ({ path: item, role: "primary", order: index + 1 }))
 }
 
-function resolveArtifactManifestPath(rootDir: string, value: unknown): string | null {
+async function resolveArtifactManifestPath(rootDir: string, value: unknown): Promise<string | null> {
   const relativePath = optionalString(value)
   if (!relativePath || path.isAbsolute(relativePath) || relativePath.startsWith("~")) {
     return null
@@ -609,6 +609,14 @@ function resolveArtifactManifestPath(rootDir: string, value: unknown): string | 
   const root = path.resolve(rootDir)
   const resolved = path.resolve(root, relativePath)
   if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    return null
+  }
+  try {
+    const [realRoot, realResolved] = await Promise.all([realpath(root), realpath(resolved)])
+    if (realResolved !== realRoot && !realResolved.startsWith(`${realRoot}${path.sep}`)) {
+      return null
+    }
+  } catch {
     return null
   }
   return resolved
@@ -621,7 +629,7 @@ async function artifactManifestEntry(
   fallbackOrder: number,
   seen: Set<string>,
 ): Promise<LocalArtifactEntry | null> {
-  const filePath = resolveArtifactManifestPath(rootDir, raw.path)
+  const filePath = await resolveArtifactManifestPath(rootDir, raw.path)
   if (!filePath || seen.has(filePath)) {
     return null
   }

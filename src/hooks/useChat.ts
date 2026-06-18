@@ -52,6 +52,7 @@ type PendingToolPart = {
 const userStoppedToolCancelWindowMs = 30_000
 // 工具事件可能早于同一 text part 的尾部 delta 抵达；短暂等待可避免先露工具、再在上方补字。
 const toolPartSettleDelayMs = 240
+const toolPartMaxSettleDelayMs = 1200
 
 export interface UseChat {
   messages: ChatMessage[]
@@ -129,6 +130,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const pendingTextFrame = React.useRef<number | null>(null)
   const pendingToolParts = React.useRef(new Map<string, PendingToolPart>())
   const pendingToolTimer = React.useRef<number | null>(null)
+  const pendingToolDelayStartedAt = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     visibleSessionIdRef.current = visibleSessionId
@@ -220,6 +222,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       window.clearTimeout(pendingToolTimer.current)
       pendingToolTimer.current = null
     }
+    pendingToolDelayStartedAt.current = null
     flushPendingTextDeltas()
     if (pendingToolParts.current.size === 0) {
       return
@@ -245,10 +248,14 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     if (pendingToolTimer.current !== null) {
       window.clearTimeout(pendingToolTimer.current)
     }
+    const now = Date.now()
+    pendingToolDelayStartedAt.current ??= now
+    const elapsed = now - pendingToolDelayStartedAt.current
+    const delay = Math.max(0, Math.min(toolPartSettleDelayMs, toolPartMaxSettleDelayMs - elapsed))
     pendingToolTimer.current = window.setTimeout(() => {
       pendingToolTimer.current = null
       flushPendingToolParts()
-    }, toolPartSettleDelayMs)
+    }, delay)
   }, [flushPendingToolParts])
 
   const enqueueToolPart = React.useCallback(
@@ -325,6 +332,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         window.clearTimeout(pendingToolTimer.current)
         pendingToolTimer.current = null
       }
+      pendingToolDelayStartedAt.current = null
       pendingToolParts.current.clear()
     }
   }, [])

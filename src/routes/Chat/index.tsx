@@ -53,6 +53,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
@@ -63,6 +64,7 @@ interface ChatAreaProps {
   status: ChatStatus
   activity: AssistantActivityEvent | null
   showEmptyState: boolean
+  bootstrapping: boolean
   error: string | null
   disabled: boolean
   initialSendPending: boolean
@@ -923,12 +925,13 @@ const ChatTimeline = React.memo(function ChatTimeline({
   )
 })
 
-export function ChatArea({
+export const ChatArea = React.memo(function ChatArea({
   billingCacheScope,
   messages,
   status,
   activity,
   showEmptyState,
+  bootstrapping,
   error,
   disabled,
   initialSendPending,
@@ -974,7 +977,33 @@ export function ChatArea({
     />
   )
 
-  if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
+  if (bootstrapping) {
+    return (
+      <div className="flex h-full min-h-0" aria-busy="true">
+        <div className="flex min-w-0 flex-1 flex-col pb-4">
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <div className={cn("mx-auto min-h-full w-full px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
+              <div className="space-y-3">
+                <Skeleton className="h-3.5 w-28 rounded-sm" />
+                <Skeleton className="h-3.5 w-72 max-w-[68%] rounded-sm" />
+                <Skeleton className="h-3.5 w-48 max-w-[52%] rounded-sm" />
+              </div>
+            </div>
+          </div>
+          <div
+            className={cn(
+              "mx-auto flex w-full flex-col gap-2 px-4 transition-transform duration-300 ease-out",
+              CHAT_CONTENT_MAX_WIDTH_CLASS,
+            )}
+          >
+            {composer}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (showEmptyState && !hasMessages && !isGenerating) {
     return (
       <div className="grid h-full min-h-0 animate-in place-items-center px-4 py-6 duration-200 fade-in sm:px-5 lg:px-8">
         <div
@@ -1019,4 +1048,4 @@ export function ChatArea({
       </div>
     </div>
   )
-}
+})

@@ -5,6 +5,7 @@ import { useSessionService } from "@/components/AppContext"
 
 export interface UseSessions {
   sessions: SessionInfo[]
+  loaded: boolean
   create: (title?: string) => Promise<SessionInfo>
   generateTitle: (req: GenerateSessionTitleRequest) => Promise<string>
   rename: (id: string, title: string) => Promise<void>
@@ -12,24 +13,38 @@ export interface UseSessions {
   refresh: () => Promise<void>
 }
 
-export function useSessions(): UseSessions {
+export function useSessions({ enabled = true }: { enabled?: boolean } = {}): UseSessions {
   const sessionService = useSessionService()
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
+  const [loaded, setLoaded] = React.useState(false)
 
   const refresh = React.useCallback(async () => {
+    if (!enabled) {
+      setSessions([])
+      setLoaded(false)
+      return
+    }
     try {
       setSessions(await sessionService.invoke("list"))
     } catch (error) {
       console.error("[lumo] list sessions failed", error)
+    } finally {
+      setLoaded(true)
     }
-  }, [sessionService])
+  }, [enabled, sessionService])
 
   React.useEffect(() => {
+    if (!enabled) {
+      setSessions([])
+      setLoaded(false)
+      return
+    }
     void refresh()
     return sessionService.serverEvents.on("sessionsChanged", (event) => {
       setSessions(event.sessions)
+      setLoaded(true)
     })
-  }, [sessionService, refresh])
+  }, [enabled, sessionService, refresh])
 
   const create = React.useCallback(
     async (title?: string) => {
@@ -62,5 +77,5 @@ export function useSessions(): UseSessions {
     [sessionService],
   )
 
-  return { sessions, create, generateTitle, rename, remove, refresh }
+  return { sessions, loaded, create, generateTitle, rename, remove, refresh }
 }

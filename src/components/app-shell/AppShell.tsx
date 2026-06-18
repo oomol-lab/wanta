@@ -1233,6 +1233,9 @@ export function AppShell() {
     if (dispatchingQueuedSessionsRef.current.has(activeSessionId)) {
       return
     }
+    if (sendInFlightRef.current) {
+      return
+    }
     const queue = queuedMessagesBySession[activeSessionId] ?? []
     if (queue.length === 0) {
       return

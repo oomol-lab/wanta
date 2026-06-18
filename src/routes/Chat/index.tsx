@@ -104,7 +104,7 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
   if (process.hasBlockingError) {
     return "error"
   }
-  if (process.hasActiveTool || process.activity) {
+  if (process.hasActiveTool || (process.activity && !process.hasFinalAnswer)) {
     return "running"
   }
   if (process.hasStoppedTool) {
@@ -114,7 +114,7 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
 }
 
 function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>, now: number): string | null {
-  const isLive = process.hasActiveTool || Boolean(process.activity)
+  const isLive = process.hasActiveTool || Boolean(process.activity && !process.hasFinalAnswer)
   const toolDuration = !isLive && process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
   if (!isLive && toolDuration) {
     return toolDuration

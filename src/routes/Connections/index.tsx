@@ -21,6 +21,7 @@ import {
   Plug,
   RefreshCw,
   Unplug,
+  X,
 } from "lucide-react"
 import * as React from "react"
 import { ConnectDialog } from "./ConnectDialog.tsx"
@@ -262,8 +263,9 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     return catalogProviders.filter((provider) => matchesProviderQuery(provider, normalizedQuery))
   }, [catalogProviders, normalizedQuery])
   const categoryGroups = React.useMemo(() => groupProvidersByCategory(filteredProviders, t), [filteredProviders, t])
-  const selectedProvider =
-    filteredProviders.find((provider) => provider.service === selectedProviderService) ?? filteredProviders[0] ?? null
+  const selectedProvider = selectedProviderService
+    ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
+    : null
 
   React.useEffect(() => {
     if (!selectedService) {
@@ -276,18 +278,21 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     setNarrowPane("detail")
   }, [selectedService])
 
+  const closeDetail = React.useCallback(() => {
+    setSelectedProviderService(null)
+    setNarrowPane("list")
+  }, [])
+
   React.useEffect(() => {
-    if (!selectedProvider) {
-      setSelectedProviderService(null)
+    if (!selectedProviderService || !summary) {
       return
     }
 
-    setSelectedProviderService((current) =>
-      current && filteredProviders.some((provider) => provider.service === current)
-        ? current
-        : selectedProvider.service,
-    )
-  }, [filteredProviders, selectedProvider])
+    if (!filteredProviders.some((provider) => provider.service === selectedProviderService)) {
+      setSelectedProviderService(null)
+      setNarrowPane("list")
+    }
+  }, [filteredProviders, selectedProviderService, summary])
 
   React.useEffect(() => {
     if (!selectedProvider) {
@@ -353,8 +358,8 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         />
       </SplitViewHeader>
 
-      <SplitViewBody>
-        <SplitViewListPane narrowPane={narrowPane}>
+      <SplitViewBody desktopLayout={selectedProvider ? "default" : "single"}>
+        <SplitViewListPane narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
             <SummaryHeader activeView={activeView} filteredCount={filteredProviders.length} summary={summary} />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
@@ -376,14 +381,14 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
           </div>
         </SplitViewListPane>
 
-        <SplitViewMobileDetailPane narrowPane={narrowPane}>
-          <div className="mb-2">
-            <Button variant="ghost" size="sm" onClick={() => setNarrowPane("list")}>
-              <ArrowLeft className="size-4" />
-              {t("connections.backToProviders")}
-            </Button>
-          </div>
-          {selectedProvider ? (
+        {selectedProvider ? (
+          <SplitViewMobileDetailPane narrowPane={narrowPane}>
+            <div className="mb-2">
+              <Button variant="ghost" size="sm" onClick={() => setNarrowPane("list")}>
+                <ArrowLeft className="size-4" />
+                {t("connections.backToProviders")}
+              </Button>
+            </div>
             <ProviderDetail
               actionError={error}
               busy={busy}
@@ -392,19 +397,18 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
               detailLoading={detailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
+              onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={setConfirmDisconnect}
               polling={polling}
               provider={selectedProvider}
               summary={summary}
             />
-          ) : (
-            <EmptyDetail summary={summary} />
-          )}
-        </SplitViewMobileDetailPane>
+          </SplitViewMobileDetailPane>
+        ) : null}
 
-        <SplitViewDesktopDetailPane>
-          {selectedProvider ? (
+        {selectedProvider ? (
+          <SplitViewDesktopDetailPane className="pt-4">
             <ProviderDetail
               actionError={error}
               busy={busy}
@@ -413,16 +417,15 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
               detailLoading={detailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
+              onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={setConfirmDisconnect}
               polling={polling}
               provider={selectedProvider}
               summary={summary}
             />
-          ) : (
-            <EmptyDetail summary={summary} />
-          )}
-        </SplitViewDesktopDetailPane>
+          </SplitViewDesktopDetailPane>
+        ) : null}
       </SplitViewBody>
 
       <ConnectDialog
@@ -749,20 +752,6 @@ function EmptyList({ summary, hasQuery }: { summary: ConnectionSummary | null; h
   )
 }
 
-function EmptyDetail({ summary }: { summary: ConnectionSummary | null }) {
-  const t = useT()
-  const state = getEmptyState(summary, t)
-  return (
-    <section className="grid gap-2 rounded-lg border px-3 py-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <Plug className="oo-icon-muted size-4" />
-        <div className="oo-text-title truncate">{state.title}</div>
-      </div>
-      <p className="oo-text-caption oo-text-muted">{state.description}</p>
-    </section>
-  )
-}
-
 function ProviderDetail({
   actionError,
   busy,
@@ -771,6 +760,7 @@ function ProviderDetail({
   detailLoading,
   connections,
   onCancelPolling,
+  onClose,
   onConnect,
   onDisconnect,
   polling,
@@ -784,6 +774,7 @@ function ProviderDetail({
   detailError: string | null
   detailLoading: boolean
   onCancelPolling: () => void
+  onClose: () => void
   onConnect: (provider: ConnectionProviderSummary, authType: Exclude<ConnectionAuthType, null>) => Promise<void>
   onDisconnect: (provider: ConnectionProviderSummary) => void
   polling: string | null
@@ -798,7 +789,7 @@ function ProviderDetail({
     <div className="grid min-w-0 gap-3">
       {summary && summary.status !== "ready" ? <StatusNotice summary={summary} /> : null}
 
-      <section className="grid gap-3 rounded-md border bg-[var(--oo-inspector-surface)] px-3 py-3">
+      <section className="grid gap-3 border-b pb-3">
         <div className="flex min-w-0 items-start gap-3">
           <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="lg" />
           <div className="min-w-0 flex-1">
@@ -808,17 +799,29 @@ function ProviderDetail({
             </div>
             <p className="oo-text-caption oo-text-muted mt-1 break-words">{getProviderDescription(provider, t)}</p>
           </div>
-          {detail?.homepageUrl ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {detail?.homepageUrl ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                title={t("connections.homepage")}
+                onClick={() => void connections.openExternal(detail.homepageUrl as string)}
+              >
+                <ExternalLink className="size-4" />
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
-              className="size-8"
-              title={t("connections.homepage")}
-              onClick={() => void connections.openExternal(detail.homepageUrl as string)}
+              className="hidden size-8 min-[960px]:inline-flex"
+              aria-label={t("connections.closeProviderDetails")}
+              title={t("connections.closeProviderDetails")}
+              onClick={onClose}
             >
-              <ExternalLink className="size-4" />
+              <X className="size-4" />
             </Button>
-          ) : null}
+          </div>
         </div>
         {actionError ? <div className="oo-error oo-text-micro">{actionError}</div> : null}
         {detailError ? <div className="oo-error oo-text-micro">{detailError}</div> : null}
@@ -1076,24 +1079,28 @@ function ProviderUsagePanel({
 
   return (
     <section className="grid gap-1.5">
-      <h3 className="oo-text-title px-0.5">{t("connections.usageTitle")}</h3>
-      <button
-        type="button"
-        className="group grid min-w-0 gap-2 rounded-md bg-[var(--oo-inspector-surface)] px-2.5 py-2 text-left transition-colors outline-none hover:bg-[var(--oo-surface-raised)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        aria-label={t("connections.viewUsageForProvider", { name: provider.displayName })}
-        onClick={() => setIsUsageDialogOpen(true)}
-      >
+      <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
+        <h3 className="oo-text-title truncate">{t("connections.usageTitle")}</h3>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0 gap-1.5"
+          aria-label={t("connections.viewUsageForProvider", { name: provider.displayName })}
+          onClick={() => setIsUsageDialogOpen(true)}
+        >
+          <BarChart3 className="size-3.5" />
+          {t("connections.viewUsage")}
+        </Button>
+      </div>
+      <div className="grid min-w-0 gap-2 rounded-md bg-[var(--oo-inspector-surface)] px-2.5 py-2">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="grid min-w-0 gap-0.5">
             <div className="oo-text-title truncate">{usageTitle}</div>
             <div className="oo-text-caption oo-text-muted truncate">{usageDetail}</div>
           </div>
-          <span className="oo-text-caption oo-text-muted inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 group-hover:text-foreground">
-            <BarChart3 className="size-3.5" />
-            {t("connections.viewUsage")}
-          </span>
         </div>
-      </button>
+      </div>
       <UsageDialog
         open={isUsageDialogOpen}
         provider={provider}

@@ -1022,11 +1022,26 @@ function ArtifactPreview({
 function CopyContentButton({ text }: { text: string }) {
   const t = useT()
   const [copied, setCopied] = React.useState(false)
+  const copiedTimerRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current)
+      }
+    }
+  }, [])
 
   const copy = async (): Promise<void> => {
     if (await writeClipboardText(text)) {
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1200)
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current)
+      }
+      copiedTimerRef.current = window.setTimeout(() => {
+        setCopied(false)
+        copiedTimerRef.current = null
+      }, 1200)
     }
   }
 

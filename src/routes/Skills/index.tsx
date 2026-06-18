@@ -137,6 +137,8 @@ const initialPublicPackageCatalogState: PublicPackageCatalogState = {
   status: "idle",
 }
 
+const discoverAutoLoadThresholdPx = 160
+
 const unpublishedSkillShareInfo: SkillShareInfo = {
   limitsRequired: false,
   visibility: "unpublished",
@@ -202,6 +204,10 @@ function publicPackageCatalogReducer(
         selectedId: action.id,
       }
   }
+}
+
+function isNearScrollBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= discoverAutoLoadThresholdPx
 }
 
 function getInstalledHostCount(group: ManagedSkillGroup): number {
@@ -2744,9 +2750,29 @@ function DiscoverSkillsPane({
   selectedPackage,
 }: DiscoverSkillsPaneProps) {
   const { t } = useAppI18n()
+  const autoLoadRequestedRef = React.useRef(false)
+  const canLoadMore = Boolean(next) && !isLoading && !isLoadingMore && packages.length > 0
+
+  React.useEffect(() => {
+    if (!isLoadingMore) {
+      autoLoadRequestedRef.current = false
+    }
+  }, [isLoadingMore, next])
+
+  const handleScroll = React.useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      if (!canLoadMore || autoLoadRequestedRef.current || !isNearScrollBottom(event.currentTarget)) {
+        return
+      }
+
+      autoLoadRequestedRef.current = true
+      onLoadMore()
+    },
+    [canLoadMore, onLoadMore],
+  )
 
   return (
-    <div className="min-h-0 overflow-auto px-3 py-3">
+    <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
       <div className="grid gap-3 pr-1">
         {error ? <div className="oo-error">{error}</div> : null}
         {isLoading && packages.length === 0 ? (
@@ -2771,7 +2797,13 @@ function DiscoverSkillsPane({
         )}
         {next ? (
           <div className="flex justify-center py-2">
-            <Button type="button" variant="outline" size="sm" disabled={isLoadingMore} onClick={onLoadMore}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isLoading || isLoadingMore}
+              onClick={onLoadMore}
+            >
               {isLoadingMore ? <AppIcons.status.loading className="animate-spin" /> : null}
               {isLoadingMore ? t("skills.discoverLoadingMore") : t("skills.discoverLoadMore")}
             </Button>

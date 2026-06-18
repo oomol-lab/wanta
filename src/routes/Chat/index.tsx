@@ -154,7 +154,6 @@ function TurnProcessActivity({
   blocks,
   process,
   billingCacheScope,
-  smoothAssistantMessageId,
   providerByService,
   onAuthorize,
   onViewBilling,
@@ -162,7 +161,6 @@ function TurnProcessActivity({
   blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
   billingCacheScope: string
-  smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
@@ -244,7 +242,7 @@ function TurnProcessActivity({
               block={block}
               blockClassName={assistantBlockClassName(renderBlocks, index)}
               billingCacheScope={billingCacheScope}
-              smoothText={message.id === smoothAssistantMessageId}
+              smoothText={false}
               providerByService={providerByService}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
@@ -760,7 +758,6 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 blocks={processBlocks}
                 process={process}
                 billingCacheScope={billingCacheScope}
-                smoothAssistantMessageId={smoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}

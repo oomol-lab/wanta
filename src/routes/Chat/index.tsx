@@ -154,6 +154,7 @@ function TurnProcessActivity({
   blocks,
   process,
   billingCacheScope,
+  smoothAssistantMessageId,
   providerByService,
   onAuthorize,
   onViewBilling,
@@ -161,6 +162,7 @@ function TurnProcessActivity({
   blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
   billingCacheScope: string
+  smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
@@ -186,7 +188,7 @@ function TurnProcessActivity({
   const titleText = processStatusText(t, status)
   const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
-  const showLiveStatus = renderBlocks.length === 0
+  const showLiveStatus = shouldShowLiveStatus(process, status)
   const forceOpen = status === "needsAction" || status === "error"
   const userChangedOpenRef = React.useRef(false)
 
@@ -242,7 +244,7 @@ function TurnProcessActivity({
               block={block}
               blockClassName={assistantBlockClassName(renderBlocks, index)}
               billingCacheScope={billingCacheScope}
-              smoothText={false}
+              smoothText={message.id === smoothAssistantMessageId}
               providerByService={providerByService}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
@@ -758,6 +760,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 blocks={processBlocks}
                 process={process}
                 billingCacheScope={billingCacheScope}
+                smoothAssistantMessageId={smoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}

@@ -34,15 +34,24 @@ import { Dialog } from "@/components/ui/dialog"
 import {
   SplitViewBody,
   SplitViewDesktopDetailPane,
+  SplitViewHeader,
   SplitViewListPane,
   SplitViewMobileDetailPane,
   SplitViewRoot,
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 const executionLogLimit = 12
+
+type ConnectionCatalogView = "all" | "categories" | "connected"
+
+interface ConnectionProviderGroup {
+  providers: ConnectionProviderSummary[]
+  title: string
+}
 
 function isConnected(provider: ConnectionProviderSummary): boolean {
   return provider.status === "connected" && provider.appStatus === "active"
@@ -166,6 +175,64 @@ function authTypeNeedsDialog(authType: Exclude<ConnectionAuthType, null>): boole
   return authType === "api_key" || authType === "custom_credential" || authType === "federated"
 }
 
+function getProviderStatusDisplayLabel(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  return getProviderStatusLabel(provider, t) ?? t("connections.connected")
+}
+
+function getProviderCategoryLabel(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  return provider.categoryLabels[0] ?? t("connections.categoryUnknown")
+}
+
+function getProviderMeta(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  return provider.accountLabel ?? formatAuthTypes(provider.authTypes, t)
+}
+
+function isManagedProvider(provider: ConnectionProviderSummary): boolean {
+  return provider.status === "connected" || provider.status === "needs_attention"
+}
+
+function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQuery: string): boolean {
+  if (!normalizedQuery) {
+    return true
+  }
+  return (
+    provider.displayName.toLowerCase().includes(normalizedQuery) ||
+    provider.service.toLowerCase().includes(normalizedQuery) ||
+    provider.categoryLabels.some((label) => label.toLowerCase().includes(normalizedQuery)) ||
+    provider.accountLabel?.toLowerCase().includes(normalizedQuery) === true
+  )
+}
+
+function getCatalogProviders(
+  providers: ConnectionProviderSummary[],
+  activeView: ConnectionCatalogView,
+): ConnectionProviderSummary[] {
+  if (activeView === "connected") {
+    return providers.filter(isManagedProvider)
+  }
+  return providers
+}
+
+function groupProvidersByCategory(
+  providers: ConnectionProviderSummary[],
+  t: ReturnType<typeof useT>,
+): ConnectionProviderGroup[] {
+  const groupMap = new Map<string, ConnectionProviderSummary[]>()
+  for (const provider of providers) {
+    const key = getProviderCategoryLabel(provider, t)
+    const group = groupMap.get(key)
+    if (group) {
+      group.push(provider)
+    } else {
+      groupMap.set(key, [provider])
+    }
+  }
+
+  return [...groupMap.entries()]
+    .map(([title, groupProviders]) => ({ providers: groupProviders, title }))
+    .sort((left, right) => left.title.localeCompare(right.title))
+}
+
 interface ConnectionsPanelProps {
   connections: UseConnections
   selectedService?: string | null
@@ -175,6 +242,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   const t = useT()
   const { summary, busy, polling, error, refresh, connect, disconnect, cancelPolling, getProviderDetail } = connections
   const [query, setQuery] = React.useState("")
+  const [activeView, setActiveView] = React.useState<ConnectionCatalogView>("all")
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const [detail, setDetail] = React.useState<ConnectionProviderDetail | null>(null)
@@ -189,18 +257,11 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
 
   const providers = summary?.providers ?? []
   const normalizedQuery = query.trim().toLowerCase()
+  const catalogProviders = React.useMemo(() => getCatalogProviders(providers, activeView), [activeView, providers])
   const filteredProviders = React.useMemo(() => {
-    if (!normalizedQuery) {
-      return providers
-    }
-    return providers.filter((provider) => {
-      return (
-        provider.displayName.toLowerCase().includes(normalizedQuery) ||
-        provider.service.toLowerCase().includes(normalizedQuery) ||
-        provider.categoryLabels.some((label) => label.toLowerCase().includes(normalizedQuery))
-      )
-    })
-  }, [normalizedQuery, providers])
+    return catalogProviders.filter((provider) => matchesProviderQuery(provider, normalizedQuery))
+  }, [catalogProviders, normalizedQuery])
+  const categoryGroups = React.useMemo(() => groupProvidersByCategory(filteredProviders, t), [filteredProviders, t])
   const selectedProvider =
     filteredProviders.find((provider) => provider.service === selectedProviderService) ?? filteredProviders[0] ?? null
 
@@ -210,6 +271,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     }
 
     setQuery("")
+    setActiveView("all")
     setSelectedProviderService(selectedService)
     setNarrowPane("detail")
   }, [selectedService])
@@ -279,35 +341,37 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   )
 
   return (
-    <SplitViewRoot narrowPane={narrowPane} className="grid-rows-[minmax(0,1fr)]">
-      <SplitViewBody desktopLayout="narrow-list">
+    <SplitViewRoot narrowPane={narrowPane}>
+      <SplitViewHeader narrowPane={narrowPane} className="oo-border-divider border-b sm:grid-cols-1">
+        <ConnectionListToolbar
+          activeView={activeView}
+          busy={busy}
+          query={query}
+          onActiveViewChange={setActiveView}
+          onQueryChange={setQuery}
+          onRefresh={() => void refresh({ forceRefresh: true })}
+        />
+      </SplitViewHeader>
+
+      <SplitViewBody>
         <SplitViewListPane narrowPane={narrowPane}>
-          <ConnectionListToolbar
-            busy={busy}
-            query={query}
-            onQueryChange={setQuery}
-            onRefresh={() => void refresh({ forceRefresh: true })}
-          />
           <div className="grid gap-3">
-            <SummaryHeader />
+            <SummaryHeader activeView={activeView} filteredCount={filteredProviders.length} summary={summary} />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
             {error && <div className="oo-error oo-text-micro">{error}</div>}
             {filteredProviders.length === 0 ? (
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
-              <div className="grid gap-1">
-                {filteredProviders.map((provider) => (
-                  <ProviderRow
-                    key={provider.service}
-                    provider={provider}
-                    selected={provider.service === selectedProvider?.service}
-                    onSelect={() => {
-                      setSelectedProviderService(provider.service)
-                      setNarrowPane("detail")
-                    }}
-                  />
-                ))}
-              </div>
+              <ProviderCatalog
+                activeView={activeView}
+                categoryGroups={categoryGroups}
+                providers={filteredProviders}
+                selectedService={selectedProvider?.service ?? null}
+                onSelect={(provider) => {
+                  setSelectedProviderService(provider.service)
+                  setNarrowPane("detail")
+                }}
+              />
             )}
           </div>
         </SplitViewListPane>
@@ -392,12 +456,16 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
 }
 
 function ConnectionListToolbar({
+  activeView,
   busy,
+  onActiveViewChange,
   onQueryChange,
   onRefresh,
   query,
 }: {
+  activeView: ConnectionCatalogView
   busy: UseConnections["busy"]
+  onActiveViewChange: (view: ConnectionCatalogView) => void
   onQueryChange: (query: string) => void
   onRefresh: () => void
   query: string
@@ -405,28 +473,209 @@ function ConnectionListToolbar({
   const t = useT()
 
   return (
-    <div className="grid gap-2 pt-3 pb-2">
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+    <div className="flex w-full min-w-0 items-center gap-3">
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        className="shrink-0"
+        value={activeView}
+        aria-label={t("connections.catalogView")}
+        onValueChange={(nextValue) => {
+          if (nextValue === "all" || nextValue === "connected" || nextValue === "categories") {
+            onActiveViewChange(nextValue)
+          }
+        }}
+      >
+        <ToggleGroupItem value="all">{t("connections.filterAll")}</ToggleGroupItem>
+        <ToggleGroupItem value="connected">{t("connections.filterConnected")}</ToggleGroupItem>
+        <ToggleGroupItem value="categories">{t("connections.viewCategories")}</ToggleGroupItem>
+      </ToggleGroup>
+      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <SearchField
           value={query}
           placeholder={t("connections.search")}
           onChange={(event) => onQueryChange(event.currentTarget.value)}
         />
-        <Button variant="ghost" size="sm" disabled={busy === "refresh"} onClick={onRefresh}>
-          <RefreshCw className={cn("size-4", busy === "refresh" && "animate-spin")} />
-          {t("aria.refresh")}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("aria.refresh")}
+              disabled={busy === "refresh"}
+              onClick={onRefresh}
+            >
+              <RefreshCw className={cn("size-4", busy === "refresh" && "animate-spin")} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("aria.refresh")}</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )
 }
 
-function SummaryHeader() {
+function SummaryHeader({
+  activeView,
+  filteredCount,
+  summary,
+}: {
+  activeView: ConnectionCatalogView
+  filteredCount: number
+  summary: ConnectionSummary | null
+}) {
   const t = useT()
+  const title =
+    activeView === "connected"
+      ? t("connections.manageConnections")
+      : activeView === "categories"
+        ? t("connections.browseByCategory")
+        : t("connections.providers")
+  const total = summary?.providerCount ?? filteredCount
   return (
     <div className="grid gap-1 px-1 py-1">
-      <div className="oo-text-title truncate">{t("connections.providers")}</div>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="oo-text-title truncate">{title}</div>
+        <div className="oo-text-caption oo-text-muted shrink-0">
+          {t("connections.catalogCount", { shown: filteredCount, total })}
+        </div>
+      </div>
     </div>
+  )
+}
+
+function ProviderCatalog({
+  activeView,
+  categoryGroups,
+  providers,
+  selectedService,
+  onSelect,
+}: {
+  activeView: ConnectionCatalogView
+  categoryGroups: ConnectionProviderGroup[]
+  onSelect: (provider: ConnectionProviderSummary) => void
+  providers: ConnectionProviderSummary[]
+  selectedService: string | null
+}) {
+  if (activeView === "connected") {
+    return (
+      <div className="grid gap-1">
+        {providers.map((provider) => (
+          <ProviderRow
+            key={provider.service}
+            provider={provider}
+            selected={provider.service === selectedService}
+            onSelect={() => onSelect(provider)}
+          />
+        ))}
+      </div>
+    )
+  }
+
+  if (activeView === "categories") {
+    return (
+      <div className="grid gap-4">
+        {categoryGroups.map((group) => (
+          <section key={group.title} className="grid min-w-0 gap-2">
+            <div className="flex min-w-0 items-center justify-between gap-3 px-1">
+              <h3 className="oo-text-label truncate">{group.title}</h3>
+              <span className="oo-text-caption oo-text-muted shrink-0">{group.providers.length}</span>
+            </div>
+            <ProviderGrid providers={group.providers} selectedService={selectedService} onSelect={onSelect} />
+          </section>
+        ))}
+      </div>
+    )
+  }
+
+  return <ProviderGrid providers={providers} selectedService={selectedService} onSelect={onSelect} />
+}
+
+function ProviderGrid({
+  providers,
+  selectedService,
+  onSelect,
+}: {
+  onSelect: (provider: ConnectionProviderSummary) => void
+  providers: ConnectionProviderSummary[]
+  selectedService: string | null
+}) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))" }}>
+      {providers.map((provider) => (
+        <ProviderCard
+          key={provider.service}
+          provider={provider}
+          selected={provider.service === selectedService}
+          onSelect={() => onSelect(provider)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProviderCard({
+  provider,
+  selected,
+  onSelect,
+}: {
+  provider: ConnectionProviderSummary
+  selected: boolean
+  onSelect: () => void
+}) {
+  const t = useT()
+  const tone = getProviderStatusTone(provider)
+  const categoryLabel = getProviderCategoryLabel(provider, t)
+  const statusLabel = getProviderStatusDisplayLabel(provider, t)
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "group grid h-28 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-1.5 rounded-md border bg-card px-2.5 py-2 text-left text-card-foreground transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        selected && "border-ring bg-accent/55",
+      )}
+    >
+      <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+        <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
+        <span className="grid min-w-0 gap-0.5">
+          <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
+          <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
+        </span>
+      </span>
+      <span className="oo-text-micro oo-text-muted truncate">{categoryLabel}</span>
+      <span className="flex min-w-0 items-end justify-between gap-2 self-end">
+        <span className="oo-text-micro oo-text-muted flex min-w-0 items-center gap-1.5">
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              tone === "connected" && "bg-[var(--success)]",
+              tone === "attention" && "bg-[var(--warning)]",
+              tone === "available" && "bg-muted-foreground/40",
+            )}
+          />
+          <span className="truncate">{statusLabel}</span>
+        </span>
+        <span
+          className="oo-icon-muted flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          aria-hidden="true"
+        >
+          <ChevronRight className="size-4" />
+        </span>
+      </span>
+    </button>
+  )
+}
+
+function ProviderStatusBadge({ provider }: { provider: ConnectionProviderSummary }) {
+  const t = useT()
+  const tone = getProviderStatusTone(provider)
+  return (
+    <Badge variant={tone === "connected" ? "success" : tone === "attention" ? "warning" : "muted"}>
+      {getProviderStatusDisplayLabel(provider, t)}
+    </Badge>
   )
 }
 
@@ -441,7 +690,6 @@ function ProviderRow({
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
-  const statusLabel = getProviderStatusLabel(provider, t)
   return (
     <button
       type="button"
@@ -469,7 +717,7 @@ function ProviderRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {statusLabel ? <Badge variant={tone === "attention" ? "warning" : "muted"}>{statusLabel}</Badge> : null}
+        <ProviderStatusBadge provider={provider} />
         <ChevronRight className="oo-icon-muted size-4" />
       </div>
     </button>
@@ -550,19 +798,13 @@ function ProviderDetail({
     <div className="grid min-w-0 gap-3">
       {summary && summary.status !== "ready" ? <StatusNotice summary={summary} /> : null}
 
-      <section className="grid gap-2 rounded-md border px-3 py-2.5">
+      <section className="grid gap-3 rounded-md border bg-[var(--oo-inspector-surface)] px-3 py-3">
         <div className="flex min-w-0 items-start gap-3">
           <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="oo-text-title truncate">{provider.displayName}</h2>
-              {getProviderStatusLabel(provider, t) ? (
-                <Badge variant={provider.status === "needs_attention" ? "warning" : "muted"}>
-                  {getProviderStatusLabel(provider, t)}
-                </Badge>
-              ) : (
-                <Badge variant="success">{t("connections.connectedConnection")}</Badge>
-              )}
+              <ProviderStatusBadge provider={provider} />
             </div>
             <p className="oo-text-caption oo-text-muted mt-1 break-words">{getProviderDescription(provider, t)}</p>
           </div>

@@ -976,6 +976,7 @@ export const ChatArea = React.memo(function ChatArea({
       onViewBilling={onViewBilling}
     />
   )
+  const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
 
   const content = bootstrapping ? (
     <div className={cn("mx-auto min-h-full w-full px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)} aria-busy="true">
@@ -985,10 +986,18 @@ export const ChatArea = React.memo(function ChatArea({
         <Skeleton className="h-3.5 w-48 max-w-[52%] rounded-sm motion-safe:animate-none" />
       </div>
     </div>
-  ) : showEmptyState && !hasMessages && !isGenerating ? (
+  ) : showCenteredEmptyState ? (
     <div className="grid min-h-full w-full place-items-center px-4 py-6 sm:px-5 lg:px-8">
-      <div className={cn("w-full -translate-y-[6vh] px-4 pb-1 text-center", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
-        <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
+      <div
+        className={cn(
+          "flex w-full -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out",
+          CHAT_CONTENT_MAX_WIDTH_CLASS,
+        )}
+      >
+        <div className="px-4 pb-1 text-center">
+          <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
+        </div>
+        {composer}
       </div>
     </div>
   ) : (
@@ -1011,7 +1020,9 @@ export const ChatArea = React.memo(function ChatArea({
       <div className="flex min-w-0 flex-1 flex-col pb-4">
         <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
 
-        <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>{composer}</div>
+        {showCenteredEmptyState ? null : (
+          <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>{composer}</div>
+        )}
       </div>
     </div>
   )

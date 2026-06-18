@@ -97,7 +97,7 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
     case "completed":
       return <Circle className="size-3.5 text-muted-foreground" />
     case "error":
-      return <CircleAlert className="size-3.5 text-amber-600 dark:text-amber-400" />
+      return <CircleAlert className="size-3.5 text-muted-foreground" />
     case "pending":
     default:
       return <Circle className="size-3.5 text-muted-foreground" />
@@ -161,12 +161,11 @@ function ToolDetailSection({ label, children }: { label: string; children: React
   )
 }
 
-function ToolPre({ children, tone = "default" }: { children: string; tone?: "default" | "warning" | "error" }) {
+function ToolPre({ children, tone = "default" }: { children: string; tone?: "default" | "error" }) {
   return (
     <pre
       className={cn(
         "oo-text-micro max-h-56 overflow-auto rounded-md border bg-background p-2.5 whitespace-pre-wrap",
-        tone === "warning" && "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-300",
         tone === "error" && "border-destructive/25 bg-destructive/5 text-destructive",
       )}
     >
@@ -309,7 +308,7 @@ export function ToolActivityStep({
             )}
             {open && part.error && !stopped && (
               <ToolDetailSection label={t("chat.toolError")}>
-                <ToolPre tone="warning">{part.error}</ToolPre>
+                <ToolPre>{part.error}</ToolPre>
               </ToolDetailSection>
             )}
             {open && auth?.message && (

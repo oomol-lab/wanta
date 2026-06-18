@@ -128,7 +128,7 @@ describe("ToolActivityStep", () => {
     expect(html).not.toContain("text-transparent")
   })
 
-  it("keeps an incomplete tool collapsed and uses a softer status treatment", () => {
+  it("keeps an incomplete tool collapsed and uses a neutral status treatment", () => {
     const html = renderToolActivityStep({
       kind: "tool",
       partId: "tool-1",
@@ -140,8 +140,9 @@ describe("ToolActivityStep", () => {
     })
 
     expect(html).toContain("未完成")
-    expect(html).toContain("text-amber-600")
+    expect(html).toContain("text-muted-foreground")
     expect(html).not.toContain("text-destructive")
+    expect(html).not.toContain("text-amber")
     expect(html).not.toContain("Ripgrep JSON record exceeded 65536 bytes")
     expect(html).not.toContain("这个步骤没有完成")
   })

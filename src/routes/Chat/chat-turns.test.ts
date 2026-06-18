@@ -177,6 +177,39 @@ describe("summarizeTurnProcess", () => {
     expect(process.hasBlockingError).toBe(false)
   })
 
+  it("treats tool errors followed by a final answer as non-blocking", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "find images")]),
+      message("a1", "assistant", [
+        tool("tool-1", { status: "error", error: "Ripgrep JSON record exceeded 65536 bytes" }),
+      ]),
+      message("a2", "assistant", [text("a2-text", "I found the images with another method.")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.hasToolError).toBe(true)
+    expect(process.hasFinalAnswer).toBe(true)
+    expect(process.hasBlockingError).toBe(false)
+  })
+
+  it("keeps tool errors blocking when no final answer exists", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "find images")]),
+      message("a1", "assistant", [
+        tool("tool-1", { status: "error", error: "Ripgrep JSON record exceeded 65536 bytes" }),
+      ]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.hasToolError).toBe(true)
+    expect(process.hasFinalAnswer).toBe(false)
+    expect(process.hasBlockingError).toBe(true)
+  })
+
   it("does not treat locally cancelled running tools as active", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "stop")]),

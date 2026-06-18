@@ -127,4 +127,22 @@ describe("ToolActivityStep", () => {
     expect(html).toContain("https://detail.1688.com/offer/825951472006.html")
     expect(html).not.toContain("text-transparent")
   })
+
+  it("keeps an incomplete tool collapsed and uses a softer status treatment", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "grep",
+      status: "error",
+      input: { pattern: 'https?://[^\\"<> ]+\\.(jpg|jpeg|png|webp)' },
+      error: "Ripgrep JSON record exceeded 65536 bytes",
+    })
+
+    expect(html).toContain("未完成")
+    expect(html).toContain("text-amber-600")
+    expect(html).not.toContain("text-destructive")
+    expect(html).not.toContain("Ripgrep JSON record exceeded 65536 bytes")
+    expect(html).not.toContain("这个步骤没有完成")
+  })
 })

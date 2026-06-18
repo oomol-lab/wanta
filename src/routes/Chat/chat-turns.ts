@@ -25,6 +25,7 @@ export interface ChatTurnProcess {
   errors: ChatMessagePart[]
   hasFinalAnswer: boolean
   hasActiveTool: boolean
+  hasToolError: boolean
   hasBlockingError: boolean
   hasStoppedTool: boolean
   hasAuthorization: boolean
@@ -197,12 +198,15 @@ export function summarizeTurnProcess(
         : undefined
   const endedAt = timingEnds.length > 0 ? Math.max(...timingEnds) : undefined
 
+  const hasToolError = hasBlockingToolError(tools)
+
   return {
     tools,
     errors,
     hasFinalAnswer,
     hasActiveTool: tools.some(isActiveToolPart),
-    hasBlockingError: hasBlockingToolError(tools) || errors.length > 0,
+    hasToolError,
+    hasBlockingError: errors.length > 0 || (hasToolError && !hasFinalAnswer),
     hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization: tools.some(
       (part) =>

@@ -4,8 +4,8 @@ import type { ToolDisplayLine } from "./tool-display.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import {
-  AlertTriangle,
   ChevronRight,
+  CircleAlert,
   Circle,
   FilePenLine,
   FilePlus2,
@@ -97,7 +97,7 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
     case "completed":
       return <Circle className="size-3.5 text-muted-foreground" />
     case "error":
-      return <AlertTriangle className="size-3.5 text-destructive" />
+      return <CircleAlert className="size-3.5 text-amber-600 dark:text-amber-400" />
     case "pending":
     default:
       return <Circle className="size-3.5 text-muted-foreground" />
@@ -161,11 +161,12 @@ function ToolDetailSection({ label, children }: { label: string; children: React
   )
 }
 
-function ToolPre({ children, tone = "default" }: { children: string; tone?: "default" | "error" }) {
+function ToolPre({ children, tone = "default" }: { children: string; tone?: "default" | "warning" | "error" }) {
   return (
     <pre
       className={cn(
         "oo-text-micro max-h-56 overflow-auto rounded-md border bg-background p-2.5 whitespace-pre-wrap",
+        tone === "warning" && "border-amber-500/25 bg-amber-500/5 text-amber-700 dark:text-amber-300",
         tone === "error" && "border-destructive/25 bg-destructive/5 text-destructive",
       )}
     >
@@ -200,7 +201,7 @@ export function ToolActivityStep({
   const auth = parseToolAuthorization(part)
   const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
-  const defaultOpen = (part.status === "error" && !stopped) || Boolean(auth)
+  const defaultOpen = Boolean(auth)
   const [open, setOpen] = React.useState(defaultOpen)
   const statusText = toolPartStatusLabel(t, part)
   const active = isActiveToolPart(part)
@@ -298,6 +299,9 @@ export function ToolActivityStep({
             {open && shouldShowRunningNoOutput(part) && (
               <div className="oo-text-caption text-muted-foreground">{t("chat.toolRunningNoOutput")}</div>
             )}
+            {open && part.error && !stopped && (
+              <div className="oo-text-caption text-muted-foreground">{t("chat.toolRecoverableIssue")}</div>
+            )}
             {open && part.output && !auth && (
               <ToolDetailSection label={t("chat.toolResult")}>
                 <ToolPre>{formatToolOutput(part.output)}</ToolPre>
@@ -305,7 +309,7 @@ export function ToolActivityStep({
             )}
             {open && part.error && !stopped && (
               <ToolDetailSection label={t("chat.toolError")}>
-                <ToolPre tone="error">{part.error}</ToolPre>
+                <ToolPre tone="warning">{part.error}</ToolPre>
               </ToolDetailSection>
             )}
             {open && auth?.message && (

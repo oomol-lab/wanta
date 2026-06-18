@@ -93,7 +93,14 @@ interface ChatAreaProps {
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
 
-type TurnProcessStatus = "running" | "completed" | "retrying" | "needsAction" | "error" | "stopped"
+type TurnProcessStatus =
+  | "running"
+  | "completed"
+  | "completedWithIssues"
+  | "retrying"
+  | "needsAction"
+  | "error"
+  | "stopped"
 
 function isLiveProcess(process: ReturnType<typeof summarizeTurnProcess>, live = false): boolean {
   return process.hasActiveTool || Boolean(process.activity) || live
@@ -111,6 +118,9 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = 
   }
   if (isLiveProcess(process, live)) {
     return "running"
+  }
+  if (process.hasToolError) {
+    return "completedWithIssues"
   }
   if (process.hasStoppedTool) {
     return "stopped"
@@ -154,6 +164,8 @@ function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {
       return t("chat.processStopped")
     case "completed":
       return t("chat.processCompleted")
+    case "completedWithIssues":
+      return t("chat.processCompletedWithIssues")
   }
 }
 
@@ -203,7 +215,7 @@ function TurnProcessActivity({
   const renderBlocks = blocks.map((item) => item.block)
   const showLiveStatus = showInlineLiveStatus && renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
   const titleText = processStatusText(t, status)
-  const forceOpen = status === "needsAction" || status === "error"
+  const forceOpen = status === "needsAction" || (status === "error" && !process.hasFinalAnswer)
   const userChangedOpenRef = React.useRef(false)
 
   React.useEffect(() => {

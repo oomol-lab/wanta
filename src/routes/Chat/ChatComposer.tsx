@@ -35,7 +35,6 @@ import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 interface ChatComposerProps {
-  disabled: boolean
   error: string | null
   hasMessages: boolean
   initialSendPending: boolean
@@ -43,6 +42,7 @@ interface ChatComposerProps {
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
   status: ChatStatus
+  submitDisabled: boolean
   onQueuedMessageRemove: (id: string) => void
   onSend: (
     text: string,
@@ -79,7 +79,6 @@ function paletteLabels({
 }
 
 export function ChatComposer({
-  disabled,
   error,
   hasMessages,
   initialSendPending,
@@ -87,6 +86,7 @@ export function ChatComposer({
   providers,
   queuedMessages,
   status,
+  submitDisabled,
   onQueuedMessageRemove,
   onSend,
   onStop,
@@ -105,7 +105,8 @@ export function ChatComposer({
   const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
-  const composerDisabled = disabled || voiceInput.busy || initialSendPending
+  const submitBlocked = submitDisabled || initialSendPending
+  const composerDisabled = voiceInput.busy || initialSendPending
   const modelCatalog = modelCatalogState.catalog
   const modelError = modelCatalogState.error
   const composerAttachments = useComposerAttachments({
@@ -183,7 +184,7 @@ export function ChatComposer({
   // 的按钮点击触发，避免生成中按回车误中止流。
   const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
     const text = message.text
-    if ((text.trim().length === 0 && attachments.length === 0) || disabled || initialSendPending || voiceInput.busy) {
+    if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
     const queuedWhileGenerating = isGenerating
@@ -207,7 +208,7 @@ export function ChatComposer({
       {visibleError}
     </div>
   ) : null
-  const canSubmit = !composerDisabled && (draft.trim().length > 0 || attachments.length > 0)
+  const canSubmit = !submitBlocked && !composerDisabled && (draft.trim().length > 0 || attachments.length > 0)
 
   const promptInput = (
     <PromptInput

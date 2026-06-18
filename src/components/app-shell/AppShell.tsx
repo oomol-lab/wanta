@@ -898,12 +898,12 @@ export function AppShell() {
     }
   }, [ready])
 
-  // 默认选中最近的会话。
-  React.useEffect(() => {
-    if (!isDraftSession && !activeSessionId && sessions.length > 0) {
+  // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
+  React.useLayoutEffect(() => {
+    if (sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0) {
       setActiveSessionId(sessions[0].id)
     }
-  }, [sessions, activeSessionId, isDraftSession])
+  }, [sessions, sessionsLoaded, activeSessionId, isDraftSession])
 
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
   React.useEffect(() => {
@@ -932,8 +932,12 @@ export function AppShell() {
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
+  const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
   const chatBootstrapping =
-    !ready || !sessionsLoaded || Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition)
+    !ready ||
+    !sessionsLoaded ||
+    needsDefaultSessionSelection ||
+    Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition)
   const showChatEmptyState = ready && sessionsLoaded && !activeSessionId && !pendingChatTransition
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
@@ -1595,7 +1599,7 @@ export function AppShell() {
                   showEmptyState={showChatEmptyState}
                   bootstrapping={chatBootstrapping}
                   error={error}
-                  disabled={!ready || chatBootstrapping}
+                  submitDisabled={!ready || chatBootstrapping}
                   initialSendPending={initialSendPending}
                   providers={activeProviders}
                   queuedMessages={activeQueuedMessages}

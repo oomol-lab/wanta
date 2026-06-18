@@ -235,8 +235,10 @@ export function ToolActivityStep({
             <span
               className={cn(
                 "flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground transition-opacity",
+                completedMeta && "opacity-0 group-hover/tool-step:opacity-100",
                 completedMeta &&
-                  "opacity-0 group-hover/tool-step:opacity-100 group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:opacity-100",
+                  details &&
+                  "group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:opacity-100",
               )}
             >
               {metaItems.map((item, index) => (

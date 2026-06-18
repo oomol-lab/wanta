@@ -17,19 +17,35 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
   const sessionService = useSessionService()
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
   const [loaded, setLoaded] = React.useState(false)
+  const enabledRef = React.useRef(enabled)
+  const requestSequenceRef = React.useRef(0)
+
+  React.useEffect(() => {
+    enabledRef.current = enabled
+    if (!enabled) {
+      requestSequenceRef.current += 1
+    }
+  }, [enabled])
 
   const refresh = React.useCallback(async () => {
+    const requestId = ++requestSequenceRef.current
     if (!enabled) {
       setSessions([])
       setLoaded(false)
       return
     }
     try {
-      setSessions(await sessionService.invoke("list"))
+      const nextSessions = await sessionService.invoke("list")
+      if (requestId !== requestSequenceRef.current || !enabledRef.current) {
+        return
+      }
+      setSessions(nextSessions)
     } catch (error) {
       console.error("[lumo] list sessions failed", error)
     } finally {
-      setLoaded(true)
+      if (requestId === requestSequenceRef.current && enabledRef.current) {
+        setLoaded(true)
+      }
     }
   }, [enabled, sessionService])
 
@@ -41,6 +57,9 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
     }
     void refresh()
     return sessionService.serverEvents.on("sessionsChanged", (event) => {
+      if (!enabledRef.current) {
+        return
+      }
       setSessions(event.sessions)
       setLoaded(true)
     })

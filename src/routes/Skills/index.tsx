@@ -101,7 +101,7 @@ type SkillPublishFilter = "all" | "private" | "public" | "unpublished"
 type SkillPublishState = Exclude<SkillPublishFilter, "all"> | "none" | "unknown"
 type SkillSectionKind = "mine" | "ooManaged" | "local"
 type PublicSkillInstallState = "installed" | "partially-installed" | "installable" | "name-conflict" | "unavailable"
-type PublicPackageCatalogStatus = "idle" | "loading" | "loading-more" | "refreshing"
+type PublicPackageCatalogStatus = "idle" | "load-error" | "loading" | "loading-more" | "refreshing"
 type ManagedSkillGroupById = ReadonlyMap<string, ManagedSkillGroup>
 type SkillVersionCheckByKey = ReadonlyMap<string, SkillVersionReport["skills"][number]>
 
@@ -147,7 +147,16 @@ function appendUniquePublicPackages(
   nextItems: PublicSkillPackage[],
 ): PublicSkillPackage[] {
   const seen = new Set(current.map((item) => item.id))
-  return [...current, ...nextItems.filter((item) => !seen.has(item.id))]
+  return [
+    ...current,
+    ...nextItems.filter((item) => {
+      if (seen.has(item.id)) {
+        return false
+      }
+      seen.add(item.id)
+      return true
+    }),
+  ]
 }
 
 function publicPackageCatalogReducer(
@@ -170,7 +179,9 @@ function publicPackageCatalogReducer(
       return {
         ...state,
         error: null,
-        items: action.append ? appendUniquePublicPackages(state.items, action.catalog.items) : action.catalog.items,
+        items: action.append
+          ? appendUniquePublicPackages(state.items, action.catalog.items)
+          : appendUniquePublicPackages([], action.catalog.items),
         next: action.catalog.next,
         selectedId: action.append ? state.selectedId : null,
         status: "idle",
@@ -183,7 +194,7 @@ function publicPackageCatalogReducer(
       return {
         ...state,
         error: action.error,
-        status: "idle",
+        status: "load-error",
       }
     case "select":
       return {
@@ -895,7 +906,7 @@ function getPublicSkillInstallKey(pkg: PublicSkillPackage, skillName: string | u
 }
 
 function isImageIcon(icon: string | undefined): boolean {
-  return Boolean(icon?.startsWith("https://") || icon?.startsWith("http://"))
+  return Boolean(icon?.startsWith("https://"))
 }
 
 function isEmojiIcon(icon: string | undefined): boolean {
@@ -2078,7 +2089,10 @@ export function SkillsRoute() {
     [homeSummaryResource, inventoryResource, skillService, t, versionResource],
   )
   const isMyPublishedSkillsLoading = myPublishedSkillsResource.isInitialLoading
-  const isPublicPackageBusy = publicPackageCatalog.status !== "idle"
+  const isPublicPackageBusy =
+    publicPackageCatalog.status === "loading" ||
+    publicPackageCatalog.status === "loading-more" ||
+    publicPackageCatalog.status === "refreshing"
   const isPublicPackageLoadingMore = publicPackageCatalog.status === "loading-more"
   const isPublicPackageReplacing =
     publicPackageCatalog.status === "loading" || publicPackageCatalog.status === "refreshing"
@@ -2832,7 +2846,11 @@ function PublicSkillPackageCard({
         selected && "border-[var(--accent-ring)] bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
       )}
     >
-      <button type="button" className="grid min-w-0 gap-2 p-3 text-left outline-none" onClick={onSelect}>
+      <button
+        type="button"
+        className="grid min-w-0 gap-2 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        onClick={onSelect}
+      >
         <div className="flex min-w-0 items-start gap-3">
           <PublicSkillIcon icon={pkg.icon} />
           <div className="grid min-w-0 gap-1">
@@ -2851,7 +2869,11 @@ function PublicSkillPackageCard({
         <Badge variant={state === "installed" ? "secondary" : "outline"}>
           {getPublicSkillInstallStateLabel(state, t)}
         </Badge>
-        {state === "installed" && primarySkill ? (
+        {state === "name-conflict" && primarySkill ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
+            {t("skills.discoverOpenManage")}
+          </Button>
+        ) : state === "installed" && primarySkill ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
             {t("skills.discoverOpenManage")}
           </Button>
@@ -2906,6 +2928,21 @@ interface PublicSkillPackageSheetProps {
   pkg: PublicSkillPackage
 }
 
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      [
+        "a[href]",
+        "button:not([disabled])",
+        "input:not([disabled])",
+        "select:not([disabled])",
+        "textarea:not([disabled])",
+        "[tabindex]:not([tabindex='-1'])",
+      ].join(","),
+    ),
+  ).filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true")
+}
+
 function PublicSkillPackageSheet({
   groupById,
   installingKey,
@@ -2951,6 +2988,38 @@ function PublicSkillPackageSheet({
           if (event.key === "Escape") {
             event.stopPropagation()
             onClose()
+            return
+          }
+          if (event.key !== "Tab") {
+            return
+          }
+
+          const sheet = sheetRef.current
+          if (!sheet) {
+            return
+          }
+
+          const focusableElements = getFocusableElements(sheet)
+          if (focusableElements.length === 0) {
+            event.preventDefault()
+            sheet.focus()
+            return
+          }
+
+          const firstElement = focusableElements[0]
+          const lastElement = focusableElements[focusableElements.length - 1]
+          const activeElement = document.activeElement
+          if (event.shiftKey) {
+            if (activeElement === firstElement || activeElement === sheet || !sheet.contains(activeElement)) {
+              event.preventDefault()
+              lastElement.focus()
+            }
+            return
+          }
+
+          if (activeElement === lastElement || activeElement === sheet || !sheet.contains(activeElement)) {
+            event.preventDefault()
+            firstElement.focus()
           }
         }}
         onMouseDown={(event) => event.stopPropagation()}
@@ -3031,7 +3100,7 @@ function PublicSkillPackageDetail({
           ) : null}
           {primarySkill ? (
             <div className="flex min-w-0 flex-wrap gap-1">
-              {primaryState === "installed" ? (
+              {primaryState === "installed" || primaryState === "name-conflict" ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
                   {t("skills.discoverOpenManage")}
                 </Button>
@@ -3079,7 +3148,7 @@ function PublicSkillPackageDetail({
                   ) : null}
                 </ItemContent>
                 <ItemActions className="min-w-0 justify-end">
-                  {state === "installed" ? (
+                  {state === "installed" || state === "name-conflict" ? (
                     <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(skill.name)}>
                       {t("skills.discoverOpenManage")}
                     </Button>

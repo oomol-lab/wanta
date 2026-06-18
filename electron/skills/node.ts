@@ -318,7 +318,9 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         return catalog
       })
       .finally(() => {
-        this.myPublishedSkillCatalogInFlightByKey.delete(cacheKey)
+        if (this.myPublishedSkillCatalogInFlightByKey.get(cacheKey) === promise) {
+          this.myPublishedSkillCatalogInFlightByKey.delete(cacheKey)
+        }
       })
 
     this.myPublishedSkillCatalogInFlightByKey.set(cacheKey, promise)
@@ -347,7 +349,9 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         return catalog
       })
       .finally(() => {
-        this.publicSkillPackageCatalogInFlightByKey.delete(cacheKey)
+        if (this.publicSkillPackageCatalogInFlightByKey.get(cacheKey) === promise) {
+          this.publicSkillPackageCatalogInFlightByKey.delete(cacheKey)
+        }
       })
 
     this.publicSkillPackageCatalogInFlightByKey.set(cacheKey, promise)

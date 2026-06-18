@@ -1,7 +1,19 @@
 import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { clampShimmerSpread, Shimmer } from "./shimmer.tsx"
+
+const motionMocks = vi.hoisted(() => ({
+  useReducedMotion: vi.fn(() => false),
+}))
+
+vi.mock("motion/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("motion/react")>()
+  return {
+    ...actual,
+    useReducedMotion: motionMocks.useReducedMotion,
+  }
+})
 
 function htmlAttribute(html: string, name: string): string {
   const match = html.match(new RegExp(`${name}="([^"]*)"`))
@@ -12,6 +24,11 @@ function htmlAttribute(html: string, name: string): string {
 }
 
 describe("Shimmer", () => {
+  afterEach(() => {
+    motionMocks.useReducedMotion.mockClear()
+    motionMocks.useReducedMotion.mockReturnValue(false)
+  })
+
   it("uses a near-white shimmer highlight over muted text", () => {
     const html = renderToStaticMarkup(
       React.createElement(
@@ -40,5 +57,22 @@ describe("Shimmer", () => {
     expect(clampShimmerSpread(32)).toBe(32)
     expect(clampShimmerSpread(200)).toBe(56)
     expect(clampShimmerSpread(Number.NaN)).toBe(32)
+  })
+
+  it("prefers static text style when reduced motion is enabled", () => {
+    motionMocks.useReducedMotion.mockReturnValue(true)
+    const html = renderToStaticMarkup(
+      React.createElement(
+        Shimmer,
+        { as: "span", className: "min-w-0 truncate" } as React.ComponentProps<typeof Shimmer>,
+        "Loading",
+      ),
+    )
+    const classNames = new Set(htmlAttribute(html, "class").split(/\s+/))
+
+    expect(classNames.has("text-muted-foreground")).toBe(true)
+    expect(classNames.has("text-transparent")).toBe(false)
+    expect(html.includes("--spread")).toBe(false)
+    expect(html.includes("--shimmer-highlight")).toBe(false)
   })
 })

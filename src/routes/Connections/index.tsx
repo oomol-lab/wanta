@@ -514,7 +514,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         {selectedProvider ? (
           <SplitViewMobileDetailPane narrowPane={narrowPane}>
             <div className="mb-2">
-              <Button variant="ghost" size="sm" onClick={() => setNarrowPane("list")}>
+              <Button variant="ghost" size="sm" onClick={closeDetail}>
                 <ArrowLeft className="size-4" />
                 {t("connections.backToProviders")}
               </Button>

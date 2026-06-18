@@ -183,6 +183,45 @@ test("normalizePublicSkillPackageCatalog keeps public package metadata", () => {
   )
 })
 
+test("normalizePublicSkillPackageCatalog ignores malformed maintainer metadata", () => {
+  const catalog = normalizePublicSkillPackageCatalog(
+    JSON.stringify({
+      data: [
+        {
+          extra: {
+            maintainers: "[",
+          },
+          name: "@alice/broken-maintainers",
+          version: "0.0.1",
+          visibility: "public",
+        },
+      ],
+    }),
+    "2026-06-18T00:00:00.000Z",
+  )
+
+  assert.equal(catalog.items.length, 1)
+  assert.deepEqual(catalog.items[0]?.maintainers, [])
+})
+
+test("normalizePublicSkillPackageCatalog keeps unknown visibility non-fatal", () => {
+  const catalog = normalizePublicSkillPackageCatalog(
+    JSON.stringify({
+      data: [
+        {
+          name: "@alice/unknown-visibility",
+          version: "0.0.1",
+          visibility: "team",
+        },
+      ],
+    }),
+    "2026-06-18T00:00:00.000Z",
+  )
+
+  assert.equal(catalog.items.length, 1)
+  assert.equal(catalog.items[0]?.visibility, "unknown")
+})
+
 test("normalizeRegistryPackageSkillInfo expands published package skills", () => {
   assert.deepEqual(
     normalizeRegistryPackageSkillInfo(

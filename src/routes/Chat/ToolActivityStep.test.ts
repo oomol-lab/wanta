@@ -66,6 +66,38 @@ describe("ToolActivityStep", () => {
     expect(html).not.toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>[^<]*1688/)
   })
 
+  it("shimmers only the active file tool title when a path is shown inline", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "read",
+      status: "running",
+      input: { filePath: "/tmp/a.txt" },
+    })
+
+    expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>读取文件<\/span>/)
+    expect(shimmerClassFor(html, "读取文件")).toContain("shrink-0")
+    expect(html).toContain("/tmp/a.txt")
+    expect(html).not.toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>[^<]*\/tmp/)
+  })
+
+  it("shimmers only the active connector title when a connector target is shown inline", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "call_action",
+      status: "pending",
+      input: { service: "gmail", action: "send_email" },
+    })
+
+    expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>调用连接器<\/span>/)
+    expect(shimmerClassFor(html, "调用连接器")).toContain("shrink-0")
+    expect(html).toContain("gmail · send_email")
+    expect(html).not.toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>[^<]*gmail/)
+  })
+
   it("keeps the active title shimmer width stable when no inline detail is available", () => {
     const html = renderToolActivityStep({
       kind: "tool",
@@ -79,5 +111,20 @@ describe("ToolActivityStep", () => {
     expect(shimmerClassFor(html, "运行命令")).toContain("shrink-0")
     expect(shimmerClassFor(html, "运行命令")).not.toContain("flex-1")
     expect(html).toContain('aria-hidden="true"')
+  })
+
+  it("does not shimmer a completed tool row", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "webfetch",
+      status: "completed",
+      input: { url: "https://detail.1688.com/offer/825951472006.html" },
+    })
+
+    expect(html).toContain("读取网页")
+    expect(html).toContain("https://detail.1688.com/offer/825951472006.html")
+    expect(html).not.toContain("text-transparent")
   })
 })

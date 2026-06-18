@@ -40,6 +40,7 @@ import {
   reuseStableTextMap,
   visibleUserText,
 } from "./message-text.ts"
+import { shouldShowBottomWorkingIndicator } from "./process-loading.ts"
 import { renderBlocks } from "./render-blocks.ts"
 import { formatToolActivityDuration } from "./tool-activity.ts"
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
@@ -167,6 +168,7 @@ function TurnProcessActivity({
   live = false,
   billingCacheScope,
   providerByService,
+  showInlineLiveStatus = true,
   onAuthorize,
   onViewBilling,
 }: {
@@ -175,6 +177,7 @@ function TurnProcessActivity({
   live?: boolean
   billingCacheScope: string
   providerByService: Map<string, ConnectionProvider>
+  showInlineLiveStatus?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
 }) {
@@ -197,10 +200,9 @@ function TurnProcessActivity({
   const [now, setNow] = React.useState(() => Date.now())
   const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
-  const titleText = processStatusText(t, status)
-  const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
-  const showLiveStatus = renderBlocks.length === 0
+  const showLiveStatus = showInlineLiveStatus && renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
+  const titleText = processStatusText(t, status)
   const forceOpen = status === "needsAction" || status === "error"
   const userChangedOpenRef = React.useRef(false)
 
@@ -238,11 +240,7 @@ function TurnProcessActivity({
           className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-muted-foreground transition-colors hover:text-foreground"
         >
           <span className="flex min-w-0 items-center gap-1">
-            {activeTitle ? (
-              <LoadingShimmerText className="min-w-0 truncate">{titleText}</LoadingShimmerText>
-            ) : (
-              titleText
-            )}
+            {titleText}
             {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
           </span>
           <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
@@ -291,13 +289,6 @@ function shouldShowLiveStatus(
   )
 }
 
-function hasNestedLoadingIndicator(
-  process: ReturnType<typeof summarizeTurnProcess>,
-  status = processStatus(process),
-): boolean {
-  return process.hasActiveTool || shouldShowLiveStatus(process, status)
-}
-
 function LiveStatusBar({
   process,
   live = false,
@@ -335,6 +326,40 @@ function LiveStatusBar({
       <div className="flex min-h-6 min-w-0 items-center">
         <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
       </div>
+    </div>
+  )
+}
+
+function bottomWorkingText({
+  activity,
+  activeTool,
+  status,
+  t,
+}: {
+  activity: AssistantActivityEvent | null
+  activeTool: ChatMessagePart | null
+  status: ChatStatus
+  t: TranslateFn
+}): string {
+  if (status === "submitted") {
+    return t("chat.workingSending")
+  }
+  if (activity?.phase === "retrying") {
+    return activityText(t, activity)
+  }
+  if (activeTool) {
+    return t("chat.workingProcessing")
+  }
+  if (activity?.phase === "finalizing") {
+    return t("chat.workingFinalizing")
+  }
+  return t("chat.workingThinking")
+}
+
+function BottomWorkingIndicator({ text }: { text: string }) {
+  return (
+    <div className="not-prose flex min-h-6 min-w-0 items-center text-muted-foreground" role="status" aria-live="polite">
+      <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
     </div>
   )
 }
@@ -698,6 +723,7 @@ interface ChatTurnViewProps {
   activeAssistantMessageId?: string
   smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
+  showInlineLiveStatus: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
   assistantActionTextByMessageId: Map<string, string>
@@ -724,6 +750,7 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
     previous.activeAssistantMessageId === next.activeAssistantMessageId &&
     previous.smoothAssistantMessageId === next.smoothAssistantMessageId &&
     previous.providerByService === next.providerByService &&
+    previous.showInlineLiveStatus === next.showInlineLiveStatus &&
     previous.onAuthorize === next.onAuthorize &&
     previous.onViewBilling === next.onViewBilling &&
     assistantActionTextsEqual(previous, next)
@@ -737,6 +764,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
   activeAssistantMessageId,
   smoothAssistantMessageId,
   providerByService,
+  showInlineLiveStatus,
   onAuthorize,
   onViewBilling,
   assistantActionTextByMessageId,
@@ -792,6 +820,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 live={processLive}
                 billingCacheScope={billingCacheScope}
                 providerByService={providerByService}
+                showInlineLiveStatus={showInlineLiveStatus}
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}
               />
@@ -860,6 +889,7 @@ const ChatTimeline = React.memo(function ChatTimeline({
   onArtifactsAvailable,
   onViewBilling,
 }: ChatTimelineProps) {
+  const t = useT()
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const stableTurnsRef = React.useRef<ChatTurn[]>([])
@@ -896,6 +926,23 @@ const ChatTimeline = React.memo(function ChatTimeline({
   const visibleArtifactSources = React.useMemo(() => {
     return collectVisibleGeneratedArtifactSources(messages, isGenerating)
   }, [isGenerating, messages])
+  const latestTurn = turns.at(-1)
+  const latestTurnActivity = latestTurn
+    ? activityForChatTurn(latestTurn, activity, activeAssistantMessageId, true)
+    : null
+  const latestTurnProcess = latestTurn
+    ? summarizeTurnProcess(latestTurn, latestTurnActivity, activeAssistantMessageId)
+    : null
+  const latestTurnActiveTool = latestTurnProcess ? latestActiveTool(latestTurnProcess) : null
+  const showBottomWorking = shouldShowBottomWorkingIndicator({ isGenerating })
+  const bottomWorking = showBottomWorking
+    ? bottomWorkingText({
+        activity: latestTurnProcess?.activity ?? activity,
+        activeTool: latestTurnActiveTool,
+        status,
+        t,
+      })
+    : null
 
   React.useEffect(() => {
     const lastMessage = messages.at(-1)
@@ -921,6 +968,7 @@ const ChatTimeline = React.memo(function ChatTimeline({
         className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
       >
         {turns.map((turn, index) => {
+          const isLatestTurn = index === turns.length - 1
           const turnActiveAssistantMessageId = chatTurnHasAssistantMessage(turn, activeAssistantMessageId)
             ? activeAssistantMessageId
             : undefined
@@ -936,6 +984,7 @@ const ChatTimeline = React.memo(function ChatTimeline({
               activeAssistantMessageId={turnActiveAssistantMessageId}
               smoothAssistantMessageId={turnSmoothAssistantMessageId}
               providerByService={providerByService}
+              showInlineLiveStatus={!(showBottomWorking && isLatestTurn)}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
               assistantActionTextByMessageId={assistantActionTextByMessageId}
@@ -949,6 +998,7 @@ const ChatTimeline = React.memo(function ChatTimeline({
             onAvailable={onArtifactsAvailable}
           />
         ) : null}
+        {bottomWorking ? <BottomWorkingIndicator text={bottomWorking} /> : null}
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>

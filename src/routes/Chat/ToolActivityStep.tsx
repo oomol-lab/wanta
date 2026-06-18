@@ -1,5 +1,6 @@
 import type { AuthorizationInfo, ChatMessagePart, ToolStatus } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ToolDisplayLine } from "./tool-display.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import {
@@ -25,8 +26,8 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
-import { compactPathDetail, compactToolDetail, shouldShowRunningNoOutput } from "./tool-activity.ts"
-import { parseToolAuthorization, toolActionSummary, toolInputString } from "./tool-display.ts"
+import { shouldShowRunningNoOutput } from "./tool-activity.ts"
+import { parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
 import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -57,47 +58,18 @@ function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
   return isToolCancellation(part) ? t("chat.toolStatusStopped") : toolStatusLabel(t, part.status)
 }
 
-function toolInlineDetail(part: ChatMessagePart): string {
-  if (part.tool !== "bash") {
-    return ""
-  }
-  const command = toolInputString(part.input?.command).split("\n")[0]
-  return command ? compactToolDetail(command, 96) : ""
-}
-
-interface ActiveToolInlineDetail {
-  kind: "code" | "text"
-  text: string
-}
-
-function activeToolActionText(t: TranslateFn, part: ChatMessagePart): string {
-  return part.tool === "webfetch" ? t("chat.toolWebFetchGeneric") : toolActionSummary(t, part)
-}
-
-function activeToolInlineDetail(part: ChatMessagePart): ActiveToolInlineDetail | null {
-  if (part.tool === "bash") {
-    const command = toolInputString(part.input?.command).split("\n")[0]
-    return command ? { kind: "code", text: compactToolDetail(command, 96) } : null
-  }
-  if (part.tool === "webfetch") {
-    const url = toolInputString(part.input?.url)
-    return url ? { kind: "text", text: compactPathDetail(url) } : null
-  }
-  return null
-}
-
-function ToolInlineDetail({ detail }: { detail: ActiveToolInlineDetail | null }) {
-  if (!detail) {
+function ToolInlineDetail({ line }: { line: ToolDisplayLine }) {
+  if (!line.detail) {
     return null
   }
-  if (detail.kind === "code") {
+  if (line.detailKind === "code") {
     return (
       <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
-        {detail.text}
+        {line.detail}
       </code>
     )
   }
-  return <span className="min-w-0 flex-1 truncate text-muted-foreground">{detail.text}</span>
+  return <span className="min-w-0 flex-1 truncate text-muted-foreground">{line.detail}</span>
 }
 
 function formatToolOutput(output: string | undefined): string {
@@ -231,14 +203,10 @@ export function ToolActivityStep({
   const defaultOpen = (part.status === "error" && !stopped) || Boolean(auth)
   const [open, setOpen] = React.useState(defaultOpen)
   const statusText = toolPartStatusLabel(t, part)
-  const inlineDetail = toolInlineDetail(part)
   const active = isActiveToolPart(part)
+  const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
-  const actionText = toolActionSummary(t, part)
-  const activeActionText = activeToolActionText(t, part)
-  const activeDetail = activeToolInlineDetail(part)
-  const inactiveDetail = inlineDetail ? { kind: "code" as const, text: inlineDetail } : null
 
   React.useEffect(() => {
     if (defaultOpen) {
@@ -257,9 +225,9 @@ export function ToolActivityStep({
       <div className="min-w-0 flex-1 overflow-hidden">
         {active ? (
           <div className="flex min-w-0 items-center gap-2">
-            <LoadingShimmerText className="min-w-0 shrink-0 truncate">{activeActionText}</LoadingShimmerText>
-            <ToolInlineDetail detail={activeDetail} />
-            {activeDetail ? null : <span aria-hidden="true" className="min-w-0 flex-1" />}
+            <LoadingShimmerText className="min-w-0 shrink-0 truncate">{displayLine.title}</LoadingShimmerText>
+            <ToolInlineDetail line={displayLine} />
+            {displayLine.detail ? null : <span aria-hidden="true" className="min-w-0 flex-1" />}
             <span className="flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
               {metaItems.map((item, index) => (
                 <React.Fragment key={`${index}:${item}`}>
@@ -271,10 +239,10 @@ export function ToolActivityStep({
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-2">
-            <span className={cn("min-w-0 truncate text-foreground", inlineDetail ? "shrink-0" : "flex-1")}>
-              {actionText}
+            <span className={cn("min-w-0 truncate text-foreground", displayLine.detail ? "shrink-0" : "flex-1")}>
+              {displayLine.title}
             </span>
-            <ToolInlineDetail detail={inactiveDetail} />
+            <ToolInlineDetail line={displayLine} />
             <span
               className={cn(
                 "flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground transition-opacity",

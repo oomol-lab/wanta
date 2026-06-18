@@ -3,6 +3,14 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { compactPathDetail, compactToolDetail } from "./tool-activity.ts"
 
+export type ToolDisplayDetailKind = "code" | "text"
+
+export interface ToolDisplayLine {
+  title: string
+  detail?: string
+  detailKind?: ToolDisplayDetailKind
+}
+
 function parseAuthorization(output: string | undefined): AuthorizationInfo | null {
   if (!output) {
     return null
@@ -107,12 +115,116 @@ function bashActionSummary(t: TranslateFn, command: string): string {
   return t("chat.toolRunGeneric")
 }
 
+function connectorTarget(input: Record<string, unknown>): string {
+  const service = str(input.service)
+  const action = str(input.action)
+  return service && action ? `${service} · ${action}` : service || action
+}
+
+function pathInput(input: Record<string, unknown>): string {
+  return str(input.filePath) || str(input.path)
+}
+
+export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisplayLine {
+  const input = part.input ?? {}
+  const fallbackDetail = part.title || part.tool || "tool"
+  switch (part.tool) {
+    case "search_actions": {
+      const query = str(input.query)
+      return {
+        title: t("chat.toolSearchGeneric"),
+        ...(query ? { detail: compactToolDetail(query), detailKind: "text" } : {}),
+      }
+    }
+    case "inspect_action": {
+      const target = connectorTarget(input)
+      return {
+        title: t("chat.toolInspectGeneric"),
+        ...(target ? { detail: target, detailKind: "text" } : {}),
+      }
+    }
+    case "call_action": {
+      const target = connectorTarget(input)
+      return {
+        title: t("chat.toolCallGeneric"),
+        ...(target ? { detail: target, detailKind: "text" } : {}),
+      }
+    }
+    case "bash": {
+      const command = str(input.command).split("\n")[0]
+      return {
+        title: command ? bashActionSummary(t, command) : t("chat.toolRunGeneric"),
+        ...(command ? { detail: compactToolDetail(command, 96), detailKind: "code" } : {}),
+      }
+    }
+    case "read": {
+      const filePath = pathInput(input)
+      return {
+        title: t("chat.toolReadGeneric"),
+        ...(filePath ? { detail: compactPathDetail(filePath), detailKind: "text" } : {}),
+      }
+    }
+    case "write": {
+      const filePath = pathInput(input)
+      return {
+        title: t("chat.toolWriteGeneric"),
+        ...(filePath ? { detail: compactPathDetail(filePath), detailKind: "text" } : {}),
+      }
+    }
+    case "edit": {
+      const filePath = pathInput(input)
+      return {
+        title: t("chat.toolEditGeneric"),
+        ...(filePath ? { detail: compactPathDetail(filePath), detailKind: "text" } : {}),
+      }
+    }
+    case "list": {
+      const filePath = str(input.path) || str(input.filePath)
+      return {
+        title: t("chat.toolListGeneric"),
+        ...(filePath ? { detail: compactPathDetail(filePath), detailKind: "text" } : {}),
+      }
+    }
+    case "grep": {
+      const pattern = str(input.pattern)
+      return {
+        title: t("chat.toolGrepGeneric"),
+        ...(pattern ? { detail: compactToolDetail(pattern), detailKind: "text" } : {}),
+      }
+    }
+    case "glob": {
+      const pattern = str(input.pattern)
+      return {
+        title: t("chat.toolGlobGeneric"),
+        ...(pattern ? { detail: compactToolDetail(pattern), detailKind: "text" } : {}),
+      }
+    }
+    case "webfetch": {
+      const url = str(input.url)
+      return {
+        title: t("chat.toolWebFetchGeneric"),
+        ...(url ? { detail: compactPathDetail(url), detailKind: "text" } : {}),
+      }
+    }
+    case "task":
+      return {
+        title: t("chat.toolTaskGeneric"),
+        detail: compactToolDetail(fallbackDetail),
+        detailKind: "text",
+      }
+    default:
+      return {
+        title: t("chat.toolGenericGeneric"),
+        detail: compactToolDetail(fallbackDetail),
+        detailKind: "text",
+      }
+  }
+}
+
 /** 工具调用的一行人话动作摘要；原始命令只放在详情里。 */
 export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string {
   const input = part.input ?? {}
-  const service = str(input.service)
-  const action = str(input.action)
-  const target = service && action ? `${service} · ${action}` : service || action
+  const target = connectorTarget(input)
   const fallbackDetail = part.title || part.tool || "tool"
   switch (part.tool) {
     case "search_actions": {

@@ -141,6 +141,20 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   })
   assert.equal(events.length, stoppedEventCount)
 
+  bridge.emit({
+    type: "session.error",
+    properties: { sessionID: "session-1", error: { name: "AbortError" } },
+  })
+  assert.equal(events.at(-1)?.event, "generationStopped")
+  const abortEventCount = events.length
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "text-2", sessionID: "session-1", messageID: "assistant-1", type: "text", text: "later" },
+    },
+  })
+  assert.equal(events.length, abortEventCount)
+
   await service.sendMessage({ sessionId: "session-1", text: "next" })
   bridge.emit({
     type: "message.updated",

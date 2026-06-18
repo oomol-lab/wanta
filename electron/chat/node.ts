@@ -744,7 +744,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!isAbortErrorMessage(message)) {
       return false
     }
-    this.userStoppedSessions.delete(sessionId)
     return true
   }
 

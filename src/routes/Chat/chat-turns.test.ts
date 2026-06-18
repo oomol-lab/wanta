@@ -176,4 +176,17 @@ describe("summarizeTurnProcess", () => {
     expect(process.hasStoppedTool).toBe(true)
     expect(process.hasBlockingError).toBe(false)
   })
+
+  it("does not treat locally cancelled running tools as active", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "stop")]),
+      message("a1", "assistant", [tool("tool-1", { status: "running", cancelled: true })]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.hasActiveTool).toBe(false)
+    expect(process.hasStoppedTool).toBe(true)
+  })
 })

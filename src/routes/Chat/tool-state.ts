@@ -29,6 +29,10 @@ export function isToolCancellation(part: ChatMessagePart): boolean {
   )
 }
 
+export function isActiveToolPart(part: ChatMessagePart): boolean {
+  return part.kind === "tool" && !isToolCancellation(part) && (part.status === "pending" || part.status === "running")
+}
+
 export function hasBlockingToolError(parts: ChatMessagePart[]): boolean {
   return parts.some((part) => part.kind === "tool" && part.status === "error" && !isToolCancellation(part))
 }

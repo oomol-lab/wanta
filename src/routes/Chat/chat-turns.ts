@@ -5,7 +5,7 @@ import type {
   ChatMessagePart,
 } from "../../../electron/chat/common.ts"
 
-import { hasBlockingToolError, hasStoppedTool } from "./tool-state.ts"
+import { hasBlockingToolError, hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 
 export interface ChatTurn {
   id: string
@@ -201,7 +201,7 @@ export function summarizeTurnProcess(
     tools,
     errors,
     hasFinalAnswer,
-    hasActiveTool: tools.some((part) => part.status === "pending" || part.status === "running"),
+    hasActiveTool: tools.some(isActiveToolPart),
     hasBlockingError: hasBlockingToolError(tools) || errors.length > 0,
     hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization: tools.some(

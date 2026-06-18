@@ -66,6 +66,34 @@ test("applyStoppedGenerations uses message fallback without cancelling completed
   assert.equal(message?.parts[2]?.cancelled, true)
 })
 
+test("applyStoppedGenerations freezes cancelled running tool timing", () => {
+  const records: StoppedGenerations = new Map()
+  recordStoppedGeneration(records, "session-1", "assistant-1", ["tool-running"], 2600)
+  const messages: ChatMessage[] = [
+    {
+      id: "assistant-1",
+      role: "assistant",
+      createdAt: 1,
+      parts: [
+        {
+          kind: "tool",
+          partId: "tool-running",
+          callId: "call-running",
+          tool: "bash",
+          status: "running",
+          input: {},
+          timing: { start: 1000 },
+        },
+      ],
+    },
+  ]
+
+  const [message] = applyStoppedGenerations(messages, records.get("session-1"))
+
+  assert.equal(message?.parts[0]?.cancelled, true)
+  assert.deepEqual(message?.parts[0]?.timing, { start: 1000, end: 2600 })
+})
+
 test("StoppedGenerationStore persists stopped generation overlays", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "lumo-stopped-generations-"))
   const store = new StoppedGenerationStore(root)

@@ -140,6 +140,18 @@ describe("formatToolDuration", () => {
   it("formats running tool duration against the current time", () => {
     expect(formatToolDuration(toolPart("tool-1", { status: "running", timing: { start: 1000 } }), 12_200)).toBe("11s")
   })
+
+  it("does not keep timing cancelled running tools against the current time", () => {
+    expect(
+      formatToolDuration(toolPart("tool-1", { status: "running", cancelled: true, timing: { start: 1000 } }), 12_200),
+    ).toBe(null)
+    expect(
+      formatToolDuration(
+        toolPart("tool-2", { status: "running", cancelled: true, timing: { start: 1000, end: 2600 } }),
+        12_200,
+      ),
+    ).toBe("1.6s")
+  })
 })
 
 describe("formatToolActivityDuration", () => {
@@ -157,6 +169,15 @@ describe("formatToolActivityDuration", () => {
       "2s",
     )
   })
+
+  it("does not extend cancelled running activity duration", () => {
+    expect(
+      formatToolActivityDuration(
+        [toolPart("tool-1", { status: "running", cancelled: true, timing: { start: 1000, end: 2000 } })],
+        3200,
+      ),
+    ).toBe("1s")
+  })
 })
 
 describe("shouldShowRunningNoOutput", () => {
@@ -165,6 +186,7 @@ describe("shouldShowRunningNoOutput", () => {
     expect(shouldShowRunningNoOutput(toolPart("tool-2", { status: "running", output: "done" }))).toBe(false)
     expect(shouldShowRunningNoOutput(toolPart("tool-3", { status: "completed" }))).toBe(false)
     expect(shouldShowRunningNoOutput(toolPart("tool-4", { status: "running", tool: "read" }))).toBe(false)
+    expect(shouldShowRunningNoOutput(toolPart("tool-5", { status: "running", cancelled: true }))).toBe(false)
   })
 })
 

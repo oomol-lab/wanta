@@ -146,7 +146,20 @@ function shouldCancelToolPart(part: ChatMessagePart): boolean {
   return part.kind === "tool" && (part.status === "pending" || part.status === "running" || part.status === "error")
 }
 
-export function markLatestAssistantToolsCancelled(msgs: ChatMessage[]): { messages: ChatMessage[]; partIds: string[] } {
+function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessagePart {
+  const shouldFreezeTiming =
+    (part.status === "pending" || part.status === "running") && typeof part.timing?.end !== "number"
+  return {
+    ...part,
+    cancelled: true,
+    ...(shouldFreezeTiming ? { timing: { ...part.timing, end: stoppedAt } } : {}),
+  }
+}
+
+export function markLatestAssistantToolsCancelled(
+  msgs: ChatMessage[],
+  stoppedAt = Date.now(),
+): { messages: ChatMessage[]; partIds: string[] } {
   const messageIndex = msgs.findLastIndex((message) => message.role === "assistant")
   if (messageIndex === -1) {
     return { messages: msgs, partIds: [] }
@@ -161,7 +174,7 @@ export function markLatestAssistantToolsCancelled(msgs: ChatMessage[]): { messag
       return part
     }
     partIds.push(part.partId)
-    return { ...part, cancelled: true }
+    return cancelledToolPart(part, stoppedAt)
   })
   if (partIds.length === 0) {
     return { messages: msgs, partIds }
@@ -171,7 +184,11 @@ export function markLatestAssistantToolsCancelled(msgs: ChatMessage[]): { messag
   return { messages, partIds }
 }
 
-export function applyCancelledToolParts(msgs: ChatMessage[], partIds: Set<string> | undefined): ChatMessage[] {
+export function applyCancelledToolParts(
+  msgs: ChatMessage[],
+  partIds: Set<string> | undefined,
+  stoppedAt = Date.now(),
+): ChatMessage[] {
   if (!partIds || partIds.size === 0) {
     return msgs
   }
@@ -184,7 +201,7 @@ export function applyCancelledToolParts(msgs: ChatMessage[], partIds: Set<string
       }
       changed = true
       partsChanged = true
-      return { ...part, cancelled: true }
+      return cancelledToolPart(part, stoppedAt)
     })
     return partsChanged ? { ...message, parts } : message
   })

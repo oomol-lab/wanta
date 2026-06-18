@@ -27,7 +27,7 @@ import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { compactToolDetail, shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { parseToolAuthorization, toolActionSummary, toolInputString } from "./tool-display.ts"
-import { isToolCancellation } from "./tool-state.ts"
+import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useT } from "@/i18n/i18n"
@@ -197,7 +197,7 @@ export function ToolActivityStep({
   const [open, setOpen] = React.useState(defaultOpen)
   const statusText = toolPartStatusLabel(t, part)
   const inlineDetail = toolInlineDetail(part)
-  const active = part.status === "pending" || part.status === "running"
+  const active = isActiveToolPart(part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
   const actionText = toolActionSummary(t, part)

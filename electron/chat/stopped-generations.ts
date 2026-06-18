@@ -32,6 +32,16 @@ function isCancellableToolPart(part: ChatMessagePart): boolean {
   return part.kind === "tool" && part.status !== "completed"
 }
 
+function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessagePart {
+  const shouldFreezeTiming =
+    (part.status === "pending" || part.status === "running") && typeof part.timing?.end !== "number"
+  return {
+    ...part,
+    cancelled: true,
+    ...(shouldFreezeTiming ? { timing: { ...part.timing, end: stoppedAt } } : {}),
+  }
+}
+
 function normalizeStoppedGenerations(value: unknown): StoppedGenerations {
   const sessions = value && typeof value === "object" ? (value as PersistedStoppedGenerations).sessions : undefined
   const records: StoppedGenerations = new Map()
@@ -146,7 +156,7 @@ export function applyStoppedGenerations(
       }
       changed = true
       partsChanged = true
-      return { ...part, cancelled: true }
+      return cancelledToolPart(part, record.stoppedAt)
     })
     return partsChanged ? { ...message, parts } : message
   })

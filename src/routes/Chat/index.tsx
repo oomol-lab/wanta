@@ -43,7 +43,7 @@ import {
 import { renderBlocks } from "./render-blocks.ts"
 import { formatToolActivityDuration } from "./tool-activity.ts"
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
-import { hasStoppedTool } from "./tool-state.ts"
+import { hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import {
@@ -261,7 +261,7 @@ function TurnProcessActivity({
 function latestActiveTool(process: ReturnType<typeof summarizeTurnProcess>): ChatMessagePart | null {
   for (let index = process.tools.length - 1; index >= 0; index -= 1) {
     const part = process.tools[index]
-    if (part?.status === "running" || part?.status === "pending") {
+    if (part && isActiveToolPart(part)) {
       return part
     }
   }

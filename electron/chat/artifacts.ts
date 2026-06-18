@@ -80,6 +80,27 @@ export function mimeFromPath(filePath: string): string {
       return "text/markdown"
     case "pdf":
       return "application/pdf"
+    case "aac":
+      return "audio/aac"
+    case "flac":
+      return "audio/flac"
+    case "m4a":
+      return "audio/mp4"
+    case "mp3":
+      return "audio/mpeg"
+    case "oga":
+    case "ogg":
+      return "audio/ogg"
+    case "wav":
+      return "audio/wav"
+    case "webm":
+      return "video/webm"
+    case "m4v":
+      return "video/mp4"
+    case "mov":
+      return "video/quicktime"
+    case "mp4":
+      return "video/mp4"
     case "txt":
       return "text/plain"
     case "xls":

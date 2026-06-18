@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { ooEndpoint } from "../domain.ts"
+import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { AgentManager } from "./manager.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
@@ -20,6 +21,44 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider (derived ba
   assert.equal(provider.options?.apiKey, "api-test")
   const model = provider.models?.[LUMO_MODEL_ID]
   assert.ok(model)
+  assert.equal(model.attachment, true)
+  assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
+})
+
+test("buildOpencodeConfig covers every registered built-in model runtime", () => {
+  const config = buildOpencodeConfig({ apiKey: "api-test" })
+
+  for (const providerDefinition of BUILTIN_PROVIDER_DEFINITIONS) {
+    const provider = config.provider?.[providerDefinition.id]
+    assert.ok(provider, `missing built-in provider ${providerDefinition.id}`)
+    assert.equal(provider.name, providerDefinition.displayName)
+    assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
+    assert.equal(provider.options?.apiKey, "api-test")
+    assert.equal(provider.npm, providerDefinition.npm)
+  }
+
+  for (const definition of BUILTIN_MODEL_DEFINITIONS) {
+    const provider = config.provider?.[definition.runtime.providerID]
+    const model = provider?.models?.[definition.runtime.modelID]
+    assert.ok(model, `missing built-in model ${definition.runtime.providerID}/${definition.runtime.modelID}`)
+    assert.equal(model.name, definition.displayName)
+    assert.equal(model.tool_call, definition.capabilities.toolCall)
+    assert.equal(model.attachment, definition.capabilities.supportsImages ? true : undefined)
+  }
+})
+
+test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics", () => {
+  const gpt55 = resolveBuiltinModel("gpt-5.5")
+  assert.deepEqual(gpt55.runtime, { providerID: "openai", modelID: "gpt-5.5" })
+  const config = buildOpencodeConfig({ apiKey: "api-test" })
+  const provider = config.provider?.[gpt55.runtime.providerID]
+  const model = provider?.models?.[gpt55.runtime.modelID]
+  assert.ok(provider)
+  assert.equal(provider.npm, undefined)
+  assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
+  assert.equal(provider.options?.apiKey, "api-test")
+  assert.ok(model)
+  assert.equal(model.name, "GPT 5.5")
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })

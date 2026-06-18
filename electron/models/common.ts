@@ -1,13 +1,15 @@
+import type { BuiltinModelId } from "./builtin.ts"
 import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
-
-export type BuiltinModelId = "oopilot"
 
 export interface BuiltinModelSummary {
   id: BuiltinModelId
   displayName: string
   providerName: string
+  supportsImages: boolean
+  toolCall: boolean
+  runtimeKind: "openai-compatible" | "openai-responses"
 }
 
 export interface CustomModelProvider {

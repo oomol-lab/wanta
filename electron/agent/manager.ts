@@ -11,6 +11,7 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
+import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
@@ -350,7 +351,8 @@ export class AgentManager {
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {
     if (!choice || choice.kind === "builtin") {
-      return { providerID: LUMO_PROVIDER_ID, modelID: LUMO_MODEL_ID }
+      const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+      return resolveBuiltinModel(modelID).runtime
     }
     const model = this.options.customModels?.find((item) => item.id === choice.id)
     if (!model) {

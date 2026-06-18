@@ -16,6 +16,26 @@ export interface UseModelCatalog {
   selectModel: (choice: ModelChoice) => void
 }
 
+function hasModelChoice(catalog: ModelCatalog | null, choice: ModelChoice): boolean {
+  if (!catalog) {
+    return false
+  }
+  if (choice.kind === "builtin") {
+    return catalog.builtins.some((model) => model.id === choice.id)
+  }
+  return catalog.customModels.some((model) => model.id === choice.id)
+}
+
+function withSelectedModel(catalog: ModelCatalog | null, choice: ModelChoice): ModelCatalog | null {
+  if (!catalog) {
+    return null
+  }
+  if (!hasModelChoice(catalog, choice)) {
+    return catalog
+  }
+  return { ...catalog, selected: choice }
+}
+
 export function useModelCatalog(): UseModelCatalog {
   const modelsService = useModelsService()
   const [catalog, setCatalog] = React.useState<ModelCatalog | null>(null)
@@ -46,10 +66,17 @@ export function useModelCatalog(): UseModelCatalog {
   const selectModel = React.useCallback(
     (choice: ModelChoice) => {
       setError(null)
+      setCatalog((current) => withSelectedModel(current, choice))
       void modelsService
         .invoke("setSelectedModel", choice)
         .then(setCatalog)
-        .catch((cause) => setError(resolveUserFacingError(cause, { area: "model" })))
+        .catch((cause) => {
+          setError(resolveUserFacingError(cause, { area: "model" }))
+          void modelsService
+            .invoke("listModels")
+            .then(setCatalog)
+            .catch(() => undefined)
+        })
     },
     [modelsService],
   )

@@ -25,7 +25,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
-import { compactToolDetail, shouldShowRunningNoOutput } from "./tool-activity.ts"
+import { compactPathDetail, compactToolDetail, shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { parseToolAuthorization, toolActionSummary, toolInputString } from "./tool-display.ts"
 import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
@@ -63,6 +63,41 @@ function toolInlineDetail(part: ChatMessagePart): string {
   }
   const command = toolInputString(part.input?.command).split("\n")[0]
   return command ? compactToolDetail(command, 96) : ""
+}
+
+interface ActiveToolInlineDetail {
+  kind: "code" | "text"
+  text: string
+}
+
+function activeToolActionText(t: TranslateFn, part: ChatMessagePart): string {
+  return part.tool === "webfetch" ? t("chat.toolWebFetchGeneric") : toolActionSummary(t, part)
+}
+
+function activeToolInlineDetail(part: ChatMessagePart): ActiveToolInlineDetail | null {
+  if (part.tool === "bash") {
+    const command = toolInputString(part.input?.command).split("\n")[0]
+    return command ? { kind: "code", text: compactToolDetail(command, 96) } : null
+  }
+  if (part.tool === "webfetch") {
+    const url = toolInputString(part.input?.url)
+    return url ? { kind: "text", text: compactPathDetail(url) } : null
+  }
+  return null
+}
+
+function ToolInlineDetail({ detail }: { detail: ActiveToolInlineDetail | null }) {
+  if (!detail) {
+    return null
+  }
+  if (detail.kind === "code") {
+    return (
+      <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
+        {detail.text}
+      </code>
+    )
+  }
+  return <span className="min-w-0 flex-1 truncate text-muted-foreground">{detail.text}</span>
 }
 
 function formatToolOutput(output: string | undefined): string {
@@ -201,7 +236,9 @@ export function ToolActivityStep({
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
   const actionText = toolActionSummary(t, part)
-  const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
+  const activeActionText = activeToolActionText(t, part)
+  const activeDetail = activeToolInlineDetail(part)
+  const inactiveDetail = inlineDetail ? { kind: "code" as const, text: inlineDetail } : null
 
   React.useEffect(() => {
     if (defaultOpen) {
@@ -219,19 +256,25 @@ export function ToolActivityStep({
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
         {active ? (
-          <div className="flex min-w-0 items-center">
-            <LoadingShimmerText className="min-w-0 truncate">{activeText}</LoadingShimmerText>
+          <div className="flex min-w-0 items-center gap-2">
+            <LoadingShimmerText className="min-w-0 shrink-0 truncate">{activeActionText}</LoadingShimmerText>
+            <ToolInlineDetail detail={activeDetail} />
+            {activeDetail ? null : <span aria-hidden="true" className="min-w-0 flex-1" />}
+            <span className="flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
+              {metaItems.map((item, index) => (
+                <React.Fragment key={`${index}:${item}`}>
+                  {index > 0 ? <span className="text-muted-foreground/70">·</span> : null}
+                  <span>{item}</span>
+                </React.Fragment>
+              ))}
+            </span>
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-2">
             <span className={cn("min-w-0 truncate text-foreground", inlineDetail ? "shrink-0" : "flex-1")}>
               {actionText}
             </span>
-            {inlineDetail && (
-              <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
-                {inlineDetail}
-              </code>
-            )}
+            <ToolInlineDetail detail={inactiveDetail} />
             <span
               className={cn(
                 "flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground transition-opacity",

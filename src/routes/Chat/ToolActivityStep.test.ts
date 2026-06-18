@@ -1,0 +1,83 @@
+import type { ChatMessagePart } from "../../../electron/chat/common.ts"
+
+import * as React from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { describe, expect, it } from "vitest"
+import { ToolActivityStep } from "./ToolActivityStep.tsx"
+import { I18nContext, translate } from "@/i18n/i18n"
+
+function renderToolActivityStep(part: ChatMessagePart): string {
+  return renderToStaticMarkup(
+    React.createElement(
+      I18nContext.Provider,
+      {
+        value: {
+          locale: "zh-CN",
+          setLocale: () => undefined,
+          t: (key, vars) => translate("zh-CN", key, vars),
+        },
+      },
+      React.createElement(ToolActivityStep, { part, onAuthorize: () => undefined }),
+    ),
+  )
+}
+
+function shimmerClassFor(html: string, text: string): string {
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = html.match(new RegExp(`class="([^"]*text-transparent[^"]*)"[^>]*>${escaped}</span>`))
+  if (!match?.[1]) {
+    throw new Error(`Missing shimmer span for ${text}.`)
+  }
+  return match[1]
+}
+
+describe("ToolActivityStep", () => {
+  it("shimmers only the active tool title when a command is shown inline", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "bash",
+      status: "running",
+      input: { command: "curl -s -L -o /tmp/1688_page.html" },
+    })
+
+    expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>运行命令<\/span>/)
+    expect(shimmerClassFor(html, "运行命令")).toContain("shrink-0")
+    expect(shimmerClassFor(html, "运行命令")).not.toContain("flex-1")
+    expect(html).toMatch(/<code class="[^"]*"[^>]*>curl -s -L -o \/tmp\/1688_page\.html<\/code>/)
+    expect(html).not.toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>[^<]*curl/)
+  })
+
+  it("shimmers only the active web fetch title when the URL is shown inline", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "webfetch",
+      status: "running",
+      input: { url: "https://detail.1688.com/offer/825951472006.html" },
+    })
+
+    expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>读取网页<\/span>/)
+    expect(shimmerClassFor(html, "读取网页")).toContain("shrink-0")
+    expect(shimmerClassFor(html, "读取网页")).not.toContain("flex-1")
+    expect(html).toContain("https://detail.1688.com/offer/825951472006.html")
+    expect(html).not.toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>[^<]*1688/)
+  })
+
+  it("keeps the active title shimmer width stable when no inline detail is available", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "bash",
+      status: "pending",
+      input: {},
+    })
+
+    expect(shimmerClassFor(html, "运行命令")).toContain("shrink-0")
+    expect(shimmerClassFor(html, "运行命令")).not.toContain("flex-1")
+    expect(html).toContain('aria-hidden="true"')
+  })
+})

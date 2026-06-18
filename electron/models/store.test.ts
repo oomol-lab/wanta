@@ -10,6 +10,10 @@ test("ModelsStore returns default catalog on missing file", async () => {
   const store = new ModelsStore(dir)
   const catalog = await store.catalog()
   assert.deepEqual(catalog.selected, defaultModelChoice())
+  assert.deepEqual(
+    catalog.builtins.map((model) => model.id),
+    ["oopilot", "gpt-5.5"],
+  )
   assert.equal(catalog.customModels.length, 0)
   assert.ok(catalog.providers.some((provider) => provider.id === "deepseek"))
 })

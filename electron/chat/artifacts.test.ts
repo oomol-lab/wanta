@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { extractLocalPathCandidates, isBroadLocalArtifactPath, normalizeLocalPathCandidate } from "./artifacts.ts"
+import {
+  extractLocalPathCandidates,
+  isBroadLocalArtifactPath,
+  mimeFromPath,
+  normalizeLocalPathCandidate,
+} from "./artifacts.ts"
 
 describe("extractLocalPathCandidates", () => {
   it("extracts inline-code and plain macOS paths", () => {
@@ -77,5 +82,14 @@ describe("isBroadLocalArtifactPath", () => {
   it("allows specific output descendants", () => {
     expect(isBroadLocalArtifactPath("/Users/wushuang/Desktop/out.png", "/Users/wushuang")).toBe(false)
     expect(isBroadLocalArtifactPath("/tmp/lumo-artifacts/out.png", "/Users/wushuang")).toBe(false)
+  })
+})
+
+describe("mimeFromPath", () => {
+  it("recognizes common generated audio and video files", () => {
+    expect(mimeFromPath("/tmp/result.mp3")).toBe("audio/mpeg")
+    expect(mimeFromPath("/tmp/result.wav")).toBe("audio/wav")
+    expect(mimeFromPath("/tmp/result.mp4")).toBe("video/mp4")
+    expect(mimeFromPath("/tmp/result.mov")).toBe("video/quicktime")
   })
 })

@@ -203,7 +203,7 @@ export interface AttachmentPreviewResult {
   dataUrl: string | null
 }
 
-export type LocalArtifactPreviewKind = "image" | "text" | "unsupported"
+export type LocalArtifactPreviewKind = "image" | "media" | "text" | "unsupported"
 
 export interface LocalArtifactPreviewRequest {
   path: string

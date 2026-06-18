@@ -890,6 +890,24 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
 
+    if (item.mime.toLowerCase().startsWith("audio/") || item.mime.toLowerCase().startsWith("video/")) {
+      if (size > attachmentPreviewMaxBytes) {
+        return { kind: "unsupported", mime: item.mime, size }
+      }
+      try {
+        const bytes = await readFile(item.path)
+        return {
+          kind: "media",
+          mime: item.mime,
+          size,
+          dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
+        }
+      } catch (error) {
+        console.error("[lumo] getLocalArtifactPreview media failed", { path: req.path, error: errorMessage(error) })
+        return { kind: "unsupported", mime: item.mime, size }
+      }
+    }
+
     if (!isTextArtifactMime(item.mime)) {
       return { kind: "unsupported", mime: item.mime, size }
     }

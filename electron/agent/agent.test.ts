@@ -3,6 +3,7 @@ import { mkdtemp, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
+import { branding } from "../branding.ts"
 import { ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
@@ -138,6 +139,7 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(LUMO_SYSTEM_PROMPT, /concrete URL.*local web tools/s)
   assert.match(LUMO_SYSTEM_PROMPT, /Locate and read the relevant context before editing/)
   assert.match(LUMO_SYSTEM_PROMPT, /Use focused validation when feasible/)
+  assert.match(LUMO_SYSTEM_PROMPT, new RegExp(`${branding.organizationName} connectors`))
   assert.match(LUMO_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
 })
 

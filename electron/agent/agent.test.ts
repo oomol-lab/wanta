@@ -3,7 +3,9 @@ import { mkdtemp, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
+import { branding } from "../branding.ts"
 import { ooEndpoint } from "../domain.ts"
+import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { AgentManager } from "./manager.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
@@ -20,6 +22,44 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider (derived ba
   assert.equal(provider.options?.apiKey, "api-test")
   const model = provider.models?.[LUMO_MODEL_ID]
   assert.ok(model)
+  assert.equal(model.attachment, true)
+  assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
+})
+
+test("buildOpencodeConfig covers every registered built-in model runtime", () => {
+  const config = buildOpencodeConfig({ apiKey: "api-test" })
+
+  for (const providerDefinition of BUILTIN_PROVIDER_DEFINITIONS) {
+    const provider = config.provider?.[providerDefinition.id]
+    assert.ok(provider, `missing built-in provider ${providerDefinition.id}`)
+    assert.equal(provider.name, providerDefinition.displayName)
+    assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
+    assert.equal(provider.options?.apiKey, "api-test")
+    assert.equal(provider.npm, providerDefinition.npm)
+  }
+
+  for (const definition of BUILTIN_MODEL_DEFINITIONS) {
+    const provider = config.provider?.[definition.runtime.providerID]
+    const model = provider?.models?.[definition.runtime.modelID]
+    assert.ok(model, `missing built-in model ${definition.runtime.providerID}/${definition.runtime.modelID}`)
+    assert.equal(model.name, definition.displayName)
+    assert.equal(model.tool_call, definition.capabilities.toolCall)
+    assert.equal(model.attachment, definition.capabilities.supportsImages ? true : undefined)
+  }
+})
+
+test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics", () => {
+  const gpt55 = resolveBuiltinModel("gpt-5.5")
+  assert.deepEqual(gpt55.runtime, { providerID: "openai", modelID: "gpt-5.5" })
+  const config = buildOpencodeConfig({ apiKey: "api-test" })
+  const provider = config.provider?.[gpt55.runtime.providerID]
+  const model = provider?.models?.[gpt55.runtime.modelID]
+  assert.ok(provider)
+  assert.equal(provider.npm, undefined)
+  assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
+  assert.equal(provider.options?.apiKey, "api-test")
+  assert.ok(model)
+  assert.equal(model.name, "GPT 5.5")
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -88,13 +128,18 @@ test("lumo agent enables built-in coding/shell tools alongside connector tools, 
 })
 
 test("system prompt treats Link as a contextual capability, not the default path", () => {
-  assert.match(LUMO_SYSTEM_PROMPT, /general-purpose AI agent/)
-  assert.match(LUMO_SYSTEM_PROMPT, /Start from the user's real goal/)
+  assert.match(LUMO_SYSTEM_PROMPT, /work agent/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Start from the result the user needs/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Tools are means to finish work, not features to showcase/)
   assert.match(
     LUMO_SYSTEM_PROMPT,
-    /Use Link tools only when the task requires data or actions inside a connected SaaS account/,
+    /Use Link tools only when the task requires private\/account-specific data or actions inside a SaaS account/,
   )
-  assert.match(LUMO_SYSTEM_PROMPT, /Do not use Link tools just because a provider is connected/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Authorized providers.*are context only/s)
+  assert.match(LUMO_SYSTEM_PROMPT, /concrete URL.*local web tools/s)
+  assert.match(LUMO_SYSTEM_PROMPT, /Locate and read the relevant context before editing/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Use focused validation when feasible/)
+  assert.match(LUMO_SYSTEM_PROMPT, new RegExp(`${branding.organizationName} connectors`))
   assert.match(LUMO_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
 })
 
@@ -130,10 +175,13 @@ test("isAuthBlocking flags the upstream authorization-blocking codes", () => {
 test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("@opencode-ai/plugin"))
-  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("requires data or actions inside a SaaS account"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("private/account-specific SaaS data or actions"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("concrete URLs"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
+  assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("does not mean you must execute the action"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authorization_required"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("do not probe unrelated services or actions"))
 })
 
 test("createArtifactDir creates an isolated per-session turn directory", async () => {

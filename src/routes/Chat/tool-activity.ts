@@ -1,6 +1,8 @@
 import type { ChatMessagePart } from "../../../electron/chat/common.ts"
 import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
+import { isActiveToolPart } from "./tool-state.ts"
+
 export type ToolCategory = "connector" | "shell" | "file" | "web" | "task" | "skill" | "custom" | "mixed"
 
 interface ToolActivityTitleState {
@@ -230,7 +232,7 @@ export function toolCategoryLabel(t: TranslateFn, category: ToolCategory): strin
 
 export function formatToolDuration(part: ChatMessagePart, now = Date.now()): string | null {
   const start = part.timing?.start
-  const end = part.timing?.end ?? (part.status === "running" ? now : undefined)
+  const end = part.timing?.end ?? (isActiveToolPart(part) ? now : undefined)
   if (typeof start !== "number" || typeof end !== "number" || end < start) {
     return null
   }
@@ -238,7 +240,7 @@ export function formatToolDuration(part: ChatMessagePart, now = Date.now()): str
 }
 
 export function shouldShowRunningNoOutput(part: ChatMessagePart): boolean {
-  return part.tool === "bash" && part.status === "running" && !part.output && !part.error
+  return part.tool === "bash" && isActiveToolPart(part) && !part.output && !part.error
 }
 
 export function compactToolDetail(value: string, maxLength = 72): string {
@@ -270,7 +272,7 @@ export function formatToolActivityDuration(parts: ChatMessagePart[], now = Date.
   let end: number | undefined
   for (const part of parts) {
     const partStart = part.timing?.start
-    const partEnd = part.timing?.end ?? (part.status === "running" ? now : undefined)
+    const partEnd = part.timing?.end ?? (isActiveToolPart(part) ? now : undefined)
     if (typeof partStart !== "number" || typeof partEnd !== "number" || partEnd < partStart) {
       continue
     }

@@ -115,6 +115,15 @@ export interface AgentErrorEvent {
   sessionId?: string
   message: string
 }
+export type AgentRuntimeStatus =
+  | { status: "signed_out" }
+  | { status: "starting" }
+  | { status: "ready" }
+  | { status: "error"; message: string }
+
+export interface AgentStatusChangedEvent {
+  status: AgentRuntimeStatus
+}
 
 // ── 规范化消息（切换会话时加载历史用）──
 export interface ChatMessagePart {
@@ -230,6 +239,39 @@ export interface LocalArtifactGroup {
   truncated: boolean
 }
 
+export type LocalArtifactPackKind =
+  | "image_set"
+  | "document"
+  | "spreadsheet"
+  | "presentation"
+  | "web_page"
+  | "code_project"
+  | "archive"
+  | "mixed"
+
+export type LocalArtifactDisplayMode = "gallery" | "document" | "table" | "project" | "file_list" | "single"
+
+export type LocalArtifactEntryRole = "primary" | "supporting" | "summary" | "metadata"
+
+export interface LocalArtifactEntry extends LocalArtifactItem {
+  title?: string
+  description?: string
+  role: LocalArtifactEntryRole
+  order: number
+}
+
+export interface LocalArtifactPack {
+  root: LocalArtifactItem
+  title: string
+  kind: LocalArtifactPackKind
+  display: LocalArtifactDisplayMode
+  summary?: string
+  items: LocalArtifactEntry[]
+  supporting: LocalArtifactEntry[]
+  totalItems: number
+  truncated: boolean
+}
+
 export interface ResolveLocalArtifactsRequest {
   text?: string
   artifactRoot?: string
@@ -238,6 +280,7 @@ export interface ResolveLocalArtifactsRequest {
 
 export interface ResolveLocalArtifactsResult {
   groups: LocalArtifactGroup[]
+  pack?: LocalArtifactPack
 }
 
 export interface OpenLocalPathRequest {
@@ -367,6 +410,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
     agentError: AgentErrorEvent
+    agentStatusChanged: AgentStatusChangedEvent
   }
   ClientInvokes: {
     sendMessage(req: SendMessageRequest): Promise<void>
@@ -384,6 +428,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>
+    getAgentStatus(): Promise<AgentRuntimeStatus>
     /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
     isReady(): Promise<boolean>
   }

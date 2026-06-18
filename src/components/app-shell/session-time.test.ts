@@ -11,19 +11,19 @@ describe("formatSessionRelativeTime", () => {
   })
 
   test("formats compact zh-CN relative units", () => {
-    assert.equal(formatSessionRelativeTime(now - 5 * 60_000, now, "zh-CN"), "5分钟前")
-    assert.equal(formatSessionRelativeTime(now - 19 * 60 * 60_000, now, "zh-CN"), "19小时前")
-    assert.equal(formatSessionRelativeTime(now - 9 * 24 * 60 * 60_000, now, "zh-CN"), "9天前")
-    assert.equal(formatSessionRelativeTime(now - 32 * 24 * 60 * 60_000, now, "zh-CN"), "1个月前")
-    assert.equal(formatSessionRelativeTime(now - 400 * 24 * 60 * 60_000, now, "zh-CN"), "1年前")
+    assert.equal(formatSessionRelativeTime(now - 5 * 60_000, now, "zh-CN"), "5分")
+    assert.equal(formatSessionRelativeTime(now - 19 * 60 * 60_000, now, "zh-CN"), "19小时")
+    assert.equal(formatSessionRelativeTime(now - 9 * 24 * 60 * 60_000, now, "zh-CN"), "9天")
+    assert.equal(formatSessionRelativeTime(now - 32 * 24 * 60 * 60_000, now, "zh-CN"), "1个月")
+    assert.equal(formatSessionRelativeTime(now - 400 * 24 * 60 * 60_000, now, "zh-CN"), "1年")
   })
 
   test("formats compact English relative units", () => {
-    assert.equal(formatSessionRelativeTime(now - 5 * 60_000, now, "en"), "5m ago")
-    assert.equal(formatSessionRelativeTime(now - 19 * 60 * 60_000, now, "en"), "19h ago")
-    assert.equal(formatSessionRelativeTime(now - 9 * 24 * 60 * 60_000, now, "en"), "9d ago")
-    assert.equal(formatSessionRelativeTime(now - 32 * 24 * 60 * 60_000, now, "en"), "1mo ago")
-    assert.equal(formatSessionRelativeTime(now - 400 * 24 * 60 * 60_000, now, "en"), "1y ago")
+    assert.equal(formatSessionRelativeTime(now - 5 * 60_000, now, "en"), "5m")
+    assert.equal(formatSessionRelativeTime(now - 19 * 60 * 60_000, now, "en"), "19h")
+    assert.equal(formatSessionRelativeTime(now - 9 * 24 * 60 * 60_000, now, "en"), "9d")
+    assert.equal(formatSessionRelativeTime(now - 32 * 24 * 60 * 60_000, now, "en"), "1mo")
+    assert.equal(formatSessionRelativeTime(now - 400 * 24 * 60 * 60_000, now, "en"), "1y")
   })
 
   test("guards invalid and future values", () => {

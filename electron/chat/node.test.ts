@@ -141,6 +141,22 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   })
   assert.equal(events.length, stoppedEventCount)
 
+  const beforeAbortEventCount = events.length
+  bridge.emit({
+    type: "session.error",
+    properties: { sessionID: "session-1", error: { name: "AbortError" } },
+  })
+  assert.equal(events.length, beforeAbortEventCount + 1)
+  assert.equal(events.at(-1)?.event, "generationStopped")
+  const abortEventCount = events.length
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: { id: "text-2", sessionID: "session-1", messageID: "assistant-1", type: "text", text: "later" },
+    },
+  })
+  assert.equal(events.length, abortEventCount)
+
   await service.sendMessage({ sessionId: "session-1", text: "next" })
   bridge.emit({
     type: "message.updated",
@@ -241,6 +257,8 @@ test("sendMessage passes selected context mentions as per-turn system prompt", a
   assert.match(options?.system ?? "", /User-selected context for this turn/)
   assert.match(options?.system ?? "", /ecommerce-image-studio/)
   assert.match(options?.system ?? "", /gmail/)
+  assert.match(options?.system ?? "", /consider the selected connection first/)
+  assert.match(options?.system ?? "", /Do not use it for unrelated local files/)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {
@@ -352,6 +370,51 @@ test("resolveLocalArtifacts resolves an explicit artifact root without scanning 
   assert.deepEqual(
     result.groups[0]?.items.map((item) => item.name),
     ["fresh.png"],
+  )
+})
+
+test("resolveLocalArtifacts reads artifact pack manifests", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifacts-manifest-"))
+  const artifactRoot = path.join(root, "turn")
+  const filesDir = path.join(artifactRoot, "files")
+  const supportDir = path.join(artifactRoot, "support")
+  await mkdir(filesDir, { recursive: true })
+  await mkdir(supportDir, { recursive: true })
+  await writeFile(path.join(filesDir, "001.jpg"), "one")
+  await writeFile(path.join(filesDir, "002.jpg"), "two")
+  await writeFile(path.join(supportDir, "download-summary.md"), "# Summary")
+  await writeFile(path.join(root, "outside.jpg"), "outside")
+  await writeFile(
+    path.join(artifactRoot, ".lumo-artifact.json"),
+    JSON.stringify({
+      version: 1,
+      title: "1688 images",
+      kind: "image_set",
+      display: "gallery",
+      summary: "Downloaded two images.",
+      items: [
+        { path: "files/002.jpg", role: "primary", order: 2 },
+        { path: "files/001.jpg", role: "primary", order: 1 },
+        { path: "../outside.jpg", role: "primary", order: 3 },
+      ],
+      supporting: [{ path: "support/download-summary.md", role: "summary", title: "Download summary" }],
+    }),
+  )
+
+  const service = new ChatServiceImpl(null)
+  const result = await service.resolveLocalArtifacts({ artifactRoot })
+
+  assert.equal(result.groups.length, 1)
+  assert.equal(result.pack?.title, "1688 images")
+  assert.equal(result.pack?.kind, "image_set")
+  assert.equal(result.pack?.display, "gallery")
+  assert.deepEqual(
+    result.pack?.items.map((item) => item.name),
+    ["001.jpg", "002.jpg"],
+  )
+  assert.deepEqual(
+    result.pack?.supporting.map((item) => [item.name, item.role, item.title]),
+    [["download-summary.md", "summary", "Download summary"]],
   )
 })
 

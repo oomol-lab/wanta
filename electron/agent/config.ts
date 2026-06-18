@@ -1,6 +1,12 @@
 import type { Config } from "@opencode-ai/sdk"
 
 import { llmBaseUrl } from "../domain.ts"
+import {
+  BUILTIN_MODEL_DEFINITIONS,
+  BUILTIN_PROVIDER_DEFINITIONS,
+  DEFAULT_BUILTIN_MODEL_ID,
+  resolveBuiltinModel,
+} from "../models/builtin.ts"
 import { customModelDisplayName } from "../models/store.ts"
 import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
 
@@ -8,8 +14,8 @@ type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["
 
 // OpenCode 内部标识（产品内部约定，可随品牌改，但 OO_/connector 协议契约不改）。
 export const LUMO_AGENT_NAME = "lumo"
-export const LUMO_PROVIDER_ID = "oomol"
-export const LUMO_MODEL_ID = "oopilot"
+export const LUMO_PROVIDER_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.providerID
+export const LUMO_MODEL_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.modelID
 
 export interface OpencodeCustomModel {
   id: string
@@ -43,12 +49,7 @@ export function buildOpencodeConfig({ apiKey, customModels = [] }: OpencodeConfi
     $schema: "https://opencode.ai/config.json",
     model: `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`,
     provider: {
-      [LUMO_PROVIDER_ID]: {
-        name: "OOMOL",
-        npm: "@ai-sdk/openai-compatible",
-        options: { baseURL: llmBaseUrl, apiKey },
-        models: { [LUMO_MODEL_ID]: modelCapabilities("OOMOL Chat", true) },
-      },
+      ...builtinProviderConfigs(apiKey),
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),
     },
     agent: {
@@ -68,6 +69,32 @@ export function customProviderId(id: string): string {
   return `lumo-custom-${id}`
 }
 
+function builtinProviderConfigs(apiKey: string): NonNullable<Config["provider"]> {
+  return Object.fromEntries(
+    BUILTIN_PROVIDER_DEFINITIONS.map((provider) => [
+      provider.id,
+      {
+        name: provider.displayName,
+        ...(provider.npm ? { npm: provider.npm } : {}),
+        options: {
+          baseURL: llmBaseUrl,
+          apiKey,
+        },
+        models: Object.fromEntries(
+          BUILTIN_MODEL_DEFINITIONS.filter((model) => model.runtime.providerID === provider.id).map((model) => [
+            model.runtime.modelID,
+            modelCapabilities({
+              name: model.displayName,
+              supportsImages: model.capabilities.supportsImages,
+              toolCall: model.capabilities.toolCall,
+            }),
+          ]),
+        ),
+      },
+    ]),
+  )
+}
+
 function customProviderConfig(model: OpencodeCustomModel): NonNullable<Config["provider"]>[string] {
   return {
     name: model.providerName,
@@ -77,15 +104,27 @@ function customProviderConfig(model: OpencodeCustomModel): NonNullable<Config["p
       apiKey: model.apiKey,
     },
     models: {
-      [model.modelName]: modelCapabilities(customModelDisplayName(model), model.supportsImages === true),
+      [model.modelName]: modelCapabilities({
+        name: customModelDisplayName(model),
+        supportsImages: model.supportsImages === true,
+        toolCall: true,
+      }),
     },
   }
 }
 
-function modelCapabilities(name: string, supportsImages: boolean): OpencodeModelConfig {
+function modelCapabilities({
+  name,
+  supportsImages,
+  toolCall,
+}: {
+  name: string
+  supportsImages: boolean
+  toolCall: boolean
+}): OpencodeModelConfig {
   return {
     name,
-    tool_call: true,
+    tool_call: toolCall,
     ...(supportsImages
       ? {
           attachment: true,

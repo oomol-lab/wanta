@@ -2,6 +2,7 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentManager } from "../agent/manager.ts"
 import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type {
+  AgentRuntimeStatus,
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
   BillingLogItem,
@@ -17,8 +18,13 @@ import type {
   ChatContextMention,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
+  LocalArtifactDisplayMode,
+  LocalArtifactEntry,
+  LocalArtifactEntryRole,
   LocalArtifactGroup,
   LocalArtifactItem,
+  LocalArtifactPack,
+  LocalArtifactPackKind,
   MessageErrorEvent,
   OpenBillingPageRequest,
   OpenLocalPathRequest,
@@ -37,7 +43,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
-import { open, readdir, readFile, stat } from "node:fs/promises"
+import { open, readdir, readFile, realpath, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
@@ -57,6 +63,7 @@ import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-gene
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 const artifactTextPreviewMaxBytes = 512 * 1024
+const artifactManifestFileName = ".lumo-artifact.json"
 const userStopAbortWindowMs = 30_000
 const defaultMaxDirectoryItems = 80
 const billingPath = "/billing"
@@ -134,7 +141,7 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
       lines.push(`- ${quoted(connection.displayName)}; ${details.join("; ")}`)
     }
     lines.push(
-      "If the task needs account data or SaaS actions, prefer the selected connection. Still inspect the action schema before calling connector tools.",
+      "If, after reading the user's request, a Link action is needed, consider the selected connection first. Do not use it for unrelated local files, direct answers, concrete URLs, or general browsing. Still inspect the action schema before calling connector tools.",
     )
   }
   return lines.join("\n")
@@ -518,6 +525,182 @@ async function fileArtifact(filePath: string): Promise<LocalArtifactGroup | null
   return { items: [item], totalItems: 1, truncated: false }
 }
 
+const artifactPackKinds = new Set<LocalArtifactPackKind>([
+  "image_set",
+  "document",
+  "spreadsheet",
+  "presentation",
+  "web_page",
+  "code_project",
+  "archive",
+  "mixed",
+])
+const artifactDisplayModes = new Set<LocalArtifactDisplayMode>([
+  "gallery",
+  "document",
+  "table",
+  "project",
+  "file_list",
+  "single",
+])
+const artifactEntryRoles = new Set<LocalArtifactEntryRole>(["primary", "supporting", "summary", "metadata"])
+
+interface ArtifactManifestItem {
+  path?: unknown
+  title?: unknown
+  description?: unknown
+  role?: unknown
+  order?: unknown
+}
+
+interface ArtifactManifest {
+  title?: unknown
+  kind?: unknown
+  display?: unknown
+  summary?: unknown
+  primary?: unknown
+  items?: unknown
+  supporting?: unknown
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function normalizeArtifactPackKind(value: unknown): LocalArtifactPackKind {
+  return typeof value === "string" && artifactPackKinds.has(value as LocalArtifactPackKind)
+    ? (value as LocalArtifactPackKind)
+    : "mixed"
+}
+
+function normalizeArtifactDisplayMode(value: unknown): LocalArtifactDisplayMode {
+  return typeof value === "string" && artifactDisplayModes.has(value as LocalArtifactDisplayMode)
+    ? (value as LocalArtifactDisplayMode)
+    : "file_list"
+}
+
+function normalizeArtifactEntryRole(value: unknown, fallback: LocalArtifactEntryRole): LocalArtifactEntryRole {
+  return typeof value === "string" && artifactEntryRoles.has(value as LocalArtifactEntryRole)
+    ? (value as LocalArtifactEntryRole)
+    : fallback
+}
+
+function manifestItems(value: unknown): ArtifactManifestItem[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((item): item is ArtifactManifestItem => Boolean(item && typeof item === "object"))
+}
+
+function primaryPathItems(value: unknown): ArtifactManifestItem[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item, index) => ({ path: item, role: "primary", order: index + 1 }))
+}
+
+async function resolveArtifactManifestPath(rootDir: string, value: unknown): Promise<string | null> {
+  const relativePath = optionalString(value)
+  if (!relativePath || path.isAbsolute(relativePath) || relativePath.startsWith("~")) {
+    return null
+  }
+  const root = path.resolve(rootDir)
+  const resolved = path.resolve(root, relativePath)
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    return null
+  }
+  try {
+    const [realRoot, realResolved] = await Promise.all([realpath(root), realpath(resolved)])
+    if (realResolved !== realRoot && !realResolved.startsWith(`${realRoot}${path.sep}`)) {
+      return null
+    }
+  } catch {
+    return null
+  }
+  return resolved
+}
+
+async function artifactManifestEntry(
+  rootDir: string,
+  raw: ArtifactManifestItem,
+  fallbackRole: LocalArtifactEntryRole,
+  fallbackOrder: number,
+  seen: Set<string>,
+): Promise<LocalArtifactEntry | null> {
+  const filePath = await resolveArtifactManifestPath(rootDir, raw.path)
+  if (!filePath || seen.has(filePath)) {
+    return null
+  }
+  const item = await localArtifactItem(filePath)
+  if (!item) {
+    return null
+  }
+  seen.add(filePath)
+  const order = typeof raw.order === "number" && Number.isFinite(raw.order) ? raw.order : fallbackOrder
+  return {
+    ...item,
+    role: normalizeArtifactEntryRole(raw.role, fallbackRole),
+    order,
+    ...(optionalString(raw.title) ? { title: optionalString(raw.title) } : {}),
+    ...(optionalString(raw.description) ? { description: optionalString(raw.description) } : {}),
+  }
+}
+
+async function readArtifactPack(rootDir: string): Promise<LocalArtifactPack | null> {
+  const root = await localArtifactItem(rootDir)
+  if (!root || root.kind !== "directory") {
+    return null
+  }
+  let manifest: ArtifactManifest
+  try {
+    manifest = JSON.parse(await readFile(path.join(rootDir, artifactManifestFileName), "utf-8")) as ArtifactManifest
+  } catch {
+    return null
+  }
+  if (!manifest || typeof manifest !== "object") {
+    return null
+  }
+  const seen = new Set<string>()
+  const primaryRawItems = manifestItems(manifest.items)
+  const fallbackPrimaryItems = primaryRawItems.length > 0 ? [] : primaryPathItems(manifest.primary)
+  const supportingRawItems = manifestItems(manifest.supporting)
+  const resolvedItems = await Promise.all(
+    [...primaryRawItems, ...fallbackPrimaryItems].map((item, index) =>
+      artifactManifestEntry(rootDir, item, "primary", index + 1, seen),
+    ),
+  )
+  const primaryItems = resolvedItems
+    .filter((item): item is LocalArtifactEntry => Boolean(item))
+    .filter((item) => item.role === "primary")
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, undefined, { numeric: true }))
+  const secondaryFromItems = resolvedItems
+    .filter((item): item is LocalArtifactEntry => Boolean(item))
+    .filter((item) => item.role !== "primary")
+  const resolvedSupporting = await Promise.all(
+    supportingRawItems.map((item, index) => artifactManifestEntry(rootDir, item, "supporting", index + 1, seen)),
+  )
+  const supportingItems = [
+    ...secondaryFromItems,
+    ...resolvedSupporting.filter((item): item is LocalArtifactEntry => Boolean(item)),
+  ].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, undefined, { numeric: true }))
+  if (primaryItems.length === 0 && supportingItems.length === 0) {
+    return null
+  }
+  return {
+    root,
+    title: optionalString(manifest.title) ?? root.name,
+    kind: normalizeArtifactPackKind(manifest.kind),
+    display: normalizeArtifactDisplayMode(manifest.display),
+    ...(optionalString(manifest.summary) ? { summary: optionalString(manifest.summary) } : {}),
+    items: primaryItems,
+    supporting: supportingItems,
+    totalItems: primaryItems.length,
+    truncated: false,
+  }
+}
+
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
   public readonly sessionActivity = new ServiceEvent<{ sessionId: string; usedAt: number }>()
 
@@ -533,6 +716,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private readonly deps: ChatServiceDeps
+  private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private artifactRoots: ArtifactRoots = new Map()
   private artifactRootsLoaded = false
   private artifactRootsLoadPromise: Promise<void> | null = null
@@ -561,6 +745,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.stoppedGenerations.clear()
     this.stoppedGenerationsLoaded = false
     this.stoppedGenerationsLoadPromise = null
+  }
+
+  public setAgentStatus(status: AgentRuntimeStatus): void {
+    this.agentStatus = status
+    void this.send("agentStatusChanged", { status }).catch(() => undefined)
   }
 
   public hasActiveGeneration(): boolean {
@@ -737,7 +926,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!isAbortErrorMessage(message)) {
       return false
     }
-    this.userStoppedSessions.delete(sessionId)
     return true
   }
 
@@ -764,7 +952,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async isReady(): Promise<boolean> {
-    return this.agent?.isReady() ?? false
+    return this.agentStatus.status === "ready" && (this.agent?.isReady() ?? false)
+  }
+
+  public async getAgentStatus(): Promise<AgentRuntimeStatus> {
+    return this.agentStatus
   }
 
   public async sendMessage(req: SendMessageRequest): Promise<void> {
@@ -936,6 +1128,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const maxDirectoryItems = Math.max(1, Math.min(req.maxDirectoryItems ?? defaultMaxDirectoryItems, 200))
     const seen = new Set<string>()
     const groups: LocalArtifactGroup[] = []
+    let pack: LocalArtifactPack | undefined
     for (const candidate of candidates) {
       const filePath = normalizeLocalPathCandidate(candidate, os.homedir())
       if (!filePath || seen.has(filePath)) {
@@ -949,13 +1142,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (!item) {
         continue
       }
+      if (!pack && item.kind === "directory") {
+        pack = (await readArtifactPack(filePath)) ?? undefined
+      }
       const group =
         item.kind === "directory" ? await directoryArtifacts(filePath, maxDirectoryItems) : await fileArtifact(filePath)
       if (group && (group.root || group.items.length > 0)) {
         groups.push(group)
       }
     }
-    return { groups }
+    return { groups, ...(pack ? { pack } : {}) }
   }
 
   public async openLocalPath(req: OpenLocalPathRequest): Promise<void> {

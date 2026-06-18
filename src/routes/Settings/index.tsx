@@ -3,6 +3,7 @@ import type { UpdateChannel } from "../../../electron/update/common.ts"
 import type { ThemePreference } from "@/components/theme-context"
 import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { Locale } from "@/i18n/i18n"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import {
   CheckIcon,
@@ -18,6 +19,7 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 import { branding } from "../../../electron/branding.ts"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { SectionHeading } from "@/components/SectionHeading"
 import { useTheme } from "@/components/theme-context"
@@ -27,6 +29,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useI18n } from "@/i18n/i18n"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 const themeOptions = [
@@ -120,7 +123,7 @@ function AccountSettings({
   onLogout,
 }: {
   account?: AuthAccountSummary
-  error?: string | null
+  error?: UserFacingError | null
   loggingOut: boolean
   onLogout: () => void
 }) {
@@ -161,9 +164,7 @@ function AccountSettings({
 
       {account ? <AccountField label={t("settings.userId")} value={account.id} /> : null}
 
-      {error ? (
-        <p className="oo-text-body border-b border-[var(--oo-divider)] px-3 py-2.5 text-destructive">{error}</p>
-      ) : null}
+      {error ? <ErrorNotice error={error} compact className="m-3" /> : null}
     </>
   )
 }
@@ -252,6 +253,8 @@ function AboutSettings({ update }: { update: UseAppUpdate }) {
   const statusText = getUpdateStatusText(update, t)
   const updateStatus = update.state?.status
   const downloadingStatus = updateStatus?.status === "downloading" ? updateStatus : null
+  const updateError =
+    updateStatus?.status === "error" ? resolveUserFacingError(updateStatus.error, { area: "update" }) : null
   const percent = Math.round(downloadingStatus?.percent ?? 0)
   const version = update.state?.currentVersion ?? globalThis.lumo?.version ?? "—"
   const platform = globalThis.lumo?.platform ?? "browser"
@@ -265,6 +268,7 @@ function AboutSettings({ update }: { update: UseAppUpdate }) {
         <div className={cn("oo-text-caption", update.state?.status.status === "error" && "text-destructive")}>
           {statusText}
         </div>
+        {updateError ? <ErrorNotice error={updateError} compact className="mt-2 max-w-xl" /> : null}
         {downloadingStatus ? <Progress value={percent} className="mt-3 h-1.5 max-w-sm" /> : null}
       </div>
       <UpdateAction update={update} />
@@ -365,7 +369,7 @@ function getUpdateStatusText(update: UseAppUpdate, t: ReturnType<typeof useI18n>
     case "downloading":
       return t("settings.updateDownloading", { percent: Math.round(state.status.percent ?? 0) })
     case "error":
-      return t("settings.updateError", { error: state.status.error })
+      return t("error.update.title")
     default:
       return t("settings.updateIdle")
   }

@@ -12,6 +12,7 @@ import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
 import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 import type { TranslateFn } from "@/i18n/i18n"
+import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 import type { StickToBottomContext } from "use-stick-to-bottom"
@@ -42,7 +43,7 @@ import {
 import { renderBlocks } from "./render-blocks.ts"
 import { formatToolActivityDuration } from "./tool-activity.ts"
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
-import { hasStoppedTool } from "./tool-state.ts"
+import { hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import {
@@ -53,6 +54,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -65,6 +67,7 @@ interface ChatAreaProps {
   activity: AssistantActivityEvent | null
   showEmptyState: boolean
   bootstrapping: boolean
+  startupError?: UserFacingError | null
   error: string | null
   submitDisabled: boolean
   initialSendPending: boolean
@@ -89,9 +92,20 @@ interface ChatAreaProps {
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
 
-type TurnProcessStatus = "running" | "completed" | "retrying" | "needsAction" | "error" | "stopped"
+type TurnProcessStatus =
+  | "running"
+  | "completed"
+  | "completedWithIssues"
+  | "retrying"
+  | "needsAction"
+  | "error"
+  | "stopped"
 
-function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnProcessStatus {
+function isLiveProcess(process: ReturnType<typeof summarizeTurnProcess>, live = false): boolean {
+  return process.hasActiveTool || Boolean(process.activity) || live
+}
+
+function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = false): TurnProcessStatus {
   if (process.hasAuthorization) {
     return "needsAction"
   }
@@ -101,8 +115,11 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
   if (process.hasBlockingError) {
     return "error"
   }
-  if (process.hasActiveTool || process.activity) {
+  if (isLiveProcess(process, live)) {
     return "running"
+  }
+  if (process.hasToolError) {
+    return "completedWithIssues"
   }
   if (process.hasStoppedTool) {
     return "stopped"
@@ -110,8 +127,12 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
   return "completed"
 }
 
-function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>, now: number): string | null {
-  const isLive = process.hasActiveTool || Boolean(process.activity)
+function formatProcessDuration(
+  process: ReturnType<typeof summarizeTurnProcess>,
+  now: number,
+  live = false,
+): string | null {
+  const isLive = isLiveProcess(process, live)
   const toolDuration = !isLive && process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
   if (!isLive && toolDuration) {
     return toolDuration
@@ -142,6 +163,8 @@ function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {
       return t("chat.processStopped")
     case "completed":
       return t("chat.processCompleted")
+    case "completedWithIssues":
+      return t("chat.processCompletedWithIssues")
   }
 }
 
@@ -153,22 +176,22 @@ function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: strin
 function TurnProcessActivity({
   blocks,
   process,
+  live = false,
   billingCacheScope,
-  smoothAssistantMessageId,
   providerByService,
   onAuthorize,
   onViewBilling,
 }: {
   blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
+  live?: boolean
   billingCacheScope: string
-  smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
 }) {
   const t = useT()
-  const status = processStatus(process)
+  const status = processStatus(process, live)
   const shouldOpen =
     status === "running" ||
     status === "retrying" ||
@@ -177,19 +200,24 @@ function TurnProcessActivity({
     !process.hasFinalAnswer
   const statusKey = [
     status,
+    live ? "live" : "",
     process.activity?.phase,
     process.tools.map((part) => `${part.partId}:${part.status}`).join("|"),
     process.errors.map((part) => part.partId).join("|"),
   ].join(":")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
-  const duration = formatProcessDuration(process, now)
+  const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
-  const titleText = processStatusText(t, status)
-  const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
-  const showLiveStatus = renderBlocks.length === 0
-  const forceOpen = status === "needsAction" || status === "error"
+  const showLiveStatus = renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
+  const titleText = processStatusText(t, status)
+  const activeTool = latestActiveTool(process)
+  const shimmerToolPartId =
+    !activeTool && status === "running" && process.activity && process.tools.length > 0
+      ? process.tools.at(-1)?.partId
+      : undefined
+  const forceOpen = status === "needsAction" || (status === "error" && !process.hasFinalAnswer)
   const userChangedOpenRef = React.useRef(false)
 
   React.useEffect(() => {
@@ -226,11 +254,7 @@ function TurnProcessActivity({
           className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-muted-foreground transition-colors hover:text-foreground"
         >
           <span className="flex min-w-0 items-center gap-1">
-            {activeTitle ? (
-              <LoadingShimmerText className="min-w-0 truncate">{titleText}</LoadingShimmerText>
-            ) : (
-              titleText
-            )}
+            <span className="min-w-0 truncate">{titleText}</span>
             {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
           </span>
           <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
@@ -244,13 +268,14 @@ function TurnProcessActivity({
               block={block}
               blockClassName={assistantBlockClassName(renderBlocks, index)}
               billingCacheScope={billingCacheScope}
-              smoothText={message.id === smoothAssistantMessageId}
+              smoothText={false}
               providerByService={providerByService}
+              shimmerToolPartId={shimmerToolPartId}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
             />
           ))}
-          {showLiveStatus ? <LiveStatusBar process={process} /> : null}
+          {showLiveStatus ? <LiveStatusBar process={process} live={live} /> : null}
         </div>
       </TaskContent>
     </Task>
@@ -260,7 +285,7 @@ function TurnProcessActivity({
 function latestActiveTool(process: ReturnType<typeof summarizeTurnProcess>): ChatMessagePart | null {
   for (let index = process.tools.length - 1; index >= 0; index -= 1) {
     const part = process.tools[index]
-    if (part?.status === "running" || part?.status === "pending") {
+    if (part && isActiveToolPart(part)) {
       return part
     }
   }
@@ -279,21 +304,20 @@ function shouldShowLiveStatus(
   )
 }
 
-function hasNestedLoadingIndicator(
-  process: ReturnType<typeof summarizeTurnProcess>,
-  status = processStatus(process),
-): boolean {
-  return process.hasActiveTool || shouldShowLiveStatus(process, status)
-}
-
-function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnProcess> | null }) {
+function LiveStatusBar({
+  process,
+  live = false,
+}: {
+  process: ReturnType<typeof summarizeTurnProcess> | null
+  live?: boolean
+}) {
   const t = useT()
 
   if (!process) {
     return null
   }
 
-  const status = processStatus(process)
+  const status = processStatus(process, live)
   const activeTool = latestActiveTool(process)
   if (!shouldShowLiveStatus(process, status)) {
     return null
@@ -499,6 +523,7 @@ function AssistantBlock({
   billingCacheScope,
   smoothText,
   providerByService,
+  shimmerToolPartId,
   onAuthorize,
   onViewBilling,
 }: {
@@ -507,6 +532,7 @@ function AssistantBlock({
   billingCacheScope: string
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
+  shimmerToolPartId?: string
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
 }) {
@@ -535,6 +561,7 @@ function AssistantBlock({
                 key={part.partId}
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
+                shimmer={part.partId === shimmerToolPartId}
                 onAuthorize={onAuthorize}
               />
             )
@@ -670,7 +697,7 @@ function AssistantTimelineMessage({
 }
 
 function shouldShowTurnProcess(process: ReturnType<typeof summarizeTurnProcess>): boolean {
-  return process.tools.length > 0 || Boolean(process.activity && !process.hasFinalAnswer)
+  return process.tools.length > 0 || Boolean(process.activity)
 }
 
 interface ChatTurnViewProps {
@@ -725,12 +752,24 @@ const ChatTurnView = React.memo(function ChatTurnView({
 }: ChatTurnViewProps) {
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
   const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
+  const shouldShowProcess = shouldShowTurnProcess(process)
+  const turnIsActive = Boolean(activeAssistantMessageId)
+  const processSeenRef = React.useRef(shouldShowProcess)
+  if (shouldShowProcess) {
+    processSeenRef.current = true
+  } else if (!turnIsActive) {
+    processSeenRef.current = false
+  }
+  const showTurnProcess = shouldShowProcess || (turnIsActive && processSeenRef.current)
+  const processRenderBlocks = showTurnProcess && processBlocks.length === 0 ? responseBlocks : processBlocks
+  const responseRenderBlocks = showTurnProcess && processBlocks.length === 0 ? [] : responseBlocks
+  const processLive = showTurnProcess && turnIsActive
   const lastAssistant = turn.assistants.at(-1)
   const assistantActionsText = lastAssistant ? assistantActionTextByMessageId.get(lastAssistant.id) : null
   const assistantCancelled = turn.assistants.some((message) => hasStoppedTool(message.parts))
   const responseActionsText =
-    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseBlocks) || null
-  const processActionsText = responseBlocks.length > 0 ? null : assistantActionsText
+    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseRenderBlocks) || null
+  const processActionsText = responseRenderBlocks.length > 0 ? null : assistantActionsText
   const retrySource = React.useMemo(() => retrySourceFromTurn(turn), [turn])
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo) => {
@@ -752,27 +791,27 @@ const ChatTurnView = React.memo(function ChatTurnView({
           onAuthorize={handleAuthorize}
         />
       ) : null}
-      {shouldShowTurnProcess(process) ? (
+      {showTurnProcess ? (
         <>
           <Message from="assistant">
             <MessageContent className="w-full">
               <TurnProcessActivity
-                blocks={processBlocks}
+                blocks={processRenderBlocks}
                 process={process}
+                live={processLive}
                 billingCacheScope={billingCacheScope}
-                smoothAssistantMessageId={smoothAssistantMessageId}
                 providerByService={providerByService}
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}
               />
             </MessageContent>
-            {processActionsText || (assistantCancelled && responseBlocks.length === 0) ? (
+            {processActionsText || (assistantCancelled && responseRenderBlocks.length === 0) ? (
               <AssistantMessageActions text={processActionsText ?? ""} cancelled={assistantCancelled} />
             ) : null}
           </Message>
-          {responseBlocks.length > 0 ? (
+          {responseRenderBlocks.length > 0 ? (
             <AssistantTimelineMessage
-              blocks={responseBlocks}
+              blocks={responseRenderBlocks}
               billingCacheScope={billingCacheScope}
               smoothAssistantMessageId={smoothAssistantMessageId}
               assistantActionsText={responseActionsText}
@@ -866,7 +905,6 @@ const ChatTimeline = React.memo(function ChatTimeline({
   const visibleArtifactSources = React.useMemo(() => {
     return collectVisibleGeneratedArtifactSources(messages, isGenerating)
   }, [isGenerating, messages])
-
   React.useEffect(() => {
     const lastMessage = messages.at(-1)
     if (
@@ -932,6 +970,7 @@ export const ChatArea = React.memo(function ChatArea({
   activity,
   showEmptyState,
   bootstrapping,
+  startupError,
   error,
   submitDisabled,
   initialSendPending,
@@ -976,8 +1015,15 @@ export const ChatArea = React.memo(function ChatArea({
       onViewBilling={onViewBilling}
     />
   )
+  const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
 
-  const content = bootstrapping ? (
+  const content = startupError ? (
+    <div
+      className={cn("mx-auto grid min-h-full w-full place-items-center px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
+    >
+      <ErrorNotice error={startupError} />
+    </div>
+  ) : bootstrapping ? (
     <div className={cn("mx-auto min-h-full w-full px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)} aria-busy="true">
       <div className="space-y-3">
         <Skeleton className="h-3.5 w-28 rounded-sm motion-safe:animate-none" />
@@ -985,10 +1031,18 @@ export const ChatArea = React.memo(function ChatArea({
         <Skeleton className="h-3.5 w-48 max-w-[52%] rounded-sm motion-safe:animate-none" />
       </div>
     </div>
-  ) : showEmptyState && !hasMessages && !isGenerating ? (
+  ) : showCenteredEmptyState ? (
     <div className="grid min-h-full w-full place-items-center px-4 py-6 sm:px-5 lg:px-8">
-      <div className={cn("w-full -translate-y-[6vh] px-4 pb-1 text-center", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
-        <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
+      <div
+        className={cn(
+          "flex w-full -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out",
+          CHAT_CONTENT_MAX_WIDTH_CLASS,
+        )}
+      >
+        <div className="px-4 pb-1 text-center">
+          <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
+        </div>
+        {composer}
       </div>
     </div>
   ) : (
@@ -1011,7 +1065,9 @@ export const ChatArea = React.memo(function ChatArea({
       <div className="flex min-w-0 flex-1 flex-col pb-4">
         <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
 
-        <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>{composer}</div>
+        {showCenteredEmptyState ? null : (
+          <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>{composer}</div>
+        )}
       </div>
     </div>
   )

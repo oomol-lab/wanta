@@ -16,7 +16,7 @@ export function renderBlocks(parts: ChatMessagePart[]): RenderBlock[] {
     if (pendingTools.length === 0) {
       return
     }
-    blocks.push({ kind: "tools", key: pendingTools.map((part) => part.partId).join(":"), parts: pendingTools })
+    blocks.push({ kind: "tools", key: pendingTools[0]?.partId ?? "tools", parts: pendingTools })
     pendingTools = []
   }
   for (const part of parts) {

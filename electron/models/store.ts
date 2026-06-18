@@ -1,14 +1,9 @@
-import type {
-  BuiltinModelSummary,
-  CustomModelProvider,
-  CustomModelSummary,
-  ModelCatalog,
-  ModelChoice,
-} from "./common.ts"
+import type { CustomModelProvider, CustomModelSummary, ModelCatalog, ModelChoice } from "./common.ts"
 
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
 
 export interface PersistedCustomModel {
   id: string
@@ -25,8 +20,6 @@ export interface PersistedModels {
   selected?: ModelChoice
   customModels?: PersistedCustomModel[]
 }
-
-export const BUILTIN_MODELS: BuiltinModelSummary[] = [{ id: "oopilot", displayName: "Auto", providerName: "OOMOL" }]
 
 export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
@@ -110,7 +103,7 @@ export function sanitizeBaseUrl(value: string): string {
 }
 
 export function defaultModelChoice(): ModelChoice {
-  return { kind: "builtin", id: "oopilot" }
+  return { kind: "builtin", id: DEFAULT_BUILTIN_MODEL_ID }
 }
 
 export function isKnownModelChoice(models: PersistedModels, choice: ModelChoice | undefined): choice is ModelChoice {
@@ -118,7 +111,7 @@ export function isKnownModelChoice(models: PersistedModels, choice: ModelChoice 
     return false
   }
   if (choice.kind === "builtin") {
-    return choice.id === "oopilot"
+    return isBuiltinModelId(choice.id)
   }
   return Boolean(models.customModels?.some((model) => model.id === choice.id))
 }
@@ -157,7 +150,7 @@ export class ModelsStore {
   public async catalog(): Promise<ModelCatalog> {
     const models = await this.read()
     return {
-      builtins: BUILTIN_MODELS,
+      builtins: builtinModelSummaries(),
       customModels: (models.customModels ?? []).map(publicCustomModel),
       providers: CUSTOM_MODEL_PROVIDERS,
       selected: isKnownModelChoice(models, models.selected) ? models.selected : defaultModelChoice(),

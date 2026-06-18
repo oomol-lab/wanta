@@ -24,6 +24,7 @@ import {
 } from "./chat-attachment-utils.ts"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 function attachmentTypeLabel(t: ReturnType<typeof useT>, attachment: ChatAttachment): string {
@@ -218,7 +219,8 @@ export function AttachmentList({
   const openAttachment = React.useCallback(
     (attachment: DraftAttachment): void => {
       void chatService.invoke("openLocalPath", { path: attachment.path }).catch((cause: unknown) => {
-        toast.error(t("chat.openAttachmentFailed", { error: cause instanceof Error ? cause.message : String(cause) }))
+        const error = resolveUserFacingError(cause, { area: "artifact" })
+        toast.error(userFacingErrorDescription(error, t))
       })
     },
     [chatService, t],

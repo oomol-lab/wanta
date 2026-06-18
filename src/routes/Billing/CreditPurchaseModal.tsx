@@ -5,6 +5,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { formatCredit } from "./usage.ts"
 import { useChatService } from "@/components/AppContext"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -200,6 +201,7 @@ export function CreditPurchaseModal({
             </Button>
           ) : null}
         </div>
+        {overview.error ? <ErrorNotice error={overview.error} compact /> : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <SummaryCell

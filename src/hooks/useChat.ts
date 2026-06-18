@@ -3,8 +3,11 @@ import type {
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
+  ChatMessagePart,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
+  ToolCallResultEvent,
+  ToolCallStartedEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { TextDeltaEvent, TextDeltaKind } from "./chat-message-state.ts"
@@ -40,8 +43,16 @@ type PendingTextDelta = {
   event: TextDeltaEvent
   kind: TextDeltaKind
 }
+type PendingToolPart = {
+  messageId: string
+  part: ChatMessagePart
+  sessionId: string
+}
 
 const userStoppedToolCancelWindowMs = 30_000
+// 工具事件可能早于同一 text part 的尾部 delta 抵达；短暂等待可避免先露工具、再在上方补字。
+const toolPartSettleDelayMs = 240
+const toolPartMaxSettleDelayMs = 1200
 
 export interface UseChat {
   messages: ChatMessage[]
@@ -117,6 +128,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const cancelledToolParts = React.useRef<CancelledToolPartsMap>(new Map())
   const pendingTextDeltas = React.useRef(new Map<string, PendingTextDelta>())
   const pendingTextFrame = React.useRef<number | null>(null)
+  const pendingToolParts = React.useRef(new Map<string, PendingToolPart>())
+  const pendingToolTimer = React.useRef<number | null>(null)
+  const pendingToolDelayStartedAt = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     visibleSessionIdRef.current = visibleSessionId
@@ -203,6 +217,110 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [flushPendingTextDeltas],
   )
 
+  const flushPendingToolParts = React.useCallback(() => {
+    if (pendingToolTimer.current !== null) {
+      window.clearTimeout(pendingToolTimer.current)
+      pendingToolTimer.current = null
+    }
+    pendingToolDelayStartedAt.current = null
+    flushPendingTextDeltas()
+    if (pendingToolParts.current.size === 0) {
+      return
+    }
+    const queued = Array.from(pendingToolParts.current.values())
+    pendingToolParts.current.clear()
+    setMessagesMap((prev) => {
+      let nextMap: MessagesMap | null = null
+      for (const { messageId, part, sessionId } of queued) {
+        const baseMap = nextMap ?? prev
+        const currentMessages = baseMap[sessionId] ?? []
+        const nextMessages = setPart(currentMessages, messageId, part)
+        if (!nextMap) {
+          nextMap = { ...prev }
+        }
+        nextMap[sessionId] = nextMessages
+      }
+      return nextMap ?? prev
+    })
+  }, [flushPendingTextDeltas])
+
+  const schedulePendingToolFlush = React.useCallback(() => {
+    if (pendingToolTimer.current !== null) {
+      window.clearTimeout(pendingToolTimer.current)
+    }
+    const now = Date.now()
+    pendingToolDelayStartedAt.current ??= now
+    const elapsed = now - pendingToolDelayStartedAt.current
+    const delay = Math.max(0, Math.min(toolPartSettleDelayMs, toolPartMaxSettleDelayMs - elapsed))
+    pendingToolTimer.current = window.setTimeout(() => {
+      pendingToolTimer.current = null
+      flushPendingToolParts()
+    }, delay)
+  }, [flushPendingToolParts])
+
+  const enqueueToolPart = React.useCallback(
+    (sessionId: string, messageId: string, part: ChatMessagePart) => {
+      pendingToolParts.current.set(`${sessionId}\0${messageId}\0${part.partId}`, { messageId, part, sessionId })
+      schedulePendingToolFlush()
+    },
+    [schedulePendingToolFlush],
+  )
+
+  const delayPendingToolFlushForText = React.useCallback(
+    (event: TextDeltaEvent) => {
+      for (const pending of pendingToolParts.current.values()) {
+        if (pending.sessionId === event.sessionId && pending.messageId === event.messageId) {
+          schedulePendingToolFlush()
+          return
+        }
+      }
+    },
+    [schedulePendingToolFlush],
+  )
+
+  const forgetPendingToolPart = React.useCallback((sessionId: string, messageId: string, partId: string) => {
+    pendingToolParts.current.delete(`${sessionId}\0${messageId}\0${partId}`)
+  }, [])
+
+  const enqueueToolCallStarted = React.useCallback(
+    (e: ToolCallStartedEvent) => {
+      enqueueToolPart(e.sessionId, e.messageId, {
+        kind: "tool",
+        partId: e.partId,
+        callId: e.callId,
+        tool: e.tool,
+        status: e.status,
+        input: e.input,
+        title: e.title,
+        metadata: e.metadata,
+        timing: e.timing,
+      })
+    },
+    [enqueueToolPart],
+  )
+
+  const enqueueToolCallResult = React.useCallback(
+    (e: ToolCallResultEvent, cancelled: boolean) => {
+      enqueueToolPart(e.sessionId, e.messageId, {
+        kind: "tool",
+        partId: e.partId,
+        callId: e.callId,
+        tool: e.tool,
+        status: e.status,
+        input: e.input,
+        output: e.output,
+        error: e.error,
+        title: e.title,
+        metadata: e.metadata,
+        timing: e.timing,
+        attachmentsCount: e.attachmentsCount,
+        authorization: e.authorization,
+        ...(cancelled ? { cancelled: true } : {}),
+      })
+    },
+    [enqueueToolPart],
+  )
+
   React.useEffect(() => {
     return () => {
       if (pendingTextFrame.current !== null) {
@@ -210,6 +328,12 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         pendingTextFrame.current = null
       }
       pendingTextDeltas.current.clear()
+      if (pendingToolTimer.current !== null) {
+        window.clearTimeout(pendingToolTimer.current)
+        pendingToolTimer.current = null
+      }
+      pendingToolDelayStartedAt.current = null
+      pendingToolParts.current.clear()
     }
   }, [])
 
@@ -249,18 +373,19 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const markCurrentToolsCancelled = React.useCallback(
     (sessionId: string) => {
+      flushPendingToolParts()
       patch(sessionId, (msgs) => {
         const { messages, partIds } = markLatestAssistantToolsCancelled(msgs)
         rememberCancelledToolParts(sessionId, partIds)
         return messages
       })
     },
-    [patch, rememberCancelledToolParts],
+    [flushPendingToolParts, patch, rememberCancelledToolParts],
   )
 
   const reload = React.useCallback(
     async (sessionId: string) => {
-      flushPendingTextDeltas()
+      flushPendingToolParts()
       try {
         const msgs = await chatService.invoke("getMessages", sessionId)
         setMessagesMap((prev) => ({
@@ -282,7 +407,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         console.error("[lumo] getMessages failed", err)
       }
     },
-    [chatService, flushPendingTextDeltas, isSessionUserStopped, rememberCancelledToolParts],
+    [chatService, flushPendingToolParts, isSessionUserStopped, rememberCancelledToolParts],
   )
 
   React.useEffect(() => {
@@ -300,6 +425,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           setActivity(e.sessionId, undefined)
         }
         enqueueTextDelta("text", e)
+        delayPendingToolFlushForText(e)
       }),
       chatService.serverEvents.on("messageReasoningDelta", (e) => {
         setStatus(e.sessionId, "streaming")
@@ -314,25 +440,11 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         patch(e.sessionId, (msgs) => setMessageArtifactRoot(msgs, e))
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
-        flushPendingTextDeltas()
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, undefined)
-        patch(e.sessionId, (msgs) =>
-          setPart(msgs, e.messageId, {
-            kind: "tool",
-            partId: e.partId,
-            callId: e.callId,
-            tool: e.tool,
-            status: e.status,
-            input: e.input,
-            title: e.title,
-            metadata: e.metadata,
-            timing: e.timing,
-          }),
-        )
+        enqueueToolCallStarted(e)
       }),
       chatService.serverEvents.on("toolCallResult", (e) => {
-        flushPendingTextDeltas()
         const cancelled = e.status === "error" && isSessionUserStopped(e.sessionId)
         setStatus(e.sessionId, cancelled ? "ready" : "streaming")
         if (!cancelled) {
@@ -341,24 +453,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if (cancelled) {
           rememberCancelledToolParts(e.sessionId, [e.partId])
         }
-        patch(e.sessionId, (msgs) =>
-          setPart(msgs, e.messageId, {
-            kind: "tool",
-            partId: e.partId,
-            callId: e.callId,
-            tool: e.tool,
-            status: e.status,
-            input: e.input,
-            output: e.output,
-            error: e.error,
-            title: e.title,
-            metadata: e.metadata,
-            timing: e.timing,
-            attachmentsCount: e.attachmentsCount,
-            authorization: e.authorization,
-            ...(cancelled ? { cancelled: true } : {}),
-          }),
-        )
+        enqueueToolCallResult(e, cancelled)
       }),
       chatService.serverEvents.on("assistantActivity", (e) => {
         setStatus(e.sessionId, "streaming")
@@ -366,24 +461,25 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }),
       chatService.serverEvents.on("messagePartRemoved", (e) => {
         flushPendingTextDeltas()
+        forgetPendingToolPart(e.sessionId, e.messageId, e.partId)
         patch(e.sessionId, (msgs) => removePart(msgs, e))
       }),
       chatService.serverEvents.on("messageCompleted", (e) => {
-        flushPendingTextDeltas()
+        flushPendingToolParts()
         setStatus(e.sessionId, "ready")
         setActivity(e.sessionId, undefined)
         setUnreadSessionIds((current) => markSessionCompletedUnread(current, e.sessionId, visibleSessionIdRef.current))
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("messageError", (e) => {
-        flushPendingTextDeltas()
+        flushPendingToolParts()
         setStatus(e.sessionId, "error")
         setActivity(e.sessionId, undefined)
         clearSessionError(e.sessionId)
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
       chatService.serverEvents.on("generationStopped", (e) => {
-        flushPendingTextDeltas()
+        flushPendingToolParts()
         setStatus(e.sessionId, "ready")
         setActivity(e.sessionId, undefined)
         clearSessionError(e.sessionId)
@@ -391,7 +487,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("agentError", (e) => {
-        flushPendingTextDeltas()
+        flushPendingToolParts()
         if (e.sessionId) {
           const sessionId = e.sessionId
           setStatus(sessionId, "error")
@@ -410,8 +506,13 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   }, [
     chatService,
     clearSessionError,
+    delayPendingToolFlushForText,
+    enqueueToolCallResult,
+    enqueueToolCallStarted,
     enqueueTextDelta,
+    flushPendingToolParts,
     flushPendingTextDeltas,
+    forgetPendingToolPart,
     isSessionUserStopped,
     markCurrentToolsCancelled,
     patch,

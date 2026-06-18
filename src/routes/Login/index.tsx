@@ -4,6 +4,7 @@ import { LogIn } from "lucide-react"
 import { branding } from "../../../electron/branding.ts"
 import { Loader } from "@/components/ai-elements/loader"
 import { BrandIcon } from "@/components/BrandIcon"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 
@@ -28,9 +29,7 @@ export function LoginRoute({ auth }: { auth: UseAuth }) {
             {auth.loggingIn ? <Loader size={16} /> : <LogIn className="size-4" />}
             {auth.loggingIn ? t("login.waiting") : t("login.button")}
           </Button>
-          {auth.error && (
-            <p className="max-w-sm text-center text-sm text-destructive">{t("login.failed", { error: auth.error })}</p>
-          )}
+          {auth.error ? <ErrorNotice error={auth.error} compact className="max-w-sm" /> : null}
         </div>
       </main>
     </div>

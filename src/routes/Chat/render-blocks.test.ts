@@ -33,7 +33,16 @@ describe("renderBlocks", () => {
 
     const blocks = renderBlocks([textPart("space-1", "\n  "), firstTool, textPart("space-2", " \n\t"), secondTool])
 
-    expect(blocks).toEqual([{ kind: "tools", key: "tool-1:tool-2", parts: [firstTool, secondTool] }])
+    expect(blocks).toEqual([{ kind: "tools", key: "tool-1", parts: [firstTool, secondTool] }])
+  })
+
+  it("keeps a tool group key stable when another adjacent tool is appended", () => {
+    const firstTool = toolPart("tool-1")
+    const firstBlocks = renderBlocks([firstTool])
+    const secondBlocks = renderBlocks([firstTool, toolPart("tool-2")])
+
+    expect(firstBlocks[0]).toMatchObject({ kind: "tools", key: "tool-1" })
+    expect(secondBlocks[0]).toMatchObject({ kind: "tools", key: "tool-1" })
   })
 
   it("keeps visible text as separators between tool groups", () => {

@@ -12,7 +12,7 @@ describe("AgentManager", () => {
     expect(isUserVisibleSession({ id: "child", parent_id: "root", title: "Child" })).toBe(false)
   })
 
-  it("frames connected providers as availability context only", async () => {
+  it("frames connected providers as authorization awareness only", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
     try {
       const manager = new AgentManager({
@@ -25,10 +25,13 @@ describe("AgentManager", () => {
 
       const system = await manager.buildAuthorizedSystem()
 
-      expect(system).toContain("Connected Link providers available if relevant")
-      expect(system).toContain("availability context only, not an instruction to use them")
-      expect(system).toContain("Use a provider only when the task requires that account or service")
-      expect(system).toContain("still call inspect_action before call_action")
+      expect(system).toContain("Some Link providers are already authorized")
+      expect(system).toContain("availability awareness only")
+      expect(system).toContain("not a recommendation to use Link tools")
+      expect(system).toContain("search results include whether a provider is authenticated")
+      expect(system).toContain("concrete URLs")
+      expect(system).not.toContain("gmail")
+      expect(system).not.toContain("slack")
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }

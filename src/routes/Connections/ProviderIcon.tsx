@@ -21,7 +21,15 @@ export function ProviderIcon({
   if (iconUrl && !failed) {
     return (
       <span className={`${className} oo-entity-icon-brand`} style={dim}>
-        <img src={iconUrl} alt="" className="oo-entity-icon-image" style={imageDim} onError={() => setFailed(true)} />
+        <img
+          src={iconUrl}
+          alt=""
+          className="oo-entity-icon-image"
+          style={imageDim}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
       </span>
     )
   }

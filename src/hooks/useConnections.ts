@@ -7,9 +7,11 @@ import type {
   ConnectionSummary,
   ConnectionSummaryRequest,
 } from "../../electron/connections/common.ts"
+import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useConnectionsService } from "@/components/AppContext"
+import { useConnectionsService } from "../components/AppContext.ts"
+import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 const POLL_INTERVAL_MS = 2000
 const POLL_TIMEOUT_MS = 5 * 60_000
@@ -43,7 +45,7 @@ export interface UseConnections {
   summary: ConnectionSummary | null
   busy: "connect" | "disconnect" | "refresh" | null
   polling: string | null
-  error: string | null
+  error: UserFacingError | null
   refresh: (request?: ConnectionSummaryRequest) => Promise<ConnectionSummary | null>
   connect: (input: ConnectionConnectInput) => Promise<boolean>
   disconnect: (service: string) => Promise<boolean>
@@ -59,7 +61,7 @@ export function useConnections(): UseConnections {
   const [summary, setSummary] = React.useState<ConnectionSummary | null>(null)
   const [busy, setBusy] = React.useState<UseConnections["busy"]>(null)
   const [polling, setPolling] = React.useState<string | null>(null)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
   const pollAbort = React.useRef<AbortController | null>(null)
 
   const refresh = React.useCallback(
@@ -71,7 +73,7 @@ export function useConnections(): UseConnections {
         setError(null)
         return next
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+        setError(resolveUserFacingError(err, { area: "connections" }))
         return null
       } finally {
         setBusy((current) => (current === "refresh" ? null : current))
@@ -118,14 +120,14 @@ export function useConnections(): UseConnections {
           }
         }
 
-        setError("OAuth authorization is still pending.")
+        setError(resolveUserFacingError("LUMO_OAUTH_PENDING", { area: "connections" }))
         return false
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          setError("OAuth authorization was cancelled.")
+          setError(resolveUserFacingError("LUMO_OAUTH_CANCELLED", { area: "connections" }))
           return false
         }
-        setError(err instanceof Error ? err.message : String(err))
+        setError(resolveUserFacingError(err, { area: "connections" }))
         return false
       } finally {
         pollAbort.current = null
@@ -145,7 +147,7 @@ export function useConnections(): UseConnections {
         setSummary(result.summary)
         return true
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+        setError(resolveUserFacingError(err, { area: "connections" }))
         return false
       } finally {
         setBusy(null)

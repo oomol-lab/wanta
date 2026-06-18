@@ -2,10 +2,12 @@ import type { ChatAttachment, ChatMessage } from "../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
 import {
+  applyCancelledToolParts,
   appendOptimisticConversationTurn,
   coalesceTextDeltaEvent,
   ensureMessage,
   hasVisibleMessageDelta,
+  markLatestAssistantToolsCancelled,
   markSessionCompletedUnread,
   markSessionViewed,
   mergeFetchedMessages,
@@ -181,6 +183,65 @@ describe("chat message identity reconciliation", () => {
     const viewed = markSessionViewed(unread, "s2")
     expect([...viewed]).toEqual([])
     expect(markSessionViewed(viewed, "s2")).toBe(viewed)
+  })
+
+  it("marks locally stopped running tools as cancelled and freezes their timing", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "tool-1",
+            callId: "tool-1",
+            tool: "bash",
+            status: "running",
+            input: {},
+            timing: { start: 1000 },
+          },
+        ],
+      },
+    ]
+
+    const { messages, partIds } = markLatestAssistantToolsCancelled(current, 2600)
+
+    expect(partIds).toEqual(["tool-1"])
+    expect(messages[0]?.parts[0]).toMatchObject({
+      partId: "tool-1",
+      cancelled: true,
+      timing: { start: 1000, end: 2600 },
+    })
+  })
+
+  it("reapplies cancelled tool overlays with frozen timing after reload", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "tool-1",
+            callId: "tool-1",
+            tool: "bash",
+            status: "running",
+            input: {},
+            timing: { start: 1000 },
+          },
+        ],
+      },
+    ]
+
+    const messages = applyCancelledToolParts(current, new Set(["tool-1"]), 2600)
+
+    expect(messages[0]?.parts[0]).toMatchObject({
+      partId: "tool-1",
+      cancelled: true,
+      timing: { start: 1000, end: 2600 },
+    })
   })
 
   it("keeps finalizing activity for empty assistant text deltas", () => {

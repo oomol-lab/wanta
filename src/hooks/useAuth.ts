@@ -1,14 +1,16 @@
 import type { AuthState } from "../../electron/auth/common.ts"
+import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useAuthService } from "@/components/AppContext"
+import { useAuthService } from "../components/AppContext.ts"
+import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 export interface UseAuth {
   /** null = 初始状态尚未加载（避免登录页闪烁）。 */
   state: AuthState | null
   loggingIn: boolean
   loggingOut: boolean
-  error: string | null
+  error: UserFacingError | null
   login: () => Promise<void>
   logout: () => Promise<void>
 }
@@ -18,7 +20,7 @@ export function useAuth(): UseAuth {
   const [state, setState] = React.useState<AuthState | null>(null)
   const [loggingIn, setLoggingIn] = React.useState(false)
   const [loggingOut, setLoggingOut] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<UserFacingError | null>(null)
   const loginInFlight = React.useRef(false)
 
   React.useEffect(() => {
@@ -31,7 +33,7 @@ export function useAuth(): UseAuth {
       },
       (err) => {
         if (!cancelled) {
-          setError(String(err))
+          setError(resolveUserFacingError(err, { area: "auth" }))
         }
       },
     )
@@ -53,7 +55,7 @@ export function useAuth(): UseAuth {
       // resolve 于浏览器 deep-link 回调完成（或超时 reject）。
       setState(await service.invoke("login"))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(resolveUserFacingError(err, { area: "auth" }))
     } finally {
       loginInFlight.current = false
       setLoggingIn(false)
@@ -66,7 +68,7 @@ export function useAuth(): UseAuth {
     try {
       setState(await service.invoke("logout"))
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(resolveUserFacingError(err, { area: "auth" }))
     } finally {
       setLoggingOut(false)
     }

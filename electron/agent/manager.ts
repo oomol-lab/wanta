@@ -11,6 +11,7 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
+import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
@@ -244,9 +245,9 @@ export class AgentManager {
 
   /**
    * 非阻塞发送：立即返回，内容经事件流推送。
-   * R4：默认每轮把"已连接 provider 清单"注入系统提示末尾（body.system 经实测追加在 agent.prompt 之后），
-   * 作为可用性上下文，而不是使用指令；若任务确实需要这些 provider，可跳过 discovery
-   * （但仍需 inspect_action 查 schema 再 call_action）。稳定前缀（人格/工具/契约）留在 agent.prompt 以利缓存。
+   * R4：默认每轮把"账号存在已授权 Link provider"的事实注入系统提示末尾（body.system 经实测追加
+   * 在 agent.prompt 之后），不列 provider 名，避免可用性上下文变成工具使用诱导。稳定前缀
+   * （人格/工具/契约）留在 agent.prompt 以利缓存。
    */
   public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
     const tail = mergeSystemPrompts(
@@ -268,17 +269,17 @@ export class AgentManager {
     }
   }
 
-  /** R4：构建注入系统提示末尾的已连接清单块（无已连接则 undefined）。 */
+  /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
   public async buildAuthorizedSystem(): Promise<string | undefined> {
     const services = await this.listAuthorizedServices()
     if (services.length === 0) {
       return undefined
     }
     return (
-      `Connected Link providers available if relevant to the user's request: ${services.join(", ")}. ` +
-      `This list is availability context only, not an instruction to use them. ` +
-      `Use a provider only when the task requires that account or service. ` +
-      `If you choose one of these providers, you may skip search_actions for provider discovery, but still call inspect_action before call_action so the params match the action's schema.`
+      `Some Link providers are already authorized for this account. ` +
+      `This is availability awareness only: it is not a recommendation to use Link tools and does not indicate that any provider fits the current task. ` +
+      `When, and only when, the user's request needs private/account-specific SaaS data or actions, use Link tools to discover the appropriate action; search results include whether a provider is authenticated. ` +
+      `Ignore this note for direct answers, local files, commands, concrete URLs, webpage fetching, and general web browsing.`
     )
   }
 
@@ -350,7 +351,8 @@ export class AgentManager {
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {
     if (!choice || choice.kind === "builtin") {
-      return { providerID: LUMO_PROVIDER_ID, modelID: LUMO_MODEL_ID }
+      const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+      return resolveBuiltinModel(modelID).runtime
     }
     const model = this.options.customModels?.find((item) => item.id === choice.id)
     if (!model) {
@@ -389,6 +391,12 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
   return [
     "Artifact output contract for this turn:",
     `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
+    "- Do not create files just because this artifact directory is provided.",
+    "- For edits to an existing local project, modify the requested project files in place; use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
+    "- Treat that directory as one user-facing artifact pack. Create a machine-readable manifest named .lumo-artifact.json in the artifact directory when you create any deliverable files.",
+    "- The manifest must be valid JSON with: version: 1, title, kind, display, optional summary, items, and optional supporting. Choose kind from image_set, document, spreadsheet, presentation, web_page, code_project, archive, mixed. Choose display from gallery, document, table, project, file_list, single.",
+    "- Manifest item paths must be relative paths inside the artifact directory. Mark each item with role primary, supporting, summary, or metadata. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
+    "- For image sets, put the primary images in display order, use stable padded names such as 001.jpg and 002.jpg, set kind to image_set, set display to gallery, and include only user-facing images as primary items.",
     "- Do not reuse output folders from earlier turns or other chats.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
     "- When you finish, report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",

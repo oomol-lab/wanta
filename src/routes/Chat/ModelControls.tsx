@@ -4,10 +4,12 @@ import type {
   ModelChoice,
   SaveCustomModelRequest,
 } from "../../../electron/models/common.ts"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { BrainCircuit, CheckCircle2, ChevronDown, ExternalLink, Settings2, Trash2 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -28,12 +30,11 @@ function selectedModelSummary(catalog: ModelCatalog | null): { label: string } {
   if (selected.kind === "custom") {
     const custom = catalog.customModels.find((model) => model.id === selected.id)
     if (custom) {
-      return { label: custom.modelName }
+      return { label: custom.displayName }
     }
   }
   const builtin =
     (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
-    catalog.builtins.find((model) => model.id === "oopilot") ??
     catalog.builtins[0]
   return { label: builtin?.displayName ?? "Auto" }
 }
@@ -58,7 +59,6 @@ function ModelRow({
   active,
   icon,
   title,
-  subtitle,
   deleteLabel,
   onSelect,
   onDelete,
@@ -66,7 +66,6 @@ function ModelRow({
   active: boolean
   icon: React.ReactNode
   title: string
-  subtitle?: string
   deleteLabel?: string
   onSelect: () => void
   onDelete?: () => void
@@ -76,15 +75,14 @@ function ModelRow({
       <button
         type="button"
         className={cn(
-          "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-accent-foreground",
+          "flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
           active && "bg-accent text-accent-foreground",
         )}
         onClick={onSelect}
       >
         {icon}
         <span className="min-w-0 flex-1">
-          <span className={cn("block truncate text-sm", subtitle ? "leading-5" : "leading-none")}>{title}</span>
-          {subtitle ? <span className="block truncate text-xs leading-4 text-muted-foreground">{subtitle}</span> : null}
+          <span className="block truncate text-sm leading-none">{title}</span>
         </span>
         {active ? <CheckCircle2 className="size-3.5 shrink-0 text-green-600" /> : null}
       </button>
@@ -215,10 +213,7 @@ export function ModelPicker({
                     key={model.id}
                     active={sameModelChoice(catalog.selected, choice)}
                     icon={<ProviderMark name={model.providerName} />}
-                    title={model.modelName}
-                    subtitle={
-                      model.supportsImages ? `${model.providerName} / ${t("chat.modelVision")}` : model.providerName
-                    }
+                    title={model.displayName}
                     deleteLabel={t("chat.modelDelete")}
                     onSelect={() => {
                       onSelect(choice)
@@ -255,11 +250,11 @@ export function ModelPicker({
         type="button"
         variant="ghost"
         size="sm"
-        title={t("chat.modelPicker")}
+        title={selected.label}
         aria-label={t("chat.modelPicker")}
         aria-expanded={open}
         disabled={disabled}
-        className="h-8 max-w-40 rounded-full px-2"
+        className="h-8 max-w-44 rounded-full px-2"
         onClick={() => setOpen((value) => !value)}
       >
         <BrainCircuit className="size-4" />
@@ -284,7 +279,7 @@ export function AddCustomModelDialog({
 }: {
   open: boolean
   providers: CustomModelProvider[]
-  error: string | null
+  error: UserFacingError | null
   onClose: () => void
   onSave: (req: SaveCustomModelRequest) => Promise<void>
 }) {
@@ -427,7 +422,7 @@ export function AddCustomModelDialog({
           </label>
         </div>
 
-        {error ? <div className="oo-error flex items-center gap-2">{error}</div> : null}
+        {error ? <ErrorNotice error={error} compact /> : null}
       </div>
     </Dialog>
   )

@@ -1,4 +1,5 @@
 import type {
+  AgentRuntimeStatus,
   AuthorizationInfo,
   ChatAttachment,
   ChatContextMention,
@@ -49,6 +50,7 @@ import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -65,6 +67,7 @@ import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { BillingRoute } from "@/routes/Billing"
 import { ChatArea } from "@/routes/Chat"
@@ -812,7 +815,16 @@ export function AppShell() {
   const chatService = useChatService()
   const auth = useAuth()
   const [ready, setReady] = React.useState(false)
-  const { sessions, loaded: sessionsLoaded, create, generateTitle, rename, remove } = useSessions({ enabled: ready })
+  const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
+  const {
+    sessions,
+    loaded: sessionsLoaded,
+    error: sessionsError,
+    create,
+    generateTitle,
+    rename,
+    remove,
+  } = useSessions({ enabled: ready })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
@@ -858,28 +870,33 @@ export function AppShell() {
     sessionsRef.current = sessions
   }, [sessions])
 
-  // 轮询 agent 就绪（sidecar 异步启动，首启需拉起 opencode + provider）。
   React.useEffect(() => {
     let cancelled = false
-    const check = async (): Promise<void> => {
+
+    const applyStatus = (status: AgentRuntimeStatus): void => {
+      setAgentStatus(status)
+      setReady(status.status === "ready")
+    }
+
+    const readStatus = async (): Promise<void> => {
       try {
-        const r = await chatService.invoke("isReady")
-        if (cancelled) {
-          return
-        }
-        setReady(r)
-        if (!r) {
-          setTimeout(() => void check(), 1500)
+        const status = await chatService.invoke("getAgentStatus")
+        if (!cancelled) {
+          applyStatus(status)
         }
       } catch {
         if (!cancelled) {
-          setTimeout(() => void check(), 1500)
+          applyStatus({ status: "starting" })
         }
       }
     }
-    void check()
+    void readStatus()
+    const off = chatService.serverEvents.on("agentStatusChanged", (event) => {
+      applyStatus(event.status)
+    })
     return () => {
       cancelled = true
+      off()
     }
   }, [chatService])
 
@@ -931,13 +948,17 @@ export function AppShell() {
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
+  const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
+  const startupError =
+    agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
   const chatBootstrapping =
-    !ready ||
-    !sessionsLoaded ||
-    needsDefaultSessionSelection ||
-    Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition)
+    !startupError &&
+    (!ready ||
+      !sessionsLoaded ||
+      needsDefaultSessionSelection ||
+      Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition))
   const showChatEmptyState = ready && sessionsLoaded && !activeSessionId && !pendingChatTransition
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
@@ -1268,7 +1289,13 @@ export function AppShell() {
     if (renameSessionId === id) {
       setRenameSessionId(null)
     }
-    await remove(id)
+    try {
+      await remove(id)
+    } catch (cause) {
+      const notice = resolveUserFacingError(cause, { area: "session" })
+      toast.error(userFacingErrorDescription(notice, t))
+      return
+    }
     if (activeSessionId === id) {
       setActiveSessionId(null)
       setIsDraftSession(false)
@@ -1483,7 +1510,9 @@ export function AppShell() {
           <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
             <div className="oo-text-caption shrink-0 px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
             <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-              {sessions.length > 0 ? (
+              {sessionsError ? (
+                <ErrorNotice error={sessionsError} compact className="mx-0" />
+              ) : sessions.length > 0 ? (
                 <div className="grid gap-0.5">
                   {sessions.map((session) => (
                     <SessionItem
@@ -1593,17 +1622,20 @@ export function AppShell() {
               <div className="h-full min-h-0 overflow-hidden">
                 <ChatArea
                   billingCacheScope={billingCacheScope}
-                  messages={initialSendPending ? [] : messages}
+                  messages={bridgeInitialSendPending ? [] : messages}
                   status={displayedStatus}
-                  activity={initialSendPending ? null : activity}
+                  activity={bridgeInitialSendPending ? null : activity}
                   showEmptyState={showChatEmptyState}
                   bootstrapping={chatBootstrapping}
+                  startupError={startupError}
                   error={error}
                   submitDisabled={!ready || chatBootstrapping}
                   initialSendPending={initialSendPending}
                   providers={activeProviders}
                   queuedMessages={activeQueuedMessages}
-                  placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
+                  placeholder={
+                    startupError ? t("error.agent.title") : ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")
+                  }
                   onSend={handleSend}
                   onStop={handleChatStop}
                   onQueuedMessageRemove={handleQueuedMessageRemove}

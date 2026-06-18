@@ -116,7 +116,6 @@ export function resolveChatError(rawMessage: string, options: ResolveChatErrorOp
         severity: "destructive",
         titleKey: "chatError.failed.title",
         descriptionKey: "chatError.failed.description",
-        descriptionText: normalized.displayMessage,
         primaryActionKey: "chatError.failed.primaryAction",
         secondaryActionKey: "chatError.common.copyDiagnostics",
         retryable: true,

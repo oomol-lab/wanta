@@ -491,7 +491,7 @@
   }
 
   .oo-sidebar-session-time {
-    min-width: 3.5rem;
+    min-width: 3rem;
     color: color-mix(in oklab, var(--sidebar-foreground) 72%, transparent);
     font-size: var(--oo-font-caption);
     line-height: var(--oo-line-caption);

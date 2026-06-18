@@ -1,10 +1,11 @@
 import type { AuthorizationInfo, ChatMessagePart, ToolStatus } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ToolDisplayLine } from "./tool-display.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import {
-  AlertTriangle,
   ChevronRight,
+  CircleAlert,
   Circle,
   FilePenLine,
   FilePlus2,
@@ -25,9 +26,9 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
-import { compactToolDetail, shouldShowRunningNoOutput } from "./tool-activity.ts"
-import { parseToolAuthorization, toolActionSummary, toolInputString } from "./tool-display.ts"
-import { isToolCancellation } from "./tool-state.ts"
+import { shouldShowRunningNoOutput } from "./tool-activity.ts"
+import { parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
+import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useT } from "@/i18n/i18n"
@@ -57,12 +58,18 @@ function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
   return isToolCancellation(part) ? t("chat.toolStatusStopped") : toolStatusLabel(t, part.status)
 }
 
-function toolInlineDetail(part: ChatMessagePart): string {
-  if (part.tool !== "bash") {
-    return ""
+function ToolInlineDetail({ line }: { line: ToolDisplayLine }) {
+  if (!line.detail) {
+    return null
   }
-  const command = toolInputString(part.input?.command).split("\n")[0]
-  return command ? compactToolDetail(command, 96) : ""
+  if (line.detailKind === "code") {
+    return (
+      <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
+        {line.detail}
+      </code>
+    )
+  }
+  return <span className="min-w-0 flex-1 truncate text-muted-foreground">{line.detail}</span>
 }
 
 function formatToolOutput(output: string | undefined): string {
@@ -90,7 +97,7 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
     case "completed":
       return <Circle className="size-3.5 text-muted-foreground" />
     case "error":
-      return <AlertTriangle className="size-3.5 text-destructive" />
+      return <CircleAlert className="size-3.5 text-muted-foreground" />
     case "pending":
     default:
       return <Circle className="size-3.5 text-muted-foreground" />
@@ -183,25 +190,26 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
 export function ToolActivityStep({
   part,
   provider,
+  shimmer = false,
   onAuthorize,
 }: {
   part: ChatMessagePart
   provider?: ConnectionProvider
+  shimmer?: boolean
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
   const auth = parseToolAuthorization(part)
   const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
-  const defaultOpen = (part.status === "error" && !stopped) || Boolean(auth)
+  const defaultOpen = Boolean(auth)
   const [open, setOpen] = React.useState(defaultOpen)
   const statusText = toolPartStatusLabel(t, part)
-  const inlineDetail = toolInlineDetail(part)
-  const active = part.status === "pending" || part.status === "running"
+  const active = isActiveToolPart(part)
+  const showShimmer = active || shimmer
+  const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
-  const actionText = toolActionSummary(t, part)
-  const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
 
   React.useEffect(() => {
     if (defaultOpen) {
@@ -218,20 +226,26 @@ export function ToolActivityStep({
         <ToolStepIcon part={part} provider={provider} />
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
-        {active ? (
-          <div className="flex min-w-0 items-center">
-            <LoadingShimmerText className="min-w-0 truncate">{activeText}</LoadingShimmerText>
+        {showShimmer ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <LoadingShimmerText className="min-w-0 shrink-0 truncate">{displayLine.title}</LoadingShimmerText>
+            <ToolInlineDetail line={displayLine} />
+            {displayLine.detail ? null : <span aria-hidden="true" className="min-w-0 flex-1" />}
+            <span className="flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
+              {metaItems.map((item, index) => (
+                <React.Fragment key={`${index}:${item}`}>
+                  {index > 0 ? <span className="text-muted-foreground/70">·</span> : null}
+                  <span>{item}</span>
+                </React.Fragment>
+              ))}
+            </span>
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-2">
-            <span className={cn("min-w-0 truncate text-foreground", inlineDetail ? "shrink-0" : "flex-1")}>
-              {actionText}
+            <span className={cn("min-w-0 truncate text-foreground", displayLine.detail ? "shrink-0" : "flex-1")}>
+              {displayLine.title}
             </span>
-            {inlineDetail && (
-              <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
-                {inlineDetail}
-              </code>
-            )}
+            <ToolInlineDetail line={displayLine} />
             <span
               className={cn(
                 "flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground transition-opacity",
@@ -287,6 +301,9 @@ export function ToolActivityStep({
             {open && shouldShowRunningNoOutput(part) && (
               <div className="oo-text-caption text-muted-foreground">{t("chat.toolRunningNoOutput")}</div>
             )}
+            {open && part.error && !stopped && (
+              <div className="oo-text-caption text-muted-foreground">{t("chat.toolRecoverableIssue")}</div>
+            )}
             {open && part.output && !auth && (
               <ToolDetailSection label={t("chat.toolResult")}>
                 <ToolPre>{formatToolOutput(part.output)}</ToolPre>
@@ -294,7 +311,7 @@ export function ToolActivityStep({
             )}
             {open && part.error && !stopped && (
               <ToolDetailSection label={t("chat.toolError")}>
-                <ToolPre tone="error">{part.error}</ToolPre>
+                <ToolPre>{part.error}</ToolPre>
               </ToolDetailSection>
             )}
             {open && auth?.message && (

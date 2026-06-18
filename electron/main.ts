@@ -243,6 +243,10 @@ async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachm
   }
 }
 
+function runtimeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** 凭证 → 运行时装配：替换 agent（重启 sidecar）并同步 connector 凭证。经 applyChain 串行执行。 */
 function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
   const next = applyChain.then(() => applyAuthAccountNow(account))
@@ -272,6 +276,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   agent?.dispose()
   agent = null
   chatService.setAgent(null)
+  chatService.setAgentStatus(effectiveAccount ? { status: "starting" } : { status: "signed_out" })
   chatService.setBillingAccountContext({ token: effectiveAccount?.sessionToken, userId: effectiveAccount?.id })
   sessionService.setAgent(null)
   connectionsService.setApiKey(effectiveAccount?.apiKey)
@@ -299,12 +304,14 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     nextAgent.dispose()
     agent = null
     chatService.setAgent(null)
+    chatService.setAgentStatus({ status: "error", message: runtimeErrorMessage(error) })
     sessionService.setAgent(null)
     throw error
   }
   appliedAccount = effectiveAccount
   appliedAgentRuntimeVersion = agentRuntimeVersion
   chatService.startEventBridge()
+  chatService.setAgentStatus({ status: "ready" })
   console.log("[lumo] agent sidecar ready at", nextAgent.url)
 }
 

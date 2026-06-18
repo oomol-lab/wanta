@@ -212,6 +212,11 @@ function TurnProcessActivity({
   const renderBlocks = blocks.map((item) => item.block)
   const showLiveStatus = renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
   const titleText = processStatusText(t, status)
+  const activeTool = latestActiveTool(process)
+  const shimmerToolPartId =
+    !activeTool && status === "running" && process.activity && process.tools.length > 0
+      ? process.tools.at(-1)?.partId
+      : undefined
   const forceOpen = status === "needsAction" || (status === "error" && !process.hasFinalAnswer)
   const userChangedOpenRef = React.useRef(false)
 
@@ -249,7 +254,7 @@ function TurnProcessActivity({
           className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-muted-foreground transition-colors hover:text-foreground"
         >
           <span className="flex min-w-0 items-center gap-1">
-            {titleText}
+            <span className="min-w-0 truncate">{titleText}</span>
             {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
           </span>
           <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
@@ -265,6 +270,7 @@ function TurnProcessActivity({
               billingCacheScope={billingCacheScope}
               smoothText={false}
               providerByService={providerByService}
+              shimmerToolPartId={shimmerToolPartId}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
             />
@@ -517,6 +523,7 @@ function AssistantBlock({
   billingCacheScope,
   smoothText,
   providerByService,
+  shimmerToolPartId,
   onAuthorize,
   onViewBilling,
 }: {
@@ -525,6 +532,7 @@ function AssistantBlock({
   billingCacheScope: string
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
+  shimmerToolPartId?: string
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
 }) {
@@ -553,6 +561,7 @@ function AssistantBlock({
                 key={part.partId}
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
+                shimmer={part.partId === shimmerToolPartId}
                 onAuthorize={onAuthorize}
               />
             )

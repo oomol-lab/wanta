@@ -190,10 +190,12 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
 export function ToolActivityStep({
   part,
   provider,
+  shimmer = false,
   onAuthorize,
 }: {
   part: ChatMessagePart
   provider?: ConnectionProvider
+  shimmer?: boolean
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
@@ -204,6 +206,7 @@ export function ToolActivityStep({
   const [open, setOpen] = React.useState(defaultOpen)
   const statusText = toolPartStatusLabel(t, part)
   const active = isActiveToolPart(part)
+  const showShimmer = active || shimmer
   const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
@@ -223,7 +226,7 @@ export function ToolActivityStep({
         <ToolStepIcon part={part} provider={provider} />
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
-        {active ? (
+        {showShimmer ? (
           <div className="flex min-w-0 items-center gap-2">
             <LoadingShimmerText className="min-w-0 shrink-0 truncate">{displayLine.title}</LoadingShimmerText>
             <ToolInlineDetail line={displayLine} />

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
 import { I18nContext, translate } from "@/i18n/i18n"
 
-function renderToolActivityStep(part: ChatMessagePart): string {
+function renderToolActivityStep(part: ChatMessagePart, options: { shimmer?: boolean } = {}): string {
   return renderToStaticMarkup(
     React.createElement(
       I18nContext.Provider,
@@ -17,7 +17,7 @@ function renderToolActivityStep(part: ChatMessagePart): string {
           t: (key, vars) => translate("zh-CN", key, vars),
         },
       },
-      React.createElement(ToolActivityStep, { part, onAuthorize: () => undefined }),
+      React.createElement(ToolActivityStep, { part, shimmer: options.shimmer, onAuthorize: () => undefined }),
     ),
   )
 }
@@ -126,6 +126,25 @@ describe("ToolActivityStep", () => {
     expect(html).toContain("读取网页")
     expect(html).toContain("https://detail.1688.com/offer/825951472006.html")
     expect(html).not.toContain("text-transparent")
+  })
+
+  it("can shimmer a completed tool row while the turn is still transitioning", () => {
+    const html = renderToolActivityStep(
+      {
+        kind: "tool",
+        partId: "tool-1",
+        callId: "call-1",
+        tool: "todo_write",
+        status: "completed",
+        input: {},
+        title: "4 todos",
+      },
+      { shimmer: true },
+    )
+
+    expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>使用工具<\/span>/)
+    expect(html).toContain("4 todos")
+    expect(html).toContain("已完成")
   })
 
   it("keeps an incomplete tool collapsed and uses a neutral status treatment", () => {

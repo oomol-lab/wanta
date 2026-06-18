@@ -46,6 +46,7 @@ import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 const executionLogLimit = 12
+const detailPaneAnimationMs = 150
 
 type ConnectionCatalogView = "all" | "categories" | "connected"
 
@@ -143,14 +144,11 @@ function getProviderDescription(provider: ConnectionProviderSummary, t: ReturnTy
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
-      return provider.accountLabel
-        ? t("connections.providerConnectedAccountDescription", {
-            account: provider.accountLabel,
-            name: provider.displayName,
-          })
-        : t("connections.providerConnectedDescription", { name: provider.displayName })
+      return provider.accountLabel && provider.accountLabel !== provider.displayName
+        ? provider.accountLabel
+        : getProviderCategoryLabel(provider, t)
     case "available":
-      return t("connections.providerAvailableDescription", { name: provider.displayName })
+      return getProviderCategoryLabel(provider, t)
   }
 }
 
@@ -250,11 +248,13 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   const [detailService, setDetailService] = React.useState<string | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
   const [detailError, setDetailError] = React.useState<string | null>(null)
+  const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
     authType: "api_key" | "custom_credential" | "federated"
     detail: ConnectionProviderDetail
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<ConnectionProviderSummary | null>(null)
+  const detailCloseTimerRef = React.useRef<number | null>(null)
 
   const providers = summary?.providers ?? []
   const normalizedQuery = query.trim().toLowerCase()
@@ -267,6 +267,41 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
 
+  const clearDetailCloseTimer = React.useCallback(() => {
+    if (detailCloseTimerRef.current === null) {
+      return
+    }
+
+    window.clearTimeout(detailCloseTimerRef.current)
+    detailCloseTimerRef.current = null
+  }, [])
+
+  const selectProvider = React.useCallback(
+    (service: string) => {
+      clearDetailCloseTimer()
+      setDetailPaneClosing(false)
+      setSelectedProviderService(service)
+      setNarrowPane("detail")
+    },
+    [clearDetailCloseTimer],
+  )
+
+  const closeDetail = React.useCallback(() => {
+    if (!selectedProviderService) {
+      setNarrowPane("list")
+      return
+    }
+
+    clearDetailCloseTimer()
+    setDetailPaneClosing(true)
+    setNarrowPane("list")
+    detailCloseTimerRef.current = window.setTimeout(() => {
+      setSelectedProviderService(null)
+      setDetailPaneClosing(false)
+      detailCloseTimerRef.current = null
+    }, detailPaneAnimationMs)
+  }, [clearDetailCloseTimer, selectedProviderService])
+
   React.useEffect(() => {
     if (!selectedService) {
       return
@@ -274,25 +309,25 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
 
     setQuery("")
     setActiveView("all")
-    setSelectedProviderService(selectedService)
-    setNarrowPane("detail")
-  }, [selectedService])
+    selectProvider(selectedService)
+  }, [selectProvider, selectedService])
 
-  const closeDetail = React.useCallback(() => {
-    setSelectedProviderService(null)
-    setNarrowPane("list")
-  }, [])
+  React.useEffect(() => clearDetailCloseTimer, [clearDetailCloseTimer])
 
   React.useEffect(() => {
     if (!selectedProviderService || !summary) {
       return
     }
 
-    if (!filteredProviders.some((provider) => provider.service === selectedProviderService)) {
-      setSelectedProviderService(null)
-      setNarrowPane("list")
+    if (filteredProviders.some((provider) => provider.service === selectedProviderService)) {
+      return
     }
-  }, [filteredProviders, selectedProviderService, summary])
+
+    clearDetailCloseTimer()
+    setSelectedProviderService(null)
+    setDetailPaneClosing(false)
+    setNarrowPane("list")
+  }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
 
   React.useEffect(() => {
     if (!selectedProvider) {
@@ -358,7 +393,10 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         />
       </SplitViewHeader>
 
-      <SplitViewBody desktopLayout={selectedProvider ? "default" : "single"}>
+      <SplitViewBody
+        desktopLayout={selectedProvider ? "default" : "single"}
+        className="motion-reduce:transition-none min-[960px]:transition-[grid-template-columns] min-[960px]:duration-200 min-[960px]:ease-out"
+      >
         <SplitViewListPane narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
             <SummaryHeader activeView={activeView} filteredCount={filteredProviders.length} summary={summary} />
@@ -372,10 +410,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
                 categoryGroups={categoryGroups}
                 providers={filteredProviders}
                 selectedService={selectedProvider?.service ?? null}
-                onSelect={(provider) => {
-                  setSelectedProviderService(provider.service)
-                  setNarrowPane("detail")
-                }}
+                onSelect={(provider) => selectProvider(provider.service)}
               />
             )}
           </div>
@@ -408,7 +443,14 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         ) : null}
 
         {selectedProvider ? (
-          <SplitViewDesktopDetailPane className="pt-4">
+          <SplitViewDesktopDetailPane
+            className={cn(
+              "pt-4 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
+              detailPaneClosing
+                ? "pointer-events-none translate-x-2 opacity-0"
+                : "translate-x-0 animate-in opacity-100 fade-in-0 slide-in-from-right-2 motion-reduce:animate-none",
+            )}
+          >
             <ProviderDetail
               actionError={error}
               busy={busy}
@@ -630,42 +672,32 @@ function ProviderCard({
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
-  const categoryLabel = getProviderCategoryLabel(provider, t)
   const statusLabel = getProviderStatusDisplayLabel(provider, t)
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "group grid h-28 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-1.5 rounded-md border bg-card px-2.5 py-2 text-left text-card-foreground transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        "grid h-20 min-w-0 rounded-md border bg-card px-2.5 py-2 text-left text-card-foreground transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
         selected && "border-ring bg-accent/55",
       )}
     >
-      <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
+      <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
         <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
         <span className="grid min-w-0 gap-0.5">
           <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
           <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
         </span>
-      </span>
-      <span className="oo-text-micro oo-text-muted truncate">{categoryLabel}</span>
-      <span className="flex min-w-0 items-end justify-between gap-2 self-end">
-        <span className="oo-text-micro oo-text-muted flex min-w-0 items-center gap-1.5">
+        <span className="flex size-5 shrink-0 items-center justify-center" title={statusLabel}>
           <span
+            aria-label={statusLabel}
             className={cn(
-              "size-1.5 shrink-0 rounded-full",
+              "size-1.5 rounded-full",
               tone === "connected" && "bg-[var(--success)]",
               tone === "attention" && "bg-[var(--warning)]",
               tone === "available" && "bg-muted-foreground/40",
             )}
           />
-          <span className="truncate">{statusLabel}</span>
-        </span>
-        <span
-          className="oo-icon-muted flex size-5 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover:opacity-100"
-          aria-hidden="true"
-        >
-          <ChevronRight className="size-4" />
         </span>
       </span>
     </button>
@@ -904,24 +936,20 @@ function ConnectionPanel({
   }, [currentAuthType, provider.service])
 
   return (
-    <div className="grid gap-2 border-t pt-2">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <div className="min-w-0">
+    <div className="grid gap-2.5 border-t pt-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <h3 className="oo-text-title truncate">
             {isConnected(provider) ? t("connections.connectedConnection") : t("connections.connectProvider")}
           </h3>
-          <p className="oo-text-caption oo-text-muted">
-            {isConnected(provider)
-              ? t("connections.connectedConnectionDescription", {
-                  auth: activeAuthType ? authTypeLabel(t, activeAuthType) : t("connections.authUnknown"),
-                })
-              : t("connections.availableConnectionDescription")}
-          </p>
+          {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
-        {detailLoading ? <Loader className="oo-icon-muted" size={16} /> : null}
+        <AuthTypeToggleGroup
+          authTypes={usableAuthTypes}
+          value={activeAuthType ?? null}
+          onChange={setSelectedAuthType}
+        />
       </div>
-
-      <AuthTypeToggleGroup authTypes={usableAuthTypes} value={activeAuthType ?? null} onChange={setSelectedAuthType} />
 
       {activeAuthType ? (
         <div className="flex flex-wrap items-center gap-2">

@@ -369,6 +369,51 @@ test("resolveLocalArtifacts resolves an explicit artifact root without scanning 
   )
 })
 
+test("resolveLocalArtifacts reads artifact pack manifests", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifacts-manifest-"))
+  const artifactRoot = path.join(root, "turn")
+  const filesDir = path.join(artifactRoot, "files")
+  const supportDir = path.join(artifactRoot, "support")
+  await mkdir(filesDir, { recursive: true })
+  await mkdir(supportDir, { recursive: true })
+  await writeFile(path.join(filesDir, "001.jpg"), "one")
+  await writeFile(path.join(filesDir, "002.jpg"), "two")
+  await writeFile(path.join(supportDir, "download-summary.md"), "# Summary")
+  await writeFile(path.join(root, "outside.jpg"), "outside")
+  await writeFile(
+    path.join(artifactRoot, ".lumo-artifact.json"),
+    JSON.stringify({
+      version: 1,
+      title: "1688 images",
+      kind: "image_set",
+      display: "gallery",
+      summary: "Downloaded two images.",
+      items: [
+        { path: "files/002.jpg", role: "primary", order: 2 },
+        { path: "files/001.jpg", role: "primary", order: 1 },
+        { path: "../outside.jpg", role: "primary", order: 3 },
+      ],
+      supporting: [{ path: "support/download-summary.md", role: "summary", title: "Download summary" }],
+    }),
+  )
+
+  const service = new ChatServiceImpl(null)
+  const result = await service.resolveLocalArtifacts({ artifactRoot })
+
+  assert.equal(result.groups.length, 1)
+  assert.equal(result.pack?.title, "1688 images")
+  assert.equal(result.pack?.kind, "image_set")
+  assert.equal(result.pack?.display, "gallery")
+  assert.deepEqual(
+    result.pack?.items.map((item) => item.name),
+    ["001.jpg", "002.jpg"],
+  )
+  assert.deepEqual(
+    result.pack?.supporting.map((item) => [item.name, item.role, item.title]),
+    [["download-summary.md", "summary", "Download summary"]],
+  )
+})
+
 test("resolveLocalArtifacts ignores broad directories extracted from assistant text", async () => {
   const service = new ChatServiceImpl(null)
   const result = await service.resolveLocalArtifacts({

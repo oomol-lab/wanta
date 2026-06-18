@@ -1,7 +1,9 @@
 import type {
   LocalArtifactGroup,
   LocalArtifactItem,
+  LocalArtifactPack,
   LocalArtifactPreviewResult,
+  ResolveLocalArtifactsResult,
 } from "../../../electron/chat/common.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { TranslateFn } from "@/i18n/i18n"
@@ -92,12 +94,14 @@ const codeRequestPattern =
 export interface ResolvedArtifactGroup {
   messageId: string
   group: LocalArtifactGroup
+  pack?: LocalArtifactPack
 }
 
 export interface ArtifactSelection {
   messageId: string
   group: LocalArtifactGroup
   groups?: ResolvedArtifactGroup[]
+  pack?: LocalArtifactPack
   selectedPath?: string
 }
 
@@ -130,6 +134,12 @@ interface ArtifactPanelEntry {
   messageId: string
   group: LocalArtifactGroup
   item: LocalArtifactItem
+  pack?: LocalArtifactPack
+}
+
+interface ResolvedArtifactPayload {
+  group: LocalArtifactGroup
+  pack?: LocalArtifactPack
 }
 
 interface LocalArtifactPreviewCacheEntry {
@@ -149,9 +159,9 @@ function artifactSourceCacheKey(source: GeneratedArtifactSource): string {
 }
 
 function rememberArtifactGroups(
-  cache: Map<string, LocalArtifactGroup[]>,
+  cache: Map<string, ResolvedArtifactPayload[]>,
   key: string,
-  groups: LocalArtifactGroup[],
+  groups: ResolvedArtifactPayload[],
 ): void {
   cache.set(key, groups)
   while (cache.size > artifactResolveCacheLimit) {
@@ -434,6 +444,23 @@ function artifactGroupPaths(group: LocalArtifactGroup): string[] {
   return [group.root?.path, ...group.items.map((item) => item.path)].filter((item): item is string => Boolean(item))
 }
 
+function artifactPackGroup(pack: LocalArtifactPack): LocalArtifactGroup {
+  const items = pack.items.length > 0 ? pack.items : pack.supporting
+  return {
+    root: pack.root,
+    items,
+    totalItems: pack.totalItems || items.length,
+    truncated: pack.truncated,
+  }
+}
+
+function resolveResultPayloads(result: ResolveLocalArtifactsResult): ResolvedArtifactPayload[] {
+  if (result.pack) {
+    return [{ group: artifactPackGroup(result.pack), pack: result.pack }]
+  }
+  return result.groups.map((group) => ({ group }))
+}
+
 function sourceRequestsCode(source: GeneratedArtifactSource): boolean {
   return codeRequestPattern.test(source.requestText)
 }
@@ -446,31 +473,47 @@ function isDisplayableArtifactGroup(group: LocalArtifactGroup): boolean {
   return group.items.length > 0
 }
 
-function filterArtifactGroups(groups: LocalArtifactGroup[], source: GeneratedArtifactSource): LocalArtifactGroup[] {
+function filterArtifactPayloads(
+  payloads: ResolvedArtifactPayload[],
+  source: GeneratedArtifactSource,
+): ResolvedArtifactPayload[] {
   const sourcePaths = new Set(source.sourcePaths)
-  return groups.flatMap((group) => {
+  return payloads.flatMap((payload) => {
+    const { group, pack } = payload
     const rootExcluded = Boolean(group.root && sourcePaths.has(group.root.path))
     const items = group.items.filter((item) => !sourcePaths.has(item.path) && !isIntermediateCodeArtifact(item, source))
     if (items.length === 0) {
       return []
     }
     if (rootExcluded) {
-      return [{ items, totalItems: items.length, truncated: false }]
+      return [{ group: { items, totalItems: items.length, truncated: false }, ...(pack ? { pack } : {}) }]
     }
-    return [{ ...group, items, totalItems: group.root?.kind === "directory" ? items.length : group.totalItems }]
+    return [
+      {
+        group: { ...group, items, totalItems: group.root?.kind === "directory" ? items.length : group.totalItems },
+        ...(pack ? { pack } : {}),
+      },
+    ]
   })
 }
 
-function mergeArtifactGroups(groups: LocalArtifactGroup[][], source: GeneratedArtifactSource): LocalArtifactGroup[] {
-  const merged: LocalArtifactGroup[] = []
+function mergeArtifactGroups(
+  payloads: ResolvedArtifactPayload[][],
+  source: GeneratedArtifactSource,
+): ResolvedArtifactPayload[] {
+  const merged: ResolvedArtifactPayload[] = []
   const seenPaths = new Set<string>()
-  for (const groupList of groups) {
-    for (const group of filterArtifactGroups(groupList.filter(isDisplayableArtifactGroup), source)) {
+  for (const payloadList of payloads) {
+    for (const payload of filterArtifactPayloads(payloadList, source)) {
+      const { group } = payload
+      if (!isDisplayableArtifactGroup(group)) {
+        continue
+      }
       const paths = artifactGroupPaths(group)
       if (paths.length > 0 && paths.every((item) => seenPaths.has(item))) {
         continue
       }
-      merged.push(group)
+      merged.push(payload)
       for (const item of paths) {
         seenPaths.add(item)
       }
@@ -479,15 +522,25 @@ function mergeArtifactGroups(groups: LocalArtifactGroup[][], source: GeneratedAr
   return merged
 }
 
+function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
+  if (pack.display === "gallery") {
+    return pack.items
+  }
+  const supporting = pack.supporting.filter((item) => item.role !== "metadata")
+  return pack.items.length > 0 ? [...pack.items, ...supporting] : supporting
+}
+
 function flattenPanelEntries(groups: ResolvedArtifactGroup[]): ArtifactPanelEntry[] {
-  return groups.flatMap(({ messageId, group }, groupIndex) =>
-    group.items.map((item) => ({
+  return groups.flatMap(({ messageId, group, pack }, groupIndex) => {
+    const items = pack ? packDisplayItems(pack) : group.items
+    return items.map((item) => ({
       key: `${messageId}:${group.root?.path ?? groupIndex}:${item.path}`,
       messageId,
       group,
       item,
-    })),
-  )
+      ...(pack ? { pack } : {}),
+    }))
+  })
 }
 
 function selectionWithContext(
@@ -495,8 +548,9 @@ function selectionWithContext(
   messageId: string,
   groups: ResolvedArtifactGroup[],
   selectedPath?: string,
+  pack?: LocalArtifactPack,
 ): ArtifactSelection {
-  return { messageId, group, groups, selectedPath }
+  return { messageId, group, groups, ...(pack ? { pack } : {}), selectedPath }
 }
 
 function ArtifactsEmptyState() {
@@ -521,11 +575,13 @@ function GeneratedArtifactsGroup({
   groups,
   messageId,
   onOpen,
+  pack,
 }: {
   group: LocalArtifactGroup
   groups: ResolvedArtifactGroup[]
   messageId: string
   onOpen: (selection: ArtifactSelection) => void
+  pack?: LocalArtifactPack
 }) {
   const t = useT()
   const visibleItems = group.items.slice(0, previewLimit)
@@ -542,14 +598,14 @@ function GeneratedArtifactsGroup({
       type="button"
       title={group.root?.path ?? primaryItem.path}
       className="oo-border-divider flex min-w-0 flex-col gap-2 rounded-lg border bg-background/70 p-2 text-left shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-      onClick={() => onOpen(selectionWithContext(group, messageId, groups, primaryItem.path))}
+      onClick={() => onOpen(selectionWithContext(group, messageId, groups, primaryItem.path, pack))}
     >
       <div className="flex min-w-0 items-center gap-2">
         <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
           <ArtifactIcon item={primaryItem} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{readableArtifactTitle(primaryItem)}</div>
+          <div className="truncate text-sm font-medium">{pack?.title ?? readableArtifactTitle(primaryItem)}</div>
           <div className="truncate text-xs text-muted-foreground">
             {artifactMetaLabel(t, primaryItem)}
             {group.items.length > 1 ? ` · ${artifactSummary(t, group)}` : ""}
@@ -586,7 +642,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
   const t = useT()
   const chatService = useChatService()
   const [groups, setGroups] = React.useState<ResolvedArtifactGroup[]>([])
-  const resolvedGroupsCache = React.useRef(new Map<string, LocalArtifactGroup[]>())
+  const resolvedGroupsCache = React.useRef(new Map<string, ResolvedArtifactPayload[]>())
 
   React.useEffect(() => {
     if (sources.length === 0) {
@@ -598,30 +654,30 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
       const cacheKey = artifactSourceCacheKey(source)
       const cached = resolvedGroupsCache.current.get(cacheKey)
       if (cached) {
-        return cached.map((group) => ({ messageId: source.messageId, group }))
+        return cached.map((payload) => ({ messageId: source.messageId, ...payload }))
       }
       const trimmed = source.text.trim()
       if (!source.artifactRoot && !trimmed) {
         rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, [])
         return []
       }
-      const requests: Array<Promise<LocalArtifactGroup[]>> = []
+      const requests: Array<Promise<ResolvedArtifactPayload[]>> = []
       if (source.artifactRoot) {
         requests.push(
           chatService
             .invoke("resolveLocalArtifacts", { artifactRoot: source.artifactRoot })
-            .then((result) => result.groups),
+            .then(resolveResultPayloads),
         )
       }
       if (trimmed) {
-        requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then((result) => result.groups))
+        requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then(resolveResultPayloads))
       }
       const resultGroups = await Promise.all(requests)
       const mergedGroups = mergeArtifactGroups(resultGroups, source)
       rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, mergedGroups)
       return mergedGroups.map((group) => ({
         messageId: source.messageId,
-        group,
+        ...group,
       }))
     })
     void Promise.all(sourceRequests)
@@ -644,7 +700,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
     const resolved = groups.at(-1)
     const selectedPath = resolved?.group.items[0]?.path
     if (resolved && selectedPath) {
-      onAvailable(selectionWithContext(resolved.group, resolved.messageId, groups, selectedPath))
+      onAvailable(selectionWithContext(resolved.group, resolved.messageId, groups, selectedPath, resolved.pack))
     }
   }, [groups, onAvailable])
 
@@ -658,13 +714,14 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
         {t("artifacts.generatedSummary", { count: flattenPanelEntries(groups).length })}
       </div>
       <div className="grid gap-1.5">
-        {groups.map(({ messageId, group }) => (
+        {groups.map(({ messageId, group, pack }) => (
           <GeneratedArtifactsGroup
             key={group.root?.path ?? group.items.map((item) => item.path).join("\n")}
             group={group}
             groups={groups}
             messageId={messageId}
             onOpen={onOpen}
+            pack={pack}
           />
         ))}
       </div>
@@ -680,15 +737,27 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
     if (selection?.groups?.length) {
       return selection.groups
     }
-    return selection ? [{ messageId: selection.messageId, group: selection.group }] : []
+    return selection
+      ? [
+          {
+            messageId: selection.messageId,
+            group: selection.group,
+            ...(selection.pack ? { pack: selection.pack } : {}),
+          },
+        ]
+      : []
   }, [selection])
   const entries = React.useMemo(() => flattenPanelEntries(groups), [groups])
   const showArtifactList = entries.length > 1
-  const showImageGallery = entries.length > 1 && entries.every((entry) => isImageArtifact(entry.item))
   const fallbackPath = selection?.selectedPath ?? selection?.group.items[0]?.path ?? null
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
   const selectedItem = selectedEntry?.item ?? null
+  const selectedPack = selectedEntry?.pack ?? selection?.pack ?? null
+  const showImageGallery =
+    selectedPack?.display === "gallery"
+      ? entries.length > 0
+      : entries.length > 1 && entries.every((entry) => isImageArtifact(entry.item))
 
   const openPath = (filePath: string | undefined): void => {
     if (filePath) {
@@ -719,7 +788,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   return (
     <aside className="oo-border-divider flex h-full min-h-0 w-full flex-col border-l bg-background">
       <header className="oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b px-3 [-webkit-app-region:drag]">
-        <div className="oo-text-title min-w-0 truncate">{t("artifacts.title")}</div>
+        <div className="oo-text-title min-w-0 truncate">{selectedPack?.title ?? t("artifacts.title")}</div>
         <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
           {selectedItem ? (
             <>

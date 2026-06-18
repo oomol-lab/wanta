@@ -239,6 +239,39 @@ export interface LocalArtifactGroup {
   truncated: boolean
 }
 
+export type LocalArtifactPackKind =
+  | "image_set"
+  | "document"
+  | "spreadsheet"
+  | "presentation"
+  | "web_page"
+  | "code_project"
+  | "archive"
+  | "mixed"
+
+export type LocalArtifactDisplayMode = "gallery" | "document" | "table" | "project" | "file_list" | "single"
+
+export type LocalArtifactEntryRole = "primary" | "supporting" | "summary" | "metadata"
+
+export interface LocalArtifactEntry extends LocalArtifactItem {
+  title?: string
+  description?: string
+  role: LocalArtifactEntryRole
+  order: number
+}
+
+export interface LocalArtifactPack {
+  root: LocalArtifactItem
+  title: string
+  kind: LocalArtifactPackKind
+  display: LocalArtifactDisplayMode
+  summary?: string
+  items: LocalArtifactEntry[]
+  supporting: LocalArtifactEntry[]
+  totalItems: number
+  truncated: boolean
+}
+
 export interface ResolveLocalArtifactsRequest {
   text?: string
   artifactRoot?: string
@@ -247,6 +280,7 @@ export interface ResolveLocalArtifactsRequest {
 
 export interface ResolveLocalArtifactsResult {
   groups: LocalArtifactGroup[]
+  pack?: LocalArtifactPack
 }
 
 export interface OpenLocalPathRequest {

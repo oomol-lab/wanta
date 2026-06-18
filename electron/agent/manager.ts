@@ -391,6 +391,10 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
   return [
     "Artifact output contract for this turn:",
     `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
+    "- Treat that directory as one user-facing artifact pack. Create a machine-readable manifest named .lumo-artifact.json in the artifact directory when you create any deliverable files.",
+    "- The manifest must be valid JSON with: version: 1, title, kind, display, optional summary, items, and optional supporting. Choose kind from image_set, document, spreadsheet, presentation, web_page, code_project, archive, mixed. Choose display from gallery, document, table, project, file_list, single.",
+    "- Manifest item paths must be relative paths inside the artifact directory. Mark each item with role primary, supporting, summary, or metadata. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
+    "- For image sets, put the primary images in display order, use stable padded names such as 001.jpg and 002.jpg, set kind to image_set, set display to gallery, and include only user-facing images as primary items.",
     "- Do not reuse output folders from earlier turns or other chats.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
     "- When you finish, report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",

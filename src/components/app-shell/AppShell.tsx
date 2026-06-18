@@ -947,6 +947,7 @@ export function AppShell() {
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
+  const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
   const startupError =
@@ -1620,9 +1621,9 @@ export function AppShell() {
               <div className="h-full min-h-0 overflow-hidden">
                 <ChatArea
                   billingCacheScope={billingCacheScope}
-                  messages={initialSendPending ? [] : messages}
+                  messages={bridgeInitialSendPending ? [] : messages}
                   status={displayedStatus}
-                  activity={initialSendPending ? null : activity}
+                  activity={bridgeInitialSendPending ? null : activity}
                   showEmptyState={showChatEmptyState}
                   bootstrapping={chatBootstrapping}
                   startupError={startupError}

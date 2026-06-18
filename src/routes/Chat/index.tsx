@@ -94,7 +94,11 @@ const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
 
 type TurnProcessStatus = "running" | "completed" | "retrying" | "needsAction" | "error" | "stopped"
 
-function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnProcessStatus {
+function isLiveProcess(process: ReturnType<typeof summarizeTurnProcess>, live = false): boolean {
+  return process.hasActiveTool || Boolean(process.activity) || live
+}
+
+function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = false): TurnProcessStatus {
   if (process.hasAuthorization) {
     return "needsAction"
   }
@@ -104,7 +108,7 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
   if (process.hasBlockingError) {
     return "error"
   }
-  if (process.hasActiveTool || (process.activity && !process.hasFinalAnswer)) {
+  if (isLiveProcess(process, live)) {
     return "running"
   }
   if (process.hasStoppedTool) {
@@ -113,8 +117,12 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>): TurnPr
   return "completed"
 }
 
-function formatProcessDuration(process: ReturnType<typeof summarizeTurnProcess>, now: number): string | null {
-  const isLive = process.hasActiveTool || Boolean(process.activity && !process.hasFinalAnswer)
+function formatProcessDuration(
+  process: ReturnType<typeof summarizeTurnProcess>,
+  now: number,
+  live = false,
+): string | null {
+  const isLive = isLiveProcess(process, live)
   const toolDuration = !isLive && process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
   if (!isLive && toolDuration) {
     return toolDuration
@@ -156,6 +164,7 @@ function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: strin
 function TurnProcessActivity({
   blocks,
   process,
+  live = false,
   billingCacheScope,
   providerByService,
   onAuthorize,
@@ -163,13 +172,14 @@ function TurnProcessActivity({
 }: {
   blocks: AssistantTimelineBlock[]
   process: ReturnType<typeof summarizeTurnProcess>
+  live?: boolean
   billingCacheScope: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
 }) {
   const t = useT()
-  const status = processStatus(process)
+  const status = processStatus(process, live)
   const shouldOpen =
     status === "running" ||
     status === "retrying" ||
@@ -178,13 +188,14 @@ function TurnProcessActivity({
     !process.hasFinalAnswer
   const statusKey = [
     status,
+    live ? "live" : "",
     process.activity?.phase,
     process.tools.map((part) => `${part.partId}:${part.status}`).join("|"),
     process.errors.map((part) => part.partId).join("|"),
   ].join(":")
   const [open, setOpen] = React.useState(shouldOpen)
   const [now, setNow] = React.useState(() => Date.now())
-  const duration = formatProcessDuration(process, now)
+  const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
   const titleText = processStatusText(t, status)
   const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
@@ -251,7 +262,7 @@ function TurnProcessActivity({
               onViewBilling={onViewBilling}
             />
           ))}
-          {showLiveStatus ? <LiveStatusBar process={process} /> : null}
+          {showLiveStatus ? <LiveStatusBar process={process} live={live} /> : null}
         </div>
       </TaskContent>
     </Task>
@@ -287,14 +298,20 @@ function hasNestedLoadingIndicator(
   return process.hasActiveTool || shouldShowLiveStatus(process, status)
 }
 
-function LiveStatusBar({ process }: { process: ReturnType<typeof summarizeTurnProcess> | null }) {
+function LiveStatusBar({
+  process,
+  live = false,
+}: {
+  process: ReturnType<typeof summarizeTurnProcess> | null
+  live?: boolean
+}) {
   const t = useT()
 
   if (!process) {
     return null
   }
 
-  const status = processStatus(process)
+  const status = processStatus(process, live)
   const activeTool = latestActiveTool(process)
   if (!shouldShowLiveStatus(process, status)) {
     return null
@@ -671,7 +688,7 @@ function AssistantTimelineMessage({
 }
 
 function shouldShowTurnProcess(process: ReturnType<typeof summarizeTurnProcess>): boolean {
-  return process.tools.length > 0 || Boolean(process.activity && !process.hasFinalAnswer)
+  return process.tools.length > 0 || Boolean(process.activity)
 }
 
 interface ChatTurnViewProps {
@@ -726,12 +743,24 @@ const ChatTurnView = React.memo(function ChatTurnView({
 }: ChatTurnViewProps) {
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
   const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
+  const shouldShowProcess = shouldShowTurnProcess(process)
+  const turnIsActive = Boolean(activeAssistantMessageId)
+  const processSeenRef = React.useRef(shouldShowProcess)
+  if (shouldShowProcess) {
+    processSeenRef.current = true
+  } else if (!turnIsActive) {
+    processSeenRef.current = false
+  }
+  const showTurnProcess = shouldShowProcess || (turnIsActive && processSeenRef.current)
+  const processRenderBlocks = showTurnProcess && processBlocks.length === 0 ? responseBlocks : processBlocks
+  const responseRenderBlocks = showTurnProcess && processBlocks.length === 0 ? [] : responseBlocks
+  const processLive = showTurnProcess && turnIsActive
   const lastAssistant = turn.assistants.at(-1)
   const assistantActionsText = lastAssistant ? assistantActionTextByMessageId.get(lastAssistant.id) : null
   const assistantCancelled = turn.assistants.some((message) => hasStoppedTool(message.parts))
   const responseActionsText =
-    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseBlocks) || null
-  const processActionsText = responseBlocks.length > 0 ? null : assistantActionsText
+    lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseRenderBlocks) || null
+  const processActionsText = responseRenderBlocks.length > 0 ? null : assistantActionsText
   const retrySource = React.useMemo(() => retrySourceFromTurn(turn), [turn])
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo) => {
@@ -753,26 +782,27 @@ const ChatTurnView = React.memo(function ChatTurnView({
           onAuthorize={handleAuthorize}
         />
       ) : null}
-      {shouldShowTurnProcess(process) ? (
+      {showTurnProcess ? (
         <>
           <Message from="assistant">
             <MessageContent className="w-full">
               <TurnProcessActivity
-                blocks={processBlocks}
+                blocks={processRenderBlocks}
                 process={process}
+                live={processLive}
                 billingCacheScope={billingCacheScope}
                 providerByService={providerByService}
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}
               />
             </MessageContent>
-            {processActionsText || (assistantCancelled && responseBlocks.length === 0) ? (
+            {processActionsText || (assistantCancelled && responseRenderBlocks.length === 0) ? (
               <AssistantMessageActions text={processActionsText ?? ""} cancelled={assistantCancelled} />
             ) : null}
           </Message>
-          {responseBlocks.length > 0 ? (
+          {responseRenderBlocks.length > 0 ? (
             <AssistantTimelineMessage
-              blocks={responseBlocks}
+              blocks={responseRenderBlocks}
               billingCacheScope={billingCacheScope}
               smoothAssistantMessageId={smoothAssistantMessageId}
               assistantActionsText={responseActionsText}

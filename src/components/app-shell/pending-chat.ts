@@ -20,6 +20,42 @@ function hasUserVisibleContent(message: ChatMessage): boolean {
   )
 }
 
+function userMessageText(message: ChatMessage): string {
+  return message.parts
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text ?? "")
+    .join("")
+}
+
+function attachmentKey(attachment: ChatAttachment): string {
+  return [
+    attachment.path,
+    attachment.id,
+    attachment.name,
+    attachment.mime,
+    String(attachment.size),
+    attachment.kind ?? "",
+  ].join("\0")
+}
+
+function userMessageAttachmentKey(message: ChatMessage): string {
+  return message.parts
+    .filter((part) => part.kind === "attachment" && part.attachment)
+    .map((part) => attachmentKey(part.attachment as ChatAttachment))
+    .sort()
+    .join("\0\0")
+}
+
+function pendingAttachmentKey(pending: PendingChatTransition): string {
+  return pending.attachments.map(attachmentKey).sort().join("\0\0")
+}
+
+function matchesPendingUserMessage(pending: PendingChatTransition, message: ChatMessage): boolean {
+  return (
+    userMessageText(message) === pending.text && userMessageAttachmentKey(message) === pendingAttachmentKey(pending)
+  )
+}
+
 export function isPendingChatCaughtUp(
   pending: PendingChatTransition | null,
   activeSessionId: string | null,
@@ -28,6 +64,11 @@ export function isPendingChatCaughtUp(
   return Boolean(
     pending?.sessionId &&
     activeSessionId === pending.sessionId &&
-    messages.some((message) => message.createdAt >= pending.createdAt && hasUserVisibleContent(message)),
+    messages.some(
+      (message) =>
+        message.role === "user" &&
+        hasUserVisibleContent(message) &&
+        (message.createdAt >= pending.createdAt || matchesPendingUserMessage(pending, message)),
+    ),
   )
 }

@@ -26,6 +26,12 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { ConnectDialog } from "./ConnectDialog.tsx"
+import {
+  getProviderGridColumnCount,
+  getProviderGridVisibleRange,
+  providerGridCardHeightPx,
+  providerGridGapPx,
+} from "./provider-grid-virtualization.ts"
 import { ProviderIcon } from "./ProviderIcon.tsx"
 import { authTypeLabel } from "./shared.ts"
 import { Loader } from "@/components/ai-elements/loader"
@@ -333,6 +339,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<ConnectionProviderSummary | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
+  const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
   const providers = summary?.providers ?? []
   const normalizedQuery = query.trim().toLowerCase()
@@ -494,7 +501,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         desktopLayout={selectedProvider ? "default" : "single"}
         className="motion-reduce:transition-none min-[960px]:transition-[grid-template-columns] min-[960px]:duration-200 min-[960px]:ease-out"
       >
-        <SplitViewListPane narrowPane={narrowPane} className="pt-3">
+        <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
             <SummaryHeader />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
@@ -504,6 +511,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
             ) : (
               <ProviderCatalog
                 providers={filteredProviders}
+                scrollParentRef={listPaneRef}
                 selectedService={selectedProvider?.service ?? null}
                 onSelect={(provider) => selectProvider(provider.service)}
               />
@@ -714,35 +722,145 @@ function SummaryHeader() {
 
 function ProviderCatalog({
   providers,
+  scrollParentRef,
   selectedService,
   onSelect,
 }: {
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
+  scrollParentRef: React.RefObject<HTMLDivElement | null>
   selectedService: string | null
 }) {
-  return <ProviderGrid providers={providers} selectedService={selectedService} onSelect={onSelect} />
+  return (
+    <ProviderGrid
+      providers={providers}
+      scrollParentRef={scrollParentRef}
+      selectedService={selectedService}
+      onSelect={onSelect}
+    />
+  )
 }
 
 function ProviderGrid({
   providers,
+  scrollParentRef,
   selectedService,
   onSelect,
 }: {
   onSelect: (provider: ConnectionProviderSummary) => void
   providers: ConnectionProviderSummary[]
+  scrollParentRef: React.RefObject<HTMLDivElement | null>
   selectedService: string | null
 }) {
+  const gridRef = React.useRef<HTMLDivElement | null>(null)
+  const updateFrameRef = React.useRef<number | null>(null)
+  const [viewport, setViewport] = React.useState({
+    catalogTop: 0,
+    scrollTop: 0,
+    viewportHeight: 0,
+    width: 0,
+  })
+
+  const updateViewport = React.useCallback(() => {
+    const grid = gridRef.current
+    const scrollParent = scrollParentRef.current
+    if (!grid || !scrollParent) {
+      return
+    }
+
+    const gridRect = grid.getBoundingClientRect()
+    const parentRect = scrollParent.getBoundingClientRect()
+    const nextViewport = {
+      catalogTop: gridRect.top - parentRect.top + scrollParent.scrollTop,
+      scrollTop: scrollParent.scrollTop,
+      viewportHeight: scrollParent.clientHeight,
+      width: grid.clientWidth,
+    }
+
+    setViewport((current) =>
+      current.catalogTop === nextViewport.catalogTop &&
+      current.scrollTop === nextViewport.scrollTop &&
+      current.viewportHeight === nextViewport.viewportHeight &&
+      current.width === nextViewport.width
+        ? current
+        : nextViewport,
+    )
+  }, [scrollParentRef])
+
+  const scheduleViewportUpdate = React.useCallback(() => {
+    if (updateFrameRef.current !== null) {
+      return
+    }
+
+    updateFrameRef.current = window.requestAnimationFrame(() => {
+      updateFrameRef.current = null
+      updateViewport()
+    })
+  }, [updateViewport])
+
+  React.useLayoutEffect(() => {
+    updateViewport()
+  }, [providers.length, updateViewport])
+
+  React.useEffect(() => {
+    const grid = gridRef.current
+    const scrollParent = scrollParentRef.current
+    if (!grid || !scrollParent) {
+      return
+    }
+
+    const resizeObserver = new ResizeObserver(scheduleViewportUpdate)
+    resizeObserver.observe(grid)
+    resizeObserver.observe(scrollParent)
+    scrollParent.addEventListener("scroll", scheduleViewportUpdate, { passive: true })
+    scheduleViewportUpdate()
+
+    return () => {
+      resizeObserver.disconnect()
+      scrollParent.removeEventListener("scroll", scheduleViewportUpdate)
+      if (updateFrameRef.current !== null) {
+        window.cancelAnimationFrame(updateFrameRef.current)
+        updateFrameRef.current = null
+      }
+    }
+  }, [scheduleViewportUpdate, scrollParentRef])
+
+  const columnCount = React.useMemo(() => getProviderGridColumnCount(viewport.width), [viewport.width])
+  const visibleRange = React.useMemo(
+    () =>
+      getProviderGridVisibleRange({
+        catalogTop: viewport.catalogTop,
+        columnCount,
+        providerCount: providers.length,
+        scrollTop: viewport.scrollTop,
+        viewportHeight: viewport.viewportHeight,
+      }),
+    [columnCount, providers.length, viewport.catalogTop, viewport.scrollTop, viewport.viewportHeight],
+  )
+  const visibleProviders = React.useMemo(
+    () => providers.slice(visibleRange.startIndex, visibleRange.endIndex),
+    [providers, visibleRange.endIndex, visibleRange.startIndex],
+  )
+
   return (
-    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))" }}>
-      {providers.map((provider) => (
-        <ProviderCard
-          key={provider.service}
-          provider={provider}
-          selected={provider.service === selectedService}
-          onSelect={() => onSelect(provider)}
-        />
-      ))}
+    <div ref={gridRef} className="relative" style={{ height: visibleRange.totalHeight }}>
+      <div
+        className="absolute inset-x-0 top-0 grid will-change-transform"
+        style={{
+          gap: providerGridGapPx,
+          gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))",
+          transform: `translateY(${visibleRange.topOffset}px)`,
+        }}
+      >
+        {visibleProviders.map((provider) => (
+          <ProviderCard
+            key={provider.service}
+            provider={provider}
+            selected={provider.service === selectedService}
+            onSelect={() => onSelect(provider)}
+          />
+        ))}
+      </div>
     </div>
   )
 }
@@ -764,9 +882,10 @@ function ProviderCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "grid h-20 min-w-0 rounded-md border bg-card px-2.5 py-2 text-left text-card-foreground transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        "grid min-w-0 rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
         selected && "border-ring bg-accent/55",
       )}
+      style={{ height: providerGridCardHeightPx }}
     >
       <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
         <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />

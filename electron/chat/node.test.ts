@@ -255,6 +255,8 @@ test("sendMessage passes selected context mentions as per-turn system prompt", a
   assert.match(options?.system ?? "", /User-selected context for this turn/)
   assert.match(options?.system ?? "", /ecommerce-image-studio/)
   assert.match(options?.system ?? "", /gmail/)
+  assert.match(options?.system ?? "", /consider the selected connection first/)
+  assert.match(options?.system ?? "", /Do not use it for unrelated local files/)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {

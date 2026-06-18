@@ -141,7 +141,7 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
       lines.push(`- ${quoted(connection.displayName)}; ${details.join("; ")}`)
     }
     lines.push(
-      "If the task needs account data or SaaS actions, prefer the selected connection. Still inspect the action schema before calling connector tools.",
+      "If, after reading the user's request, a Link action is needed, consider the selected connection first. Do not use it for unrelated local files, direct answers, concrete URLs, or general browsing. Still inspect the action schema before calling connector tools.",
     )
   }
   return lines.join("\n")

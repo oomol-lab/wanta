@@ -127,13 +127,17 @@ test("lumo agent enables built-in coding/shell tools alongside connector tools, 
 })
 
 test("system prompt treats Link as a contextual capability, not the default path", () => {
-  assert.match(LUMO_SYSTEM_PROMPT, /general-purpose AI agent/)
-  assert.match(LUMO_SYSTEM_PROMPT, /Start from the user's real goal/)
+  assert.match(LUMO_SYSTEM_PROMPT, /work agent/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Start from the result the user needs/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Tools are means to finish work, not features to showcase/)
   assert.match(
     LUMO_SYSTEM_PROMPT,
-    /Use Link tools only when the task requires data or actions inside a connected SaaS account/,
+    /Use Link tools only when the task requires private\/account-specific data or actions inside a SaaS account/,
   )
-  assert.match(LUMO_SYSTEM_PROMPT, /Do not use Link tools just because a provider is connected/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Authorized providers.*are context only/s)
+  assert.match(LUMO_SYSTEM_PROMPT, /concrete URL.*local web tools/s)
+  assert.match(LUMO_SYSTEM_PROMPT, /Locate and read the relevant context before editing/)
+  assert.match(LUMO_SYSTEM_PROMPT, /Use focused validation when feasible/)
   assert.match(LUMO_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
 })
 
@@ -169,10 +173,13 @@ test("isAuthBlocking flags the upstream authorization-blocking codes", () => {
 test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("@opencode-ai/plugin"))
-  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("requires data or actions inside a SaaS account"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("private/account-specific SaaS data or actions"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("concrete URLs"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
+  assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("does not mean you must execute the action"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authorization_required"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("do not probe unrelated services or actions"))
 })
 
 test("createArtifactDir creates an isolated per-session turn directory", async () => {

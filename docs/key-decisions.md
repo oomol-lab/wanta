@@ -20,7 +20,7 @@
 
 - **背景**：oo-cli 跑在 Bun 上、约 30 个源文件深耦合 Bun 专有 API，无法 import 进 Node/Electron。
 - **决策**：electron-builder `extraResources` 内置平台二进制；只经 `OO_*` 环境变量控制（R3）；授权信号走结构化工具结果（R5）：`call_action` 解析 stderr 的 `errorCode: <code>` token，命中授权阻断码时返回 `{status:"authorization_required", authUrl}`，**不解析模型自由文本**。
-- **理由（连接器暴露策略，调研结论）**：把约 600 个 provider 全量注册成工具是死路——工具数超过 30–50 个时模型选择准确率显著下降；故选"只注入已授权清单（R4）+ search/inspect/call 元工具渐进披露"的混合方案，**不要重新提议按 provider 生成工具或全量注册**。
+- **理由（连接器暴露策略，调研结论）**：把约 600 个 provider 全量注册成工具是死路——工具数超过 30–50 个时模型选择准确率显著下降；故选"只注入已授权存在性提示（R4，默认不列具体 provider 名）+ search/inspect/call 元工具渐进披露"的混合方案，**不要重新提议按 provider 生成工具或全量注册**。
 - **后果**：oo-cli 1.2.0 须先实现全套 `OO_*` 变量（曾是未声明硬前置，后上游发版补齐——此行为系 oo-cli 1.2.0 实测 + 上游发版记录，oo 是黑盒二进制、本仓库无法复核，升级 oo 时需重新验证）；`OO_SKILLS_SYNC_DISABLED=1` 必须设置否则 oo 每次运行写用户家目录（`~/.claude`、`~/.agents` 等，1.2.0 实测）。
 
 ## 4. 登录流修正：OO_API_KEY env → 浏览器登录
@@ -56,7 +56,7 @@
 - **背景**：三个并行问题——assistant 消息纯文本不渲染 Markdown；工具调用 UI 太显眼；模型瞎猜 connector 参数（实例：hackernews `get_item` 传 `item_id`，schema 要求 `id` 且 `additionalProperties:false` 被拒）。
 - **决策**：
   - 参数问题根因是工具集缺 schema 查询能力（`search_actions` 不返回 inputSchema），纯改提示词治标不治本 → 新增第三个工具 `inspect_action`（`oo connector schema --json`），提示词强制 **search → inspect → call** 流程，inputSchema 是参数唯一事实来源。
-  - 提示词分层（R4）：稳定人格/工具/契约放 agent.prompt 利于 prompt 缓存；每轮变化的已授权清单走 `body.system` 动态注入。
+  - 提示词分层（R4）：稳定人格/工具/契约放 agent.prompt 利于 prompt 缓存；每轮变化的已授权存在性提示走 `body.system` 动态注入，默认不列具体 provider 名。
   - Markdown 用 react-markdown@10 + remark-gfm（不引 rehype-raw，保 HTML 转义防 XSS）；同时主进程新增外链处理（`setWindowOpenHandler` + `will-navigate` 共用 `openExternalUrl`，白名单 http/https/mailto/tel——mailto/tel 是对抗审查发现"可点击但无反应"后补的）。
   - 工具调用 UI 默认折叠一行摘要，点击展开参数/结果。
 - **后果**：后端部分（inspect_action、提示词契约、外链处理）沿用至今；前端 Markdown/折叠 UI 后来在 ai-elements 迁移中被替换（react-markdown 已移除）。

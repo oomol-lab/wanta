@@ -4,6 +4,7 @@ import type {
   ChatContextMention,
   ChatMessage,
 } from "../../../electron/chat/common.ts"
+import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
@@ -39,7 +40,7 @@ import {
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  consumeLatestQueuedMessage,
+  consumeNextQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -86,6 +87,7 @@ const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
 const TURN_RETRY_OPTIONS_LIMIT = 48
+const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 
 interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
@@ -809,13 +811,13 @@ export function AppShell() {
   const t = useT()
   const chatService = useChatService()
   const auth = useAuth()
-  const { sessions, create, generateTitle, rename, remove, refresh } = useSessions()
+  const [ready, setReady] = React.useState(false)
+  const { sessions, loaded: sessionsLoaded, create, generateTitle, rename, remove } = useSessions({ enabled: ready })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
   const [queuedMessagesBySession, setQueuedMessagesBySession] = React.useState<ChatQueueMap>({})
-  const [ready, setReady] = React.useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
   const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
   const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
@@ -881,13 +883,6 @@ export function AppShell() {
     }
   }, [chatService])
 
-  // agent 就绪后刷新会话列表（启动期的 list 调用会被服务端忽略返回空）。
-  React.useEffect(() => {
-    if (ready) {
-      void refresh()
-    }
-  }, [ready, refresh])
-
   React.useEffect(() => {
     const id = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
     return () => window.clearInterval(id)
@@ -903,12 +898,12 @@ export function AppShell() {
     }
   }, [ready])
 
-  // 默认选中最近的会话。
-  React.useEffect(() => {
-    if (!isDraftSession && !activeSessionId && sessions.length > 0) {
+  // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
+  React.useLayoutEffect(() => {
+    if (sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0) {
       setActiveSessionId(sessions[0].id)
     }
-  }, [sessions, activeSessionId, isDraftSession])
+  }, [sessions, sessionsLoaded, activeSessionId, isDraftSession])
 
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
   React.useEffect(() => {
@@ -933,10 +928,17 @@ export function AppShell() {
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
+  const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
-  const showChatEmptyState = (!activeSessionId && !pendingChatTransition) || initialSendPending
+  const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
+  const chatBootstrapping =
+    !ready ||
+    !sessionsLoaded ||
+    needsDefaultSessionSelection ||
+    Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition)
+  const showChatEmptyState = ready && sessionsLoaded && !activeSessionId && !pendingChatTransition
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
       const sessionStatus = getSessionStatus(sessionId)
@@ -1240,7 +1242,7 @@ export function AppShell() {
     if (queue.length === 0) {
       return
     }
-    const consumed = consumeLatestQueuedMessage(queuedMessagesBySession, activeSessionId)
+    const consumed = consumeNextQueuedMessage(queuedMessagesBySession, activeSessionId)
     const { message } = consumed
     if (!message) {
       return
@@ -1379,8 +1381,26 @@ export function AppShell() {
   const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
     setArtifactSelection((current) => (current?.messageId === selection.messageId ? current : selection))
   }, [])
-  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen
-  const showArtifactsToggle = route === "chat" && !artifactsPanelVisible
+  const handleChatStop = React.useCallback(() => {
+    if (activeSessionId) {
+      void stop(activeSessionId)
+    }
+  }, [activeSessionId, stop])
+  const handleQueuedMessageRemove = React.useCallback(
+    (messageId: string) => {
+      if (!activeSessionId) {
+        return
+      }
+      setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, messageId))
+    },
+    [activeSessionId],
+  )
+  const handleViewBilling = React.useCallback(() => {
+    setRoute("billing")
+  }, [])
+  const hasArtifactSelection = artifactSelection !== null
+  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasArtifactSelection
+  const showArtifactsToggle = route === "chat" && hasArtifactSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
@@ -1577,25 +1597,21 @@ export function AppShell() {
                   status={displayedStatus}
                   activity={initialSendPending ? null : activity}
                   showEmptyState={showChatEmptyState}
+                  bootstrapping={chatBootstrapping}
                   error={error}
-                  disabled={!ready}
+                  submitDisabled={!ready || chatBootstrapping}
                   initialSendPending={initialSendPending}
-                  providers={connections.summary?.providers ?? []}
+                  providers={activeProviders}
                   queuedMessages={activeQueuedMessages}
                   placeholder={ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")}
-                  onSend={(text, attachments, contextMentions, model) =>
-                    handleSend(text, attachments, contextMentions, model)
-                  }
-                  onStop={() => activeSessionId && void stop(activeSessionId)}
-                  onQueuedMessageRemove={(messageId) =>
-                    activeSessionId &&
-                    setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, messageId))
-                  }
+                  onSend={handleSend}
+                  onStop={handleChatStop}
+                  onQueuedMessageRemove={handleQueuedMessageRemove}
                   onAuthorize={handleAuthorize}
                   onArtifactsReset={handleArtifactsReset}
                   onArtifactsOpen={handleArtifactsOpen}
                   onArtifactsAvailable={handleArtifactsAvailable}
-                  onViewBilling={() => setRoute("billing")}
+                  onViewBilling={handleViewBilling}
                 />
               </div>
             )}
@@ -1623,7 +1639,9 @@ export function AppShell() {
             onKeyDown={handleArtifactsPanelResizeKeyDown}
           />
           <div className="h-full" style={{ width: `${artifactsPanelWidth}px` }}>
-            <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+            {artifactsPanelVisible ? (
+              <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+            ) : null}
           </div>
         </div>
       </div>

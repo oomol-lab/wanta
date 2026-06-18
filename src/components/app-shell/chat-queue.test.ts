@@ -5,7 +5,7 @@ import { describe, test } from "vitest"
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  consumeLatestQueuedMessage,
+  consumeNextQueuedMessage,
   latestQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
@@ -31,18 +31,18 @@ describe("chat queue", () => {
     )
   })
 
-  test("consumes only the latest queued message and keeps earlier messages", () => {
+  test("consumes the oldest queued message and keeps later messages", () => {
     const queues = {
       "session-1": [message("first"), message("second")],
       "session-2": [message("other", "session-2")],
     }
 
-    const result = consumeLatestQueuedMessage(queues, "session-1")
+    const result = consumeNextQueuedMessage(queues, "session-1")
 
-    assert.equal(result.message?.id, "second")
+    assert.equal(result.message?.id, "first")
     assert.deepEqual(
       result.queues["session-1"]?.map((item) => item.id),
-      ["first"],
+      ["second"],
     )
     assert.deepEqual(
       result.queues["session-2"]?.map((item) => item.id),
@@ -61,7 +61,7 @@ describe("chat queue", () => {
   })
 
   test("drops the session bucket after consuming its only queued message", () => {
-    const result = consumeLatestQueuedMessage({ "session-1": [message("only")] }, "session-1")
+    const result = consumeNextQueuedMessage({ "session-1": [message("only")] }, "session-1")
 
     assert.equal(result.message?.id, "only")
     assert.equal(result.queues["session-1"], undefined)

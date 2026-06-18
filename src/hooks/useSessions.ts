@@ -5,6 +5,7 @@ import { useSessionService } from "@/components/AppContext"
 
 export interface UseSessions {
   sessions: SessionInfo[]
+  loaded: boolean
   create: (title?: string) => Promise<SessionInfo>
   generateTitle: (req: GenerateSessionTitleRequest) => Promise<string>
   rename: (id: string, title: string) => Promise<void>
@@ -12,24 +13,57 @@ export interface UseSessions {
   refresh: () => Promise<void>
 }
 
-export function useSessions(): UseSessions {
+export function useSessions({ enabled = true }: { enabled?: boolean } = {}): UseSessions {
   const sessionService = useSessionService()
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
-
-  const refresh = React.useCallback(async () => {
-    try {
-      setSessions(await sessionService.invoke("list"))
-    } catch (error) {
-      console.error("[lumo] list sessions failed", error)
-    }
-  }, [sessionService])
+  const [loaded, setLoaded] = React.useState(false)
+  const enabledRef = React.useRef(enabled)
+  const requestSequenceRef = React.useRef(0)
 
   React.useEffect(() => {
+    enabledRef.current = enabled
+    if (!enabled) {
+      requestSequenceRef.current += 1
+    }
+  }, [enabled])
+
+  const refresh = React.useCallback(async () => {
+    const requestId = ++requestSequenceRef.current
+    if (!enabled) {
+      setSessions([])
+      setLoaded(false)
+      return
+    }
+    try {
+      const nextSessions = await sessionService.invoke("list")
+      if (requestId !== requestSequenceRef.current || !enabledRef.current) {
+        return
+      }
+      setSessions(nextSessions)
+    } catch (error) {
+      console.error("[lumo] list sessions failed", error)
+    } finally {
+      if (requestId === requestSequenceRef.current && enabledRef.current) {
+        setLoaded(true)
+      }
+    }
+  }, [enabled, sessionService])
+
+  React.useEffect(() => {
+    if (!enabled) {
+      setSessions([])
+      setLoaded(false)
+      return
+    }
     void refresh()
     return sessionService.serverEvents.on("sessionsChanged", (event) => {
+      if (!enabledRef.current) {
+        return
+      }
       setSessions(event.sessions)
+      setLoaded(true)
     })
-  }, [sessionService, refresh])
+  }, [enabled, sessionService, refresh])
 
   const create = React.useCallback(
     async (title?: string) => {
@@ -62,5 +96,5 @@ export function useSessions(): UseSessions {
     [sessionService],
   )
 
-  return { sessions, create, generateTitle, rename, remove, refresh }
+  return { sessions, loaded, create, generateTitle, rename, remove, refresh }
 }

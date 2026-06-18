@@ -70,17 +70,13 @@ describe("composer state", () => {
   it("clears palette suppression when resetting after submit", () => {
     const state = {
       ...initialComposerState(),
-      activePaletteIndex: 3,
       dismissedTriggerKey: "slash:0:rev",
       draft: "/rev",
-      paletteMode: "skills" as const,
     }
 
     expect(composerReducer(state, { type: "reset-after-submit" })).toMatchObject({
-      activePaletteIndex: 0,
       dismissedTriggerKey: null,
       draft: "",
-      paletteMode: "root",
     })
   })
 })

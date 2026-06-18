@@ -199,6 +199,7 @@ export function ToolActivityStep({
   const inlineDetail = toolInlineDetail(part)
   const active = part.status === "pending" || part.status === "running"
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
+  const completedMeta = part.status === "completed" && !auth
   const actionText = toolActionSummary(t, part)
   const activeText = [actionText, inlineDetail, ...metaItems].filter(Boolean).join("  ")
 
@@ -209,7 +210,7 @@ export function ToolActivityStep({
   }, [defaultOpen])
 
   const row = (
-    <div className="flex min-h-6 min-w-0 flex-1 items-center gap-2">
+    <div className="group/tool-step flex min-h-6 min-w-0 flex-1 items-center gap-2">
       <span
         className="flex size-5 shrink-0 items-center justify-center"
         title={provider ? `${provider.displayName} · ${statusText}` : statusText}
@@ -231,7 +232,15 @@ export function ToolActivityStep({
                 {inlineDetail}
               </code>
             )}
-            <span className="flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
+            <span
+              className={cn(
+                "flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground transition-opacity",
+                completedMeta && "opacity-0 group-hover/tool-step:opacity-100",
+                completedMeta &&
+                  details &&
+                  "group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:opacity-100",
+              )}
+            >
               {metaItems.map((item, index) => (
                 <React.Fragment key={`${index}:${item}`}>
                   {index > 0 ? <span className="text-muted-foreground/70">·</span> : null}

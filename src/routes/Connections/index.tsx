@@ -9,18 +9,20 @@ import type {
   ConnectionUsageServiceItem,
 } from "../../../electron/connections/common.ts"
 import type { UseConnections } from "@/hooks/useConnections"
+import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
 import {
   AlertCircle,
   ArrowLeft,
   BarChart3,
-  ChevronRight,
+  ChevronDown,
   ExternalLink,
   KeyRound,
   LoaderCircle,
   Plug,
   RefreshCw,
   Unplug,
+  X,
 } from "lucide-react"
 import * as React from "react"
 import { ConnectDialog } from "./ConnectDialog.tsx"
@@ -32,8 +34,16 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   SplitViewBody,
   SplitViewDesktopDetailPane,
+  SplitViewHeader,
   SplitViewListPane,
   SplitViewMobileDetailPane,
   SplitViewRoot,
@@ -43,6 +53,38 @@ import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
 const executionLogLimit = 12
+const detailPaneAnimationMs = 150
+const categoryFilterLimit = 4
+const categoryFilterPrefix = "category:"
+const uncategorizedCategoryValue = "__uncategorized__"
+const categoryMessageKeysByRawLabel: Record<string, MessageKey> = {
+  AI: "connections.category.ai",
+  Communication: "connections.category.communication",
+  "Data & Analytics": "connections.category.dataAnalytics",
+  "Design & Media": "connections.category.designMedia",
+  "Developer Tools": "connections.category.developerTools",
+  Documentation: "connections.category.documentation",
+  Efficiency: "connections.category.efficiency",
+  Finance: "connections.category.finance",
+  "Maps & Location": "connections.category.mapsLocation",
+  Marketing: "connections.category.marketing",
+  Productivity: "connections.category.productivity",
+  "Security & Identity": "connections.category.securityIdentity",
+  Social: "connections.category.social",
+  Storage: "connections.category.storage",
+}
+
+type ConnectionCatalogFilter =
+  | { kind: "all" }
+  | { kind: "attention" }
+  | { kind: "category"; category: string }
+  | { kind: "connected" }
+
+interface ConnectionCategoryFilter {
+  count: number
+  displayLabel: string
+  label: string
+}
 
 function isConnected(provider: ConnectionProviderSummary): boolean {
   return provider.status === "connected" && provider.appStatus === "active"
@@ -133,14 +175,11 @@ function getProviderDescription(provider: ConnectionProviderSummary, t: ReturnTy
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
-      return provider.accountLabel
-        ? t("connections.providerConnectedAccountDescription", {
-            account: provider.accountLabel,
-            name: provider.displayName,
-          })
-        : t("connections.providerConnectedDescription", { name: provider.displayName })
+      return provider.accountLabel && provider.accountLabel !== provider.displayName
+        ? provider.accountLabel
+        : getProviderCategoryLabel(provider, t)
     case "available":
-      return t("connections.providerAvailableDescription", { name: provider.displayName })
+      return getProviderCategoryLabel(provider, t)
   }
 }
 
@@ -166,6 +205,111 @@ function authTypeNeedsDialog(authType: Exclude<ConnectionAuthType, null>): boole
   return authType === "api_key" || authType === "custom_credential" || authType === "federated"
 }
 
+function getProviderStatusDisplayLabel(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  return getProviderStatusLabel(provider, t) ?? t("connections.connected")
+}
+
+function getProviderActionLabel(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  if (provider.actionKind === "unavailable") {
+    return t("connections.unsupported")
+  }
+  switch (provider.status) {
+    case "needs_attention":
+      return t("connections.reconnect")
+    case "connected":
+      return t("connections.manage")
+    case "available":
+      return t("connections.connect")
+  }
+}
+
+function getCategoryDisplayLabel(label: string, t: TranslateFn): string {
+  if (label === uncategorizedCategoryValue) {
+    return t("connections.categoryUnknown")
+  }
+  const key = categoryMessageKeysByRawLabel[label]
+  return key ? t(key) : label
+}
+
+function getProviderCategoryRawLabels(provider: ConnectionProviderSummary): string[] {
+  return provider.categoryLabels.length > 0 ? provider.categoryLabels : [uncategorizedCategoryValue]
+}
+
+function getProviderCategoryLabel(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  return getCategoryDisplayLabel(getProviderCategoryRawLabels(provider)[0] ?? uncategorizedCategoryValue, t)
+}
+
+function formatProviderCategoryLabels(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  return getProviderCategoryRawLabels(provider)
+    .map((label) => getCategoryDisplayLabel(label, t))
+    .join(" / ")
+}
+
+function getProviderMeta(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  return provider.accountLabel ?? getProviderCategoryLabel(provider, t)
+}
+
+function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQuery: string, t: TranslateFn): boolean {
+  if (!normalizedQuery) {
+    return true
+  }
+  return (
+    provider.displayName.toLowerCase().includes(normalizedQuery) ||
+    provider.service.toLowerCase().includes(normalizedQuery) ||
+    getProviderCategoryRawLabels(provider).some((label) => {
+      return (
+        label.toLowerCase().includes(normalizedQuery) ||
+        getCategoryDisplayLabel(label, t).toLowerCase().includes(normalizedQuery)
+      )
+    }) ||
+    provider.accountLabel?.toLowerCase().includes(normalizedQuery) === true
+  )
+}
+
+function getFilterValue(filter: ConnectionCatalogFilter): string {
+  return filter.kind === "category" ? `${categoryFilterPrefix}${filter.category}` : filter.kind
+}
+
+function parseFilterValue(value: string): ConnectionCatalogFilter | null {
+  if (value === "all" || value === "connected" || value === "attention") {
+    return { kind: value }
+  }
+  if (value.startsWith(categoryFilterPrefix)) {
+    const category = value.slice(categoryFilterPrefix.length)
+    return category ? { kind: "category", category } : null
+  }
+  return null
+}
+
+function buildCategoryFilters(
+  providers: ConnectionProviderSummary[],
+  t: ReturnType<typeof useT>,
+): ConnectionCategoryFilter[] {
+  const countByCategory = new Map<string, number>()
+  for (const provider of providers) {
+    for (const label of getProviderCategoryRawLabels(provider)) {
+      countByCategory.set(label, (countByCategory.get(label) ?? 0) + 1)
+    }
+  }
+
+  return [...countByCategory.entries()]
+    .map(([label, count]) => ({ count, displayLabel: getCategoryDisplayLabel(label, t), label }))
+    .sort((left, right) => right.count - left.count || left.displayLabel.localeCompare(right.displayLabel))
+}
+
+function matchesProviderFilter(provider: ConnectionProviderSummary, filter: ConnectionCatalogFilter): boolean {
+  switch (filter.kind) {
+    case "all":
+      return true
+    case "connected":
+      return isConnected(provider)
+    case "attention":
+      return provider.status === "needs_attention"
+    case "category":
+      return getProviderCategoryRawLabels(provider).includes(filter.category)
+  }
+}
+
 interface ConnectionsPanelProps {
   connections: UseConnections
   selectedService?: string | null
@@ -173,36 +317,76 @@ interface ConnectionsPanelProps {
 
 export function ConnectionsPanel({ connections, selectedService }: ConnectionsPanelProps) {
   const t = useT()
-  const { summary, busy, polling, error, refresh, connect, disconnect, cancelPolling, getProviderDetail } = connections
+  const { summary, busy, polling, error, connect, disconnect, cancelPolling, getProviderDetail } = connections
   const [query, setQuery] = React.useState("")
+  const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const [detail, setDetail] = React.useState<ConnectionProviderDetail | null>(null)
   const [detailService, setDetailService] = React.useState<string | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
   const [detailError, setDetailError] = React.useState<string | null>(null)
+  const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
     authType: "api_key" | "custom_credential" | "federated"
     detail: ConnectionProviderDetail
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<ConnectionProviderSummary | null>(null)
+  const detailCloseTimerRef = React.useRef<number | null>(null)
 
   const providers = summary?.providers ?? []
   const normalizedQuery = query.trim().toLowerCase()
+  const categoryFilters = React.useMemo(() => buildCategoryFilters(providers, t), [providers, t])
+  const connectedCount = React.useMemo(() => providers.filter(isConnected).length, [providers])
+  const attentionCount = React.useMemo(
+    () => providers.filter((provider) => provider.status === "needs_attention").length,
+    [providers],
+  )
+  const catalogProviders = React.useMemo(
+    () => providers.filter((provider) => matchesProviderFilter(provider, activeFilter)),
+    [activeFilter, providers],
+  )
   const filteredProviders = React.useMemo(() => {
-    if (!normalizedQuery) {
-      return providers
+    return catalogProviders.filter((provider) => matchesProviderQuery(provider, normalizedQuery, t))
+  }, [catalogProviders, normalizedQuery, t])
+  const selectedProvider = selectedProviderService
+    ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
+    : null
+
+  const clearDetailCloseTimer = React.useCallback(() => {
+    if (detailCloseTimerRef.current === null) {
+      return
     }
-    return providers.filter((provider) => {
-      return (
-        provider.displayName.toLowerCase().includes(normalizedQuery) ||
-        provider.service.toLowerCase().includes(normalizedQuery) ||
-        provider.categoryLabels.some((label) => label.toLowerCase().includes(normalizedQuery))
-      )
-    })
-  }, [normalizedQuery, providers])
-  const selectedProvider =
-    filteredProviders.find((provider) => provider.service === selectedProviderService) ?? filteredProviders[0] ?? null
+
+    window.clearTimeout(detailCloseTimerRef.current)
+    detailCloseTimerRef.current = null
+  }, [])
+
+  const selectProvider = React.useCallback(
+    (service: string) => {
+      clearDetailCloseTimer()
+      setDetailPaneClosing(false)
+      setSelectedProviderService(service)
+      setNarrowPane("detail")
+    },
+    [clearDetailCloseTimer],
+  )
+
+  const closeDetail = React.useCallback(() => {
+    if (!selectedProviderService) {
+      setNarrowPane("list")
+      return
+    }
+
+    clearDetailCloseTimer()
+    setDetailPaneClosing(true)
+    setNarrowPane("list")
+    detailCloseTimerRef.current = window.setTimeout(() => {
+      setSelectedProviderService(null)
+      setDetailPaneClosing(false)
+      detailCloseTimerRef.current = null
+    }, detailPaneAnimationMs)
+  }, [clearDetailCloseTimer, selectedProviderService])
 
   React.useEffect(() => {
     if (!selectedService) {
@@ -210,22 +394,35 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     }
 
     setQuery("")
-    setSelectedProviderService(selectedService)
-    setNarrowPane("detail")
-  }, [selectedService])
+    setActiveFilter({ kind: "all" })
+    selectProvider(selectedService)
+  }, [selectProvider, selectedService])
+
+  React.useEffect(() => clearDetailCloseTimer, [clearDetailCloseTimer])
 
   React.useEffect(() => {
-    if (!selectedProvider) {
-      setSelectedProviderService(null)
+    if (activeFilter.kind !== "category") {
+      return
+    }
+    if (!categoryFilters.some((filter) => filter.label === activeFilter.category)) {
+      setActiveFilter({ kind: "all" })
+    }
+  }, [activeFilter, categoryFilters])
+
+  React.useEffect(() => {
+    if (!selectedProviderService || !summary) {
       return
     }
 
-    setSelectedProviderService((current) =>
-      current && filteredProviders.some((provider) => provider.service === current)
-        ? current
-        : selectedProvider.service,
-    )
-  }, [filteredProviders, selectedProvider])
+    if (filteredProviders.some((provider) => provider.service === selectedProviderService)) {
+      return
+    }
+
+    clearDetailCloseTimer()
+    setSelectedProviderService(null)
+    setDetailPaneClosing(false)
+    setNarrowPane("list")
+  }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
 
   React.useEffect(() => {
     if (!selectedProvider) {
@@ -279,15 +476,25 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   )
 
   return (
-    <SplitViewRoot narrowPane={narrowPane} className="grid-rows-[minmax(0,1fr)]">
-      <SplitViewBody desktopLayout="narrow-list">
-        <SplitViewListPane narrowPane={narrowPane}>
-          <ConnectionListToolbar
-            busy={busy}
-            query={query}
-            onQueryChange={setQuery}
-            onRefresh={() => void refresh({ forceRefresh: true })}
-          />
+    <SplitViewRoot narrowPane={narrowPane}>
+      <SplitViewHeader narrowPane={narrowPane} className="oo-border-divider border-b sm:grid-cols-1">
+        <ConnectionListToolbar
+          activeFilter={activeFilter}
+          attentionCount={attentionCount}
+          categoryFilters={categoryFilters}
+          connectedCount={connectedCount}
+          query={query}
+          totalCount={summary?.providerCount ?? providers.length}
+          onFilterChange={setActiveFilter}
+          onQueryChange={setQuery}
+        />
+      </SplitViewHeader>
+
+      <SplitViewBody
+        desktopLayout={selectedProvider ? "default" : "single"}
+        className="motion-reduce:transition-none min-[960px]:transition-[grid-template-columns] min-[960px]:duration-200 min-[960px]:ease-out"
+      >
+        <SplitViewListPane narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
             <SummaryHeader />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
@@ -295,31 +502,23 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
             {filteredProviders.length === 0 ? (
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
-              <div className="grid gap-1">
-                {filteredProviders.map((provider) => (
-                  <ProviderRow
-                    key={provider.service}
-                    provider={provider}
-                    selected={provider.service === selectedProvider?.service}
-                    onSelect={() => {
-                      setSelectedProviderService(provider.service)
-                      setNarrowPane("detail")
-                    }}
-                  />
-                ))}
-              </div>
+              <ProviderCatalog
+                providers={filteredProviders}
+                selectedService={selectedProvider?.service ?? null}
+                onSelect={(provider) => selectProvider(provider.service)}
+              />
             )}
           </div>
         </SplitViewListPane>
 
-        <SplitViewMobileDetailPane narrowPane={narrowPane}>
-          <div className="mb-2">
-            <Button variant="ghost" size="sm" onClick={() => setNarrowPane("list")}>
-              <ArrowLeft className="size-4" />
-              {t("connections.backToProviders")}
-            </Button>
-          </div>
-          {selectedProvider ? (
+        {selectedProvider ? (
+          <SplitViewMobileDetailPane narrowPane={narrowPane}>
+            <div className="mb-2">
+              <Button variant="ghost" size="sm" onClick={closeDetail}>
+                <ArrowLeft className="size-4" />
+                {t("connections.backToProviders")}
+              </Button>
+            </div>
             <ProviderDetail
               actionError={error}
               busy={busy}
@@ -328,19 +527,25 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
               detailLoading={detailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
+              onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={setConfirmDisconnect}
               polling={polling}
               provider={selectedProvider}
               summary={summary}
             />
-          ) : (
-            <EmptyDetail summary={summary} />
-          )}
-        </SplitViewMobileDetailPane>
+          </SplitViewMobileDetailPane>
+        ) : null}
 
-        <SplitViewDesktopDetailPane>
-          {selectedProvider ? (
+        {selectedProvider ? (
+          <SplitViewDesktopDetailPane
+            className={cn(
+              "pt-4 transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
+              detailPaneClosing
+                ? "pointer-events-none translate-x-2 opacity-0"
+                : "translate-x-0 animate-in opacity-100 fade-in-0 slide-in-from-right-2 motion-reduce:animate-none",
+            )}
+          >
             <ProviderDetail
               actionError={error}
               busy={busy}
@@ -349,16 +554,15 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
               detailLoading={detailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
+              onClose={closeDetail}
               onConnect={connectProvider}
               onDisconnect={setConfirmDisconnect}
               polling={polling}
               provider={selectedProvider}
               summary={summary}
             />
-          ) : (
-            <EmptyDetail summary={summary} />
-          )}
-        </SplitViewDesktopDetailPane>
+          </SplitViewDesktopDetailPane>
+        ) : null}
       </SplitViewBody>
 
       <ConnectDialog
@@ -392,32 +596,110 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
 }
 
 function ConnectionListToolbar({
-  busy,
+  activeFilter,
+  attentionCount,
+  categoryFilters,
+  connectedCount,
+  onFilterChange,
   onQueryChange,
-  onRefresh,
   query,
+  totalCount,
 }: {
-  busy: UseConnections["busy"]
+  activeFilter: ConnectionCatalogFilter
+  attentionCount: number
+  categoryFilters: ConnectionCategoryFilter[]
+  connectedCount: number
+  onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
-  onRefresh: () => void
   query: string
+  totalCount: number
 }) {
   const t = useT()
+  const selectedCategory = activeFilter.kind === "category" ? activeFilter.category : null
+  const topCategoryFilters = categoryFilters.slice(0, categoryFilterLimit)
+  const selectedCategoryFilter = selectedCategory
+    ? categoryFilters.find((filter) => filter.label === selectedCategory)
+    : undefined
+  const visibleCategoryFilters =
+    selectedCategoryFilter && !topCategoryFilters.some((filter) => filter.label === selectedCategoryFilter.label)
+      ? [...topCategoryFilters, selectedCategoryFilter]
+      : topCategoryFilters
+  const overflowCategoryFilters = categoryFilters.filter(
+    (filter) => !visibleCategoryFilters.some((visibleFilter) => visibleFilter.label === filter.label),
+  )
+  const filterValue = getFilterValue(activeFilter)
 
   return (
-    <div className="grid gap-2 pt-3 pb-2">
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-        <SearchField
-          value={query}
-          placeholder={t("connections.search")}
-          onChange={(event) => onQueryChange(event.currentTarget.value)}
-        />
-        <Button variant="ghost" size="sm" disabled={busy === "refresh"} onClick={onRefresh}>
-          <RefreshCw className={cn("size-4", busy === "refresh" && "animate-spin")} />
-          {t("aria.refresh")}
-        </Button>
+    <div className="grid w-full min-w-0 gap-2">
+      <SearchField
+        value={query}
+        placeholder={t("connections.search")}
+        onChange={(event) => onQueryChange(event.currentTarget.value)}
+      />
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
+        <div className="oo-connection-filter-row min-w-0 overflow-x-auto overflow-y-hidden pb-0.5">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={1}
+            value={filterValue}
+            aria-label={t("connections.catalogView")}
+            className="flex min-w-max flex-nowrap gap-1"
+            onValueChange={(nextValue) => {
+              const nextFilter = parseFilterValue(nextValue)
+              if (nextFilter) {
+                onFilterChange(nextFilter)
+              }
+            }}
+          >
+            <FilterToggleItem count={totalCount} label={t("connections.filterAll")} value="all" />
+            <FilterToggleItem count={connectedCount} label={t("connections.filterConnected")} value="connected" />
+            <FilterToggleItem count={attentionCount} label={t("connections.needsAttention")} value="attention" />
+            {visibleCategoryFilters.map((filter) => (
+              <FilterToggleItem
+                key={filter.label}
+                count={filter.count}
+                label={filter.displayLabel}
+                value={`${categoryFilterPrefix}${filter.label}`}
+              />
+            ))}
+          </ToggleGroup>
+        </div>
+        {overflowCategoryFilters.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5 rounded-md">
+                {t("connections.moreCategories")}
+                <ChevronDown className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={8} className="w-56">
+              <DropdownMenuLabel>{t("connections.category")}</DropdownMenuLabel>
+              {overflowCategoryFilters.map((filter) => (
+                <DropdownMenuItem
+                  key={filter.label}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] gap-3"
+                  onSelect={() => onFilterChange({ kind: "category", category: filter.label })}
+                >
+                  <span className="truncate">{filter.displayLabel}</span>
+                  <span className="oo-text-muted">{filter.count}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
     </div>
+  )
+}
+
+function FilterToggleItem({ count, label, value }: { count: number; label: string; value: string }) {
+  return (
+    <ToggleGroupItem value={value} className="max-w-48 gap-1.5 rounded-md border px-2.5">
+      <span className="truncate">{label}</span>
+      <span className="oo-text-micro oo-text-muted">{count}</span>
+    </ToggleGroupItem>
   )
 }
 
@@ -430,7 +712,42 @@ function SummaryHeader() {
   )
 }
 
-function ProviderRow({
+function ProviderCatalog({
+  providers,
+  selectedService,
+  onSelect,
+}: {
+  onSelect: (provider: ConnectionProviderSummary) => void
+  providers: ConnectionProviderSummary[]
+  selectedService: string | null
+}) {
+  return <ProviderGrid providers={providers} selectedService={selectedService} onSelect={onSelect} />
+}
+
+function ProviderGrid({
+  providers,
+  selectedService,
+  onSelect,
+}: {
+  onSelect: (provider: ConnectionProviderSummary) => void
+  providers: ConnectionProviderSummary[]
+  selectedService: string | null
+}) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))" }}>
+      {providers.map((provider) => (
+        <ProviderCard
+          key={provider.service}
+          provider={provider}
+          selected={provider.service === selectedService}
+          onSelect={() => onSelect(provider)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProviderCard({
   provider,
   selected,
   onSelect,
@@ -441,38 +758,48 @@ function ProviderRow({
 }) {
   const t = useT()
   const tone = getProviderStatusTone(provider)
-  const statusLabel = getProviderStatusLabel(provider, t)
+  const statusLabel = getProviderStatusDisplayLabel(provider, t)
   return (
     <button
       type="button"
       onClick={onSelect}
       className={cn(
-        "group grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2.5 py-2 text-left outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40",
-        selected && "bg-accent text-accent-foreground",
+        "grid h-20 min-w-0 rounded-md border bg-card px-2.5 py-2 text-left text-card-foreground transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        selected && "border-ring bg-accent/55",
       )}
     >
-      <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
-      <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-1.5">
+      <span className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+        <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
+        <span className="grid min-w-0 gap-0.5">
           <span className="oo-text-control truncate font-medium">{provider.displayName}</span>
+          <span className="oo-text-micro oo-text-muted truncate">{getProviderMeta(provider, t)}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5" title={statusLabel}>
           <span
+            aria-label={statusLabel}
             className={cn(
-              "size-1.5 shrink-0 rounded-full",
+              "size-1.5 rounded-full",
               tone === "connected" && "bg-[var(--success)]",
               tone === "attention" && "bg-[var(--warning)]",
               tone === "available" && "bg-muted-foreground/40",
             )}
           />
-        </div>
-        <div className="oo-text-micro oo-text-muted truncate">
-          {provider.accountLabel ?? formatAuthTypes(provider.authTypes, t)}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {statusLabel ? <Badge variant={tone === "attention" ? "warning" : "muted"}>{statusLabel}</Badge> : null}
-        <ChevronRight className="oo-icon-muted size-4" />
-      </div>
+          <span className="oo-text-micro max-w-16 truncate font-medium text-muted-foreground">
+            {getProviderActionLabel(provider, t)}
+          </span>
+        </span>
+      </span>
     </button>
+  )
+}
+
+function ProviderStatusBadge({ provider }: { provider: ConnectionProviderSummary }) {
+  const t = useT()
+  const tone = getProviderStatusTone(provider)
+  return (
+    <Badge variant={tone === "connected" ? "success" : tone === "attention" ? "warning" : "muted"}>
+      {getProviderStatusDisplayLabel(provider, t)}
+    </Badge>
   )
 }
 
@@ -501,20 +828,6 @@ function EmptyList({ summary, hasQuery }: { summary: ConnectionSummary | null; h
   )
 }
 
-function EmptyDetail({ summary }: { summary: ConnectionSummary | null }) {
-  const t = useT()
-  const state = getEmptyState(summary, t)
-  return (
-    <section className="grid gap-2 rounded-lg border px-3 py-3">
-      <div className="flex min-w-0 items-center gap-2">
-        <Plug className="oo-icon-muted size-4" />
-        <div className="oo-text-title truncate">{state.title}</div>
-      </div>
-      <p className="oo-text-caption oo-text-muted">{state.description}</p>
-    </section>
-  )
-}
-
 function ProviderDetail({
   actionError,
   busy,
@@ -523,6 +836,7 @@ function ProviderDetail({
   detailLoading,
   connections,
   onCancelPolling,
+  onClose,
   onConnect,
   onDisconnect,
   polling,
@@ -536,6 +850,7 @@ function ProviderDetail({
   detailError: string | null
   detailLoading: boolean
   onCancelPolling: () => void
+  onClose: () => void
   onConnect: (provider: ConnectionProviderSummary, authType: Exclude<ConnectionAuthType, null>) => Promise<void>
   onDisconnect: (provider: ConnectionProviderSummary) => void
   polling: string | null
@@ -550,33 +865,39 @@ function ProviderDetail({
     <div className="grid min-w-0 gap-3">
       {summary && summary.status !== "ready" ? <StatusNotice summary={summary} /> : null}
 
-      <section className="grid gap-2 rounded-md border px-3 py-2.5">
+      <section className="grid gap-3 border-b pb-3">
         <div className="flex min-w-0 items-start gap-3">
           <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="oo-text-title truncate">{provider.displayName}</h2>
-              {getProviderStatusLabel(provider, t) ? (
-                <Badge variant={provider.status === "needs_attention" ? "warning" : "muted"}>
-                  {getProviderStatusLabel(provider, t)}
-                </Badge>
-              ) : (
-                <Badge variant="success">{t("connections.connectedConnection")}</Badge>
-              )}
+              <ProviderStatusBadge provider={provider} />
             </div>
             <p className="oo-text-caption oo-text-muted mt-1 break-words">{getProviderDescription(provider, t)}</p>
           </div>
-          {detail?.homepageUrl ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {detail?.homepageUrl ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                title={t("connections.homepage")}
+                onClick={() => void connections.openExternal(detail.homepageUrl as string)}
+              >
+                <ExternalLink className="size-4" />
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
-              className="size-8"
-              title={t("connections.homepage")}
-              onClick={() => void connections.openExternal(detail.homepageUrl as string)}
+              className="hidden size-8 min-[960px]:inline-flex"
+              aria-label={t("connections.closeProviderDetails")}
+              title={t("connections.closeProviderDetails")}
+              onClick={onClose}
             >
-              <ExternalLink className="size-4" />
+              <X className="size-4" />
             </Button>
-          ) : null}
+          </div>
         </div>
         {actionError ? <div className="oo-error oo-text-micro">{actionError}</div> : null}
         {detailError ? <div className="oo-error oo-text-micro">{detailError}</div> : null}
@@ -607,14 +928,7 @@ function ProviderDetail({
         <dl className="overflow-hidden rounded-md border">
           <DetailRow label={t("connections.account")} value={provider.accountLabel ?? t("connections.notConnected")} />
           <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
-          <DetailRow
-            label={t("connections.category")}
-            value={
-              provider.categoryLabels.length > 0
-                ? provider.categoryLabels.join(" / ")
-                : t("connections.categoryUnknown")
-            }
-          />
+          <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
           <DetailRow label={t("connections.service")} value={provider.service} mono />
           <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
         </dl>
@@ -659,24 +973,20 @@ function ConnectionPanel({
   }, [currentAuthType, provider.service])
 
   return (
-    <div className="grid gap-2 border-t pt-2">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <div className="min-w-0">
+    <div className="grid gap-2.5 border-t pt-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <h3 className="oo-text-title truncate">
             {isConnected(provider) ? t("connections.connectedConnection") : t("connections.connectProvider")}
           </h3>
-          <p className="oo-text-caption oo-text-muted">
-            {isConnected(provider)
-              ? t("connections.connectedConnectionDescription", {
-                  auth: activeAuthType ? authTypeLabel(t, activeAuthType) : t("connections.authUnknown"),
-                })
-              : t("connections.availableConnectionDescription")}
-          </p>
+          {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
-        {detailLoading ? <Loader className="oo-icon-muted" size={16} /> : null}
+        <AuthTypeToggleGroup
+          authTypes={usableAuthTypes}
+          value={activeAuthType ?? null}
+          onChange={setSelectedAuthType}
+        />
       </div>
-
-      <AuthTypeToggleGroup authTypes={usableAuthTypes} value={activeAuthType ?? null} onChange={setSelectedAuthType} />
 
       {activeAuthType ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -834,24 +1144,28 @@ function ProviderUsagePanel({
 
   return (
     <section className="grid gap-1.5">
-      <h3 className="oo-text-title px-0.5">{t("connections.usageTitle")}</h3>
-      <button
-        type="button"
-        className="group grid min-w-0 gap-2 rounded-md bg-[var(--oo-inspector-surface)] px-2.5 py-2 text-left transition-colors outline-none hover:bg-[var(--oo-surface-raised)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        aria-label={t("connections.viewUsageForProvider", { name: provider.displayName })}
-        onClick={() => setIsUsageDialogOpen(true)}
-      >
+      <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
+        <h3 className="oo-text-title truncate">{t("connections.usageTitle")}</h3>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0 gap-1.5"
+          aria-label={t("connections.viewUsageForProvider", { name: provider.displayName })}
+          onClick={() => setIsUsageDialogOpen(true)}
+        >
+          <BarChart3 className="size-3.5" />
+          {t("connections.viewUsage")}
+        </Button>
+      </div>
+      <div className="grid min-w-0 gap-2 rounded-md bg-[var(--oo-inspector-surface)] px-2.5 py-2">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="grid min-w-0 gap-0.5">
             <div className="oo-text-title truncate">{usageTitle}</div>
             <div className="oo-text-caption oo-text-muted truncate">{usageDetail}</div>
           </div>
-          <span className="oo-text-caption oo-text-muted inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 group-hover:text-foreground">
-            <BarChart3 className="size-3.5" />
-            {t("connections.viewUsage")}
-          </span>
         </div>
-      </button>
+      </div>
       <UsageDialog
         open={isUsageDialogOpen}
         provider={provider}

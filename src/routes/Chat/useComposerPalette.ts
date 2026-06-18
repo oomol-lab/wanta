@@ -5,7 +5,8 @@ import type {
   SkillPaletteItem,
   SlashCommandPaletteItem,
 } from "./composer-palette-items.ts"
-import type { ComposerAction, PaletteMode } from "./composer-state.ts"
+import type { PaletteMode } from "./composer-palette-state.ts"
+import type { ComposerAction } from "./composer-state.ts"
 import type { ComposerTrigger } from "./composer-triggers.ts"
 
 import * as React from "react"

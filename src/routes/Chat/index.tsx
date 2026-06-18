@@ -53,6 +53,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
@@ -63,8 +64,9 @@ interface ChatAreaProps {
   status: ChatStatus
   activity: AssistantActivityEvent | null
   showEmptyState: boolean
+  bootstrapping: boolean
   error: string | null
-  disabled: boolean
+  submitDisabled: boolean
   initialSendPending: boolean
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
@@ -187,14 +189,20 @@ function TurnProcessActivity({
   const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
   const showLiveStatus = renderBlocks.length === 0
+  const forceOpen = status === "needsAction" || status === "error"
   const userChangedOpenRef = React.useRef(false)
 
   React.useEffect(() => {
+    if (forceOpen) {
+      userChangedOpenRef.current = false
+      setOpen(true)
+      return
+    }
     if (userChangedOpenRef.current) {
       return
     }
     setOpen(shouldOpen)
-  }, [shouldOpen, statusKey])
+  }, [forceOpen, shouldOpen, statusKey])
 
   React.useEffect(() => {
     if (status !== "running" && status !== "retrying") {
@@ -917,14 +925,15 @@ const ChatTimeline = React.memo(function ChatTimeline({
   )
 })
 
-export function ChatArea({
+export const ChatArea = React.memo(function ChatArea({
   billingCacheScope,
   messages,
   status,
   activity,
   showEmptyState,
+  bootstrapping,
   error,
-  disabled,
+  submitDisabled,
   initialSendPending,
   providers,
   queuedMessages,
@@ -953,7 +962,6 @@ export function ChatArea({
 
   const composer = (
     <ChatComposer
-      disabled={disabled}
       error={error}
       hasMessages={hasMessages}
       initialSendPending={initialSendPending}
@@ -961,6 +969,7 @@ export function ChatArea({
       providers={providers}
       queuedMessages={queuedMessages}
       status={status}
+      submitDisabled={submitDisabled}
       onQueuedMessageRemove={onQueuedMessageRemove}
       onSend={onSend}
       onStop={onStop}
@@ -968,49 +977,42 @@ export function ChatArea({
     />
   )
 
-  if (showEmptyState && !hasMessages && (!isGenerating || initialSendPending)) {
-    return (
-      <div className="grid h-full min-h-0 animate-in place-items-center px-4 py-6 duration-200 fade-in sm:px-5 lg:px-8">
-        <div
-          className={cn(
-            "flex w-full -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out",
-            CHAT_CONTENT_MAX_WIDTH_CLASS,
-          )}
-        >
-          <div className="px-4 pb-1 text-center">
-            <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
-          </div>
-          {composer}
-        </div>
+  const content = bootstrapping ? (
+    <div className={cn("mx-auto min-h-full w-full px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)} aria-busy="true">
+      <div className="space-y-3">
+        <Skeleton className="h-3.5 w-28 rounded-sm motion-safe:animate-none" />
+        <Skeleton className="h-3.5 w-72 max-w-[68%] rounded-sm motion-safe:animate-none" />
+        <Skeleton className="h-3.5 w-48 max-w-[52%] rounded-sm motion-safe:animate-none" />
       </div>
-    )
-  }
+    </div>
+  ) : showEmptyState && !hasMessages && !isGenerating ? (
+    <div className="grid min-h-full w-full place-items-center px-4 py-6 sm:px-5 lg:px-8">
+      <div className={cn("w-full -translate-y-[6vh] px-4 pb-1 text-center", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
+        <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
+      </div>
+    </div>
+  ) : (
+    <ChatTimeline
+      billingCacheScope={billingCacheScope}
+      messages={messages}
+      status={status}
+      activity={activity}
+      isGenerating={isGenerating}
+      providers={providers}
+      onAuthorize={onAuthorize}
+      onArtifactsOpen={onArtifactsOpen}
+      onArtifactsAvailable={onArtifactsAvailable}
+      onViewBilling={onViewBilling}
+    />
+  )
 
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col pb-4">
-        <ChatTimeline
-          billingCacheScope={billingCacheScope}
-          messages={messages}
-          status={status}
-          activity={activity}
-          isGenerating={isGenerating}
-          providers={providers}
-          onAuthorize={onAuthorize}
-          onArtifactsOpen={onArtifactsOpen}
-          onArtifactsAvailable={onArtifactsAvailable}
-          onViewBilling={onViewBilling}
-        />
+        <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
 
-        <div
-          className={cn(
-            "mx-auto flex w-full flex-col gap-2 px-4 transition-transform duration-300 ease-out",
-            CHAT_CONTENT_MAX_WIDTH_CLASS,
-          )}
-        >
-          {composer}
-        </div>
+        <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>{composer}</div>
       </div>
     </div>
   )
-}
+})

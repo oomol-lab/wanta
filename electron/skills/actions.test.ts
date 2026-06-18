@@ -17,6 +17,7 @@ import {
   createRegistrySkillVersionCheckFromUpdateResult,
   createShareSkillArgs,
   normalizeMyPublishedPackageList,
+  normalizePublicSkillPackageCatalog,
   normalizeRegistryPackageVersionInfo,
   normalizeRegistryPackageSkillInfo,
   normalizeSkillShareInfo,
@@ -114,6 +115,111 @@ test("normalizeMyPublishedPackageList keeps account package metadata", () => {
       ],
     },
   )
+})
+
+test("normalizePublicSkillPackageCatalog keeps public package metadata", () => {
+  assert.deepEqual(
+    normalizePublicSkillPackageCatalog(
+      JSON.stringify({
+        data: [
+          {
+            description: "Generate images",
+            displayName: "GPT Image 2",
+            downloadCount: 60,
+            extra: {
+              maintainers: JSON.stringify([{ id: "user-1", name: "alice", url: "https://example.com/a.png" }]),
+            },
+            icon: ":simple-icons:openai:",
+            isTemplate: false,
+            name: "@alice/gpt-image-2",
+            skills: [
+              {
+                description: "Generate images",
+                name: "gpt-image-2",
+                title: "GPT Image 2",
+              },
+              {
+                name: "",
+              },
+            ],
+            updateTime: 1780000000000,
+            version: "1.1.1",
+            visibility: "public",
+          },
+          {
+            name: "",
+          },
+        ],
+        next: "next-page",
+      }),
+      "2026-06-18T00:00:00.000Z",
+    ),
+    {
+      items: [
+        {
+          description: "Generate images",
+          displayName: "GPT Image 2",
+          downloadCount: 60,
+          icon: ":simple-icons:openai:",
+          id: "@alice/gpt-image-2@1.1.1",
+          isTemplate: false,
+          maintainers: [{ id: "user-1", name: "alice", url: "https://example.com/a.png" }],
+          name: "@alice/gpt-image-2",
+          skills: [
+            {
+              description: "Generate images",
+              name: "gpt-image-2",
+              title: "GPT Image 2",
+            },
+          ],
+          updateTime: 1780000000000,
+          version: "1.1.1",
+          visibility: "public",
+        },
+      ],
+      next: "next-page",
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    },
+  )
+})
+
+test("normalizePublicSkillPackageCatalog ignores malformed maintainer metadata", () => {
+  const catalog = normalizePublicSkillPackageCatalog(
+    JSON.stringify({
+      data: [
+        {
+          extra: {
+            maintainers: "[",
+          },
+          name: "@alice/broken-maintainers",
+          version: "0.0.1",
+          visibility: "public",
+        },
+      ],
+    }),
+    "2026-06-18T00:00:00.000Z",
+  )
+
+  assert.equal(catalog.items.length, 1)
+  assert.deepEqual(catalog.items[0]?.maintainers, [])
+})
+
+test("normalizePublicSkillPackageCatalog keeps unknown visibility non-fatal", () => {
+  const catalog = normalizePublicSkillPackageCatalog(
+    JSON.stringify({
+      data: [
+        {
+          name: "@alice/unknown-visibility",
+          version: "0.0.1",
+          visibility: "team",
+        },
+      ],
+    }),
+    "2026-06-18T00:00:00.000Z",
+  )
+
+  assert.equal(catalog.items.length, 1)
+  assert.equal(catalog.items[0]?.visibility, "unknown")
 })
 
 test("normalizeRegistryPackageSkillInfo expands published package skills", () => {

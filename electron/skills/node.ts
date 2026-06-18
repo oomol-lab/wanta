@@ -11,10 +11,12 @@ import type {
   InstallRegistrySkillRequest,
   InstallBuiltInSkillRequest,
   ListMyPublishedSkillsRequest,
+  ListPublicSkillPackagesRequest,
   MyPublishedSkill,
   MyPublishedSkillCatalog,
   OpenSkillInEditorRequest,
   OpenSkillPathRequest,
+  PublicSkillPackageCatalog,
   PublishSkillRequest,
   PublishSkillResult,
   ReplaceConflictingRegistrySkillRequest,
@@ -66,6 +68,7 @@ import {
   createFailedSkillVersionCheck,
   createInstallRegistrySkillArgs,
   normalizeMyPublishedPackageList,
+  normalizePublicSkillPackageCatalog,
   createPublishedSkillVersionCheckFromPackageInfo,
   createPublishSkillArgs,
   createRegistryPackageInfoVersionCheckCommand,
@@ -100,6 +103,7 @@ import { createSkillSyncArgs } from "./sync.ts"
 
 const skillShareInfoCacheTtlMs = 5 * 60_000
 const myPublishedSkillCatalogCacheTtlMs = 5 * 60_000
+const publicSkillPackageCatalogCacheTtlMs = 5 * 60_000
 
 type AuthAccountSecret = ReturnType<AuthManager["activeAccount"]>
 
@@ -127,6 +131,11 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     { catalog: MyPublishedSkillCatalog; time: number }
   >()
   private readonly myPublishedSkillCatalogInFlightByKey = new Map<string, Promise<MyPublishedSkillCatalog>>()
+  private readonly publicSkillPackageCatalogCacheByKey = new Map<
+    string,
+    { catalog: PublicSkillPackageCatalog; time: number }
+  >()
+  private readonly publicSkillPackageCatalogInFlightByKey = new Map<string, Promise<PublicSkillPackageCatalog>>()
   private shareInfoCacheGeneration = 0
   private myPublishedSkillCatalogCacheGeneration = 0
   private versionReportCache: { generation: number; key: string; report: SkillVersionReport; time: number } | undefined
@@ -309,10 +318,43 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         return catalog
       })
       .finally(() => {
-        this.myPublishedSkillCatalogInFlightByKey.delete(cacheKey)
+        if (this.myPublishedSkillCatalogInFlightByKey.get(cacheKey) === promise) {
+          this.myPublishedSkillCatalogInFlightByKey.delete(cacheKey)
+        }
       })
 
     this.myPublishedSkillCatalogInFlightByKey.set(cacheKey, promise)
+    return promise
+  }
+
+  public async listPublicSkillPackages(
+    request: ListPublicSkillPackagesRequest = {},
+  ): Promise<PublicSkillPackageCatalog> {
+    const next = request.next?.trim() ?? ""
+    const cacheKey = `${searchBaseUrl}:${next}`
+    const cached = this.publicSkillPackageCatalogCacheByKey.get(cacheKey)
+
+    if (!request.forceRefresh && cached && Date.now() - cached.time < publicSkillPackageCatalogCacheTtlMs) {
+      return cached.catalog
+    }
+
+    const inFlight = this.publicSkillPackageCatalogInFlightByKey.get(cacheKey)
+    if (!request.forceRefresh && inFlight) {
+      return inFlight
+    }
+
+    const promise = readPublicSkillPackageCatalog({ next })
+      .then((catalog) => {
+        this.publicSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
+        return catalog
+      })
+      .finally(() => {
+        if (this.publicSkillPackageCatalogInFlightByKey.get(cacheKey) === promise) {
+          this.publicSkillPackageCatalogInFlightByKey.delete(cacheKey)
+        }
+      })
+
+    this.publicSkillPackageCatalogInFlightByKey.set(cacheKey, promise)
     return promise
   }
 
@@ -1346,6 +1388,31 @@ async function readRegistrySkillShareInfo(request: {
     }
 
     return normalizeSkillShareInfo(await response.text())
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function readPublicSkillPackageCatalog(request: { next?: string }): Promise<PublicSkillPackageCatalog> {
+  const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
+  const next = request.next?.trim()
+  if (next) {
+    url.searchParams.set("next", next)
+  }
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Public Skill list request failed with status ${response.status}.`)
+    }
+
+    return normalizePublicSkillPackageCatalog(await response.text())
   } finally {
     clearTimeout(timeout)
   }

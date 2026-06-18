@@ -32,6 +32,9 @@ function str(value: unknown): string {
 }
 
 export function parseToolAuthorization(part: ChatMessagePart): AuthorizationInfo | null {
+  if (part.authorization) {
+    return part.authorization
+  }
   return part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
 }
 

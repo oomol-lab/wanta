@@ -1,6 +1,10 @@
 import type {
   BuiltInSkillId,
   MyPublishedSkill,
+  PublicSkillPackage,
+  PublicSkillPackageCatalog,
+  PublicSkillPackageMaintainer,
+  PublicSkillPackageSkill,
   SkillCliVersionCheck,
   SkillPackageVersionCheck,
   SkillShareInfo,
@@ -41,6 +45,42 @@ interface RawMyPublishedPackageListItem {
   updateTime?: unknown
   version?: unknown
   visibility?: unknown
+}
+
+interface RawPublicSkillPackageListResponse {
+  data?: unknown
+  next?: unknown
+}
+
+interface RawPublicSkillPackageListItem {
+  description?: unknown
+  displayName?: unknown
+  downloadCount?: unknown
+  extra?: unknown
+  icon?: unknown
+  isTemplate?: unknown
+  maintainerIds?: unknown
+  name?: unknown
+  skills?: unknown
+  updateTime?: unknown
+  version?: unknown
+  visibility?: unknown
+}
+
+interface RawPublicSkillPackageSkill {
+  description?: unknown
+  name?: unknown
+  title?: unknown
+}
+
+interface RawPublicSkillPackageMaintainer {
+  id?: unknown
+  name?: unknown
+  url?: unknown
+}
+
+interface RawPublicSkillPackageExtra {
+  maintainers?: unknown
 }
 
 interface NormalizedMyPublishedPackage {
@@ -152,6 +192,10 @@ function asText(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
 export function createSkillSearchArgs(query: string): string[] {
   const trimmedQuery = query.trim()
 
@@ -212,6 +256,128 @@ export function normalizeMyPublishedPackageList(stdout: string): MyPublishedPack
       .map(normalizeMyPublishedPackage)
       .filter((item): item is NormalizedMyPublishedPackage => Boolean(item)),
   }
+}
+
+export function normalizePublicSkillPackageCatalog(
+  stdout: string,
+  updatedAt = new Date().toISOString(),
+): PublicSkillPackageCatalog {
+  const parsed = JSON.parse(stdout) as unknown
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Public Skill package list returned an unsupported response.")
+  }
+
+  const raw = parsed as RawPublicSkillPackageListResponse
+  if (!Array.isArray(raw.data)) {
+    throw new Error("Public Skill package list returned an unsupported response.")
+  }
+
+  return {
+    items: raw.data.map(normalizePublicSkillPackage).filter((item): item is PublicSkillPackage => Boolean(item)),
+    next: typeof raw.next === "string" && raw.next.trim() ? raw.next.trim() : null,
+    updatedAt,
+  }
+}
+
+function normalizePublicSkillPackage(value: unknown): PublicSkillPackage | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined
+  }
+
+  const raw = value as RawPublicSkillPackageListItem
+  const name = asText(raw.name)
+  if (!name) {
+    return undefined
+  }
+
+  const version = asText(raw.version) ?? "latest"
+  const displayName = asText(raw.displayName) ?? name
+  const visibility = asPublicSkillVisibility(raw.visibility)
+  const skills = Array.isArray(raw.skills)
+    ? raw.skills
+        .map(normalizePublicSkillPackageSkill)
+        .filter((item): item is PublicSkillPackage["skills"][number] => Boolean(item))
+    : []
+
+  return {
+    description: asText(raw.description),
+    displayName,
+    downloadCount: asNumber(raw.downloadCount),
+    icon: asText(raw.icon),
+    id: `${name}@${version}`,
+    isTemplate: raw.isTemplate === true,
+    maintainers: normalizePublicSkillPackageMaintainers(raw.extra),
+    name,
+    skills,
+    updateTime: asNumber(raw.updateTime),
+    version,
+    visibility,
+  }
+}
+
+function normalizePublicSkillPackageSkill(value: unknown): PublicSkillPackageSkill | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined
+  }
+
+  const raw = value as RawPublicSkillPackageSkill
+  const name = asText(raw.name)
+  if (!name) {
+    return undefined
+  }
+
+  return {
+    description: asText(raw.description),
+    name,
+    title: asText(raw.title) ?? name,
+  }
+}
+
+function normalizePublicSkillPackageMaintainers(extra: unknown): PublicSkillPackageMaintainer[] {
+  if (!extra || typeof extra !== "object") {
+    return []
+  }
+
+  const maintainers = (extra as RawPublicSkillPackageExtra).maintainers
+  if (typeof maintainers !== "string" || !maintainers.trim()) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(maintainers) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map(normalizePublicSkillPackageMaintainer)
+      .filter((item): item is PublicSkillPackageMaintainer => Boolean(item))
+  } catch {
+    return []
+  }
+}
+
+function normalizePublicSkillPackageMaintainer(value: unknown): PublicSkillPackageMaintainer | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined
+  }
+
+  const raw = value as RawPublicSkillPackageMaintainer
+  const name = asText(raw.name)
+  if (!name) {
+    return undefined
+  }
+
+  return {
+    id: asText(raw.id),
+    name,
+    url: asText(raw.url),
+  }
+}
+
+function asPublicSkillVisibility(value: unknown): PublicSkillPackage["visibility"] {
+  return value === "private" || value === "public" ? value : "unknown"
 }
 
 export function createRegistrySkillVersionCheck(

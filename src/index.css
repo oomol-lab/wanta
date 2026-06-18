@@ -796,6 +796,14 @@
     background: var(--oo-content-surface);
   }
 
+  .oo-connection-filter-row {
+    scrollbar-width: none;
+  }
+
+  .oo-connection-filter-row::-webkit-scrollbar {
+    display: none;
+  }
+
   .oo-entity-icon {
     display: inline-flex;
     width: 1.75rem;
@@ -805,7 +813,7 @@
     justify-content: center;
     overflow: hidden;
     border: 1px solid var(--oo-frame-border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--background);
   }
 

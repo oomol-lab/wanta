@@ -90,13 +90,7 @@ export interface ToolCallResultEvent {
   metadata?: Record<string, unknown>
   timing?: ToolTiming
   attachmentsCount?: number
-}
-export interface AuthorizationRequiredEvent {
-  sessionId: string
-  messageId: string
-  service: string
-  displayName: string
-  authUrl: string
+  authorization?: AuthorizationInfo
 }
 export interface MessageCompletedEvent {
   sessionId: string
@@ -368,7 +362,6 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     assistantActivity: AssistantActivityEvent
     toolCallStarted: ToolCallStartedEvent
     toolCallResult: ToolCallResultEvent
-    authorizationRequired: AuthorizationRequiredEvent
     messageCompleted: MessageCompletedEvent
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent

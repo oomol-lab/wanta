@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils"
 
 const previewLimit = 4
 const artifactResolveCacheLimit = 24
+const artifactPreviewCacheLimit = 48
 const intermediateCodeExtensions = new Set([
   ".bash",
   ".c",
@@ -129,6 +130,13 @@ interface ArtifactPanelEntry {
   item: LocalArtifactItem
 }
 
+interface LocalArtifactPreviewCacheEntry {
+  promise?: Promise<LocalArtifactPreviewResult>
+  result?: LocalArtifactPreviewResult
+}
+
+type LocalArtifactPreviewCache = Map<string, LocalArtifactPreviewCacheEntry>
+
 function artifactSourceCacheKey(source: GeneratedArtifactSource): string {
   return JSON.stringify({
     artifactRoot: source.artifactRoot ?? "",
@@ -151,6 +159,74 @@ function rememberArtifactGroups(
     }
     cache.delete(oldest)
   }
+}
+
+function artifactPreviewCacheKey(item: LocalArtifactItem): string {
+  return JSON.stringify([item.path, item.mime, item.size ?? null])
+}
+
+function rememberArtifactPreview(
+  cache: LocalArtifactPreviewCache,
+  key: string,
+  entry: LocalArtifactPreviewCacheEntry,
+): void {
+  if (cache.has(key)) {
+    cache.delete(key)
+  }
+  cache.set(key, entry)
+  while (cache.size > artifactPreviewCacheLimit) {
+    const oldest = cache.keys().next().value
+    if (!oldest) {
+      return
+    }
+    cache.delete(oldest)
+  }
+}
+
+function fallbackArtifactPreview(item: LocalArtifactItem): LocalArtifactPreviewResult {
+  return { kind: "unsupported", mime: item.mime, size: item.size }
+}
+
+function cachedArtifactPreviewResult(
+  cache: LocalArtifactPreviewCache,
+  item: LocalArtifactItem,
+): LocalArtifactPreviewResult | null {
+  const key = artifactPreviewCacheKey(item)
+  const entry = cache.get(key)
+  if (!entry?.result) {
+    return null
+  }
+  rememberArtifactPreview(cache, key, entry)
+  return entry.result
+}
+
+function loadCachedArtifactPreview(
+  cache: LocalArtifactPreviewCache,
+  item: LocalArtifactItem,
+  load: () => Promise<LocalArtifactPreviewResult>,
+): Promise<LocalArtifactPreviewResult> {
+  const key = artifactPreviewCacheKey(item)
+  const cached = cache.get(key)
+  if (cached?.result) {
+    rememberArtifactPreview(cache, key, cached)
+    return Promise.resolve(cached.result)
+  }
+  if (cached?.promise) {
+    rememberArtifactPreview(cache, key, cached)
+    return cached.promise
+  }
+  const promise = load()
+    .then((result) => {
+      rememberArtifactPreview(cache, key, { result })
+      return result
+    })
+    .catch(() => {
+      const fallback = fallbackArtifactPreview(item)
+      rememberArtifactPreview(cache, key, { result: fallback })
+      return fallback
+    })
+  rememberArtifactPreview(cache, key, { promise })
+  return promise
 }
 
 function itemCount(group: LocalArtifactGroup): number {
@@ -597,6 +673,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
 export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   const t = useT()
   const chatService = useChatService()
+  const previewCache = React.useRef<LocalArtifactPreviewCache>(new Map()).current
   const groups = React.useMemo(() => {
     if (selection?.groups?.length) {
       return selection.groups
@@ -679,6 +756,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
             <ImageGalleryPanel
               entries={entries}
               group={selectedEntry?.group ?? null}
+              previewCache={previewCache}
               selectedItem={selectedItem}
               onOpenPath={openPath}
               onSelect={(path) => setSelectedPath(path)}
@@ -721,6 +799,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
               <ArtifactPreview
                 item={selectedItem}
                 group={selectedEntry?.group ?? null}
+                previewCache={previewCache}
                 onOpen={() => openPath(selectedItem?.path)}
               />
             </>
@@ -733,7 +812,10 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   )
 }
 
-function useLocalArtifactPreview(item: LocalArtifactItem | null): {
+function useLocalArtifactPreview(
+  item: LocalArtifactItem | null,
+  previewCache: LocalArtifactPreviewCache,
+): {
   loading: boolean
   preview: LocalArtifactPreviewResult | null
 } {
@@ -747,18 +829,20 @@ function useLocalArtifactPreview(item: LocalArtifactItem | null): {
       setLoading(false)
       return
     }
+    const cached = cachedArtifactPreviewResult(previewCache, item)
+    if (cached) {
+      setPreview(cached)
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
-    void chatService
-      .invoke("getLocalArtifactPreview", { path: item.path })
+    void loadCachedArtifactPreview(previewCache, item, () =>
+      chatService.invoke("getLocalArtifactPreview", { path: item.path }),
+    )
       .then((result) => {
         if (!cancelled) {
           setPreview(result)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPreview({ kind: "unsupported", mime: item.mime, size: item.size })
         }
       })
       .finally(() => {
@@ -769,7 +853,7 @@ function useLocalArtifactPreview(item: LocalArtifactItem | null): {
     return () => {
       cancelled = true
     }
-  }, [chatService, item])
+  }, [chatService, item, previewCache])
 
   return { loading, preview }
 }
@@ -777,12 +861,14 @@ function useLocalArtifactPreview(item: LocalArtifactItem | null): {
 function ImageGalleryPanel({
   entries,
   group,
+  previewCache,
   selectedItem,
   onOpenPath,
   onSelect,
 }: {
   entries: ArtifactPanelEntry[]
   group: LocalArtifactGroup | null
+  previewCache: LocalArtifactPreviewCache
   selectedItem: LocalArtifactItem | null
   onOpenPath: (path: string | undefined) => void
   onSelect: (path: string) => void
@@ -810,6 +896,7 @@ function ImageGalleryPanel({
               key={entry.key}
               index={index + 1}
               item={entry.item}
+              previewCache={previewCache}
               selected={entry.item.path === selectedItem?.path}
               onClick={() => onSelect(entry.item.path)}
               onDoubleClick={() => onOpenPath(entry.item.path)}
@@ -817,7 +904,12 @@ function ImageGalleryPanel({
           ))}
         </div>
       </section>
-      <ImageGalleryPreview group={group} item={selectedItem} onOpen={() => onOpenPath(selectedItem?.path)} />
+      <ImageGalleryPreview
+        group={group}
+        item={selectedItem}
+        previewCache={previewCache}
+        onOpen={() => onOpenPath(selectedItem?.path)}
+      />
     </div>
   )
 }
@@ -825,17 +917,19 @@ function ImageGalleryPanel({
 function ImageThumbnail({
   index,
   item,
+  previewCache,
   selected,
   onClick,
   onDoubleClick,
 }: {
   index: number
   item: LocalArtifactItem
+  previewCache: LocalArtifactPreviewCache
   selected: boolean
   onClick: () => void
   onDoubleClick: () => void
 }) {
-  const { preview } = useLocalArtifactPreview(item)
+  const { preview } = useLocalArtifactPreview(item, previewCache)
 
   return (
     <button
@@ -871,15 +965,17 @@ function ImageThumbnail({
 function ImageGalleryPreview({
   group,
   item,
+  previewCache,
   onOpen,
 }: {
   group: LocalArtifactGroup | null
   item: LocalArtifactItem | null
+  previewCache: LocalArtifactPreviewCache
   onOpen: () => void
 }) {
   const t = useT()
   const [mode, setMode] = React.useState<"preview" | "info">("preview")
-  const { loading, preview } = useLocalArtifactPreview(item)
+  const { loading, preview } = useLocalArtifactPreview(item, previewCache)
 
   React.useEffect(() => {
     setMode("preview")
@@ -938,14 +1034,16 @@ function ImageGalleryPreview({
 function ArtifactPreview({
   group,
   item,
+  previewCache,
   onOpen,
 }: {
   group: LocalArtifactGroup | null
   item: LocalArtifactItem | null
+  previewCache: LocalArtifactPreviewCache
   onOpen: () => void
 }) {
   const t = useT()
-  const { loading, preview } = useLocalArtifactPreview(item)
+  const { loading, preview } = useLocalArtifactPreview(item, previewCache)
   const [mode, setMode] = React.useState<ArtifactPreviewMode>("preview")
   const canShowSource = preview?.kind === "text"
 

@@ -255,7 +255,7 @@ test("tool events use input description as title fallback", () => {
   })
 })
 
-test("call_action completed with auth output → toolCallResult + authorizationRequired", () => {
+test("call_action completed with auth output → toolCallResult with authorization", () => {
   const output = JSON.stringify({
     status: "authorization_required",
     service: "slack",
@@ -276,10 +276,9 @@ test("call_action completed with auth output → toolCallResult + authorizationR
       },
     },
   })
-  assert.equal(out.length, 2)
+  assert.equal(out.length, 1)
   assert.equal(out[0].event, "toolCallResult")
-  assert.equal(out[1].event, "authorizationRequired")
-  assert.equal((out[1].data as { service: string }).service, "slack")
+  assert.equal((out[0].data as { authorization?: { service: string } }).authorization?.service, "slack")
 })
 
 test("message.part.removed → messagePartRemoved", () => {

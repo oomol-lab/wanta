@@ -187,14 +187,20 @@ function TurnProcessActivity({
   const activeTitle = (status === "running" || status === "retrying") && !hasNestedLoadingIndicator(process, status)
   const renderBlocks = blocks.map((item) => item.block)
   const showLiveStatus = renderBlocks.length === 0
+  const forceOpen = status === "needsAction" || status === "error"
   const userChangedOpenRef = React.useRef(false)
 
   React.useEffect(() => {
+    if (forceOpen) {
+      userChangedOpenRef.current = false
+      setOpen(true)
+      return
+    }
     if (userChangedOpenRef.current) {
       return
     }
     setOpen(shouldOpen)
-  }, [shouldOpen, statusKey])
+  }, [forceOpen, shouldOpen, statusKey])
 
   React.useEffect(() => {
     if (status !== "running" && status !== "retrying") {

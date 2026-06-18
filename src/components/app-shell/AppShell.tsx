@@ -39,7 +39,7 @@ import {
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  consumeLatestQueuedMessage,
+  consumeNextQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -1240,7 +1240,7 @@ export function AppShell() {
     if (queue.length === 0) {
       return
     }
-    const consumed = consumeLatestQueuedMessage(queuedMessagesBySession, activeSessionId)
+    const consumed = consumeNextQueuedMessage(queuedMessagesBySession, activeSessionId)
     const { message } = consumed
     if (!message) {
       return
@@ -1379,8 +1379,9 @@ export function AppShell() {
   const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
     setArtifactSelection((current) => (current?.messageId === selection.messageId ? current : selection))
   }, [])
-  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen
-  const showArtifactsToggle = route === "chat" && !artifactsPanelVisible
+  const hasArtifactSelection = artifactSelection !== null
+  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasArtifactSelection
+  const showArtifactsToggle = route === "chat" && hasArtifactSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
@@ -1623,7 +1624,9 @@ export function AppShell() {
             onKeyDown={handleArtifactsPanelResizeKeyDown}
           />
           <div className="h-full" style={{ width: `${artifactsPanelWidth}px` }}>
-            <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+            {artifactsPanelVisible ? (
+              <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+            ) : null}
           </div>
         </div>
       </div>

@@ -26,15 +26,9 @@ export type ChatEmit =
   | { event: "assistantActivity"; data: AssistantActivityEvent }
   | { event: "toolCallStarted"; data: ToolCallStartedEvent }
   | { event: "toolCallResult"; data: ToolCallResultEvent }
-  | { event: "authorizationRequired"; data: AuthorizationRequiredEmit }
   | { event: "messageCompleted"; data: MessageCompletedEvent }
   | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
   | { event: "agentError"; data: { sessionId?: string; message: string } }
-
-interface AuthorizationRequiredEmit extends AuthorizationInfo {
-  sessionId: string
-  messageId: string
-}
 
 interface OpencodeEvent {
   type: string
@@ -322,19 +316,19 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       return [{ event: "toolCallStarted", data: { ...base, ...context, status: state.status } }]
     }
     if (state.status === "completed") {
-      const emits: ChatEmit[] = [
-        { event: "toolCallResult", data: { ...base, ...context, status: "completed", output: state.output } },
+      const auth = part.tool === "call_action" ? parseAuthorization(state.output) : null
+      return [
+        {
+          event: "toolCallResult",
+          data: {
+            ...base,
+            ...context,
+            status: "completed",
+            output: state.output,
+            ...(auth ? { authorization: auth } : {}),
+          },
+        },
       ]
-      if (part.tool === "call_action") {
-        const auth = parseAuthorization(state.output)
-        if (auth) {
-          emits.push({
-            event: "authorizationRequired",
-            data: { sessionId: part.sessionID, messageId: part.messageID, ...auth },
-          })
-        }
-      }
-      return emits
     }
     if (state.status === "error") {
       return [{ event: "toolCallResult", data: { ...base, ...context, status: "error", error: state.error } }]

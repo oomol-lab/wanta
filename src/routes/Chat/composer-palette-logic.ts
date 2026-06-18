@@ -1,4 +1,4 @@
-import type { PaletteMode } from "./composer-state.ts"
+import type { PaletteMode } from "./composer-palette-state.ts"
 import type { ComposerTriggerKind } from "./composer-triggers.ts"
 
 export type RootPaletteAction = "billing" | "connections" | "insert" | "skills"
@@ -13,10 +13,6 @@ export type ComposerPaletteKeyAction =
 
 export function nextPaletteIndex(currentIndex: number, itemCount: number, direction: -1 | 1): number {
   return itemCount === 0 ? 0 : (currentIndex + direction + itemCount) % itemCount
-}
-
-export function initialPaletteMode(triggerKind: ComposerTriggerKind): PaletteMode {
-  return triggerKind === "skill" ? "skills" : "root"
 }
 
 export function shouldOpenRootPaletteItem(

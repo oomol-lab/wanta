@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
 import {
-  initialPaletteMode,
   nextPaletteIndex,
   resolveComposerPaletteKeyAction,
   shouldOpenRootPaletteItem,
@@ -12,11 +11,6 @@ describe("composer palette logic", () => {
     expect(nextPaletteIndex(2, 3, 1)).toBe(0)
     expect(nextPaletteIndex(0, 3, -1)).toBe(2)
     expect(nextPaletteIndex(4, 0, 1)).toBe(0)
-  })
-
-  it("starts skill triggers in the skills palette", () => {
-    expect(initialPaletteMode("skill")).toBe("skills")
-    expect(initialPaletteMode("slash")).toBe("root")
   })
 
   it("opens root subpalettes only for slash skills and connections items", () => {

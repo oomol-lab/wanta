@@ -148,6 +148,39 @@ export interface MyPublishedSkillCatalog {
   updatedAt: string
 }
 
+export interface PublicSkillPackageMaintainer {
+  id?: string
+  name: string
+  url?: string
+}
+
+export interface PublicSkillPackageSkill {
+  description?: string
+  name: string
+  title: string
+}
+
+export interface PublicSkillPackage {
+  description?: string
+  displayName: string
+  downloadCount?: number
+  icon?: string
+  id: string
+  isTemplate: boolean
+  maintainers: PublicSkillPackageMaintainer[]
+  name: string
+  skills: PublicSkillPackageSkill[]
+  updateTime?: number
+  version: string
+  visibility: "private" | "public" | "unknown"
+}
+
+export interface PublicSkillPackageCatalog {
+  items: PublicSkillPackage[]
+  next: string | null
+  updatedAt: string
+}
+
 export interface SkillInventoryChangedEvent {
   updatedAt: string
 }
@@ -276,6 +309,11 @@ export interface ListMyPublishedSkillsRequest {
   forceRefresh?: boolean
   next?: string
   query?: string
+}
+
+export interface ListPublicSkillPackagesRequest {
+  forceRefresh?: boolean
+  next?: string
 }
 
 export interface SkillSearchResult {
@@ -413,6 +451,7 @@ export const SkillService = serviceName("skill-service") as ServiceName<{
     installBuiltInSkill(request: InstallBuiltInSkillRequest): Promise<SkillInventory>
     installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory>
     listMyPublishedSkills(request?: ListMyPublishedSkillsRequest): Promise<MyPublishedSkillCatalog>
+    listPublicSkillPackages(request?: ListPublicSkillPackagesRequest): Promise<PublicSkillPackageCatalog>
     listSkillEditors(): Promise<SkillEditorApp[]>
     checkSkillVersions(request?: CheckSkillVersionsRequest): Promise<SkillVersionReport>
     executeCliUpdate(): Promise<SkillVersionReport>

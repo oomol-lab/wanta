@@ -17,6 +17,7 @@ import {
   createRegistrySkillVersionCheckFromUpdateResult,
   createShareSkillArgs,
   normalizeMyPublishedPackageList,
+  normalizePublicSkillPackageCatalog,
   normalizeRegistryPackageVersionInfo,
   normalizeRegistryPackageSkillInfo,
   normalizeSkillShareInfo,
@@ -112,6 +113,72 @@ test("normalizeMyPublishedPackageList keeps account package metadata", () => {
           visibility: "private",
         },
       ],
+    },
+  )
+})
+
+test("normalizePublicSkillPackageCatalog keeps public package metadata", () => {
+  assert.deepEqual(
+    normalizePublicSkillPackageCatalog(
+      JSON.stringify({
+        data: [
+          {
+            description: "Generate images",
+            displayName: "GPT Image 2",
+            downloadCount: 60,
+            extra: {
+              maintainers: JSON.stringify([{ id: "user-1", name: "alice", url: "https://example.com/a.png" }]),
+            },
+            icon: ":simple-icons:openai:",
+            isTemplate: false,
+            name: "@alice/gpt-image-2",
+            skills: [
+              {
+                description: "Generate images",
+                name: "gpt-image-2",
+                title: "GPT Image 2",
+              },
+              {
+                name: "",
+              },
+            ],
+            updateTime: 1780000000000,
+            version: "1.1.1",
+            visibility: "public",
+          },
+          {
+            name: "",
+          },
+        ],
+        next: "next-page",
+      }),
+      "2026-06-18T00:00:00.000Z",
+    ),
+    {
+      items: [
+        {
+          description: "Generate images",
+          displayName: "GPT Image 2",
+          downloadCount: 60,
+          icon: ":simple-icons:openai:",
+          id: "@alice/gpt-image-2@1.1.1",
+          isTemplate: false,
+          maintainers: [{ id: "user-1", name: "alice", url: "https://example.com/a.png" }],
+          name: "@alice/gpt-image-2",
+          skills: [
+            {
+              description: "Generate images",
+              name: "gpt-image-2",
+              title: "GPT Image 2",
+            },
+          ],
+          updateTime: 1780000000000,
+          version: "1.1.1",
+          visibility: "public",
+        },
+      ],
+      next: "next-page",
+      updatedAt: "2026-06-18T00:00:00.000Z",
     },
   )
 })

@@ -36,7 +36,7 @@ export function parseToolAuthorization(part: ChatMessagePart): AuthorizationInfo
 }
 
 export function normalizeServiceSlug(value: string): string {
-  return value.trim().replace(/^oo-/, "").toLowerCase()
+  return value.trim().toLowerCase().replace(/^oo-/, "")
 }
 
 function parseServiceFromCommand(command: string): string {

@@ -62,6 +62,26 @@ describe("composer palette logic", () => {
       resolveComposerPaletteKeyAction({
         activeIndex: 0,
         itemCount: 0,
+        key: "ArrowDown",
+        paletteMode: "root",
+        triggerKind: "slash",
+      }),
+    ).toEqual({ type: "none" })
+
+    expect(
+      resolveComposerPaletteKeyAction({
+        activeIndex: 0,
+        itemCount: 0,
+        key: "ArrowUp",
+        paletteMode: "root",
+        triggerKind: "slash",
+      }),
+    ).toEqual({ type: "none" })
+
+    expect(
+      resolveComposerPaletteKeyAction({
+        activeIndex: 0,
+        itemCount: 0,
         key: "Enter",
         paletteMode: "root",
         triggerKind: "slash",

@@ -131,10 +131,12 @@ function AttachmentImageCard({
   attachment,
   onOpen,
   onRemove,
+  removeLabel,
 }: {
   attachment: DraftAttachment
   onOpen: (attachment: DraftAttachment) => void
   onRemove?: (id: string) => void
+  removeLabel: string
 }) {
   const chatService = useChatService()
   const [previewUrl, setPreviewUrl] = React.useState(attachment.previewUrl ?? null)
@@ -190,7 +192,7 @@ function AttachmentImageCard({
       {onRemove ? (
         <button
           type="button"
-          aria-label="Remove attachment"
+          aria-label={removeLabel}
           className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow-sm hover:bg-foreground/85"
           onClick={() => onRemove(attachment.id)}
         >
@@ -231,6 +233,7 @@ export function AttachmentList({
             attachment={attachment}
             onOpen={openAttachment}
             onRemove={onRemove}
+            removeLabel={t("chat.removeAttachment")}
           />
         ) : (
           <div key={attachment.id} className="relative max-w-full min-w-0">
@@ -256,7 +259,7 @@ export function AttachmentList({
             {onRemove ? (
               <button
                 type="button"
-                aria-label="Remove attachment"
+                aria-label={t("chat.removeAttachment")}
                 className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => onRemove(attachment.id)}
               >

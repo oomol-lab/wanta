@@ -333,6 +333,7 @@ function codeBlockLanguageLabel(language: string): string {
 }
 
 function MarkdownCodeBlock({ code, language }: CustomRendererProps) {
+  const t = useT()
   const label = codeBlockLanguageLabel(language)
 
   return (
@@ -342,7 +343,7 @@ function MarkdownCodeBlock({ code, language }: CustomRendererProps) {
           <CodeBlockFilename>{label}</CodeBlockFilename>
         </CodeBlockTitle>
         <CodeBlockActions>
-          <CodeBlockCopyButton aria-label="Copy code" />
+          <CodeBlockCopyButton aria-label={t("chat.copyCode")} />
         </CodeBlockActions>
       </CodeBlockHeader>
     </CodeBlock>

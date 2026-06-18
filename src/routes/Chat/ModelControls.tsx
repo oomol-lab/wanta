@@ -345,7 +345,9 @@ export function AddCustomModelDialog({
                 apiKey,
                 modelName,
                 supportsImages,
-              }).finally(() => setSaving(false))
+              })
+                .catch(() => undefined)
+                .finally(() => setSaving(false))
             }}
           >
             {t("common.save")}

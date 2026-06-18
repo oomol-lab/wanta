@@ -85,7 +85,16 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
         draft: replaceComposerTrigger(state.draft, action.trigger, action.replacement),
       }
     case "reset-after-submit":
-      return { ...state, attachments: [], contextMentions: [], draft: "", draftSelection: { end: 0, start: 0 } }
+      return {
+        ...state,
+        activePaletteIndex: 0,
+        attachments: [],
+        contextMentions: [],
+        dismissedTriggerKey: null,
+        draft: "",
+        draftSelection: { end: 0, start: 0 },
+        paletteMode: "root",
+      }
     case "set-active-palette-index":
       return { ...state, activePaletteIndex: action.index }
     case "set-dismissed-trigger-key":

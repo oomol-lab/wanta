@@ -44,9 +44,9 @@ export function resolveComposerPaletteKeyAction({
 }): ComposerPaletteKeyAction {
   switch (key) {
     case "ArrowDown":
-      return { type: "move", index: nextPaletteIndex(activeIndex, itemCount, 1) }
+      return itemCount > 0 ? { type: "move", index: nextPaletteIndex(activeIndex, itemCount, 1) } : { type: "none" }
     case "ArrowUp":
-      return { type: "move", index: nextPaletteIndex(activeIndex, itemCount, -1) }
+      return itemCount > 0 ? { type: "move", index: nextPaletteIndex(activeIndex, itemCount, -1) } : { type: "none" }
     case "ArrowLeft":
       return triggerKind === "slash" && paletteMode !== "root" ? { type: "back" } : { type: "none" }
     case "ArrowRight":

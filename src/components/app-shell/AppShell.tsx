@@ -39,7 +39,7 @@ import {
 import {
   appendQueuedMessage,
   clearQueuedMessages,
-  latestQueuedMessage,
+  consumeLatestQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -1233,22 +1233,28 @@ export function AppShell() {
     if (dispatchingQueuedSessionsRef.current.has(activeSessionId)) {
       return
     }
+    if (sendInFlightRef.current) {
+      return
+    }
     const queue = queuedMessagesBySession[activeSessionId] ?? []
     if (queue.length === 0) {
       return
     }
-    const message = latestQueuedMessage(queuedMessagesBySession, activeSessionId)
+    const consumed = consumeLatestQueuedMessage(queuedMessagesBySession, activeSessionId)
+    const { message } = consumed
     if (!message) {
       return
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
+    setQueuedMessagesBySession(consumed.queues)
     void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model)
       .then((accepted) => {
-        if (accepted) {
-          setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
+        if (!accepted) {
+          setQueuedMessagesBySession((current) => appendQueuedMessage(current, message))
         }
       })
       .catch((cause: unknown) => {
+        setQueuedMessagesBySession((current) => appendQueuedMessage(current, message))
         console.error("[lumo] dispatch queued message failed", cause)
       })
       .finally(() => {

@@ -17,7 +17,7 @@ export function formatSessionRelativeTime(updatedAt: number, now: number, locale
     return locale === "zh-CN" ? "刚刚" : "now"
   }
   if (elapsed < HOUR_MS) {
-    return formatRelativeUnit(Math.floor(elapsed / MINUTE_MS), "m", "分钟", locale)
+    return formatRelativeUnit(Math.floor(elapsed / MINUTE_MS), "m", "分", locale)
   }
   if (elapsed < DAY_MS) {
     return formatRelativeUnit(Math.floor(elapsed / HOUR_MS), "h", "小时", locale)
@@ -39,5 +39,5 @@ export function formatSessionAbsoluteTime(updatedAt: number, locale: Locale): st
 }
 
 function formatRelativeUnit(value: number, enUnit: string, zhUnit: string, locale: Locale): string {
-  return locale === "zh-CN" ? `${value}${zhUnit}前` : `${value}${enUnit} ago`
+  return locale === "zh-CN" ? `${value}${zhUnit}` : `${value}${enUnit}`
 }

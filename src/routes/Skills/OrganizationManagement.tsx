@@ -4,9 +4,17 @@ import type {
   OrganizationMember,
   OrganizationOverview,
   OrganizationProviderOption,
-  OrganizationUserSearchResult,
   OrganizationUserSummary,
 } from "../../../electron/organizations/common.ts"
+import type {
+  BusyAction,
+  LoadState,
+  MemberSearchState,
+  MemberView,
+  OrganizationRole,
+  ProviderAccessForm,
+  ProviderGrantView,
+} from "./organization-management-model.ts"
 
 import {
   Building2Icon,
@@ -22,6 +30,31 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import {
+  allOrganizations,
+  buildGrantViews,
+  buildMemberViews,
+  errorMessage,
+  errorState,
+  initialProviderAccessForm,
+  isConflictError,
+  loadState,
+  loadingState,
+  maxOrganizationAvatarLength,
+  maxOrganizationNameLength,
+  minimumMemberSearchLength,
+  organizationInitials,
+  organizationManagementSnapshotsByAccountId,
+  organizationNameValidation,
+  organizationRole,
+  providerOptionsWithSelected,
+  readyState,
+  readOrganizationManagementSnapshot,
+  readSelectedOrganizationId,
+  uniqueStrings,
+  userFallback,
+  writeSelectedOrganizationId,
+} from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import { useOrganizationsService } from "@/components/AppContext"
 import { useAuthStateResource } from "@/components/AppDataHooks"
@@ -56,250 +89,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
-
-type OrganizationRole = "creator" | "member"
-type BusyAction = "add" | "create" | "saveProviderAccess" | `remove:${string}` | `revokeProviderAccess:${string}`
-type LoadStatus = "idle" | "loading" | "ready" | "error"
-type ProviderAccessMode = "create" | "edit"
-
-interface LoadState<T> {
-  data: T
-  error: string | null
-  status: LoadStatus
-}
-
-interface MemberView extends OrganizationMember {
-  avatar: string
-  displayName: string
-  fallback: string
-  secondaryLabel: string
-}
-
-interface ProviderGrantView {
-  allProviders: boolean
-  member: MemberView | null
-  providers: OrganizationProviderOption[]
-  userId: string
-}
-
-interface ProviderAccessForm {
-  allProviders: boolean
-  mode: ProviderAccessMode
-  open: boolean
-  providers: string[]
-  userId: string
-}
-
-interface MemberSearchState {
-  error: string | null
-  items: Array<OrganizationUserSearchResult & { displayName: string; fallback: string; userId: string }>
-  loading: boolean
-  query: string
-}
-
-interface OrganizationManagementSnapshot {
-  appAccessState: LoadState<OrganizationAppAccess | null>
-  detailsOrganizationId: string | null
-  membersState: LoadState<OrganizationMember[]>
-  overviewState: LoadState<OrganizationOverview | null>
-  providerOptionsState: LoadState<OrganizationProviderOption[]>
-  savedAt: number
-  selectedOrganizationId: string | null
-  summariesState: LoadState<Record<string, OrganizationUserSummary>>
-}
-
-const maxOrganizationNameLength = 100
-const maxOrganizationAvatarLength = 4095
-const organizationNamePattern = /^[A-Za-z0-9._-]+$/
-const minimumMemberSearchLength = 2
-const organizationPageSnapshotTtlMs = 30_000
-const selectedOrganizationStorageKeyPrefix = "lumo:organization-management:selected-organization:"
-
-const initialProviderAccessForm: ProviderAccessForm = {
-  allProviders: false,
-  mode: "create",
-  open: false,
-  providers: [],
-  userId: "",
-}
-
-const organizationManagementSnapshotsByAccountId = new Map<string, OrganizationManagementSnapshot>()
-
-function loadState<T>(data: T): LoadState<T> {
-  return { data, error: null, status: "idle" }
-}
-
-function loadingState<T>(current: LoadState<T>): LoadState<T> {
-  return { ...current, error: null, status: "loading" }
-}
-
-function errorState<T>(current: LoadState<T>, error: unknown): LoadState<T> {
-  return { ...current, error: errorMessage(error), status: "error" }
-}
-
-function readyState<T>(data: T): LoadState<T> {
-  return { data, error: null, status: "ready" }
-}
-
-function readOrganizationManagementSnapshot(accountId: string | undefined): OrganizationManagementSnapshot | undefined {
-  if (!accountId) {
-    return undefined
-  }
-
-  const snapshot = organizationManagementSnapshotsByAccountId.get(accountId)
-  if (!snapshot) {
-    return undefined
-  }
-
-  if (Date.now() - snapshot.savedAt > organizationPageSnapshotTtlMs) {
-    organizationManagementSnapshotsByAccountId.delete(accountId)
-    return undefined
-  }
-
-  return snapshot
-}
-
-function selectedOrganizationStorageKey(accountId: string): string {
-  return `${selectedOrganizationStorageKeyPrefix}${accountId}`
-}
-
-function readSelectedOrganizationId(accountId: string): string | null {
-  try {
-    return window.localStorage.getItem(selectedOrganizationStorageKey(accountId))
-  } catch {
-    return null
-  }
-}
-
-function writeSelectedOrganizationId(accountId: string, organizationId: string): void {
-  try {
-    window.localStorage.setItem(selectedOrganizationStorageKey(accountId), organizationId)
-  } catch {
-    // 本地记录只是体验优化，失败不影响组织管理功能。
-  }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function isConflictError(error: unknown): boolean {
-  return errorMessage(error).includes("HTTP 409")
-}
-
-function uniqueOrganizations(organizations: Organization[]): Organization[] {
-  const seen = new Set<string>()
-  return organizations.filter((organization) => {
-    if (seen.has(organization.id)) {
-      return false
-    }
-    seen.add(organization.id)
-    return true
-  })
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values))
-}
-
-function organizationInitials(name: string): string {
-  return name.trim().slice(0, 2).toLocaleUpperCase() || "OR"
-}
-
-function userFallback(value: string): string {
-  return value.trim().slice(0, 2).toLocaleUpperCase() || "U"
-}
-
-function shortUserId(userId: string): string {
-  return userId.length > 16 ? `${userId.slice(0, 8)}...${userId.slice(-6)}` : userId
-}
-
-function organizationNameValidation(name: string): "empty" | "invalid" | "too-long" | "valid" {
-  if (!name) {
-    return "empty"
-  }
-  if (name.length > maxOrganizationNameLength) {
-    return "too-long"
-  }
-  if (!organizationNamePattern.test(name)) {
-    return "invalid"
-  }
-  return "valid"
-}
-
-function allOrganizations(overview: OrganizationOverview | null): Organization[] {
-  return overview ? uniqueOrganizations([...overview.created, ...overview.joined]) : []
-}
-
-function organizationRole(
-  overview: OrganizationOverview | null,
-  organization: Organization | null,
-): OrganizationRole | null {
-  if (!overview || !organization) {
-    return null
-  }
-  if (
-    organization.creator_user_id === overview.accountId ||
-    overview.created.some((item) => item.id === organization.id)
-  ) {
-    return "creator"
-  }
-  return "member"
-}
-
-function buildMemberViews(
-  members: OrganizationMember[],
-  summaries: Record<string, OrganizationUserSummary>,
-): MemberView[] {
-  return members.map((member) => {
-    const summary = summaries[member.user_id]
-    const displayName = summary ? summary.nickname || summary.username || member.user_id : member.user_id
-    return {
-      ...member,
-      avatar: summary?.url ?? "",
-      displayName,
-      fallback: userFallback(displayName),
-      secondaryLabel: summary ? shortUserId(member.user_id) : member.user_id,
-    }
-  })
-}
-
-function buildGrantViews(
-  appAccess: OrganizationAppAccess | null,
-  members: MemberView[],
-  providerOptions: OrganizationProviderOption[],
-): { error: string | null; grants: ProviderGrantView[] } {
-  if (!appAccess) {
-    return { error: null, grants: [] }
-  }
-
-  const parsed = parseProviderGrants(appAccess)
-  if (!parsed.ok) {
-    return { error: parsed.error.message, grants: [] }
-  }
-
-  const labelByService = new Map(providerOptions.map((provider) => [provider.service, provider.label]))
-  return {
-    error: null,
-    grants: parsed.grants.map((grant) => ({
-      allProviders: grant.allProviders,
-      member: members.find((member) => member.user_id === grant.userId) ?? null,
-      providers: grant.providers.map((service) => ({ service, label: labelByService.get(service) ?? service })),
-      userId: grant.userId,
-    })),
-  }
-}
-
-function providerOptionsWithSelected(
-  options: OrganizationProviderOption[],
-  selectedProviders: string[],
-): OrganizationProviderOption[] {
-  const seen = new Set(options.map((option) => option.service))
-  const unknown = selectedProviders
-    .filter((service) => !seen.has(service))
-    .map((service) => ({ service, label: service }))
-  return [...options, ...unknown].sort((left, right) => left.label.localeCompare(right.label))
-}
 
 export function OrganizationManagementRoute() {
   const { t } = useAppI18n()

@@ -22,6 +22,14 @@ const agents = [
   },
 ]
 
+const lumoAgent = {
+  cliCommands: [],
+  homeRoot: "",
+  id: "lumo",
+  name: "Lumo",
+  ooCliAgentId: "lumo",
+}
+
 const installedSkills: InstalledSkill[] = [
   {
     agent: agents[0],
@@ -86,16 +94,7 @@ test("groupInstalledSkills includes built-in groups and agent coverage", () => {
 
 test("buildSummary counts built-in coverage and attention hosts", () => {
   const groups = groupInstalledSkills(installedSkills, manifestStore, agents)
-  const summary = buildSummary(groups, [
-    {
-      agentId: "codex",
-      agentName: "Codex",
-      description: "Publishable project",
-      id: "codex:publishable",
-      name: "publishable",
-      path: "/codex/skills/publishable",
-    },
-  ])
+  const summary = buildSummary(groups)
 
   assert.equal(summary.builtInTotal, 4)
   assert.equal(summary.builtInInstalled, 0)
@@ -103,7 +102,7 @@ test("buildSummary counts built-in coverage and attention hosts", () => {
   assert.equal(summary.managedSkills, 2)
   assert.equal(summary.modifiedHosts, 1)
   assert.equal(summary.needsAttention, 1)
-  assert.equal(summary.publishableSkills, 1)
+  assert.equal(summary.publishableSkills, 0)
   assert.equal(summary.registrySkills, 1)
   assert.deepEqual(
     summary.nonBuiltInSkills.map((skill) => skill.id),
@@ -113,6 +112,32 @@ test("buildSummary counts built-in coverage and attention hosts", () => {
   assert.equal(summary.nonBuiltInSkills[0]?.icon, ":lucide:captions:")
   assert.equal(summary.nonBuiltInSkills[0]?.sourceMissingHosts, 0)
   assert.equal(summary.nonBuiltInSkills[0]?.unknownHosts, 0)
+})
+
+test("buildSummary reports runtime built-in skills missing", () => {
+  const lumoOo: InstalledSkill = {
+    ...installedSkills[0]!,
+    agent: lumoAgent,
+    hash: "hash-a",
+    path: "/lumo/skills/oo",
+    sourceHash: "hash-a",
+    sourcePath: "/oo/skills/bundled/lumo/oo",
+  }
+  const groups = groupInstalledSkills([lumoOo], manifestStore, [lumoAgent])
+  const summary = buildSummary(groups)
+
+  assert.equal(summary.builtInInstalled, 1)
+  assert.equal(summary.builtInMissing, 3)
+  assert.equal(summary.needsAttention, 3)
+  assert.deepEqual(
+    summary.builtInSkills.map((skill) => [skill.id, skill.status, skill.missingAgents]),
+    [
+      ["oo", "installed", []],
+      ["oo-find-skills", "missing", ["lumo"]],
+      ["oo-create-skill", "missing", ["lumo"]],
+      ["oo-publish-skill", "missing", ["lumo"]],
+    ],
+  )
 })
 
 test("buildSummary keeps mixed-kind same-id skills in one unknown group", () => {

@@ -1,7 +1,6 @@
 import type { SupportedAgent } from "../agents/catalog.ts"
 import type {
   BuiltInSkillCoverage,
-  LocalSkillProject,
   ManagedSkillGroup,
   ManagedSkillHostCoverage,
   SkillSummary,
@@ -134,16 +133,14 @@ function readBuiltInSkillOrder(skillName: string): number | undefined {
     : undefined
 }
 
-export function buildSummary(
-  groups: ManagedSkillGroup[],
-  localProjects: readonly LocalSkillProject[] = [],
-): SkillSummary {
+export function buildSummary(groups: ManagedSkillGroup[]): SkillSummary {
   const builtInSkills: BuiltInSkillCoverage[] = builtInSkillIds.map((skillId) => {
     const group = groups.find((item) => item.id === skillId)
     const runtimeHosts = group?.runtimeHosts ?? []
     const installedAgents = runtimeHosts.filter((host) => host.status === "installed").map((host) => host.agentId)
-    const missingAgents: string[] = []
-    const status: BuiltInSkillCoverage["status"] = installedAgents.length > 0 ? "installed" : "unknown"
+    const missingAgents = runtimeHosts.filter((host) => host.status === "missing").map((host) => host.agentId)
+    const status: BuiltInSkillCoverage["status"] =
+      installedAgents.length > 0 ? "installed" : missingAgents.length > 0 ? "missing" : "unknown"
 
     return {
       id: skillId,
@@ -166,7 +163,7 @@ export function buildSummary(
     (count, group) => count + group.hosts.filter((host) => host.controlState === "source-missing").length,
     0,
   )
-  const publishableSkills = installedGroups.filter((group) => group.kind === "local").length + localProjects.length
+  const publishableSkills = installedGroups.filter((group) => group.kind === "local").length
   const nonBuiltInSkills = installedGroups
     .filter((group) => !group.isBuiltIn)
     .map(toSkillSummaryItem)

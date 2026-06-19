@@ -96,21 +96,8 @@ export interface ManagedSkillGroup {
   runtimeHosts: ManagedSkillHostCoverage[]
 }
 
-export interface LocalSkillProject {
-  agentId: string
-  agentName: string
-  description: string
-  icon?: string
-  id: string
-  name: string
-  packageName?: string
-  path: string
-  version?: string
-}
-
 export interface SkillInventory {
   groups: ManagedSkillGroup[]
-  localProjects: LocalSkillProject[]
   summary: SkillSummary
   updatedAt: string
 }

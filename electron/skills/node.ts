@@ -1,3 +1,4 @@
+import type { SupportedAgent } from "../agents/catalog.ts"
 import type { AuthManager } from "../auth/node.ts"
 import type { OoCommandResult } from "../oo-command.ts"
 import type {
@@ -72,7 +73,7 @@ import {
 } from "./manifest.ts"
 import { resolveSharedAgentSkillRoot } from "./paths.ts"
 import { assertSafeResetPaths } from "./reset.ts"
-import { scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
+import { lumoRuntimeAgent, scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
 
 const skillPackageCatalogCacheTtlMs = 5 * 60_000
 const publicSkillPackagePageSize = 100
@@ -399,6 +400,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.uninstall")
+    await this.deleteSharedSkillTarget(request.skillId)
     this.notifyRuntimeSkillsChanged("delete-skill")
 
     return this.readAndPublishSkillInventory()
@@ -586,12 +588,13 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   private async syncCachedSkillToSharedAgentRoot(skillId: string, options: { force: boolean }): Promise<void> {
-    const sourcePath = await this.resolveCachedSkillSourcePath(skillId)
+    const normalizedSkillId = normalizeSkillId(skillId)
+    const sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId)
     if (!sourcePath) {
-      return
+      throw new Error(`Cached Skill source not found: ${normalizedSkillId}`)
     }
 
-    const targetPath = path.join(this.getSharedAgentSkillRoot(), skillId)
+    const targetPath = this.resolveSharedSkillTargetPath(normalizedSkillId)
     assertSafeResetPaths(sourcePath, targetPath)
     await assertCanReplaceSharedSkillTarget(targetPath, options)
     await replaceDirectory(sourcePath, targetPath)
@@ -599,17 +602,23 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   private async resolveCachedSkillSourcePath(skillId: string): Promise<string | undefined> {
-    if (skillId.includes("/") || skillId.includes("\\") || skillId === "." || skillId === "..") {
-      throw new Error(`Invalid Skill name: ${skillId}`)
-    }
+    const normalizedSkillId = normalizeSkillId(skillId)
 
-    for (const sourcePath of readCachedSkillSourceCandidates(this.getLumoSkillStoreRoot(), skillId)) {
+    for (const sourcePath of readCachedSkillSourceCandidates(this.getLumoSkillStoreRoot(), normalizedSkillId)) {
       if (await localPathExists(sourcePath)) {
         return sourcePath
       }
     }
 
     return undefined
+  }
+
+  private resolveSharedSkillTargetPath(skillId: string): string {
+    return path.join(this.getSharedAgentSkillRoot(), normalizeSkillId(skillId))
+  }
+
+  private async deleteSharedSkillTarget(skillId: string): Promise<void> {
+    await rm(this.resolveSharedSkillTargetPath(skillId), { force: true, recursive: true })
   }
 
   private invalidateVersionReport(): void {
@@ -916,8 +925,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     ])
     const installedSkills = mergeInstalledSkillSnapshots(lumoInstalledSkills, externalInstalledSkills)
     const nextManifestStore = upsertManifestRecords(manifestStore, installedSkills)
-    const groups = groupInstalledSkills(installedSkills, nextManifestStore)
-    const localProjects: SkillInventory["localProjects"] = []
+    const groups = groupInstalledSkills(installedSkills, nextManifestStore, readSkillCoverageAgents(installedSkills))
 
     if (options.writeManifest && !areManifestStoresEqual(manifestStore, nextManifestStore)) {
       await writeManifestStore(manifestPath, nextManifestStore)
@@ -925,15 +933,13 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     const inventory = {
       groups,
-      localProjects,
-      summary: buildSummary(groups, localProjects),
+      summary: buildSummary(groups),
       updatedAt: new Date().toISOString(),
     }
     const diagnosticFields = {
       durationMs: Date.now() - startedAtMs,
       groupCount: inventory.groups.length,
       installedSkillCount: installedSkills.length,
-      localProjectCount: inventory.localProjects.length,
       managedSkillCount: inventory.summary.managedSkills,
       manifestPath,
       needsAttention: inventory.summary.needsAttention,
@@ -949,7 +955,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       {
         groupCount: diagnosticFields.groupCount,
         installedSkillCount: diagnosticFields.installedSkillCount,
-        localProjectCount: diagnosticFields.localProjectCount,
         managedSkillCount: diagnosticFields.managedSkillCount,
         manifestPath: diagnosticFields.manifestPath,
         needsAttention: diagnosticFields.needsAttention,
@@ -963,10 +968,9 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     const resolvedRequestPath = path.resolve(requestPath)
     const canonicalRequestPath = await realpath(resolvedRequestPath)
     const inventory = await this.readSkillInventory({ writeManifest: false })
-    const allowedPaths = [
-      ...inventory.localProjects.map((project) => project.path),
-      ...inventory.groups.flatMap((group) => group.hosts.flatMap((host) => [host.path, host.sourcePath])),
-    ]
+    const allowedPaths = inventory.groups.flatMap((group) =>
+      group.hosts.flatMap((host) => [host.path, host.sourcePath]),
+    )
 
     for (const allowedPath of allowedPaths) {
       if (!allowedPath) {
@@ -1213,6 +1217,22 @@ function createVersionReportCacheKey(inventory: SkillInventory): string {
     .join("|")
 }
 
+function normalizeSkillId(skillId: string): string {
+  const normalizedSkillId = skillId.trim()
+
+  if (
+    !normalizedSkillId ||
+    normalizedSkillId.includes("/") ||
+    normalizedSkillId.includes("\\") ||
+    normalizedSkillId === "." ||
+    normalizedSkillId === ".."
+  ) {
+    throw new Error(`Invalid Skill name: ${skillId}`)
+  }
+
+  return normalizedSkillId
+}
+
 async function localPathExists(pathname: string): Promise<boolean> {
   try {
     await access(pathname)
@@ -1236,6 +1256,21 @@ async function assertCanReplaceSharedSkillTarget(targetPath: string, options: { 
   }
 
   throw new Error("A local Skill with the same name already exists in the shared Agent Skills directory.")
+}
+
+function readSkillCoverageAgents(installedSkills: readonly InstalledSkill[]): SupportedAgent[] {
+  const externalAgentsById = new Map<string, SupportedAgent>()
+
+  for (const skill of installedSkills) {
+    if (skill.agent.id !== lumoRuntimeAgent.id) {
+      externalAgentsById.set(skill.agent.id, skill.agent)
+    }
+  }
+
+  return [
+    lumoRuntimeAgent,
+    ...Array.from(externalAgentsById.values()).sort((left, right) => left.name.localeCompare(right.name)),
+  ]
 }
 
 function mergeInstalledSkillSnapshots(

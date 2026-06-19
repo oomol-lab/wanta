@@ -2,7 +2,6 @@ import type { UIMessage } from "ai"
 import type { ComponentProps, HTMLAttributes } from "react"
 import type { CustomRendererProps, StreamdownProps } from "streamdown"
 
-import { code as streamdownCode } from "@streamdown/code"
 import { CheckIcon, CopyIcon } from "lucide-react"
 import { lazy, memo, Suspense, useEffect, useRef, useState } from "react"
 import {
@@ -358,7 +357,6 @@ const defaultMessageCodeRenderers = [
 ] satisfies NonNullable<MessageResponseProps["plugins"]>["renderers"]
 
 const defaultMessageResponsePlugins = {
-  code: streamdownCode,
   renderers: defaultMessageCodeRenderers,
 } satisfies NonNullable<MessageResponseProps["plugins"]>
 
@@ -368,7 +366,6 @@ function messageResponsePlugins(plugins: MessageResponseProps["plugins"]): Messa
   }
   return {
     ...plugins,
-    code: plugins.code ?? streamdownCode,
     renderers: [...(plugins.renderers ?? []), ...defaultMessageCodeRenderers],
   }
 }

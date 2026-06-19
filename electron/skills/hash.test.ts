@@ -28,3 +28,19 @@ test("hashTextFiles ignores binary files and skipped directories", async () => {
     await rm(rootPath, { force: true, recursive: true })
   }
 })
+
+test("hashTextFiles samples large text file tails without reading full content", async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "oo-desktop-hash-large-"))
+
+  try {
+    const largeText = "a".repeat(600 * 1024)
+    await writeFile(path.join(rootPath, "SKILL.md"), largeText, "utf8")
+    const firstHash = await hashTextFiles(rootPath)
+    await writeFile(path.join(rootPath, "SKILL.md"), `${largeText.slice(0, -1)}b`, "utf8")
+    const secondHash = await hashTextFiles(rootPath)
+
+    assert.notEqual(firstHash, secondHash)
+  } finally {
+    await rm(rootPath, { force: true, recursive: true })
+  }
+})

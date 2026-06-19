@@ -7,7 +7,7 @@ import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
 import { createResource } from "@/lib/resource-store"
 
-const backgroundRefreshMs = 30_000
+const backgroundRefreshMs = 60_000
 const refreshMetadataKeys = new Set(["updatedAt", "checkedAt"])
 
 function normalizeRefreshData(value: unknown): unknown {
@@ -45,7 +45,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }),
       skillInventory: createResource<SkillInventory>({
         isEqualData: isRefreshDataEqual,
-        staleTimeMs: 30_000,
+        staleTimeMs: 60_000,
         load: () => skillService.invoke("getSkillInventory"),
       }),
       skillVersions: createResource({

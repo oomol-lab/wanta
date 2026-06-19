@@ -1,12 +1,12 @@
 import type { AppIconComponent } from "@/components/AppIcons"
 import type { IconifyIcon as IconifyIconData } from "@iconify/types"
+import type { SVGProps } from "react"
 
 import cloudflareIcon from "@iconify-icons/simple-icons/cloudflare"
 import googleBigQueryIcon from "@iconify-icons/simple-icons/googlebigquery"
 import openAiIcon from "@iconify-icons/simple-icons/openai"
 import tencentQqIcon from "@iconify-icons/simple-icons/tencentqq"
 import photoStarIcon from "@iconify-icons/tabler/photo-star"
-import { Icon as IconifyIcon } from "@iconify/react/offline"
 import {
   ArchiveIcon,
   CaptionsIcon,
@@ -82,8 +82,18 @@ function getSkillIcon(icon: string | undefined): AppIconComponent | undefined {
 }
 
 function createIconifySkillIcon(icon: IconifyIconData): AppIconComponent {
-  return function IconifySkillIcon({ className }) {
-    return <IconifyIcon icon={icon} className={className} />
+  return function IconifySkillIcon({ children: _children, ...props }: SVGProps<SVGSVGElement>) {
+    const width = icon.width ?? 16
+    const height = icon.height ?? width
+    return (
+      <svg
+        {...props}
+        width="1em"
+        height="1em"
+        viewBox={`0 0 ${width} ${height}`}
+        dangerouslySetInnerHTML={{ __html: icon.body }}
+      />
+    )
   }
 }
 

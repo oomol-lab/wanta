@@ -20,7 +20,7 @@
   - dev 期存在性检查 → predev 守卫 `scripts/check-oo.ts`（独立 Node CLI，sync fs 无妨）。
   - 打包产物一定内置二进制，运行时无需任何存在性检查。
   - 运行时文件操作用 `node:fs/promises`（如 `electron/agent/workspace.ts`）。
-  - 既存例外（小量、一次性，勿扩散）：`electron/auth/store.ts` 与 `electron/settings/store.ts` 的小型 JSON 读写、`electron/agent/sidecar.ts` 启动期 `mkdirSync`。
+  - 既存例外（小量、一次性，勿扩散）：`electron/auth/store.ts` 与 `electron/settings/store.ts` 的小型 JSON 读写。
 
 ## 3. 文件与模块布局
 

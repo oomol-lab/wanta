@@ -70,16 +70,25 @@ import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
-import { BillingRoute } from "@/routes/Billing"
-import { ChatArea } from "@/routes/Chat"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
-import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
-import { ConnectionsPanel } from "@/routes/Connections"
-import { SettingsRoute } from "@/routes/Settings"
-import { SkillsRoute } from "@/routes/Skills"
-import { OrganizationManagementRoute } from "@/routes/Skills/OrganizationManagement"
 
 type Route = "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
+
+const ArtifactsPanel = React.lazy(() =>
+  import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.ArtifactsPanel })),
+)
+const BillingRoute = React.lazy(() => import("@/routes/Billing").then((module) => ({ default: module.BillingRoute })))
+const ChatArea = React.lazy(() => import("@/routes/Chat").then((module) => ({ default: module.ChatArea })))
+const ConnectionsPanel = React.lazy(() =>
+  import("@/routes/Connections").then((module) => ({ default: module.ConnectionsPanel })),
+)
+const OrganizationManagementRoute = React.lazy(() =>
+  import("@/routes/Skills/OrganizationManagement").then((module) => ({ default: module.OrganizationManagementRoute })),
+)
+const SettingsRoute = React.lazy(() =>
+  import("@/routes/Settings").then((module) => ({ default: module.SettingsRoute })),
+)
+const SkillsRoute = React.lazy(() => import("@/routes/Skills").then((module) => ({ default: module.SkillsRoute })))
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
@@ -93,6 +102,10 @@ const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
 const TURN_RETRY_OPTIONS_LIMIT = 48
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
+
+function RouteLoadingFallback({ className }: { className?: string }) {
+  return <div className={cn("h-full min-h-0 bg-background", className)} />
+}
 
 interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
@@ -1475,11 +1488,19 @@ export function AppShell() {
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
 
   if (route === "settings") {
-    return <SettingsRoute onBack={() => setRoute("chat")} />
+    return (
+      <React.Suspense fallback={<RouteLoadingFallback />}>
+        <SettingsRoute onBack={() => setRoute("chat")} />
+      </React.Suspense>
+    )
   }
 
   if (route === "billing") {
-    return <BillingRoute cacheScope={billingCacheScope} onBack={() => setRoute("chat")} />
+    return (
+      <React.Suspense fallback={<RouteLoadingFallback />}>
+        <BillingRoute cacheScope={billingCacheScope} onBack={() => setRoute("chat")} />
+      </React.Suspense>
+    )
   }
 
   return (
@@ -1665,43 +1686,49 @@ export function AppShell() {
           </header>
 
           <main className="oo-content-surface min-h-0">
-            {route === "connections" ? (
-              <div className="h-full min-h-0 p-0">
-                <ConnectionsPanel connections={connections} selectedService={selectedService} />
-              </div>
-            ) : route === "skills" ? (
-              <SkillsRoute />
-            ) : route === "organizations" ? (
-              <OrganizationManagementRoute />
-            ) : (
-              <div className="h-full min-h-0 overflow-hidden">
-                <ChatArea
-                  billingCacheScope={billingCacheScope}
-                  messages={bridgeInitialSendPending ? [] : messages}
-                  status={displayedStatus}
-                  activity={bridgeInitialSendPending ? null : activity}
-                  showEmptyState={showChatEmptyState}
-                  bootstrapping={chatBootstrapping}
-                  startupError={startupError}
-                  error={error}
-                  submitDisabled={!ready || chatBootstrapping}
-                  initialSendPending={initialSendPending}
-                  providers={activeProviders}
-                  queuedMessages={activeQueuedMessages}
-                  placeholder={
-                    startupError ? t("error.agent.title") : ready ? t("chat.inputPlaceholder") : t("chat.agentStarting")
-                  }
-                  onSend={handleSend}
-                  onStop={handleChatStop}
-                  onQueuedMessageRemove={handleQueuedMessageRemove}
-                  onAuthorize={handleAuthorize}
-                  onArtifactsReset={handleArtifactsReset}
-                  onArtifactsOpen={handleArtifactsOpen}
-                  onArtifactsAvailable={handleArtifactsAvailable}
-                  onViewBilling={handleViewBilling}
-                />
-              </div>
-            )}
+            <React.Suspense fallback={<RouteLoadingFallback />}>
+              {route === "connections" ? (
+                <div className="h-full min-h-0 p-0">
+                  <ConnectionsPanel connections={connections} selectedService={selectedService} />
+                </div>
+              ) : route === "skills" ? (
+                <SkillsRoute />
+              ) : route === "organizations" ? (
+                <OrganizationManagementRoute />
+              ) : (
+                <div className="h-full min-h-0 overflow-hidden">
+                  <ChatArea
+                    billingCacheScope={billingCacheScope}
+                    messages={bridgeInitialSendPending ? [] : messages}
+                    status={displayedStatus}
+                    activity={bridgeInitialSendPending ? null : activity}
+                    showEmptyState={showChatEmptyState}
+                    bootstrapping={chatBootstrapping}
+                    startupError={startupError}
+                    error={error}
+                    submitDisabled={!ready || chatBootstrapping}
+                    initialSendPending={initialSendPending}
+                    providers={activeProviders}
+                    queuedMessages={activeQueuedMessages}
+                    placeholder={
+                      startupError
+                        ? t("error.agent.title")
+                        : ready
+                          ? t("chat.inputPlaceholder")
+                          : t("chat.agentStarting")
+                    }
+                    onSend={handleSend}
+                    onStop={handleChatStop}
+                    onQueuedMessageRemove={handleQueuedMessageRemove}
+                    onAuthorize={handleAuthorize}
+                    onArtifactsReset={handleArtifactsReset}
+                    onArtifactsOpen={handleArtifactsOpen}
+                    onArtifactsAvailable={handleArtifactsAvailable}
+                    onViewBilling={handleViewBilling}
+                  />
+                </div>
+              )}
+            </React.Suspense>
           </main>
         </div>
 
@@ -1727,7 +1754,9 @@ export function AppShell() {
           />
           <div className="h-full" style={{ width: `${artifactsPanelWidth}px` }}>
             {artifactsPanelVisible ? (
-              <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+              <React.Suspense fallback={null}>
+                <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+              </React.Suspense>
             ) : null}
           </div>
         </div>

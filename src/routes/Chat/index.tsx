@@ -58,7 +58,10 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
-import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
+
+const GeneratedArtifacts = React.lazy(() =>
+  import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
+)
 
 interface ChatAreaProps {
   billingCacheScope: string
@@ -951,11 +954,13 @@ const ChatTimeline = React.memo(function ChatTimeline({
           )
         })}
         {visibleArtifactSources.length > 0 ? (
-          <GeneratedArtifacts
-            sources={visibleArtifactSources}
-            onOpen={onArtifactsOpen}
-            onAvailable={onArtifactsAvailable}
-          />
+          <React.Suspense fallback={null}>
+            <GeneratedArtifacts
+              sources={visibleArtifactSources}
+              onOpen={onArtifactsOpen}
+              onAvailable={onArtifactsAvailable}
+            />
+          </React.Suspense>
         ) : null}
       </ConversationContent>
       <ConversationScrollButton />

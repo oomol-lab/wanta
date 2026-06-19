@@ -1,9 +1,8 @@
 import type { ComponentProps, CSSProperties, HTMLAttributes } from "react"
-import type { BundledLanguage, BundledTheme, HighlighterGeneric, ThemedToken } from "shiki"
+import type { HighlighterCore, LanguageRegistration, ThemedToken } from "shiki/core"
 
 import { CheckIcon, CopyIcon } from "lucide-react"
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { bundledLanguages, bundledLanguagesAlias, createHighlighter } from "shiki"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
@@ -90,7 +89,84 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: "",
 })
 
-const highlighterCache = new Map<string, Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>>()
+type SupportedLanguage =
+  | "bash"
+  | "c"
+  | "csharp"
+  | "css"
+  | "diff"
+  | "go"
+  | "html"
+  | "java"
+  | "javascript"
+  | "json"
+  | "jsx"
+  | "markdown"
+  | "php"
+  | "python"
+  | "rust"
+  | "scss"
+  | "sql"
+  | "tsx"
+  | "typescript"
+  | "xml"
+  | "yaml"
+
+type ResolvedLanguage = SupportedLanguage | "text"
+
+type LanguageModule = {
+  default: LanguageRegistration | LanguageRegistration[]
+}
+
+const languageLoaders = {
+  bash: () => import("@shikijs/langs/shellscript"),
+  c: () => import("@shikijs/langs/c"),
+  csharp: () => import("@shikijs/langs/csharp"),
+  css: () => import("@shikijs/langs/css"),
+  diff: () => import("@shikijs/langs/diff"),
+  go: () => import("@shikijs/langs/go"),
+  html: () => import("@shikijs/langs/html"),
+  java: () => import("@shikijs/langs/java"),
+  javascript: () => import("@shikijs/langs/javascript"),
+  json: () => import("@shikijs/langs/json"),
+  jsx: () => import("@shikijs/langs/jsx"),
+  markdown: () => import("@shikijs/langs/markdown"),
+  php: () => import("@shikijs/langs/php"),
+  python: () => import("@shikijs/langs/python"),
+  rust: () => import("@shikijs/langs/rust"),
+  scss: () => import("@shikijs/langs/scss"),
+  sql: () => import("@shikijs/langs/sql"),
+  tsx: () => import("@shikijs/langs/tsx"),
+  typescript: () => import("@shikijs/langs/typescript"),
+  xml: () => import("@shikijs/langs/xml"),
+  yaml: () => import("@shikijs/langs/yaml"),
+} satisfies Record<SupportedLanguage, () => Promise<LanguageModule>>
+
+const languageAliases = new Map<string, ResolvedLanguage>([
+  ["c#", "csharp"],
+  ["cs", "csharp"],
+  ["c++", "c"],
+  ["cpp", "c"],
+  ["cjs", "javascript"],
+  ["js", "javascript"],
+  ["mjs", "javascript"],
+  ["md", "markdown"],
+  ["plain", "text"],
+  ["plaintext", "text"],
+  ["py", "python"],
+  ["rb", "text"],
+  ["ruby", "text"],
+  ["rs", "rust"],
+  ["sh", "bash"],
+  ["shell", "bash"],
+  ["ts", "typescript"],
+  ["txt", "text"],
+  ["yml", "yaml"],
+  ["zsh", "bash"],
+])
+
+let coreHighlighterPromise: Promise<HighlighterCore> | null = null
+const highlighterCache = new Map<SupportedLanguage, Promise<HighlighterCore>>()
 const tokensCache = new Map<string, TokenizedCode>()
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>()
 const maxTokensCacheEntries = 300
@@ -103,13 +179,17 @@ function normalizeLanguage(language: string | undefined): string {
   return normalized
 }
 
-function resolveBundledLanguage(language: string | undefined): BundledLanguage | null {
+function resolveSupportedLanguage(language: string | undefined): ResolvedLanguage | null {
   const normalized = normalizeLanguage(language)
   if (normalized === "text") {
-    return null
+    return "text"
   }
-  if (normalized in bundledLanguages || normalized in bundledLanguagesAlias) {
-    return normalized as BundledLanguage
+  const alias = languageAliases.get(normalized)
+  if (alias) {
+    return alias
+  }
+  if (normalized in languageLoaders) {
+    return normalized as SupportedLanguage
   }
   return null
 }
@@ -140,16 +220,44 @@ function setCachedTokens(key: string, value: TokenizedCode): void {
   tokensCache.set(key, value)
 }
 
-function getHighlighter(language: BundledLanguage): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
+function languageRegistrations(module: LanguageModule): LanguageRegistration[] {
+  return Array.isArray(module.default) ? module.default : [module.default]
+}
+
+function getCoreHighlighter(): Promise<HighlighterCore> {
+  coreHighlighterPromise ??= Promise.all([
+    import("shiki/core"),
+    import("shiki/engine/javascript"),
+    import("@shikijs/themes/github-dark"),
+    import("@shikijs/themes/github-light"),
+  ]).then(([core, engine, githubDark, githubLight]) =>
+    core.createHighlighterCore({
+      engine: engine.createJavaScriptRegexEngine(),
+      langs: [],
+      themes: [githubLight.default, githubDark.default],
+    }),
+  )
+  return coreHighlighterPromise
+}
+
+function getHighlighter(language: SupportedLanguage): Promise<HighlighterCore> {
   const cached = highlighterCache.get(language)
   if (cached) {
     return cached
   }
 
-  const highlighterPromise = createHighlighter({
-    langs: [language],
-    themes: ["github-light", "github-dark"],
-  })
+  const highlighterPromise = Promise.all([
+    getCoreHighlighter(),
+    languageLoaders[language]().then(languageRegistrations),
+  ])
+    .then(async ([highlighter, languages]) => {
+      await highlighter.loadLanguage(...languages)
+      return highlighter
+    })
+    .catch((error: unknown) => {
+      highlighterCache.delete(language)
+      throw error
+    })
 
   highlighterCache.set(language, highlighterPromise)
   return highlighterPromise
@@ -205,12 +313,12 @@ export function highlightCode(
   language: string | undefined,
   callback?: (result: TokenizedCode) => void,
 ): TokenizedCode | null {
-  const bundledLanguage = resolveBundledLanguage(language)
-  if (!bundledLanguage) {
+  const resolvedLanguage = resolveSupportedLanguage(language)
+  if (!resolvedLanguage || resolvedLanguage === "text") {
     return null
   }
 
-  const tokensCacheKey = getTokensCacheKey(code, bundledLanguage)
+  const tokensCacheKey = getTokensCacheKey(code, resolvedLanguage)
   const cached = getCachedTokens(tokensCacheKey)
   if (cached) {
     return cached
@@ -223,10 +331,10 @@ export function highlightCode(
     subscribers.get(tokensCacheKey)?.add(callback)
   }
 
-  void getHighlighter(bundledLanguage)
+  void getHighlighter(resolvedLanguage)
     .then((highlighter) => {
       const result = highlighter.codeToTokens(code, {
-        lang: bundledLanguage,
+        lang: resolvedLanguage,
         themes: {
           dark: "github-dark",
           light: "github-light",

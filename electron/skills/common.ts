@@ -224,6 +224,10 @@ export interface ListPublicSkillPackagesRequest {
   size?: number
 }
 
+export interface ListOwnedSkillPackagesRequest {
+  forceRefresh?: boolean
+}
+
 export interface SkillSearchResult {
   description?: string
   displayName: string
@@ -278,6 +282,7 @@ export const SkillService = serviceName("skill-service") as ServiceName<{
     deleteSkill(request: DeleteSkillRequest): Promise<SkillInventory>
     installBuiltInSkill(request: InstallBuiltInSkillRequest): Promise<SkillInventory>
     installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory>
+    listOwnedSkillPackages(request?: ListOwnedSkillPackagesRequest): Promise<PublicSkillPackageCatalog>
     listPublicSkillPackages(request?: ListPublicSkillPackagesRequest): Promise<PublicSkillPackageCatalog>
     checkSkillVersions(request?: CheckSkillVersionsRequest): Promise<SkillVersionReport>
     executeCliUpdate(): Promise<SkillVersionReport>

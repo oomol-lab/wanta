@@ -8,11 +8,13 @@ import {
   createDeleteSkillArgs,
   createFailedRegistrySkillVersionCheck,
   createInstallRegistrySkillArgs,
+  normalizeOwnedSkillPackageNames,
   createPublishSkillArgs,
   createRegistrySkillVersionCheck,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
   normalizePublicSkillPackageCatalog,
+  normalizeRegistrySkillPackageInfo,
   createSkillSearchArgs,
   normalizeRegistrySkillCheckUpdateResults,
   normalizeSkillSearchResults,
@@ -172,6 +174,76 @@ test("normalizePublicSkillPackageCatalog keeps unknown visibility non-fatal", ()
 
   assert.equal(catalog.items.length, 1)
   assert.equal(catalog.items[0]?.visibility, "unknown")
+})
+
+test("normalizeOwnedSkillPackageNames keeps sorted package names from registry permissions", () => {
+  assert.deepEqual(
+    normalizeOwnedSkillPackageNames(
+      JSON.stringify({
+        "": "write",
+        "@alice/admin-skill": "admin",
+        "@alice/private-skill": "write",
+        "local-tool": "read",
+        " z ": "write",
+      }),
+    ),
+    ["@alice/admin-skill", "@alice/private-skill", "z"],
+  )
+})
+
+test("normalizeRegistrySkillPackageInfo maps package-info into discover package metadata", () => {
+  assert.deepEqual(
+    normalizeRegistrySkillPackageInfo(
+      JSON.stringify({
+        description: "Private package",
+        icon: ":lucide:box",
+        isPrivate: true,
+        packageName: "@alice/private-skill",
+        packageVersion: "0.2.0",
+        skills: [
+          {
+            description: "Do private work",
+            name: "private-skill",
+            title: "Private Skill",
+          },
+        ],
+        title: "Private Package",
+      }),
+      { id: "user-1", name: "alice", url: "https://example.com/a.png" },
+    ),
+    {
+      description: "Private package",
+      displayName: "Private Package",
+      icon: ":lucide:box",
+      id: "@alice/private-skill@0.2.0",
+      isTemplate: false,
+      maintainers: [{ id: "user-1", name: "alice", url: "https://example.com/a.png" }],
+      name: "@alice/private-skill",
+      skills: [
+        {
+          description: "Do private work",
+          name: "private-skill",
+          title: "Private Skill",
+        },
+      ],
+      version: "0.2.0",
+      visibility: "private",
+    },
+  )
+})
+
+test("normalizeRegistrySkillPackageInfo ignores packages without skills", () => {
+  assert.equal(
+    normalizeRegistrySkillPackageInfo(
+      JSON.stringify({
+        packageName: "@alice/block-only",
+        packageVersion: "0.1.0",
+        skills: [],
+      }),
+      { id: "user-1", name: "alice" },
+    ),
+    undefined,
+  )
 })
 
 test("createInstallRegistrySkillArgs installs a selected skill non-interactively", () => {

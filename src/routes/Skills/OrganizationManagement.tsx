@@ -43,8 +43,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -850,81 +848,106 @@ function OrganizationSwitcherPanel({
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       {loading ? (
         <div className="p-3">
-          <Skeleton className="h-16 w-full rounded-md" />
+          <Skeleton className="h-20 w-full rounded-md" />
         </div>
       ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex min-h-20 w-full min-w-0 items-center justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-accent/70 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-            >
-              {selectedOrganization ? (
-                <span className="flex min-w-0 items-center gap-3">
-                  <OrganizationAvatar organization={selectedOrganization} className="size-10" />
-                  <span className="grid min-w-0 gap-1">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="oo-text-caption shrink-0">{t("organizations.selectedOrganization")}</span>
-                      {selectedRole ? (
-                        <Badge variant="secondary" className="shrink-0">
-                          {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                        </Badge>
-                      ) : null}
-                    </span>
-                    <span className="truncate text-sm font-semibold text-foreground">{selectedOrganization.name}</span>
-                    <span className="truncate font-mono text-xs text-muted-foreground">{selectedOrganization.id}</span>
-                  </span>
+        <div className="grid min-h-20 min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 px-4 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[var(--oo-control-height)_var(--oo-control-height)] sm:items-center">
+          <div className="row-span-2 self-center">
+            {selectedOrganization ? (
+              <OrganizationAvatar organization={selectedOrganization} className="size-16 rounded-md text-lg" />
+            ) : (
+              <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
+                <Building2Icon className="size-5" />
+              </div>
+            )}
+          </div>
+
+          <div className="flex min-w-0 items-baseline gap-3 self-end sm:self-center">
+            {selectedOrganization ? (
+              <>
+                <span className="min-w-0 truncate text-base font-semibold text-foreground">
+                  {selectedOrganization.name}
                 </span>
-              ) : (
-                <span className="min-w-0 truncate text-sm text-muted-foreground">
-                  {t("organizations.selectOrganization")}
+                <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                  {selectedOrganization.id}
                 </span>
-              )}
-              <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
-                <Badge variant="outline">{countLabel}</Badge>
-                <span className="hidden text-sm font-medium sm:inline">{t("organizations.switchOrganization")}</span>
-                <ChevronsUpDownIcon className="size-4" />
+              </>
+            ) : (
+              <span className="min-w-0 truncate text-sm text-muted-foreground">
+                {t("organizations.selectOrganization")}
               </span>
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
-            <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuRadioGroup
-              value={selectedOrganizationId ?? ""}
-              onValueChange={(value) => {
-                if (value) {
-                  onSelect(value)
-                }
-              }}
-            >
-              {organizations.map((organization) => {
-                const role = organizationRole(overview, organization)
-                return (
-                  <DropdownMenuRadioItem
-                    key={organization.id}
-                    value={organization.id}
-                    className="min-w-0 items-center gap-3 py-2 pr-2"
-                  >
-                    <OrganizationAvatar organization={organization} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{organization.name}</span>
-                      <span className="block truncate font-mono text-xs text-muted-foreground">{organization.id}</span>
-                    </span>
-                    <Badge variant="secondary" className="ml-auto shrink-0">
-                      {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                    </Badge>
-                  </DropdownMenuRadioItem>
-                )
-              })}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
-              <PlusIcon className="size-4" />
-              <span>{t("organizations.createOrganization")}</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+            )}
+          </div>
+
+          <div className="flex min-w-0 items-center gap-2 self-start sm:self-center">
+            <span className="oo-text-caption shrink-0">{t("organizations.selectedOrganization")}</span>
+            {selectedRole ? (
+              <Badge variant="secondary" className="shrink-0">
+                {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+              </Badge>
+            ) : null}
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="col-span-2 w-full sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-auto sm:justify-self-end"
+            onClick={onCreate}
+          >
+            <PlusIcon className="size-4" />
+            {t("organizations.createOrganization")}
+          </Button>
+          <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-2 sm:justify-self-end">
+            <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" className="px-2">
+                  {t("organizations.switchOrganization")}
+                  <ChevronsUpDownIcon className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
+                <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {organizations.map((organization) => {
+                  const role = organizationRole(overview, organization)
+                  const selected = organization.id === selectedOrganizationId
+                  return (
+                    <DropdownMenuItem
+                      key={organization.id}
+                      className={cn(
+                        "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
+                        selected && "bg-accent",
+                      )}
+                      onSelect={() => onSelect(organization.id)}
+                    >
+                      <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
+                      <span className="grid min-h-10 min-w-0 content-center">
+                        <span className="flex min-h-5 min-w-0 items-center gap-2">
+                          <span className="truncate text-sm leading-5 font-medium">{organization.name}</span>
+                          {selected ? (
+                            <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                          ) : null}
+                        </span>
+                        <span className="block truncate font-mono text-xs leading-5 text-muted-foreground">
+                          {organization.id}
+                        </span>
+                      </span>
+                      <Badge variant="secondary" className="justify-self-end">
+                        {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                      </Badge>
+                    </DropdownMenuItem>
+                  )
+                })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
+                  <PlusIcon className="size-4" />
+                  <span>{t("organizations.createOrganization")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
       )}
     </section>
   )
@@ -1670,7 +1693,7 @@ function OrganizationAvatar({ className, organization }: { className?: string; o
   return (
     <span
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground",
+        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
         className,
       )}
     >

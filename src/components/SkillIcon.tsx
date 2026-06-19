@@ -8,7 +8,10 @@ import tencentQqIcon from "@iconify-icons/simple-icons/tencentqq"
 import photoStarIcon from "@iconify-icons/tabler/photo-star"
 import { Icon as IconifyIcon } from "@iconify/react/offline"
 import {
+  ArchiveIcon,
   CaptionsIcon,
+  ChartNoAxesCombinedIcon,
+  FileSearchIcon,
   FileScanIcon,
   ImageOffIcon,
   ImagePlusIcon,
@@ -16,10 +19,14 @@ import {
   WandSparklesIcon,
 } from "lucide-react"
 import { AppIcons } from "@/components/AppIcons"
+import { normalizeSkillIconSource } from "@/components/skill-icon-source.ts"
 import { cn } from "@/lib/utils"
 
 const lucideSkillIcons = {
+  archive: ArchiveIcon,
   captions: CaptionsIcon,
+  "chart-no-axes-combined": ChartNoAxesCombinedIcon,
+  "file-search": FileSearchIcon,
   "file-scan": FileScanIcon,
   "image-off": ImageOffIcon,
   "image-plus": ImagePlusIcon,
@@ -55,7 +62,7 @@ export function SkillIcon({ className, fallback: FallbackIcon = AppIcons.object.
 }
 
 function getSkillIcon(icon: string | undefined): AppIconComponent | undefined {
-  const spec = parseIconEsSpec(icon)
+  const spec = parseIconEsSpec(normalizeSkillIconSource(icon))
 
   if (!spec) {
     return undefined

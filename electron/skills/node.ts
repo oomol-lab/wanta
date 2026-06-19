@@ -6,6 +6,7 @@ import type {
   ExecuteSkillUpdateRequest,
   InstallRegistrySkillRequest,
   InstallBuiltInSkillRequest,
+  ListOwnedSkillPackagesRequest,
   ListPublicSkillPackagesRequest,
   OpenSkillPathRequest,
   PublicSkillPackageCatalog,
@@ -35,7 +36,7 @@ import path from "node:path"
 import { buildOoEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
 import { logDiagnosticOnChange } from "../diagnostics-log.ts"
-import { ooEndpoint, searchBaseUrl } from "../domain.ts"
+import { ooEndpoint, registryBaseUrl, searchBaseUrl } from "../domain.ts"
 import { normalizeOoCliVersion, runOoCommand } from "../oo-command.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
@@ -48,7 +49,9 @@ import {
   createFailedSkillVersionCheck,
   createInstallRegistrySkillArgs,
   createPublishSkillArgs,
+  normalizeOwnedSkillPackageNames,
   normalizePublicSkillPackageCatalog,
+  normalizeRegistrySkillPackageInfo,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
   createSkillSearchArgs,
@@ -95,6 +98,11 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     { catalog: PublicSkillPackageCatalog; time: number }
   >()
   private readonly publicSkillPackageCatalogInFlightByKey = new Map<string, Promise<PublicSkillPackageCatalog>>()
+  private readonly ownedSkillPackageCatalogCacheByKey = new Map<
+    string,
+    { catalog: PublicSkillPackageCatalog; time: number }
+  >()
+  private readonly ownedSkillPackageCatalogInFlightByKey = new Map<string, Promise<PublicSkillPackageCatalog>>()
   private versionReportCache: { generation: number; key: string; report: SkillVersionReport; time: number } | undefined
   private versionReportInFlight: { generation: number; key: string; promise: Promise<SkillVersionReport> } | undefined
   private versionReportCacheGeneration = 0
@@ -112,6 +120,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     this.options = options
     this.unsubscribeAuthStateChanged = this.authService.stateChanged.on(() => {
       this.invalidateVersionReport()
+      this.ownedSkillPackageCatalogCacheByKey.clear()
+      this.ownedSkillPackageCatalogInFlightByKey.clear()
     })
     if (app.isReady()) {
       this.startWatching()
@@ -208,6 +218,48 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       })
 
     this.publicSkillPackageCatalogInFlightByKey.set(cacheKey, promise)
+    return promise
+  }
+
+  public async listOwnedSkillPackages(request: ListOwnedSkillPackagesRequest = {}): Promise<PublicSkillPackageCatalog> {
+    await this.authService.getAuthState()
+    const account = this.authService.activeAccount()
+
+    if (!account) {
+      throw new Error("Owned Skills not available (sign in first)")
+    }
+
+    const cacheKey = `${registryBaseUrl}:${account.id}`
+    const cached = this.ownedSkillPackageCatalogCacheByKey.get(cacheKey)
+
+    if (!request.forceRefresh && cached && Date.now() - cached.time < publicSkillPackageCatalogCacheTtlMs) {
+      return cached.catalog
+    }
+
+    const inFlight = this.ownedSkillPackageCatalogInFlightByKey.get(cacheKey)
+    if (!request.forceRefresh && inFlight) {
+      return inFlight
+    }
+
+    const promise = readOwnedSkillPackageCatalog({
+      account: {
+        apiKey: account.apiKey,
+        id: account.id,
+        name: account.name,
+        avatarUrl: account.avatarUrl,
+      },
+    })
+      .then((catalog) => {
+        this.ownedSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
+        return catalog
+      })
+      .finally(() => {
+        if (this.ownedSkillPackageCatalogInFlightByKey.get(cacheKey) === promise) {
+          this.ownedSkillPackageCatalogInFlightByKey.delete(cacheKey)
+        }
+      })
+
+    this.ownedSkillPackageCatalogInFlightByKey.set(cacheKey, promise)
     return promise
   }
 
@@ -839,6 +891,105 @@ async function readPublicSkillPackageCatalog(request: {
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function readOwnedSkillPackageCatalog(request: {
+  account: { apiKey: string; avatarUrl?: string; id: string; name: string }
+}): Promise<PublicSkillPackageCatalog> {
+  const packageNames = await readOwnedSkillPackageNames(request.account)
+  const maintainer = {
+    id: request.account.id,
+    name: request.account.name,
+    url: request.account.avatarUrl,
+  }
+  const items = (
+    await mapWithConcurrency(packageNames, 6, async (packageName) => {
+      return readRegistrySkillPackageInfo(packageName, request.account, maintainer).catch((error: unknown) => {
+        console.warn("[lumo] failed to read owned skill package info:", error)
+        return undefined
+      })
+    })
+  ).filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+  return {
+    items: items.sort((left, right) => left.displayName.localeCompare(right.displayName)),
+    next: null,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+async function readOwnedSkillPackageNames(account: { apiKey: string; id: string }): Promise<string[]> {
+  const url = new URL(`/-/org/${encodeURIComponent(account.id)}/package`, registryBaseUrl)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: account.apiKey,
+      },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Owned Skill package list request failed with status ${response.status}.`)
+    }
+
+    return normalizeOwnedSkillPackageNames(await response.text())
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function readRegistrySkillPackageInfo(
+  packageName: string,
+  account: { apiKey: string },
+  maintainer: { id: string; name: string; url?: string },
+) {
+  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(packageName)}/latest`, registryBaseUrl)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: account.apiKey,
+      },
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Registry Skill package info request failed with status ${response.status}.`)
+    }
+
+    return normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = []
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex
+        nextIndex += 1
+        results[index] = await mapper(items[index] as T)
+      }
+    }),
+  )
+
+  return results
 }
 
 async function readCurrentOoCliVersion(runCommand: RunSkillOoCommand): Promise<string | undefined> {

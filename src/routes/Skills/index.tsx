@@ -27,6 +27,7 @@ import { InspectorCard, InspectorInsetCard } from "@/components/InspectorPanel"
 import { ObjectRowSkeletonGroup, SkeletonText } from "@/components/LoadingSkeletons"
 import { ObjectStatusIcon } from "@/components/ObjectRow"
 import { SearchField } from "@/components/SearchField"
+import { normalizeSkillIconSource } from "@/components/skill-icon-source.ts"
 import { SkillIcon } from "@/components/SkillIcon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -504,10 +505,6 @@ function matchesPublicPackageQuery(pkg: PublicSkillPackage, normalizedQuery: str
   )
 }
 
-function isPublicPackageMaintainedByAccount(pkg: PublicSkillPackage, accountId: string | undefined): boolean {
-  return Boolean(accountId && pkg.maintainers.some((maintainer) => maintainer.id === accountId))
-}
-
 function getPublicPackageMaintainerLine(pkg: PublicSkillPackage, t: TFunction): string {
   const maintainerNames = pkg.maintainers.map((maintainer) => maintainer.name).filter(Boolean)
   if (maintainerNames.length > 0) {
@@ -753,6 +750,10 @@ export function SkillsRoute() {
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
   )
+  const [ownedPackageCatalog, dispatchOwnedPackageCatalog] = React.useReducer(
+    publicPackageCatalogReducer,
+    initialPublicPackageCatalogState,
+  )
   const [installingRegistryResultId, setInstallingRegistryResultId] = React.useState<string | null>(null)
   const [planError, setPlanError] = React.useState<string | null>(null)
   const [installingBuiltInSkillId, setInstallingBuiltInSkillId] = React.useState<BuiltInSkillId | null>(null)
@@ -768,6 +769,7 @@ export function SkillsRoute() {
   const installRegistryInFlightRef = React.useRef(false)
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
+  const ownedPackageRequestIdRef = React.useRef(0)
   const { copySkillPath, openSkillFolder } = useSkillObjectActions()
 
   React.useEffect(() => {
@@ -873,34 +875,81 @@ export function SkillsRoute() {
     [skillService],
   )
 
+  const loadOwnedSkillPackages = React.useCallback(
+    async (options: { forceRefresh?: boolean } = {}) => {
+      const requestId = ownedPackageRequestIdRef.current + 1
+      ownedPackageRequestIdRef.current = requestId
+      dispatchOwnedPackageCatalog({ append: false, requestId, type: "load-start" })
+
+      try {
+        const catalog = await skillService.invoke("listOwnedSkillPackages", {
+          forceRefresh: options.forceRefresh,
+        })
+        dispatchOwnedPackageCatalog({ append: false, catalog, requestId, type: "load-success" })
+      } catch (cause) {
+        dispatchOwnedPackageCatalog({
+          error: cause instanceof Error ? cause.message : String(cause),
+          requestId,
+          type: "load-error",
+        })
+      }
+    },
+    [skillService],
+  )
+
   React.useEffect(() => {
-    if (activeTab !== "discover" || publicPackageCatalog.items.length > 0 || publicPackageCatalog.status !== "idle") {
+    if (
+      activeTab !== "discover" ||
+      discoveryFilter !== "all" ||
+      publicPackageCatalog.items.length > 0 ||
+      publicPackageCatalog.status !== "idle"
+    ) {
       return
     }
 
     void loadPublicSkillPackages().catch(() => undefined)
-  }, [activeTab, loadPublicSkillPackages, publicPackageCatalog.items.length, publicPackageCatalog.status])
+  }, [
+    activeTab,
+    discoveryFilter,
+    loadPublicSkillPackages,
+    publicPackageCatalog.items.length,
+    publicPackageCatalog.status,
+  ])
 
+  React.useEffect(() => {
+    if (
+      activeTab !== "discover" ||
+      discoveryFilter !== "mine" ||
+      authResource.data?.status !== "authenticated" ||
+      ownedPackageCatalog.items.length > 0 ||
+      ownedPackageCatalog.status !== "idle"
+    ) {
+      return
+    }
+
+    void loadOwnedSkillPackages().catch(() => undefined)
+  }, [
+    activeTab,
+    authResource.data?.status,
+    discoveryFilter,
+    loadOwnedSkillPackages,
+    ownedPackageCatalog.items.length,
+    ownedPackageCatalog.status,
+  ])
+
+  const activePackageCatalog = discoveryFilter === "mine" ? ownedPackageCatalog : publicPackageCatalog
+  const activePackageDispatcher =
+    discoveryFilter === "mine" ? dispatchOwnedPackageCatalog : dispatchPublicPackageCatalog
   const filteredPublicPackages = React.useMemo(() => {
     const normalizedQuery = discoveryQuery.trim().toLowerCase()
-    return publicPackageCatalog.items.filter((pkg) => {
-      if (!matchesPublicPackageQuery(pkg, normalizedQuery)) {
-        return false
-      }
-
-      if (discoveryFilter === "mine") {
-        return isPublicPackageMaintainedByAccount(pkg, authResource.data?.account?.id)
-      }
-
-      return true
-    })
-  }, [authResource.data?.account?.id, discoveryFilter, discoveryQuery, publicPackageCatalog.items])
+    return activePackageCatalog.items.filter((pkg) => matchesPublicPackageQuery(pkg, normalizedQuery))
+  }, [activePackageCatalog.items, discoveryQuery])
 
   const selectedPublicPackage = React.useMemo(() => {
-    return publicPackageCatalog.selectedId
-      ? publicPackageCatalog.items.find((pkg) => pkg.id === publicPackageCatalog.selectedId)
+    return activePackageCatalog.selectedId
+      ? activePackageCatalog.items.find((pkg) => pkg.id === activePackageCatalog.selectedId)
       : undefined
-  }, [publicPackageCatalog.items, publicPackageCatalog.selectedId])
+  }, [activePackageCatalog.items, activePackageCatalog.selectedId])
 
   const openManagedPublicSkill = React.useCallback((skillName: string) => {
     setActiveTab("installed")
@@ -1082,12 +1131,12 @@ export function SkillsRoute() {
   }, [homeSummaryResource, inventoryResource, skillService, versionResource])
 
   const isPublicPackageBusy =
-    publicPackageCatalog.status === "loading" ||
-    publicPackageCatalog.status === "loading-more" ||
-    publicPackageCatalog.status === "refreshing"
-  const isPublicPackageLoadingMore = publicPackageCatalog.status === "loading-more"
+    activePackageCatalog.status === "loading" ||
+    activePackageCatalog.status === "loading-more" ||
+    activePackageCatalog.status === "refreshing"
+  const isPublicPackageLoadingMore = activePackageCatalog.status === "loading-more"
   const isPublicPackageReplacing =
-    publicPackageCatalog.status === "loading" || publicPackageCatalog.status === "refreshing"
+    activePackageCatalog.status === "loading" || activePackageCatalog.status === "refreshing"
   const detailContentProps: SkillDetailContentProps = {
     builtInStatus,
     copySkillPath,
@@ -1120,7 +1169,11 @@ export function SkillsRoute() {
           isExecutingCliUpdate={isExecutingCliUpdate}
           isDiscoveryLoading={isPublicPackageBusy}
           onDiscoveryQueryChange={setDiscoveryQuery}
-          onDiscoveryRefresh={() => void loadPublicSkillPackages({ forceRefresh: true })}
+          onDiscoveryRefresh={() =>
+            void (discoveryFilter === "mine" && authResource.data?.status === "authenticated"
+              ? loadOwnedSkillPackages({ forceRefresh: true })
+              : loadPublicSkillPackages({ forceRefresh: true }))
+          }
           onInstalledQueryChange={setQuery}
           onTabChange={setActiveTab}
           versionReport={versionResource.data}
@@ -1128,7 +1181,7 @@ export function SkillsRoute() {
         />
         {activeTab === "discover" ? (
           <DiscoverSkillsPane
-            error={publicPackageCatalog.error}
+            error={activePackageCatalog.error}
             filter={discoveryFilter}
             groupById={installedSkillGroupById}
             installingKey={installingRegistryResultId}
@@ -1136,15 +1189,15 @@ export function SkillsRoute() {
             isLoadingMore={isPublicPackageLoadingMore}
             isSignedIn={authResource.data?.status === "authenticated"}
             locale={locale}
-            next={publicPackageCatalog.next}
+            next={activePackageCatalog.next}
             packages={filteredPublicPackages}
             selectedPackage={selectedPublicPackage}
-            onClosePackage={() => dispatchPublicPackageCatalog({ id: null, type: "select" })}
+            onClosePackage={() => activePackageDispatcher({ id: null, type: "select" })}
             onFilterChange={setDiscoveryFilter}
             onInstall={installPublicSkill}
-            onLoadMore={() => void loadPublicSkillPackages({ next: publicPackageCatalog.next })}
+            onLoadMore={() => void loadPublicSkillPackages({ next: activePackageCatalog.next })}
             onOpenManagedSkill={openManagedPublicSkill}
-            onSelectPackage={(pkg) => dispatchPublicPackageCatalog({ id: pkg.id, type: "select" })}
+            onSelectPackage={(pkg) => activePackageDispatcher({ id: pkg.id, type: "select" })}
           />
         ) : (
           <InstalledSkillsPane
@@ -1893,25 +1946,27 @@ function SkillManagementSheet({
 }
 
 function PublicSkillIcon({ icon }: { icon?: string }) {
-  if (isImageIcon(icon)) {
+  const normalizedIcon = normalizeSkillIconSource(icon)
+
+  if (isImageIcon(normalizedIcon)) {
     return (
       <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background">
-        <img alt="" src={icon} className="size-full object-contain p-1.5" />
+        <img alt="" src={normalizedIcon} className="size-full object-contain p-1.5" />
       </span>
     )
   }
 
-  if (isEmojiIcon(icon)) {
+  if (isEmojiIcon(normalizedIcon)) {
     return (
       <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-background text-xl">
-        {icon}
+        {normalizedIcon}
       </span>
     )
   }
 
   return (
     <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-background">
-      <SkillIcon icon={icon} className="size-5" />
+      <SkillIcon icon={normalizedIcon} className="size-5" />
     </span>
   )
 }

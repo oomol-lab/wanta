@@ -43,6 +43,17 @@ interface RawPublicSkillPackageListItem {
   visibility?: unknown
 }
 
+interface RawRegistryPackageSkillInfo {
+  description?: unknown
+  icon?: unknown
+  isPrivate?: unknown
+  packageName?: unknown
+  packageVersion?: unknown
+  skills?: unknown
+  title?: unknown
+  version?: unknown
+}
+
 interface RawPublicSkillPackageSkill {
   description?: unknown
   name?: unknown
@@ -174,6 +185,61 @@ export function normalizePublicSkillPackageCatalog(
     items: raw.data.map(normalizePublicSkillPackage).filter((item): item is PublicSkillPackage => Boolean(item)),
     next: typeof raw.next === "string" && raw.next.trim() ? raw.next.trim() : null,
     updatedAt,
+  }
+}
+
+export function normalizeOwnedSkillPackageNames(stdout: string): string[] {
+  const parsed = JSON.parse(stdout) as unknown
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Owned Skill package list returned an unsupported response.")
+  }
+
+  return Object.entries(parsed)
+    .filter(([, permission]) => permission === "write" || permission === "admin")
+    .map(([name]) => name.trim())
+    .filter((name) => name.length > 0)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+export function normalizeRegistrySkillPackageInfo(
+  stdout: string,
+  fallbackMaintainer: PublicSkillPackageMaintainer,
+): PublicSkillPackage | undefined {
+  const parsed = JSON.parse(stdout) as unknown
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Registry Skill package info returned an unsupported response.")
+  }
+
+  const raw = parsed as RawRegistryPackageSkillInfo
+  const name = asText(raw.packageName)
+  if (!name) {
+    return undefined
+  }
+
+  const version = asText(raw.packageVersion) ?? asText(raw.version) ?? "latest"
+  const skills = Array.isArray(raw.skills)
+    ? raw.skills
+        .map(normalizePublicSkillPackageSkill)
+        .filter((item): item is PublicSkillPackage["skills"][number] => Boolean(item))
+    : []
+
+  if (skills.length === 0) {
+    return undefined
+  }
+
+  return {
+    description: asText(raw.description),
+    displayName: asText(raw.title) ?? skills[0]?.title ?? name,
+    icon: asText(raw.icon),
+    id: `${name}@${version}`,
+    isTemplate: false,
+    maintainers: [fallbackMaintainer],
+    name,
+    skills,
+    version,
+    visibility: raw.isPrivate === true ? "private" : raw.isPrivate === false ? "public" : "unknown",
   }
 }
 

@@ -342,6 +342,8 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<ConnectionProviderSummary | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
+  const detailCacheRef = React.useRef<Map<string, ConnectionProviderDetail>>(new Map())
+  const detailRequestIdRef = React.useRef(0)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
   const providers = summary?.providers ?? []
@@ -362,6 +364,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
+  const selectedDetailService = selectedProvider?.service ?? null
 
   const clearDetailCloseTimer = React.useCallback(() => {
     if (detailCloseTimerRef.current === null) {
@@ -435,7 +438,8 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
 
   React.useEffect(() => {
-    if (!selectedProvider) {
+    if (!selectedDetailService) {
+      detailRequestIdRef.current += 1
       setDetail(null)
       setDetailService(null)
       setDetailError(null)
@@ -444,24 +448,36 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     }
 
     let cancelled = false
+    const requestId = detailRequestIdRef.current + 1
+    detailRequestIdRef.current = requestId
+    const cached = detailCacheRef.current.get(selectedDetailService)
+    if (cached) {
+      setDetail(cached)
+      setDetailService(selectedDetailService)
+      setDetailError(null)
+      setDetailLoading(false)
+      return
+    }
+
     setDetailLoading(true)
     setDetailError(null)
-    void getProviderDetail(selectedProvider.service)
+    void getProviderDetail(selectedDetailService)
       .then((next) => {
-        if (!cancelled) {
+        if (!cancelled && detailRequestIdRef.current === requestId) {
+          detailCacheRef.current.set(selectedDetailService, next)
           setDetail(next)
-          setDetailService(selectedProvider.service)
+          setDetailService(selectedDetailService)
         }
       })
       .catch((err) => {
-        if (!cancelled) {
+        if (!cancelled && detailRequestIdRef.current === requestId) {
           setDetail(null)
           setDetailService(null)
           setDetailError(resolveUserFacingError(err, { area: "connections" }))
         }
       })
       .finally(() => {
-        if (!cancelled) {
+        if (!cancelled && detailRequestIdRef.current === requestId) {
           setDetailLoading(false)
         }
       })
@@ -469,13 +485,16 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     return () => {
       cancelled = true
     }
-  }, [getProviderDetail, selectedProvider])
+  }, [getProviderDetail, selectedDetailService])
 
   const connectProvider = React.useCallback(
     async (provider: ConnectionProviderSummary, authType: Exclude<ConnectionAuthType, null>): Promise<void> => {
       if (authType === "oauth2" || authType === "no_auth") {
         const input: ConnectionConnectInput = { authType, service: provider.service }
-        await connect(input)
+        const ok = await connect(input)
+        if (ok) {
+          detailCacheRef.current.delete(provider.service)
+        }
         return
       }
 
@@ -585,6 +604,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         onSubmit={async (input) => {
           const ok = await connect(input)
           if (ok) {
+            detailCacheRef.current.delete(input.service)
             setDialog(null)
           }
         }}
@@ -598,6 +618,11 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         onConfirm={async (provider) => {
           const ok = await disconnect(provider.service)
           if (ok) {
+            detailCacheRef.current.delete(provider.service)
+            if (detailService === provider.service) {
+              setDetail(null)
+              setDetailService(null)
+            }
             setConfirmDisconnect(null)
           }
         }}

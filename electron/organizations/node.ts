@@ -478,14 +478,14 @@ export class OrganizationsServiceImpl
     }
 
     const inFlight = this.inFlightByKey.get(cacheKey) as Promise<T> | undefined
-    if (inFlight) {
+    if (!forceRefresh && inFlight) {
       return inFlight
     }
 
     const generation = this.cacheGeneration
     const promise = load()
       .then((value) => {
-        if (this.cacheGeneration === generation) {
+        if (this.cacheGeneration === generation && this.inFlightByKey.get(cacheKey) === promise) {
           this.cacheByKey.set(cacheKey, { time: Date.now(), value })
         }
         return value

@@ -222,14 +222,17 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
 
     const inFlight = this.publicSkillPackageCatalogInFlightByKey.get(cacheKey)
-    if (inFlight) {
+    if (!request.forceRefresh && inFlight) {
       return inFlight
     }
 
     const cacheGeneration = this.skillPackageCatalogCacheGeneration
     const promise = readPublicSkillPackageCatalog({ next, size })
       .then((catalog) => {
-        if (this.skillPackageCatalogCacheGeneration === cacheGeneration) {
+        if (
+          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
+          this.publicSkillPackageCatalogInFlightByKey.get(cacheKey) === promise
+        ) {
           this.publicSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
         }
         return catalog
@@ -263,7 +266,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
 
     const inFlight = this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey)
-    if (inFlight) {
+    if (!request.forceRefresh && inFlight) {
       return inFlight
     }
 
@@ -279,7 +282,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       next,
     })
       .then((catalog) => {
-        if (this.skillPackageCatalogCacheGeneration === cacheGeneration) {
+        if (
+          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
+          this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey) === promise
+        ) {
           this.myPublishedSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
         }
         return catalog
@@ -422,7 +428,11 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return this.versionReportCache.report
     }
 
-    if (this.versionReportInFlight?.key === cacheKey && this.versionReportInFlight.generation === cacheGeneration) {
+    if (
+      !request.forceRefresh &&
+      this.versionReportInFlight?.key === cacheKey &&
+      this.versionReportInFlight.generation === cacheGeneration
+    ) {
       return this.versionReportInFlight.promise
     }
 
@@ -881,14 +891,17 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
 
     const inFlight = this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey)
-    if (inFlight) {
+    if (!request.forceRefresh && inFlight) {
       return inFlight
     }
 
     const cacheGeneration = this.skillPackageCatalogCacheGeneration
     const promise = readRegistrySkillPackageInfo(request.packageName, request.account, request.maintainer)
       .then((item) => {
-        if (this.skillPackageCatalogCacheGeneration === cacheGeneration) {
+        if (
+          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
+          this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey) === promise
+        ) {
           this.myPublishedSkillPackageInfoCacheByKey.set(cacheKey, { item, time: Date.now() })
         }
         return item

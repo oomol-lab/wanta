@@ -198,6 +198,19 @@ function buildSessionTitleInput(
   }
 }
 
+function sessionTitleGenerationKey(
+  input: { text: string; attachmentNames?: string[] },
+  allowPlaceholder: boolean,
+  replaceableTitle?: string,
+): string {
+  return JSON.stringify({
+    allowPlaceholder,
+    attachmentNames: input.attachmentNames ?? [],
+    replaceableTitle: replaceableTitle ?? "",
+    text: input.text,
+  })
+}
+
 function createQueuedChatMessage(
   sessionId: string,
   text: string,
@@ -873,6 +886,8 @@ export function AppShell() {
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
+  const titleGenerationInFlightBySession = React.useRef<Map<string, string>>(new Map())
+  const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
 
   React.useEffect(() => {
     sessionsRef.current = sessions
@@ -1122,6 +1137,14 @@ export function AppShell() {
       allowPlaceholder: boolean,
       replaceableTitle?: string,
     ) => {
+      const generationKey = sessionTitleGenerationKey(input, allowPlaceholder, replaceableTitle)
+      if (
+        titleGenerationInFlightBySession.current.get(sessionId) === generationKey ||
+        lastTitleGenerationKeyBySession.current.get(sessionId) === generationKey
+      ) {
+        return
+      }
+
       const current = sessionsRef.current.find((session) => session.id === sessionId)
       if (
         current &&
@@ -1130,6 +1153,8 @@ export function AppShell() {
       ) {
         return
       }
+
+      titleGenerationInFlightBySession.current.set(sessionId, generationKey)
       try {
         const title = await generateTitle(input)
         const latest = sessionsRef.current.find((session) => session.id === sessionId)
@@ -1143,15 +1168,20 @@ export function AppShell() {
         if (title && title !== latest?.title) {
           await rename(sessionId, title)
         }
+        lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
       } catch (error) {
         console.error("[lumo] generate session title failed", error)
+      } finally {
+        if (titleGenerationInFlightBySession.current.get(sessionId) === generationKey) {
+          titleGenerationInFlightBySession.current.delete(sessionId)
+        }
       }
     },
     [generateTitle, rename],
   )
 
   React.useEffect(() => {
-    if (!activeSession || !messagesLoaded || messages.length === 0) {
+    if (!activeSession || status !== "ready" || !messagesLoaded || messages.length === 0) {
       return
     }
     if (!shouldAutoRefreshSessionTitle(activeSession.title, true)) {
@@ -1162,7 +1192,7 @@ export function AppShell() {
       return
     }
     void refreshGeneratedTitle(activeSession.id, titleInput, true, activeSession.title)
-  }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
+  }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle, status])
 
   const sendNow = React.useCallback(
     async (
@@ -1316,6 +1346,8 @@ export function AppShell() {
     lastModelBySession.current.delete(id)
     lastContextMentionsBySession.current.delete(id)
     turnRetryOptionsBySession.current.delete(id)
+    titleGenerationInFlightBySession.current.delete(id)
+    lastTitleGenerationKeyBySession.current.delete(id)
   }
 
   const handleAuthorize = React.useCallback(

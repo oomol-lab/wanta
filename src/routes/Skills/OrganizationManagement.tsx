@@ -90,6 +90,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
+type AsyncResult<T> = { ok: true; value: T } | { error: unknown; ok: false }
+
+function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
+  return promise.then(
+    (value) => ({ ok: true, value }),
+    (error: unknown) => ({ error, ok: false }),
+  )
+}
+
 export function OrganizationManagementRoute() {
   const { t } = useAppI18n()
   const organizationService = useOrganizationsService()
@@ -218,59 +227,114 @@ export function OrganizationManagementRoute() {
   const loadSelectedDetails = React.useCallback(
     async (organization: Organization, role: OrganizationRole | null, options: { forceRefresh?: boolean } = {}) => {
       const requestId = detailsRequestId.current + 1
+      const preserveCurrentData = detailsOrganizationIdRef.current === organization.id
       detailsRequestId.current = requestId
       detailsOrganizationIdRef.current = null
-      setMembersState((current) => loadingState(current))
-      setSummariesState((current) => loadingState(current))
-      setProviderOptionsState(role === "creator" ? (current) => loadingState(current) : loadState([]))
-      setAppAccessState(role === "creator" ? (current) => loadingState(current) : loadState(null))
+      setMembersState((current) => loadingState(preserveCurrentData ? current : loadState([])))
+      setSummariesState((current) => loadingState(preserveCurrentData ? current : loadState({})))
+      setProviderOptionsState(
+        role === "creator" ? (current) => loadingState(preserveCurrentData ? current : loadState([])) : loadState([]),
+      )
+      setAppAccessState(
+        role === "creator"
+          ? (current) => loadingState(preserveCurrentData ? current : loadState(null))
+          : loadState(null),
+      )
 
       try {
-        const members = await organizationService.invoke("listOrganizationMembers", {
-          forceRefresh: options.forceRefresh,
-          orgId: organization.id,
-        })
+        const membersRequest = settle(
+          organizationService.invoke("listOrganizationMembers", {
+            forceRefresh: options.forceRefresh,
+            orgId: organization.id,
+          }),
+        )
+        const providerOptionsRequest =
+          role === "creator"
+            ? settle(
+                organizationService.invoke("listOrganizationProviderOptions", {
+                  forceRefresh: options.forceRefresh,
+                  organizationName: organization.name,
+                }),
+              )
+            : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: [] })
+        const appAccessRequest =
+          role === "creator"
+            ? settle(
+                organizationService.invoke("getOrganizationAppAccess", {
+                  forceRefresh: options.forceRefresh,
+                  orgId: organization.id,
+                }),
+              )
+            : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
+
+        const membersResult = await membersRequest
         if (detailsRequestId.current !== requestId) {
           return
         }
+        if (!membersResult.ok) {
+          setMembersState((current) => errorState(current, membersResult.error))
+          setSummariesState((current) => errorState(current, membersResult.error))
+          return
+        }
+
+        const members = membersResult.value
         setMembersState(readyState(members))
 
         const userIds = uniqueStrings(members.map((member) => member.user_id))
-        const summaries =
+        const summariesRequest =
           userIds.length > 0
-            ? await organizationService.invoke("listUserSummaries", {
-                forceRefresh: options.forceRefresh,
-                userIds,
-              })
-            : {}
-        if (detailsRequestId.current !== requestId) {
-          return
-        }
-        setSummariesState(readyState(summaries))
+            ? settle(
+                organizationService.invoke("listUserSummaries", {
+                  forceRefresh: options.forceRefresh,
+                  userIds,
+                }),
+              )
+            : Promise.resolve<AsyncResult<Record<string, OrganizationUserSummary>>>({ ok: true, value: {} })
+        const detailTasks = [
+          summariesRequest.then((summariesResult) => {
+            if (detailsRequestId.current !== requestId) {
+              return
+            }
+            if (summariesResult.ok) {
+              setSummariesState(readyState(summariesResult.value))
+            } else {
+              setSummariesState((current) => errorState(current, summariesResult.error))
+            }
+          }),
+        ]
 
         if (role !== "creator") {
           setProviderOptionsState(loadState([]))
           setAppAccessState(loadState(null))
-          detailsOrganizationIdRef.current = organization.id
-          return
+        } else {
+          detailTasks.push(
+            providerOptionsRequest.then((providerOptionsResult) => {
+              if (detailsRequestId.current !== requestId) {
+                return
+              }
+              if (providerOptionsResult.ok) {
+                setProviderOptionsState(readyState(providerOptionsResult.value))
+              } else {
+                setProviderOptionsState((current) => errorState(current, providerOptionsResult.error))
+              }
+            }),
+            appAccessRequest.then((appAccessResult) => {
+              if (detailsRequestId.current !== requestId) {
+                return
+              }
+              if (appAccessResult.ok) {
+                setAppAccessState(readyState(appAccessResult.value))
+              } else {
+                setAppAccessState((current) => errorState(current, appAccessResult.error))
+              }
+            }),
+          )
         }
 
-        const [providerOptions, appAccess] = await Promise.all([
-          organizationService.invoke("listOrganizationProviderOptions", {
-            forceRefresh: options.forceRefresh,
-            organizationName: organization.name,
-          }),
-          organizationService.invoke("getOrganizationAppAccess", {
-            forceRefresh: options.forceRefresh,
-            orgId: organization.id,
-          }),
-        ])
-        if (detailsRequestId.current !== requestId) {
-          return
+        await Promise.all(detailTasks)
+        if (detailsRequestId.current === requestId) {
+          detailsOrganizationIdRef.current = organization.id
         }
-        setProviderOptionsState(readyState(providerOptions))
-        setAppAccessState(readyState(appAccess))
-        detailsOrganizationIdRef.current = organization.id
       } catch (error) {
         if (detailsRequestId.current !== requestId) {
           return
@@ -984,7 +1048,7 @@ function OrganizationDetailPanel({
         <MiniStat
           icon={<UsersIcon className="size-4" />}
           label={t("organizations.memberCount")}
-          value={String(members.length)}
+          value={membersLoading ? "..." : String(members.length)}
         />
         <MiniStat
           icon={<ShieldCheckIcon className="size-4" />}

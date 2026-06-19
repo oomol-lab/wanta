@@ -388,6 +388,7 @@ export function SkillsRoute() {
   React.useEffect(() => {
     if (
       activeTab !== "discover" ||
+      discoveryFilter !== "mine" ||
       authResource.data?.status !== "authenticated" ||
       myPublishedPackageCatalog.items.length > 0 ||
       myPublishedPackageCatalog.status !== "idle"
@@ -399,6 +400,7 @@ export function SkillsRoute() {
   }, [
     activeTab,
     authResource.data?.status,
+    discoveryFilter,
     loadMyPublishedSkillPackages,
     myPublishedPackageCatalog.items.length,
     myPublishedPackageCatalog.status,

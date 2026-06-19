@@ -9,6 +9,8 @@ import type {
   ListPublicSkillPackagesRequest,
   OpenSkillPathRequest,
   PublicSkillPackageCatalog,
+  PublishSkillRequest,
+  PublishSkillResult,
   SkillInventoryChangedEvent,
   SkillInventory,
   SkillCliVersionCheck,
@@ -41,6 +43,7 @@ import {
   createFailedRegistrySkillVersionCheck,
   createFailedSkillVersionCheck,
   createInstallRegistrySkillArgs,
+  createPublishSkillArgs,
   normalizePublicSkillPackageCatalog,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
@@ -262,6 +265,20 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     if (error) {
       throw new Error(error)
+    }
+  }
+
+  public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
+    const skillPath = await this.resolveAllowedSkillPath(request.path)
+    const result = await this.runOoCommand(createPublishSkillArgs({ ...request, path: skillPath }), {
+      owner: "skill-service",
+    })
+    this.invalidateVersionReport()
+    this.notifyRuntimeSkillsChanged("publish-skill")
+
+    return {
+      inventory: await this.readAndPublishSkillInventory(),
+      message: result.stdout.trim(),
     }
   }
 

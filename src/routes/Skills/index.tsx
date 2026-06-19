@@ -202,6 +202,17 @@ function shouldUpdatePublishedSkill(group: ManagedSkillGroup): boolean {
   return group.kind === "registry" && Boolean(group.packageName?.trim()) && getInstalledHostCount(group) > 0
 }
 
+function getLocalSkillPublishPath(group: ManagedSkillGroup): string | undefined {
+  if (group.kind !== "local") {
+    return undefined
+  }
+
+  const publishHost = getRuntimeHosts(group).find(
+    (host) => host.status === "installed" && (host.sourcePath || host.path),
+  )
+  return publishHost?.sourcePath ?? publishHost?.path
+}
+
 function getSkillVersionCheckKey(skillId: string, packageName: string | undefined): string {
   return `${skillId}\0${packageName ?? ""}`
 }
@@ -691,11 +702,13 @@ export function SkillsRoute() {
   const [installingRegistryResultId, setInstallingRegistryResultId] = React.useState<string | null>(null)
   const [planError, setPlanError] = React.useState<string | null>(null)
   const [installingBuiltInSkillId, setInstallingBuiltInSkillId] = React.useState<BuiltInSkillId | null>(null)
+  const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [isCheckingVersions, setIsCheckingVersions] = React.useState(false)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const installBuiltInInFlightRef = React.useRef(false)
+  const publishSkillInFlightRef = React.useRef(false)
   const updateRegistryInFlightRef = React.useRef(false)
   const cliUpdateInFlightRef = React.useRef(false)
   const installRegistryInFlightRef = React.useRef(false)
@@ -928,6 +941,43 @@ export function SkillsRoute() {
     [homeSummaryResource, inventoryResource, skillService, versionResource],
   )
 
+  const publishSkill = React.useCallback(
+    async (skill: ManagedSkillGroup) => {
+      if (publishSkillInFlightRef.current) {
+        return
+      }
+
+      const skillPath = getLocalSkillPublishPath(skill)
+      if (!skillPath) {
+        toast.error(t("skills.publishNoLocalPath"))
+        return
+      }
+
+      publishSkillInFlightRef.current = true
+      setPublishingSkillId(skill.id)
+      setPlanError(null)
+
+      try {
+        const result = await skillService.invoke("publishSkill", {
+          path: skillPath,
+          visibility: "public",
+        })
+        inventoryResource.setData(result.inventory)
+        await versionResource.refresh({ forceRefresh: true, silent: true }).catch(() => {})
+        homeSummaryResource.invalidate()
+        toast.success(t("skills.publishDone", { name: skill.name }))
+      } catch (cause) {
+        const message = skillErrorMessage(cause, t)
+        setPlanError(message)
+        toast.error(t("skills.publishFailed", { error: message }))
+      } finally {
+        publishSkillInFlightRef.current = false
+        setPublishingSkillId(null)
+      }
+    },
+    [homeSummaryResource, inventoryResource, skillService, t, versionResource],
+  )
+
   const checkVersions = React.useCallback(async () => {
     if (isCheckingVersions) {
       return
@@ -984,6 +1034,8 @@ export function SkillsRoute() {
     inventoryInitialLoading: inventoryResource.isInitialLoading,
     isBuiltInSelected,
     openSkillFolder,
+    publishSkill,
+    publishingSkillId,
     selectedInstalledHostCount,
     selectedPlanError: planError,
     selectedSkill,
@@ -1109,6 +1161,8 @@ interface SkillDetailContentProps {
   inventoryInitialLoading: boolean
   isBuiltInSelected: boolean
   openSkillFolder: (pathname: string) => void
+  publishSkill: (skill: ManagedSkillGroup) => Promise<void>
+  publishingSkillId: string | null
   selectedInstalledHostCount: number
   selectedPlanError: string | null
   selectedSkill: ManagedSkillGroup | undefined
@@ -1128,6 +1182,8 @@ function SkillDetailContent({
   inventoryInitialLoading,
   isBuiltInSelected,
   openSkillFolder,
+  publishSkill,
+  publishingSkillId,
   selectedInstalledHostCount,
   selectedPlanError,
   selectedSkill,
@@ -1162,6 +1218,8 @@ function SkillDetailContent({
         copySkillPath={copySkillPath}
         openSkillFolder={openSkillFolder}
         planError={selectedPlanError}
+        publishSkill={publishSkill}
+        publishingSkillId={publishingSkillId}
         selectedInstalledHostCount={selectedInstalledHostCount}
         selectedSkill={selectedSkill}
         selectedStatus={selectedStatus}
@@ -2096,6 +2154,8 @@ interface SkillPeekProps {
   installingBuiltInSkillId: BuiltInSkillId | null
   openSkillFolder: (pathname: string) => void
   planError: string | null
+  publishSkill: (skill: ManagedSkillGroup) => Promise<void>
+  publishingSkillId: string | null
   selectedInstalledHostCount: number
   selectedSkill: ManagedSkillGroup
   selectedStatus: ReturnType<typeof getGroupStatus>
@@ -2213,6 +2273,8 @@ function SkillPeek({
   installingBuiltInSkillId,
   openSkillFolder,
   planError,
+  publishSkill,
+  publishingSkillId,
   selectedInstalledHostCount,
   selectedSkill,
   selectedStatus,
@@ -2230,6 +2292,9 @@ function SkillPeek({
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
   const isUpdatingRegistrySkill = updatingRegistrySkillId === selectedSkill.id
   const canDeleteSkill = !selectedSkill.isBuiltIn && selectedInstalledHostCount > 0
+  const localPublishPath = getLocalSkillPublishPath(selectedSkill)
+  const canPublishLocalSkill = Boolean(localPublishPath)
+  const isPublishingSkill = publishingSkillId === selectedSkill.id
   const hostAttentionCount = allHosts.filter(
     (host) => host.controlState === "modified" || host.controlState === "source-missing",
   ).length
@@ -2282,6 +2347,9 @@ function SkillPeek({
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             {ooRelatedLabel ? <OoRelatedBadge label={ooRelatedLabel} /> : null}
             <Badge variant="secondary">{getSkillKindLabel(selectedSkill.kind, t)}</Badge>
+            {selectedSkill.kind === "local" && !selectedSkill.packageName?.trim() ? (
+              <Badge variant="outline">{t("skills.visibility.unpublished")}</Badge>
+            ) : null}
             {hasPublishedUpdate && canUpdatePublishedSkill ? (
               <SkillUpdateActionBadge
                 ariaLabel={t("skills.updateRegistryToVersion", {
@@ -2314,6 +2382,22 @@ function SkillPeek({
               >
                 {isInstallingBuiltInSkill ? <AppIcons.status.loading className="animate-spin" /> : null}
                 {isInstallingBuiltInSkill ? t("skills.installingBuiltIn") : t("skills.installBuiltIn")}
+              </Button>
+            ) : null}
+            {canPublishLocalSkill ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isPublishingSkill}
+                onClick={() => void publishSkill(selectedSkill)}
+              >
+                {isPublishingSkill ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.publish />}
+                {isPublishingSkill
+                  ? t("skills.publishing")
+                  : selectedSkill.packageName?.trim()
+                    ? t("skills.republishToMarket")
+                    : t("skills.publishToMarket")}
               </Button>
             ) : null}
           </div>

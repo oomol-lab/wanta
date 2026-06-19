@@ -8,6 +8,7 @@ import {
   createDeleteSkillArgs,
   createFailedRegistrySkillVersionCheck,
   createInstallRegistrySkillArgs,
+  createPublishSkillArgs,
   createRegistrySkillVersionCheck,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
@@ -217,6 +218,17 @@ test("createUpdateRegistrySkillArgs updates registry skills as json", () => {
     "--json",
   ])
   assert.throws(() => createUpdateRegistrySkillArgs({ skillId: " " }), /skillId is required/)
+})
+
+test("createPublishSkillArgs publishes a Skill path non-interactively", () => {
+  assert.deepEqual(createPublishSkillArgs({ path: "/tmp/demo", visibility: "public" }), [
+    "skills",
+    "publish",
+    "/tmp/demo",
+    "-y",
+    "--visibility",
+    "public",
+  ])
 })
 
 test("createRegistrySkillVersionCheck detects exact package update", () => {

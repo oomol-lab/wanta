@@ -11,7 +11,7 @@ import type {
 
 import { builtInSkillIds } from "./constants.ts"
 
-type SkillOperationCommand = "skills.install" | "skills.uninstall" | "skills.update"
+type SkillOperationCommand = "skills.install" | "skills.publish" | "skills.uninstall" | "skills.update"
 
 type SkillOperationStatus = "completed" | "failed" | "noop" | "partial-failure"
 
@@ -640,6 +640,16 @@ export function createUpdateRegistrySkillArgs(request: { packageName?: string; s
   }
 
   args.push("--json")
+  return args
+}
+
+export function createPublishSkillArgs(request: { path: string; visibility?: "public" }): string[] {
+  const args = ["skills", "publish", asRequiredCommandValue(request.path, "path"), "-y"]
+
+  if (request.visibility) {
+    args.push("--visibility", request.visibility)
+  }
+
   return args
 }
 

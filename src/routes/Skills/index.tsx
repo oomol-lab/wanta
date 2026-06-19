@@ -750,7 +750,7 @@ export function SkillsRoute() {
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
   )
-  const [ownedPackageCatalog, dispatchOwnedPackageCatalog] = React.useReducer(
+  const [myPublishedPackageCatalog, dispatchMyPublishedPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
   )
@@ -769,7 +769,7 @@ export function SkillsRoute() {
   const installRegistryInFlightRef = React.useRef(false)
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
-  const ownedPackageRequestIdRef = React.useRef(0)
+  const myPublishedPackageRequestIdRef = React.useRef(0)
   const { copySkillPath, openSkillFolder } = useSkillObjectActions()
 
   React.useEffect(() => {
@@ -875,19 +875,22 @@ export function SkillsRoute() {
     [skillService],
   )
 
-  const loadOwnedSkillPackages = React.useCallback(
-    async (options: { forceRefresh?: boolean } = {}) => {
-      const requestId = ownedPackageRequestIdRef.current + 1
-      ownedPackageRequestIdRef.current = requestId
-      dispatchOwnedPackageCatalog({ append: false, requestId, type: "load-start" })
+  const loadMyPublishedSkillPackages = React.useCallback(
+    async (options: { forceRefresh?: boolean; next?: string | null } = {}) => {
+      const next = options.next?.trim() || undefined
+      const append = Boolean(next && !options.forceRefresh)
+      const requestId = myPublishedPackageRequestIdRef.current + 1
+      myPublishedPackageRequestIdRef.current = requestId
+      dispatchMyPublishedPackageCatalog({ append, requestId, type: "load-start" })
 
       try {
-        const catalog = await skillService.invoke("listOwnedSkillPackages", {
+        const catalog = await skillService.invoke("listMyPublishedSkillPackages", {
           forceRefresh: options.forceRefresh,
+          next,
         })
-        dispatchOwnedPackageCatalog({ append: false, catalog, requestId, type: "load-success" })
+        dispatchMyPublishedPackageCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (cause) {
-        dispatchOwnedPackageCatalog({
+        dispatchMyPublishedPackageCatalog({
           error: cause instanceof Error ? cause.message : String(cause),
           requestId,
           type: "load-error",
@@ -919,27 +922,25 @@ export function SkillsRoute() {
   React.useEffect(() => {
     if (
       activeTab !== "discover" ||
-      discoveryFilter !== "mine" ||
       authResource.data?.status !== "authenticated" ||
-      ownedPackageCatalog.items.length > 0 ||
-      ownedPackageCatalog.status !== "idle"
+      myPublishedPackageCatalog.items.length > 0 ||
+      myPublishedPackageCatalog.status !== "idle"
     ) {
       return
     }
 
-    void loadOwnedSkillPackages().catch(() => undefined)
+    void loadMyPublishedSkillPackages().catch(() => undefined)
   }, [
     activeTab,
     authResource.data?.status,
-    discoveryFilter,
-    loadOwnedSkillPackages,
-    ownedPackageCatalog.items.length,
-    ownedPackageCatalog.status,
+    loadMyPublishedSkillPackages,
+    myPublishedPackageCatalog.items.length,
+    myPublishedPackageCatalog.status,
   ])
 
-  const activePackageCatalog = discoveryFilter === "mine" ? ownedPackageCatalog : publicPackageCatalog
+  const activePackageCatalog = discoveryFilter === "mine" ? myPublishedPackageCatalog : publicPackageCatalog
   const activePackageDispatcher =
-    discoveryFilter === "mine" ? dispatchOwnedPackageCatalog : dispatchPublicPackageCatalog
+    discoveryFilter === "mine" ? dispatchMyPublishedPackageCatalog : dispatchPublicPackageCatalog
   const filteredPublicPackages = React.useMemo(() => {
     const normalizedQuery = discoveryQuery.trim().toLowerCase()
     return activePackageCatalog.items.filter((pkg) => matchesPublicPackageQuery(pkg, normalizedQuery))
@@ -1078,6 +1079,10 @@ export function SkillsRoute() {
         await versionResource.refresh({ forceRefresh: true, silent: true }).catch(() => {})
         homeSummaryResource.invalidate()
         toast.success(t("skills.publishDone", { name: skill.name }))
+        void loadMyPublishedSkillPackages({ forceRefresh: true }).catch(() => undefined)
+        if (publicPackageCatalog.items.length > 0) {
+          void loadPublicSkillPackages({ forceRefresh: true }).catch(() => undefined)
+        }
       } catch (cause) {
         const message = skillErrorMessage(cause, t)
         setPlanError(message)
@@ -1087,7 +1092,16 @@ export function SkillsRoute() {
         setPublishingSkillId(null)
       }
     },
-    [homeSummaryResource, inventoryResource, skillService, t, versionResource],
+    [
+      homeSummaryResource,
+      inventoryResource,
+      loadMyPublishedSkillPackages,
+      loadPublicSkillPackages,
+      publicPackageCatalog.items.length,
+      skillService,
+      t,
+      versionResource,
+    ],
   )
 
   const checkVersions = React.useCallback(async () => {
@@ -1171,7 +1185,7 @@ export function SkillsRoute() {
           onDiscoveryQueryChange={setDiscoveryQuery}
           onDiscoveryRefresh={() =>
             void (discoveryFilter === "mine" && authResource.data?.status === "authenticated"
-              ? loadOwnedSkillPackages({ forceRefresh: true })
+              ? loadMyPublishedSkillPackages({ forceRefresh: true })
               : loadPublicSkillPackages({ forceRefresh: true }))
           }
           onInstalledQueryChange={setQuery}
@@ -1195,7 +1209,11 @@ export function SkillsRoute() {
             onClosePackage={() => activePackageDispatcher({ id: null, type: "select" })}
             onFilterChange={setDiscoveryFilter}
             onInstall={installPublicSkill}
-            onLoadMore={() => void loadPublicSkillPackages({ next: activePackageCatalog.next })}
+            onLoadMore={() =>
+              void (discoveryFilter === "mine"
+                ? loadMyPublishedSkillPackages({ next: activePackageCatalog.next })
+                : loadPublicSkillPackages({ next: activePackageCatalog.next }))
+            }
             onOpenManagedSkill={openManagedPublicSkill}
             onSelectPackage={(pkg) => activePackageDispatcher({ id: pkg.id, type: "select" })}
           />

@@ -24,6 +24,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import { useOrganizationsService } from "@/components/AppContext"
+import { useAuthStateResource } from "@/components/AppDataHooks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -96,10 +97,22 @@ interface MemberSearchState {
   query: string
 }
 
+interface OrganizationManagementSnapshot {
+  appAccessState: LoadState<OrganizationAppAccess | null>
+  detailsOrganizationId: string | null
+  membersState: LoadState<OrganizationMember[]>
+  overviewState: LoadState<OrganizationOverview | null>
+  providerOptionsState: LoadState<OrganizationProviderOption[]>
+  savedAt: number
+  selectedOrganizationId: string | null
+  summariesState: LoadState<Record<string, OrganizationUserSummary>>
+}
+
 const maxOrganizationNameLength = 100
 const maxOrganizationAvatarLength = 4095
 const organizationNamePattern = /^[A-Za-z0-9._-]+$/
 const minimumMemberSearchLength = 2
+const organizationPageSnapshotTtlMs = 30_000
 const selectedOrganizationStorageKeyPrefix = "lumo:organization-management:selected-organization:"
 
 const initialProviderAccessForm: ProviderAccessForm = {
@@ -109,6 +122,8 @@ const initialProviderAccessForm: ProviderAccessForm = {
   providers: [],
   userId: "",
 }
+
+const organizationManagementSnapshotsByAccountId = new Map<string, OrganizationManagementSnapshot>()
 
 function loadState<T>(data: T): LoadState<T> {
   return { data, error: null, status: "idle" }
@@ -124,6 +139,24 @@ function errorState<T>(current: LoadState<T>, error: unknown): LoadState<T> {
 
 function readyState<T>(data: T): LoadState<T> {
   return { data, error: null, status: "ready" }
+}
+
+function readOrganizationManagementSnapshot(accountId: string | undefined): OrganizationManagementSnapshot | undefined {
+  if (!accountId) {
+    return undefined
+  }
+
+  const snapshot = organizationManagementSnapshotsByAccountId.get(accountId)
+  if (!snapshot) {
+    return undefined
+  }
+
+  if (Date.now() - snapshot.savedAt > organizationPageSnapshotTtlMs) {
+    organizationManagementSnapshotsByAccountId.delete(accountId)
+    return undefined
+  }
+
+  return snapshot
 }
 
 function selectedOrganizationStorageKey(accountId: string): string {
@@ -271,16 +304,27 @@ function providerOptionsWithSelected(
 export function OrganizationManagementRoute() {
   const { t } = useAppI18n()
   const organizationService = useOrganizationsService()
-  const [overviewState, setOverviewState] = React.useState<LoadState<OrganizationOverview | null>>(loadState(null))
-  const [selectedOrganizationId, setSelectedOrganizationId] = React.useState<string | null>(null)
-  const [membersState, setMembersState] = React.useState<LoadState<OrganizationMember[]>>(loadState([]))
+  const authResource = useAuthStateResource()
+  const activeAccountId = authResource.data?.status === "authenticated" ? authResource.data.account?.id : undefined
+  const initialSnapshot = readOrganizationManagementSnapshot(activeAccountId)
+  const [overviewState, setOverviewState] = React.useState<LoadState<OrganizationOverview | null>>(
+    () => initialSnapshot?.overviewState ?? loadState(null),
+  )
+  const [selectedOrganizationId, setSelectedOrganizationId] = React.useState<string | null>(
+    () => initialSnapshot?.selectedOrganizationId ?? null,
+  )
+  const [membersState, setMembersState] = React.useState<LoadState<OrganizationMember[]>>(
+    () => initialSnapshot?.membersState ?? loadState([]),
+  )
   const [summariesState, setSummariesState] = React.useState<LoadState<Record<string, OrganizationUserSummary>>>(
-    loadState({}),
+    () => initialSnapshot?.summariesState ?? loadState({}),
   )
   const [providerOptionsState, setProviderOptionsState] = React.useState<LoadState<OrganizationProviderOption[]>>(
-    loadState([]),
+    () => initialSnapshot?.providerOptionsState ?? loadState([]),
   )
-  const [appAccessState, setAppAccessState] = React.useState<LoadState<OrganizationAppAccess | null>>(loadState(null))
+  const [appAccessState, setAppAccessState] = React.useState<LoadState<OrganizationAppAccess | null>>(
+    () => initialSnapshot?.appAccessState ?? loadState(null),
+  )
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [createName, setCreateName] = React.useState("")
@@ -298,6 +342,11 @@ export function OrganizationManagementRoute() {
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
   const overviewRequestId = React.useRef(0)
   const detailsRequestId = React.useRef(0)
+  const detailsOrganizationIdRef = React.useRef<string | null>(initialSnapshot?.detailsOrganizationId ?? null)
+  const skipInitialDetailsLoadRef = React.useRef(
+    Boolean(initialSnapshot?.detailsOrganizationId && initialSnapshot.detailsOrganizationId === selectedOrganizationId),
+  )
+  const skipInitialOrganizationsLoadRef = React.useRef(Boolean(initialSnapshot))
   const memberSearchRequestId = React.useRef(0)
 
   const organizations = React.useMemo(() => allOrganizations(overviewState.data), [overviewState.data])
@@ -341,55 +390,70 @@ export function OrganizationManagementRoute() {
     }
   }, [createDuplicated, createName, t])
 
-  const loadOrganizations = React.useCallback(async () => {
-    const requestId = overviewRequestId.current + 1
-    overviewRequestId.current = requestId
-    setOverviewState((current) => loadingState(current))
-    try {
-      const overview = await organizationService.invoke("getOrganizationOverview")
-      if (overviewRequestId.current !== requestId) {
-        return
-      }
-      setOverviewState(readyState(overview))
-      setSelectedOrganizationId((current) => {
-        const listedOrganizations = allOrganizations(overview)
-        if (current && listedOrganizations.some((organization) => organization.id === current)) {
-          return current
+  const loadOrganizations = React.useCallback(
+    async (options: { forceRefresh?: boolean } = {}) => {
+      const requestId = overviewRequestId.current + 1
+      overviewRequestId.current = requestId
+      setOverviewState((current) => loadingState(current))
+      try {
+        const overview = await organizationService.invoke("getOrganizationOverview", {
+          forceRefresh: options.forceRefresh,
+        })
+        if (overviewRequestId.current !== requestId) {
+          return
         }
-        const storedOrganizationId = readSelectedOrganizationId(overview.accountId)
-        if (
-          storedOrganizationId &&
-          listedOrganizations.some((organization) => organization.id === storedOrganizationId)
-        ) {
-          return storedOrganizationId
+        setOverviewState(readyState(overview))
+        setSelectedOrganizationId((current) => {
+          const listedOrganizations = allOrganizations(overview)
+          if (current && listedOrganizations.some((organization) => organization.id === current)) {
+            return current
+          }
+          const storedOrganizationId = readSelectedOrganizationId(overview.accountId)
+          if (
+            storedOrganizationId &&
+            listedOrganizations.some((organization) => organization.id === storedOrganizationId)
+          ) {
+            return storedOrganizationId
+          }
+          return listedOrganizations[0]?.id ?? null
+        })
+      } catch (error) {
+        if (overviewRequestId.current === requestId) {
+          setOverviewState((current) => errorState(current, error))
         }
-        return listedOrganizations[0]?.id ?? null
-      })
-    } catch (error) {
-      if (overviewRequestId.current === requestId) {
-        setOverviewState((current) => errorState(current, error))
       }
-    }
-  }, [organizationService])
+    },
+    [organizationService],
+  )
 
   const loadSelectedDetails = React.useCallback(
-    async (organization: Organization, role: OrganizationRole | null) => {
+    async (organization: Organization, role: OrganizationRole | null, options: { forceRefresh?: boolean } = {}) => {
       const requestId = detailsRequestId.current + 1
       detailsRequestId.current = requestId
+      detailsOrganizationIdRef.current = null
       setMembersState((current) => loadingState(current))
       setSummariesState((current) => loadingState(current))
       setProviderOptionsState(role === "creator" ? (current) => loadingState(current) : loadState([]))
       setAppAccessState(role === "creator" ? (current) => loadingState(current) : loadState(null))
 
       try {
-        const members = await organizationService.invoke("listOrganizationMembers", { orgId: organization.id })
+        const members = await organizationService.invoke("listOrganizationMembers", {
+          forceRefresh: options.forceRefresh,
+          orgId: organization.id,
+        })
         if (detailsRequestId.current !== requestId) {
           return
         }
         setMembersState(readyState(members))
 
         const userIds = uniqueStrings(members.map((member) => member.user_id))
-        const summaries = userIds.length > 0 ? await organizationService.invoke("listUserSummaries", { userIds }) : {}
+        const summaries =
+          userIds.length > 0
+            ? await organizationService.invoke("listUserSummaries", {
+                forceRefresh: options.forceRefresh,
+                userIds,
+              })
+            : {}
         if (detailsRequestId.current !== requestId) {
           return
         }
@@ -398,18 +462,26 @@ export function OrganizationManagementRoute() {
         if (role !== "creator") {
           setProviderOptionsState(loadState([]))
           setAppAccessState(loadState(null))
+          detailsOrganizationIdRef.current = organization.id
           return
         }
 
         const [providerOptions, appAccess] = await Promise.all([
-          organizationService.invoke("listOrganizationProviderOptions", { organizationName: organization.name }),
-          organizationService.invoke("getOrganizationAppAccess", { orgId: organization.id }),
+          organizationService.invoke("listOrganizationProviderOptions", {
+            forceRefresh: options.forceRefresh,
+            organizationName: organization.name,
+          }),
+          organizationService.invoke("getOrganizationAppAccess", {
+            forceRefresh: options.forceRefresh,
+            orgId: organization.id,
+          }),
         ])
         if (detailsRequestId.current !== requestId) {
           return
         }
         setProviderOptionsState(readyState(providerOptions))
         setAppAccessState(readyState(appAccess))
+        detailsOrganizationIdRef.current = organization.id
       } catch (error) {
         if (detailsRequestId.current !== requestId) {
           return
@@ -426,6 +498,55 @@ export function OrganizationManagementRoute() {
   )
 
   React.useEffect(() => {
+    const snapshot = readOrganizationManagementSnapshot(activeAccountId)
+    if (!activeAccountId || !snapshot || overviewState.data?.accountId === activeAccountId) {
+      return
+    }
+
+    setOverviewState(snapshot.overviewState)
+    setSelectedOrganizationId(snapshot.selectedOrganizationId)
+    setMembersState(snapshot.membersState)
+    setSummariesState(snapshot.summariesState)
+    setProviderOptionsState(snapshot.providerOptionsState)
+    setAppAccessState(snapshot.appAccessState)
+    detailsOrganizationIdRef.current = snapshot.detailsOrganizationId
+    skipInitialOrganizationsLoadRef.current = true
+    skipInitialDetailsLoadRef.current = Boolean(
+      snapshot.detailsOrganizationId && snapshot.detailsOrganizationId === snapshot.selectedOrganizationId,
+    )
+  }, [activeAccountId, overviewState.data?.accountId])
+
+  React.useEffect(() => {
+    if (!activeAccountId || overviewState.data?.accountId !== activeAccountId) {
+      return
+    }
+
+    organizationManagementSnapshotsByAccountId.set(activeAccountId, {
+      appAccessState,
+      detailsOrganizationId: detailsOrganizationIdRef.current,
+      membersState,
+      overviewState,
+      providerOptionsState,
+      savedAt: Date.now(),
+      selectedOrganizationId,
+      summariesState,
+    })
+  }, [
+    activeAccountId,
+    appAccessState,
+    membersState,
+    overviewState,
+    providerOptionsState,
+    selectedOrganizationId,
+    summariesState,
+  ])
+
+  React.useEffect(() => {
+    if (skipInitialOrganizationsLoadRef.current) {
+      skipInitialOrganizationsLoadRef.current = false
+      return
+    }
+
     void loadOrganizations()
   }, [loadOrganizations])
 
@@ -456,14 +577,22 @@ export function OrganizationManagementRoute() {
   React.useEffect(() => {
     if (!selectedOrganization) {
       detailsRequestId.current += 1
+      detailsOrganizationIdRef.current = null
       setMembersState(loadState([]))
       setSummariesState(loadState({}))
       setProviderOptionsState(loadState([]))
       setAppAccessState(loadState(null))
       return
     }
+
+    if (skipInitialDetailsLoadRef.current && detailsOrganizationIdRef.current === selectedOrganization.id) {
+      skipInitialDetailsLoadRef.current = false
+      return
+    }
+
+    skipInitialDetailsLoadRef.current = false
     void loadSelectedDetails(selectedOrganization, selectedRole)
-  }, [loadSelectedDetails, selectedOrganization, selectedRole])
+  }, [loadSelectedDetails, selectedOrganization?.id, selectedOrganization?.name, selectedRole])
 
   React.useEffect(() => {
     const query = memberInput.trim()
@@ -534,7 +663,7 @@ export function OrganizationManagementRoute() {
         setCreateAvatar("")
         setCreateDuplicated(false)
         setSelectedOrganizationId(organization.id)
-        await loadOrganizations()
+        await loadOrganizations({ forceRefresh: true })
       } catch (error) {
         if (isConflictError(error)) {
           setCreateDuplicated(true)
@@ -551,7 +680,7 @@ export function OrganizationManagementRoute() {
 
   const reloadMembersAndAccess = React.useCallback(async () => {
     if (selectedOrganization) {
-      await loadSelectedDetails(selectedOrganization, selectedRole)
+      await loadSelectedDetails(selectedOrganization, selectedRole, { forceRefresh: true })
     }
   }, [loadSelectedDetails, selectedOrganization, selectedRole])
 
@@ -663,7 +792,10 @@ export function OrganizationManagementRoute() {
 
       setBusyAction("saveProviderAccess")
       try {
-        const latest = await organizationService.invoke("getOrganizationAppAccess", { orgId: selectedOrganization.id })
+        const latest = await organizationService.invoke("getOrganizationAppAccess", {
+          forceRefresh: true,
+          orgId: selectedOrganization.id,
+        })
         const parsed = parseProviderGrants(latest)
         if (!parsed.ok) {
           toast.error(t("organizations.providerAccessLoadFailed"))
@@ -704,7 +836,10 @@ export function OrganizationManagementRoute() {
 
       setBusyAction(`revokeProviderAccess:${grant.userId}`)
       try {
-        const latest = await organizationService.invoke("getOrganizationAppAccess", { orgId: selectedOrganization.id })
+        const latest = await organizationService.invoke("getOrganizationAppAccess", {
+          forceRefresh: true,
+          orgId: selectedOrganization.id,
+        })
         const parsed = parseProviderGrants(latest)
         if (!parsed.ok) {
           toast.error(t("organizations.providerAccessLoadFailed"))
@@ -730,38 +865,44 @@ export function OrganizationManagementRoute() {
       <div className="h-full min-h-0 overflow-auto px-3 py-3">
         {showOverviewError ? (
           <div className="flex min-h-full items-center justify-center px-4 py-10">
-            <ErrorBlock error={overviewState.error ?? ""} onRetry={() => void loadOrganizations()} />
+            <ErrorBlock
+              error={overviewState.error ?? ""}
+              onRetry={() => void loadOrganizations({ forceRefresh: true })}
+            />
           </div>
         ) : showOrganizationEmptyState ? (
           <EmptyOrganizationsState onCreate={() => setCreateOpen(true)} />
         ) : (
           <div className="grid min-w-0 items-start gap-3">
-            <OrganizationSwitcherPanel
-              loading={showOverviewLoading}
-              organizations={organizations}
-              overview={overviewState.data}
-              selectedOrganization={selectedOrganization}
-              selectedOrganizationId={selectedOrganizationId}
-              onCreate={() => setCreateOpen(true)}
-              onSelect={setSelectedOrganizationId}
-            />
-            {showOverviewLoading ? null : (
-              <OrganizationDetailPanel
-                appAccessLoading={appAccessState.status === "loading" || providerOptionsState.status === "loading"}
-                busyAction={busyAction}
-                canManage={canManage}
-                grantsByUserId={grantsByUserId}
-                members={memberViews}
-                membersError={membersState.error}
-                membersLoading={membersState.status === "loading"}
-                organization={selectedOrganization}
-                providerAccessError={providerAccessError}
-                onAddMember={() => setAddMemberOpen(true)}
-                onEditProviderAccess={openEditProviderAccess}
-                onGrantProviderAccess={openGrantProviderAccess}
-                onRemoveMember={handleRemoveMember}
-                onRevokeProviderAccess={handleRevokeProviderAccess}
-              />
+            {showOverviewLoading ? (
+              <OrganizationManagementSkeleton />
+            ) : (
+              <>
+                <OrganizationSwitcherPanel
+                  organizations={organizations}
+                  overview={overviewState.data}
+                  selectedOrganization={selectedOrganization}
+                  selectedOrganizationId={selectedOrganizationId}
+                  onCreate={() => setCreateOpen(true)}
+                  onSelect={setSelectedOrganizationId}
+                />
+                <OrganizationDetailPanel
+                  appAccessLoading={appAccessState.status === "loading" || providerOptionsState.status === "loading"}
+                  busyAction={busyAction}
+                  canManage={canManage}
+                  grantsByUserId={grantsByUserId}
+                  members={memberViews}
+                  membersError={membersState.error}
+                  membersLoading={membersState.status === "loading"}
+                  organization={selectedOrganization}
+                  providerAccessError={providerAccessError}
+                  onAddMember={() => setAddMemberOpen(true)}
+                  onEditProviderAccess={openEditProviderAccess}
+                  onGrantProviderAccess={openGrantProviderAccess}
+                  onRemoveMember={handleRemoveMember}
+                  onRevokeProviderAccess={handleRevokeProviderAccess}
+                />
+              </>
             )}
           </div>
         )}
@@ -820,7 +961,6 @@ export function OrganizationManagementRoute() {
 }
 
 function OrganizationSwitcherPanel({
-  loading,
   onCreate,
   onSelect,
   organizations,
@@ -828,7 +968,6 @@ function OrganizationSwitcherPanel({
   selectedOrganization,
   selectedOrganizationId,
 }: {
-  loading: boolean
   onCreate: () => void
   onSelect: (organizationId: string) => void
   organizations: Organization[]
@@ -837,119 +976,154 @@ function OrganizationSwitcherPanel({
   selectedOrganizationId: string | null
 }) {
   const { t } = useAppI18n()
-  const countLabel = overview
-    ? t("organizations.organizationCount", { count: organizations.length })
-    : loading
-      ? t("organizations.loading")
-      : t("organizations.organizationCount", { count: organizations.length })
+  const countLabel = t("organizations.organizationCount", { count: organizations.length })
   const selectedRole = selectedOrganization ? organizationRole(overview, selectedOrganization) : null
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      {loading ? (
-        <div className="p-3">
-          <Skeleton className="h-20 w-full rounded-md" />
+      <div className="grid min-h-20 min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 px-4 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[var(--oo-control-height)_var(--oo-control-height)] sm:items-center">
+        <div className="row-span-2 self-center">
+          {selectedOrganization ? (
+            <OrganizationAvatar organization={selectedOrganization} className="size-16 rounded-md text-lg" />
+          ) : (
+            <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
+              <Building2Icon className="size-5" />
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="grid min-h-20 min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 px-4 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[var(--oo-control-height)_var(--oo-control-height)] sm:items-center">
-          <div className="row-span-2 self-center">
-            {selectedOrganization ? (
-              <OrganizationAvatar organization={selectedOrganization} className="size-16 rounded-md text-lg" />
-            ) : (
-              <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
-                <Building2Icon className="size-5" />
-              </div>
-            )}
-          </div>
 
-          <div className="flex min-w-0 items-baseline gap-3 self-end sm:self-center">
-            {selectedOrganization ? (
-              <>
-                <span className="min-w-0 truncate text-base font-semibold text-foreground">
-                  {selectedOrganization.name}
-                </span>
-                <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-                  {selectedOrganization.id}
-                </span>
-              </>
-            ) : (
-              <span className="min-w-0 truncate text-sm text-muted-foreground">
-                {t("organizations.selectOrganization")}
+        <div className="flex min-w-0 items-baseline gap-3 self-end sm:self-center">
+          {selectedOrganization ? (
+            <>
+              <span className="min-w-0 truncate text-base font-semibold text-foreground">
+                {selectedOrganization.name}
               </span>
-            )}
-          </div>
+              <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                {selectedOrganization.id}
+              </span>
+            </>
+          ) : (
+            <span className="min-w-0 truncate text-sm text-muted-foreground">
+              {t("organizations.selectOrganization")}
+            </span>
+          )}
+        </div>
 
-          <div className="flex min-w-0 items-center gap-2 self-start sm:self-center">
-            <span className="oo-text-caption shrink-0">{t("organizations.selectedOrganization")}</span>
-            {selectedRole ? (
-              <Badge variant="secondary" className="shrink-0">
-                {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-              </Badge>
-            ) : null}
-          </div>
+        <div className="flex min-w-0 items-center gap-2 self-start sm:self-center">
+          <span className="oo-text-caption shrink-0">{t("organizations.selectedOrganization")}</span>
+          {selectedRole ? (
+            <Badge variant="secondary" className="shrink-0">
+              {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+            </Badge>
+          ) : null}
+        </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            className="col-span-2 w-full sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-auto sm:justify-self-end"
-            onClick={onCreate}
-          >
-            <PlusIcon className="size-4" />
-            {t("organizations.createOrganization")}
-          </Button>
-          <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-2 sm:justify-self-end">
-            <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="ghost" className="px-2">
-                  {t("organizations.switchOrganization")}
-                  <ChevronsUpDownIcon className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
-                <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {organizations.map((organization) => {
-                  const role = organizationRole(overview, organization)
-                  const selected = organization.id === selectedOrganizationId
-                  return (
-                    <DropdownMenuItem
-                      key={organization.id}
-                      className={cn(
-                        "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
-                        selected && "bg-accent",
-                      )}
-                      onSelect={() => onSelect(organization.id)}
-                    >
-                      <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
-                      <span className="grid min-h-10 min-w-0 content-center">
-                        <span className="flex min-h-5 min-w-0 items-center gap-2">
-                          <span className="truncate text-sm leading-5 font-medium">{organization.name}</span>
-                          {selected ? (
-                            <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                          ) : null}
-                        </span>
-                        <span className="block truncate font-mono text-xs leading-5 text-muted-foreground">
-                          {organization.id}
-                        </span>
+        <Button
+          type="button"
+          variant="outline"
+          className="col-span-2 w-full sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-auto sm:justify-self-end"
+          onClick={onCreate}
+        >
+          <PlusIcon className="size-4" />
+          {t("organizations.createOrganization")}
+        </Button>
+        <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-2 sm:justify-self-end">
+          <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" className="px-2">
+                {t("organizations.switchOrganization")}
+                <ChevronsUpDownIcon className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
+              <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {organizations.map((organization) => {
+                const role = organizationRole(overview, organization)
+                const selected = organization.id === selectedOrganizationId
+                return (
+                  <DropdownMenuItem
+                    key={organization.id}
+                    className={cn(
+                      "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
+                      selected && "bg-accent",
+                    )}
+                    onSelect={() => onSelect(organization.id)}
+                  >
+                    <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
+                    <span className="grid min-h-10 min-w-0 content-center">
+                      <span className="flex min-h-5 min-w-0 items-center gap-2">
+                        <span className="truncate text-sm leading-5 font-medium">{organization.name}</span>
+                        {selected ? (
+                          <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                        ) : null}
                       </span>
-                      <Badge variant="secondary" className="justify-self-end">
-                        {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                      </Badge>
-                    </DropdownMenuItem>
-                  )
-                })}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
-                  <PlusIcon className="size-4" />
-                  <span>{t("organizations.createOrganization")}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                      <span className="block truncate font-mono text-xs leading-5 text-muted-foreground">
+                        {organization.id}
+                      </span>
+                    </span>
+                    <Badge variant="secondary" className="justify-self-end">
+                      {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                    </Badge>
+                  </DropdownMenuItem>
+                )
+              })}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
+                <PlusIcon className="size-4" />
+                <span>{t("organizations.createOrganization")}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function OrganizationManagementSkeleton() {
+  return (
+    <>
+      <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+        <div className="grid min-h-20 min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 px-4 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[var(--oo-control-height)_var(--oo-control-height)] sm:items-center">
+          <Skeleton className="row-span-2 size-16 self-center rounded-md" />
+          <div className="flex min-w-0 items-baseline gap-3 self-end sm:self-center">
+            <Skeleton className="h-5 w-28 rounded-md" />
+            <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />
+          </div>
+          <div className="flex min-w-0 items-center gap-2 self-start sm:self-center">
+            <Skeleton className="h-4 w-20 rounded-md" />
+            <Skeleton className="h-6 w-16 rounded-full" />
+          </div>
+          <Skeleton className="col-span-2 h-[var(--oo-control-height)] w-full rounded-md sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-32 sm:justify-self-end" />
+          <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-2 sm:justify-self-end">
+            <Skeleton className="h-5 w-24 rounded-md" />
+            <Skeleton className="h-[var(--oo-control-height)] w-16 rounded-md" />
           </div>
         </div>
-      )}
-    </section>
+      </section>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <Skeleton className="h-20 rounded-md" />
+        <Skeleton className="h-20 rounded-md" />
+      </div>
+
+      <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+        <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
+          <div className="grid min-w-0 gap-2">
+            <Skeleton className="h-5 w-24 rounded-md" />
+            <Skeleton className="h-4 w-72 max-w-full rounded-md" />
+          </div>
+          <Skeleton className="h-[var(--oo-control-height)] w-28 rounded-md" />
+        </div>
+        <div className="grid gap-3 p-3">
+          <Skeleton className="h-9 w-full rounded-md" />
+          <Skeleton className="h-9 w-[88%] rounded-md" />
+          <Skeleton className="h-9 w-[72%] rounded-md" />
+        </div>
+      </section>
+    </>
   )
 }
 

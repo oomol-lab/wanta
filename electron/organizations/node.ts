@@ -3,6 +3,8 @@ import type {
   CreateOrganizationRequest,
   Organization,
   OrganizationAppAccess,
+  OrganizationCacheRequest,
+  OrganizationIdRequest,
   OrganizationMember,
   OrganizationMemberRequest,
   OrganizationOverview,
@@ -51,6 +53,15 @@ interface RequestOptions extends RequestInit {
   headers?: Record<string, string>
   noResult?: boolean
 }
+
+interface OrganizationCacheEntry<T> {
+  time: number
+  value: T
+}
+
+const organizationReadCacheTtlMs = 30_000
+const organizationUserSummaryCacheTtlMs = 5 * 60_000
+const organizationUserSearchCacheTtlMs = 30_000
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
@@ -215,25 +226,39 @@ export class OrganizationsServiceImpl
   implements IConnectionService<OrganizationsService>
 {
   private readonly authManager: AuthManager
+  private readonly cacheByKey = new Map<string, OrganizationCacheEntry<unknown>>()
+  private readonly inFlightByKey = new Map<string, Promise<unknown>>()
+  private readonly unsubscribeAuthStateChanged: () => void
+  private cacheGeneration = 0
 
   public constructor(authManager: AuthManager) {
     super(OrganizationsServiceName)
     this.authManager = authManager
+    this.unsubscribeAuthStateChanged = this.authManager.stateChanged.on(() => {
+      this.clearCaches()
+    })
+  }
+
+  public override dispose(): void {
+    this.unsubscribeAuthStateChanged()
+    super.dispose()
   }
 
   public isReady(): Promise<boolean> {
     return Promise.resolve(Boolean(this.authManager.activeAccount()))
   }
 
-  public async getOrganizationOverview(): Promise<OrganizationOverview> {
+  public async getOrganizationOverview(req: OrganizationCacheRequest = {}): Promise<OrganizationOverview> {
     const account = this.requireAccount()
-    const [created, joined] = await Promise.all([this.listCreatedOrganizations(), this.listMyOrganizations()])
-    return {
-      accountId: account.id,
-      created,
-      joined,
-      updatedAt: new Date().toISOString(),
-    }
+    return this.readCached(`overview:${account.id}`, organizationReadCacheTtlMs, req.forceRefresh, async () => {
+      const [created, joined] = await Promise.all([this.listCreatedOrganizations(req), this.listMyOrganizations(req)])
+      return {
+        accountId: account.id,
+        created,
+        joined,
+        updatedAt: new Date().toISOString(),
+      }
+    })
   }
 
   public async createOrganization(req: CreateOrganizationRequest): Promise<Organization> {
@@ -255,50 +280,72 @@ export class OrganizationsServiceImpl
       throw new Error("Organization response is invalid.")
     }
 
+    this.clearCaches()
     await this.emitOrganizationChanged()
     return organization
   }
 
-  public async listCreatedOrganizations(): Promise<Organization[]> {
-    const result = (await this.requestOrgControlJson("/v1/organizations")) as OrganizationsEnvelope
-    return normalizeOrganizationList(result.organizations)
+  public async listCreatedOrganizations(req: OrganizationCacheRequest = {}): Promise<Organization[]> {
+    const account = this.requireAccount()
+    return this.readCached(`created:${account.id}`, organizationReadCacheTtlMs, req.forceRefresh, async () => {
+      const result = (await this.requestOrgControlJson("/v1/organizations")) as OrganizationsEnvelope
+      return normalizeOrganizationList(result.organizations)
+    })
   }
 
-  public async listMyOrganizations(): Promise<Organization[]> {
-    const result = (await this.requestOrgControlJson("/v1/me/organizations")) as OrganizationsEnvelope
-    return normalizeOrganizationList(result.organizations)
+  public async listMyOrganizations(req: OrganizationCacheRequest = {}): Promise<Organization[]> {
+    const account = this.requireAccount()
+    return this.readCached(`joined:${account.id}`, organizationReadCacheTtlMs, req.forceRefresh, async () => {
+      const result = (await this.requestOrgControlJson("/v1/me/organizations")) as OrganizationsEnvelope
+      return normalizeOrganizationList(result.organizations)
+    })
   }
 
-  public async listOrganizationMembers(req: { orgId: string }): Promise<OrganizationMember[]> {
-    const result = (await this.requestOrgControlJson(
-      `/v1/organizations/${encodePath(req.orgId)}/members`,
-    )) as OrganizationMembersEnvelope
-    return normalizeOrganizationMembers(result.members)
+  public async listOrganizationMembers(req: { forceRefresh?: boolean; orgId: string }): Promise<OrganizationMember[]> {
+    const account = this.requireAccount()
+    const orgId = req.orgId.trim()
+    return this.readCached(`members:${account.id}:${orgId}`, organizationReadCacheTtlMs, req.forceRefresh, async () => {
+      const result = (await this.requestOrgControlJson(
+        `/v1/organizations/${encodePath(orgId)}/members`,
+      )) as OrganizationMembersEnvelope
+      return normalizeOrganizationMembers(result.members)
+    })
   }
 
   public async listUserSummaries(req: OrganizationUsersRequest): Promise<Record<string, OrganizationUserSummary>> {
+    const account = this.requireAccount()
     const searchParams = new URLSearchParams()
-    for (const userId of req.userIds) {
-      const trimmed = userId.trim()
-      if (trimmed) {
-        searchParams.append("user_ids", trimmed)
-      }
+    const userIds = Array.from(new Set(req.userIds.map((userId) => userId.trim()).filter(Boolean))).sort()
+    for (const userId of userIds) {
+      searchParams.append("user_ids", userId)
     }
     if (!searchParams.toString()) {
       return {}
     }
 
-    return normalizeUserSummaryMap(await this.requestApiJson(`/v1/users/summaries?${searchParams.toString()}`))
+    return this.readCached(
+      `user-summaries:${account.id}:${userIds.join(",")}`,
+      organizationUserSummaryCacheTtlMs,
+      req.forceRefresh,
+      async () => normalizeUserSummaryMap(await this.requestApiJson(`/v1/users/summaries?${searchParams.toString()}`)),
+    )
   }
 
   public async searchUsers(req: OrganizationUserSearchRequest): Promise<OrganizationUserSearchResult[]> {
+    const account = this.requireAccount()
     const keyword = req.keyword.trim()
     if (!keyword) {
       return []
     }
 
-    return normalizeUserSearchResults(
-      await this.requestApiJson(`/v1/users?${new URLSearchParams({ keyword }).toString()}`),
+    return this.readCached(
+      `user-search:${account.id}:${keyword}`,
+      organizationUserSearchCacheTtlMs,
+      req.forceRefresh,
+      async () =>
+        normalizeUserSearchResults(
+          await this.requestApiJson(`/v1/users?${new URLSearchParams({ keyword }).toString()}`),
+        ),
     )
   }
 
@@ -308,6 +355,7 @@ export class OrganizationsServiceImpl
       body: JSON.stringify({ user_id: req.userId.trim(), role: "member" }),
       noResult: true,
     })
+    this.clearCaches()
     await this.emitOrganizationChanged()
   }
 
@@ -316,11 +364,20 @@ export class OrganizationsServiceImpl
       method: "DELETE",
       noResult: true,
     })
+    this.clearCaches()
     await this.emitOrganizationChanged()
   }
 
-  public async getOrganizationAppAccess(req: { orgId: string }): Promise<OrganizationAppAccess> {
-    return normalizeAppAccess(await this.requestOrgControlJson(`/v1/organizations/${encodePath(req.orgId)}/app-access`))
+  public async getOrganizationAppAccess(req: OrganizationIdRequest): Promise<OrganizationAppAccess> {
+    const account = this.requireAccount()
+    const orgId = req.orgId.trim()
+    return this.readCached(
+      `app-access:${account.id}:${orgId}`,
+      organizationReadCacheTtlMs,
+      req.forceRefresh,
+      async () =>
+        normalizeAppAccess(await this.requestOrgControlJson(`/v1/organizations/${encodePath(orgId)}/app-access`)),
+    )
   }
 
   public async updateOrganizationAppAccess(req: UpdateOrganizationAppAccessRequest): Promise<OrganizationAppAccess> {
@@ -330,6 +387,9 @@ export class OrganizationsServiceImpl
         body: JSON.stringify(req.access),
       }),
     )
+    this.clearCaches()
+    const account = this.requireAccount()
+    this.setCache(`app-access:${account.id}:${req.orgId.trim()}`, access)
     await this.emitOrganizationChanged()
     return access
   }
@@ -342,13 +402,21 @@ export class OrganizationsServiceImpl
       return []
     }
 
-    const [apps, providers] = await Promise.all([
-      this.requestConnectorJson<RawConnectorApp[]>("/v1/apps", {
-        headers: { "x-oo-organization-name": organizationName },
-      }),
-      this.requestConnectorJson<RawConnectorProvider[]>("/v1/providers"),
-    ])
-    return normalizeProviderOptions(Array.isArray(apps) ? apps : [], Array.isArray(providers) ? providers : [])
+    const account = this.requireAccount()
+    return this.readCached(
+      `provider-options:${account.id}:${organizationName}`,
+      organizationReadCacheTtlMs,
+      req.forceRefresh,
+      async () => {
+        const [apps, providers] = await Promise.all([
+          this.requestConnectorJson<RawConnectorApp[]>("/v1/apps", {
+            headers: { "x-oo-organization-name": organizationName },
+          }),
+          this.requestConnectorJson<RawConnectorProvider[]>("/v1/providers"),
+        ])
+        return normalizeProviderOptions(Array.isArray(apps) ? apps : [], Array.isArray(providers) ? providers : [])
+      },
+    )
   }
 
   private requireAccount() {
@@ -396,6 +464,49 @@ export class OrganizationsServiceImpl
       return undefined
     }
     return payload
+  }
+
+  private async readCached<T>(
+    cacheKey: string,
+    ttlMs: number,
+    forceRefresh: boolean | undefined,
+    load: () => Promise<T>,
+  ): Promise<T> {
+    const cached = this.cacheByKey.get(cacheKey) as OrganizationCacheEntry<T> | undefined
+    if (!forceRefresh && cached && Date.now() - cached.time < ttlMs) {
+      return cached.value
+    }
+
+    const inFlight = this.inFlightByKey.get(cacheKey) as Promise<T> | undefined
+    if (inFlight) {
+      return inFlight
+    }
+
+    const generation = this.cacheGeneration
+    const promise = load()
+      .then((value) => {
+        if (this.cacheGeneration === generation) {
+          this.cacheByKey.set(cacheKey, { time: Date.now(), value })
+        }
+        return value
+      })
+      .finally(() => {
+        if (this.inFlightByKey.get(cacheKey) === promise) {
+          this.inFlightByKey.delete(cacheKey)
+        }
+      })
+    this.inFlightByKey.set(cacheKey, promise)
+    return promise
+  }
+
+  private setCache<T>(cacheKey: string, value: T): void {
+    this.cacheByKey.set(cacheKey, { time: Date.now(), value })
+  }
+
+  private clearCaches(): void {
+    this.cacheGeneration += 1
+    this.cacheByKey.clear()
+    this.inFlightByKey.clear()
   }
 
   private async emitOrganizationChanged(): Promise<void> {

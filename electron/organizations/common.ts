@@ -49,7 +49,11 @@ export interface CreateOrganizationRequest {
   orgName: string
 }
 
-export interface OrganizationIdRequest {
+export interface OrganizationCacheRequest {
+  forceRefresh?: boolean
+}
+
+export interface OrganizationIdRequest extends OrganizationCacheRequest {
   orgId: string
 }
 
@@ -63,15 +67,15 @@ export interface UpdateOrganizationAppAccessRequest {
   orgId: string
 }
 
-export interface OrganizationProviderOptionsRequest {
+export interface OrganizationProviderOptionsRequest extends OrganizationCacheRequest {
   organizationName: string
 }
 
-export interface OrganizationUsersRequest {
+export interface OrganizationUsersRequest extends OrganizationCacheRequest {
   userIds: string[]
 }
 
-export interface OrganizationUserSearchRequest {
+export interface OrganizationUserSearchRequest extends OrganizationCacheRequest {
   keyword: string
 }
 
@@ -88,10 +92,10 @@ export const OrganizationsService = serviceName("organizations-service") as Serv
     addOrganizationMember(req: OrganizationMemberRequest): Promise<void>
     createOrganization(req: CreateOrganizationRequest): Promise<Organization>
     getOrganizationAppAccess(req: OrganizationIdRequest): Promise<OrganizationAppAccess>
-    getOrganizationOverview(): Promise<OrganizationOverview>
+    getOrganizationOverview(req?: OrganizationCacheRequest): Promise<OrganizationOverview>
     isReady(): Promise<boolean>
-    listCreatedOrganizations(): Promise<Organization[]>
-    listMyOrganizations(): Promise<Organization[]>
+    listCreatedOrganizations(req?: OrganizationCacheRequest): Promise<Organization[]>
+    listMyOrganizations(req?: OrganizationCacheRequest): Promise<Organization[]>
     listOrganizationMembers(req: OrganizationIdRequest): Promise<OrganizationMember[]>
     listOrganizationProviderOptions(req: OrganizationProviderOptionsRequest): Promise<OrganizationProviderOption[]>
     listUserSummaries(req: OrganizationUsersRequest): Promise<Record<string, OrganizationUserSummary>>

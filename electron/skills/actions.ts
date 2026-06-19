@@ -44,13 +44,16 @@ interface RawPublicSkillPackageListItem {
 }
 
 interface RawRegistryPackageSkillInfo {
+  access?: unknown
   description?: unknown
+  displayName?: unknown
   icon?: unknown
   isPrivate?: unknown
   packageName?: unknown
   packageVersion?: unknown
   skills?: unknown
   title?: unknown
+  visibility?: unknown
   version?: unknown
 }
 
@@ -188,20 +191,6 @@ export function normalizePublicSkillPackageCatalog(
   }
 }
 
-export function normalizeOwnedSkillPackageNames(stdout: string): string[] {
-  const parsed = JSON.parse(stdout) as unknown
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Owned Skill package list returned an unsupported response.")
-  }
-
-  return Object.entries(parsed)
-    .filter(([, permission]) => permission === "write" || permission === "admin")
-    .map(([name]) => name.trim())
-    .filter((name) => name.length > 0)
-    .sort((left, right) => left.localeCompare(right))
-}
-
 export function normalizeRegistrySkillPackageInfo(
   stdout: string,
   fallbackMaintainer: PublicSkillPackageMaintainer,
@@ -231,7 +220,7 @@ export function normalizeRegistrySkillPackageInfo(
 
   return {
     description: asText(raw.description),
-    displayName: asText(raw.title) ?? skills[0]?.title ?? name,
+    displayName: asText(raw.title) ?? asText(raw.displayName) ?? skills[0]?.title ?? name,
     icon: asText(raw.icon),
     id: `${name}@${version}`,
     isTemplate: false,
@@ -239,7 +228,7 @@ export function normalizeRegistrySkillPackageInfo(
     name,
     skills,
     version,
-    visibility: raw.isPrivate === true ? "private" : raw.isPrivate === false ? "public" : "unknown",
+    visibility: readPackageVisibility(raw),
   }
 }
 
@@ -341,6 +330,29 @@ function normalizePublicSkillPackageMaintainer(value: unknown): PublicSkillPacka
 
 function asPublicSkillVisibility(value: unknown): PublicSkillPackage["visibility"] {
   return value === "private" || value === "public" ? value : "unknown"
+}
+
+function readPackageVisibility(
+  raw: Pick<RawRegistryPackageSkillInfo, "access" | "isPrivate" | "visibility">,
+): PublicSkillPackage["visibility"] {
+  if (raw.isPrivate === true) {
+    return "private"
+  }
+
+  if (raw.isPrivate === false) {
+    return "public"
+  }
+
+  const access = asText(raw.access) ?? asText(raw.visibility)
+  if (access === "private" || access === "restricted") {
+    return "private"
+  }
+
+  if (access === "public") {
+    return "public"
+  }
+
+  return "unknown"
 }
 
 export function createRegistrySkillVersionCheck(

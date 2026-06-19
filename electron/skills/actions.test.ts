@@ -8,7 +8,6 @@ import {
   createDeleteSkillArgs,
   createFailedRegistrySkillVersionCheck,
   createInstallRegistrySkillArgs,
-  normalizeOwnedSkillPackageNames,
   createPublishSkillArgs,
   createRegistrySkillVersionCheck,
   createRegistrySkillCheckUpdateArgs,
@@ -137,6 +136,48 @@ test("normalizePublicSkillPackageCatalog keeps public package metadata", () => {
   )
 })
 
+test("normalizePublicSkillPackageCatalog keeps package metadata without skill details", () => {
+  assert.deepEqual(
+    normalizePublicSkillPackageCatalog(
+      JSON.stringify({
+        data: [
+          {
+            description: "Review code",
+            displayName: "Autoreview",
+            icon: "icon.png",
+            name: "@alice/autoreview",
+            updateTime: 1770000000000,
+            version: "0.0.1",
+            visibility: "private",
+          },
+        ],
+        next: "next-page",
+      }),
+      "2026-06-18T00:00:00.000Z",
+    ),
+    {
+      items: [
+        {
+          description: "Review code",
+          displayName: "Autoreview",
+          downloadCount: undefined,
+          icon: "icon.png",
+          id: "@alice/autoreview@0.0.1",
+          isTemplate: false,
+          maintainers: [],
+          name: "@alice/autoreview",
+          skills: [],
+          updateTime: 1770000000000,
+          version: "0.0.1",
+          visibility: "private",
+        },
+      ],
+      next: "next-page",
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    },
+  )
+})
+
 test("normalizePublicSkillPackageCatalog ignores malformed maintainer metadata", () => {
   const catalog = normalizePublicSkillPackageCatalog(
     JSON.stringify({
@@ -174,21 +215,6 @@ test("normalizePublicSkillPackageCatalog keeps unknown visibility non-fatal", ()
 
   assert.equal(catalog.items.length, 1)
   assert.equal(catalog.items[0]?.visibility, "unknown")
-})
-
-test("normalizeOwnedSkillPackageNames keeps sorted package names from registry permissions", () => {
-  assert.deepEqual(
-    normalizeOwnedSkillPackageNames(
-      JSON.stringify({
-        "": "write",
-        "@alice/admin-skill": "admin",
-        "@alice/private-skill": "write",
-        "local-tool": "read",
-        " z ": "write",
-      }),
-    ),
-    ["@alice/admin-skill", "@alice/private-skill", "z"],
-  )
 })
 
 test("normalizeRegistrySkillPackageInfo maps package-info into discover package metadata", () => {
@@ -229,6 +255,26 @@ test("normalizeRegistrySkillPackageInfo maps package-info into discover package 
       version: "0.2.0",
       visibility: "private",
     },
+  )
+})
+
+test("normalizeRegistrySkillPackageInfo recognizes package access visibility", () => {
+  assert.equal(
+    normalizeRegistrySkillPackageInfo(
+      JSON.stringify({
+        access: "restricted",
+        packageName: "@alice/restricted-skill",
+        packageVersion: "0.2.0",
+        skills: [
+          {
+            name: "restricted-skill",
+            title: "Restricted Skill",
+          },
+        ],
+      }),
+      { id: "user-1", name: "alice" },
+    )?.visibility,
+    "private",
   )
 })
 

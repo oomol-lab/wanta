@@ -754,7 +754,7 @@ function AppUpdateTitlebarEntry() {
         <Button
           type="button"
           size="sm"
-          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          className="oo-toolbar-button max-w-40 min-w-0"
           aria-label={label}
           disabled={update.isDownloadInFlight}
           onClick={() => void update.download()}
@@ -776,7 +776,7 @@ function AppUpdateTitlebarEntry() {
           type="button"
           size="sm"
           variant="outline"
-          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          className="oo-toolbar-button max-w-40 min-w-0"
           aria-label={label}
           disabled
         >
@@ -791,7 +791,7 @@ function AppUpdateTitlebarEntry() {
         <Button
           type="button"
           size="sm"
-          className="oo-toolbar-button h-8 max-w-40 min-w-0 gap-1.5 rounded-md px-2.5"
+          className="oo-toolbar-button max-w-40 min-w-0"
           aria-label={label}
           disabled={update.isInstallTriggered}
           onClick={() => void update.install()}

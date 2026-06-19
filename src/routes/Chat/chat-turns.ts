@@ -219,3 +219,19 @@ export function summarizeTurnProcess(
     endedAt,
   }
 }
+
+export function shouldShowTurnProcess(process: Pick<ChatTurnProcess, "activity" | "tools">): boolean {
+  return process.tools.length > 0 || process.activity?.phase === "retrying"
+}
+
+export function shouldShowPlainTurnActivity(
+  process: Pick<ChatTurnProcess, "activity" | "errors" | "hasFinalAnswer" | "tools">,
+): boolean {
+  return Boolean(
+    process.activity &&
+    process.activity.phase !== "retrying" &&
+    process.tools.length === 0 &&
+    process.errors.length === 0 &&
+    !process.hasFinalAnswer,
+  )
+}

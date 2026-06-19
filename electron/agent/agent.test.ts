@@ -12,15 +12,30 @@ import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorEr
 import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
-test("buildOpencodeConfig wires the oomol openai-compatible provider (derived baseURL)", () => {
+test("buildOpencodeConfig wires the default GPT 5.5 OpenAI Responses model", () => {
   const config = buildOpencodeConfig({ apiKey: "api-test" })
   assert.equal(config.model, `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`)
+  assert.equal(config.model, "openai/gpt-5.5")
   const provider = config.provider?.[LUMO_PROVIDER_ID]
+  assert.ok(provider)
+  assert.equal(provider.npm, undefined)
+  assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
+  assert.equal(provider.options?.apiKey, "api-test")
+  const model = provider.models?.[LUMO_MODEL_ID]
+  assert.ok(model)
+  assert.equal(model.attachment, true)
+  assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
+})
+
+test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
+  const config = buildOpencodeConfig({ apiKey: "api-test" })
+  const auto = resolveBuiltinModel("oopilot")
+  const provider = config.provider?.[auto.runtime.providerID]
   assert.ok(provider)
   assert.equal(provider.npm, "@ai-sdk/openai-compatible")
   assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
   assert.equal(provider.options?.apiKey, "api-test")
-  const model = provider.models?.[LUMO_MODEL_ID]
+  const model = provider.models?.[auto.runtime.modelID]
   assert.ok(model)
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })

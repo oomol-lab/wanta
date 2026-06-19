@@ -9,6 +9,8 @@ import {
   latestAssistantMessage,
   retrySourceFromTurn,
   reuseStableChatTurns,
+  shouldShowPlainTurnActivity,
+  shouldShowTurnProcess,
   summarizeTurnProcess,
 } from "./chat-turns.ts"
 
@@ -221,5 +223,51 @@ describe("summarizeTurnProcess", () => {
 
     expect(process.hasActiveTool).toBe(false)
     expect(process.hasStoppedTool).toBe(true)
+  })
+
+  it("does not show a process panel for plain assistant thinking", () => {
+    const turn = groupChatTurns([message("u1", "user", [text("u1-text", "hello")])])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, { sessionId: "s1", phase: "thinking" })
+
+    expect(process.activity?.phase).toBe("thinking")
+    expect(shouldShowTurnProcess(process)).toBe(false)
+    expect(shouldShowPlainTurnActivity(process)).toBe(true)
+  })
+
+  it("shows the process panel for retrying without tool parts", () => {
+    const turn = groupChatTurns([message("u1", "user", [text("u1-text", "hello")])])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, { sessionId: "s1", phase: "retrying", attempt: 2 })
+
+    expect(shouldShowTurnProcess(process)).toBe(true)
+    expect(shouldShowPlainTurnActivity(process)).toBe(false)
+  })
+
+  it("shows the process panel when a tool part exists", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "inspect")]),
+      message("a1", "assistant", [tool("tool-1")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, { sessionId: "s1", messageId: "a1", phase: "finalizing" }, "a1")
+
+    expect(shouldShowTurnProcess(process)).toBe(true)
+    expect(shouldShowPlainTurnActivity(process)).toBe(false)
+  })
+
+  it("hides plain assistant activity once answer text is visible", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "hello")]),
+      message("a1", "assistant", [text("a1-text", "Hi there.")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, { sessionId: "s1", messageId: "a1", phase: "finalizing" }, "a1")
+
+    expect(shouldShowPlainTurnActivity(process)).toBe(false)
   })
 })

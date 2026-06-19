@@ -30,6 +30,19 @@ test("built-in model registry has unique ids and matching summaries", () => {
     [
       { id: "oopilot", supportsImages: true, toolCall: true, runtimeKind: "openai-compatible" },
       { id: "gpt-5.5", supportsImages: true, toolCall: true, runtimeKind: "openai-responses" },
+      { id: "deepseek-v4-flash", supportsImages: false, toolCall: true, runtimeKind: "openai-compatible" },
+      { id: "deepseek-v4-pro", supportsImages: false, toolCall: true, runtimeKind: "openai-compatible" },
+      { id: "qwen3.7-plus", supportsImages: true, toolCall: true, runtimeKind: "openai-compatible" },
+      {
+        id: "kimi/kimi-k2.7-code-highspeed",
+        supportsImages: true,
+        toolCall: true,
+        runtimeKind: "openai-compatible",
+      },
+      { id: "kimi/kimi-k2.7-code", supportsImages: true, toolCall: true, runtimeKind: "openai-compatible" },
+      { id: "ZHIPU/GLM-5.2", supportsImages: false, toolCall: true, runtimeKind: "openai-compatible" },
+      { id: "qwen3.7-max", supportsImages: true, toolCall: true, runtimeKind: "openai-compatible" },
+      { id: "xiaomi/mimo-v2.5-pro", supportsImages: false, toolCall: true, runtimeKind: "openai-compatible" },
     ],
   )
 })
@@ -53,8 +66,16 @@ test("built-in provider runtime kinds match OpenCode provider configuration", ()
   }
 })
 
-test("default built-in model remains Auto on the OOMOL compatible runtime", () => {
+test("default built-in model is GPT 5.5 on the OpenAI Responses runtime", () => {
   const model = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID)
+
+  assert.equal(DEFAULT_BUILTIN_MODEL_ID, "gpt-5.5")
+  assert.equal(model.displayName, "GPT 5.5")
+  assert.deepEqual(model.runtime, { providerID: "openai", modelID: "gpt-5.5" })
+})
+
+test("Auto built-in model remains on the OOMOL compatible runtime", () => {
+  const model = resolveBuiltinModel("oopilot")
 
   assert.equal(model.displayName, "Auto")
   assert.deepEqual(model.runtime, { providerID: "oomol", modelID: "oopilot" })
@@ -70,5 +91,7 @@ test("GPT 5.5 uses OpenAI Responses runtime routing", () => {
 test("isBuiltinModelId accepts only registered built-in ids", () => {
   assert.equal(isBuiltinModelId("oopilot"), true)
   assert.equal(isBuiltinModelId("gpt-5.5"), true)
+  assert.equal(isBuiltinModelId("qwen3.7-max"), true)
+  assert.equal(isBuiltinModelId("kimi/kimi-k2.7-code"), true)
   assert.equal(isBuiltinModelId("gpt-5.5-fast"), false)
 })

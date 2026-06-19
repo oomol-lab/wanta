@@ -9,7 +9,7 @@ declare const __OO_ENDPOINT__: string
 /** 当前 endpoint 主域（如 `oomol.com`）。oo-cli 的 OO_ENDPOINT / LUMO_ENDPOINT 用此裸值。 */
 export const ooEndpoint: string = __OO_ENDPOINT__
 
-/** LLM OpenAI 兼容网关基址，如 `https://llm.oomol.com/v1`（模型名见 opencode provider 配置 = oopilot）。 */
+/** LLM 网关基址，如 `https://llm.oomol.com/v1`（模型清单见 `electron/models/builtin.ts`）。 */
 export const llmBaseUrl = `https://llm.${ooEndpoint}/v1`
 
 /** 连接器网关基址，如 `https://connector.oomol.com`。 */

@@ -1328,7 +1328,7 @@
     padding: 0.35rem 0.6rem;
     text-align: left;
     overflow-wrap: anywhere;
-    word-break: break-word;
+    word-break: normal;
   }
 
   .oo-markdown th {

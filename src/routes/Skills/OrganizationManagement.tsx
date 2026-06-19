@@ -145,6 +145,7 @@ export function OrganizationManagementRoute() {
     Boolean(initialSnapshot?.detailsOrganizationId && initialSnapshot.detailsOrganizationId === selectedOrganizationId),
   )
   const skipInitialOrganizationsLoadRef = React.useRef(Boolean(initialSnapshot))
+  const resetAccountIdRef = React.useRef<string | null>(null)
   const memberSearchRequestId = React.useRef(0)
 
   const organizations = React.useMemo(() => allOrganizations(overviewState.data), [overviewState.data])
@@ -187,6 +188,21 @@ export function OrganizationManagementRoute() {
         return createDuplicated ? t("organizations.organizationNameDuplicated") : null
     }
   }, [createDuplicated, createName, t])
+
+  const resetOrganizationState = React.useCallback((accountId: string | null) => {
+    resetAccountIdRef.current = accountId
+    overviewRequestId.current += 1
+    detailsRequestId.current += 1
+    detailsOrganizationIdRef.current = null
+    skipInitialOrganizationsLoadRef.current = false
+    skipInitialDetailsLoadRef.current = false
+    setOverviewState(loadState(null))
+    setSelectedOrganizationId(null)
+    setMembersState(loadState([]))
+    setSummariesState(loadState({}))
+    setProviderOptionsState(loadState([]))
+    setAppAccessState(loadState(null))
+  }, [])
 
   const loadOrganizations = React.useCallback(
     async (options: { forceRefresh?: boolean } = {}) => {
@@ -352,10 +368,24 @@ export function OrganizationManagementRoute() {
 
   React.useEffect(() => {
     const snapshot = readOrganizationManagementSnapshot(activeAccountId)
-    if (!activeAccountId || !snapshot || overviewState.data?.accountId === activeAccountId) {
+    if (!activeAccountId) {
+      if (resetAccountIdRef.current !== null || overviewState.data?.accountId || selectedOrganizationId) {
+        resetOrganizationState(null)
+      }
+      return
+    }
+    if (overviewState.data?.accountId === activeAccountId) {
+      resetAccountIdRef.current = null
+      return
+    }
+    if (!snapshot) {
+      if (resetAccountIdRef.current !== activeAccountId) {
+        resetOrganizationState(activeAccountId)
+      }
       return
     }
 
+    resetAccountIdRef.current = null
     setOverviewState(snapshot.overviewState)
     setSelectedOrganizationId(snapshot.selectedOrganizationId)
     setMembersState(snapshot.membersState)
@@ -367,7 +397,7 @@ export function OrganizationManagementRoute() {
     skipInitialDetailsLoadRef.current = Boolean(
       snapshot.detailsOrganizationId && snapshot.detailsOrganizationId === snapshot.selectedOrganizationId,
     )
-  }, [activeAccountId, overviewState.data?.accountId])
+  }, [activeAccountId, overviewState.data?.accountId, resetOrganizationState, selectedOrganizationId])
 
   React.useEffect(() => {
     if (!activeAccountId || overviewState.data?.accountId !== activeAccountId) {
@@ -395,13 +425,16 @@ export function OrganizationManagementRoute() {
   ])
 
   React.useEffect(() => {
+    if (!activeAccountId) {
+      return
+    }
     if (skipInitialOrganizationsLoadRef.current) {
       skipInitialOrganizationsLoadRef.current = false
       return
     }
 
     void loadOrganizations()
-  }, [loadOrganizations])
+  }, [activeAccountId, loadOrganizations])
 
   React.useEffect(() => {
     const handleWindowFocus = () => {

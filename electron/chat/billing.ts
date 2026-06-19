@@ -21,6 +21,7 @@ const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingLogsMaxRangeDays = 30
 const billingLogsMaxPagesPerRange = 100
+const billingCreditUsagesMaxPages = 100
 const billingSummaryCacheMs = 30_000
 const billingOverviewCacheMs = 60_000
 
@@ -320,7 +321,10 @@ export class BillingClient {
     if (!this.authToken) {
       return { balance: null, hasCredits: false }
     }
-    const response = await fetch(new URL("/v1/balance/available", insightBaseUrl), authRequest(this.authToken))
+    const response = await fetch(new URL("/v1/balance/available", insightBaseUrl), {
+      ...authRequest(this.authToken),
+      signal: AbortSignal.timeout(billingRequestTimeoutMs),
+    })
     const text = await response.text()
     if (!response.ok) {
       throw new Error(`Failed to get credit balance: ${response.status}`)
@@ -444,21 +448,14 @@ export class BillingClient {
   }
 
   private async fetchConsoleJson(url: URL): Promise<unknown> {
-    if (!this.authToken) {
-      throw new Error("Sign in is required.")
-    }
-    const response = await fetch(url, {
-      ...authRequest(this.authToken),
-      signal: AbortSignal.timeout(billingRequestTimeoutMs),
-    })
-    const text = await response.text()
-    if (!response.ok) {
-      throw new Error(text || `Request failed with status ${response.status}`)
-    }
-    return text ? (JSON.parse(text) as unknown) : undefined
+    return this.fetchAuthenticatedJson(url)
   }
 
   private async fetchInsightJson(url: URL): Promise<unknown> {
+    return this.fetchAuthenticatedJson(url)
+  }
+
+  private async fetchAuthenticatedJson(url: URL): Promise<unknown> {
     if (!this.authToken) {
       throw new Error("Sign in is required.")
     }
@@ -477,10 +474,12 @@ export class BillingClient {
     const firstPage = await this.getCreditUsages()
     const items = [...firstPage.items]
     let nextToken = firstPage.nextToken
-    while (nextToken) {
+    let pageCount = 1
+    while (nextToken && pageCount < billingCreditUsagesMaxPages) {
       const nextPage = await this.getCreditUsages(nextToken)
       items.push(...nextPage.items)
       nextToken = nextPage.nextToken
+      pageCount += 1
     }
     return { ...firstPage, items, nextToken: undefined }
   }

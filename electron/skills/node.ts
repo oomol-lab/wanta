@@ -1309,6 +1309,7 @@ async function replaceDirectory(sourcePath: string, targetPath: string): Promise
   const tempPath = path.join(parentPath, `.${targetName}.tmp-${operationId}`)
   const backupPath = path.join(parentPath, `.${targetName}.backup-${operationId}`)
   let hasBackup = false
+  let preserveBackup = false
 
   await mkdir(parentPath, { recursive: true })
   await rm(tempPath, { force: true, recursive: true })
@@ -1326,8 +1327,16 @@ async function replaceDirectory(sourcePath: string, targetPath: string): Promise
       await rename(tempPath, targetPath)
     } catch (cause) {
       if (hasBackup) {
-        await rename(backupPath, targetPath).catch(() => undefined)
-        hasBackup = false
+        try {
+          await rename(backupPath, targetPath)
+          hasBackup = false
+        } catch (rollbackError) {
+          preserveBackup = true
+          console.warn("[lumo] replaceDirectory rollback failed; backup preserved", {
+            backupPath,
+            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          })
+        }
       }
       throw cause
     }
@@ -1338,7 +1347,7 @@ async function replaceDirectory(sourcePath: string, targetPath: string): Promise
     }
   } finally {
     await rm(tempPath, { force: true, recursive: true }).catch(() => undefined)
-    if (hasBackup) {
+    if (hasBackup && !preserveBackup) {
       await rm(backupPath, { force: true, recursive: true }).catch(() => undefined)
     }
   }

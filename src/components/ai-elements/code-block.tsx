@@ -225,18 +225,25 @@ function languageRegistrations(module: LanguageModule): LanguageRegistration[] {
 }
 
 function getCoreHighlighter(): Promise<HighlighterCore> {
-  coreHighlighterPromise ??= Promise.all([
-    import("shiki/core"),
-    import("shiki/engine/javascript"),
-    import("@shikijs/themes/github-dark"),
-    import("@shikijs/themes/github-light"),
-  ]).then(([core, engine, githubDark, githubLight]) =>
-    core.createHighlighterCore({
-      engine: engine.createJavaScriptRegexEngine(),
-      langs: [],
-      themes: [githubLight.default, githubDark.default],
-    }),
-  )
+  if (!coreHighlighterPromise) {
+    coreHighlighterPromise = Promise.all([
+      import("shiki/core"),
+      import("shiki/engine/javascript"),
+      import("@shikijs/themes/github-dark"),
+      import("@shikijs/themes/github-light"),
+    ])
+      .then(([core, engine, githubDark, githubLight]) =>
+        core.createHighlighterCore({
+          engine: engine.createJavaScriptRegexEngine(),
+          langs: [],
+          themes: [githubLight.default, githubDark.default],
+        }),
+      )
+      .catch((error: unknown) => {
+        coreHighlighterPromise = null
+        throw error
+      })
+  }
   return coreHighlighterPromise
 }
 

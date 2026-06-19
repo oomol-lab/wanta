@@ -235,11 +235,12 @@ export function buildGrantViews(
   }
 
   const labelByService = new Map(providerOptions.map((provider) => [provider.service, provider.label]))
+  const memberByUserId = new Map(members.map((member) => [member.user_id, member]))
   return {
     error: null,
     grants: parsed.grants.map((grant) => ({
       allProviders: grant.allProviders,
-      member: members.find((member) => member.user_id === grant.userId) ?? null,
+      member: memberByUserId.get(grant.userId) ?? null,
       providers: grant.providers.map((service) => ({ service, label: labelByService.get(service) ?? service })),
       userId: grant.userId,
     })),

@@ -229,12 +229,14 @@ test("scanLumoInstalledSkills reads shared Agent Skills and prefers app cache as
   const sharedManagedPath = path.join(sharedSkillRoot, "managed")
   const cachedManagedPath = path.join(cacheSkillStoreRoot, "registry", "managed")
   const sharedUncachedPath = path.join(sharedSkillRoot, "uncached")
+  const staleUncachedPath = path.join(cacheSkillStoreRoot, "registry", "uncached")
 
   try {
     await Promise.all([
       mkdir(sharedManagedPath, { recursive: true }),
       mkdir(cachedManagedPath, { recursive: true }),
       mkdir(sharedUncachedPath, { recursive: true }),
+      mkdir(staleUncachedPath, { recursive: true }),
     ])
     await Promise.all([
       writeFile(

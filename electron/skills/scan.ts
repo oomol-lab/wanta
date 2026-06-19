@@ -128,7 +128,10 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
                 name: entry.name,
                 path: skillPath,
               })
-        const [hash, sourceHash] = await Promise.all([hashTextFiles(skillPath), hashTextFiles(sourcePath)])
+        const [hash, sourceHash] =
+          path.resolve(sourcePath) === path.resolve(skillPath)
+            ? await hashTextFiles(skillPath).then((skillHash) => [skillHash, skillHash] as const)
+            : await Promise.all([hashTextFiles(skillPath), hashTextFiles(sourcePath)])
 
         return {
           agent,
@@ -183,12 +186,18 @@ async function resolveLumoSkillSourcePath(
   const sourceCandidates = readLumoSkillSourceCandidates(skill, cacheSkillStoreRoot)
 
   for (const candidate of sourceCandidates) {
-    if (await pathExists(candidate)) {
+    if (await isUsableSkillSourcePath(candidate)) {
       return candidate
     }
   }
 
   return path.resolve(skill.path)
+}
+
+async function isUsableSkillSourcePath(candidate: string): Promise<boolean> {
+  const hasSkillDocument = await pathExists(path.join(candidate, "SKILL.md"))
+  const hasMetadata = await pathExists(path.join(candidate, metadataFileName))
+  return hasSkillDocument || hasMetadata
 }
 
 function readLumoSkillSourceCandidates(

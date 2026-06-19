@@ -65,17 +65,17 @@ export function isDiscoverSkillFilter(value: string): value is DiscoverSkillFilt
 export function skillDocumentPreviewSource(content: string): string {
   const normalized = content.replace(/^\uFEFF/, "")
   if (!normalized.startsWith("---")) {
-    return content
+    return normalized
   }
 
   const lines = normalized.split(/\r?\n/)
   if (lines[0]?.trim() !== "---") {
-    return content
+    return normalized
   }
 
   const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---")
   if (closingIndex < 0) {
-    return content
+    return normalized
   }
 
   return lines
@@ -550,7 +550,8 @@ export function isImageIcon(icon: string | undefined): boolean {
 }
 
 export function isEmojiIcon(icon: string | undefined): boolean {
-  return Boolean(icon && !icon.includes(":") && /\p{Emoji}/u.test(icon))
+  const normalized = icon?.trim()
+  return Boolean(normalized && !/^\d+$/.test(normalized) && !normalized.includes(":") && /\p{Emoji}/u.test(normalized))
 }
 
 export function getSkillRowStatusBadgeClassName(tone: ObjectStatusTone): string {

@@ -6,6 +6,7 @@ import {
   getBuiltInStatus,
   getPublicPackageInstallState,
   initialPublicPackageCatalogState,
+  isEmojiIcon,
   publicPackageCatalogReducer,
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
@@ -15,6 +16,13 @@ test("skillDocumentPreviewSource strips frontmatter only when a closing delimite
   assert.equal(skillDocumentPreviewSource("---\nname: demo\n---\n# Demo\n"), "# Demo\n")
   assert.equal(skillDocumentPreviewSource("---\nname: demo\n# Demo\n"), "---\nname: demo\n# Demo\n")
   assert.equal(skillDocumentPreviewSource("# Demo\n"), "# Demo\n")
+  assert.equal(skillDocumentPreviewSource("\uFEFF# Demo\n"), "# Demo\n")
+})
+
+test("isEmojiIcon excludes numeric strings", () => {
+  assert.equal(isEmojiIcon("123"), false)
+  assert.equal(isEmojiIcon(" 123 "), false)
+  assert.equal(isEmojiIcon("🎉"), true)
 })
 
 test("publicPackageCatalogReducer ignores stale requests and appends unique packages", () => {
@@ -86,24 +94,24 @@ function publicPackage(name: string): PublicSkillPackage {
 }
 
 function managedSkillGroup(name: string, packageName: string): ManagedSkillGroup {
+  const host = {
+    agentId: "lumo",
+    agentName: "Lumo",
+    kind: "registry" as const,
+    packageName,
+    scope: "runtime" as const,
+    status: "installed" as const,
+  }
+
   return {
     externalHosts: [],
-    hosts: [
-      {
-        agentId: "lumo",
-        agentName: "Lumo",
-        kind: "registry",
-        packageName,
-        scope: "runtime",
-        status: "installed",
-      },
-    ],
+    hosts: [host],
     id: name,
     isBuiltIn: false,
     kind: "registry",
     name,
     packageName,
-    runtimeHosts: [],
+    runtimeHosts: [host],
   }
 }
 

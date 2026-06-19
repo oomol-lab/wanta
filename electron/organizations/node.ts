@@ -221,6 +221,14 @@ function encodePath(value: string): string {
   return encodeURIComponent(value)
 }
 
+function requireIdentifier(value: string, label: string): string {
+  const normalized = value.trim()
+  if (!normalized) {
+    throw new Error(`${label} is required.`)
+  }
+  return normalized
+}
+
 export class OrganizationsServiceImpl
   extends ConnectionService<OrganizationsService>
   implements IConnectionService<OrganizationsService>
@@ -303,7 +311,7 @@ export class OrganizationsServiceImpl
 
   public async listOrganizationMembers(req: { forceRefresh?: boolean; orgId: string }): Promise<OrganizationMember[]> {
     const account = this.requireAccount()
-    const orgId = req.orgId.trim()
+    const orgId = requireIdentifier(req.orgId, "Organization id")
     return this.readCached(`members:${account.id}:${orgId}`, organizationReadCacheTtlMs, req.forceRefresh, async () => {
       const result = (await this.requestOrgControlJson(
         `/v1/organizations/${encodePath(orgId)}/members`,
@@ -350,9 +358,11 @@ export class OrganizationsServiceImpl
   }
 
   public async addOrganizationMember(req: OrganizationMemberRequest): Promise<void> {
-    await this.requestOrgControlJson(`/v1/organizations/${encodePath(req.orgId)}/members`, {
+    const orgId = requireIdentifier(req.orgId, "Organization id")
+    const userId = requireIdentifier(req.userId, "User id")
+    await this.requestOrgControlJson(`/v1/organizations/${encodePath(orgId)}/members`, {
       method: "POST",
-      body: JSON.stringify({ user_id: req.userId.trim(), role: "member" }),
+      body: JSON.stringify({ user_id: userId, role: "member" }),
       noResult: true,
     })
     this.clearCaches()
@@ -360,7 +370,9 @@ export class OrganizationsServiceImpl
   }
 
   public async removeOrganizationMember(req: OrganizationMemberRequest): Promise<void> {
-    await this.requestOrgControlJson(`/v1/organizations/${encodePath(req.orgId)}/members/${encodePath(req.userId)}`, {
+    const orgId = requireIdentifier(req.orgId, "Organization id")
+    const userId = requireIdentifier(req.userId, "User id")
+    await this.requestOrgControlJson(`/v1/organizations/${encodePath(orgId)}/members/${encodePath(userId)}`, {
       method: "DELETE",
       noResult: true,
     })
@@ -370,7 +382,7 @@ export class OrganizationsServiceImpl
 
   public async getOrganizationAppAccess(req: OrganizationIdRequest): Promise<OrganizationAppAccess> {
     const account = this.requireAccount()
-    const orgId = req.orgId.trim()
+    const orgId = requireIdentifier(req.orgId, "Organization id")
     return this.readCached(
       `app-access:${account.id}:${orgId}`,
       organizationReadCacheTtlMs,
@@ -381,15 +393,16 @@ export class OrganizationsServiceImpl
   }
 
   public async updateOrganizationAppAccess(req: UpdateOrganizationAppAccessRequest): Promise<OrganizationAppAccess> {
+    const orgId = requireIdentifier(req.orgId, "Organization id")
     const access = normalizeAppAccess(
-      await this.requestOrgControlJson(`/v1/organizations/${encodePath(req.orgId)}/app-access`, {
+      await this.requestOrgControlJson(`/v1/organizations/${encodePath(orgId)}/app-access`, {
         method: "PUT",
         body: JSON.stringify(req.access),
       }),
     )
     this.clearCaches()
     const account = this.requireAccount()
-    this.setCache(`app-access:${account.id}:${req.orgId.trim()}`, access)
+    this.setCache(`app-access:${account.id}:${orgId}`, access)
     await this.emitOrganizationChanged()
     return access
   }

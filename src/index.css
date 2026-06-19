@@ -1316,10 +1316,10 @@
   }
 
   .oo-markdown table {
-    display: block;
-    width: max-content;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
     max-width: 100%;
-    overflow-x: auto;
     border-collapse: collapse;
   }
 
@@ -1328,6 +1328,8 @@
     border: 1px solid var(--oo-divider);
     padding: 0.35rem 0.6rem;
     text-align: left;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .oo-markdown th {

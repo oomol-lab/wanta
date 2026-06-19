@@ -67,16 +67,13 @@ test("groupInstalledSkills includes built-in groups and agent coverage", () => {
   assert.equal(oo?.description, "Use OOMOL hosted capabilities")
   assert.equal(oo?.hosts.length, 2)
   assert.equal(oo?.externalHosts.length, 2)
-  assert.equal(oo?.runtimeHosts.length, 1)
-  assert.equal(oo?.runtimeHosts[0]?.agentName, "Lumo")
+  assert.equal(oo?.runtimeHosts.length, 0)
   assert.equal(oo?.hosts[0]?.controlState, "modified")
-  assert.equal(oo?.runtimeHosts[0]?.controlState, undefined)
   assert.equal(example?.packageName, "@oomol/example")
   assert.equal(example?.icon, ":lucide:captions:")
   assert.equal(example?.description, "Example registry skill")
   assert.equal(example?.hosts[1]?.controlState, "controlled")
-  assert.equal(example?.runtimeHosts[0]?.agentId, "lumo")
-  assert.equal(example?.runtimeHosts[0]?.scope, "runtime")
+  assert.equal(example?.runtimeHosts.length, 0)
   assert.deepEqual(
     groups.slice(0, 4).map((group) => group.id),
     ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"],
@@ -101,11 +98,11 @@ test("buildSummary counts built-in coverage and attention hosts", () => {
   ])
 
   assert.equal(summary.builtInTotal, 4)
-  assert.equal(summary.builtInInstalled, 1)
+  assert.equal(summary.builtInInstalled, 0)
   assert.equal(summary.builtInMissing, 0)
   assert.equal(summary.managedSkills, 2)
-  assert.equal(summary.modifiedHosts, 0)
-  assert.equal(summary.needsAttention, 0)
+  assert.equal(summary.modifiedHosts, 1)
+  assert.equal(summary.needsAttention, 1)
   assert.equal(summary.publishableSkills, 1)
   assert.equal(summary.registrySkills, 1)
   assert.deepEqual(

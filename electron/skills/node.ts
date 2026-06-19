@@ -11,6 +11,8 @@ import type {
   PublicSkillPackageCatalog,
   PublishSkillRequest,
   PublishSkillResult,
+  SkillDocument,
+  SkillDocumentRequest,
   SkillInventoryChangedEvent,
   SkillInventory,
   SkillCliVersionCheck,
@@ -20,16 +22,18 @@ import type {
   SkillVersionReport,
   UpdateRegistrySkillRequest,
 } from "./common.ts"
+import type { InstalledSkill } from "./types.ts"
 import type { IConnectionService } from "@oomol/connection"
 import type { FSWatcher } from "node:fs"
 
 import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
 import { watch } from "node:fs"
-import { access, cp, mkdir, realpath, rename, rm } from "node:fs/promises"
+import { access, cp, mkdir, readFile, realpath, rename, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { buildOoEnv } from "../agent/oo.ts"
+import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
 import { logDiagnosticOnChange } from "../diagnostics-log.ts"
 import { ooEndpoint, searchBaseUrl } from "../domain.ts"
 import { normalizeOoCliVersion, runOoCommand } from "../oo-command.ts"
@@ -65,7 +69,7 @@ import {
 } from "./manifest.ts"
 import { resolveSharedAgentSkillRoot } from "./paths.ts"
 import { assertSafeResetPaths } from "./reset.ts"
-import { scanLumoInstalledSkills } from "./scan.ts"
+import { scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
 
 const publicSkillPackageCatalogCacheTtlMs = 5 * 60_000
 
@@ -268,6 +272,24 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
+  public async readSkillDocument(request: SkillDocumentRequest): Promise<SkillDocument> {
+    const skillFilePath = await this.resolveAllowedSkillDocumentPath(request.path)
+
+    return {
+      content: await readFile(skillFilePath, "utf8"),
+      path: skillFilePath,
+    }
+  }
+
+  public async openSkillDocument(request: SkillDocumentRequest): Promise<void> {
+    const skillFilePath = await this.resolveAllowedSkillDocumentPath(request.path)
+    const error = await shell.openPath(skillFilePath)
+
+    if (error) {
+      throw new Error(error)
+    }
+  }
+
   public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
     const skillPath = await this.resolveAllowedSkillPath(request.path)
     const result = await this.runOoCommand(createPublishSkillArgs({ ...request, path: skillPath }), {
@@ -368,6 +390,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       { pathname: path.dirname(this.getManifestPath()), affectsRuntimeSkills: false },
       { pathname: this.getSharedAgentSkillRoot(), affectsRuntimeSkills: true },
       { pathname: this.getLumoSkillStoreRoot(), affectsRuntimeSkills: false },
+      ...supportedAgents.map((agent) => ({ pathname: resolveAgentSkillRoot(agent), affectsRuntimeSkills: false })),
     ]
     const registeredPaths = new Set<string>()
     const recursive = process.platform === "darwin" || process.platform === "win32"
@@ -677,13 +700,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private async readSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
     const startedAtMs = Date.now()
     const manifestPath = this.getManifestPath()
-    const [installedSkills, manifestStore] = await Promise.all([
+    const [lumoInstalledSkills, externalInstalledSkills, manifestStore] = await Promise.all([
       scanLumoInstalledSkills({
         cacheSkillStoreRoot: this.getLumoSkillStoreRoot(),
         sharedSkillRoot: this.getSharedAgentSkillRoot(),
       }),
+      scanInstalledSkills(),
       readManifestStore(manifestPath),
     ])
+    const installedSkills = mergeInstalledSkillSnapshots(lumoInstalledSkills, externalInstalledSkills)
     const nextManifestStore = upsertManifestRecords(manifestStore, installedSkills)
     const groups = groupInstalledSkills(installedSkills, nextManifestStore)
     const localProjects: SkillInventory["localProjects"] = []
@@ -757,6 +782,14 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
 
     throw new Error("Skill path is not allowed.")
+  }
+
+  private async resolveAllowedSkillDocumentPath(requestPath: string): Promise<string> {
+    const skillPath = await this.resolveAllowedSkillPath(requestPath)
+    const skillFilePath = path.join(skillPath, "SKILL.md")
+
+    await access(skillFilePath)
+    return skillFilePath
   }
 
   private async readAuthSnapshot(): Promise<SkillVersionAuthSnapshot> {
@@ -875,6 +908,22 @@ async function assertCanReplaceSharedSkillTarget(targetPath: string, options: { 
   }
 
   throw new Error("A local Skill with the same name already exists in the shared Agent Skills directory.")
+}
+
+function mergeInstalledSkillSnapshots(
+  lumoInstalledSkills: InstalledSkill[],
+  externalInstalledSkills: InstalledSkill[],
+): InstalledSkill[] {
+  const merged = new Map<string, InstalledSkill>()
+
+  for (const skill of externalInstalledSkills) {
+    merged.set(skill.path, skill)
+  }
+  for (const skill of lumoInstalledSkills) {
+    merged.set(skill.path, skill)
+  }
+
+  return Array.from(merged.values())
 }
 
 async function replaceDirectory(sourcePath: string, targetPath: string): Promise<void> {

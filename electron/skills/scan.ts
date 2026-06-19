@@ -97,9 +97,18 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
       const metadataPath = path.join(skillPath, metadataFileName)
 
       try {
-        const metadataContent = await readFile(metadataPath, "utf8")
-        const normalizedMetadata = normalizeMetadata(metadataContent, entry.name)
+        const metadataContent = await readInstalledMetadataContent(metadataPath)
         const frontmatterMetadata = await readSkillFrontmatterMetadata(skillPath, entry.name)
+
+        if (!metadataContent && !frontmatterMetadata.validSkillFile) {
+          throw new Error(`${metadataFileName} missing and SKILL.md unavailable`)
+        }
+
+        const normalizedMetadata = metadataContent
+          ? normalizeMetadata(metadataContent, entry.name)
+          : ({
+              kind: "local",
+            } satisfies ManagedSkillMetadata)
         const metadata = {
           ...normalizedMetadata,
           description: frontmatterMetadata.description ?? normalizedMetadata.description,
@@ -134,7 +143,7 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        const isMetadataMissing = message.includes("ENOENT") && message.includes(metadataFileName)
+        const isMissingSkillDefinition = message.includes(`${metadataFileName} missing and SKILL.md unavailable`)
         hiddenCount += 1
         logDiagnosticOnChange(
           `skill-scan:installed-candidate:${skillPath}`,
@@ -146,12 +155,11 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
             skillName: entry.name,
             skillPath,
           },
-          isMetadataMissing ? "trace" : "warn",
-          isMetadataMissing
-            ? { agentId: agent.id, metadataMissing: true, skillName: entry.name, skillPath }
+          isMissingSkillDefinition ? "trace" : "warn",
+          isMissingSkillDefinition
+            ? { agentId: agent.id, skillDefinitionMissing: true, skillName: entry.name, skillPath }
             : { agentId: agent.id, error: message, skillName: entry.name, skillPath },
         )
-        // 无 metadata 的私有 Skill 默认隐藏。
         return undefined
       }
     }),
@@ -438,26 +446,47 @@ async function readLocalSkillProject(
 }
 
 function shouldSkipSkillRootEntry(entry: Dirent): boolean {
-  return entry.name.startsWith(".") || skippedDirectoryNames.has(entry.name)
+  return entry.name.startsWith(".") || skippedDirectoryNames.has(entry.name) || isBackupSkillDirectoryName(entry.name)
 }
 
-async function readSkillFrontmatterMetadata(
-  skillPath: string,
-  skillName: string,
-): Promise<Pick<ManagedSkillMetadata, "description" | "icon" | "packageName" | "version">> {
+function isBackupSkillDirectoryName(name: string): boolean {
+  return /\.backup(?:[.-]\d{8}-\d{6})?$/.test(name) || /\.backup[.-]/.test(name)
+}
+
+async function readInstalledMetadataContent(metadataPath: string): Promise<string | undefined> {
+  try {
+    return await readFile(metadataPath, "utf8")
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes("ENOENT") && message.includes(metadataFileName)) {
+      return undefined
+    }
+
+    throw error
+  }
+}
+
+interface SkillFrontmatterMetadata extends Pick<
+  ManagedSkillMetadata,
+  "description" | "icon" | "packageName" | "version"
+> {
+  validSkillFile: boolean
+}
+
+async function readSkillFrontmatterMetadata(skillPath: string, skillName: string): Promise<SkillFrontmatterMetadata> {
   let content: string
 
   try {
     content = await readFile(path.join(skillPath, "SKILL.md"), "utf8")
   } catch {
-    return {}
+    return { validSkillFile: false }
   }
 
   const frontmatter = parseSkillFrontmatter(content)
   const name = readFrontmatterString(frontmatter, "name")
 
   if (name && name !== skillName) {
-    return {}
+    return { validSkillFile: false }
   }
 
   const metadata = isRecord(frontmatter?.["metadata"]) ? frontmatter["metadata"] : undefined
@@ -466,6 +495,7 @@ async function readSkillFrontmatterMetadata(
     description: readFrontmatterString(frontmatter, "description"),
     icon: readSkillFrontmatterIcon(frontmatter),
     packageName: readFrontmatterString(metadata, "packageName"),
+    validSkillFile: Boolean(frontmatter),
     version: readFrontmatterString(metadata, "version"),
   }
 }

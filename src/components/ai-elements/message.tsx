@@ -188,10 +188,10 @@ export function compactLocalPath(value: string, maxLength = 72): string {
   return `${normalized.slice(0, head)}${ellipsis}${normalized.slice(-tail)}`
 }
 
-function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
+export function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
   return (
-    <div className="my-3 min-w-0 overflow-x-auto">
-      <table className={cn("w-full min-w-max border-collapse border border-border text-sm", className)} {...props}>
+    <div className="my-3 max-w-full min-w-0 overflow-hidden">
+      <table className={cn("w-full table-fixed border-collapse border border-border text-sm", className)} {...props}>
         {children}
       </table>
     </div>

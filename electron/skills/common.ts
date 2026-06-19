@@ -241,6 +241,15 @@ export interface OpenSkillPathRequest {
   path: string
 }
 
+export interface SkillDocumentRequest {
+  path: string
+}
+
+export interface SkillDocument {
+  content: string
+  path: string
+}
+
 export interface PublishSkillRequest {
   path: string
   visibility?: "public"
@@ -272,8 +281,10 @@ export const SkillService = serviceName("skill-service") as ServiceName<{
     checkSkillVersions(request?: CheckSkillVersionsRequest): Promise<SkillVersionReport>
     executeCliUpdate(): Promise<SkillVersionReport>
     executeRegistrySkillUpdate(request: ExecuteSkillUpdateRequest): Promise<SkillVersionReport>
+    openSkillDocument(request: SkillDocumentRequest): Promise<void>
     openSkillFolder(request: OpenSkillPathRequest): Promise<void>
     publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult>
+    readSkillDocument(request: SkillDocumentRequest): Promise<SkillDocument>
     searchRegistrySkills(request: SkillSearchRequest): Promise<SkillSearchResult[]>
     updateRegistrySkill(request: UpdateRegistrySkillRequest): Promise<SkillInventory>
   }

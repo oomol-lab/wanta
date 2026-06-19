@@ -5,16 +5,15 @@ import type {
   ManagedSkillKind,
   PublicSkillPackage,
   PublicSkillPackageCatalog,
-  SkillInventory,
   SkillVersionReport,
 } from "../../../electron/skills/common.ts"
 import type { ObjectStatusTone } from "@/components/ObjectRow"
-import type { SkillRemoveTarget } from "@/components/useSkillObjectActions"
 import type { TranslateFn as TFunction } from "@/i18n"
 
 import * as React from "react"
 import { toast } from "sonner"
 import { AgentIcon } from "@/components/AgentIcon"
+import { MessageResponse } from "@/components/ai-elements/message"
 import { useSkillService } from "@/components/AppContext"
 import {
   useHomeSummaryResource,
@@ -22,7 +21,6 @@ import {
   useSkillVersionReportResource,
 } from "@/components/AppDataHooks"
 import { AppIcons } from "@/components/AppIcons"
-import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { InspectorCard, InspectorInsetCard } from "@/components/InspectorPanel"
 import { ObjectRowSkeletonGroup, SkeletonText } from "@/components/LoadingSkeletons"
@@ -32,13 +30,7 @@ import { SkillIcon } from "@/components/SkillIcon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -63,6 +55,8 @@ function skillErrorMessage(cause: unknown, t: TFunction): string {
 
 type SkillSelectionKey = typeof builtInSelectionKey | string
 type SkillPageTab = "discover" | "installed"
+type InstalledSkillFilter = "all" | "updates" | "local"
+type SkillDocumentViewMode = "preview" | "raw"
 type PublicSkillInstallState = "installed" | "partially-installed" | "installable" | "name-conflict" | "unavailable"
 type PublicPackageCatalogStatus = "idle" | "load-error" | "loading" | "loading-more" | "refreshing"
 type ManagedSkillGroupById = ReadonlyMap<string, ManagedSkillGroup>
@@ -93,6 +87,32 @@ const initialPublicPackageCatalogState: PublicPackageCatalogState = {
 }
 
 const discoverAutoLoadThresholdPx = 160
+
+function isInstalledSkillFilter(value: string): value is InstalledSkillFilter {
+  return value === "all" || value === "updates" || value === "local"
+}
+
+function skillDocumentPreviewSource(content: string): string {
+  const normalized = content.replace(/^\uFEFF/, "")
+  if (!normalized.startsWith("---")) {
+    return content
+  }
+
+  const lines = normalized.split(/\r?\n/)
+  if (lines[0]?.trim() !== "---") {
+    return content
+  }
+
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === "---")
+  if (closingIndex < 0) {
+    return content
+  }
+
+  return lines
+    .slice(closingIndex + 1)
+    .join("\n")
+    .trimStart()
+}
 
 function appendUniquePublicPackages(
   current: PublicSkillPackage[],
@@ -164,6 +184,10 @@ function getRuntimeHosts(group: ManagedSkillGroup): ManagedSkillHostCoverage[] {
   return group.runtimeHosts
 }
 
+function getInstalledSkillHosts(group: ManagedSkillGroup): ManagedSkillHostCoverage[] {
+  return group.hosts.filter((host) => host.status === "installed")
+}
+
 function getInstalledHostCount(group: ManagedSkillGroup, hosts = group.hosts): number {
   return hosts.filter((host) => host.status === "installed").length
 }
@@ -176,12 +200,8 @@ function getMissingHostCount(group: ManagedSkillGroup, hosts = group.hosts): num
   return hosts.filter((host) => host.status === "missing").length
 }
 
-function isOoRelatedSkillGroup(group: ManagedSkillGroup): boolean {
-  return group.isBuiltIn || group.kind !== "unknown" || Boolean(group.packageName?.trim())
-}
-
 function isInstalledSkillGroup(group: ManagedSkillGroup): boolean {
-  return !group.isBuiltIn && getInstalledHostCount(group, getRuntimeHosts(group)) > 0
+  return !group.isBuiltIn && getInstalledSkillHosts(group).length > 0
 }
 
 function getHostCoverageLabel(group: ManagedSkillGroup, t: TFunction, hosts = group.hosts): string | undefined {
@@ -199,7 +219,11 @@ function shouldInstallBuiltInSkill(group: ManagedSkillGroup): group is ManagedSk
 }
 
 function shouldUpdatePublishedSkill(group: ManagedSkillGroup): boolean {
-  return group.kind === "registry" && Boolean(group.packageName?.trim()) && getInstalledHostCount(group) > 0
+  return (
+    group.kind === "registry" &&
+    Boolean(group.packageName?.trim()) &&
+    getInstalledHostCount(group, getRuntimeHosts(group)) > 0
+  )
 }
 
 function getLocalSkillPublishPath(group: ManagedSkillGroup): string | undefined {
@@ -207,10 +231,32 @@ function getLocalSkillPublishPath(group: ManagedSkillGroup): string | undefined 
     return undefined
   }
 
-  const publishHost = getRuntimeHosts(group).find(
-    (host) => host.status === "installed" && (host.sourcePath || host.path),
-  )
+  const publishHost = group.hosts.find((host) => host.status === "installed" && (host.sourcePath || host.path))
   return publishHost?.sourcePath ?? publishHost?.path
+}
+
+function getSkillDocumentRootPath(group: ManagedSkillGroup): string | undefined {
+  const installedHost = getInstalledSkillHosts(group).find((host) => host.path || host.sourcePath)
+  return installedHost?.path ?? installedHost?.sourcePath
+}
+
+function isPublishableLocalSkill(group: ManagedSkillGroup): boolean {
+  return Boolean(getLocalSkillPublishPath(group)) && !group.packageName?.trim()
+}
+
+function matchesInstalledSkillFilter(
+  group: ManagedSkillGroup,
+  filter: InstalledSkillFilter,
+  versionCheck: SkillVersionReport["skills"][number] | undefined,
+): boolean {
+  switch (filter) {
+    case "all":
+      return true
+    case "updates":
+      return hasSkillUpdateAvailable(versionCheck)
+    case "local":
+      return group.kind === "local"
+  }
 }
 
 function getSkillVersionCheckKey(skillId: string, packageName: string | undefined): string {
@@ -248,6 +294,7 @@ function getSkillKindLabel(kind: ManagedSkillKind, t: TFunction): string {
 function getGroupStatus(group: ManagedSkillGroup, t: TFunction, hosts = group.hosts) {
   const attentionHostCount = getAttentionHostCount(group, hosts)
   const sourceMissingHostCount = hosts.filter((host) => host.controlState === "source-missing").length
+  const modifiedHostCount = hosts.filter((host) => host.controlState === "modified").length
   const installedHostCount = getInstalledHostCount(group, hosts)
 
   if (attentionHostCount > 0) {
@@ -256,8 +303,10 @@ function getGroupStatus(group: ManagedSkillGroup, t: TFunction, hosts = group.ho
 
     return {
       badge: isDanger ? ("destructive" as const) : ("outline" as const),
-      description: t("skills.groupStatus.attentionDescription", { count: attentionHostCount }),
-      label: t("skills.groupStatus.attention"),
+      description: isDanger
+        ? t("skills.groupStatus.sourceMissingDescription", { count: sourceMissingHostCount })
+        : t("skills.groupStatus.modifiedDescription", { count: modifiedHostCount }),
+      label: isDanger ? t("skills.groupStatus.sourceMissing") : t("skills.groupStatus.modified"),
       tone,
     }
   }
@@ -547,16 +596,8 @@ function getSkillRowStatusBadgeClassName(tone: ObjectStatusTone): string {
   return baseClassName
 }
 
-function OoRelatedBadge({ label }: { label: string }) {
-  return (
-    <Badge
-      className="h-5 shrink-0 border-[var(--accent-ring)] bg-[var(--accent-soft)] px-1.5 text-[11px] leading-none font-medium text-[var(--accent-strong)]"
-      variant="outline"
-    >
-      {label}
-    </Badge>
-  )
-}
+const publishableSkillBadgeClassName =
+  "h-5 shrink-0 border-blue-200 bg-blue-50 px-1.5 text-[11px] leading-none font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-300"
 
 const skillUpdateBadgeBaseClassName =
   "h-5 shrink-0 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-1.5 text-[11px] leading-none font-medium text-[var(--oo-warning-foreground)]"
@@ -694,6 +735,7 @@ export function SkillsRoute() {
   const [activeTab, setActiveTab] = React.useState<SkillPageTab>("discover")
   const [selectedSkillId, setSelectedSkillId] = React.useState<SkillSelectionKey | null>(null)
   const [query, setQuery] = React.useState("")
+  const [installedFilter, setInstalledFilter] = React.useState<InstalledSkillFilter>("all")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
@@ -714,11 +756,7 @@ export function SkillsRoute() {
   const installRegistryInFlightRef = React.useRef(false)
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
-  const handleSkillDeleted = React.useCallback((nextInventory: SkillInventory) => {
-    setSelectedSkillId(nextInventory.groups.find((group) => !group.isBuiltIn)?.id ?? builtInSelectionKey)
-  }, [])
-  const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
-    useSkillObjectActions({ onDeleted: handleSkillDeleted })
+  const { copySkillPath, openSkillFolder } = useSkillObjectActions()
 
   React.useEffect(() => {
     if (!selectedSkillId && inventory?.groups[0]) {
@@ -767,6 +805,11 @@ export function SkillsRoute() {
     return searchedBuiltInGroups
   }, [searchedBuiltInGroups])
   const installedGroups = React.useMemo(() => searchedGroups.filter(isInstalledSkillGroup), [searchedGroups])
+  const filteredInstalledGroups = React.useMemo(() => {
+    return installedGroups.filter((group) => {
+      return matchesInstalledSkillFilter(group, installedFilter, getSkillVersionCheck(versionCheckByKey, group))
+    })
+  }, [installedFilter, installedGroups, versionCheckByKey])
   const systemAttentionGroups = React.useMemo(() => {
     return searchedBuiltInGroups.filter((group) => getAttentionHostCount(group, getRuntimeHosts(group)) > 0)
   }, [searchedBuiltInGroups])
@@ -777,10 +820,8 @@ export function SkillsRoute() {
   const isBuiltInSelected =
     selectedSkillId === builtInSelectionKey || (!selectedSkill && filteredBuiltInGroups.length > 0)
   const builtInStatus = React.useMemo(() => getBuiltInStatus(filteredBuiltInGroups, t), [filteredBuiltInGroups, t])
-  const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getRuntimeHosts(selectedSkill)) : null
+  const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getInstalledSkillHosts(selectedSkill)) : null
   const selectedVersionCheck = getSkillVersionCheck(versionCheckByKey, selectedSkill)
-  const selectedInstalledHostCount = selectedSkill ? getInstalledHostCount(selectedSkill) : 0
-
   React.useEffect(() => {
     if (requestedVersionCheckRef.current) {
       return
@@ -1036,12 +1077,10 @@ export function SkillsRoute() {
     openSkillFolder,
     publishSkill,
     publishingSkillId,
-    selectedInstalledHostCount,
     selectedPlanError: planError,
     selectedSkill,
     selectedStatus,
     selectedVersionCheck,
-    setRemoveTarget,
     updateRegistrySkill,
     updatingRegistrySkillId,
   }
@@ -1085,14 +1124,15 @@ export function SkillsRoute() {
         ) : (
           <InstalledSkillsPane
             detailContentProps={detailContentProps}
-            groups={installedGroups}
+            filter={installedFilter}
+            groups={filteredInstalledGroups}
             isDetailOpen={narrowPane === "detail"}
             systemAttentionGroups={systemAttentionGroups}
             updateRegistrySkill={updateRegistrySkill}
             updatingRegistrySkillId={updatingRegistrySkillId}
             versionCheckByKey={versionCheckByKey}
             selectedSkill={
-              selectedSkill && installedGroups.some((group) => group.id === selectedSkill.id)
+              selectedSkill && filteredInstalledGroups.some((group) => group.id === selectedSkill.id)
                 ? selectedSkill
                 : undefined
             }
@@ -1103,19 +1143,10 @@ export function SkillsRoute() {
             onSelectSkill={(skillId) => {
               selectSkill(skillId)
             }}
+            onFilterChange={setInstalledFilter}
           />
         )}
       </section>
-      <DeleteSkillConfirmDialog
-        isRemoving={isRemovingSkill}
-        target={removeTarget}
-        onConfirm={removeSkill}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) {
-            setRemoveTarget(null)
-          }
-        }}
-      />
     </>
   )
 }
@@ -1163,12 +1194,10 @@ interface SkillDetailContentProps {
   openSkillFolder: (pathname: string) => void
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
   publishingSkillId: string | null
-  selectedInstalledHostCount: number
   selectedPlanError: string | null
   selectedSkill: ManagedSkillGroup | undefined
   selectedStatus: ReturnType<typeof getGroupStatus> | null
   selectedVersionCheck?: SkillVersionReport["skills"][number]
-  setRemoveTarget: (target: SkillRemoveTarget) => void
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
   updatingRegistrySkillId: string | null
 }
@@ -1184,12 +1213,10 @@ function SkillDetailContent({
   openSkillFolder,
   publishSkill,
   publishingSkillId,
-  selectedInstalledHostCount,
   selectedPlanError,
   selectedSkill,
   selectedStatus,
   selectedVersionCheck,
-  setRemoveTarget,
   updateRegistrySkill,
   updatingRegistrySkillId,
 }: SkillDetailContentProps) {
@@ -1220,11 +1247,9 @@ function SkillDetailContent({
         planError={selectedPlanError}
         publishSkill={publishSkill}
         publishingSkillId={publishingSkillId}
-        selectedInstalledHostCount={selectedInstalledHostCount}
         selectedSkill={selectedSkill}
         selectedStatus={selectedStatus}
         selectedVersionCheck={selectedVersionCheck}
-        setRemoveTarget={setRemoveTarget}
         updateRegistrySkill={updateRegistrySkill}
         updatingRegistrySkillId={updatingRegistrySkillId}
       />
@@ -1543,9 +1568,11 @@ function PublicSkillPackageCard({
 
 interface InstalledSkillsPaneProps {
   detailContentProps: SkillDetailContentProps
+  filter: InstalledSkillFilter
   groups: ManagedSkillGroup[]
   isDetailOpen: boolean
   onCloseDetail: () => void
+  onFilterChange: (filter: InstalledSkillFilter) => void
   onSelectBuiltIn: () => void
   onSelectSkill: (skillId: string) => void
   selectedSkill: ManagedSkillGroup | undefined
@@ -1557,9 +1584,11 @@ interface InstalledSkillsPaneProps {
 
 function InstalledSkillsPane({
   detailContentProps,
+  filter,
   groups,
   isDetailOpen,
   onCloseDetail,
+  onFilterChange,
   onSelectBuiltIn,
   onSelectSkill,
   selectedSkill,
@@ -1573,6 +1602,22 @@ function InstalledSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3">
       <div className="grid gap-3 pr-1">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          className="w-fit max-w-full flex-wrap justify-start"
+          value={filter}
+          onValueChange={(value) => {
+            if (isInstalledSkillFilter(value)) {
+              onFilterChange(value)
+            }
+          }}
+        >
+          <ToggleGroupItem value="all">{t("skills.installedFilter.all")}</ToggleGroupItem>
+          <ToggleGroupItem value="updates">{t("skills.installedFilter.updates")}</ToggleGroupItem>
+          <ToggleGroupItem value="local">{t("skills.installedFilter.local")}</ToggleGroupItem>
+        </ToggleGroup>
         {systemAttentionGroups.length > 0 ? (
           <SystemSkillAttentionCard groups={systemAttentionGroups} onOpen={onSelectBuiltIn} />
         ) : null}
@@ -1622,11 +1667,23 @@ function InstalledSkillCard({
   versionCheck,
 }: InstalledSkillCardProps) {
   const { t } = useAppI18n()
-  const runtimeHosts = getRuntimeHosts(group)
-  const status = getGroupStatus(group, t, runtimeHosts)
+  const status = getGroupStatus(group, t, getInstalledSkillHosts(group))
   const hasUpdate = hasSkillUpdateAvailable(versionCheck)
-  const statusLabel = hasUpdate ? t("skills.updateAvailable") : (status.label ?? t("skills.installed"))
-  const badgeTone: ObjectStatusTone = hasUpdate ? "attention" : status.tone
+  const canUpdate = hasUpdate && shouldUpdatePublishedSkill(group)
+  const isPublishable = isPublishableLocalSkill(group)
+  const hasAttention = status.tone === "attention" || status.tone === "danger"
+  const statusLabel = hasUpdate
+    ? t("skills.updateAvailable")
+    : hasAttention
+      ? (status.label ?? t("skills.groupStatus.modified"))
+      : isPublishable
+        ? t("skills.publishable")
+        : t("skills.installed")
+  const badgeTone: ObjectStatusTone = hasUpdate ? "attention" : hasAttention ? status.tone : "ready"
+  const badgeClassName =
+    isPublishable && !hasUpdate && !hasAttention
+      ? publishableSkillBadgeClassName
+      : getSkillRowStatusBadgeClassName(badgeTone)
   const packageLine = getGroupRowPackageLine(group) ?? getSkillKindLabel(group.kind, t)
   const runtimeLabel =
     hasUpdate && versionCheck
@@ -1634,9 +1691,11 @@ function InstalledSkillCard({
           current: versionCheck.currentVersion ?? group.version ?? "",
           latest: versionCheck.latestVersion ?? "",
         })
-      : status.tone === "ready"
-        ? t("skills.lumoRuntimeAvailable")
-        : t("skills.lumoRuntimeNeedsAction")
+      : hasAttention
+        ? (status.description ?? t("skills.groupStatus.modifiedDescription", { count: 1 }))
+        : isPublishable
+          ? t("skills.publishableDescription")
+          : t("skills.installedDescription")
   const isUpdating = updatingRegistrySkillId === group.id
 
   return (
@@ -1670,13 +1729,10 @@ function InstalledSkillCard({
         </div>
       </button>
       <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
-        <Badge
-          className={getSkillRowStatusBadgeClassName(badgeTone)}
-          variant={badgeTone === "danger" ? "destructive" : "outline"}
-        >
+        <Badge className={badgeClassName} variant={badgeTone === "danger" ? "destructive" : "outline"}>
           {statusLabel}
         </Badge>
-        {hasUpdate ? (
+        {canUpdate ? (
           <Button
             type="button"
             variant="outline"
@@ -1966,15 +2022,17 @@ function PublicSkillPackageDetail({
   const primaryInstallSkill = getPublicPackagePrimaryInstallSkill(groupById, pkg)
   const primaryState = getPublicPackageInstallState(groupById, pkg)
   const isInstallingPrimary = installingKey === getPublicSkillInstallKey(pkg, primaryInstallSkill?.name)
+  const maintainerLine = getPublicPackageMaintainerLine(pkg, t)
 
   return (
-    <aside className={cn("grid min-w-0 content-start gap-3", className)}>
-      <InspectorCard>
+    <aside className={cn("flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden", className)}>
+      <InspectorCard className="shrink-0">
         <CardHeader className="flex-row items-start gap-3 px-3 py-0">
           <PublicSkillIcon icon={pkg.icon} />
           <div className="grid min-w-0 flex-1 gap-1">
             <CardTitle className="min-w-0 truncate text-sm">{pkg.displayName}</CardTitle>
             <CardDescription className="min-w-0 truncate">{pkg.name}</CardDescription>
+            <CardDescription className="min-w-0 truncate">{maintainerLine}</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="grid gap-2 px-3">
@@ -2017,27 +2075,34 @@ function PublicSkillPackageDetail({
         </CardContent>
       </InspectorCard>
 
-      <InspectorInsetCard className="gap-2 px-3 py-2">
-        <div className="text-xs font-medium">{t("skills.discoverIncludedSkills")}</div>
-        <ItemGroup className="min-w-0 gap-1">
+      <InspectorInsetCard className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3">
+        <div className="min-w-0 truncate text-sm font-medium">{t("skills.discoverIncludedSkills")}</div>
+        <div className="grid min-h-0 gap-2 overflow-auto">
           {pkg.skills.map((skill) => {
             const state = getPublicSkillInstallState(groupById, pkg, skill.name)
             const installKey = getPublicSkillInstallKey(pkg, skill.name)
             const isInstalling = installingKey === installKey
 
             return (
-              <Item key={skill.name} size="sm" className="gap-3 rounded-md border-0 px-2 py-1.5">
-                <ItemMedia className="size-auto">
-                  <SkillIcon icon={pkg.icon} />
-                </ItemMedia>
-                <ItemContent className="min-w-0 gap-0.5">
-                  <ItemTitle className="max-w-full truncate text-xs">{skill.title}</ItemTitle>
-                  <ItemDescription className="max-w-full truncate text-xs">{skill.name}</ItemDescription>
-                  {skill.description ? (
-                    <ItemDescription className="line-clamp-2 text-xs">{skill.description}</ItemDescription>
-                  ) : null}
-                </ItemContent>
-                <ItemActions className="min-w-0 justify-end">
+              <div key={skill.name} className="grid gap-3 rounded-md border bg-background p-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-card">
+                    <SkillIcon icon={pkg.icon} className="size-5" />
+                  </span>
+                  <div className="grid min-w-0 flex-1 gap-1">
+                    <div className="min-w-0 truncate text-sm font-medium">{skill.title}</div>
+                    <CardDescription className="min-w-0 truncate">{skill.name}</CardDescription>
+                  </div>
+                </div>
+                {skill.description ? (
+                  <CardDescription className="min-w-0 break-words text-foreground/80">
+                    {skill.description}
+                  </CardDescription>
+                ) : null}
+                <div className="oo-border-divider flex min-w-0 items-center justify-between gap-2 border-t pt-2">
+                  <Badge variant={state === "installed" ? "secondary" : "outline"}>
+                    {getPublicSkillInstallStateLabel(state, t)}
+                  </Badge>
                   {state === "installed" || state === "name-conflict" ? (
                     <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(skill.name)}>
                       {t("skills.discoverOpenManage")}
@@ -2054,30 +2119,10 @@ function PublicSkillPackageDetail({
                       {isInstalling ? t("skills.registryInstalling") : getPublicSkillInstallActionLabel(state, t)}
                     </Button>
                   )}
-                </ItemActions>
-              </Item>
+                </div>
+              </div>
             )
           })}
-        </ItemGroup>
-      </InspectorInsetCard>
-
-      <InspectorInsetCard className="gap-2 px-3 py-2">
-        <div className="text-xs font-medium">{t("skills.discoverPackageInfo")}</div>
-        <div className="grid gap-1 text-xs">
-          <div className="flex min-w-0 justify-between gap-3">
-            <span className="oo-text-muted">{t("skills.package")}</span>
-            <span className="min-w-0 truncate text-right">{pkg.name}</span>
-          </div>
-          <div className="flex min-w-0 justify-between gap-3">
-            <span className="oo-text-muted">{t("skills.discoverMaintainer")}</span>
-            <span className="min-w-0 truncate text-right">{getPublicPackageMaintainerLine(pkg, t)}</span>
-          </div>
-          {updateTime ? (
-            <div className="flex min-w-0 justify-between gap-3">
-              <span className="oo-text-muted">{t("skills.discoverUpdated")}</span>
-              <span className="min-w-0 truncate text-right">{updateTime}</span>
-            </div>
-          ) : null}
         </div>
       </InspectorInsetCard>
     </aside>
@@ -2156,11 +2201,9 @@ interface SkillPeekProps {
   planError: string | null
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
   publishingSkillId: string | null
-  selectedInstalledHostCount: number
   selectedSkill: ManagedSkillGroup
   selectedStatus: ReturnType<typeof getGroupStatus>
   selectedVersionCheck?: SkillVersionReport["skills"][number]
-  setRemoveTarget: (target: SkillRemoveTarget) => void
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
   updatingRegistrySkillId: string | null
 }
@@ -2275,80 +2318,127 @@ function SkillPeek({
   planError,
   publishSkill,
   publishingSkillId,
-  selectedInstalledHostCount,
   selectedSkill,
   selectedStatus,
   selectedVersionCheck,
-  setRemoveTarget,
   updateRegistrySkill,
   updatingRegistrySkillId,
 }: SkillPeekProps) {
   const { t } = useAppI18n()
-  const allHosts = getRuntimeHosts(selectedSkill)
+  const skillService = useSkillService()
+  const runtimeHosts = getRuntimeHosts(selectedSkill)
+  const installedHosts = getInstalledSkillHosts(selectedSkill)
+  const allHosts = runtimeHosts.length > 0 ? runtimeHosts : installedHosts
+  const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
   const canInstallBuiltInSkill = shouldInstallBuiltInSkill(selectedSkill)
   const isInstallingBuiltInSkill = canInstallBuiltInSkill && installingBuiltInSkillId === selectedSkill.id
-  const missingHostCount = getMissingHostCount(selectedSkill, allHosts)
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
   const isUpdatingRegistrySkill = updatingRegistrySkillId === selectedSkill.id
-  const canDeleteSkill = !selectedSkill.isBuiltIn && selectedInstalledHostCount > 0
   const localPublishPath = getLocalSkillPublishPath(selectedSkill)
   const canPublishLocalSkill = Boolean(localPublishPath)
   const isPublishingSkill = publishingSkillId === selectedSkill.id
   const hostAttentionCount = allHosts.filter(
     (host) => host.controlState === "modified" || host.controlState === "source-missing",
   ).length
-  const viewInstalledHostCount = getInstalledHostCount(selectedSkill, allHosts)
-  const ooRelatedLabel = isOoRelatedSkillGroup(selectedSkill) ? t("skills.ooRelatedTag") : undefined
   const headingRef = useDesktopDetailHeadingFocus<HTMLHeadingElement>(selectedSkill.id)
   const [isHostDetailsOpen, setIsHostDetailsOpen] = React.useState(false)
+  const [skillDocument, setSkillDocument] = React.useState<{ content: string; path: string } | null>(null)
+  const [skillDocumentError, setSkillDocumentError] = React.useState<string | null>(null)
+  const [isSkillDocumentLoading, setIsSkillDocumentLoading] = React.useState(false)
+  const [skillDocumentViewMode, setSkillDocumentViewMode] = React.useState<SkillDocumentViewMode>("preview")
   const hasSourceMissingHost = allHosts.some((host) => host.controlState === "source-missing")
   const hostAttentionTone: ObjectStatusTone = hasSourceMissingHost ? "danger" : "attention"
-  const hostAttentionBadgeVariant = hasSourceMissingHost ? ("destructive" as const) : ("outline" as const)
-  const hostScopeDescription =
-    allHosts.length === 0
-      ? t("skills.lumoRuntimeUnavailable")
-      : missingHostCount === 0
-        ? t("skills.lumoRuntimeAvailableDescription")
-        : t("skills.agentScopeSummary", {
-            installed: viewInstalledHostCount,
-            total: allHosts.length,
-          })
+  const canShowInstallLocations = allHosts.length > 0
+  const packageLine = getGroupRowPackageLine(selectedSkill)
+  const statusDescription = hasPublishedUpdate
+    ? t("skills.versionUpdateAvailable", {
+        current: selectedVersionCheck?.currentVersion ?? "",
+        latest: selectedVersionCheck?.latestVersion ?? "",
+      })
+    : packageLine
+  const previewDocumentContent = skillDocument ? skillDocumentPreviewSource(skillDocument.content) : ""
 
   React.useEffect(() => {
     setIsHostDetailsOpen(false)
+    setSkillDocumentViewMode("preview")
   }, [selectedSkill.id])
 
+  React.useEffect(() => {
+    let cancelled = false
+
+    setSkillDocument(null)
+    setSkillDocumentError(null)
+
+    if (!skillDocumentRootPath) {
+      setIsSkillDocumentLoading(false)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setIsSkillDocumentLoading(true)
+    void skillService
+      .invoke("readSkillDocument", { path: skillDocumentRootPath })
+      .then((document) => {
+        if (!cancelled) {
+          setSkillDocument(document)
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setSkillDocumentError(skillErrorMessage(cause, t))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsSkillDocumentLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [skillDocumentRootPath, skillService, t])
+
+  const openSkillDocument = React.useCallback(async () => {
+    if (!skillDocumentRootPath) {
+      return
+    }
+
+    try {
+      await skillService.invoke("openSkillDocument", { path: skillDocumentRootPath })
+    } catch (cause) {
+      toast.error(t("skills.openDocumentFailed", { error: skillErrorMessage(cause, t) }))
+    }
+  }, [skillDocumentRootPath, skillService, t])
+
   return (
-    <div className="grid min-w-0 gap-3 overflow-hidden">
-      <InspectorCard>
-        <CardHeader className="flex-row items-center gap-2 px-3 py-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+      <InspectorCard className="shrink-0">
+        <CardHeader className="grid gap-1 px-3 py-0">
           <CardTitle ref={headingRef} className="min-w-0 truncate text-sm outline-none" tabIndex={-1}>
             {selectedSkill.name}
           </CardTitle>
-          {shouldShowStatusBadge(selectedStatus.tone) && selectedStatus.label ? (
-            <Badge
-              className={cn("shrink-0", getStatusBadgeClassName(selectedStatus.tone))}
-              variant={selectedStatus.badge}
-            >
-              {selectedStatus.label}
-            </Badge>
+          {statusDescription ? (
+            <CardDescription className="min-w-0 truncate">{statusDescription}</CardDescription>
           ) : null}
         </CardHeader>
         <CardContent className="grid gap-2 px-3">
-          <CardDescription className="min-w-0 truncate">
-            {hasPublishedUpdate
-              ? t("skills.versionUpdateAvailable", {
-                  current: selectedVersionCheck?.currentVersion ?? "",
-                  latest: selectedVersionCheck?.latestVersion ?? "",
-                })
-              : (selectedSkill.packageName ?? getSkillKindLabel(selectedSkill.kind, t))}
-          </CardDescription>
           <div className="flex min-w-0 flex-wrap items-center gap-1">
-            {ooRelatedLabel ? <OoRelatedBadge label={ooRelatedLabel} /> : null}
             <Badge variant="secondary">{getSkillKindLabel(selectedSkill.kind, t)}</Badge>
-            {selectedSkill.kind === "local" && !selectedSkill.packageName?.trim() ? (
-              <Badge variant="outline">{t("skills.visibility.unpublished")}</Badge>
+            {shouldShowStatusBadge(selectedStatus.tone) && selectedStatus.label ? (
+              <Badge
+                className={cn("shrink-0", getStatusBadgeClassName(selectedStatus.tone))}
+                variant={selectedStatus.badge}
+              >
+                {selectedStatus.label}
+              </Badge>
+            ) : null}
+            {isPublishableLocalSkill(selectedSkill) ? (
+              <Badge className={publishableSkillBadgeClassName} variant="outline">
+                {t("skills.publishable")}
+              </Badge>
             ) : null}
             {hasPublishedUpdate && canUpdatePublishedSkill ? (
               <SkillUpdateActionBadge
@@ -2364,7 +2454,7 @@ function SkillPeek({
             ) : hasPublishedUpdate ? (
               <SkillUpdateBadge label={t("skills.updateAvailable")} />
             ) : null}
-            {selectedSkill.version ? <Badge variant="outline">{selectedSkill.version}</Badge> : null}
+            {!packageLine && selectedSkill.version ? <Badge variant="outline">{selectedSkill.version}</Badge> : null}
           </div>
           {selectedSkill.description ? (
             <CardDescription className="min-w-0 break-words text-foreground/80">
@@ -2404,153 +2494,201 @@ function SkillPeek({
         </CardContent>
       </InspectorCard>
 
-      {allHosts.length > 0 && (
-        <InspectorInsetCard className="gap-3 px-3 py-3">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="grid min-w-0 gap-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <div className="truncate text-sm font-medium">{t("skills.lumoRuntimeTitle")}</div>
-                {hostAttentionCount > 0 ? (
-                  <Badge
-                    className={cn("shrink-0", getStatusBadgeClassName(hostAttentionTone))}
-                    variant={hostAttentionBadgeVariant}
-                  >
-                    {t("skills.agentScopeAttention", { count: hostAttentionCount })}
-                  </Badge>
-                ) : null}
-              </div>
-              <CardDescription className="text-xs">{hostScopeDescription}</CardDescription>
-            </div>
+      <InspectorInsetCard className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0 truncate text-sm font-medium">{t("skills.documentTitle")}</div>
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+            <ToggleGroup
+              type="single"
+              variant="default"
+              size="sm"
+              spacing={0.5}
+              className="rounded-md border bg-background/80 p-0.5 shadow-xs"
+              value={skillDocumentViewMode}
+              onValueChange={(value) => {
+                if (value === "preview" || value === "raw") {
+                  setSkillDocumentViewMode(value)
+                }
+              }}
+            >
+              <ToggleGroupItem
+                value="preview"
+                className="rounded-sm text-muted-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+              >
+                {t("skills.documentPreview")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="raw"
+                className="rounded-sm text-muted-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+              >
+                {t("skills.documentRaw")}
+              </ToggleGroupItem>
+            </ToggleGroup>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="shrink-0"
-              onClick={() => setIsHostDetailsOpen((isOpen) => !isOpen)}
+              disabled={!skillDocumentRootPath}
+              onClick={() => void openSkillDocument()}
             >
-              {isHostDetailsOpen ? t("skills.agentScopeHide") : t("skills.lumoRuntimeDetails")}
+              <AppIcons.action.openExternal />
+              {t("skills.openDocument")}
             </Button>
           </div>
-
-          {hostAttentionCount > 0 ? (
-            <div
-              className={cn(
-                "grid gap-2 rounded-md border px-3 py-2",
-                hasSourceMissingHost
-                  ? "border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)]"
-                  : "border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)]",
+        </div>
+        <div className="min-h-0 flex-1">
+          {isSkillDocumentLoading ? (
+            <div className="grid h-full min-h-32 content-start gap-2 rounded-md border bg-background p-2.5">
+              <SkeletonText className="w-5/6" />
+              <SkeletonText className="w-4/6" />
+              <SkeletonText className="w-3/4" />
+            </div>
+          ) : skillDocumentError ? (
+            <ErrorNotice error={resolveUserFacingError(skillDocumentError, { area: "skills" })} compact />
+          ) : skillDocument ? (
+            <div className="h-full min-h-32 overflow-auto rounded-md border bg-background p-3">
+              {skillDocumentViewMode === "preview" ? (
+                <MessageResponse className="max-w-none text-sm leading-6 text-foreground/85">
+                  {previewDocumentContent}
+                </MessageResponse>
+              ) : (
+                <pre className="font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-foreground/80">
+                  {skillDocument.content}
+                </pre>
               )}
-            >
-              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
-                <ObjectStatusIcon tone={hostAttentionTone} />
-                <div className="grid min-w-0 gap-1">
-                  <div className="text-xs font-medium">{t("skills.groupStatus.attention")}</div>
-                  <CardDescription className="text-xs">{selectedStatus.description}</CardDescription>
-                </div>
-              </div>
             </div>
-          ) : null}
+          ) : (
+            <CardDescription className="text-xs">{t("skills.documentUnavailable")}</CardDescription>
+          )}
+        </div>
+      </InspectorInsetCard>
 
-          {hasPublishedUpdate && canUpdatePublishedSkill ? (
-            <div className="grid gap-2 rounded-md border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
-              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
-                <ObjectStatusIcon tone="attention" />
-                <div className="grid min-w-0 gap-1">
-                  <div className="text-xs font-medium">{t("skills.installedSuggestedActionTitle")}</div>
-                  <CardDescription className="text-xs">
-                    {t("skills.installedSuggestedUpdateDescription", {
-                      latest: selectedVersionCheck?.latestVersion ?? "",
-                    })}
-                  </CardDescription>
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isUpdatingRegistrySkill}
-                  onClick={() => updateRegistrySkill(selectedSkill)}
-                >
-                  {isUpdatingRegistrySkill ? <AppIcons.status.loading className="animate-spin" /> : null}
-                  {isUpdatingRegistrySkill ? t("skills.updatingRegistry") : t("skills.updateRegistry")}
-                </Button>
-              </div>
+      {hostAttentionCount > 0 ? (
+        <InspectorInsetCard
+          className={cn(
+            "shrink-0 gap-3 px-3 py-3",
+            hasSourceMissingHost
+              ? "border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)]"
+              : "border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)]",
+          )}
+        >
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
+            <ObjectStatusIcon tone={hostAttentionTone} />
+            <div className="grid min-w-0 gap-1">
+              <div className="text-xs font-medium">{selectedStatus.label}</div>
+              <CardDescription className="text-xs">{selectedStatus.description}</CardDescription>
             </div>
-          ) : null}
-
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <p className="oo-text-caption oo-text-muted min-w-0">{t("skills.lumoRuntimeHelper")}</p>
           </div>
-
-          {isHostDetailsOpen ? (
-            <ItemGroup className="min-w-0 gap-1">
-              {allHosts.map((host) => {
-                const hostStatus = getHostStatus(host, t)
-                const hostPath = host.path
-                const hasHostActions = Boolean(hostPath) || canDeleteSkill
-
-                return (
-                  <Item key={host.agentId} size="sm" className="gap-3 rounded-md border-0 px-2 py-2">
-                    <ItemMedia className="size-auto gap-2">
-                      <ObjectStatusIcon tone={hostStatus.tone} />
-                      <AgentIcon host={host.agentName} />
-                    </ItemMedia>
-                    <ItemContent className="min-w-0">
-                      <ItemTitle className="max-w-full truncate">{host.agentName}</ItemTitle>
-                    </ItemContent>
-                    <ItemActions className="min-w-0 justify-end gap-1.5">
-                      {shouldShowStatusBadge(hostStatus.tone) && (
-                        <Badge
-                          className={cn("shrink-0", getStatusBadgeClassName(hostStatus.tone))}
-                          variant={hostStatus.variant}
-                        >
-                          {hostStatus.label}
-                        </Badge>
-                      )}
-                      {hasHostActions ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button type="button" variant="ghost" size="icon" aria-label={t("skills.actions")}>
-                              <AppIcons.action.more />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="min-w-48">
-                            {hostPath ? (
-                              <>
-                                <DropdownMenuItem onSelect={() => openSkillFolder(hostPath)}>
-                                  <AppIcons.action.openFolder />
-                                  <span>{t("skills.openFolder")}</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => copySkillPath(hostPath)}>
-                                  <AppIcons.action.copy />
-                                  <span>{t("skills.copyPath")}</span>
-                                </DropdownMenuItem>
-                              </>
-                            ) : null}
-                            {canDeleteSkill ? (
-                              <>
-                                {hostPath ? <DropdownMenuSeparator /> : null}
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  onSelect={() => setRemoveTarget({ skill: selectedSkill })}
-                                >
-                                  <AppIcons.action.delete />
-                                  <span>{t("skills.removeAll")}</span>
-                                </DropdownMenuItem>
-                              </>
-                            ) : null}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : null}
-                    </ItemActions>
-                  </Item>
-                )
-              })}
-            </ItemGroup>
-          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            {localPublishPath ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isPublishingSkill}
+                onClick={() => void publishSkill(selectedSkill)}
+              >
+                {isPublishingSkill ? <AppIcons.status.loading className="animate-spin" /> : null}
+                {isPublishingSkill ? t("skills.publishing") : t("skills.publishToMarket")}
+              </Button>
+            ) : null}
+            {canShowInstallLocations ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsHostDetailsOpen(true)}>
+                {t("skills.installedLocationsAction")}
+              </Button>
+            ) : null}
+          </div>
         </InspectorInsetCard>
-      )}
+      ) : null}
+
+      {hasPublishedUpdate && canUpdatePublishedSkill ? (
+        <InspectorInsetCard className="shrink-0 gap-2 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
+            <ObjectStatusIcon tone="attention" />
+            <div className="grid min-w-0 gap-1">
+              <div className="text-xs font-medium">{t("skills.installedSuggestedActionTitle")}</div>
+              <CardDescription className="text-xs">
+                {t("skills.installedSuggestedUpdateDescription", {
+                  latest: selectedVersionCheck?.latestVersion ?? "",
+                })}
+              </CardDescription>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isUpdatingRegistrySkill}
+              onClick={() => updateRegistrySkill(selectedSkill)}
+            >
+              {isUpdatingRegistrySkill ? <AppIcons.status.loading className="animate-spin" /> : null}
+              {isUpdatingRegistrySkill ? t("skills.updatingRegistry") : t("skills.updateRegistry")}
+            </Button>
+          </div>
+        </InspectorInsetCard>
+      ) : null}
+
+      {isHostDetailsOpen && canShowInstallLocations ? (
+        <InspectorInsetCard className="shrink-0 gap-3 px-3 py-3">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="grid min-w-0 gap-1">
+              <div className="truncate text-sm font-medium">{t("skills.installedLocationsTitle")}</div>
+              <CardDescription className="text-xs">{t("skills.installedLocationsHelper")}</CardDescription>
+            </div>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setIsHostDetailsOpen(false)}>
+              {t("skills.agentScopeHide")}
+            </Button>
+          </div>
+          <ItemGroup className="min-w-0 gap-1">
+            {allHosts.map((host) => {
+              const hostStatus = getHostStatus(host, t)
+              const hostPath = host.path
+
+              return (
+                <Item key={host.agentId} size="sm" className="gap-3 rounded-md border-0 px-2 py-2">
+                  <ItemMedia className="size-auto gap-2">
+                    <ObjectStatusIcon tone={hostStatus.tone} />
+                    <AgentIcon host={host.agentName} />
+                  </ItemMedia>
+                  <ItemContent className="min-w-0">
+                    <ItemTitle className="max-w-full truncate">{host.agentName}</ItemTitle>
+                  </ItemContent>
+                  <ItemActions className="min-w-0 justify-end gap-1.5">
+                    {shouldShowStatusBadge(hostStatus.tone) && (
+                      <Badge
+                        className={cn("shrink-0", getStatusBadgeClassName(hostStatus.tone))}
+                        variant={hostStatus.variant}
+                      >
+                        {hostStatus.label}
+                      </Badge>
+                    )}
+                    {hostPath ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button type="button" variant="ghost" size="icon" aria-label={t("skills.actions")}>
+                            <AppIcons.action.more />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-48">
+                          <DropdownMenuItem onSelect={() => openSkillFolder(hostPath)}>
+                            <AppIcons.action.openFolder />
+                            <span>{t("skills.openFolder")}</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => copySkillPath(hostPath)}>
+                            <AppIcons.action.copy />
+                            <span>{t("skills.copyPath")}</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                  </ItemActions>
+                </Item>
+              )
+            })}
+          </ItemGroup>
+        </InspectorInsetCard>
+      ) : null}
 
       <SkillErrorNotice error={planError} />
     </div>

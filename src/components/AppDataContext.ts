@@ -1,6 +1,5 @@
 import type { AuthState } from "../../electron/auth/common.ts"
-import type { MyPublishedSkillCatalog, SkillInventory, SkillVersionReport } from "../../electron/skills/common.ts"
-import type { SkillShareInfoStore } from "@/lib/skill-share-info-store"
+import type { SkillInventory, SkillVersionReport } from "../../electron/skills/common.ts"
 
 import * as React from "react"
 import { ResourceStore } from "@/lib/resource-store"
@@ -8,9 +7,7 @@ import { ResourceStore } from "@/lib/resource-store"
 export interface AppDataResources {
   authState: ResourceStore<AuthState>
   homeSummary: ResourceStore<null>
-  myPublishedSkills: ResourceStore<MyPublishedSkillCatalog>
   skillInventory: ResourceStore<SkillInventory>
-  skillShareInfo: SkillShareInfoStore
   skillVersions: ResourceStore<SkillVersionReport>
 }
 

@@ -14,6 +14,24 @@ import { normalizeMetadata } from "./metadata.ts"
 import { resolveCanonicalSourcePath } from "./paths.ts"
 
 const externalSkillLockFileName = ".skill-lock.json"
+const lumoRuntimeAgent: SupportedAgent = {
+  cliCommands: [],
+  homeRoot: "",
+  id: "lumo",
+  name: "Lumo",
+  ooCliAgentId: "lumo",
+}
+
+interface SkillRootScanTarget {
+  agent: SupportedAgent
+  canonicalSourceRoot?: string
+  resolveSourcePath?: (skill: {
+    metadata: ManagedSkillMetadata
+    name: string
+    path: string
+  }) => Promise<string> | string
+  skillRoot: string
+}
 
 async function readSkillEntries(skillRoot: string): Promise<Dirent[]> {
   try {
@@ -39,91 +57,8 @@ export async function scanInstalledSkills(agents?: readonly SupportedAgent[]): P
     agentIds: targetAgents.map((agent) => agent.id),
   })
   const perAgentSkills = await Promise.all(
-    targetAgents.map(async (agent): Promise<InstalledSkill[]> => {
-      const skillRoot = resolveAgentSkillRoot(agent)
-      const entries = await readSkillEntries(skillRoot)
-      let candidateCount = 0
-      let hiddenCount = 0
-      let installedCount = 0
-      const skills = await Promise.all(
-        entries.map(async (entry): Promise<InstalledSkill | undefined> => {
-          if (shouldSkipSkillRootEntry(entry) || (!entry.isDirectory() && !entry.isSymbolicLink())) {
-            return undefined
-          }
-
-          candidateCount += 1
-          const skillPath = path.join(skillRoot, entry.name)
-          const metadataPath = path.join(skillPath, metadataFileName)
-
-          try {
-            const metadataContent = await readFile(metadataPath, "utf8")
-            const normalizedMetadata = normalizeMetadata(metadataContent, entry.name)
-            const frontmatterMetadata = await readSkillFrontmatterMetadata(skillPath, entry.name)
-            const metadata = {
-              ...normalizedMetadata,
-              description: frontmatterMetadata.description ?? normalizedMetadata.description,
-              icon: normalizedMetadata.icon ?? frontmatterMetadata.icon,
-              packageName: normalizedMetadata.packageName ?? frontmatterMetadata.packageName,
-              version: normalizedMetadata.version ?? frontmatterMetadata.version,
-            }
-            const sourcePath = resolveCanonicalSourcePath({
-              agent,
-              metadata,
-              name: entry.name,
-              path: skillPath,
-            })
-            const [hash, sourceHash] = await Promise.all([hashTextFiles(skillPath), hashTextFiles(sourcePath)])
-
-            return {
-              agent,
-              hash: hash ?? "",
-              metadata,
-              name: entry.name,
-              path: skillPath,
-              sourceHash,
-              sourcePath,
-            }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            const isMetadataMissing = message.includes("ENOENT") && message.includes(metadataFileName)
-            hiddenCount += 1
-            logDiagnosticOnChange(
-              `skill-scan:installed-candidate:${skillPath}`,
-              "skill-scan",
-              "installed skill candidate hidden",
-              {
-                agentId: agent.id,
-                error: message,
-                skillName: entry.name,
-                skillPath,
-              },
-              isMetadataMissing ? "trace" : "warn",
-              isMetadataMissing
-                ? { agentId: agent.id, metadataMissing: true, skillName: entry.name, skillPath }
-                : { agentId: agent.id, error: message, skillName: entry.name, skillPath },
-            )
-            // 无 metadata 的私有 Skill 默认隐藏。
-            return undefined
-          }
-        }),
-      )
-
-      const installedSkills = skills.filter((skill): skill is InstalledSkill => Boolean(skill))
-      installedCount = installedSkills.length
-      logDiagnosticOnChange(
-        `skill-scan:installed-root:${skillRoot}`,
-        "skill-scan",
-        "completed installed skill root scan",
-        {
-          agentId: agent.id,
-          candidateCount,
-          entryCount: entries.length,
-          hiddenCount,
-          installedCount,
-          skillRoot,
-        },
-      )
-      return installedSkills
+    targetAgents.map((agent) => {
+      return scanInstalledSkillRoot({ agent, skillRoot: resolveAgentSkillRoot(agent) })
     }),
   )
 
@@ -132,6 +67,144 @@ export async function scanInstalledSkills(agents?: readonly SupportedAgent[]): P
     installedCount: installedSkills.length,
   })
   return installedSkills
+}
+
+export async function scanLumoInstalledSkills(request: {
+  cacheSkillStoreRoot: string
+  sharedSkillRoot: string
+}): Promise<InstalledSkill[]> {
+  return scanInstalledSkillRoot({
+    agent: lumoRuntimeAgent,
+    resolveSourcePath: (skill) => resolveLumoSkillSourcePath(skill, request.cacheSkillStoreRoot),
+    skillRoot: request.sharedSkillRoot,
+  })
+}
+
+async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<InstalledSkill[]> {
+  const { agent, canonicalSourceRoot, skillRoot } = target
+  const entries = await readSkillEntries(skillRoot)
+  let candidateCount = 0
+  let hiddenCount = 0
+  let installedCount = 0
+  const skills = await Promise.all(
+    entries.map(async (entry): Promise<InstalledSkill | undefined> => {
+      if (shouldSkipSkillRootEntry(entry) || (!entry.isDirectory() && !entry.isSymbolicLink())) {
+        return undefined
+      }
+
+      candidateCount += 1
+      const skillPath = path.join(skillRoot, entry.name)
+      const metadataPath = path.join(skillPath, metadataFileName)
+
+      try {
+        const metadataContent = await readFile(metadataPath, "utf8")
+        const normalizedMetadata = normalizeMetadata(metadataContent, entry.name)
+        const frontmatterMetadata = await readSkillFrontmatterMetadata(skillPath, entry.name)
+        const metadata = {
+          ...normalizedMetadata,
+          description: frontmatterMetadata.description ?? normalizedMetadata.description,
+          icon: normalizedMetadata.icon ?? frontmatterMetadata.icon,
+          packageName: normalizedMetadata.packageName ?? frontmatterMetadata.packageName,
+          version: normalizedMetadata.version ?? frontmatterMetadata.version,
+        }
+        const sourcePath = target.resolveSourcePath
+          ? await target.resolveSourcePath({
+              metadata,
+              name: entry.name,
+              path: skillPath,
+            })
+          : canonicalSourceRoot
+            ? path.join(canonicalSourceRoot, entry.name)
+            : resolveCanonicalSourcePath({
+                agent,
+                metadata,
+                name: entry.name,
+                path: skillPath,
+              })
+        const [hash, sourceHash] = await Promise.all([hashTextFiles(skillPath), hashTextFiles(sourcePath)])
+
+        return {
+          agent,
+          hash: hash ?? "",
+          metadata,
+          name: entry.name,
+          path: skillPath,
+          sourceHash,
+          sourcePath,
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const isMetadataMissing = message.includes("ENOENT") && message.includes(metadataFileName)
+        hiddenCount += 1
+        logDiagnosticOnChange(
+          `skill-scan:installed-candidate:${skillPath}`,
+          "skill-scan",
+          "installed skill candidate hidden",
+          {
+            agentId: agent.id,
+            error: message,
+            skillName: entry.name,
+            skillPath,
+          },
+          isMetadataMissing ? "trace" : "warn",
+          isMetadataMissing
+            ? { agentId: agent.id, metadataMissing: true, skillName: entry.name, skillPath }
+            : { agentId: agent.id, error: message, skillName: entry.name, skillPath },
+        )
+        // 无 metadata 的私有 Skill 默认隐藏。
+        return undefined
+      }
+    }),
+  )
+
+  const installedSkills = skills.filter((skill): skill is InstalledSkill => Boolean(skill))
+  installedCount = installedSkills.length
+  logDiagnosticOnChange(`skill-scan:installed-root:${skillRoot}`, "skill-scan", "completed installed skill root scan", {
+    agentId: agent.id,
+    candidateCount,
+    entryCount: entries.length,
+    hiddenCount,
+    installedCount,
+    skillRoot,
+  })
+  return installedSkills
+}
+
+async function resolveLumoSkillSourcePath(
+  skill: { metadata: ManagedSkillMetadata; name: string; path: string },
+  cacheSkillStoreRoot: string,
+): Promise<string> {
+  const sourceCandidates = readLumoSkillSourceCandidates(skill, cacheSkillStoreRoot)
+
+  for (const candidate of sourceCandidates) {
+    if (await pathExists(candidate)) {
+      return candidate
+    }
+  }
+
+  return path.resolve(skill.path)
+}
+
+function readLumoSkillSourceCandidates(
+  skill: { metadata: ManagedSkillMetadata; name: string },
+  cacheSkillStoreRoot: string,
+): string[] {
+  if (skill.name.includes("/") || skill.name.includes("\\") || skill.name === "." || skill.name === "..") {
+    throw new Error(`Invalid skill name: ${skill.name}`)
+  }
+
+  if (skill.metadata.kind === "registry") {
+    return [path.join(cacheSkillStoreRoot, "registry", skill.name)]
+  }
+
+  if (skill.metadata.kind === "bundled") {
+    return [
+      path.join(cacheSkillStoreRoot, "bundled", "lumo", skill.name),
+      path.join(cacheSkillStoreRoot, "bundled", "universal", skill.name),
+    ]
+  }
+
+  return []
 }
 
 export async function scanLocalSkillProjects(agents?: readonly SupportedAgent[]): Promise<LocalSkillProject[]> {

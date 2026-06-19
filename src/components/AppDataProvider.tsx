@@ -1,12 +1,11 @@
 import type { AuthState } from "../../electron/auth/common.ts"
-import type { MyPublishedSkillCatalog, SkillInventory } from "../../electron/skills/common.ts"
+import type { SkillInventory } from "../../electron/skills/common.ts"
 import type { AppDataResources } from "@/components/AppDataContext"
 
 import * as React from "react"
 import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
 import { createResource } from "@/lib/resource-store"
-import { SkillShareInfoStore } from "@/lib/skill-share-info-store"
 
 const backgroundRefreshMs = 8_000
 const refreshMetadataKeys = new Set(["updatedAt", "checkedAt"])
@@ -44,18 +43,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       homeSummary: createResource<null>({
         load: async () => null,
       }),
-      myPublishedSkills: createResource<MyPublishedSkillCatalog>({
-        isEqualData: isRefreshDataEqual,
-        staleTimeMs: 5 * 60_000,
-        load: (options) => skillService.invoke("listMyPublishedSkills", { forceRefresh: options.forceRefresh }),
-      }),
       skillInventory: createResource<SkillInventory>({
         isEqualData: isRefreshDataEqual,
         staleTimeMs: 5_000,
         load: () => skillService.invoke("getSkillInventory"),
-      }),
-      skillShareInfo: new SkillShareInfoStore({
-        load: (request) => skillService.invoke("getSkillShareInfo", request),
       }),
       skillVersions: createResource({
         staleTimeMs: 30 * 60_000,
@@ -67,15 +58,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     return authService.serverEvents.on("authStateChanged", (nextAuthState) => {
       resources.authState.setData(nextAuthState)
-      resources.myPublishedSkills.invalidate()
       resources.skillInventory.invalidate()
-      resources.skillShareInfo.invalidateAll()
       resources.skillVersions.invalidate()
       if (nextAuthState.status === "authenticated") {
         void resources.skillInventory.refresh({ forceRefresh: true, silent: true }).catch(() => {})
         void resources.skillVersions.refresh({ silent: true }).catch(() => {})
       } else {
-        resources.myPublishedSkills.reset()
         resources.skillInventory.reset()
         resources.skillVersions.reset()
       }
@@ -85,7 +73,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     return skillService.serverEvents.on("skillInventoryChanged", () => {
       void resources.skillInventory.refresh({ forceRefresh: true, silent: true }).catch(() => {})
-      void resources.myPublishedSkills.refresh({ forceRefresh: true, silent: true }).catch(() => {})
       resources.skillVersions.invalidate()
     })
   }, [resources, skillService.serverEvents])
@@ -99,7 +86,6 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
       void resources.authState.refresh({ silent: true }).catch(() => {})
       void resources.skillInventory.refresh({ silent: true }).catch(() => {})
-      void resources.myPublishedSkills.refresh({ silent: true }).catch(() => {})
     }
 
     const sync = () => {

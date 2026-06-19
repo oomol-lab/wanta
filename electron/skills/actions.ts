@@ -1,26 +1,17 @@
 import type {
   BuiltInSkillId,
-  MyPublishedSkill,
   PublicSkillPackage,
   PublicSkillPackageCatalog,
   PublicSkillPackageMaintainer,
   PublicSkillPackageSkill,
   SkillCliVersionCheck,
   SkillPackageVersionCheck,
-  SkillShareInfo,
-  ShareSkillRequest,
   SkillSearchResult,
-  SkillShareResult,
 } from "./common.ts"
 
 import { builtInSkillIds } from "./constants.ts"
 
-type SkillOperationCommand =
-  | "skills.install"
-  | "skills.sync.apply"
-  | "skills.sync.upload"
-  | "skills.uninstall"
-  | "skills.update"
+type SkillOperationCommand = "skills.install" | "skills.uninstall" | "skills.update"
 
 type SkillOperationStatus = "completed" | "failed" | "noop" | "partial-failure"
 
@@ -30,21 +21,6 @@ interface RawSkillSearchResult {
   packageName?: unknown
   packageVersion?: unknown
   skillDisplayName?: unknown
-}
-
-interface RawMyPublishedPackageListResponse {
-  data?: unknown
-  next?: unknown
-}
-
-interface RawMyPublishedPackageListItem {
-  description?: unknown
-  displayName?: unknown
-  icon?: unknown
-  name?: unknown
-  updateTime?: unknown
-  version?: unknown
-  visibility?: unknown
 }
 
 interface RawPublicSkillPackageListResponse {
@@ -81,22 +57,6 @@ interface RawPublicSkillPackageMaintainer {
 
 interface RawPublicSkillPackageExtra {
   maintainers?: unknown
-}
-
-interface NormalizedMyPublishedPackage {
-  description?: string
-  displayName: string
-  icon?: string
-  name: string
-  updateTime?: number
-  version: string
-  visibility: MyPublishedSkill["visibility"]
-}
-
-interface RawRegistryPackageSkill {
-  description?: unknown
-  name?: unknown
-  title?: unknown
 }
 
 interface RawRegistrySkillCheckUpdateResult {
@@ -144,45 +104,6 @@ interface RawSkillOperationEntry {
 // CLI mutation targets 通常只有一层；限制深度避免异常响应导致遍历失控。
 const skillOperationEntryErrorMaxDepth = 10
 
-interface RawPackageInfoResponse {
-  access?: unknown
-  description?: unknown
-  displayName?: unknown
-  icon?: unknown
-  isPrivate?: unknown
-  name?: unknown
-  packageName?: unknown
-  packageVersion?: unknown
-  skills?: unknown
-  title?: unknown
-  visibility?: unknown
-  version?: unknown
-}
-
-export interface RegistryPackageVersionInfo {
-  latestVersion?: string
-  packageName?: string
-}
-
-export interface MyPublishedPackageList {
-  next: string | null
-  packages: NormalizedMyPublishedPackage[]
-}
-
-export interface RegistryPackageSkillInfo {
-  description?: string
-  displayName: string
-  icon?: string
-  packageName: string
-  packageVersion: string
-  skills: Array<{
-    description?: string
-    displayName: string
-    name: string
-  }>
-  visibility: MyPublishedSkill["visibility"]
-}
-
 function asText(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined
@@ -224,10 +145,6 @@ export function createRegistrySkillCheckUpdateArgs(packageNames: readonly string
   return args
 }
 
-export function createRegistryPackageInfoVersionCheckCommand(packageName: string): string[] {
-  return ["registry", "package-info", asRequiredCommandValue(packageName, "packageName"), "latest"]
-}
-
 export function normalizeSkillSearchResults(stdout: string): SkillSearchResult[] {
   const parsed = JSON.parse(stdout) as unknown
 
@@ -236,26 +153,6 @@ export function normalizeSkillSearchResults(stdout: string): SkillSearchResult[]
   }
 
   return parsed.map(normalizeSkillSearchResult).filter((result): result is SkillSearchResult => Boolean(result))
-}
-
-export function normalizeMyPublishedPackageList(stdout: string): MyPublishedPackageList {
-  const parsed = JSON.parse(stdout) as unknown
-
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Published package list returned an unsupported response.")
-  }
-
-  const raw = parsed as RawMyPublishedPackageListResponse
-  if (!Array.isArray(raw.data)) {
-    throw new Error("Published package list returned an unsupported response.")
-  }
-
-  return {
-    next: typeof raw.next === "string" && raw.next.trim() ? raw.next.trim() : null,
-    packages: raw.data
-      .map(normalizeMyPublishedPackage)
-      .filter((item): item is NormalizedMyPublishedPackage => Boolean(item)),
-  }
 }
 
 export function normalizePublicSkillPackageCatalog(
@@ -553,74 +450,6 @@ export function createRegistrySkillVersionCheckFromUpdateResult(
   }
 }
 
-export function createPublishedSkillVersionCheckFromPackageInfo(
-  skill: {
-    id: string
-    kind: "registry" | "bundled" | "local" | "unknown"
-    name: string
-    packageName?: string
-    version?: string
-  },
-  info: RegistryPackageVersionInfo | undefined,
-  command: string[],
-): SkillPackageVersionCheck {
-  if (!skill.packageName) {
-    return {
-      command,
-      currentVersion: skill.version,
-      id: skill.id,
-      kind: skill.kind,
-      name: skill.name,
-      skillId: skill.id,
-      status: "not-checkable",
-    }
-  }
-
-  const latestVersion = info?.latestVersion
-
-  if (!latestVersion || !skill.version) {
-    return {
-      command,
-      currentVersion: skill.version,
-      id: skill.id,
-      kind: skill.kind,
-      latestVersion,
-      name: skill.name,
-      packageName: skill.packageName,
-      skillId: skill.id,
-      status: "unknown",
-    }
-  }
-
-  const versionOrder = comparePackageVersions(latestVersion, skill.version)
-
-  if (versionOrder === undefined) {
-    return {
-      command,
-      currentVersion: skill.version,
-      id: skill.id,
-      kind: skill.kind,
-      latestVersion,
-      name: skill.name,
-      packageName: skill.packageName,
-      skillId: skill.id,
-      status: "unknown",
-    }
-  }
-
-  return {
-    command,
-    currentVersion: skill.version,
-    id: skill.id,
-    kind: skill.kind,
-    latestVersion,
-    name: skill.name,
-    packageName: skill.packageName,
-    skillId: skill.id,
-    status: versionOrder > 0 ? "update-available" : "current",
-  }
-}
-
 export function createFailedSkillVersionCheck(
   skill: {
     id: string
@@ -781,48 +610,6 @@ function normalizeSkillSearchResult(value: unknown): SkillSearchResult | undefin
   }
 }
 
-function normalizeMyPublishedPackage(value: unknown): NormalizedMyPublishedPackage | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined
-  }
-
-  const raw = value as RawMyPublishedPackageListItem
-  const name = asText(raw.name)
-
-  if (!name) {
-    return undefined
-  }
-
-  return {
-    description: asText(raw.description),
-    displayName: asText(raw.displayName) ?? name,
-    icon: asText(raw.icon),
-    name,
-    updateTime: typeof raw.updateTime === "number" && Number.isFinite(raw.updateTime) ? raw.updateTime : undefined,
-    version: asText(raw.version) ?? "latest",
-    visibility: readPackageVisibility(raw),
-  }
-}
-
-function normalizeRegistryPackageSkill(value: unknown): RegistryPackageSkillInfo["skills"][number] | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined
-  }
-
-  const raw = value as RawRegistryPackageSkill
-  const name = asText(raw.name)
-
-  if (!name) {
-    return undefined
-  }
-
-  return {
-    description: asText(raw.description),
-    displayName: asText(raw.title) ?? name,
-    name,
-  }
-}
-
 export function createInstallRegistrySkillArgs(request: {
   force?: boolean
   packageName: string
@@ -856,211 +643,14 @@ export function createUpdateRegistrySkillArgs(request: { packageName?: string; s
   return args
 }
 
-export function createPublishSkillArgs(request: { path: string; visibility?: "private" | "public" }): string[] {
-  const args = ["skills", "publish", asRequiredCommandValue(request.path, "path"), "-y"]
-
-  if (request.visibility) {
-    args.push("--visibility", request.visibility)
-  }
-
-  return args
-}
-
-export function createAdoptLocalSkillArgs(request: {
-  agent?: string
-  description?: string
-  icon?: string
-  name?: string
-  path: string
-  title?: string
-}): string[] {
-  const args = ["skills", "adopt", asRequiredCommandValue(request.path, "path")]
-
-  if (request.agent) {
-    args.push("--agent", asRequiredCommandValue(request.agent, "agent"))
-  }
-
-  if (request.name) {
-    args.push("--name", asRequiredCommandValue(request.name, "name"))
-  }
-
-  if (request.description) {
-    args.push("--description", asRequiredCommandValue(request.description, "description"))
-  }
-
-  if (request.icon) {
-    args.push("--icon", asRequiredCommandValue(request.icon, "icon"))
-  }
-
-  if (request.title) {
-    args.push("--title", asRequiredCommandValue(request.title, "title"))
-  }
-
-  return args
-}
-
-export function createShareSkillArgs(request: ShareSkillRequest): string[] {
-  const skillReference =
-    request.sourcePath === undefined
-      ? asRequiredCommandValue(request.skillId, "skillId")
-      : asRequiredCommandValue(request.sourcePath, "sourcePath")
-  const args = request.language ? ["--lang", validateShareLanguage(request.language)] : []
-
-  args.push("skills", "share", skillReference, "-y")
-
-  if (request.days !== undefined) {
-    args.push("--days", String(validateShareDays(request.days)))
-  }
-
-  if (request.downloads !== undefined) {
-    args.push("--downloads", String(validateShareDownloads(request.downloads)))
-  }
-
-  return args
-}
-
-export function normalizeSkillShareInfo(stdout: string): SkillShareInfo {
-  const parsed = JSON.parse(stdout) as unknown
-
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Package info returned an unsupported response.")
-  }
-
-  const raw = parsed as RawPackageInfoResponse
-  const access = readPackageAccess(raw)
-  const packageName = asText(raw.packageName)
-  const visibility = access === "private" || access === "restricted" ? "private" : "public"
-
-  return {
-    limitsRequired: visibility === "private",
-    packageName,
-    visibility,
-  }
-}
-
-export function normalizeRegistryPackageVersionInfo(stdout: string): RegistryPackageVersionInfo {
-  const parsed = JSON.parse(stdout) as unknown
-
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Package info returned an unsupported response.")
-  }
-
-  const raw = parsed as RawPackageInfoResponse
-  const latestVersion = asText(raw.packageVersion) ?? asText(raw.version)
-
-  if (!latestVersion) {
-    throw new Error("Package info returned an unsupported response.")
-  }
-
-  return {
-    latestVersion,
-    packageName: asText(raw.packageName),
-  }
-}
-
-export function normalizeRegistryPackageSkillInfo(stdout: string): RegistryPackageSkillInfo {
-  const parsed = JSON.parse(stdout) as unknown
-
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("Package info returned an unsupported response.")
-  }
-
-  const raw = parsed as RawPackageInfoResponse
-  const packageName = asText(raw.packageName) ?? asText(raw.name)
-  const packageVersion = asText(raw.packageVersion) ?? asText(raw.version)
-
-  if (!packageName || !packageVersion) {
-    throw new Error("Package info returned an unsupported response.")
-  }
-
-  const skills = Array.isArray(raw.skills)
-    ? raw.skills
-        .map(normalizeRegistryPackageSkill)
-        .filter((skill): skill is RegistryPackageSkillInfo["skills"][number] => Boolean(skill))
-    : []
-
-  return {
-    description: asText(raw.description),
-    displayName: asText(raw.title) ?? asText(raw.displayName) ?? packageName,
-    icon: asText(raw.icon),
-    packageName,
-    packageVersion,
-    skills,
-    visibility: readPackageVisibility(raw),
-  }
-}
-
-function readPackageAccess(raw: RawPackageInfoResponse): "private" | "public" | "restricted" | undefined {
-  if (typeof raw.isPrivate === "boolean") {
-    return raw.isPrivate ? "private" : "public"
-  }
-
-  const access = asText(raw.access) ?? asText(raw.visibility)
-  if (access === "private" || access === "public" || access === "restricted") {
-    return access
-  }
-
-  return undefined
-}
-
-function readPackageVisibility(
-  raw: Pick<RawPackageInfoResponse, "access" | "isPrivate" | "visibility">,
-): MyPublishedSkill["visibility"] {
-  const access = readPackageAccess(raw)
-
-  if (access === "private" || access === "restricted") {
-    return "private"
-  }
-
-  if (access === "public") {
-    return "public"
-  }
-
-  return "unknown"
-}
-
-export function normalizeSkillShareResult(stdout: string): SkillShareResult {
-  const prompt = sanitizeSkillInstallCommands(extractSkillSharePrompt(stdout))
-  const installCommandMatch = prompt.match(/oo skills install[^\r\n`]+/)
-
-  return {
-    installCommand: installCommandMatch?.[0]?.trim(),
-    prompt,
-  }
-}
-
-function extractSkillSharePrompt(stdout: string): string {
-  const trimmed = stdout.trim()
-  const textBlockMatch = trimmed.match(/```(?:text)?[ \t]*\r?\n([\s\S]*?)\r?\n```/)
-
-  return (textBlockMatch?.[1] ?? trimmed).trim()
-}
-
-function sanitizeSkillInstallCommands(prompt: string): string {
-  return prompt.replace(/oo skills install[^\r\n`]+/g, (command) => sanitizeSkillInstallCommand(command))
-}
-
-function sanitizeSkillInstallCommand(command: string): string {
-  return command
-    .replace(/(^|\s)(?:-y|--yes)(?=\s|$)/g, "$1")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim()
-}
-
-export function createDeleteSkillArgs(request: { agentId?: string; skillId: string }): string[] {
+export function createDeleteSkillArgs(request: { skillId: string }): string[] {
   const skillId = asRequiredCommandValue(request.skillId, "skillId")
 
   if (builtInSkillIds.includes(skillId as BuiltInSkillId)) {
     throw new Error("Built-in Skills cannot be deleted.")
   }
 
-  const args = ["skills", "uninstall", skillId, "--json"]
-
-  if (request.agentId) {
-    args.push("--agent", request.agentId)
-  }
-
-  return args
+  return ["skills", "uninstall", skillId, "--json"]
 }
 
 export function assertSkillOperationSucceeded(stdout: string, expectedCommand: SkillOperationCommand): void {
@@ -1170,105 +760,6 @@ function createRegistrySkillCheckUpdateErrorMessage(error: unknown): string | un
   return asText((error as RawRegistrySkillCheckUpdateError).message)
 }
 
-function comparePackageVersions(left: string, right: string): number | undefined {
-  const leftSemver = parseSemver(left)
-  const rightSemver = parseSemver(right)
-
-  if (!leftSemver || !rightSemver) {
-    return undefined
-  }
-
-  if (leftSemver.major !== rightSemver.major) {
-    return leftSemver.major - rightSemver.major
-  }
-
-  if (leftSemver.minor !== rightSemver.minor) {
-    return leftSemver.minor - rightSemver.minor
-  }
-
-  if (leftSemver.patch !== rightSemver.patch) {
-    return leftSemver.patch - rightSemver.patch
-  }
-
-  return comparePrerelease(leftSemver.prerelease, rightSemver.prerelease)
-}
-
-function parseSemver(version: string):
-  | {
-      major: number
-      minor: number
-      patch: number
-      prerelease: string[]
-    }
-  | undefined {
-  const match =
-    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
-      version.trim(),
-    )
-
-  if (!match) {
-    return undefined
-  }
-
-  return {
-    major: Number.parseInt(match[1] ?? "0", 10),
-    minor: Number.parseInt(match[2] ?? "0", 10),
-    patch: Number.parseInt(match[3] ?? "0", 10),
-    prerelease: match[4]?.split(".") ?? [],
-  }
-}
-
-function comparePrerelease(left: readonly string[], right: readonly string[]): number {
-  if (left.length === 0 && right.length === 0) {
-    return 0
-  }
-
-  if (left.length === 0) {
-    return 1
-  }
-
-  if (right.length === 0) {
-    return -1
-  }
-
-  const length = Math.max(left.length, right.length)
-  for (let index = 0; index < length; index += 1) {
-    const leftPart = left[index]
-    const rightPart = right[index]
-
-    if (leftPart === undefined) {
-      return -1
-    }
-
-    if (rightPart === undefined) {
-      return 1
-    }
-
-    if (leftPart === rightPart) {
-      continue
-    }
-
-    const leftNumber = /^\d+$/.test(leftPart) ? Number.parseInt(leftPart, 10) : undefined
-    const rightNumber = /^\d+$/.test(rightPart) ? Number.parseInt(rightPart, 10) : undefined
-
-    if (leftNumber !== undefined && rightNumber !== undefined) {
-      return leftNumber - rightNumber
-    }
-
-    if (leftNumber !== undefined) {
-      return -1
-    }
-
-    if (rightNumber !== undefined) {
-      return 1
-    }
-
-    return leftPart.localeCompare(rightPart)
-  }
-
-  return 0
-}
-
 function asRequiredCommandValue(value: string, fieldName: string): string {
   const trimmed = value.trim()
 
@@ -1277,28 +768,4 @@ function asRequiredCommandValue(value: string, fieldName: string): string {
   }
 
   return trimmed
-}
-
-function validateShareLanguage(language: ShareSkillRequest["language"]): "en" | "zh" {
-  if (language !== "en" && language !== "zh") {
-    throw new Error("language must be en or zh.")
-  }
-
-  return language
-}
-
-function validateShareDays(days: number): number {
-  if (!Number.isInteger(days) || days < 1 || days > 7) {
-    throw new Error("days must be an integer from 1 to 7.")
-  }
-
-  return days
-}
-
-function validateShareDownloads(downloads: number): number {
-  if (!Number.isInteger(downloads) || downloads < 1) {
-    throw new Error("downloads must be a positive integer.")
-  }
-
-  return downloads
 }

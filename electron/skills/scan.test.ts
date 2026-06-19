@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { metadataFileName } from "./constants.ts"
-import { scanInstalledSkills, scanLocalSkillProjects } from "./scan.ts"
+import { scanInstalledSkills, scanLocalSkillProjects, scanLumoInstalledSkills } from "./scan.ts"
 
 test("scanInstalledSkills reads managed skill frontmatter metadata from SKILL.md", async () => {
   const homeEnvVar = "OO_DESKTOP_TEST_AGENT_HOME"
@@ -109,6 +109,61 @@ test("scanInstalledSkills ignores hidden skill root directories", async () => {
       process.env[homeEnvVar] = originalHome
     }
     await rm(homePath, { force: true, recursive: true })
+  }
+})
+
+test("scanLumoInstalledSkills reads shared Agent Skills and prefers app cache as source", async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "lumo-shared-skills-"))
+  const sharedSkillRoot = path.join(rootPath, ".agents", "skills")
+  const cacheSkillStoreRoot = path.join(rootPath, "cache", "skills")
+  const sharedManagedPath = path.join(sharedSkillRoot, "managed")
+  const cachedManagedPath = path.join(cacheSkillStoreRoot, "registry", "managed")
+  const sharedUncachedPath = path.join(sharedSkillRoot, "uncached")
+
+  try {
+    await Promise.all([
+      mkdir(sharedManagedPath, { recursive: true }),
+      mkdir(cachedManagedPath, { recursive: true }),
+      mkdir(sharedUncachedPath, { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(
+        path.join(sharedManagedPath, "SKILL.md"),
+        ["---", "name: managed", "description: Shared managed Skill", "---", "# Managed", ""].join("\n"),
+      ),
+      writeFile(
+        path.join(sharedManagedPath, metadataFileName),
+        JSON.stringify({ kind: "registry", packageName: "@alice/managed", version: "0.2.0" }),
+      ),
+      writeFile(
+        path.join(cachedManagedPath, "SKILL.md"),
+        ["---", "name: managed", "description: Cached managed Skill", "---", "# Managed", ""].join("\n"),
+      ),
+      writeFile(
+        path.join(cachedManagedPath, metadataFileName),
+        JSON.stringify({ kind: "registry", packageName: "@alice/managed", version: "0.2.0" }),
+      ),
+      writeFile(
+        path.join(sharedUncachedPath, "SKILL.md"),
+        ["---", "name: uncached", "description: Shared uncached Skill", "---", "# Uncached", ""].join("\n"),
+      ),
+      writeFile(
+        path.join(sharedUncachedPath, metadataFileName),
+        JSON.stringify({ kind: "registry", packageName: "@alice/uncached", version: "0.1.0" }),
+      ),
+    ])
+
+    const skills = await scanLumoInstalledSkills({ cacheSkillStoreRoot, sharedSkillRoot })
+    const managed = skills.find((skill) => skill.name === "managed")
+    const uncached = skills.find((skill) => skill.name === "uncached")
+
+    assert.equal(managed?.agent.id, "lumo")
+    assert.equal(managed?.path, sharedManagedPath)
+    assert.equal(managed?.sourcePath, cachedManagedPath)
+    assert.equal(uncached?.path, sharedUncachedPath)
+    assert.equal(uncached?.sourcePath, sharedUncachedPath)
+  } finally {
+    await rm(rootPath, { force: true, recursive: true })
   }
 })
 

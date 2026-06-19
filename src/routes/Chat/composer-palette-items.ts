@@ -47,7 +47,7 @@ export function matchesComposerQuery(item: ComposerPaletteItem, query: string): 
 }
 
 function installedSkillHostCount(group: ManagedSkillGroup): number {
-  return group.hosts.filter((host) => host.status === "installed").length
+  return group.runtimeHosts.filter((host) => host.status === "installed").length
 }
 
 function skillKindMeta(group: ManagedSkillGroup): string {

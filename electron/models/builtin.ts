@@ -27,11 +27,22 @@ export interface BuiltinModelDefinition {
   capabilities: BuiltinModelCapabilities
 }
 
-export const BUILTIN_MODEL_IDS = ["oopilot", "gpt-5.5"] as const
+export const BUILTIN_MODEL_IDS = [
+  "oopilot",
+  "gpt-5.5",
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "qwen3.7-plus",
+  "kimi/kimi-k2.7-code-highspeed",
+  "kimi/kimi-k2.7-code",
+  "ZHIPU/GLM-5.2",
+  "qwen3.7-max",
+  "xiaomi/mimo-v2.5-pro",
+] as const
 
 export type BuiltinModelId = (typeof BUILTIN_MODEL_IDS)[number]
 
-export const DEFAULT_BUILTIN_MODEL_ID: BuiltinModelId = "oopilot"
+export const DEFAULT_BUILTIN_MODEL_ID: BuiltinModelId = "gpt-5.5"
 
 export const BUILTIN_PROVIDER_DEFINITIONS: BuiltinProviderDefinition[] = [
   {
@@ -49,7 +60,7 @@ export const BUILTIN_PROVIDER_DEFINITIONS: BuiltinProviderDefinition[] = [
 
 export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   {
-    id: DEFAULT_BUILTIN_MODEL_ID,
+    id: "oopilot",
     displayName: "Auto",
     providerName: branding.organizationName,
     runtime: {
@@ -71,6 +82,110 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     },
     capabilities: {
       supportsImages: true,
+      toolCall: true,
+    },
+  },
+  {
+    id: "deepseek-v4-flash",
+    displayName: "deepseek-v4-flash",
+    providerName: "DeepSeek",
+    runtime: {
+      providerID: "oomol",
+      modelID: "deepseek-v4-flash",
+    },
+    capabilities: {
+      supportsImages: false,
+      toolCall: true,
+    },
+  },
+  {
+    id: "deepseek-v4-pro",
+    displayName: "deepseek-v4-pro",
+    providerName: "DeepSeek",
+    runtime: {
+      providerID: "oomol",
+      modelID: "deepseek-v4-pro",
+    },
+    capabilities: {
+      supportsImages: false,
+      toolCall: true,
+    },
+  },
+  {
+    id: "qwen3.7-plus",
+    displayName: "qwen3.7-plus",
+    providerName: "Qwen",
+    runtime: {
+      providerID: "oomol",
+      modelID: "qwen3.7-plus",
+    },
+    capabilities: {
+      supportsImages: true,
+      toolCall: true,
+    },
+  },
+  {
+    id: "kimi/kimi-k2.7-code-highspeed",
+    displayName: "kimi/kimi-k2.7-code-highspeed",
+    providerName: "Kimi",
+    runtime: {
+      providerID: "oomol",
+      modelID: "kimi/kimi-k2.7-code-highspeed",
+    },
+    capabilities: {
+      supportsImages: true,
+      toolCall: true,
+    },
+  },
+  {
+    id: "kimi/kimi-k2.7-code",
+    displayName: "kimi/kimi-k2.7-code",
+    providerName: "Kimi",
+    runtime: {
+      providerID: "oomol",
+      modelID: "kimi/kimi-k2.7-code",
+    },
+    capabilities: {
+      supportsImages: true,
+      toolCall: true,
+    },
+  },
+  {
+    id: "ZHIPU/GLM-5.2",
+    displayName: "ZHIPU/GLM-5.2",
+    providerName: "ZHIPU",
+    runtime: {
+      providerID: "oomol",
+      modelID: "ZHIPU/GLM-5.2",
+    },
+    capabilities: {
+      supportsImages: false,
+      toolCall: true,
+    },
+  },
+  {
+    id: "qwen3.7-max",
+    displayName: "qwen3.7-max",
+    providerName: "Qwen",
+    runtime: {
+      providerID: "oomol",
+      modelID: "qwen3.7-max",
+    },
+    capabilities: {
+      supportsImages: true,
+      toolCall: true,
+    },
+  },
+  {
+    id: "xiaomi/mimo-v2.5-pro",
+    displayName: "xiaomi/mimo-v2.5-pro",
+    providerName: "Xiaomi",
+    runtime: {
+      providerID: "oomol",
+      modelID: "xiaomi/mimo-v2.5-pro",
+    },
+    capabilities: {
+      supportsImages: false,
       toolCall: true,
     },
   },

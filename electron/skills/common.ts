@@ -1,16 +1,14 @@
 import type { BuiltInSkillId } from "./constants.ts"
-import type { SkillEditorApp, SkillEditorAppId } from "./editor-launcher.ts"
 import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
-
-export type { SkillEditorApp, SkillEditorAppId } from "./editor-launcher.ts"
 
 export type BuiltInSkillStatus = "installed" | "missing" | "unknown"
 export type { BuiltInSkillId }
 export type SkillControlState = "controlled" | "modified" | "source-missing" | "unknown"
 export type ManagedSkillKind = "bundled" | "registry" | "local" | "unknown"
 export type SkillHostStatus = "installed" | "missing"
+export type SkillHostScope = "external" | "runtime"
 
 export interface BuiltInSkillCoverage {
   id: string
@@ -77,6 +75,7 @@ export interface ManagedSkillHostCoverage {
   kind?: ManagedSkillKind
   packageName?: string
   path?: string
+  scope: SkillHostScope
   controlState?: SkillControlState
   sourcePath?: string
   status: SkillHostStatus
@@ -92,59 +91,14 @@ export interface ManagedSkillGroup {
   kind: ManagedSkillKind
   packageName?: string
   version?: string
+  externalHosts: ManagedSkillHostCoverage[]
   hosts: ManagedSkillHostCoverage[]
-}
-
-export interface LocalSkillProject {
-  agentId: string
-  agentName: string
-  description: string
-  icon?: string
-  id: string
-  name: string
-  packageName?: string
-  path: string
-  version?: string
+  runtimeHosts: ManagedSkillHostCoverage[]
 }
 
 export interface SkillInventory {
   groups: ManagedSkillGroup[]
-  localProjects: LocalSkillProject[]
   summary: SkillSummary
-  updatedAt: string
-}
-
-export type MyPublishedSkillInstallState = "installed" | "installable" | "name-conflict"
-
-export interface MyPublishedSkillConflict {
-  id: string
-  installedHosts: number
-  kind: ManagedSkillKind
-  name: string
-  packageName?: string
-  totalHosts: number
-  version?: string
-}
-
-export interface MyPublishedSkill {
-  conflictingSkill?: MyPublishedSkillConflict
-  description?: string
-  displayName: string
-  icon?: string
-  id: string
-  installState: MyPublishedSkillInstallState
-  installed: boolean
-  installedVersion?: string
-  packageName: string
-  packageVersion: string
-  skillId: string
-  updateTime?: number
-  visibility: "private" | "public" | "unknown"
-}
-
-export interface MyPublishedSkillCatalog {
-  items: MyPublishedSkill[]
-  next: string | null
   updatedAt: string
 }
 
@@ -238,49 +192,6 @@ export interface ExecuteSkillUpdateRequest {
   skillId?: string
 }
 
-export type SkillRepairPlanKind = "reset" | "restore-source"
-export type SkillRepairPlanStatus = "ready" | "not-needed" | "not-found" | "unsupported"
-
-export interface SkillRepairPlanTarget {
-  agentId: string
-  agentName: string
-  currentPath: string
-  sourcePath: string
-  controlState: SkillControlState
-}
-
-export interface SkillRepairPlan {
-  id: string
-  kind: SkillRepairPlanKind
-  status: SkillRepairPlanStatus
-  skillId: string
-  skillName: string
-  isDestructive: boolean
-  requiresConfirmation: boolean
-  targets: SkillRepairPlanTarget[]
-  packageName?: string
-  version?: string
-  reason?: string
-}
-
-export interface SkillRepairPlanRequest {
-  agentId?: string
-  kind: SkillRepairPlanKind
-  skillId: string
-}
-
-export interface ExecuteSkillRepairPlanRequest extends SkillRepairPlanRequest {
-  confirmedPlanId: string
-}
-
-export type SkillRepairExecutionStatus = "not-needed" | "succeeded" | "unsupported"
-
-export interface SkillRepairExecutionResult {
-  affectedTargets: number
-  plan: SkillRepairPlan
-  status: SkillRepairExecutionStatus
-}
-
 export interface InstallBuiltInSkillRequest {
   skillId: BuiltInSkillId
 }
@@ -290,28 +201,17 @@ export interface UpdateRegistrySkillRequest {
   skillId?: string
 }
 
-export type SkillSyncDirection = "apply" | "upload"
-
-export interface SyncRegistrySkillsRequest {
-  direction: SkillSyncDirection
-}
-
-export interface SyncRegistrySkillsResult {
-  direction: SkillSyncDirection
-  inventory: SkillInventory
-}
-
 export interface SkillSearchRequest {
   query: string
 }
 
-export interface ListMyPublishedSkillsRequest {
+export interface ListPublicSkillPackagesRequest {
   forceRefresh?: boolean
   next?: string
-  query?: string
+  size?: number
 }
 
-export interface ListPublicSkillPackagesRequest {
+export interface ListMyPublishedSkillPackagesRequest {
   forceRefresh?: boolean
   next?: string
 }
@@ -330,24 +230,22 @@ export interface InstallRegistrySkillRequest {
   skillId: string
 }
 
-export interface ReplaceConflictingRegistrySkillRequest {
-  confirmed: boolean
-  packageName: string
-  skillId: string
-}
-
 export interface OpenSkillPathRequest {
   path: string
 }
 
-export interface OpenSkillInEditorRequest {
-  editorId?: SkillEditorAppId
+export interface SkillDocumentRequest {
+  path: string
+}
+
+export interface SkillDocument {
+  content: string
   path: string
 }
 
 export interface PublishSkillRequest {
   path: string
-  visibility?: "private" | "public"
+  visibility?: "public"
 }
 
 export interface PublishSkillResult {
@@ -355,83 +253,9 @@ export interface PublishSkillResult {
   message: string
 }
 
-export interface AdoptLocalSkillProjectRequest {
-  agentId?: string
-  description?: string
-  icon?: string
-  name?: string
-  path: string
-  title?: string
-}
-
-export interface AdoptLocalSkillProjectResult {
-  inventory: SkillInventory
-  message: string
-  skillId: string
-}
-
-export interface ShareSkillRequest {
-  days?: number
-  downloads?: number
-  language?: "en" | "zh"
-  sourcePath?: string
-  skillId: string
-}
-
-export interface SkillShareInfoRequest {
-  packageName?: string
-}
-
-export interface SkillShareInfo {
-  limitsRequired: boolean
-  packageName?: string
-  visibility: "private" | "public" | "unpublished"
-}
-
-export interface SkillShareResult {
-  copied?: boolean
-  installCommand?: string
-  message?: string
-  prompt: string
-}
-
 export interface DeleteSkillRequest {
-  agentId?: string
   confirmed: boolean
   skillId: string
-}
-
-export type SkillEnablePlanStatus = "ready" | "not-needed" | "unsupported"
-export type SkillEnablePlanTargetAction = "create" | "overwrite"
-
-export interface SkillEnablePlanTarget {
-  action: SkillEnablePlanTargetAction
-  agentId: string
-  agentName: string
-  path?: string
-}
-
-export interface SkillEnablePlan {
-  id: string
-  requiresConfirmation: boolean
-  skillId: string
-  skillName: string
-  sourceAgentId?: string
-  sourceAgentName?: string
-  sourcePath?: string
-  status: SkillEnablePlanStatus
-  targets: SkillEnablePlanTarget[]
-}
-
-export interface SkillEnablePlanRequest {
-  skillId: string
-  sourceAgentId?: string
-}
-
-export interface EnableSkillForAllAgentsRequest {
-  confirmedPlanId?: string
-  skillId: string
-  sourceAgentId?: string
 }
 
 export type SkillService = typeof SkillService
@@ -441,30 +265,21 @@ export const SkillService = serviceName("skill-service") as ServiceName<{
     skillInventoryChanged: SkillInventoryChangedEvent
   }
   ClientInvokes: {
-    executeSkillRepairPlan(request: ExecuteSkillRepairPlanRequest): Promise<SkillRepairExecutionResult>
-    getSkillEnablePlan(request: SkillEnablePlanRequest): Promise<SkillEnablePlan>
     getSkillInventory(): Promise<SkillInventory>
-    getSkillRepairPlan(request: SkillRepairPlanRequest): Promise<SkillRepairPlan>
     getSkillSummary(): Promise<SkillSummary>
     deleteSkill(request: DeleteSkillRequest): Promise<SkillInventory>
-    enableSkillForAllAgents(request: EnableSkillForAllAgentsRequest): Promise<SkillInventory>
     installBuiltInSkill(request: InstallBuiltInSkillRequest): Promise<SkillInventory>
     installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory>
-    listMyPublishedSkills(request?: ListMyPublishedSkillsRequest): Promise<MyPublishedSkillCatalog>
+    listMyPublishedSkillPackages(request?: ListMyPublishedSkillPackagesRequest): Promise<PublicSkillPackageCatalog>
     listPublicSkillPackages(request?: ListPublicSkillPackagesRequest): Promise<PublicSkillPackageCatalog>
-    listSkillEditors(): Promise<SkillEditorApp[]>
     checkSkillVersions(request?: CheckSkillVersionsRequest): Promise<SkillVersionReport>
     executeCliUpdate(): Promise<SkillVersionReport>
     executeRegistrySkillUpdate(request: ExecuteSkillUpdateRequest): Promise<SkillVersionReport>
-    adoptLocalSkillProject(request: AdoptLocalSkillProjectRequest): Promise<AdoptLocalSkillProjectResult>
+    openSkillDocument(request: SkillDocumentRequest): Promise<void>
     openSkillFolder(request: OpenSkillPathRequest): Promise<void>
-    openSkillInEditor(request: OpenSkillInEditorRequest): Promise<void>
     publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult>
-    replaceConflictingRegistrySkill(request: ReplaceConflictingRegistrySkillRequest): Promise<SkillInventory>
+    readSkillDocument(request: SkillDocumentRequest): Promise<SkillDocument>
     searchRegistrySkills(request: SkillSearchRequest): Promise<SkillSearchResult[]>
-    getSkillShareInfo(request: SkillShareInfoRequest): Promise<SkillShareInfo>
-    shareSkill(request: ShareSkillRequest): Promise<SkillShareResult>
-    syncRegistrySkills(request: SyncRegistrySkillsRequest): Promise<SyncRegistrySkillsResult>
     updateRegistrySkill(request: UpdateRegistrySkillRequest): Promise<SkillInventory>
   }
 }>

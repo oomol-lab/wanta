@@ -3,7 +3,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process"
 
 import { createOpencodeClient } from "@opencode-ai/sdk"
 import { spawn } from "node:child_process"
-import { mkdirSync } from "node:fs"
+import { mkdir } from "node:fs/promises"
 import path from "node:path"
 
 export interface SidecarOptions {
@@ -55,7 +55,7 @@ export class OpencodeSidecar {
     const xdgDataHome = path.join(isolationDir, "xdg-data")
     // 这些隔离目录必须存在：opencode 会向 XDG_DATA_HOME 写会话/状态，缺失会导致服务端 500。
     for (const dir of [opencodeConfigDir, xdgConfigHome, xdgDataHome]) {
-      mkdirSync(dir, { recursive: true })
+      await mkdir(dir, { recursive: true })
     }
 
     const childEnv: NodeJS.ProcessEnv = {

@@ -1,14 +1,18 @@
 import type { Dirent } from "node:fs"
 
 import crypto from "node:crypto"
-import { readdir, readFile } from "node:fs/promises"
+import { open, readdir, readFile, stat } from "node:fs/promises"
 import path from "node:path"
 import { skippedDirectoryNames } from "./constants.ts"
 
 interface HashableFile {
   content: Buffer
   relativePath: string
+  size: number
+  truncated: boolean
 }
+
+const maxHashableFileBytes = 512 * 1024
 
 export function isLikelyTextBuffer(buffer: Buffer): boolean {
   if (buffer.includes(0)) {
@@ -29,6 +33,25 @@ export function isLikelyTextBuffer(buffer: Buffer): boolean {
   }
 
   return suspiciousBytes / Math.max(sample.length, 1) < 0.02
+}
+
+async function readFileSample(filePath: string, size: number): Promise<Buffer> {
+  if (size <= maxHashableFileBytes) {
+    return readFile(filePath)
+  }
+
+  const headLength = Math.floor(maxHashableFileBytes / 2)
+  const tailLength = maxHashableFileBytes - headLength
+  const file = await open(filePath, "r")
+  try {
+    const head = Buffer.alloc(headLength)
+    const tail = Buffer.alloc(tailLength)
+    const headRead = await file.read(head, 0, headLength, 0)
+    const tailRead = await file.read(tail, 0, tailLength, size - tailLength)
+    return Buffer.concat([head.subarray(0, headRead.bytesRead), tail.subarray(0, tailRead.bytesRead)])
+  } finally {
+    await file.close()
+  }
 }
 
 export async function readHashableFiles(rootPath: string): Promise<HashableFile[]> {
@@ -62,10 +85,12 @@ export async function readHashableFiles(rootPath: string): Promise<HashableFile[
       }
 
       const filePath = path.join(directoryPath, entry.name)
+      let fileSize: number
       let content: Buffer
 
       try {
-        content = await readFile(filePath)
+        fileSize = (await stat(filePath)).size
+        content = await readFileSample(filePath, fileSize)
       } catch {
         continue
       }
@@ -77,6 +102,8 @@ export async function readHashableFiles(rootPath: string): Promise<HashableFile[
       files.push({
         content,
         relativePath: path.relative(rootPath, filePath),
+        size: fileSize,
+        truncated: fileSize > content.length,
       })
     }
 
@@ -97,6 +124,10 @@ export async function hashTextFiles(rootPath: string): Promise<string | undefine
 
   for (const file of files) {
     hash.update(file.relativePath)
+    hash.update("\0")
+    hash.update(String(file.size))
+    hash.update("\0")
+    hash.update(file.truncated ? "truncated" : "full")
     hash.update("\0")
     hash.update(file.content)
     hash.update("\0")

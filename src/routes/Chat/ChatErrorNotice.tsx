@@ -11,7 +11,6 @@ import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
-import { CreditPurchaseModal } from "@/routes/Billing/CreditPurchaseModal"
 
 interface ChatErrorNoticeProps {
   autoOpenKey?: string
@@ -25,6 +24,9 @@ interface ChatErrorNoticeProps {
 const paymentRecoveryPendingKey = "lumo-payment-recovery-pending"
 const paymentRecoveryPendingTtlMs = 24 * 60 * 60 * 1000
 const copyFeedbackMs = 1_500
+const CreditPurchaseModal = React.lazy(() =>
+  import("@/routes/Billing/CreditPurchaseModal").then((module) => ({ default: module.CreditPurchaseModal })),
+)
 
 function markPaymentRecoveryPending(): void {
   try {
@@ -321,13 +323,17 @@ export function ChatErrorNotice({
 
       {isPaymentRequired ? (
         <>
-          <CreditPurchaseModal
-            cacheScope={billingCacheScope}
-            open={purchaseDialogOpen}
-            onClose={() => setPurchaseDialogOpen(false)}
-            onCheckoutOpened={handleCheckoutOpened}
-            onViewDetails={onViewBilling}
-          />
+          {purchaseDialogOpen ? (
+            <React.Suspense fallback={null}>
+              <CreditPurchaseModal
+                cacheScope={billingCacheScope}
+                open={purchaseDialogOpen}
+                onClose={() => setPurchaseDialogOpen(false)}
+                onCheckoutOpened={handleCheckoutOpened}
+                onViewDetails={onViewBilling}
+              />
+            </React.Suspense>
+          ) : null}
           <Dialog
             open={confirmDialogOpen}
             onClose={() => setConfirmDialogOpen(false)}

@@ -1,10 +1,9 @@
-import type { ManagedSkillGroup } from "./common.ts"
 import type { InstalledSkill, SkillManifestStore } from "./types.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import { manifestSchemaVersion } from "./constants.ts"
-import { buildSummary, groupInstalledSkills, resolveMyPublishedSkillInstallState } from "./inventory.ts"
+import { buildSummary, groupInstalledSkills } from "./inventory.ts"
 
 const agents = [
   {
@@ -22,6 +21,14 @@ const agents = [
     ooCliAgentId: "claude",
   },
 ]
+
+const lumoAgent = {
+  cliCommands: [],
+  homeRoot: "",
+  id: "lumo",
+  name: "Lumo",
+  ooCliAgentId: "lumo",
+}
 
 const installedSkills: InstalledSkill[] = [
   {
@@ -67,11 +74,14 @@ test("groupInstalledSkills includes built-in groups and agent coverage", () => {
   assert.equal(oo?.isBuiltIn, true)
   assert.equal(oo?.description, "Use OOMOL hosted capabilities")
   assert.equal(oo?.hosts.length, 2)
+  assert.equal(oo?.externalHosts.length, 2)
+  assert.equal(oo?.runtimeHosts.length, 0)
   assert.equal(oo?.hosts[0]?.controlState, "modified")
   assert.equal(example?.packageName, "@oomol/example")
   assert.equal(example?.icon, ":lucide:captions:")
   assert.equal(example?.description, "Example registry skill")
   assert.equal(example?.hosts[1]?.controlState, "controlled")
+  assert.equal(example?.runtimeHosts.length, 0)
   assert.deepEqual(
     groups.slice(0, 4).map((group) => group.id),
     ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"],
@@ -84,23 +94,15 @@ test("groupInstalledSkills includes built-in groups and agent coverage", () => {
 
 test("buildSummary counts built-in coverage and attention hosts", () => {
   const groups = groupInstalledSkills(installedSkills, manifestStore, agents)
-  const summary = buildSummary(groups, [
-    {
-      agentId: "codex",
-      agentName: "Codex",
-      description: "Publishable project",
-      id: "codex:publishable",
-      name: "publishable",
-      path: "/codex/skills/publishable",
-    },
-  ])
+  const summary = buildSummary(groups)
 
   assert.equal(summary.builtInTotal, 4)
-  assert.equal(summary.builtInInstalled, 1)
+  assert.equal(summary.builtInInstalled, 0)
+  assert.equal(summary.builtInMissing, 0)
   assert.equal(summary.managedSkills, 2)
   assert.equal(summary.modifiedHosts, 1)
-  assert.equal(summary.needsAttention, 4)
-  assert.equal(summary.publishableSkills, 1)
+  assert.equal(summary.needsAttention, 1)
+  assert.equal(summary.publishableSkills, 0)
   assert.equal(summary.registrySkills, 1)
   assert.deepEqual(
     summary.nonBuiltInSkills.map((skill) => skill.id),
@@ -110,6 +112,32 @@ test("buildSummary counts built-in coverage and attention hosts", () => {
   assert.equal(summary.nonBuiltInSkills[0]?.icon, ":lucide:captions:")
   assert.equal(summary.nonBuiltInSkills[0]?.sourceMissingHosts, 0)
   assert.equal(summary.nonBuiltInSkills[0]?.unknownHosts, 0)
+})
+
+test("buildSummary reports runtime built-in skills missing", () => {
+  const lumoOo: InstalledSkill = {
+    ...installedSkills[0]!,
+    agent: lumoAgent,
+    hash: "hash-a",
+    path: "/lumo/skills/oo",
+    sourceHash: "hash-a",
+    sourcePath: "/oo/skills/bundled/lumo/oo",
+  }
+  const groups = groupInstalledSkills([lumoOo], manifestStore, [lumoAgent])
+  const summary = buildSummary(groups)
+
+  assert.equal(summary.builtInInstalled, 1)
+  assert.equal(summary.builtInMissing, 3)
+  assert.equal(summary.needsAttention, 3)
+  assert.deepEqual(
+    summary.builtInSkills.map((skill) => [skill.id, skill.status, skill.missingAgents]),
+    [
+      ["oo", "installed", []],
+      ["oo-find-skills", "missing", ["lumo"]],
+      ["oo-create-skill", "missing", ["lumo"]],
+      ["oo-publish-skill", "missing", ["lumo"]],
+    ],
+  )
 })
 
 test("buildSummary keeps mixed-kind same-id skills in one unknown group", () => {
@@ -168,111 +196,3 @@ test("buildSummary does not report built-in missing when no agent is discovered"
     ["unknown", "unknown", "unknown", "unknown"],
   )
 })
-
-test("resolveMyPublishedSkillInstallState recognizes installed registry skills", () => {
-  const inventory = {
-    groups: [
-      createManagedSkillGroup({
-        id: "cloudflare-worker-connect",
-        kind: "registry",
-        packageName: "@alice/cloudflare-worker-connect",
-        version: "0.0.2",
-      }),
-    ],
-  }
-
-  assert.deepEqual(
-    resolveMyPublishedSkillInstallState(inventory, {
-      packageName: "@alice/cloudflare-worker-connect",
-      skillId: "cloudflare-worker-connect",
-    }),
-    {
-      installed: true,
-      installedVersion: "0.0.2",
-      installState: "installed",
-    },
-  )
-})
-
-test("resolveMyPublishedSkillInstallState reports same-name local conflicts", () => {
-  const inventory = {
-    groups: [
-      createManagedSkillGroup({
-        id: "cloudflare-worker-connect",
-        kind: "local",
-      }),
-    ],
-  }
-
-  assert.deepEqual(
-    resolveMyPublishedSkillInstallState(inventory, {
-      packageName: "@alice/cloudflare-worker-connect",
-      skillId: "cloudflare-worker-connect",
-    }),
-    {
-      conflictingSkill: {
-        id: "cloudflare-worker-connect",
-        installedHosts: 1,
-        kind: "local",
-        name: "cloudflare-worker-connect",
-        totalHosts: 1,
-      },
-      installed: false,
-      installState: "name-conflict",
-    },
-  )
-})
-
-test("resolveMyPublishedSkillInstallState leaves missing names installable", () => {
-  assert.deepEqual(
-    resolveMyPublishedSkillInstallState(
-      {
-        groups: [],
-      },
-      {
-        packageName: "@alice/cloudflare-worker-connect",
-        skillId: "cloudflare-worker-connect",
-      },
-    ),
-    {
-      installed: false,
-      installState: "installable",
-    },
-  )
-})
-
-function createManagedSkillGroup(options: {
-  id: string
-  kind: ManagedSkillGroup["kind"]
-  packageName?: string
-  version?: string
-}): ManagedSkillGroup {
-  const host: ManagedSkillGroup["hosts"][number] = {
-    agentId: "codex",
-    agentName: "Codex",
-    kind: options.kind,
-    status: "installed",
-  }
-  if (options.packageName) {
-    host.packageName = options.packageName
-  }
-  if (options.version) {
-    host.version = options.version
-  }
-
-  const group: ManagedSkillGroup = {
-    hosts: [host],
-    id: options.id,
-    isBuiltIn: false,
-    kind: options.kind,
-    name: options.id,
-  }
-  if (options.packageName) {
-    group.packageName = options.packageName
-  }
-  if (options.version) {
-    group.version = options.version
-  }
-
-  return group
-}

@@ -1,12 +1,8 @@
 import type { SupportedAgent } from "../agents/catalog.ts"
 import type {
   BuiltInSkillCoverage,
-  LocalSkillProject,
   ManagedSkillGroup,
   ManagedSkillHostCoverage,
-  MyPublishedSkillConflict,
-  MyPublishedSkillInstallState,
-  SkillInventory,
   SkillSummary,
   SkillSummaryItem,
 } from "./common.ts"
@@ -14,6 +10,12 @@ import type { InstalledSkill, SkillManifestStore } from "./types.ts"
 
 import { builtInSkillIconById, builtInSkillIds, builtInSkillOrderById } from "./constants.ts"
 import { readControlState } from "./manifest.ts"
+
+const lumoRuntimeHostId = "lumo"
+
+function isLumoRuntimeAgent(agent: SupportedAgent): boolean {
+  return agent.id === lumoRuntimeHostId
+}
 
 function createHostCoverage(
   skillName: string,
@@ -28,6 +30,7 @@ function createHostCoverage(
       return {
         agentId: agent.id,
         agentName: agent.name,
+        scope: isLumoRuntimeAgent(agent) ? "runtime" : "external",
         status: "missing",
       }
     }
@@ -39,6 +42,7 @@ function createHostCoverage(
       kind: installedSkill.metadata.kind,
       packageName: installedSkill.metadata.packageName,
       path: installedSkill.path,
+      scope: isLumoRuntimeAgent(agent) ? "runtime" : "external",
       sourcePath: installedSkill.sourcePath,
       status: "installed",
       version: installedSkill.metadata.version,
@@ -64,6 +68,9 @@ export function groupInstalledSkills(
     const icon = matchedSkills.find((skill) => skill.metadata.icon)?.metadata.icon ?? readBuiltInSkillIcon(skillName)
     const isBuiltIn = isBuiltInSkillName(skillName)
 
+    const coveredHosts = createHostCoverage(skillName, installedSkills, manifestStore, coverageAgents)
+    const externalHosts = coveredHosts.filter((host) => host.scope === "external")
+    const runtimeHosts = coveredHosts.filter((host) => host.scope === "runtime")
     return {
       description,
       icon,
@@ -73,7 +80,9 @@ export function groupInstalledSkills(
       kind: resolvedKind,
       packageName: firstMetadata?.packageName,
       version: firstMetadata?.version,
-      hosts: createHostCoverage(skillName, installedSkills, manifestStore, coverageAgents),
+      externalHosts,
+      hosts: coveredHosts,
+      runtimeHosts,
     }
   })
 }
@@ -103,83 +112,6 @@ function getInstalledAgents(installedSkills: InstalledSkill[]): SupportedAgent[]
   return Array.from(agentsById.values()).sort((left, right) => left.name.localeCompare(right.name))
 }
 
-export interface MyPublishedSkillInstallResolution {
-  conflictingSkill?: MyPublishedSkillConflict
-  installed: boolean
-  installedVersion?: string
-  installState: MyPublishedSkillInstallState
-}
-
-export function resolveMyPublishedSkillInstallState(
-  inventory: Pick<SkillInventory, "groups">,
-  request: { packageName: string; skillId: string },
-): MyPublishedSkillInstallResolution {
-  let installedSkill: { version?: string } | undefined
-  let conflictingSkill: MyPublishedSkillConflict | undefined
-
-  for (const group of inventory.groups) {
-    if (group.id !== request.skillId) {
-      continue
-    }
-
-    const installedHosts = group.hosts.filter((host) => host.status === "installed")
-    for (const host of installedHosts) {
-      const hostPackageName = host.packageName ?? group.packageName
-      if (hostPackageName === request.packageName) {
-        installedSkill ??= {
-          version: host.version ?? group.version,
-        }
-        continue
-      }
-
-      if (!conflictingSkill) {
-        const conflictInstalledHosts = installedHosts.filter((entry) => {
-          const entryPackageName = entry.packageName ?? group.packageName
-          return entryPackageName !== request.packageName
-        }).length
-        const conflict: MyPublishedSkillConflict = {
-          id: group.id,
-          installedHosts: conflictInstalledHosts,
-          kind: host.kind ?? group.kind,
-          name: group.name,
-          totalHosts: group.hosts.length,
-        }
-        if (hostPackageName) {
-          conflict.packageName = hostPackageName
-        }
-        if (host.version ?? group.version) {
-          conflict.version = host.version ?? group.version
-        }
-        conflictingSkill = conflict
-      }
-    }
-  }
-
-  if (installedSkill) {
-    const resolution: MyPublishedSkillInstallResolution = {
-      installed: true,
-      installState: "installed",
-    }
-    if (installedSkill.version) {
-      resolution.installedVersion = installedSkill.version
-    }
-    return resolution
-  }
-
-  if (conflictingSkill) {
-    return {
-      conflictingSkill,
-      installed: false,
-      installState: "name-conflict",
-    }
-  }
-
-  return {
-    installed: false,
-    installState: "installable",
-  }
-}
-
 function compareSkillNames(left: string, right: string): number {
   const leftIndex = readBuiltInSkillOrder(left)
   const rightIndex = readBuiltInSkillOrder(right)
@@ -201,14 +133,12 @@ function readBuiltInSkillOrder(skillName: string): number | undefined {
     : undefined
 }
 
-export function buildSummary(
-  groups: ManagedSkillGroup[],
-  localProjects: readonly LocalSkillProject[] = [],
-): SkillSummary {
+export function buildSummary(groups: ManagedSkillGroup[]): SkillSummary {
   const builtInSkills: BuiltInSkillCoverage[] = builtInSkillIds.map((skillId) => {
     const group = groups.find((item) => item.id === skillId)
-    const installedAgents = group?.hosts.filter((host) => host.status === "installed").map((host) => host.agentId) ?? []
-    const missingAgents = group?.hosts.filter((host) => host.status === "missing").map((host) => host.agentId) ?? []
+    const runtimeHosts = group?.runtimeHosts ?? []
+    const installedAgents = runtimeHosts.filter((host) => host.status === "installed").map((host) => host.agentId)
+    const missingAgents = runtimeHosts.filter((host) => host.status === "missing").map((host) => host.agentId)
     const status: BuiltInSkillCoverage["status"] =
       installedAgents.length > 0 ? "installed" : missingAgents.length > 0 ? "missing" : "unknown"
 
@@ -233,7 +163,7 @@ export function buildSummary(
     (count, group) => count + group.hosts.filter((host) => host.controlState === "source-missing").length,
     0,
   )
-  const publishableSkills = installedGroups.filter((group) => group.kind === "local").length + localProjects.length
+  const publishableSkills = installedGroups.filter((group) => group.kind === "local").length
   const nonBuiltInSkills = installedGroups
     .filter((group) => !group.isBuiltIn)
     .map(toSkillSummaryItem)

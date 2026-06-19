@@ -2,29 +2,21 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
   assertSkillOperationSucceeded,
-  createAdoptLocalSkillArgs,
   createBundledSkillVersionCheck,
   createCliCheckUpdateArgs,
   createCliUpdateArgs,
   createDeleteSkillArgs,
   createFailedRegistrySkillVersionCheck,
   createInstallRegistrySkillArgs,
-  createPublishedSkillVersionCheckFromPackageInfo,
   createPublishSkillArgs,
-  createRegistryPackageInfoVersionCheckCommand,
   createRegistrySkillVersionCheck,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
-  createShareSkillArgs,
-  normalizeMyPublishedPackageList,
   normalizePublicSkillPackageCatalog,
-  normalizeRegistryPackageVersionInfo,
-  normalizeRegistryPackageSkillInfo,
-  normalizeSkillShareInfo,
+  normalizeRegistrySkillPackageInfo,
   createSkillSearchArgs,
   normalizeRegistrySkillCheckUpdateResults,
   normalizeSkillSearchResults,
-  normalizeSkillShareResult,
   normalizeCliCheckUpdateResult,
   createUpdateRegistrySkillArgs,
 } from "./actions.ts"
@@ -75,45 +67,6 @@ test("normalizeSkillSearchResults keeps structured registry skills", () => {
         version: "1.2.3",
       },
     ],
-  )
-})
-
-test("normalizeMyPublishedPackageList keeps account package metadata", () => {
-  assert.deepEqual(
-    normalizeMyPublishedPackageList(
-      JSON.stringify({
-        data: [
-          {
-            description: "Review code",
-            displayName: "Autoreview",
-            icon: "icon.png",
-            name: "@alice/autoreview",
-            updateTime: 1770000000000,
-            version: "0.0.1",
-            visibility: "private",
-          },
-          {
-            name: "",
-            version: "0.0.2",
-          },
-        ],
-        next: "next-page",
-      }),
-    ),
-    {
-      next: "next-page",
-      packages: [
-        {
-          description: "Review code",
-          displayName: "Autoreview",
-          icon: "icon.png",
-          name: "@alice/autoreview",
-          updateTime: 1770000000000,
-          version: "0.0.1",
-          visibility: "private",
-        },
-      ],
-    },
   )
 })
 
@@ -183,6 +136,48 @@ test("normalizePublicSkillPackageCatalog keeps public package metadata", () => {
   )
 })
 
+test("normalizePublicSkillPackageCatalog keeps package metadata without skill details", () => {
+  assert.deepEqual(
+    normalizePublicSkillPackageCatalog(
+      JSON.stringify({
+        data: [
+          {
+            description: "Review code",
+            displayName: "Autoreview",
+            icon: "icon.png",
+            name: "@alice/autoreview",
+            updateTime: 1770000000000,
+            version: "0.0.1",
+            visibility: "private",
+          },
+        ],
+        next: "next-page",
+      }),
+      "2026-06-18T00:00:00.000Z",
+    ),
+    {
+      items: [
+        {
+          description: "Review code",
+          displayName: "Autoreview",
+          downloadCount: undefined,
+          icon: "icon.png",
+          id: "@alice/autoreview@0.0.1",
+          isTemplate: false,
+          maintainers: [],
+          name: "@alice/autoreview",
+          skills: [],
+          updateTime: 1770000000000,
+          version: "0.0.1",
+          visibility: "private",
+        },
+      ],
+      next: "next-page",
+      updatedAt: "2026-06-18T00:00:00.000Z",
+    },
+  )
+})
+
 test("normalizePublicSkillPackageCatalog ignores malformed maintainer metadata", () => {
   const catalog = normalizePublicSkillPackageCatalog(
     JSON.stringify({
@@ -222,42 +217,78 @@ test("normalizePublicSkillPackageCatalog keeps unknown visibility non-fatal", ()
   assert.equal(catalog.items[0]?.visibility, "unknown")
 })
 
-test("normalizeRegistryPackageSkillInfo expands published package skills", () => {
+test("normalizeRegistrySkillPackageInfo maps package-info into discover package metadata", () => {
   assert.deepEqual(
-    normalizeRegistryPackageSkillInfo(
+    normalizeRegistrySkillPackageInfo(
       JSON.stringify({
-        description: "Package description",
-        icon: "icon.png",
-        packageName: "@alice/autoreview",
-        packageVersion: "0.0.1",
+        description: "Private package",
+        icon: ":lucide:box",
+        isPrivate: true,
+        packageName: "@alice/private-skill",
+        packageVersion: "0.2.0",
         skills: [
           {
-            description: "Run code review",
-            name: "autoreview",
-            title: "Autoreview",
-          },
-          {
-            name: "",
+            description: "Do private work",
+            name: "private-skill",
+            title: "Private Skill",
           },
         ],
-        visibility: "public",
+        title: "Private Package",
       }),
+      { id: "user-1", name: "alice", url: "https://example.com/a.png" },
     ),
     {
-      description: "Package description",
-      displayName: "@alice/autoreview",
-      icon: "icon.png",
-      packageName: "@alice/autoreview",
-      packageVersion: "0.0.1",
+      description: "Private package",
+      displayName: "Private Package",
+      icon: ":lucide:box",
+      id: "@alice/private-skill@0.2.0",
+      isTemplate: false,
+      maintainers: [{ id: "user-1", name: "alice", url: "https://example.com/a.png" }],
+      name: "@alice/private-skill",
       skills: [
         {
-          description: "Run code review",
-          displayName: "Autoreview",
-          name: "autoreview",
+          description: "Do private work",
+          name: "private-skill",
+          title: "Private Skill",
         },
       ],
-      visibility: "public",
+      version: "0.2.0",
+      visibility: "private",
     },
+  )
+})
+
+test("normalizeRegistrySkillPackageInfo recognizes package access visibility", () => {
+  assert.equal(
+    normalizeRegistrySkillPackageInfo(
+      JSON.stringify({
+        access: "restricted",
+        packageName: "@alice/restricted-skill",
+        packageVersion: "0.2.0",
+        skills: [
+          {
+            name: "restricted-skill",
+            title: "Restricted Skill",
+          },
+        ],
+      }),
+      { id: "user-1", name: "alice" },
+    )?.visibility,
+    "private",
+  )
+})
+
+test("normalizeRegistrySkillPackageInfo ignores packages without skills", () => {
+  assert.equal(
+    normalizeRegistrySkillPackageInfo(
+      JSON.stringify({
+        packageName: "@alice/block-only",
+        packageVersion: "0.1.0",
+        skills: [],
+      }),
+      { id: "user-1", name: "alice" },
+    ),
+    undefined,
   )
 })
 
@@ -307,7 +338,7 @@ test("createUpdateRegistrySkillArgs updates registry skills as json", () => {
   assert.throws(() => createUpdateRegistrySkillArgs({ skillId: " " }), /skillId is required/)
 })
 
-test("createPublishSkillArgs publishes a path non-interactively", () => {
+test("createPublishSkillArgs publishes a Skill path non-interactively", () => {
   assert.deepEqual(createPublishSkillArgs({ path: "/tmp/demo", visibility: "public" }), [
     "skills",
     "publish",
@@ -316,154 +347,6 @@ test("createPublishSkillArgs publishes a path non-interactively", () => {
     "--visibility",
     "public",
   ])
-})
-
-test("createAdoptLocalSkillArgs adopts a local skill project for one agent", () => {
-  assert.deepEqual(
-    createAdoptLocalSkillArgs({
-      agent: "claude",
-      description: "Validates animation durations.",
-      icon: ":lucide:timer:",
-      name: "baseline-ui",
-      path: "/tmp/baseline-ui",
-      title: "Baseline UI",
-    }),
-    [
-      "skills",
-      "adopt",
-      "/tmp/baseline-ui",
-      "--agent",
-      "claude",
-      "--name",
-      "baseline-ui",
-      "--description",
-      "Validates animation durations.",
-      "--icon",
-      ":lucide:timer:",
-      "--title",
-      "Baseline UI",
-    ],
-  )
-  assert.throws(() => createAdoptLocalSkillArgs({ path: " " }), /path is required/)
-})
-
-test("createShareSkillArgs shares a selected skill non-interactively", () => {
-  assert.deepEqual(createShareSkillArgs({ skillId: "demo" }), ["skills", "share", "demo", "-y"])
-})
-
-test("createShareSkillArgs supports sharing a selected local skill source path", () => {
-  assert.deepEqual(createShareSkillArgs({ sourcePath: "/Users/demo/.codex/skills/demo", skillId: "demo" }), [
-    "skills",
-    "share",
-    "/Users/demo/.codex/skills/demo",
-    "-y",
-  ])
-})
-
-test("createShareSkillArgs places language before the share command", () => {
-  assert.deepEqual(createShareSkillArgs({ language: "zh", skillId: "demo" }), [
-    "--lang",
-    "zh",
-    "skills",
-    "share",
-    "demo",
-    "-y",
-  ])
-})
-
-test("createShareSkillArgs supports private share limits", () => {
-  assert.deepEqual(createShareSkillArgs({ days: 3, downloads: 5, language: "en", skillId: "demo" }), [
-    "--lang",
-    "en",
-    "skills",
-    "share",
-    "demo",
-    "-y",
-    "--days",
-    "3",
-    "--downloads",
-    "5",
-  ])
-})
-
-test("createShareSkillArgs rejects invalid requests", () => {
-  assert.throws(() => createShareSkillArgs({ skillId: " " }), /skillId is required/)
-  assert.throws(() => createShareSkillArgs({ sourcePath: " ", skillId: "demo" }), /sourcePath is required/)
-  assert.throws(() => createShareSkillArgs({ days: 0, skillId: "demo" }), /days must be an integer from 1 to 7/)
-  assert.throws(() => createShareSkillArgs({ days: 8, skillId: "demo" }), /days must be an integer from 1 to 7/)
-  assert.throws(() => createShareSkillArgs({ days: 1.5, skillId: "demo" }), /days must be an integer from 1 to 7/)
-  assert.throws(() => createShareSkillArgs({ downloads: 0, skillId: "demo" }), /downloads must be a positive integer/)
-  assert.throws(() => createShareSkillArgs({ downloads: 1.5, skillId: "demo" }), /downloads must be a positive integer/)
-})
-
-test("normalizeSkillShareResult extracts install command from prompt", () => {
-  assert.deepEqual(
-    normalizeSkillShareResult("Share prompt:\n```text\nRun this:\noo skills install @alice/demo --skill demo -y\n```"),
-    {
-      installCommand: "oo skills install @alice/demo --skill demo",
-      prompt: "Run this:\noo skills install @alice/demo --skill demo",
-    },
-  )
-})
-
-test("normalizeSkillShareInfo maps public packages to no share limits", () => {
-  assert.deepEqual(normalizeSkillShareInfo(JSON.stringify({ access: "public", packageName: "@alice/demo" })), {
-    limitsRequired: false,
-    packageName: "@alice/demo",
-    visibility: "public",
-  })
-})
-
-test("normalizeSkillShareInfo maps private and restricted packages to share limits", () => {
-  assert.deepEqual(normalizeSkillShareInfo(JSON.stringify({ access: "private", packageName: "@alice/demo" })), {
-    limitsRequired: true,
-    packageName: "@alice/demo",
-    visibility: "private",
-  })
-  assert.deepEqual(normalizeSkillShareInfo(JSON.stringify({ access: "restricted", packageName: "@alice/demo" })), {
-    limitsRequired: true,
-    packageName: "@alice/demo",
-    visibility: "private",
-  })
-})
-
-test("normalizeSkillShareInfo treats package info without visibility as public", () => {
-  assert.deepEqual(normalizeSkillShareInfo(JSON.stringify({ packageName: "@alice/demo" })), {
-    limitsRequired: false,
-    packageName: "@alice/demo",
-    visibility: "public",
-  })
-})
-
-test("normalizeRegistryPackageVersionInfo reads package info version fields", () => {
-  assert.deepEqual(
-    normalizeRegistryPackageVersionInfo(JSON.stringify({ packageName: "@alice/demo", version: "1.2.3" })),
-    {
-      latestVersion: "1.2.3",
-      packageName: "@alice/demo",
-    },
-  )
-  assert.deepEqual(
-    normalizeRegistryPackageVersionInfo(JSON.stringify({ packageName: "@alice/demo", packageVersion: "1.2.4" })),
-    {
-      latestVersion: "1.2.4",
-      packageName: "@alice/demo",
-    },
-  )
-  assert.throws(
-    () => normalizeRegistryPackageVersionInfo(JSON.stringify({ packageName: "@alice/demo" })),
-    /Package info/,
-  )
-})
-
-test("normalizeSkillShareResult extracts private install command from prompt", () => {
-  assert.deepEqual(
-    normalizeSkillShareResult("Install with:\noo skills install @alice/demo#share-123 --skill demo -y\n"),
-    {
-      installCommand: "oo skills install @alice/demo#share-123 --skill demo",
-      prompt: "Install with:\noo skills install @alice/demo#share-123 --skill demo",
-    },
-  )
 })
 
 test("createRegistrySkillVersionCheck detects exact package update", () => {
@@ -570,166 +453,6 @@ test("createRegistrySkillVersionCheckFromUpdateResult maps up-to-date registry s
       ["skills", "check-update", "--json"],
     ).status,
     "current",
-  )
-})
-
-test("createPublishedSkillVersionCheckFromPackageInfo detects local published package updates", () => {
-  const command = createRegistryPackageInfoVersionCheckCommand("@alice/demo")
-
-  assert.deepEqual(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "1.0.0",
-      },
-      {
-        latestVersion: "1.1.0",
-        packageName: "@alice/demo",
-      },
-      command,
-    ),
-    {
-      command,
-      currentVersion: "1.0.0",
-      id: "demo",
-      kind: "local",
-      latestVersion: "1.1.0",
-      name: "demo",
-      packageName: "@alice/demo",
-      skillId: "demo",
-      status: "update-available",
-    },
-  )
-})
-
-test("createPublishedSkillVersionCheckFromPackageInfo avoids downgrades and unknown versions", () => {
-  const command = createRegistryPackageInfoVersionCheckCommand("@alice/demo")
-
-  assert.equal(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "1.2.0",
-      },
-      {
-        latestVersion: "1.1.0",
-        packageName: "@alice/demo",
-      },
-      command,
-    ).status,
-    "current",
-  )
-  assert.equal(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-      },
-      {
-        latestVersion: "1.1.0",
-        packageName: "@alice/demo",
-      },
-      command,
-    ).status,
-    "unknown",
-  )
-  assert.equal(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "not-a-version",
-      },
-      {
-        latestVersion: "1.1.0",
-        packageName: "@alice/demo",
-      },
-      command,
-    ).status,
-    "unknown",
-  )
-  assert.equal(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "1.0.0-alpha..1",
-      },
-      {
-        latestVersion: "1.1.0",
-        packageName: "@alice/demo",
-      },
-      command,
-    ).status,
-    "unknown",
-  )
-})
-
-test("createPublishedSkillVersionCheckFromPackageInfo compares prerelease versions", () => {
-  const command = createRegistryPackageInfoVersionCheckCommand("@alice/demo")
-
-  assert.equal(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "1.0.0-alpha.1",
-      },
-      {
-        latestVersion: "1.0.0-alpha.2",
-        packageName: "@alice/demo",
-      },
-      command,
-    ).status,
-    "update-available",
-  )
-  assert.equal(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "1.0.0-alpha.2",
-      },
-      {
-        latestVersion: "1.0.0-alpha.1",
-        packageName: "@alice/demo",
-      },
-      command,
-    ).status,
-    "current",
-  )
-  assert.equal(
-    createPublishedSkillVersionCheckFromPackageInfo(
-      {
-        id: "demo",
-        kind: "local",
-        name: "demo",
-        packageName: "@alice/demo",
-        version: "1.0.0",
-      },
-      {
-        latestVersion: "01.0.0",
-        packageName: "@alice/demo",
-      },
-      command,
-    ).status,
-    "unknown",
   )
 })
 
@@ -949,13 +672,6 @@ test("createDeleteSkillArgs blocks built-in skills", () => {
   assert.throws(() => createDeleteSkillArgs({ skillId: "oo" }), /Built-in Skills/)
 })
 
-test("createDeleteSkillArgs can target one agent install instance", () => {
-  assert.deepEqual(createDeleteSkillArgs({ agentId: "codex", skillId: "demo" }), [
-    "skills",
-    "uninstall",
-    "demo",
-    "--json",
-    "--agent",
-    "codex",
-  ])
+test("createDeleteSkillArgs uninstalls a Skill from Lumo", () => {
+  assert.deepEqual(createDeleteSkillArgs({ skillId: "demo" }), ["skills", "uninstall", "demo", "--json"])
 })

@@ -26,6 +26,7 @@ import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { ConnectionsServiceImpl } from "./connections/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
+import { OrganizationsServiceImpl } from "./organizations/node.ts"
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
@@ -111,6 +112,7 @@ const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: scheduleAgentRefreshForSkillChange,
 })
+const organizationsService = new OrganizationsServiceImpl(authManager)
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
 })
@@ -136,6 +138,7 @@ server.registerService(sessionService)
 server.registerService(connectionsService)
 server.registerService(skillService)
 server.registerService(modelsService)
+server.registerService(organizationsService)
 server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)

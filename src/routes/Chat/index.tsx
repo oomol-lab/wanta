@@ -28,6 +28,8 @@ import {
   latestAssistantMessage,
   retrySourceFromTurn,
   reuseStableChatTurns,
+  shouldShowPlainTurnActivity,
+  shouldShowTurnProcess,
   summarizeTurnProcess,
 } from "./chat-turns.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
@@ -58,7 +60,10 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
-import { GeneratedArtifacts } from "@/routes/Chat/GeneratedArtifacts"
+
+const GeneratedArtifacts = React.lazy(() =>
+  import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
+)
 
 interface ChatAreaProps {
   billingCacheScope: string
@@ -696,8 +701,18 @@ function AssistantTimelineMessage({
   )
 }
 
-function shouldShowTurnProcess(process: ReturnType<typeof summarizeTurnProcess>): boolean {
-  return process.tools.length > 0 || Boolean(process.activity)
+function PlainAssistantActivity() {
+  const t = useT()
+
+  return (
+    <Message from="assistant">
+      <MessageContent className="w-full">
+        <div className="flex min-h-6 min-w-0 items-center text-muted-foreground">
+          <LoadingShimmerText className="min-w-0 truncate">{t("chat.thinking")}</LoadingShimmerText>
+        </div>
+      </MessageContent>
+    </Message>
+  )
 }
 
 interface ChatTurnViewProps {
@@ -753,6 +768,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
   const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
   const shouldShowProcess = shouldShowTurnProcess(process)
+  const shouldShowPlainActivity = shouldShowPlainTurnActivity(process)
   const turnIsActive = Boolean(activeAssistantMessageId)
   const processSeenRef = React.useRef(shouldShowProcess)
   if (shouldShowProcess) {
@@ -823,18 +839,21 @@ const ChatTurnView = React.memo(function ChatTurnView({
           ) : null}
         </>
       ) : (
-        turn.assistants.map((message) => (
-          <MessageBubble
-            key={message.clientId ?? message.id}
-            message={message}
-            billingCacheScope={billingCacheScope}
-            smoothText={message.id === smoothAssistantMessageId}
-            onViewBilling={onViewBilling}
-            assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
-            providerByService={providerByService}
-            onAuthorize={handleAuthorize}
-          />
-        ))
+        <>
+          {shouldShowPlainActivity ? <PlainAssistantActivity /> : null}
+          {turn.assistants.map((message) => (
+            <MessageBubble
+              key={message.clientId ?? message.id}
+              message={message}
+              billingCacheScope={billingCacheScope}
+              smoothText={message.id === smoothAssistantMessageId}
+              onViewBilling={onViewBilling}
+              assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
+              providerByService={providerByService}
+              onAuthorize={handleAuthorize}
+            />
+          ))}
+        </>
       )}
     </React.Fragment>
   )
@@ -951,11 +970,13 @@ const ChatTimeline = React.memo(function ChatTimeline({
           )
         })}
         {visibleArtifactSources.length > 0 ? (
-          <GeneratedArtifacts
-            sources={visibleArtifactSources}
-            onOpen={onArtifactsOpen}
-            onAvailable={onArtifactsAvailable}
-          />
+          <React.Suspense fallback={null}>
+            <GeneratedArtifacts
+              sources={visibleArtifactSources}
+              onOpen={onArtifactsOpen}
+              onAvailable={onArtifactsAvailable}
+            />
+          </React.Suspense>
         ) : null}
       </ConversationContent>
       <ConversationScrollButton />

@@ -1,65 +1,48 @@
+import type { SupportedAgent } from "../agents/catalog.ts"
 import type { AuthManager } from "../auth/node.ts"
 import type { OoCommandResult } from "../oo-command.ts"
 import type {
-  ExecuteSkillRepairPlanRequest,
-  AdoptLocalSkillProjectRequest,
-  AdoptLocalSkillProjectResult,
   CheckSkillVersionsRequest,
   DeleteSkillRequest,
-  EnableSkillForAllAgentsRequest,
   ExecuteSkillUpdateRequest,
   InstallRegistrySkillRequest,
   InstallBuiltInSkillRequest,
-  ListMyPublishedSkillsRequest,
+  ListMyPublishedSkillPackagesRequest,
   ListPublicSkillPackagesRequest,
-  MyPublishedSkill,
-  MyPublishedSkillCatalog,
-  OpenSkillInEditorRequest,
+  PublicSkillPackage,
   OpenSkillPathRequest,
   PublicSkillPackageCatalog,
   PublishSkillRequest,
   PublishSkillResult,
-  ReplaceConflictingRegistrySkillRequest,
-  ShareSkillRequest,
-  SkillShareInfo,
-  SkillShareInfoRequest,
+  SkillDocument,
+  SkillDocumentRequest,
   SkillInventoryChangedEvent,
   SkillInventory,
   SkillCliVersionCheck,
   SkillCliChangedEvent,
-  SkillEnablePlan,
-  SkillEnablePlanRequest,
-  SkillPackageVersionCheck,
-  SkillRepairExecutionResult,
-  SkillRepairPlan,
-  SkillRepairPlanRequest,
   SkillService,
   SkillSummary,
   SkillVersionReport,
-  SyncRegistrySkillsRequest,
-  SyncRegistrySkillsResult,
   UpdateRegistrySkillRequest,
 } from "./common.ts"
-import type { SkillEditorApp } from "./editor-launcher.ts"
+import type { InstalledSkill } from "./types.ts"
 import type { IConnectionService } from "@oomol/connection"
 import type { FSWatcher } from "node:fs"
 
 import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
 import { watch } from "node:fs"
-import { access, cp, mkdir, realpath, rm, stat } from "node:fs/promises"
+import { access, cp, mkdir, readFile, realpath, rename, rm } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 import { buildOoEnv } from "../agent/oo.ts"
-import { listDiscoveredAgents, resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
+import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
 import { logDiagnosticOnChange } from "../diagnostics-log.ts"
 import { ooEndpoint, registryBaseUrl, searchBaseUrl } from "../domain.ts"
 import { normalizeOoCliVersion, runOoCommand } from "../oo-command.ts"
-import { resolveOoStoreDirectory } from "../oo-store-paths.ts"
-import { recordOperationHistory } from "../operation-history.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
   assertSkillOperationSucceeded,
-  createAdoptLocalSkillArgs,
   createDeleteSkillArgs,
   createBundledSkillVersionCheck,
   createCliCheckUpdateArgs,
@@ -67,28 +50,20 @@ import {
   createFailedRegistrySkillVersionCheck,
   createFailedSkillVersionCheck,
   createInstallRegistrySkillArgs,
-  normalizeMyPublishedPackageList,
-  normalizePublicSkillPackageCatalog,
-  createPublishedSkillVersionCheckFromPackageInfo,
   createPublishSkillArgs,
-  createRegistryPackageInfoVersionCheckCommand,
+  normalizePublicSkillPackageCatalog,
+  normalizeRegistrySkillPackageInfo,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
-  createShareSkillArgs,
   createSkillSearchArgs,
   createUpdateRegistrySkillArgs,
   normalizeCliCheckUpdateResult,
-  normalizeRegistryPackageVersionInfo,
-  normalizeRegistryPackageSkillInfo,
   normalizeRegistrySkillCheckUpdateResults,
-  normalizeSkillShareInfo,
   normalizeSkillSearchResults,
-  normalizeSkillShareResult,
 } from "./actions.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
-import { builtInSkillIds } from "./constants.ts"
-import { launchEditorCommand, listSkillEditorApps, resolveEditorCommand } from "./editor-launcher.ts"
-import { buildSummary, groupInstalledSkills, resolveMyPublishedSkillInstallState } from "./inventory.ts"
+import { builtInSkillIds, metadataFileName } from "./constants.ts"
+import { buildSummary, groupInstalledSkills } from "./inventory.ts"
 import {
   areManifestStoresEqual,
   readManifestStore,
@@ -96,19 +71,28 @@ import {
   upsertManifestRecords,
   writeManifestStore,
 } from "./manifest.ts"
-import { buildSkillRepairPlan } from "./repair-plan.ts"
-import { assertSafeResetPaths, resetSkillTargets } from "./reset.ts"
-import { scanInstalledSkills, scanLocalSkillProjects } from "./scan.ts"
-import { createSkillSyncArgs } from "./sync.ts"
+import { resolveSharedAgentSkillRoot } from "./paths.ts"
+import { assertSafeResetPaths } from "./reset.ts"
+import { lumoRuntimeAgent, scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
 
-const skillShareInfoCacheTtlMs = 5 * 60_000
-const myPublishedSkillCatalogCacheTtlMs = 5 * 60_000
-const publicSkillPackageCatalogCacheTtlMs = 5 * 60_000
+const skillPackageCatalogCacheTtlMs = 5 * 60_000
+const publicSkillPackagePageSize = 100
+const myPublishedSkillPackageInfoConcurrency = 10
 
-type AuthAccountSecret = ReturnType<AuthManager["activeAccount"]>
+interface MyPublishedSkillAccount {
+  apiKey: string
+  avatarUrl?: string
+  id: string
+  name: string
+}
+
+interface MyPublishedSkillPackageMaintainer {
+  id: string
+  name: string
+  url?: string
+}
 
 interface SkillVersionAuthSnapshot {
-  account: AuthAccountSecret
   cacheKey: string
 }
 
@@ -124,20 +108,22 @@ type RunSkillOoCommand = (
 export class SkillServiceImpl extends ConnectionService<SkillService> implements IConnectionService<SkillService> {
   private readonly authService: AuthManager
   private readonly watchers: FSWatcher[] = []
-  private readonly shareInfoCacheByKey = new Map<string, { info: SkillShareInfo; time: number }>()
-  private readonly shareInfoInFlightByKey = new Map<string, Promise<SkillShareInfo>>()
-  private readonly myPublishedSkillCatalogCacheByKey = new Map<
-    string,
-    { catalog: MyPublishedSkillCatalog; time: number }
-  >()
-  private readonly myPublishedSkillCatalogInFlightByKey = new Map<string, Promise<MyPublishedSkillCatalog>>()
   private readonly publicSkillPackageCatalogCacheByKey = new Map<
     string,
     { catalog: PublicSkillPackageCatalog; time: number }
   >()
   private readonly publicSkillPackageCatalogInFlightByKey = new Map<string, Promise<PublicSkillPackageCatalog>>()
-  private shareInfoCacheGeneration = 0
-  private myPublishedSkillCatalogCacheGeneration = 0
+  private readonly myPublishedSkillPackageCatalogCacheByKey = new Map<
+    string,
+    { catalog: PublicSkillPackageCatalog; time: number }
+  >()
+  private readonly myPublishedSkillPackageCatalogInFlightByKey = new Map<string, Promise<PublicSkillPackageCatalog>>()
+  private readonly myPublishedSkillPackageInfoCacheByKey = new Map<
+    string,
+    { item: PublicSkillPackage | undefined; time: number }
+  >()
+  private readonly myPublishedSkillPackageInfoInFlightByKey = new Map<string, Promise<PublicSkillPackage | undefined>>()
+  private skillPackageCatalogCacheGeneration = 0
   private versionReportCache: { generation: number; key: string; report: SkillVersionReport; time: number } | undefined
   private versionReportInFlight: { generation: number; key: string; promise: Promise<SkillVersionReport> } | undefined
   private versionReportCacheGeneration = 0
@@ -154,9 +140,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     this.authService = authService
     this.options = options
     this.unsubscribeAuthStateChanged = this.authService.stateChanged.on(() => {
-      this.invalidateShareInfoCache()
-      this.invalidateMyPublishedSkillCatalog()
       this.invalidateVersionReport()
+      this.invalidateMyPublishedSkillPackageCaches()
     })
     if (app.isReady()) {
       this.startWatching()
@@ -171,6 +156,14 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private getManifestPath(): string {
     return path.join(app.getPath("userData"), "skills", "manifest.json")
+  }
+
+  private getLumoSkillStoreRoot(): string {
+    return path.join(app.getPath("userData"), "agent", "oo-store", "config", "skills")
+  }
+
+  private getSharedAgentSkillRoot(): string {
+    return resolveSharedAgentSkillRoot(os.homedir())
   }
 
   private async runOoCommand(
@@ -204,68 +197,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return inventory
   }
 
-  public async executeSkillRepairPlan(request: ExecuteSkillRepairPlanRequest): Promise<SkillRepairExecutionResult> {
-    const startedAt = Date.now()
-    const inventory = await this.readSkillInventory({ writeManifest: false })
-    const plan = buildSkillRepairPlan(inventory.groups, request)
-    const historyArgs = ["skills", "repair", request.kind, request.skillId, request.agentId ?? "all"]
-
-    if (request.confirmedPlanId !== plan.id) {
-      throw new Error("Confirmed repair plan does not match the current repair plan.")
-    }
-
-    if (plan.status !== "ready") {
-      return {
-        affectedTargets: 0,
-        plan,
-        status: "not-needed",
-      }
-    }
-
-    if (plan.kind !== "reset") {
-      return {
-        affectedTargets: 0,
-        plan,
-        status: "unsupported",
-      }
-    }
-
-    try {
-      await resetSkillTargets(plan.targets)
-      this.notifyRuntimeSkillsChanged("repair-skill")
-      await this.refreshManifestRecordsForTargets(plan.targets.map((target) => target.currentPath))
-      await recordOperationHistory({
-        args: historyArgs,
-        command: "oo-desktop",
-        durationMs: Date.now() - startedAt,
-        ok: true,
-        owner: "skill-service",
-        stdout: `Reset ${plan.targets.length} skill copies for ${plan.skillName}.`,
-      })
-
-      return {
-        affectedTargets: plan.targets.length,
-        plan,
-        status: "succeeded",
-      }
-    } catch (cause) {
-      await recordOperationHistory({
-        args: historyArgs,
-        command: "oo-desktop",
-        durationMs: Date.now() - startedAt,
-        ok: false,
-        owner: "skill-service",
-        stderr: cause instanceof Error ? cause.message : String(cause),
-      })
-      throw cause
-    }
-  }
-
-  public async getSkillRepairPlan(request: SkillRepairPlanRequest): Promise<SkillRepairPlan> {
-    const inventory = await this.readSkillInventory({ writeManifest: false })
-    return buildSkillRepairPlan(inventory.groups, request)
-  }
-
   public async getSkillSummary(): Promise<SkillSummary> {
     return (await this.getSkillInventory()).summary
   }
@@ -278,63 +209,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return normalizeSkillSearchResults(result.stdout)
   }
 
-  public async listMyPublishedSkills(request: ListMyPublishedSkillsRequest = {}): Promise<MyPublishedSkillCatalog> {
-    await this.authService.getAuthState()
-    const account = this.authService.activeAccount()
-
-    if (!account) {
-      return {
-        items: [],
-        next: null,
-        updatedAt: new Date().toISOString(),
-      }
-    }
-
-    const query = request.query?.trim() ?? ""
-    const next = request.next?.trim() ?? ""
-    const cacheKey = `${account.id}@${ooEndpoint}:${query}:${next}`
-    const cacheGeneration = this.myPublishedSkillCatalogCacheGeneration
-    const cached = this.myPublishedSkillCatalogCacheByKey.get(cacheKey)
-
-    if (!request.forceRefresh && cached && Date.now() - cached.time < myPublishedSkillCatalogCacheTtlMs) {
-      return cached.catalog
-    }
-
-    const inFlight = this.myPublishedSkillCatalogInFlightByKey.get(cacheKey)
-    if (!request.forceRefresh && inFlight) {
-      return inFlight
-    }
-
-    const promise = this.readMyPublishedSkillCatalog({
-      apiKey: account.apiKey,
-      endpoint: ooEndpoint,
-      next,
-      query,
-    })
-      .then((catalog) => {
-        if (cacheGeneration === this.myPublishedSkillCatalogCacheGeneration) {
-          this.myPublishedSkillCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
-        }
-        return catalog
-      })
-      .finally(() => {
-        if (this.myPublishedSkillCatalogInFlightByKey.get(cacheKey) === promise) {
-          this.myPublishedSkillCatalogInFlightByKey.delete(cacheKey)
-        }
-      })
-
-    this.myPublishedSkillCatalogInFlightByKey.set(cacheKey, promise)
-    return promise
-  }
-
   public async listPublicSkillPackages(
     request: ListPublicSkillPackagesRequest = {},
   ): Promise<PublicSkillPackageCatalog> {
     const next = request.next?.trim() ?? ""
-    const cacheKey = `${searchBaseUrl}:${next}`
+    const size = request.size ?? publicSkillPackagePageSize
+    const cacheKey = `${searchBaseUrl}:${size}:${next}`
     const cached = this.publicSkillPackageCatalogCacheByKey.get(cacheKey)
 
-    if (!request.forceRefresh && cached && Date.now() - cached.time < publicSkillPackageCatalogCacheTtlMs) {
+    if (!request.forceRefresh && cached && Date.now() - cached.time < skillPackageCatalogCacheTtlMs) {
       return cached.catalog
     }
 
@@ -343,9 +226,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return inFlight
     }
 
-    const promise = readPublicSkillPackageCatalog({ next })
+    const cacheGeneration = this.skillPackageCatalogCacheGeneration
+    const promise = readPublicSkillPackageCatalog({ next, size })
       .then((catalog) => {
-        this.publicSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
+        if (
+          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
+          this.publicSkillPackageCatalogInFlightByKey.get(cacheKey) === promise
+        ) {
+          this.publicSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
+        }
         return catalog
       })
       .finally(() => {
@@ -358,6 +247,59 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return promise
   }
 
+  public async listMyPublishedSkillPackages(
+    request: ListMyPublishedSkillPackagesRequest = {},
+  ): Promise<PublicSkillPackageCatalog> {
+    await this.authService.getAuthState()
+    const account = this.authService.activeAccount()
+
+    if (!account) {
+      throw new Error("Published Skills not available (sign in first)")
+    }
+
+    const next = request.next?.trim() ?? ""
+    const cacheKey = `${searchBaseUrl}:${account.id}:${next}`
+    const cached = this.myPublishedSkillPackageCatalogCacheByKey.get(cacheKey)
+
+    if (!request.forceRefresh && cached && Date.now() - cached.time < skillPackageCatalogCacheTtlMs) {
+      return cached.catalog
+    }
+
+    const inFlight = this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey)
+    if (!request.forceRefresh && inFlight) {
+      return inFlight
+    }
+
+    const cacheGeneration = this.skillPackageCatalogCacheGeneration
+    const promise = this.readMyPublishedSkillPackageCatalog({
+      account: {
+        apiKey: account.apiKey,
+        id: account.id,
+        name: account.name,
+        avatarUrl: account.avatarUrl,
+      },
+      forceRefresh: request.forceRefresh,
+      next,
+    })
+      .then((catalog) => {
+        if (
+          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
+          this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey) === promise
+        ) {
+          this.myPublishedSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
+        }
+        return catalog
+      })
+      .finally(() => {
+        if (this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey) === promise) {
+          this.myPublishedSkillPackageCatalogInFlightByKey.delete(cacheKey)
+        }
+      })
+
+    this.myPublishedSkillPackageCatalogInFlightByKey.set(cacheKey, promise)
+    return promise
+  }
+
   public async installBuiltInSkill(request: InstallBuiltInSkillRequest): Promise<SkillInventory> {
     if (!builtInSkillIds.includes(request.skillId)) {
       throw new Error(`Unsupported built-in skill: ${request.skillId}`)
@@ -366,134 +308,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     await this.runOoCommand(["skills", "add", request.skillId], {
       owner: "skill-service",
     })
+    await this.syncCachedSkillToSharedAgentRoot(request.skillId, { force: true })
     this.notifyRuntimeSkillsChanged("install-built-in-skill")
 
     return this.readAndPublishSkillInventory()
-  }
-
-  public async enableSkillForAllAgents(request: EnableSkillForAllAgentsRequest): Promise<SkillInventory> {
-    const inventory = await this.readSkillInventory({ writeManifest: false })
-    const group = inventory.groups.find((item) => item.id === request.skillId)
-
-    if (!group) {
-      throw new Error(`Skill is not installed: ${request.skillId}`)
-    }
-
-    if (!group.hosts.some((host) => host.status === "missing")) {
-      return inventory
-    }
-
-    if (group.isBuiltIn) {
-      if (!builtInSkillIds.includes(group.id as (typeof builtInSkillIds)[number])) {
-        throw new Error(`Unsupported built-in skill: ${group.id}`)
-      }
-
-      return this.installBuiltInSkill({ skillId: group.id as (typeof builtInSkillIds)[number] })
-    }
-
-    const packageName = group.packageName?.trim()
-    if (group.kind === "registry" && packageName) {
-      return this.installRegistrySkill({ packageName, skillId: group.id })
-    }
-
-    if (group.kind === "local") {
-      const plan = await this.getSkillEnablePlan(request)
-      if (plan.status === "not-needed") {
-        return inventory
-      }
-
-      if (plan.status !== "ready") {
-        throw new Error("This Skill cannot be enabled for all agents automatically.")
-      }
-
-      if (plan.requiresConfirmation && request.confirmedPlanId !== plan.id) {
-        throw new Error("Enabling this local Skill requires confirmation.")
-      }
-
-      await copyLocalSkillEnablePlanTargets(plan)
-      this.notifyRuntimeSkillsChanged("enable-local-skill")
-      return this.readAndPublishSkillInventory()
-    }
-
-    throw new Error("Only built-in, published, and local Skills can be enabled for all agents automatically.")
-  }
-
-  public async getSkillEnablePlan(request: SkillEnablePlanRequest): Promise<SkillEnablePlan> {
-    const inventory = await this.readSkillInventory({ writeManifest: false })
-    const group = inventory.groups.find((item) => item.id === request.skillId)
-
-    if (!group) {
-      throw new Error(`Skill is not installed: ${request.skillId}`)
-    }
-
-    if (group.kind !== "local") {
-      return {
-        id: createSkillEnablePlanId({
-          skillId: group.id,
-          sourceAgentId: request.sourceAgentId,
-          targets: [],
-        }),
-        requiresConfirmation: false,
-        skillId: group.id,
-        skillName: group.name,
-        status: getMissingHostCount(group) > 0 ? "unsupported" : "not-needed",
-        targets: [],
-      }
-    }
-
-    const sourceHost =
-      group.hosts.find((host) => host.status === "installed" && host.agentId === request.sourceAgentId && host.path) ??
-      group.hosts.find((host) => host.status === "installed" && host.controlState === "controlled" && host.path) ??
-      group.hosts.find((host) => host.status === "installed" && host.path)
-
-    if (!sourceHost?.path) {
-      return {
-        id: createSkillEnablePlanId({ skillId: group.id, sourceAgentId: request.sourceAgentId, targets: [] }),
-        requiresConfirmation: false,
-        skillId: group.id,
-        skillName: group.name,
-        status: "unsupported",
-        targets: [],
-      }
-    }
-
-    const agents = await listDiscoveredAgents()
-    const agentsById = new Map(agents.map((agent) => [agent.id, agent]))
-    const targets = await Promise.all(
-      group.hosts
-        .filter((host) => host.status === "missing")
-        .map(async (host) => {
-          const agent = agentsById.get(host.agentId)
-          if (!agent) {
-            return undefined
-          }
-
-          const targetPath = resolveSkillTargetPath(agent, group.id)
-          return {
-            action: (await localPathExists(targetPath)) ? ("overwrite" as const) : ("create" as const),
-            agentId: host.agentId,
-            agentName: host.agentName,
-            path: targetPath,
-          }
-        }),
-    )
-    const enabledTargets = targets.filter((target): target is NonNullable<(typeof targets)[number]> => Boolean(target))
-
-    return {
-      id: createSkillEnablePlanId({
-        skillId: group.id,
-        sourceAgentId: sourceHost.agentId,
-        targets: enabledTargets,
-      }),
-      requiresConfirmation: enabledTargets.some((target) => target.action === "overwrite"),
-      skillId: group.id,
-      skillName: group.name,
-      sourceAgentId: sourceHost.agentId,
-      sourceAgentName: sourceHost.agentName,
-      sourcePath: sourceHost.path,
-      status: enabledTargets.length > 0 ? "ready" : "not-needed",
-      targets: enabledTargets,
-    }
   }
 
   public async installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory> {
@@ -502,34 +320,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.install")
-    this.invalidateShareInfoCache()
-    this.invalidateMyPublishedSkillCatalog()
+    await this.syncCachedSkillToSharedAgentRoot(request.skillId, { force: false })
     this.notifyRuntimeSkillsChanged("install-registry-skill")
-
-    return this.readAndPublishSkillInventory()
-  }
-
-  public async replaceConflictingRegistrySkill(
-    request: ReplaceConflictingRegistrySkillRequest,
-  ): Promise<SkillInventory> {
-    if (!request.confirmed) {
-      throw new Error("Replacing a local Skill with a registry Skill requires confirmation.")
-    }
-
-    const inventory = await this.readSkillInventory({ writeManifest: false })
-    const installState = resolveMyPublishedSkillInstallState(inventory, request)
-    if (installState.installState !== "name-conflict") {
-      throw new Error("No same-name local Skill conflict was found.")
-    }
-
-    const result = await this.runOoCommand(createInstallRegistrySkillArgs({ ...request, force: true }), {
-      owner: "skill-service",
-      rejectOnFailure: false,
-    })
-    assertOoSkillOperationResult(result, "skills.install")
-    this.invalidateShareInfoCache()
-    this.invalidateMyPublishedSkillCatalog()
-    this.notifyRuntimeSkillsChanged("replace-registry-skill")
 
     return this.readAndPublishSkillInventory()
   }
@@ -540,8 +332,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.update")
-    this.invalidateShareInfoCache()
-    this.invalidateMyPublishedSkillCatalog()
+    await this.syncUpdatedCachedSkillsToSharedAgentRoot(request)
     this.notifyRuntimeSkillsChanged("update-registry-skill")
 
     return this.readAndPublishSkillInventory()
@@ -563,22 +354,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return this.checkSkillVersions({ forceRefresh: true })
   }
 
-  public async syncRegistrySkills(request: SyncRegistrySkillsRequest): Promise<SyncRegistrySkillsResult> {
-    const result = await this.runOoCommand(createSkillSyncArgs(request.direction), {
-      owner: "skill-service",
-      rejectOnFailure: false,
-    })
-    assertOoSkillOperationResult(result, `skills.sync.${request.direction}`)
-    this.invalidateShareInfoCache()
-    this.invalidateMyPublishedSkillCatalog()
-    this.notifyRuntimeSkillsChanged(`sync-registry-skills:${request.direction}`)
-
-    return {
-      direction: request.direction,
-      inventory: await this.readAndPublishSkillInventory(),
-    }
-  }
-
   public async openSkillFolder(request: OpenSkillPathRequest): Promise<void> {
     const skillPath = await this.resolveAllowedSkillPath(request.path)
     const error = await shell.openPath(skillPath)
@@ -588,161 +363,37 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  public async openSkillInEditor(request: OpenSkillInEditorRequest): Promise<void> {
-    const skillPath = await this.resolveAllowedSkillPath(request.path)
-    if (request.editorId === "system") {
-      await this.openSkillFolder({ path: skillPath })
-      return
-    }
+  public async readSkillDocument(request: SkillDocumentRequest): Promise<SkillDocument> {
+    const skillFilePath = await this.resolveAllowedSkillDocumentPath(request.path)
 
-    const editor = await resolveEditorCommand({ editorId: request.editorId })
-
-    if (!editor) {
-      await this.openSkillFolder({ path: skillPath })
-      return
-    }
-
-    try {
-      await launchEditorCommand(editor, skillPath)
-    } catch {
-      await this.openSkillFolder({ path: skillPath })
+    return {
+      content: await readFile(skillFilePath, "utf8"),
+      path: skillFilePath,
     }
   }
 
-  public async listSkillEditors(): Promise<SkillEditorApp[]> {
-    return listSkillEditorApps()
+  public async openSkillDocument(request: SkillDocumentRequest): Promise<void> {
+    const skillFilePath = await this.resolveAllowedSkillDocumentPath(request.path)
+    const error = await shell.openPath(skillFilePath)
+
+    if (error) {
+      throw new Error(error)
+    }
   }
 
   public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
-    const result = await this.runOoCommand(createPublishSkillArgs(request), {
-      owner: "skill-service",
-    })
-    this.invalidateShareInfoCache()
-    this.invalidateMyPublishedSkillCatalog()
-
-    return {
-      inventory: await this.readAndPublishSkillInventory(),
-      message: result.stdout.trim(),
-    }
-  }
-
-  public async adoptLocalSkillProject(request: AdoptLocalSkillProjectRequest): Promise<AdoptLocalSkillProjectResult> {
     const skillPath = await this.resolveAllowedSkillPath(request.path)
-    const inventory = await this.readSkillInventory({ writeManifest: false })
-    const projectEntries = await Promise.all(
-      inventory.localProjects.map(async (item) => ({
-        item,
-        canonicalPath: await realpath(path.resolve(item.path)).catch(() => path.resolve(item.path)),
-      })),
-    )
-    const project = projectEntries.find(({ item, canonicalPath }) => {
-      return canonicalPath === skillPath && (request.agentId === undefined || item.agentId === request.agentId)
-    })?.item
-
-    if (!project) {
-      throw new Error("Local Skill project was not found.")
-    }
-
-    const agent = supportedAgents.find((item) => item.id === project.agentId)
-    if (!agent) {
-      throw new Error(`Unsupported Skill agent: ${project.agentName}`)
-    }
-
-    const skillId = request.name?.trim() || project.name
-    const result = await this.runOoCommand(
-      createAdoptLocalSkillArgs({
-        agent: agent.ooCliAgentId,
-        description: request.description,
-        icon: request.icon,
-        name: request.name,
-        path: skillPath,
-        title: request.title,
-      }),
-      {
-        owner: "skill-service",
-      },
-    )
-    this.invalidateShareInfoCache()
-    this.invalidateMyPublishedSkillCatalog()
-    this.notifyRuntimeSkillsChanged("adopt-local-skill")
+    const result = await this.runOoCommand(createPublishSkillArgs({ ...request, path: skillPath }), {
+      owner: "skill-service",
+    })
+    this.invalidateVersionReport()
+    this.invalidateSkillPackageCatalogCaches()
+    this.notifyRuntimeSkillsChanged("publish-skill")
 
     return {
       inventory: await this.readAndPublishSkillInventory(),
       message: result.stdout.trim(),
-      skillId,
     }
-  }
-
-  public async getSkillShareInfo(request: SkillShareInfoRequest): Promise<SkillShareInfo> {
-    const packageName = request.packageName?.trim()
-
-    if (!packageName) {
-      return {
-        limitsRequired: false,
-        visibility: "unpublished",
-      }
-    }
-
-    try {
-      await this.authService.getAuthState()
-      const account = this.authService.activeAccount()
-
-      if (!account) {
-        return {
-          limitsRequired: false,
-          packageName,
-          visibility: "unpublished",
-        }
-      }
-
-      const cacheKey = `${ooEndpoint}:${packageName}`
-      const cached = this.shareInfoCacheByKey.get(cacheKey)
-      if (cached && Date.now() - cached.time < skillShareInfoCacheTtlMs) {
-        return cached.info
-      }
-
-      const inFlight = this.shareInfoInFlightByKey.get(cacheKey)
-      if (inFlight) {
-        return inFlight
-      }
-
-      const cacheGeneration = this.shareInfoCacheGeneration
-      const request = readRegistrySkillShareInfo({
-        apiKey: account.apiKey,
-        endpoint: ooEndpoint,
-        packageName,
-      })
-        .then((info) => {
-          const nextInfo = {
-            ...info,
-            packageName: info.packageName ?? packageName,
-          }
-          if (cacheGeneration === this.shareInfoCacheGeneration) {
-            this.shareInfoCacheByKey.set(cacheKey, { info: nextInfo, time: Date.now() })
-          }
-          return nextInfo
-        })
-        .finally(() => {
-          this.shareInfoInFlightByKey.delete(cacheKey)
-        })
-
-      this.shareInfoInFlightByKey.set(cacheKey, request)
-      return request
-    } catch {
-      return {
-        limitsRequired: false,
-        packageName,
-        visibility: "unpublished",
-      }
-    }
-  }
-
-  public async shareSkill(request: ShareSkillRequest) {
-    const result = await this.runOoCommand(createShareSkillArgs(request), {
-      owner: "skill-service",
-    })
-
-    return normalizeSkillShareResult(result.stdout)
   }
 
   public async deleteSkill(request: DeleteSkillRequest): Promise<SkillInventory> {
@@ -755,8 +406,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.uninstall")
-    this.invalidateShareInfoCache()
-    this.invalidateMyPublishedSkillCatalog()
+    await this.deleteSharedSkillTarget(request.skillId)
     this.notifyRuntimeSkillsChanged("delete-skill")
 
     return this.readAndPublishSkillInventory()
@@ -778,11 +428,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return this.versionReportCache.report
     }
 
-    if (this.versionReportInFlight?.key === cacheKey && this.versionReportInFlight.generation === cacheGeneration) {
+    if (
+      !request.forceRefresh &&
+      this.versionReportInFlight?.key === cacheKey &&
+      this.versionReportInFlight.generation === cacheGeneration
+    ) {
       return this.versionReportInFlight.promise
     }
 
-    const promise = this.readSkillVersionReport(inventory, authSnapshot)
+    const promise = this.readSkillVersionReport(inventory)
     this.versionReportInFlight = { generation: cacheGeneration, key: cacheKey, promise }
 
     try {
@@ -831,11 +485,9 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     const watchedPaths = [
       { pathname: path.dirname(this.getManifestPath()), affectsRuntimeSkills: false },
-      { pathname: path.join(resolveOoStoreDirectory(), "skills"), affectsRuntimeSkills: true },
-      ...supportedAgents.map((agent) => ({
-        pathname: resolveAgentSkillRoot(agent),
-        affectsRuntimeSkills: true,
-      })),
+      { pathname: this.getSharedAgentSkillRoot(), affectsRuntimeSkills: true },
+      { pathname: this.getLumoSkillStoreRoot(), affectsRuntimeSkills: false },
+      ...supportedAgents.map((agent) => ({ pathname: resolveAgentSkillRoot(agent), affectsRuntimeSkills: false })),
     ]
     const registeredPaths = new Set<string>()
     const recursive = process.platform === "darwin" || process.platform === "win32"
@@ -883,7 +535,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private scheduleInventoryChanged(): void {
     this.invalidateVersionReport()
-    this.invalidateMyPublishedSkillCatalog()
     if (this.inventoryChangeTimer) {
       clearTimeout(this.inventoryChangeTimer)
     }
@@ -912,16 +563,97 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async refreshManifestRecordsForTargets(targetPaths: string[]): Promise<void> {
     const manifestPath = this.getManifestPath()
-    const [installedSkills, manifestStore] = await Promise.all([scanInstalledSkills(), readManifestStore(manifestPath)])
+    const [installedSkills, manifestStore] = await Promise.all([
+      scanLumoInstalledSkills({
+        cacheSkillStoreRoot: this.getLumoSkillStoreRoot(),
+        sharedSkillRoot: this.getSharedAgentSkillRoot(),
+      }),
+      readManifestStore(manifestPath),
+    ])
     const targetPathSet = new Set(targetPaths)
     const targetSkills = installedSkills.filter((skill) => targetPathSet.has(skill.path))
     await writeManifestStore(manifestPath, replaceManifestRecords(manifestStore, targetSkills))
+  }
+
+  private async syncUpdatedCachedSkillsToSharedAgentRoot(request: UpdateRegistrySkillRequest): Promise<void> {
+    const skillId = request.skillId?.trim()
+    if (skillId) {
+      const inventory = await this.readSkillInventory({ writeManifest: false })
+      const group = inventory.groups.find((item) => item.id === skillId)
+      if (group?.kind !== "registry" || !group.packageName?.trim()) {
+        return
+      }
+      await this.syncCachedSkillToSharedAgentRoot(skillId, { force: true })
+      return
+    }
+
+    const inventory = await this.readSkillInventory({ writeManifest: false })
+    const registrySkillIds = inventory.groups
+      .filter((group) => group.kind === "registry" && Boolean(group.packageName?.trim()))
+      .map((group) => group.id)
+
+    for (const registrySkillId of registrySkillIds) {
+      await this.syncCachedSkillToSharedAgentRoot(registrySkillId, { force: true })
+    }
+  }
+
+  private async syncCachedSkillToSharedAgentRoot(skillId: string, options: { force: boolean }): Promise<void> {
+    const normalizedSkillId = normalizeSkillId(skillId)
+    const sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId)
+    if (!sourcePath) {
+      throw new Error(`Cached Skill source not found: ${normalizedSkillId}`)
+    }
+
+    const targetPath = this.resolveSharedSkillTargetPath(normalizedSkillId)
+    assertSafeResetPaths(sourcePath, targetPath)
+    await assertCanReplaceSharedSkillTarget(targetPath, options)
+    await replaceDirectory(sourcePath, targetPath)
+    await this.refreshManifestRecordsForTargets([targetPath])
+  }
+
+  private async resolveCachedSkillSourcePath(skillId: string): Promise<string | undefined> {
+    const normalizedSkillId = normalizeSkillId(skillId)
+
+    for (const sourcePath of readCachedSkillSourceCandidates(this.getLumoSkillStoreRoot(), normalizedSkillId)) {
+      if (await localPathExists(sourcePath)) {
+        return sourcePath
+      }
+    }
+
+    return undefined
+  }
+
+  private resolveSharedSkillTargetPath(skillId: string): string {
+    return path.join(this.getSharedAgentSkillRoot(), normalizeSkillId(skillId))
+  }
+
+  private async deleteSharedSkillTarget(skillId: string): Promise<void> {
+    await rm(this.resolveSharedSkillTargetPath(skillId), { force: true, recursive: true })
   }
 
   private invalidateVersionReport(): void {
     this.versionReportCacheGeneration += 1
     this.versionReportCache = undefined
     this.versionReportInFlight = undefined
+  }
+
+  private invalidateSkillPackageCatalogCaches(): void {
+    this.skillPackageCatalogCacheGeneration += 1
+    this.publicSkillPackageCatalogCacheByKey.clear()
+    this.publicSkillPackageCatalogInFlightByKey.clear()
+    this.clearMyPublishedSkillPackageCaches()
+  }
+
+  private invalidateMyPublishedSkillPackageCaches(): void {
+    this.skillPackageCatalogCacheGeneration += 1
+    this.clearMyPublishedSkillPackageCaches()
+  }
+
+  private clearMyPublishedSkillPackageCaches(): void {
+    this.myPublishedSkillPackageCatalogCacheByKey.clear()
+    this.myPublishedSkillPackageCatalogInFlightByKey.clear()
+    this.myPublishedSkillPackageInfoCacheByKey.clear()
+    this.myPublishedSkillPackageInfoInFlightByKey.clear()
   }
 
   private isCurrentVersionReportRequest(
@@ -939,7 +671,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async readAndPublishSkillInventory(): Promise<SkillInventory> {
     this.invalidateVersionReport()
-    this.invalidateMyPublishedSkillCatalog()
     const inventory = await this.readSkillInventory({ writeManifest: true })
     await this.emitInventoryChanged()
     return inventory
@@ -994,18 +725,14 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  private async readSkillVersionReport(
-    inventory: SkillInventory,
-    authSnapshot: SkillVersionAuthSnapshot,
-  ): Promise<SkillVersionReport> {
+  private async readSkillVersionReport(inventory: SkillInventory): Promise<SkillVersionReport> {
     const installedGroups = inventory.groups.filter((group) => group.hosts.some((host) => host.status === "installed"))
     const shouldCheckRegistrySkills = installedGroups.some(
       (group) => group.kind === "registry" && Boolean(group.packageName),
     )
-    const publishedLocalGroups = installedGroups.filter((group) => group.kind === "local" && Boolean(group.packageName))
     const registryCheckCommand = createRegistrySkillCheckUpdateArgs()
     const currentCliVersion = await readCurrentOoCliVersion((args, options) => this.runOoCommand(args, options))
-    const [cli, registryChecksResult, publishedLocalChecks] = await Promise.all([
+    const [cli, registryChecksResult] = await Promise.all([
       this.readCliVersionCheck(currentCliVersion),
       shouldCheckRegistrySkills
         ? this.readRegistrySkillVersionChecks()
@@ -1014,7 +741,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
             command: registryCheckCommand,
             results: [] as ReturnType<typeof normalizeRegistrySkillCheckUpdateResults>,
           }),
-      this.readPublishedLocalSkillVersionChecks(publishedLocalGroups, authSnapshot.account),
     ])
     const checks = await Promise.all(
       installedGroups.map(async (group) => {
@@ -1040,22 +766,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
         if (group.kind === "bundled") {
           return createBundledSkillVersionCheck(group, cli)
-        }
-
-        if (group.kind === "local" && group.packageName) {
-          const packageName = group.packageName.trim()
-
-          return (
-            publishedLocalChecks.get(createPublishedLocalSkillVersionCheckKey(group.id, packageName)) ?? {
-              currentVersion: group.version,
-              id: group.id,
-              kind: group.kind,
-              name: group.name,
-              packageName,
-              skillId: group.id,
-              status: "not-checkable" as const,
-            }
-          )
         }
 
         return {
@@ -1089,73 +799,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return report
   }
 
-  private async readMyPublishedSkillCatalog(request: {
-    apiKey: string
-    endpoint: string
-    next?: string
-    query?: string
-  }): Promise<MyPublishedSkillCatalog> {
-    const [packageList, inventory] = await Promise.all([
-      readMyPublishedPackageList(request),
-      this.readSkillInventory({ writeManifest: false }),
-    ])
-    const packageInfos = await Promise.all(
-      packageList.packages.map(async (publishedPackage) => {
-        const info = await readRegistryPackageSkillInfoForCatalog({
-          apiKey: request.apiKey,
-          endpoint: request.endpoint,
-          packageName: publishedPackage.name,
-        })
-
-        return info ? { info, publishedPackage } : undefined
-      }),
-    )
-    const items: MyPublishedSkill[] = []
-
-    for (const entry of packageInfos) {
-      if (!entry) {
-        continue
-      }
-
-      const { info, publishedPackage } = entry
-      for (const skill of info.skills) {
-        const installState = resolveMyPublishedSkillInstallState(inventory, {
-          packageName: info.packageName,
-          skillId: skill.name,
-        })
-        const visibility = info.visibility === "unknown" ? publishedPackage.visibility : info.visibility
-
-        const item: MyPublishedSkill = {
-          description: skill.description ?? info.description ?? publishedPackage.description,
-          displayName: skill.displayName,
-          icon: info.icon ?? publishedPackage.icon,
-          id: createPublishedSkillKey(info.packageName, skill.name),
-          installed: installState.installed,
-          installState: installState.installState,
-          packageName: info.packageName,
-          packageVersion: info.packageVersion,
-          skillId: skill.name,
-          updateTime: publishedPackage.updateTime,
-          visibility,
-        }
-        if (installState.conflictingSkill) {
-          item.conflictingSkill = installState.conflictingSkill
-        }
-        if (installState.installedVersion) {
-          item.installedVersion = installState.installedVersion
-        }
-
-        items.push(item)
-      }
-    }
-
-    return {
-      items: items.sort(compareMyPublishedSkills),
-      next: packageList.next,
-      updatedAt: new Date().toISOString(),
-    }
-  }
-
   private async readRegistrySkillVersionChecks(): Promise<
     | { ok: true; command: string[]; results: ReturnType<typeof normalizeRegistrySkillCheckUpdateResults> }
     | { ok: false; command: string[]; error: string }
@@ -1177,83 +820,125 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  private async readPublishedLocalSkillVersionChecks(
-    groups: readonly SkillInventory["groups"][number][],
-    account: AuthAccountSecret,
-  ): Promise<Map<string, SkillPackageVersionCheck>> {
-    const checks = new Map<string, SkillPackageVersionCheck>()
-
-    if (groups.length === 0) {
-      return checks
+  private async readMyPublishedSkillPackageCatalog(request: {
+    account: MyPublishedSkillAccount
+    forceRefresh?: boolean
+    next?: string
+  }): Promise<PublicSkillPackageCatalog> {
+    const startedAtMs = Date.now()
+    const publishedPackages = await readMyPublishedSkillPackageList({
+      account: request.account,
+      next: request.next,
+    })
+    const maintainer = {
+      id: request.account.id,
+      name: request.account.name,
+      url: request.account.avatarUrl,
     }
-
-    if (!account) {
-      return checks
-    }
-
-    const packageInfoByName = new Map<string, ReturnType<typeof readRegistrySkillPackageVersionInfo>>()
-
-    const readPackageInfo = (packageName: string) => {
-      const existing = packageInfoByName.get(packageName)
-
-      if (existing) {
-        return existing
-      }
-
-      const request = readRegistrySkillPackageVersionInfo({
-        apiKey: account.apiKey,
-        endpoint: ooEndpoint,
-        packageName,
-      })
-      packageInfoByName.set(packageName, request)
-      return request
-    }
-
-    await Promise.all(
-      groups.map(async (group) => {
-        const packageName = group.packageName?.trim()
-
-        if (!packageName) {
-          return
-        }
-
-        const command = createRegistryPackageInfoVersionCheckCommand(packageName)
-        try {
-          const info = await readPackageInfo(packageName)
-          checks.set(
-            createPublishedLocalSkillVersionCheckKey(group.id, packageName),
-            createPublishedSkillVersionCheckFromPackageInfo(group, info, command),
-          )
-        } catch (cause) {
-          checks.set(createPublishedLocalSkillVersionCheckKey(group.id, packageName), {
-            command,
-            currentVersion: group.version,
-            error: cause instanceof Error ? cause.message : String(cause),
-            id: group.id,
-            kind: group.kind,
-            name: group.name,
-            packageName,
-            skillId: group.id,
-            status: "failed",
+    const items = (
+      await mapWithConcurrency(
+        publishedPackages.items,
+        myPublishedSkillPackageInfoConcurrency,
+        async (publishedPackage) => {
+          const packageInfo = await this.readMyPublishedSkillPackageInfo({
+            account: request.account,
+            forceRefresh: request.forceRefresh,
+            maintainer,
+            packageName: publishedPackage.name,
           })
-        }
-      }),
+
+          return mergeMyPublishedPackage(publishedPackage, packageInfo)
+        },
+      )
+    ).filter((item): item is NonNullable<typeof item> => Boolean(item))
+
+    const catalog = {
+      items: items.sort(compareMyPublishedPackages),
+      next: publishedPackages.next,
+      updatedAt: new Date().toISOString(),
+    }
+
+    logDiagnosticOnChange(
+      `skill-service:my-published-catalog:${request.account.id}`,
+      "skill-service",
+      "my published skill package catalog read",
+      {
+        durationMs: Date.now() - startedAtMs,
+        itemCount: catalog.items.length,
+        packageCount: publishedPackages.items.length,
+      },
+      "trace",
+      {
+        itemCount: catalog.items.length,
+        packageCount: publishedPackages.items.length,
+      },
     )
 
-    return checks
+    return catalog
+  }
+
+  private async readMyPublishedSkillPackageInfo(request: {
+    account: MyPublishedSkillAccount
+    forceRefresh?: boolean
+    maintainer: MyPublishedSkillPackageMaintainer
+    packageName: string
+  }): Promise<PublicSkillPackage | undefined> {
+    const cacheKey = `${registryBaseUrl}:${request.account.id}:${request.packageName}`
+    const cached = this.myPublishedSkillPackageInfoCacheByKey.get(cacheKey)
+
+    if (!request.forceRefresh && cached && Date.now() - cached.time < skillPackageCatalogCacheTtlMs) {
+      return cached.item
+    }
+
+    const inFlight = this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey)
+    if (!request.forceRefresh && inFlight) {
+      return inFlight
+    }
+
+    const cacheGeneration = this.skillPackageCatalogCacheGeneration
+    const promise = readRegistrySkillPackageInfo(request.packageName, request.account, request.maintainer)
+      .then((item) => {
+        if (
+          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
+          this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey) === promise
+        ) {
+          this.myPublishedSkillPackageInfoCacheByKey.set(cacheKey, { item, time: Date.now() })
+        }
+        return item
+      })
+      .catch((error: unknown) => {
+        if (cached) {
+          console.warn("[lumo] failed to refresh my published skill package info, using cache:", error)
+          return cached.item
+        }
+
+        console.warn("[lumo] failed to read my published skill package info:", error)
+        return undefined
+      })
+      .finally(() => {
+        if (this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey) === promise) {
+          this.myPublishedSkillPackageInfoInFlightByKey.delete(cacheKey)
+        }
+      })
+
+    this.myPublishedSkillPackageInfoInFlightByKey.set(cacheKey, promise)
+    return promise
   }
 
   private async readSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
     const startedAtMs = Date.now()
     const manifestPath = this.getManifestPath()
-    const targetAgents = await listDiscoveredAgents()
-    const [installedSkills, localProjects, manifestStore] = await Promise.all([
-      scanInstalledSkills(targetAgents),
-      scanLocalSkillProjects(targetAgents),
+    const [lumoInstalledSkills, externalInstalledSkills, manifestStore] = await Promise.all([
+      scanLumoInstalledSkills({
+        cacheSkillStoreRoot: this.getLumoSkillStoreRoot(),
+        sharedSkillRoot: this.getSharedAgentSkillRoot(),
+      }),
+      scanInstalledSkills(),
       readManifestStore(manifestPath),
     ])
+    const installedSkills = mergeInstalledSkillSnapshots(lumoInstalledSkills, externalInstalledSkills)
     const nextManifestStore = upsertManifestRecords(manifestStore, installedSkills)
-    const groups = groupInstalledSkills(installedSkills, nextManifestStore)
+    const groups = groupInstalledSkills(installedSkills, nextManifestStore, readSkillCoverageAgents(installedSkills))
 
     if (options.writeManifest && !areManifestStoresEqual(manifestStore, nextManifestStore)) {
       await writeManifestStore(manifestPath, nextManifestStore)
@@ -1261,15 +946,13 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     const inventory = {
       groups,
-      localProjects,
-      summary: buildSummary(groups, localProjects),
+      summary: buildSummary(groups),
       updatedAt: new Date().toISOString(),
     }
     const diagnosticFields = {
       durationMs: Date.now() - startedAtMs,
       groupCount: inventory.groups.length,
       installedSkillCount: installedSkills.length,
-      localProjectCount: inventory.localProjects.length,
       managedSkillCount: inventory.summary.managedSkills,
       manifestPath,
       needsAttention: inventory.summary.needsAttention,
@@ -1285,7 +968,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       {
         groupCount: diagnosticFields.groupCount,
         installedSkillCount: diagnosticFields.installedSkillCount,
-        localProjectCount: diagnosticFields.localProjectCount,
         managedSkillCount: diagnosticFields.managedSkillCount,
         manifestPath: diagnosticFields.manifestPath,
         needsAttention: diagnosticFields.needsAttention,
@@ -1299,10 +981,9 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     const resolvedRequestPath = path.resolve(requestPath)
     const canonicalRequestPath = await realpath(resolvedRequestPath)
     const inventory = await this.readSkillInventory({ writeManifest: false })
-    const allowedPaths = [
-      ...inventory.localProjects.map((project) => project.path),
-      ...inventory.groups.flatMap((group) => group.hosts.flatMap((host) => [host.path, host.sourcePath])),
-    ]
+    const allowedPaths = inventory.groups.flatMap((group) =>
+      group.hosts.flatMap((host) => [host.path, host.sourcePath]),
+    )
 
     for (const allowedPath of allowedPaths) {
       if (!allowedPath) {
@@ -1326,16 +1007,12 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     throw new Error("Skill path is not allowed.")
   }
 
-  private invalidateShareInfoCache(): void {
-    this.shareInfoCacheGeneration += 1
-    this.shareInfoCacheByKey.clear()
-    this.shareInfoInFlightByKey.clear()
-  }
+  private async resolveAllowedSkillDocumentPath(requestPath: string): Promise<string> {
+    const skillPath = await this.resolveAllowedSkillPath(requestPath)
+    const skillFilePath = path.join(skillPath, "SKILL.md")
 
-  private invalidateMyPublishedSkillCatalog(): void {
-    this.myPublishedSkillCatalogCacheGeneration += 1
-    this.myPublishedSkillCatalogCacheByKey.clear()
-    this.myPublishedSkillCatalogInFlightByKey.clear()
+    await access(skillFilePath)
+    return skillFilePath
   }
 
   private async readAuthSnapshot(): Promise<SkillVersionAuthSnapshot> {
@@ -1344,60 +1021,27 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     if (!account) {
       return {
-        account,
         cacheKey: "signed-out",
       }
     }
 
     return {
-      account,
       cacheKey: `${account.id}@${ooEndpoint}`,
     }
   }
 }
 
-async function readRegistrySkillShareInfo(request: {
-  apiKey: string
-  endpoint: string
-  packageName: string
-}): Promise<SkillShareInfo> {
-  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(request.packageName)}/latest`, registryBaseUrl)
-  url.searchParams.set("lang", "en")
-
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10000)
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Authorization: request.apiKey,
-      },
-    })
-
-    if (response.status === 404) {
-      return {
-        limitsRequired: false,
-        packageName: request.packageName,
-        visibility: "unpublished",
-      }
-    }
-
-    if (!response.ok) {
-      throw new Error(`Package info request failed with status ${response.status}.`)
-    }
-
-    return normalizeSkillShareInfo(await response.text())
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function readPublicSkillPackageCatalog(request: { next?: string }): Promise<PublicSkillPackageCatalog> {
+async function readPublicSkillPackageCatalog(request: {
+  next?: string
+  size?: number
+}): Promise<PublicSkillPackageCatalog> {
   const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
   const next = request.next?.trim()
   if (next) {
     url.searchParams.set("next", next)
+  }
+  if (request.size && Number.isFinite(request.size)) {
+    url.searchParams.set("size", String(Math.min(Math.max(Math.trunc(request.size), 1), publicSkillPackagePageSize)))
   }
 
   const controller = new AbortController()
@@ -1418,55 +1062,17 @@ async function readPublicSkillPackageCatalog(request: { next?: string }): Promis
   }
 }
 
-async function readRegistrySkillPackageVersionInfo(request: {
-  apiKey: string
-  endpoint: string
-  packageName: string
-}): Promise<ReturnType<typeof normalizeRegistryPackageVersionInfo> | undefined> {
-  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(request.packageName)}/latest`, registryBaseUrl)
-  url.searchParams.set("lang", "en")
-
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10000)
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        Authorization: request.apiKey,
-      },
-    })
-
-    if (response.status === 404) {
-      return undefined
-    }
-
-    if (!response.ok) {
-      throw new Error(`Package info request failed with status ${response.status}.`)
-    }
-
-    return normalizeRegistryPackageVersionInfo(await response.text())
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function readMyPublishedPackageList(request: {
-  apiKey: string
-  endpoint: string
+async function readMyPublishedSkillPackageList(request: {
+  account: { apiKey: string }
   next?: string
-  query?: string
-}): Promise<ReturnType<typeof normalizeMyPublishedPackageList>> {
+}): Promise<PublicSkillPackageCatalog> {
   const url = new URL("/v1/packages/-/my", searchBaseUrl)
   url.searchParams.set("size", "80")
   url.searchParams.set("lang", "en")
 
-  if (request.query) {
-    url.searchParams.set("q", request.query)
-  }
-
-  if (request.next) {
-    url.searchParams.set("next", request.next)
+  const next = request.next?.trim()
+  if (next) {
+    url.searchParams.set("next", next)
   }
 
   const controller = new AbortController()
@@ -1474,53 +1080,102 @@ async function readMyPublishedPackageList(request: {
 
   try {
     const response = await fetch(url, {
-      signal: controller.signal,
       headers: {
-        Authorization: request.apiKey,
+        Accept: "application/json",
+        Authorization: request.account.apiKey,
       },
+      signal: controller.signal,
     })
 
     if (!response.ok) {
-      throw new Error(`Published package list request failed with status ${response.status}.`)
+      throw new Error(`Published Skill package list request failed with status ${response.status}.`)
     }
 
-    return normalizeMyPublishedPackageList(await response.text())
+    return normalizePublicSkillPackageCatalog(await response.text())
   } finally {
     clearTimeout(timeout)
   }
 }
 
-async function readRegistryPackageSkillInfoForCatalog(request: {
-  apiKey: string
-  endpoint: string
-  packageName: string
-}): Promise<ReturnType<typeof normalizeRegistryPackageSkillInfo> | undefined> {
-  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(request.packageName)}/latest`, registryBaseUrl)
-  url.searchParams.set("lang", "en")
+function mergeMyPublishedPackage(
+  publishedPackage: PublicSkillPackage,
+  packageInfo: PublicSkillPackage | undefined,
+): PublicSkillPackage | undefined {
+  if (!packageInfo) {
+    return undefined
+  }
 
+  return {
+    ...packageInfo,
+    description: packageInfo.description ?? publishedPackage.description,
+    displayName: packageInfo.displayName || publishedPackage.displayName,
+    icon: packageInfo.icon ?? publishedPackage.icon,
+    isTemplate: publishedPackage.isTemplate || packageInfo.isTemplate,
+    updateTime: publishedPackage.updateTime,
+    version: packageInfo.version === "latest" ? publishedPackage.version : packageInfo.version,
+    visibility: packageInfo.visibility === "unknown" ? publishedPackage.visibility : packageInfo.visibility,
+  }
+}
+
+function compareMyPublishedPackages(left: PublicSkillPackage, right: PublicSkillPackage): number {
+  const leftTime = left.updateTime ?? 0
+  const rightTime = right.updateTime ?? 0
+
+  if (leftTime !== rightTime) {
+    return rightTime - leftTime
+  }
+
+  return left.displayName.localeCompare(right.displayName)
+}
+
+async function readRegistrySkillPackageInfo(
+  packageName: string,
+  account: { apiKey: string },
+  maintainer: { id: string; name: string; url?: string },
+) {
+  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(packageName)}/latest`, registryBaseUrl)
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10000)
 
   try {
     const response = await fetch(url, {
-      signal: controller.signal,
       headers: {
-        Authorization: request.apiKey,
+        Accept: "application/json",
+        Authorization: account.apiKey,
       },
+      signal: controller.signal,
     })
 
-    if (response.status === 404) {
-      return undefined
-    }
-
     if (!response.ok) {
-      throw new Error(`Package info request failed with status ${response.status}.`)
+      throw new Error(`Registry Skill package info request failed with status ${response.status}.`)
     }
 
-    return normalizeRegistryPackageSkillInfo(await response.text())
+    return normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = []
+  let nextIndex = 0
+  const workerCount = Math.min(Math.max(1, concurrency), items.length)
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex
+        nextIndex += 1
+        results[index] = await mapper(items[index] as T)
+      }
+    }),
+  )
+
+  return results
 }
 
 async function readCurrentOoCliVersion(runCommand: RunSkillOoCommand): Promise<string | undefined> {
@@ -1575,8 +1230,20 @@ function createVersionReportCacheKey(inventory: SkillInventory): string {
     .join("|")
 }
 
-function getMissingHostCount(group: Pick<SkillInventory["groups"][number], "hosts">): number {
-  return group.hosts.filter((host) => host.status === "missing").length
+function normalizeSkillId(skillId: string): string {
+  const normalizedSkillId = skillId.trim()
+
+  if (
+    !normalizedSkillId ||
+    normalizedSkillId.includes("/") ||
+    normalizedSkillId.includes("\\") ||
+    normalizedSkillId === "." ||
+    normalizedSkillId === ".."
+  ) {
+    throw new Error(`Invalid Skill name: ${skillId}`)
+  }
+
+  return normalizedSkillId
 }
 
 async function localPathExists(pathname: string): Promise<boolean> {
@@ -1588,74 +1255,108 @@ async function localPathExists(pathname: string): Promise<boolean> {
   }
 }
 
-function resolveSkillTargetPath(
-  agent: Awaited<ReturnType<typeof listDiscoveredAgents>>[number],
-  skillId: string,
-): string {
-  if (skillId.includes("/") || skillId.includes("\\") || skillId === "." || skillId === "..") {
-    throw new Error(`Invalid skill name: ${skillId}`)
+async function assertCanReplaceSharedSkillTarget(targetPath: string, options: { force: boolean }): Promise<void> {
+  if (!(await localPathExists(targetPath))) {
+    return
   }
 
-  return path.join(resolveAgentSkillRoot(agent), skillId)
+  if (options.force) {
+    return
+  }
+
+  if (await localPathExists(path.join(targetPath, metadataFileName))) {
+    return
+  }
+
+  throw new Error("A local Skill with the same name already exists in the shared Agent Skills directory.")
 }
 
-function createSkillEnablePlanId(request: {
-  skillId: string
-  sourceAgentId?: string
-  targets: readonly SkillEnablePlan["targets"][number][]
-}): string {
-  const targetSignature = request.targets
-    .map((target) => [target.agentId, target.action, target.path ?? ""].join(":"))
-    .sort()
-    .join("|")
+function readSkillCoverageAgents(installedSkills: readonly InstalledSkill[]): SupportedAgent[] {
+  const externalAgentsById = new Map<string, SupportedAgent>()
 
-  return ["enable-skill", request.skillId, request.sourceAgentId ?? "", targetSignature].join("::")
+  for (const skill of installedSkills) {
+    if (skill.agent.id !== lumoRuntimeAgent.id) {
+      externalAgentsById.set(skill.agent.id, skill.agent)
+    }
+  }
+
+  return [
+    lumoRuntimeAgent,
+    ...Array.from(externalAgentsById.values()).sort((left, right) => left.name.localeCompare(right.name)),
+  ]
 }
 
-async function copyLocalSkillEnablePlanTargets(plan: SkillEnablePlan): Promise<void> {
-  if (!plan.sourcePath) {
-    throw new Error("Local Skill source path is missing.")
+function mergeInstalledSkillSnapshots(
+  lumoInstalledSkills: InstalledSkill[],
+  externalInstalledSkills: InstalledSkill[],
+): InstalledSkill[] {
+  const merged = new Map<string, InstalledSkill>()
+
+  for (const skill of externalInstalledSkills) {
+    merged.set(skill.path, skill)
+  }
+  for (const skill of lumoInstalledSkills) {
+    merged.set(skill.path, skill)
   }
 
-  const sourceStat = await stat(plan.sourcePath)
-  if (!sourceStat.isDirectory()) {
-    throw new Error(`Skill source is not a directory: ${plan.sourcePath}`)
-  }
+  return Array.from(merged.values())
+}
 
-  for (const target of plan.targets) {
-    if (!target.path) {
-      throw new Error(`Skill target path is missing for ${target.agentName}.`)
+async function replaceDirectory(sourcePath: string, targetPath: string): Promise<void> {
+  const parentPath = path.dirname(targetPath)
+  const targetName = path.basename(targetPath)
+  const operationId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const tempPath = path.join(parentPath, `.${targetName}.tmp-${operationId}`)
+  const backupPath = path.join(parentPath, `.${targetName}.backup-${operationId}`)
+  let hasBackup = false
+  let preserveBackup = false
+
+  await mkdir(parentPath, { recursive: true })
+  await rm(tempPath, { force: true, recursive: true })
+  await rm(backupPath, { force: true, recursive: true })
+
+  try {
+    await cp(sourcePath, tempPath, { recursive: true })
+
+    if (await localPathExists(targetPath)) {
+      await rename(targetPath, backupPath)
+      hasBackup = true
     }
 
-    assertSafeResetPaths(plan.sourcePath, target.path)
-    const targetExists = await localPathExists(target.path)
-    if (targetExists && target.action !== "overwrite") {
-      throw new Error(`Skill target already exists for ${target.agentName}. Refresh and confirm the copy plan.`)
+    try {
+      await rename(tempPath, targetPath)
+    } catch (cause) {
+      if (hasBackup) {
+        try {
+          await rename(backupPath, targetPath)
+          hasBackup = false
+        } catch (rollbackError) {
+          preserveBackup = true
+          console.warn("[lumo] replaceDirectory rollback failed; backup preserved", {
+            backupPath,
+            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+          })
+        }
+      }
+      throw cause
     }
 
-    await mkdir(path.dirname(target.path), { recursive: true })
-    if (target.action === "overwrite") {
-      await rm(target.path, { force: true, recursive: true })
+    if (hasBackup) {
+      await rm(backupPath, { force: true, recursive: true })
+      hasBackup = false
     }
-    await cp(plan.sourcePath, target.path, { recursive: true })
+  } finally {
+    await rm(tempPath, { force: true, recursive: true }).catch(() => undefined)
+    if (hasBackup && !preserveBackup) {
+      await rm(backupPath, { force: true, recursive: true }).catch(() => undefined)
+    }
   }
 }
 
-function createPublishedLocalSkillVersionCheckKey(skillId: string, packageName: string): string {
-  return `${skillId}:${packageName}`
-}
-
-function createPublishedSkillKey(packageName: string, skillId: string): string {
-  return `${packageName}:${skillId}`
-}
-
-function compareMyPublishedSkills(left: MyPublishedSkill, right: MyPublishedSkill): number {
-  const leftTime = left.updateTime ?? 0
-  const rightTime = right.updateTime ?? 0
-
-  if (leftTime !== rightTime) {
-    return rightTime - leftTime
-  }
-
-  return left.displayName.localeCompare(right.displayName)
+function readCachedSkillSourceCandidates(cacheSkillStoreRoot: string, skillId: string): string[] {
+  return [
+    path.join(cacheSkillStoreRoot, "registry", skillId),
+    path.join(cacheSkillStoreRoot, "bundled", "lumo", skillId),
+    path.join(cacheSkillStoreRoot, "bundled", "universal", skillId),
+  ]
 }

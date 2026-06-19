@@ -5,6 +5,7 @@ import { AuthService } from "../electron/auth/common.ts"
 import { ChatService } from "../electron/chat/common.ts"
 import { ConnectionsService } from "../electron/connections/common.ts"
 import { ModelsService } from "../electron/models/common.ts"
+import { OrganizationsService } from "../electron/organizations/common.ts"
 import { SessionService } from "../electron/session/common.ts"
 import { SettingsService } from "../electron/settings/common.ts"
 import { SkillService } from "../electron/skills/common.ts"
@@ -30,6 +31,7 @@ const sessionService = client.use(SessionService)
 const connectionsService = client.use(ConnectionsService)
 const skillService = client.use(SkillService)
 const modelsService = client.use(ModelsService)
+const organizationsService = client.use(OrganizationsService)
 const settingsService = client.use(SettingsService)
 const authService = client.use(AuthService)
 const updateService = client.use(UpdateService)
@@ -42,6 +44,7 @@ createRoot(rootElement).render(
       connectionsService,
       skillService,
       modelsService,
+      organizationsService,
       settingsService,
       authService,
       updateService,

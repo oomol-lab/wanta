@@ -120,7 +120,7 @@ export class ResourceStore<T> {
       return Promise.resolve(snapshot.data)
     }
 
-    if (this.inFlight && !options.supersede) {
+    if (this.inFlight && !options.forceRefresh && !options.supersede) {
       if (!options.silent && snapshot.data !== null && snapshot.status === "ready") {
         this.inFlightVisible = true
         this.snapshot = {

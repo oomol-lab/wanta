@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { metadataFileName } from "./constants.ts"
-import { scanInstalledSkills, scanLocalSkillProjects } from "./scan.ts"
+import { scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
 
 test("scanInstalledSkills reads managed skill frontmatter metadata from SKILL.md", async () => {
   const homeEnvVar = "OO_DESKTOP_TEST_AGENT_HOME"
@@ -112,51 +112,34 @@ test("scanInstalledSkills ignores hidden skill root directories", async () => {
   }
 })
 
-test("scanLocalSkillProjects returns valid SKILL.md projects without OOMOL metadata", async () => {
+test("scanInstalledSkills includes callable SKILL.md directories without OOMOL metadata", async () => {
   const homeEnvVar = "OO_DESKTOP_TEST_AGENT_HOME"
   const originalHome = process.env[homeEnvVar]
-  const homePath = await mkdtemp(path.join(os.tmpdir(), "oo-desktop-skill-projects-"))
+  const homePath = await mkdtemp(path.join(os.tmpdir(), "oo-desktop-local-installed-skills-"))
   const skillRoot = path.join(homePath, "skills")
-  const publishablePath = path.join(skillRoot, "publishable")
-  const managedPath = path.join(skillRoot, "managed")
-  const draftPath = path.join(skillRoot, "draft")
-  const brokenPath = path.join(skillRoot, "broken")
+  const localPath = path.join(skillRoot, "local-callable")
 
   process.env[homeEnvVar] = homePath
 
   try {
-    await Promise.all([
-      mkdir(publishablePath, { recursive: true }),
-      mkdir(managedPath, { recursive: true }),
-      mkdir(draftPath, { recursive: true }),
-      mkdir(brokenPath, { recursive: true }),
-    ])
-    await Promise.all([
-      writeFile(
-        path.join(publishablePath, "SKILL.md"),
-        [
-          "---",
-          "name: publishable",
-          "description: Publishable local project",
-          "icon: ':lucide:sparkles:'",
-          "metadata:",
-          "  packageName: '@alice/publishable'",
-          "  version: '0.1.0'",
-          "---",
-          "# Publishable",
-          "",
-        ].join("\n"),
-      ),
-      writeFile(
-        path.join(managedPath, "SKILL.md"),
-        ["---", "name: managed", "description: Already managed", "---", "# Managed", ""].join("\n"),
-      ),
-      writeFile(path.join(managedPath, metadataFileName), "{}"),
-      writeFile(path.join(draftPath, "SKILL.md"), ["---", "name: draft", "---", "# Draft", ""].join("\n")),
-      writeFile(path.join(brokenPath, "SKILL.md"), ["---", "name: [", "---", "# Broken", ""].join("\n")),
-    ])
+    await mkdir(localPath, { recursive: true })
+    await writeFile(
+      path.join(localPath, "SKILL.md"),
+      [
+        "---",
+        "name: local-callable",
+        "description: Callable local skill",
+        "icon: ':lucide:terminal:'",
+        "metadata:",
+        "  packageName: '@alice/local-callable'",
+        "  version: '0.1.0'",
+        "---",
+        "# Local Callable",
+        "",
+      ].join("\n"),
+    )
 
-    const projects = await scanLocalSkillProjects([
+    const skills = await scanInstalledSkills([
       {
         cliCommands: [],
         homeEnvVar,
@@ -167,19 +150,13 @@ test("scanLocalSkillProjects returns valid SKILL.md projects without OOMOL metad
       },
     ])
 
-    assert.deepEqual(projects, [
-      {
-        agentId: "codex",
-        agentName: "Codex",
-        description: "Publishable local project",
-        icon: ":lucide:sparkles:",
-        id: "codex:publishable",
-        name: "publishable",
-        packageName: "@alice/publishable",
-        path: publishablePath,
-        version: "0.1.0",
-      },
-    ])
+    assert.equal(skills.length, 1)
+    assert.equal(skills[0]?.metadata.description, "Callable local skill")
+    assert.equal(skills[0]?.metadata.icon, ":lucide:terminal:")
+    assert.equal(skills[0]?.metadata.kind, "local")
+    assert.equal(skills[0]?.metadata.packageName, "@alice/local-callable")
+    assert.equal(skills[0]?.metadata.version, "0.1.0")
+    assert.equal(skills[0]?.sourcePath, localPath)
   } finally {
     if (originalHome === undefined) {
       delete process.env[homeEnvVar]
@@ -190,30 +167,36 @@ test("scanLocalSkillProjects returns valid SKILL.md projects without OOMOL metad
   }
 })
 
-test("scanLocalSkillProjects ignores hidden skill root directories", async () => {
+test("scanInstalledSkills ignores backup skill directories", async () => {
   const homeEnvVar = "OO_DESKTOP_TEST_AGENT_HOME"
   const originalHome = process.env[homeEnvVar]
-  const homePath = await mkdtemp(path.join(os.tmpdir(), "oo-desktop-hidden-skill-projects-"))
+  const homePath = await mkdtemp(path.join(os.tmpdir(), "oo-desktop-backup-installed-skills-"))
   const skillRoot = path.join(homePath, "skills")
-  const publishablePath = path.join(skillRoot, "publishable")
-  const hiddenPath = path.join(skillRoot, ".system")
+  const currentPath = path.join(skillRoot, "video-subtitle-translator")
+  const backupPath = path.join(skillRoot, "video-subtitle-translator.backup-20260527-091243")
 
   process.env[homeEnvVar] = homePath
 
   try {
-    await Promise.all([mkdir(publishablePath, { recursive: true }), mkdir(hiddenPath, { recursive: true })])
+    await Promise.all([mkdir(currentPath, { recursive: true }), mkdir(backupPath, { recursive: true })])
     await Promise.all([
       writeFile(
-        path.join(publishablePath, "SKILL.md"),
-        ["---", "name: publishable", "description: Publishable local project", "---", "# Publishable", ""].join("\n"),
+        path.join(currentPath, "SKILL.md"),
+        ["---", "name: video-subtitle-translator", "description: Current subtitle skill", "---", "# Current", ""].join(
+          "\n",
+        ),
       ),
+      writeFile(path.join(currentPath, metadataFileName), JSON.stringify({ kind: "registry", version: "0.0.9" })),
       writeFile(
-        path.join(hiddenPath, "SKILL.md"),
-        ["---", "name: .system", "description: Hidden project", "---", "# Hidden", ""].join("\n"),
+        path.join(backupPath, "SKILL.md"),
+        ["---", "name: video-subtitle-translator", "description: Backup subtitle skill", "---", "# Backup", ""].join(
+          "\n",
+        ),
       ),
+      writeFile(path.join(backupPath, metadataFileName), JSON.stringify({ kind: "registry", version: "0.0.7" })),
     ])
 
-    const projects = await scanLocalSkillProjects([
+    const skills = await scanInstalledSkills([
       {
         cliCommands: [],
         homeEnvVar,
@@ -225,9 +208,10 @@ test("scanLocalSkillProjects ignores hidden skill root directories", async () =>
     ])
 
     assert.deepEqual(
-      projects.map((project) => project.name),
-      ["publishable"],
+      skills.map((skill) => skill.name),
+      ["video-subtitle-translator"],
     )
+    assert.equal(skills[0]?.metadata.version, "0.0.9")
   } finally {
     if (originalHome === undefined) {
       delete process.env[homeEnvVar]
@@ -238,107 +222,59 @@ test("scanLocalSkillProjects ignores hidden skill root directories", async () =>
   }
 })
 
-test("scanLocalSkillProjects excludes skills managed by external lock", async () => {
-  const homeEnvVar = "OO_DESKTOP_TEST_AGENT_HOME"
-  const originalHome = process.env[homeEnvVar]
-  const homePath = await mkdtemp(path.join(os.tmpdir(), "oo-desktop-external-skill-projects-"))
-  const skillRoot = path.join(homePath, "skills")
-  const publishablePath = path.join(skillRoot, "publishable")
-  const externalPath = path.join(skillRoot, "agent-browser")
-
-  process.env[homeEnvVar] = homePath
-
-  try {
-    await Promise.all([mkdir(publishablePath, { recursive: true }), mkdir(externalPath, { recursive: true })])
-    await Promise.all([
-      writeFile(
-        path.join(publishablePath, "SKILL.md"),
-        ["---", "name: publishable", "description: Publishable local project", "---", "# Publishable", ""].join("\n"),
-      ),
-      writeFile(
-        path.join(externalPath, "SKILL.md"),
-        ["---", "name: agent-browser", "description: External managed skill", "---", "# External", ""].join("\n"),
-      ),
-      writeFile(
-        path.join(homePath, ".skill-lock.json"),
-        JSON.stringify({
-          version: 3,
-          skills: {
-            "agent-browser": {
-              skillPath: "skills/agent-browser/SKILL.md",
-              sourceType: "github",
-              sourceUrl: "https://github.com/vercel-labs/skills/tree/main/skills/agent-browser",
-            },
-          },
-        }),
-      ),
-    ])
-
-    const projects = await scanLocalSkillProjects([
-      {
-        cliCommands: [],
-        homeEnvVar,
-        homeRoot: ".unused",
-        id: "universal",
-        name: "Universal",
-        ooCliAgentId: "universal",
-      },
-    ])
-
-    assert.deepEqual(
-      projects.map((project) => project.name),
-      ["publishable"],
-    )
-  } finally {
-    if (originalHome === undefined) {
-      delete process.env[homeEnvVar]
-    } else {
-      process.env[homeEnvVar] = originalHome
-    }
-    await rm(homePath, { force: true, recursive: true })
-  }
-})
-
-test("scanLocalSkillProjects ignores malformed external lock", async () => {
-  const homeEnvVar = "OO_DESKTOP_TEST_AGENT_HOME"
-  const originalHome = process.env[homeEnvVar]
-  const homePath = await mkdtemp(path.join(os.tmpdir(), "oo-desktop-malformed-skill-lock-"))
-  const skillRoot = path.join(homePath, "skills")
-  const publishablePath = path.join(skillRoot, "publishable")
-
-  process.env[homeEnvVar] = homePath
+test("scanLumoInstalledSkills reads shared Agent Skills and prefers app cache as source", async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "lumo-shared-skills-"))
+  const sharedSkillRoot = path.join(rootPath, ".agents", "skills")
+  const cacheSkillStoreRoot = path.join(rootPath, "cache", "skills")
+  const sharedManagedPath = path.join(sharedSkillRoot, "managed")
+  const cachedManagedPath = path.join(cacheSkillStoreRoot, "registry", "managed")
+  const sharedUncachedPath = path.join(sharedSkillRoot, "uncached")
+  const staleUncachedPath = path.join(cacheSkillStoreRoot, "registry", "uncached")
 
   try {
-    await mkdir(publishablePath, { recursive: true })
+    await Promise.all([
+      mkdir(sharedManagedPath, { recursive: true }),
+      mkdir(cachedManagedPath, { recursive: true }),
+      mkdir(sharedUncachedPath, { recursive: true }),
+      mkdir(staleUncachedPath, { recursive: true }),
+    ])
     await Promise.all([
       writeFile(
-        path.join(publishablePath, "SKILL.md"),
-        ["---", "name: publishable", "description: Publishable local project", "---", "# Publishable", ""].join("\n"),
+        path.join(sharedManagedPath, "SKILL.md"),
+        ["---", "name: managed", "description: Shared managed Skill", "---", "# Managed", ""].join("\n"),
       ),
-      writeFile(path.join(homePath, ".skill-lock.json"), "{"),
+      writeFile(
+        path.join(sharedManagedPath, metadataFileName),
+        JSON.stringify({ kind: "registry", packageName: "@alice/managed", version: "0.2.0" }),
+      ),
+      writeFile(
+        path.join(cachedManagedPath, "SKILL.md"),
+        ["---", "name: managed", "description: Cached managed Skill", "---", "# Managed", ""].join("\n"),
+      ),
+      writeFile(
+        path.join(cachedManagedPath, metadataFileName),
+        JSON.stringify({ kind: "registry", packageName: "@alice/managed", version: "0.2.0" }),
+      ),
+      writeFile(
+        path.join(sharedUncachedPath, "SKILL.md"),
+        ["---", "name: uncached", "description: Shared uncached Skill", "---", "# Uncached", ""].join("\n"),
+      ),
+      writeFile(
+        path.join(sharedUncachedPath, metadataFileName),
+        JSON.stringify({ kind: "registry", packageName: "@alice/uncached", version: "0.1.0" }),
+      ),
     ])
 
-    const projects = await scanLocalSkillProjects([
-      {
-        cliCommands: [],
-        homeEnvVar,
-        homeRoot: ".unused",
-        id: "universal",
-        name: "Universal",
-        ooCliAgentId: "universal",
-      },
-    ])
+    const skills = await scanLumoInstalledSkills({ cacheSkillStoreRoot, sharedSkillRoot })
+    const managed = skills.find((skill) => skill.name === "managed")
+    const uncached = skills.find((skill) => skill.name === "uncached")
 
-    assert.deepEqual(
-      projects.map((project) => project.name),
-      ["publishable"],
-    )
+    assert.equal(managed?.agent.id, "lumo")
+    assert.equal(managed?.path, sharedManagedPath)
+    assert.equal(managed?.sourcePath, cachedManagedPath)
+    assert.equal(uncached?.path, sharedUncachedPath)
+    assert.equal(uncached?.sourcePath, sharedUncachedPath)
   } finally {
-    if (originalHome === undefined) {
-      delete process.env[homeEnvVar]
-    } else {
-      process.env[homeEnvVar] = originalHome
-    }
-    await rm(homePath, { force: true, recursive: true })
+    await rm(rootPath, { force: true, recursive: true })
   }
 })

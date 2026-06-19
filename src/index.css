@@ -4,7 +4,6 @@
 /* Streamdown（ai-elements MessageResponse 的 Markdown 渲染器）的样式类位于 node_modules
    里，Tailwind v4 默认不扫描 node_modules，需显式声明 @source 才能生成这些类。 */
 @source "../node_modules/streamdown/dist";
-@source "../node_modules/@streamdown/code/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -1316,10 +1315,10 @@
   }
 
   .oo-markdown table {
-    display: block;
-    width: max-content;
+    display: table;
+    table-layout: fixed;
+    width: 100%;
     max-width: 100%;
-    overflow-x: auto;
     border-collapse: collapse;
   }
 
@@ -1328,6 +1327,8 @@
     border: 1px solid var(--oo-divider);
     padding: 0.35rem 0.6rem;
     text-align: left;
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
 
   .oo-markdown th {

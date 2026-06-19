@@ -6,10 +6,12 @@ import type {
 } from "../../../electron/models/common.ts"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { BrainCircuit, CheckCircle2, ChevronDown, ExternalLink, Settings2, Trash2 } from "lucide-react"
+import { Brain, CheckCircle2, ChevronDown, ExternalLink, ImageIcon, Settings2, Trash2 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { DEFAULT_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../../../electron/models/builtin.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -22,21 +24,22 @@ function sameModelChoice(a: ModelChoice | undefined, b: ModelChoice | undefined)
   return Boolean(a && b && a.kind === b.kind && a.id === b.id)
 }
 
-function selectedModelSummary(catalog: ModelCatalog | null): { label: string } {
+function selectedModelSummary(catalog: ModelCatalog | null): { label: string; supportsImages: boolean } {
   if (!catalog) {
-    return { label: "Auto" }
+    const fallback = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID)
+    return { label: fallback.displayName, supportsImages: fallback.capabilities.supportsImages }
   }
   const selected = catalog.selected
   if (selected.kind === "custom") {
     const custom = catalog.customModels.find((model) => model.id === selected.id)
     if (custom) {
-      return { label: custom.displayName }
+      return { label: custom.displayName, supportsImages: custom.supportsImages }
     }
   }
   const builtin =
     (selected.kind === "builtin" ? catalog.builtins.find((model) => model.id === selected.id) : undefined) ??
     catalog.builtins[0]
-  return { label: builtin?.displayName ?? "Auto" }
+  return { label: builtin?.displayName ?? "Auto", supportsImages: builtin?.supportsImages ?? false }
 }
 
 function providerInitial(name: string): string {
@@ -59,6 +62,8 @@ function ModelRow({
   active,
   icon,
   title,
+  supportsImages,
+  visionLabel,
   deleteLabel,
   onSelect,
   onDelete,
@@ -66,6 +71,8 @@ function ModelRow({
   active: boolean
   icon: React.ReactNode
   title: string
+  supportsImages?: boolean
+  visionLabel: string
   deleteLabel?: string
   onSelect: () => void
   onDelete?: () => void
@@ -75,16 +82,31 @@ function ModelRow({
       <button
         type="button"
         className={cn(
-          "flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+          "grid min-h-10 min-w-0 flex-1 grid-cols-[1rem_1.25rem_minmax(0,1fr)_6rem] items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
           active && "bg-accent text-accent-foreground",
         )}
         onClick={onSelect}
       >
+        <span className="flex size-4 items-center justify-center">
+          {active ? <CheckCircle2 className="size-3.5 text-green-600" /> : null}
+        </span>
         {icon}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm leading-none">{title}</span>
         </span>
-        {active ? <CheckCircle2 className="size-3.5 shrink-0 text-green-600" /> : null}
+        <span className="flex min-w-0 justify-end">
+          {supportsImages ? (
+            <Badge
+              variant="outline"
+              className="h-5 rounded-md px-1.5 py-0 text-[10px] font-medium"
+              title={visionLabel}
+              aria-label={visionLabel}
+            >
+              <ImageIcon className="size-3" />
+              <span>{visionLabel}</span>
+            </Badge>
+          ) : null}
+        </span>
       </button>
       {onDelete ? (
         <button
@@ -122,6 +144,7 @@ export function ModelPicker({
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const menuRef = React.useRef<HTMLDivElement | null>(null)
   const selected = selectedModelSummary(catalog)
+  const selectedTitle = selected.supportsImages ? `${selected.label} · ${t("chat.modelVision")}` : selected.label
 
   const updateMenuPosition = React.useCallback(() => {
     const anchor = rootRef.current
@@ -186,8 +209,10 @@ export function ModelPicker({
               <ModelRow
                 key={model.id}
                 active={sameModelChoice(catalog.selected, choice)}
-                icon={<BrainCircuit className="size-4 shrink-0 text-muted-foreground" />}
+                icon={<Brain className="size-4 shrink-0 text-muted-foreground" />}
                 title={model.displayName}
+                supportsImages={model.supportsImages}
+                visionLabel={t("chat.modelVision")}
                 onSelect={() => {
                   onSelect(choice)
                   setOpen(false)
@@ -197,8 +222,9 @@ export function ModelPicker({
           }) ?? (
             <ModelRow
               active
-              icon={<BrainCircuit className="size-4 shrink-0 text-muted-foreground" />}
+              icon={<Brain className="size-4 shrink-0 text-muted-foreground" />}
               title="Auto"
+              visionLabel={t("chat.modelVision")}
               onSelect={() => setOpen(false)}
             />
           )}
@@ -214,6 +240,8 @@ export function ModelPicker({
                     active={sameModelChoice(catalog.selected, choice)}
                     icon={<ProviderMark name={model.providerName} />}
                     title={model.displayName}
+                    supportsImages={model.supportsImages}
+                    visionLabel={t("chat.modelVision")}
                     deleteLabel={t("chat.modelDelete")}
                     onSelect={() => {
                       onSelect(choice)
@@ -250,14 +278,14 @@ export function ModelPicker({
         type="button"
         variant="ghost"
         size="sm"
-        title={selected.label}
+        title={selectedTitle}
         aria-label={t("chat.modelPicker")}
         aria-expanded={open}
         disabled={disabled}
         className="h-8 max-w-44 rounded-full px-2"
         onClick={() => setOpen((value) => !value)}
       >
-        <BrainCircuit className="size-4" />
+        <Brain className="size-4" />
         <span className="min-w-0 truncate">{selected.label}</span>
         <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
       </Button>

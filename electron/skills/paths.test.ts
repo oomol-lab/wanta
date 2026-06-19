@@ -5,7 +5,7 @@ import path from "node:path"
 import { test } from "vitest"
 import { resolveAgentHomeRoot, resolveAgentRelativeSkillRoot } from "../agents/catalog.ts"
 import { resolveOoStoreDirectory } from "../oo-store-paths.ts"
-import { resolveCanonicalSourcePath } from "./paths.ts"
+import { resolveCanonicalSourcePath, resolveSharedAgentSkillRoot } from "./paths.ts"
 
 const agent: SupportedAgent = {
   cliCommands: ["agent"],
@@ -55,6 +55,11 @@ test("resolveOoStoreDirectory rejects relative roots", () => {
     () => resolveOoStoreDirectory({ XDG_CONFIG_HOME: "relative-config" }, "linux", "/home/me"),
     /absolute path/,
   )
+})
+
+test("resolveSharedAgentSkillRoot follows the common Agent Skills location", () => {
+  assert.equal(resolveSharedAgentSkillRoot("/Users/me"), path.join("/Users/me", ".agents", "skills"))
+  assert.throws(() => resolveSharedAgentSkillRoot("relative-home"), /absolute path/)
 })
 
 test("resolveCanonicalSourcePath returns absolute fallback and rejects path traversal names", () => {

@@ -5,6 +5,14 @@ import type { InstalledSkill } from "./types.ts"
 import path from "node:path"
 import { resolveOoStoreDirectory } from "../oo-store-paths.ts"
 
+export function resolveSharedAgentSkillRoot(homeDirectory: string): string {
+  if (!path.isAbsolute(homeDirectory)) {
+    throw new Error("homeDirectory must be an absolute path")
+  }
+
+  return path.join(homeDirectory, ".agents", "skills")
+}
+
 function resolveCanonicalRootPath(kind: ManagedSkillKind | undefined, agent: SupportedAgent): string | undefined {
   if (kind === "bundled") {
     return path.join(resolveOoStoreDirectory(), "skills", "bundled", agent.ooCliAgentId)

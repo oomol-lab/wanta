@@ -72,6 +72,7 @@ import { assertSafeResetPaths } from "./reset.ts"
 import { scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
 
 const publicSkillPackageCatalogCacheTtlMs = 5 * 60_000
+const publicSkillPackagePageSize = 100
 
 interface SkillVersionAuthSnapshot {
   cacheKey: string
@@ -182,7 +183,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     request: ListPublicSkillPackagesRequest = {},
   ): Promise<PublicSkillPackageCatalog> {
     const next = request.next?.trim() ?? ""
-    const cacheKey = `${searchBaseUrl}:${next}`
+    const size = request.size ?? publicSkillPackagePageSize
+    const cacheKey = `${searchBaseUrl}:${size}:${next}`
     const cached = this.publicSkillPackageCatalogCacheByKey.get(cacheKey)
 
     if (!request.forceRefresh && cached && Date.now() - cached.time < publicSkillPackageCatalogCacheTtlMs) {
@@ -194,7 +196,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return inFlight
     }
 
-    const promise = readPublicSkillPackageCatalog({ next })
+    const promise = readPublicSkillPackageCatalog({ next, size })
       .then((catalog) => {
         this.publicSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
         return catalog
@@ -808,11 +810,17 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 }
 
-async function readPublicSkillPackageCatalog(request: { next?: string }): Promise<PublicSkillPackageCatalog> {
+async function readPublicSkillPackageCatalog(request: {
+  next?: string
+  size?: number
+}): Promise<PublicSkillPackageCatalog> {
   const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
   const next = request.next?.trim()
   if (next) {
     url.searchParams.set("next", next)
+  }
+  if (request.size && Number.isFinite(request.size)) {
+    url.searchParams.set("size", String(Math.min(Math.max(Math.trunc(request.size), 1), publicSkillPackagePageSize)))
   }
 
   const controller = new AbortController()

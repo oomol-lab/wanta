@@ -221,6 +221,7 @@ export interface SkillSearchRequest {
 export interface ListPublicSkillPackagesRequest {
   forceRefresh?: boolean
   next?: string
+  size?: number
 }
 
 export interface SkillSearchResult {

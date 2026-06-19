@@ -16,6 +16,7 @@ import { AgentIcon } from "@/components/AgentIcon"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { useSkillService } from "@/components/AppContext"
 import {
+  useAuthStateResource,
   useHomeSummaryResource,
   useSkillInventoryResource,
   useSkillVersionReportResource,
@@ -55,6 +56,7 @@ function skillErrorMessage(cause: unknown, t: TFunction): string {
 
 type SkillSelectionKey = typeof builtInSelectionKey | string
 type SkillPageTab = "discover" | "installed"
+type DiscoverSkillFilter = "all" | "mine"
 type InstalledSkillFilter = "all" | "updates" | "local"
 type SkillDocumentViewMode = "preview" | "raw"
 type PublicSkillInstallState = "installed" | "partially-installed" | "installable" | "name-conflict" | "unavailable"
@@ -90,6 +92,10 @@ const discoverAutoLoadThresholdPx = 160
 
 function isInstalledSkillFilter(value: string): value is InstalledSkillFilter {
   return value === "all" || value === "updates" || value === "local"
+}
+
+function isDiscoverSkillFilter(value: string): value is DiscoverSkillFilter {
+  return value === "all" || value === "mine"
 }
 
 function skillDocumentPreviewSource(content: string): string {
@@ -498,6 +504,10 @@ function matchesPublicPackageQuery(pkg: PublicSkillPackage, normalizedQuery: str
   )
 }
 
+function isPublicPackageMaintainedByAccount(pkg: PublicSkillPackage, accountId: string | undefined): boolean {
+  return Boolean(accountId && pkg.maintainers.some((maintainer) => maintainer.id === accountId))
+}
+
 function getPublicPackageMaintainerLine(pkg: PublicSkillPackage, t: TFunction): string {
   const maintainerNames = pkg.maintainers.map((maintainer) => maintainer.name).filter(Boolean)
   if (maintainerNames.length > 0) {
@@ -717,6 +727,7 @@ function useDesktopDetailHeadingFocus<T extends HTMLElement>(dependency: string)
 export function SkillsRoute() {
   const { locale, t } = useAppI18n()
   const skillService = useSkillService()
+  const authResource = useAuthStateResource()
   const inventoryResource = useSkillInventoryResource()
   const versionResource = useSkillVersionReportResource()
   const homeSummaryResource = useHomeSummaryResource()
@@ -735,6 +746,7 @@ export function SkillsRoute() {
   const [activeTab, setActiveTab] = React.useState<SkillPageTab>("discover")
   const [selectedSkillId, setSelectedSkillId] = React.useState<SkillSelectionKey | null>(null)
   const [query, setQuery] = React.useState("")
+  const [discoveryFilter, setDiscoveryFilter] = React.useState<DiscoverSkillFilter>("all")
   const [installedFilter, setInstalledFilter] = React.useState<InstalledSkillFilter>("all")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
@@ -871,8 +883,18 @@ export function SkillsRoute() {
 
   const filteredPublicPackages = React.useMemo(() => {
     const normalizedQuery = discoveryQuery.trim().toLowerCase()
-    return publicPackageCatalog.items.filter((pkg) => matchesPublicPackageQuery(pkg, normalizedQuery))
-  }, [discoveryQuery, publicPackageCatalog.items])
+    return publicPackageCatalog.items.filter((pkg) => {
+      if (!matchesPublicPackageQuery(pkg, normalizedQuery)) {
+        return false
+      }
+
+      if (discoveryFilter === "mine") {
+        return isPublicPackageMaintainedByAccount(pkg, authResource.data?.account?.id)
+      }
+
+      return true
+    })
+  }, [authResource.data?.account?.id, discoveryFilter, discoveryQuery, publicPackageCatalog.items])
 
   const selectedPublicPackage = React.useMemo(() => {
     return publicPackageCatalog.selectedId
@@ -1107,15 +1129,18 @@ export function SkillsRoute() {
         {activeTab === "discover" ? (
           <DiscoverSkillsPane
             error={publicPackageCatalog.error}
+            filter={discoveryFilter}
             groupById={installedSkillGroupById}
             installingKey={installingRegistryResultId}
             isLoading={isPublicPackageReplacing}
             isLoadingMore={isPublicPackageLoadingMore}
+            isSignedIn={authResource.data?.status === "authenticated"}
             locale={locale}
             next={publicPackageCatalog.next}
             packages={filteredPublicPackages}
             selectedPackage={selectedPublicPackage}
             onClosePackage={() => dispatchPublicPackageCatalog({ id: null, type: "select" })}
+            onFilterChange={setDiscoveryFilter}
             onInstall={installPublicSkill}
             onLoadMore={() => void loadPublicSkillPackages({ next: publicPackageCatalog.next })}
             onOpenManagedSkill={openManagedPublicSkill}
@@ -1358,13 +1383,16 @@ function SkillPageHeader({
 
 interface DiscoverSkillsPaneProps {
   error: string | null
+  filter: DiscoverSkillFilter
   groupById: ManagedSkillGroupById
   installingKey: string | null
   isLoading: boolean
   isLoadingMore: boolean
+  isSignedIn: boolean
   locale: string
   next: string | null
   onClosePackage: () => void
+  onFilterChange: (filter: DiscoverSkillFilter) => void
   onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onLoadMore: () => void
   onOpenManagedSkill: (skillName: string) => void
@@ -1375,13 +1403,16 @@ interface DiscoverSkillsPaneProps {
 
 function DiscoverSkillsPane({
   error,
+  filter,
   groupById,
   installingKey,
   isLoading,
   isLoadingMore,
+  isSignedIn,
   locale,
   next,
   onClosePackage,
+  onFilterChange,
   onInstall,
   onLoadMore,
   onOpenManagedSkill,
@@ -1414,11 +1445,32 @@ function DiscoverSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
       <div className="grid gap-3 pr-1">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          className="w-fit max-w-full flex-wrap justify-start"
+          value={filter}
+          onValueChange={(value) => {
+            if (isDiscoverSkillFilter(value)) {
+              onFilterChange(value)
+            }
+          }}
+        >
+          <ToggleGroupItem value="all">{t("skills.discoverFilter.all")}</ToggleGroupItem>
+          <ToggleGroupItem value="mine">{t("skills.discoverFilter.mine")}</ToggleGroupItem>
+        </ToggleGroup>
         <SkillErrorNotice error={error} />
         {isLoading && packages.length === 0 ? (
           <PublicSkillGridSkeleton />
         ) : packages.length === 0 ? (
-          <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.discoverEmpty")}</div>
+          <div className="oo-text-body oo-text-muted px-1 py-3">
+            {filter === "mine"
+              ? isSignedIn
+                ? t("skills.discoverMineEmpty")
+                : t("skills.discoverMineSignedOut")
+              : t("skills.discoverEmpty")}
+          </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
             {packages.map((pkg) => (
@@ -2022,17 +2074,15 @@ function PublicSkillPackageDetail({
   const primaryInstallSkill = getPublicPackagePrimaryInstallSkill(groupById, pkg)
   const primaryState = getPublicPackageInstallState(groupById, pkg)
   const isInstallingPrimary = installingKey === getPublicSkillInstallKey(pkg, primaryInstallSkill?.name)
-  const maintainerLine = getPublicPackageMaintainerLine(pkg, t)
 
   return (
-    <aside className={cn("flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden", className)}>
-      <InspectorCard className="shrink-0">
+    <aside className={cn("grid min-w-0 content-start gap-3", className)}>
+      <InspectorCard>
         <CardHeader className="flex-row items-start gap-3 px-3 py-0">
           <PublicSkillIcon icon={pkg.icon} />
           <div className="grid min-w-0 flex-1 gap-1">
             <CardTitle className="min-w-0 truncate text-sm">{pkg.displayName}</CardTitle>
             <CardDescription className="min-w-0 truncate">{pkg.name}</CardDescription>
-            <CardDescription className="min-w-0 truncate">{maintainerLine}</CardDescription>
           </div>
         </CardHeader>
         <CardContent className="grid gap-2 px-3">
@@ -2075,34 +2125,27 @@ function PublicSkillPackageDetail({
         </CardContent>
       </InspectorCard>
 
-      <InspectorInsetCard className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3">
-        <div className="min-w-0 truncate text-sm font-medium">{t("skills.discoverIncludedSkills")}</div>
-        <div className="grid min-h-0 gap-2 overflow-auto">
+      <InspectorInsetCard className="gap-2 px-3 py-2">
+        <div className="text-xs font-medium">{t("skills.discoverIncludedSkills")}</div>
+        <ItemGroup className="min-w-0 gap-1">
           {pkg.skills.map((skill) => {
             const state = getPublicSkillInstallState(groupById, pkg, skill.name)
             const installKey = getPublicSkillInstallKey(pkg, skill.name)
             const isInstalling = installingKey === installKey
 
             return (
-              <div key={skill.name} className="grid gap-3 rounded-md border bg-background p-3">
-                <div className="flex min-w-0 items-start gap-3">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-card">
-                    <SkillIcon icon={pkg.icon} className="size-5" />
-                  </span>
-                  <div className="grid min-w-0 flex-1 gap-1">
-                    <div className="min-w-0 truncate text-sm font-medium">{skill.title}</div>
-                    <CardDescription className="min-w-0 truncate">{skill.name}</CardDescription>
-                  </div>
-                </div>
-                {skill.description ? (
-                  <CardDescription className="min-w-0 break-words text-foreground/80">
-                    {skill.description}
-                  </CardDescription>
-                ) : null}
-                <div className="oo-border-divider flex min-w-0 items-center justify-between gap-2 border-t pt-2">
-                  <Badge variant={state === "installed" ? "secondary" : "outline"}>
-                    {getPublicSkillInstallStateLabel(state, t)}
-                  </Badge>
+              <Item key={skill.name} size="sm" className="gap-3 rounded-md border-0 px-2 py-1.5">
+                <ItemMedia className="size-auto">
+                  <SkillIcon icon={pkg.icon} />
+                </ItemMedia>
+                <ItemContent className="min-w-0 gap-0.5">
+                  <ItemTitle className="max-w-full truncate text-xs">{skill.title}</ItemTitle>
+                  <ItemDescription className="max-w-full truncate text-xs">{skill.name}</ItemDescription>
+                  {skill.description ? (
+                    <ItemDescription className="line-clamp-2 text-xs">{skill.description}</ItemDescription>
+                  ) : null}
+                </ItemContent>
+                <ItemActions className="min-w-0 justify-end">
                   {state === "installed" || state === "name-conflict" ? (
                     <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(skill.name)}>
                       {t("skills.discoverOpenManage")}
@@ -2119,10 +2162,30 @@ function PublicSkillPackageDetail({
                       {isInstalling ? t("skills.registryInstalling") : getPublicSkillInstallActionLabel(state, t)}
                     </Button>
                   )}
-                </div>
-              </div>
+                </ItemActions>
+              </Item>
             )
           })}
+        </ItemGroup>
+      </InspectorInsetCard>
+
+      <InspectorInsetCard className="gap-2 px-3 py-2">
+        <div className="text-xs font-medium">{t("skills.discoverPackageInfo")}</div>
+        <div className="grid gap-1 text-xs">
+          <div className="flex min-w-0 justify-between gap-3">
+            <span className="oo-text-muted">{t("skills.package")}</span>
+            <span className="min-w-0 truncate text-right">{pkg.name}</span>
+          </div>
+          <div className="flex min-w-0 justify-between gap-3">
+            <span className="oo-text-muted">{t("skills.discoverMaintainer")}</span>
+            <span className="min-w-0 truncate text-right">{getPublicPackageMaintainerLine(pkg, t)}</span>
+          </div>
+          {updateTime ? (
+            <div className="flex min-w-0 justify-between gap-3">
+              <span className="oo-text-muted">{t("skills.discoverUpdated")}</span>
+              <span className="min-w-0 truncate text-right">{updateTime}</span>
+            </div>
+          ) : null}
         </div>
       </InspectorInsetCard>
     </aside>

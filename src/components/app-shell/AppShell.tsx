@@ -15,6 +15,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  Building2,
   Download,
   LogOut,
   LoaderCircle,
@@ -76,8 +77,9 @@ import { ArtifactsPanel } from "@/routes/Chat/GeneratedArtifacts"
 import { ConnectionsPanel } from "@/routes/Connections"
 import { SettingsRoute } from "@/routes/Settings"
 import { SkillsRoute } from "@/routes/Skills"
+import { OrganizationManagementRoute } from "@/routes/Skills/OrganizationManagement"
 
-type Route = "billing" | "chat" | "connections" | "skills" | "settings"
+type Route = "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 
 const SIDEBAR_RESTORE_DELAY_MS = 260
 const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
@@ -99,7 +101,13 @@ interface TurnRetryOptions {
 
 function initialRoute(): Route {
   const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
-  return route === "settings" || route === "connections" || route === "skills" || route === "billing" ? route : "chat"
+  return route === "settings" ||
+    route === "connections" ||
+    route === "skills" ||
+    route === "organizations" ||
+    route === "billing"
+    ? route
+    : "chat"
 }
 
 function clampSidebarWidth(width: number): number {
@@ -980,7 +988,9 @@ export function AppShell() {
           ? t("connections.title")
           : route === "skills"
             ? t("skills.title")
-            : (activeSession?.title ?? t("chat.newSession"))
+            : route === "organizations"
+              ? t("organizations.title")
+              : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
 
   React.useEffect(() => {
@@ -1505,6 +1515,17 @@ export function AppShell() {
               <Package className="size-4 shrink-0" />
               <span className="oo-sidebar-nav-label truncate">{t("skills.title")}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setRoute("organizations")}
+              className={cn(
+                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                route === "organizations" && "bg-sidebar-accent text-sidebar-accent-foreground",
+              )}
+            >
+              <Building2 className="size-4 shrink-0" />
+              <span className="oo-sidebar-nav-label truncate">{t("organizations.title")}</span>
+            </button>
           </nav>
 
           <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
@@ -1618,6 +1639,8 @@ export function AppShell() {
               </div>
             ) : route === "skills" ? (
               <SkillsRoute />
+            ) : route === "organizations" ? (
+              <OrganizationManagementRoute />
             ) : (
               <div className="h-full min-h-0 overflow-hidden">
                 <ChatArea

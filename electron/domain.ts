@@ -15,6 +15,9 @@ export const llmBaseUrl = `https://llm.${ooEndpoint}/v1`
 /** 连接器网关基址，如 `https://connector.oomol.com`。 */
 export const connectorBaseUrl = `https://connector.${ooEndpoint}`
 
+/** 组织控制服务基址，如 `https://org-control.oomol.com`。 */
+export const orgControlBaseUrl = `https://org-control.${ooEndpoint}`
+
 /** 控制台基址，如 `https://console.oomol.com`。 */
 export const consoleBaseUrl = `https://console.${ooEndpoint}`
 

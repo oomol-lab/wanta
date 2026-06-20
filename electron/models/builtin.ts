@@ -87,7 +87,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "deepseek-v4-flash",
-    displayName: "deepseek-v4-flash",
+    displayName: "DeepSeek V4 Flash",
     providerName: "DeepSeek",
     runtime: {
       providerID: "oomol",
@@ -100,7 +100,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "deepseek-v4-pro",
-    displayName: "deepseek-v4-pro",
+    displayName: "DeepSeek V4 Pro",
     providerName: "DeepSeek",
     runtime: {
       providerID: "oomol",
@@ -113,7 +113,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "qwen3.7-plus",
-    displayName: "qwen3.7-plus",
+    displayName: "Qwen 3.7 Plus",
     providerName: "Qwen",
     runtime: {
       providerID: "oomol",
@@ -126,7 +126,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "kimi/kimi-k2.7-code-highspeed",
-    displayName: "kimi/kimi-k2.7-code-highspeed",
+    displayName: "Kimi K2.7 Code Fast",
     providerName: "Kimi",
     runtime: {
       providerID: "oomol",
@@ -139,7 +139,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "kimi/kimi-k2.7-code",
-    displayName: "kimi/kimi-k2.7-code",
+    displayName: "Kimi K2.7 Code",
     providerName: "Kimi",
     runtime: {
       providerID: "oomol",
@@ -152,7 +152,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "ZHIPU/GLM-5.2",
-    displayName: "ZHIPU/GLM-5.2",
+    displayName: "GLM-5.2",
     providerName: "ZHIPU",
     runtime: {
       providerID: "oomol",
@@ -165,7 +165,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "qwen3.7-max",
-    displayName: "qwen3.7-max",
+    displayName: "Qwen 3.7 Max",
     providerName: "Qwen",
     runtime: {
       providerID: "oomol",
@@ -178,7 +178,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
   },
   {
     id: "xiaomi/mimo-v2.5-pro",
-    displayName: "xiaomi/mimo-v2.5-pro",
+    displayName: "Xiaomi MiMo V2.5 Pro",
     providerName: "Xiaomi",
     runtime: {
       providerID: "oomol",

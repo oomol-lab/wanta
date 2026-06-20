@@ -29,6 +29,81 @@ test("ModelsStore returns default catalog on missing file", async () => {
   assert.ok(catalog.providers.some((provider) => provider.id === "deepseek"))
 })
 
+test("ModelsStore exposes provider default URLs and model options", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
+  const store = new ModelsStore(dir)
+  const catalog = await store.catalog()
+  const providers = new Map(catalog.providers.map((provider) => [provider.id, provider]))
+
+  assert.equal(providers.get("deepseek")?.baseUrl, "https://api.deepseek.com")
+  assert.equal(providers.get("deepseek")?.modelOptions?.[0]?.id, "deepseek-v4-flash")
+  assert.equal(providers.get("deepseek")?.supportsImages, false)
+  assert.equal(providers.get("openrouter")?.baseUrl, "https://openrouter.ai/api/v1")
+  assert.equal(providers.get("openrouter")?.apiRegions, undefined)
+  assert.equal(providers.get("openrouter")?.modelOptions, undefined)
+  assert.equal(providers.get("openrouter")?.supportsImages, undefined)
+  assert.equal(providers.get("zhipu")?.baseUrl, "https://open.bigmodel.cn/api/paas/v4")
+  assert.deepEqual(providers.get("zhipu")?.apiRegions, [
+    { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+    { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+  ])
+  assert.equal(providers.get("zhipu")?.supportsImages, false)
+  assert.equal(providers.get("kimi")?.baseUrl, "https://api.moonshot.cn/v1")
+  assert.deepEqual(providers.get("kimi")?.apiRegions, [
+    { id: "cn", baseUrl: "https://api.moonshot.cn/v1" },
+    { id: "global", baseUrl: "https://api.moonshot.ai/v1" },
+  ])
+  assert.deepEqual(
+    providers.get("kimi")?.modelOptions?.map((model) => model.id),
+    ["kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"],
+  )
+  assert.deepEqual(
+    providers.get("kimi")?.modelOptions?.map((model) => model.supportsImages),
+    [true, true, true],
+  )
+  assert.equal(providers.get("minimax")?.baseUrl, "https://api.minimaxi.com/v1")
+  assert.deepEqual(providers.get("minimax")?.apiRegions, [
+    { id: "cn", baseUrl: "https://api.minimaxi.com/v1" },
+    { id: "global", baseUrl: "https://api.minimax.io/v1" },
+  ])
+  assert.deepEqual(
+    providers.get("minimax")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
+    [
+      ["MiniMax-M3", true],
+      ["MiniMax-M2.7", false],
+      ["MiniMax-M2.7-highspeed", false],
+      ["MiniMax-M2.5", false],
+      ["MiniMax-M2.5-highspeed", false],
+      ["MiniMax-M2.1", false],
+      ["MiniMax-M2.1-highspeed", false],
+      ["MiniMax-M2", false],
+    ],
+  )
+  assert.equal(providers.get("qwen")?.baseUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1")
+  assert.equal(providers.get("qwen")?.displayName, "Qwen")
+  assert.deepEqual(providers.get("qwen")?.apiRegions, [
+    { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+    { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+  ])
+  assert.deepEqual(
+    providers.get("qwen")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
+    [
+      ["qwen3.7-plus", true],
+      ["qwen3.7-max", true],
+    ],
+  )
+  assert.equal(providers.get("xiaomi")?.baseUrl, "https://api.xiaomimimo.com/v1")
+  assert.deepEqual(
+    providers.get("xiaomi")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
+    [
+      ["mimo-v2.5-pro", false],
+      ["mimo-v2.5", true],
+    ],
+  )
+  assert.equal(providers.has("gemini"), false)
+  assert.equal(providers.has("ollama"), false)
+})
+
 test("ModelsStore persists custom models but public catalog redacts apiKey", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
   const store = new ModelsStore(dir)

@@ -6,7 +6,7 @@ import type {
 } from "../../../electron/models/common.ts"
 import type { UserFacingError } from "@/lib/user-facing-error"
 
-import { Brain, CheckCircle2, ChevronDown, ExternalLink, ImageIcon, Settings2, Trash2 } from "lucide-react"
+import { Brain, ChevronDown, ExternalLink, ImageIcon, Settings2, Trash2 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { DEFAULT_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../../../electron/models/builtin.ts"
@@ -17,6 +17,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -81,20 +82,19 @@ function ModelRow({
     <div className="group flex min-w-0 items-center gap-1">
       <button
         type="button"
+        aria-current={active ? "true" : undefined}
         className={cn(
-          "grid min-h-10 min-w-0 flex-1 grid-cols-[1rem_1.25rem_minmax(0,1fr)_6rem] items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-          active && "bg-accent text-accent-foreground",
+          "flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+          active && "bg-accent font-medium text-accent-foreground",
         )}
+        title={title}
         onClick={onSelect}
       >
-        <span className="flex size-4 items-center justify-center">
-          {active ? <CheckCircle2 className="size-3.5 text-green-600" /> : null}
-        </span>
         {icon}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm leading-none">{title}</span>
         </span>
-        <span className="flex min-w-0 justify-end">
+        <span className="flex shrink-0 justify-end">
           {supportsImages ? (
             <Badge
               variant="outline"
@@ -230,8 +230,8 @@ export function ModelPicker({
           )}
 
           {catalog && catalog.customModels.length > 0 ? (
-            <>
-              <div className="mt-1 px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelCustom")}</div>
+            <div className="oo-border-divider mt-1 border-t pt-1">
+              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelCustom")}</div>
               {catalog.customModels.map((model) => {
                 const choice: ModelChoice = { kind: "custom", id: model.id }
                 return (
@@ -251,7 +251,7 @@ export function ModelPicker({
                   />
                 )
               })}
-            </>
+            </div>
           ) : null}
 
           <div className="oo-border-divider mt-1 border-t pt-1">
@@ -295,8 +295,43 @@ export function ModelPicker({
 }
 
 function providerBaseUrl(provider: CustomModelProvider | undefined): string {
-  return provider?.baseUrl ?? ""
+  return provider?.apiRegions?.[0]?.baseUrl ?? provider?.baseUrl ?? ""
 }
+
+function providerDefaultApiRegionId(provider: CustomModelProvider | undefined): string {
+  return provider?.apiRegions?.[0]?.id ?? ""
+}
+
+function providerDefaultModelName(provider: CustomModelProvider | undefined): string {
+  return provider?.modelOptions?.[0]?.id ?? ""
+}
+
+function apiRegionLabel(id: string, t: ReturnType<typeof useT>): string {
+  if (id === "cn") {
+    return t("chat.modelApiRegionCn")
+  }
+  if (id === "global") {
+    return t("chat.modelApiRegionGlobal")
+  }
+  return id
+}
+
+function providerDisplayName(provider: CustomModelProvider | undefined, t: ReturnType<typeof useT>): string {
+  if (!provider) {
+    return ""
+  }
+  if (provider.id === "custom") {
+    return t("chat.modelProviderCustom")
+  }
+  return provider.displayName
+}
+
+function providerDefaultSupportsImages(provider: CustomModelProvider | undefined, modelName: string): boolean {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.supportsImages ?? provider?.supportsImages ?? false
+}
+
+const modelDialogControlClass = "h-[var(--oo-control-height)] w-full px-2.5 text-sm"
 
 export function AddCustomModelDialog({
   open,
@@ -317,27 +352,53 @@ export function AddCustomModelDialog({
   const [baseUrl, setBaseUrl] = React.useState(providerBaseUrl(firstProvider))
   const [apiKey, setApiKey] = React.useState("")
   const [modelName, setModelName] = React.useState("")
-  const [supportsImages, setSupportsImages] = React.useState(false)
+  const [apiRegionId, setApiRegionId] = React.useState(providerDefaultApiRegionId(firstProvider))
+  const [supportsImages, setSupportsImages] = React.useState(providerDefaultSupportsImages(firstProvider, ""))
   const [saving, setSaving] = React.useState(false)
   const supportsImagesId = React.useId()
   const provider = providers.find((item) => item.id === providerId)
+  const modelOptions = provider?.modelOptions ?? []
+  const apiRegions = provider?.apiRegions ?? []
 
   React.useEffect(() => {
     if (open) {
       const initial = providers[0]
       setProviderId(initial?.id ?? "custom")
       setBaseUrl(providerBaseUrl(initial))
+      const initialModelName = providerDefaultModelName(initial)
+      setModelName(initialModelName)
+      setApiRegionId(providerDefaultApiRegionId(initial))
+      setSupportsImages(providerDefaultSupportsImages(initial, initialModelName))
       setApiKey("")
-      setModelName("")
-      setSupportsImages(false)
       setSaving(false)
     }
   }, [open, providers])
 
   const handleProviderChange = (nextId: string): void => {
     const next = providers.find((item) => item.id === nextId)
+    const nextModelName = providerDefaultModelName(next)
     setProviderId(nextId)
     setBaseUrl(providerBaseUrl(next))
+    setModelName(nextModelName)
+    setApiRegionId(providerDefaultApiRegionId(next))
+    setSupportsImages(providerDefaultSupportsImages(next, nextModelName))
+  }
+
+  const handleModelChange = (nextModelName: string): void => {
+    setModelName(nextModelName)
+    setSupportsImages(providerDefaultSupportsImages(provider, nextModelName))
+  }
+
+  const handleApiRegionChange = (nextId: string): void => {
+    if (!nextId) {
+      return
+    }
+    const next = apiRegions.find((item) => item.id === nextId)
+    if (!next) {
+      return
+    }
+    setApiRegionId(nextId)
+    setBaseUrl(next.baseUrl)
   }
 
   const canSave = Boolean(
@@ -363,7 +424,7 @@ export function AddCustomModelDialog({
               setSaving(true)
               void onSave({
                 providerId,
-                providerName: provider?.displayName,
+                providerName: providerDisplayName(provider, t),
                 baseUrl,
                 apiKey,
                 modelName,
@@ -382,18 +443,38 @@ export function AddCustomModelDialog({
         <div className="grid gap-1.5">
           <Label>{t("chat.modelProvider")}</Label>
           <Select value={providerId} onValueChange={handleProviderChange}>
-            <SelectTrigger>
+            <SelectTrigger className={modelDialogControlClass}>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent position="popper" className="w-[var(--radix-select-trigger-width)]">
               {providers.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
-                  {item.displayName}
+                  {providerDisplayName(item, t)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
+
+        {apiRegions.length > 0 ? (
+          <div className="grid gap-1.5">
+            <Label>{t("chat.modelApiRegion")}</Label>
+            <ToggleGroup
+              type="single"
+              value={apiRegionId}
+              onValueChange={handleApiRegionChange}
+              variant="outline"
+              className="w-full"
+              aria-label={t("chat.modelApiRegion")}
+            >
+              {apiRegions.map((region) => (
+                <ToggleGroupItem key={region.id} value={region.id} className="flex-1">
+                  {apiRegionLabel(region.id, t)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        ) : null}
 
         <div className="grid gap-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -415,6 +496,7 @@ export function AddCustomModelDialog({
             onChange={(event) => setBaseUrl(event.target.value)}
             placeholder="https://api.example.com/v1"
             readOnly={!provider?.requiresBaseUrl}
+            className={modelDialogControlClass}
           />
         </div>
 
@@ -426,12 +508,33 @@ export function AddCustomModelDialog({
             type="password"
             placeholder="sk-..."
             autoComplete="off"
+            className={modelDialogControlClass}
           />
         </div>
 
         <div className="grid gap-1.5">
           <Label>{t("chat.modelName")}</Label>
-          <Input value={modelName} onChange={(event) => setModelName(event.target.value)} placeholder="deepseek-chat" />
+          {modelOptions.length > 0 ? (
+            <Select value={modelName} onValueChange={handleModelChange}>
+              <SelectTrigger className={modelDialogControlClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper" className="w-[var(--radix-select-trigger-width)]">
+                {modelOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              value={modelName}
+              onChange={(event) => setModelName(event.target.value)}
+              placeholder="openai/gpt-5.5"
+              className={modelDialogControlClass}
+            />
+          )}
         </div>
 
         <div className="rounded-md border border-border/70 px-3 py-2.5">

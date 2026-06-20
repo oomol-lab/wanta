@@ -31,3 +31,28 @@ test("ModelsServiceImpl preserves custom model image support on update", async (
 
   assert.equal(updated.customModels[0]?.supportsImages, true)
 })
+
+test("ModelsServiceImpl defaults known provider image support but honors user choices", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "lumo-models-service-"))
+  const service = new ModelsServiceImpl({ store: new ModelsStore(dir) })
+
+  const qwen = await service.saveCustomModel({
+    providerId: "qwen",
+    providerName: "Qwen",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKey: "sk-secret",
+    modelName: "qwen3.7-plus",
+  })
+  assert.equal(qwen.customModels[0]?.supportsImages, true)
+
+  const openRouter = await service.saveCustomModel({
+    providerId: "openrouter",
+    providerName: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKey: "sk-secret",
+    modelName: "openai/gpt-5.5",
+    supportsImages: true,
+  })
+
+  assert.equal(openRouter.customModels.at(-1)?.supportsImages, true)
+})

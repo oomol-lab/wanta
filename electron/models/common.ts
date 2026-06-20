@@ -12,10 +12,24 @@ export interface BuiltinModelSummary {
   runtimeKind: "openai-compatible" | "openai-responses"
 }
 
+export interface CustomModelOption {
+  id: string
+  displayName?: string
+  supportsImages?: boolean
+}
+
+export interface CustomModelApiRegion {
+  id: string
+  baseUrl: string
+}
+
 export interface CustomModelProvider {
   id: string
   displayName: string
   baseUrl: string
+  apiRegions?: CustomModelApiRegion[]
+  modelOptions?: CustomModelOption[]
+  supportsImages?: boolean
   documentationUrl?: string
   requiresBaseUrl?: boolean
 }

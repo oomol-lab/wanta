@@ -25,37 +25,96 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "deepseek",
     displayName: "DeepSeek",
-    baseUrl: "",
+    baseUrl: "https://api.deepseek.com",
+    modelOptions: [
+      { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash" },
+      { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro" },
+    ],
+    supportsImages: false,
     requiresBaseUrl: true,
   },
   {
     id: "openrouter",
     displayName: "OpenRouter",
-    baseUrl: "",
+    baseUrl: "https://openrouter.ai/api/v1",
     requiresBaseUrl: true,
   },
   {
     id: "zhipu",
     displayName: "GLM API",
-    baseUrl: "",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    apiRegions: [
+      { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+      { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+    ],
+    modelOptions: [
+      { id: "glm-5.2", displayName: "GLM-5.2" },
+      { id: "glm-5.1", displayName: "GLM-5.1" },
+      { id: "glm-5-turbo", displayName: "GLM-5-Turbo" },
+      { id: "glm-5", displayName: "GLM-5" },
+      { id: "glm-4.7", displayName: "GLM-4.7" },
+      { id: "glm-4.7-flash", displayName: "GLM-4.7 Flash" },
+    ],
+    supportsImages: false,
     requiresBaseUrl: true,
   },
   {
     id: "kimi",
     displayName: "Kimi",
-    baseUrl: "",
+    baseUrl: "https://api.moonshot.cn/v1",
+    apiRegions: [
+      { id: "cn", baseUrl: "https://api.moonshot.cn/v1" },
+      { id: "global", baseUrl: "https://api.moonshot.ai/v1" },
+    ],
+    modelOptions: [
+      { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true },
+      { id: "kimi-k2.7-code-highspeed", displayName: "Kimi K2.7 Code Highspeed", supportsImages: true },
+      { id: "kimi-k2.6", displayName: "Kimi K2.6", supportsImages: true },
+    ],
     requiresBaseUrl: true,
   },
   {
     id: "minimax",
     displayName: "MiniMax",
-    baseUrl: "",
+    baseUrl: "https://api.minimaxi.com/v1",
+    apiRegions: [
+      { id: "cn", baseUrl: "https://api.minimaxi.com/v1" },
+      { id: "global", baseUrl: "https://api.minimax.io/v1" },
+    ],
+    modelOptions: [
+      { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true },
+      { id: "MiniMax-M2.7", displayName: "MiniMax M2.7", supportsImages: false },
+      { id: "MiniMax-M2.7-highspeed", displayName: "MiniMax M2.7 Highspeed", supportsImages: false },
+      { id: "MiniMax-M2.5", displayName: "MiniMax M2.5", supportsImages: false },
+      { id: "MiniMax-M2.5-highspeed", displayName: "MiniMax M2.5 Highspeed", supportsImages: false },
+      { id: "MiniMax-M2.1", displayName: "MiniMax M2.1", supportsImages: false },
+      { id: "MiniMax-M2.1-highspeed", displayName: "MiniMax M2.1 Highspeed", supportsImages: false },
+      { id: "MiniMax-M2", displayName: "MiniMax M2", supportsImages: false },
+    ],
     requiresBaseUrl: true,
   },
   {
-    id: "ollama",
-    displayName: "Ollama",
-    baseUrl: "",
+    id: "qwen",
+    displayName: "Qwen",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiRegions: [
+      { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+      { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+    ],
+    modelOptions: [
+      { id: "qwen3.7-plus", displayName: "Qwen3.7 Plus", supportsImages: true },
+      { id: "qwen3.7-max", displayName: "Qwen3.7 Max", supportsImages: true },
+    ],
+    requiresBaseUrl: true,
+  },
+  {
+    id: "xiaomi",
+    displayName: "Xiaomi MiMo",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    modelOptions: [
+      { id: "mimo-v2.5-pro", displayName: "MiMo V2.5 Pro", supportsImages: false },
+      { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true },
+    ],
     requiresBaseUrl: true,
   },
   {
@@ -70,6 +129,14 @@ export function customModelDisplayName(
   model: Pick<PersistedCustomModel, "displayName" | "providerName" | "modelName">,
 ): string {
   return model.displayName?.trim() || `${model.providerName}:${model.modelName}`
+}
+
+export function customProviderModelSupportsImages(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): boolean {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.supportsImages ?? provider?.supportsImages ?? false
 }
 
 export function publicCustomModel(model: PersistedCustomModel): CustomModelSummary {

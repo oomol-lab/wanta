@@ -10,6 +10,7 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
+import type { ComposerState } from "./composer-state.ts"
 import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
@@ -17,7 +18,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 import type { StickToBottomContext } from "use-stick-to-bottom"
 
-import { CheckIcon, ChevronRight, CopyIcon, ThumbsDown, ThumbsUp } from "lucide-react"
+import { CheckIcon, ChevronDown, ChevronRight, ChevronUp, CopyIcon, ThumbsDown, ThumbsUp } from "lucide-react"
 import * as React from "react"
 import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
@@ -40,6 +41,7 @@ import {
   assistantResponseActionTextByMessageId,
   copyableMessageText,
   reuseStableTextMap,
+  shouldCollapseUserMessageText,
   visibleUserText,
 } from "./message-text.ts"
 import { renderBlocks } from "./render-blocks.ts"
@@ -67,6 +69,7 @@ const GeneratedArtifacts = React.lazy(() =>
 
 interface ChatAreaProps {
   billingCacheScope: string
+  composerDraftKey: string
   messages: ChatMessage[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
@@ -75,6 +78,7 @@ interface ChatAreaProps {
   startupError?: UserFacingError | null
   error: string | null
   submitDisabled: boolean
+  initialComposerState?: ComposerState
   initialSendPending: boolean
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
@@ -86,6 +90,7 @@ interface ChatAreaProps {
     model?: ModelChoice,
   ) => Promise<boolean>
   onStop: () => void
+  onComposerStateChange?: (state: ComposerState) => void
   onQueuedMessageRemove: (id: string) => void
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onArtifactsReset: () => void
@@ -592,6 +597,11 @@ function MessageBubble({
 }) {
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
+  const t = useT()
+  const [userMessageExpanded, setUserMessageExpanded] = React.useState(false)
+  React.useEffect(() => {
+    setUserMessageExpanded(false)
+  }, [message.id])
 
   if (message.role === "user") {
     const text = message.parts
@@ -602,6 +612,7 @@ function MessageBubble({
     const attachments = message.parts
       .filter((p) => p.kind === "attachment" && p.attachment)
       .map((p) => attachmentWithPreview(p.attachment as ChatAttachment))
+    const collapsible = shouldCollapseUserMessageText(visibleText)
     if (!visibleText && attachments.length === 0) {
       return null
     }
@@ -609,8 +620,31 @@ function MessageBubble({
       <Message from="user" className={cn("items-end", copyText && "pb-7")}>
         {attachments.length > 0 ? <AttachmentList attachments={attachments} className="justify-end" /> : null}
         {visibleText ? (
-          <MessageContent>
-            <div className="break-words whitespace-pre-wrap">{visibleText}</div>
+          <MessageContent className={cn(collapsible && "pb-2")}>
+            <div className="relative min-w-0">
+              <div
+                className={cn(
+                  "break-words whitespace-pre-wrap",
+                  collapsible && !userMessageExpanded && "max-h-72 overflow-hidden",
+                )}
+              >
+                {visibleText}
+              </div>
+              {collapsible && !userMessageExpanded ? (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-b from-transparent to-secondary" />
+              ) : null}
+            </div>
+            {collapsible ? (
+              <button
+                type="button"
+                aria-expanded={userMessageExpanded}
+                className="mt-1 -ml-1 flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:bg-background/60 focus-visible:text-foreground focus-visible:outline-none"
+                onClick={() => setUserMessageExpanded((open) => !open)}
+              >
+                {userMessageExpanded ? t("chat.userMessageShowLess") : t("chat.userMessageShowMore")}
+                {userMessageExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+              </button>
+            ) : null}
           </MessageContent>
         ) : null}
         {copyText ? (
@@ -982,6 +1016,7 @@ const ChatTimeline = React.memo(function ChatTimeline({
 
 export const ChatArea = React.memo(function ChatArea({
   billingCacheScope,
+  composerDraftKey,
   messages,
   status,
   activity,
@@ -990,10 +1025,12 @@ export const ChatArea = React.memo(function ChatArea({
   startupError,
   error,
   submitDisabled,
+  initialComposerState,
   initialSendPending,
   providers,
   queuedMessages,
   placeholder,
+  onComposerStateChange,
   onSend,
   onStop,
   onQueuedMessageRemove,
@@ -1018,14 +1055,17 @@ export const ChatArea = React.memo(function ChatArea({
 
   const composer = (
     <ChatComposer
+      key={composerDraftKey}
       error={error}
       hasMessages={hasMessages}
+      initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}
       placeholder={placeholder}
       providers={providers}
       queuedMessages={queuedMessages}
       status={status}
       submitDisabled={submitDisabled}
+      onComposerStateChange={onComposerStateChange}
       onQueuedMessageRemove={onQueuedMessageRemove}
       onSend={onSend}
       onStop={onStop}

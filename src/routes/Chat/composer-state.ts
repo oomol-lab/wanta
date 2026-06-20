@@ -7,25 +7,39 @@ export type DraftAttachment = ChatAttachment & {
   previewUrl?: string
 }
 
+export interface VoiceTranscriptDraft {
+  id: string
+  collapsed: boolean
+  createdAt: number
+  text: string
+}
+
 export interface ComposerState {
   attachments: DraftAttachment[]
   contextMentions: ChatContextMention[]
   dismissedTriggerKey: string | null
   draft: string
   draftSelection: { end: number; start: number }
+  voiceTranscripts: VoiceTranscriptDraft[]
 }
 
 export type ComposerAction =
   | { type: "add-attachments"; attachments: DraftAttachment[] }
   | { type: "add-context-mention"; mention: ChatContextMention }
-  | { type: "append-transcription"; text: string }
+  | { type: "append-transcription"; transcript: VoiceTranscriptDraft }
   | { type: "remove-attachment"; id: string }
   | { type: "remove-context-mention"; mention: ChatContextMention }
+  | { type: "remove-voice-transcript"; id: string }
   | { type: "replace-trigger"; replacement: string; trigger: ComposerTrigger }
   | { type: "reset-after-submit" }
   | { type: "set-dismissed-trigger-key"; key: string | null }
   | { type: "set-draft"; draft: string; selection: { end: number; start: number } }
   | { type: "set-draft-selection"; selection: { end: number; start: number } }
+  | { type: "set-voice-transcript-collapsed"; collapsed: boolean; id: string }
+  | { type: "update-voice-transcript"; id: string; text: string }
+
+const VOICE_TRANSCRIPT_COLLAPSE_TEXT_LENGTH = 240
+const VOICE_TRANSCRIPT_COLLAPSE_LINES = 5
 
 export function initialComposerState(): ComposerState {
   return {
@@ -34,6 +48,7 @@ export function initialComposerState(): ComposerState {
     dismissedTriggerKey: null,
     draft: "",
     draftSelection: { end: 0, start: 0 },
+    voiceTranscripts: [],
   }
 }
 
@@ -45,8 +60,51 @@ function sameContextMention(left: ChatContextMention, right: ChatContextMention)
   return contextMentionKey(left) === contextMentionKey(right)
 }
 
-function appendTranscription(current: string, text: string): string {
-  return current.trim() ? `${current}${/\s$/.test(current) ? "" : " "}${text}` : text
+export function shouldCollapseVoiceTranscript(text: string): boolean {
+  return (
+    text.length > VOICE_TRANSCRIPT_COLLAPSE_TEXT_LENGTH ||
+    text.split(/\r\n|\r|\n/).length > VOICE_TRANSCRIPT_COLLAPSE_LINES
+  )
+}
+
+export function buildVoiceTranscriptDraft({
+  createdAt,
+  id,
+  text,
+}: {
+  createdAt: number
+  id: string
+  text: string
+}): VoiceTranscriptDraft {
+  return {
+    collapsed: shouldCollapseVoiceTranscript(text),
+    createdAt,
+    id,
+    text,
+  }
+}
+
+export function buildComposerSubmitText(draft: string, voiceTranscripts: VoiceTranscriptDraft[]): string {
+  return [draft, ...voiceTranscripts.map((transcript) => transcript.text)]
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+export function hasComposerDraftContent(state: ComposerState): boolean {
+  return (
+    state.draft.trim().length > 0 ||
+    state.contextMentions.length > 0 ||
+    state.voiceTranscripts.some((transcript) => transcript.text.trim().length > 0)
+  )
+}
+
+export function toCachedComposerState(state: ComposerState): ComposerState {
+  return {
+    ...state,
+    attachments: [],
+    dismissedTriggerKey: null,
+  }
 }
 
 export function composerReducer(state: ComposerState, action: ComposerAction): ComposerState {
@@ -62,13 +120,21 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
       }
       return { ...state, contextMentions: [...state.contextMentions, action.mention] }
     case "append-transcription":
-      return { ...state, draft: appendTranscription(state.draft, action.text) }
+      if (!action.transcript.text.trim()) {
+        return state
+      }
+      return { ...state, voiceTranscripts: [...state.voiceTranscripts, action.transcript] }
     case "remove-attachment":
       return { ...state, attachments: state.attachments.filter((attachment) => attachment.id !== action.id) }
     case "remove-context-mention":
       return {
         ...state,
         contextMentions: state.contextMentions.filter((mention) => !sameContextMention(mention, action.mention)),
+      }
+    case "remove-voice-transcript":
+      return {
+        ...state,
+        voiceTranscripts: state.voiceTranscripts.filter((transcript) => transcript.id !== action.id),
       }
     case "replace-trigger":
       return {
@@ -84,6 +150,7 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
         dismissedTriggerKey: null,
         draft: "",
         draftSelection: { end: 0, start: 0 },
+        voiceTranscripts: [],
       }
     case "set-dismissed-trigger-key":
       return { ...state, dismissedTriggerKey: action.key }
@@ -91,5 +158,30 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
       return { ...state, draft: action.draft, draftSelection: action.selection }
     case "set-draft-selection":
       return { ...state, draftSelection: action.selection }
+    case "set-voice-transcript-collapsed":
+      return {
+        ...state,
+        voiceTranscripts: state.voiceTranscripts.map((transcript) =>
+          transcript.id === action.id ? { ...transcript, collapsed: action.collapsed } : transcript,
+        ),
+      }
+    case "update-voice-transcript":
+      return {
+        ...state,
+        voiceTranscripts: state.voiceTranscripts.map((transcript) =>
+          transcript.id === action.id
+            ? {
+                ...transcript,
+                collapsed:
+                  action.text === transcript.text
+                    ? transcript.collapsed
+                    : transcript.collapsed
+                      ? shouldCollapseVoiceTranscript(action.text)
+                      : false,
+                text: action.text,
+              }
+            : transcript,
+        ),
+      }
   }
 }

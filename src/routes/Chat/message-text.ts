@@ -1,6 +1,8 @@
 import type { ChatMessage } from "../../../electron/chat/common.ts"
 
 const readToolPrefix = "Called the Read tool with the following input:"
+const USER_MESSAGE_COLLAPSE_TEXT_LENGTH = 700
+const USER_MESSAGE_COLLAPSE_LINES = 12
 
 export function visibleUserText(text: string): string {
   if (!text.startsWith(readToolPrefix)) {
@@ -13,6 +15,12 @@ export function visibleUserText(text: string): string {
     return text
   }
   return afterPrefix.slice(jsonEnd + 1).trimStart()
+}
+
+export function shouldCollapseUserMessageText(text: string): boolean {
+  return (
+    text.length > USER_MESSAGE_COLLAPSE_TEXT_LENGTH || text.split(/\r\n|\r|\n/).length > USER_MESSAGE_COLLAPSE_LINES
+  )
 }
 
 export function copyableMessageText(message: Pick<ChatMessage, "parts" | "role">): string {

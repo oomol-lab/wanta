@@ -1,6 +1,7 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
 import type { GenerateSessionTitleRequest, GenerateSessionTitleResult, SessionInfo, SessionService } from "./common.ts"
+import type { SessionMetadata, SessionMetadataStore } from "./metadata-store.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -8,6 +9,7 @@ import { SessionService as SessionServiceName } from "./common.ts"
 
 interface SessionServiceDeps {
   activityStore?: SessionActivityStore
+  metadataStore?: SessionMetadataStore
 }
 
 export class SessionServiceImpl
@@ -19,6 +21,9 @@ export class SessionServiceImpl
   private activityLoaded = false
   private activityLoadPromise: Promise<void> | null = null
   private sessionActivityAt = new Map<string, number>()
+  private metadataLoaded = false
+  private metadataLoadPromise: Promise<void> | null = null
+  private sessionMetadata = new Map<string, SessionMetadata>()
 
   public constructor(agent: AgentManager | null = null, deps: SessionServiceDeps = {}) {
     super(SessionServiceName)
@@ -33,6 +38,9 @@ export class SessionServiceImpl
       this.sessionActivityAt.clear()
       this.activityLoaded = false
       this.activityLoadPromise = null
+      this.sessionMetadata.clear()
+      this.metadataLoaded = false
+      this.metadataLoadPromise = null
     }
   }
 
@@ -41,7 +49,17 @@ export class SessionServiceImpl
       return []
     }
     await this.ensureActivityLoaded()
-    return this.mergeLocalActivity(await this.agent.listSessions())
+    await this.ensureMetadataLoaded()
+    return this.mergeLocalState(await this.agent.listSessions(), "active")
+  }
+
+  public async listArchived(): Promise<SessionInfo[]> {
+    if (!this.agent) {
+      return []
+    }
+    await this.ensureActivityLoaded()
+    await this.ensureMetadataLoaded()
+    return this.mergeLocalState(await this.agent.listSessions(), "archived")
   }
 
   public async create(title?: string): Promise<SessionInfo> {
@@ -49,7 +67,7 @@ export class SessionServiceImpl
       throw new Error("Agent not configured (sign in first)")
     }
     const info = await this.agent.createSession(title)
-    void this.broadcastChanged()
+    void this.broadcastChanged().catch(() => undefined)
     return info
   }
 
@@ -65,7 +83,54 @@ export class SessionServiceImpl
       return
     }
     await this.agent.renameSession(req.id, req.title)
-    void this.broadcastChanged()
+    void this.broadcastChanged().catch(() => undefined)
+  }
+
+  public async pin(req: { id: string; pinned: boolean }): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureMetadataLoaded()
+    const current = this.sessionMetadata.get(req.id) ?? {}
+    if (current.archivedAt) {
+      return
+    }
+    if (req.pinned) {
+      this.sessionMetadata.set(req.id, { ...current, pinnedAt: Date.now() })
+    } else {
+      const next = { ...current }
+      delete next.pinnedAt
+      this.setMetadataEntry(req.id, next)
+    }
+    await this.persistMetadata()
+    void this.broadcastChanged().catch(() => undefined)
+  }
+
+  public async archive(id: string): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureMetadataLoaded()
+    const current = this.sessionMetadata.get(id) ?? {}
+    this.sessionMetadata.set(id, { ...current, archivedAt: Date.now(), pinnedAt: undefined })
+    await this.persistMetadata()
+    void this.broadcastChanged().catch(() => undefined)
+  }
+
+  public async unarchive(id: string): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureMetadataLoaded()
+    const current = this.sessionMetadata.get(id)
+    if (!current) {
+      return
+    }
+    const next = { ...current }
+    delete next.archivedAt
+    this.setMetadataEntry(id, next)
+    await this.persistMetadata()
+    void this.broadcastChanged().catch(() => undefined)
   }
 
   public async remove(id: string): Promise<void> {
@@ -73,10 +138,13 @@ export class SessionServiceImpl
       return
     }
     await this.ensureActivityLoaded()
-    this.sessionActivityAt.delete(id)
-    await this.persistActivity()
+    await this.ensureMetadataLoaded()
     await this.agent.deleteSession(id)
-    void this.broadcastChanged()
+    this.sessionActivityAt.delete(id)
+    this.sessionMetadata.delete(id)
+    await this.persistActivity()
+    await this.persistMetadata()
+    void this.broadcastChanged().catch(() => undefined)
   }
 
   public markUsed(id: string, usedAt = Date.now()): boolean {
@@ -129,14 +197,56 @@ export class SessionServiceImpl
     await this.deps.activityStore?.write(this.sessionActivityAt)
   }
 
-  private mergeLocalActivity(sessions: SessionInfo[]): SessionInfo[] {
+  private async ensureMetadataLoaded(): Promise<void> {
+    if (this.metadataLoaded) {
+      return
+    }
+    if (this.metadataLoadPromise) {
+      return this.metadataLoadPromise
+    }
+    this.metadataLoadPromise = (async () => {
+      const persisted = await this.deps.metadataStore?.read()
+      for (const [id, metadata] of persisted ?? []) {
+        this.setMetadataEntry(id, metadata)
+      }
+      this.metadataLoaded = true
+      this.metadataLoadPromise = null
+    })()
+    return this.metadataLoadPromise
+  }
+
+  private async persistMetadata(): Promise<void> {
+    await this.deps.metadataStore?.write(this.sessionMetadata)
+  }
+
+  private setMetadataEntry(id: string, metadata: SessionMetadata): void {
+    if (metadata.pinnedAt || metadata.archivedAt) {
+      this.sessionMetadata.set(id, metadata)
+    } else {
+      this.sessionMetadata.delete(id)
+    }
+  }
+
+  private mergeLocalState(sessions: SessionInfo[], visibility: "active" | "archived"): SessionInfo[] {
     return sessions
       .map((session) => {
         const usedAt = this.sessionActivityAt.get(session.id)
-        if (!usedAt || usedAt <= session.updatedAt) {
-          return session
+        const metadata = this.sessionMetadata.get(session.id)
+        return {
+          ...session,
+          ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
+          ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
+          ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
         }
-        return { ...session, updatedAt: usedAt }
+      })
+      .filter((session) => (visibility === "archived" ? Boolean(session.archivedAt) : !session.archivedAt))
+      .map((session) => {
+        if (session.archivedAt && session.pinnedAt) {
+          const next = { ...session }
+          delete next.pinnedAt
+          return next
+        }
+        return session
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }

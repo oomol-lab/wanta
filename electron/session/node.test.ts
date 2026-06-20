@@ -1,4 +1,5 @@
 import type { AgentManager } from "../agent/manager.ts"
+import type { SessionActivityStore } from "./activity-store.ts"
 import type { SessionInfo } from "./common.ts"
 import type { SessionMetadata } from "./metadata-store.ts"
 import type { SessionMetadataStore } from "./metadata-store.ts"
@@ -21,6 +22,16 @@ function metadataStore(initial = new Map<string, SessionMetadata>()): SessionMet
       metadata = new Map(next)
     },
   } as SessionMetadataStore
+}
+
+function activityStore(initial = new Map<string, number>()): SessionActivityStore {
+  let activity = initial
+  return {
+    read: async () => activity,
+    write: async (next) => {
+      activity = new Map(next)
+    },
+  } as SessionActivityStore
 }
 
 test("list merges local activity times and sorts by most recent use", async () => {
@@ -141,4 +152,25 @@ test("archive clears pinned state", async () => {
   assert.equal(archivedSessions[0]?.id, "session")
   assert.equal(archivedSessions[0]?.pinnedAt, undefined)
   assert.equal(typeof archivedSessions[0]?.archivedAt, "number")
+})
+
+test("remove keeps local state when remote delete fails", async () => {
+  const persistedActivity = activityStore(new Map([["session", 3_000]]))
+  const persistedMetadata = metadataStore(new Map([["session", { pinnedAt: 2_000 }]]))
+  const service = new SessionServiceImpl(
+    {
+      deleteSession: async () => {
+        throw new Error("delete failed")
+      },
+    } as unknown as AgentManager,
+    {
+      activityStore: persistedActivity,
+      metadataStore: persistedMetadata,
+    },
+  )
+
+  await assert.rejects(service.remove("session"), /delete failed/)
+
+  assert.deepEqual(await persistedActivity.read(), new Map([["session", 3_000]]))
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { pinnedAt: 2_000 }]]))
 })

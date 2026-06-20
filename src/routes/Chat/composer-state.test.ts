@@ -110,6 +110,26 @@ describe("composer state", () => {
     expect(removed.voiceTranscripts).toEqual([])
   })
 
+  it("keeps expanded state when editing a long voice transcript", () => {
+    const longText = "x".repeat(300)
+    const initial = composerReducer(initialComposerState(), {
+      transcript: buildVoiceTranscriptDraft({ createdAt: 1, id: "voice-1", text: longText }),
+      type: "append-transcription",
+    })
+    const expanded = composerReducer(initial, {
+      collapsed: false,
+      id: "voice-1",
+      type: "set-voice-transcript-collapsed",
+    })
+    const updated = composerReducer(expanded, {
+      id: "voice-1",
+      text: `${longText}!`,
+      type: "update-voice-transcript",
+    })
+
+    expect(updated.voiceTranscripts[0]).toMatchObject({ collapsed: false, text: `${longText}!` })
+  })
+
   it("clears palette suppression when resetting after submit", () => {
     const state = {
       ...initialComposerState(),

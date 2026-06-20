@@ -139,11 +139,11 @@ export class SessionServiceImpl
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
+    await this.agent.deleteSession(id)
     this.sessionActivityAt.delete(id)
     this.sessionMetadata.delete(id)
     await this.persistActivity()
     await this.persistMetadata()
-    await this.agent.deleteSession(id)
     void this.broadcastChanged().catch(() => undefined)
   }
 

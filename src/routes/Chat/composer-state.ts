@@ -173,7 +173,11 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
             ? {
                 ...transcript,
                 collapsed:
-                  action.text === transcript.text ? transcript.collapsed : shouldCollapseVoiceTranscript(action.text),
+                  action.text === transcript.text
+                    ? transcript.collapsed
+                    : transcript.collapsed
+                      ? shouldCollapseVoiceTranscript(action.text)
+                      : false,
                 text: action.text,
               }
             : transcript,

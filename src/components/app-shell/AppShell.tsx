@@ -340,7 +340,7 @@ function SessionItem({
           </span>
         ) : null}
       </button>
-      <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:flex">
+      <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">
         <button
           type="button"
           aria-label={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
@@ -1571,6 +1571,7 @@ export function AppShell() {
     setArchiveConfirming(true)
     try {
       await archive(session.id)
+      clearComposerDraft(session.id)
     } catch (cause) {
       const notice = resolveUserFacingError(cause, { area: "session" })
       toast.error(userFacingErrorDescription(notice, t))

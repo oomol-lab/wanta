@@ -33,11 +33,7 @@ export const BUILTIN_MODEL_IDS = [
   "deepseek-v4-flash",
   "deepseek-v4-pro",
   "qwen3.7-plus",
-  "kimi/kimi-k2.7-code-highspeed",
-  "kimi/kimi-k2.7-code",
-  "ZHIPU/GLM-5.2",
   "qwen3.7-max",
-  "xiaomi/mimo-v2.5-pro",
 ] as const
 
 export type BuiltinModelId = (typeof BUILTIN_MODEL_IDS)[number]
@@ -125,45 +121,6 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     },
   },
   {
-    id: "kimi/kimi-k2.7-code-highspeed",
-    displayName: "Kimi K2.7 Code Fast",
-    providerName: "Kimi",
-    runtime: {
-      providerID: "oomol",
-      modelID: "kimi/kimi-k2.7-code-highspeed",
-    },
-    capabilities: {
-      supportsImages: true,
-      toolCall: true,
-    },
-  },
-  {
-    id: "kimi/kimi-k2.7-code",
-    displayName: "Kimi K2.7 Code",
-    providerName: "Kimi",
-    runtime: {
-      providerID: "oomol",
-      modelID: "kimi/kimi-k2.7-code",
-    },
-    capabilities: {
-      supportsImages: true,
-      toolCall: true,
-    },
-  },
-  {
-    id: "ZHIPU/GLM-5.2",
-    displayName: "GLM-5.2",
-    providerName: "ZHIPU",
-    runtime: {
-      providerID: "oomol",
-      modelID: "ZHIPU/GLM-5.2",
-    },
-    capabilities: {
-      supportsImages: false,
-      toolCall: true,
-    },
-  },
-  {
     id: "qwen3.7-max",
     displayName: "Qwen 3.7 Max",
     providerName: "Qwen",
@@ -173,19 +130,6 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
     },
     capabilities: {
       supportsImages: true,
-      toolCall: true,
-    },
-  },
-  {
-    id: "xiaomi/mimo-v2.5-pro",
-    displayName: "Xiaomi MiMo V2.5 Pro",
-    providerName: "Xiaomi",
-    runtime: {
-      providerID: "oomol",
-      modelID: "xiaomi/mimo-v2.5-pro",
-    },
-    capabilities: {
-      supportsImages: false,
       toolCall: true,
     },
   },

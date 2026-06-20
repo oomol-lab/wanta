@@ -111,7 +111,7 @@ function errorPartSignature(part: ChatMessagePart): string | null {
   if (part.kind !== "error" || !part.errorText) {
     return null
   }
-  return [part.errorText.trim(), part.errorKind ?? "", part.errorCode ?? ""].join("\0")
+  return part.errorText.trim()
 }
 
 export function setErrorPart(msgs: ChatMessage[], event: MessageErrorEvent): ChatMessage[] {

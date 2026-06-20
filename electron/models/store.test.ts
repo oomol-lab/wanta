@@ -12,18 +12,7 @@ test("ModelsStore returns default catalog on missing file", async () => {
   assert.deepEqual(catalog.selected, defaultModelChoice())
   assert.deepEqual(
     catalog.builtins.map((model) => model.id),
-    [
-      "oopilot",
-      "gpt-5.5",
-      "deepseek-v4-flash",
-      "deepseek-v4-pro",
-      "qwen3.7-plus",
-      "kimi/kimi-k2.7-code-highspeed",
-      "kimi/kimi-k2.7-code",
-      "ZHIPU/GLM-5.2",
-      "qwen3.7-max",
-      "xiaomi/mimo-v2.5-pro",
-    ],
+    ["oopilot", "gpt-5.5", "deepseek-v4-flash", "deepseek-v4-pro", "qwen3.7-plus", "qwen3.7-max"],
   )
   assert.equal(catalog.customModels.length, 0)
   assert.ok(catalog.providers.some((provider) => provider.id === "deepseek"))

@@ -282,13 +282,17 @@ export function formatToolActivityDuration(parts: ChatMessagePart[], now = Date.
   if (start === undefined || end === undefined) {
     return null
   }
-  return formatWholeSecondMs(end - start)
+  return formatWholeSecondDuration(end - start)
 }
 
 function formatMs(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
 }
 
-function formatWholeSecondMs(ms: number): string {
-  return `${Math.max(1, Math.round(ms / 1000))}s`
+export function formatWholeSecondDuration(ms: number): string {
+  const totalSeconds = Math.max(1, Math.round(ms / 1000))
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`
+  }
+  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`
 }

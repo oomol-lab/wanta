@@ -20,7 +20,6 @@ describe("composer controls", () => {
         canSubmit: false,
         initialSendPending: false,
         isGenerating: true,
-        isSubmitted: false,
         status: "streaming",
       }),
     ).toEqual({
@@ -31,13 +30,12 @@ describe("composer controls", () => {
     })
   })
 
-  it("disables submit while submitted and while empty", () => {
+  it("keeps submitted submit clickable as an explicit stop control", () => {
     expect(
       composerSubmitState({
         canSubmit: true,
         initialSendPending: true,
         isGenerating: true,
-        isSubmitted: true,
         status: "submitted",
       }),
     ).toEqual({
@@ -46,13 +44,27 @@ describe("composer controls", () => {
       stopsGeneration: false,
       visualStatus: "submitted",
     })
+    expect(
+      composerSubmitState({
+        canSubmit: true,
+        initialSendPending: false,
+        isGenerating: true,
+        status: "submitted",
+      }),
+    ).toEqual({
+      aria: "stop",
+      disabled: false,
+      stopsGeneration: true,
+      visualStatus: "submitted",
+    })
+  })
 
+  it("disables submit while empty", () => {
     expect(
       composerSubmitState({
         canSubmit: false,
         initialSendPending: false,
         isGenerating: false,
-        isSubmitted: false,
         status: "ready",
       }),
     ).toEqual({

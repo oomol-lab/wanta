@@ -23,11 +23,13 @@ afterEach(() => {
 function createBridgeAgent(): {
   agent: AgentManager
   abort: ReturnType<typeof vi.fn>
+  createArtifactDir: ReturnType<typeof vi.fn>
   emit: (event: { type: string; properties?: Record<string, unknown> }) => void
   promptStreaming: ReturnType<typeof vi.fn>
 } {
   let listener: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
   const abort = vi.fn(async () => undefined)
+  const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "lumo-test-artifacts"))
   const promptStreaming = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
@@ -38,13 +40,14 @@ function createBridgeAgent(): {
       }
     },
     abort,
-    createArtifactDir: vi.fn(async () => path.join(os.tmpdir(), "lumo-test-artifacts")),
+    createArtifactDir,
     promptStreaming,
     getMessages: vi.fn(async () => []),
   } as unknown as AgentManager
   return {
     agent,
     abort,
+    createArtifactDir,
     emit: (event) => listener?.(event),
     promptStreaming,
   }
@@ -231,6 +234,36 @@ test("hasActiveGeneration tracks pending and completed assistant turns", async (
     properties: { sessionID: "session-1" },
   })
   assert.equal(service.hasActiveGeneration(), false)
+})
+
+test("stopGeneration cancels a submitted turn before prompt streaming starts", async () => {
+  const bridge = createBridgeAgent()
+  let resolveArtifactDir: ((value: string) => void) | undefined
+  bridge.createArtifactDir.mockImplementationOnce(
+    () =>
+      new Promise<string>((resolve) => {
+        resolveArtifactDir = resolve
+      }),
+  )
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  const sendPromise = service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await vi.waitFor(() => {
+    assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
+  })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  await service.stopGeneration("session-1")
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.equal(events.at(-1)?.event, "generationStopped")
+  assert.equal(service.hasActiveGeneration(), false)
+
+  resolveArtifactDir?.(path.join(os.tmpdir(), "lumo-test-artifacts"))
+  await sendPromise
+  await Promise.resolve()
+
+  assert.equal(bridge.promptStreaming.mock.calls.length, 0)
 })
 
 test("sendMessage passes selected context mentions as per-turn system prompt", async () => {

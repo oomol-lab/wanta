@@ -12,7 +12,11 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
-import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
+import {
+  buildFallbackSessionTitle,
+  isGeneratedSessionTitleAcceptable,
+  sanitizeGeneratedSessionTitle,
+} from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
 import { buildOoEnv } from "./oo.ts"
@@ -43,6 +47,7 @@ export interface PromptStreamingOptions {
   attachments?: ChatAttachment[]
   model?: ModelChoice
   artifactDir?: string
+  signal?: AbortSignal
 }
 
 export interface RawSession {
@@ -57,6 +62,24 @@ export interface RawSession {
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>
 }
+
+const sessionTitleSystemPrompt = [
+  "Generate a short chat title as a task label.",
+  'Return JSON only, exactly like {"title":"Gmail 三日报告"}.',
+  "Keep the user's language when possible.",
+  "Length rules:",
+  "- Chinese/Japanese/Korean or mixed CJK+English: at most 8 CJK characters and at most 2 Latin words.",
+  "- English or other Latin-script languages: 2-4 words.",
+  "- Other languages: 2-5 words or at most 32 characters.",
+  "Quality rules:",
+  "- Preserve complete brand, product, app, domain, and file names. Never cut Gmail to Gma or truncate any word.",
+  "- Prefer the core action and object; remove polite wording such as help me, 请, 帮我, 麻烦.",
+  "- No URLs, no ellipses, no markdown, no explanations, no trailing punctuation.",
+  "Examples:",
+  'User: 你帮我分析一下我最近三天的 Gmail 信息，然后给我总结出一个报告 -> {"title":"Gmail 三日报告"}',
+  'User: 你帮我将这个店铺中商品相关的图片都抓下来 -> {"title":"抓取店铺商品图片"}',
+  'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
+].join("\n")
 
 function toSessionInfo(session: RawSession): SessionInfo {
   return {
@@ -193,38 +216,52 @@ export class AgentManager {
     }
 
     try {
-      const response = await fetch(`${llmBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.options.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: LUMO_MODEL_ID,
-          temperature: 0.2,
-          max_tokens: 40,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Generate a concise chat title for the user's task. Output only the title. Keep the user's language. Use 3-6 English words or 6-14 Chinese characters when possible. Do not output a URL, punctuation wrapper, markdown, or explanations.",
-            },
-            {
-              role: "user",
-              content: titleSource,
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(12_000),
-      })
-      if (!response.ok) {
-        return fallback
+      const first = await this.requestSessionTitle(titleSource)
+      const firstTitle = sanitizeGeneratedSessionTitle(first, input)
+      if (isGeneratedSessionTitleAcceptable(firstTitle)) {
+        return firstTitle
       }
-      const payload = (await response.json()) as ChatCompletionResponse
-      return sanitizeGeneratedSessionTitle(payload.choices?.[0]?.message?.content ?? "", input)
+
+      const retry = await this.requestSessionTitle(titleSource, firstTitle)
+      const retryTitle = sanitizeGeneratedSessionTitle(retry, input)
+      return isGeneratedSessionTitleAcceptable(retryTitle) ? retryTitle : fallback
     } catch {
       return fallback
     }
+  }
+
+  private async requestSessionTitle(titleSource: string, previousTitle?: string): Promise<string> {
+    const messages = [
+      {
+        role: "system",
+        content: sessionTitleSystemPrompt,
+      },
+      {
+        role: "user",
+        content: previousTitle
+          ? `Rewrite the title because it violated the length or quality rules: ${JSON.stringify(previousTitle)}\n\nSource:\n${titleSource}`
+          : titleSource,
+      },
+    ]
+    const response = await fetch(`${llmBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.options.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: LUMO_MODEL_ID,
+        temperature: 0.1,
+        max_tokens: 80,
+        messages,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    })
+    if (!response.ok) {
+      throw new Error("session title request failed")
+    }
+    const payload = (await response.json()) as ChatCompletionResponse
+    return payload.choices?.[0]?.message?.content ?? ""
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -250,11 +287,17 @@ export class AgentManager {
    * （人格/工具/契约）留在 agent.prompt 以利缓存。
    */
   public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
+    if (options.signal?.aborted) {
+      return
+    }
     const tail = mergeSystemPrompts(
       await this.buildAuthorizedSystem(),
       options.system,
       buildArtifactSystem(options.artifactDir),
     )
+    if (options.signal?.aborted) {
+      return
+    }
     const result = await this.client.session.promptAsync({
       path: { id: sessionId },
       body: {

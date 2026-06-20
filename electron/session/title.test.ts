@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildFallbackSessionTitle,
+  isGeneratedSessionTitleAcceptable,
   sanitizeGeneratedSessionTitle,
   shouldAutoRefreshSessionTitle,
   trimTitleToColumns,
@@ -12,26 +13,35 @@ describe("session title helpers", () => {
   })
 
   it("does not use a bare URL as the fallback title", () => {
-    expect(buildFallbackSessionTitle({ text: "https://detail.example.com/offer/123.html" })).toBe(
-      "Review detail.example.com",
+    expect(buildFallbackSessionTitle({ text: "https://detail.example.com/offer/123.html" })).toBe("detail.example.com")
+  })
+
+  it("normalizes titles without hard truncating words", () => {
+    expect(trimTitleToColumns("分析一下我最近三天的 Gmail")).toBe("分析一下我最近三天的 Gmail")
+    expect(trimTitleToColumns("Search 1688 product images with Metaso and Puppeteer")).toBe(
+      "Search 1688 product images with Metaso and Puppeteer",
     )
   })
 
-  it("trims by display columns", () => {
-    expect(trimTitleToColumns("检查图卡编码与点击对话并调整侧边任务栏的新建机制")).toBe(
-      "检查图卡编码与点击对话并调整...",
-    )
-    expect(trimTitleToColumns("Search 1688 product images with Metaso and Puppeteer")).toBe(
-      "Search 1688 product images wi...",
-    )
+  it("compacts request-like fallback titles", () => {
+    expect(buildFallbackSessionTitle({ text: "你帮我将这个店铺中商品相关的图片都抓下来" })).toBe("抓取店铺商品图片")
   })
 
   it("cleans model output before storing it", () => {
     expect(
-      sanitizeGeneratedSessionTitle("标题：查找 1688 商品图片。\nextra", {
+      sanitizeGeneratedSessionTitle('{"title":"查找 1688 商品图片"}', {
         text: "https://detail.example.com/offer/123.html",
       }),
     ).toBe("查找 1688 商品图片")
+  })
+
+  it("validates generated titles by language-aware length rules", () => {
+    expect(isGeneratedSessionTitleAcceptable("Gmail 三日报告")).toBe(true)
+    expect(isGeneratedSessionTitleAcceptable("抓取店铺商品图片")).toBe(true)
+    expect(isGeneratedSessionTitleAcceptable("1688 Product Images")).toBe(true)
+    expect(isGeneratedSessionTitleAcceptable("分析一下我最近三天的 Gmail")).toBe(false)
+    expect(isGeneratedSessionTitleAcceptable("Search 1688 product images with Metaso")).toBe(false)
+    expect(isGeneratedSessionTitleAcceptable("分析一下我最近三天的 Gma")).toBe(false)
   })
 
   it("falls back when the model returns a URL", () => {
@@ -39,7 +49,7 @@ describe("session title helpers", () => {
       sanitizeGeneratedSessionTitle("https://detail.example.com/offer/123.html", {
         text: "https://detail.example.com/offer/123.html",
       }),
-    ).toBe("Review detail.example.com")
+    ).toBe("detail.example.com")
   })
 
   it("only auto-refreshes placeholders and obviously generated titles", () => {

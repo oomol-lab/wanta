@@ -142,6 +142,11 @@ interface ChatServiceDeps {
   stoppedGenerationStore?: StoppedGenerationStore
 }
 
+interface SessionGeneration {
+  controller: AbortController
+  id: string
+}
+
 export function isAbortErrorMessage(message: string): boolean {
   const normalized = message
     .trim()
@@ -496,6 +501,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private bridged = false
   private userStoppedSessions = new Map<string, number>()
   private emittedMessageErrors = new Map<string, Set<string>>()
+  private sessionGenerations = new Map<string, SessionGeneration>()
   private pendingArtifactDirs = new Map<string, string[]>()
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
@@ -520,6 +526,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.bridged = false
     this.userStoppedSessions.clear()
     this.emittedMessageErrors.clear()
+    this.abortSessionGenerations()
+    this.sessionGenerations.clear()
     this.pendingArtifactDirs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
@@ -537,7 +545,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public hasActiveGeneration(): boolean {
-    return this.activeAssistantMessages.size > 0 || this.pendingArtifactDirs.size > 0
+    return (
+      this.activeAssistantMessages.size > 0 || this.pendingArtifactDirs.size > 0 || this.sessionGenerations.size > 0
+    )
   }
 
   /** 登录 / 登出时由 main 更新 Studio ASR 需要的 oomol-token。只在主进程内使用，renderer 不可见。 */
@@ -568,6 +578,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           translated.data.sessionId &&
           this.consumeUserStopAbort(translated.data.sessionId, translated.data.message)
         ) {
+          this.clearSessionGeneration(translated.data.sessionId)
           this.activeAssistantMessages.delete(translated.data.sessionId)
           this.activeToolParts.delete(translated.data.sessionId)
           this.emitSessionActivity(translated.data.sessionId)
@@ -612,6 +623,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "agentError" && translated.data.sessionId) {
           const messageId = this.activeAssistantMessages.get(translated.data.sessionId)
+          this.clearSessionGeneration(translated.data.sessionId)
           this.activeAssistantMessages.delete(translated.data.sessionId)
           this.activeToolParts.delete(translated.data.sessionId)
           this.emitSessionActivity(translated.data.sessionId)
@@ -620,6 +632,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         void emit(translated.event, translated.data)
         if (translated.event === "messageCompleted") {
+          this.clearSessionGeneration(translated.data.sessionId)
           this.activeAssistantMessages.delete(translated.data.sessionId)
           this.activeToolParts.delete(translated.data.sessionId)
           this.emitSessionActivity(translated.data.sessionId)
@@ -683,6 +696,30 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     void emit("messageError", createMessageErrorPayload(sessionId, message, messageId))
   }
 
+  private beginSessionGeneration(sessionId: string): SessionGeneration {
+    this.sessionGenerations.get(sessionId)?.controller.abort()
+    const generation = { controller: new AbortController(), id: crypto.randomUUID() }
+    this.sessionGenerations.set(sessionId, generation)
+    return generation
+  }
+
+  private abortSessionGenerations(): void {
+    for (const generation of this.sessionGenerations.values()) {
+      generation.controller.abort()
+    }
+  }
+
+  private isCurrentGeneration(sessionId: string, generationId: string): boolean {
+    return this.sessionGenerations.get(sessionId)?.id === generationId
+  }
+
+  private clearSessionGeneration(sessionId: string, generationId?: string): void {
+    if (generationId && !this.isCurrentGeneration(sessionId, generationId)) {
+      return
+    }
+    this.sessionGenerations.delete(sessionId)
+  }
+
   private markUserStopped(sessionId: string): void {
     const expiresAt = Date.now() + userStopAbortWindowMs
     this.userStoppedSessions.set(sessionId, expiresAt)
@@ -743,10 +780,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    const generation = this.beginSessionGeneration(req.sessionId)
     this.userStoppedSessions.delete(req.sessionId)
     this.clearMessageErrorSignatures(req.sessionId)
     this.emitSessionActivity(req.sessionId)
-    const artifactDir = await this.agent.createArtifactDir(req.sessionId)
+    let artifactDir: string
+    try {
+      artifactDir = await this.agent.createArtifactDir(req.sessionId)
+    } catch (error) {
+      this.clearSessionGeneration(req.sessionId, generation.id)
+      throw error
+    }
+    if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+      return
+    }
     this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
     void this.agent
@@ -754,11 +801,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         attachments: req.attachments,
         artifactDir,
         model: req.model,
+        signal: generation.controller.signal,
         system: buildContextMentionsSystem(req.contextMentions),
       })
       .catch((error: unknown) => {
         this.removePendingArtifactDir(req.sessionId, artifactDir)
+        if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+          return
+        }
         const messageId = this.activeAssistantMessages.get(req.sessionId)
+        this.clearSessionGeneration(req.sessionId, generation.id)
         this.activeAssistantMessages.delete(req.sessionId)
         this.emitMessageError(
           this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
@@ -1012,20 +1064,27 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return
     }
+    const generation = this.sessionGenerations.get(sessionId)
+    generation?.controller.abort()
     this.markUserStopped(sessionId)
     const messageId = this.activeAssistantMessages.get(sessionId)
     const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
     try {
       await this.agent.abort(sessionId)
     } catch (error) {
-      this.userStoppedSessions.delete(sessionId)
-      throw error
+      if (messageId || !generation) {
+        this.userStoppedSessions.delete(sessionId)
+        throw error
+      }
+      console.warn("[lumo] pending generation abort failed:", error)
     }
     if (messageId) {
       await this.rememberStoppedGeneration(sessionId, messageId, partIds).catch((error: unknown) => {
         console.warn("[lumo] failed to record stopped generation", error)
       })
     }
+    this.clearSessionGeneration(sessionId, generation?.id)
+    this.pendingArtifactDirs.delete(sessionId)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
     await this.send("generationStopped", { sessionId }).catch(() => undefined)

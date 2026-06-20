@@ -12,9 +12,9 @@
 ## 2. Agent 内核 = OpenCode 本地 sidecar
 
 - **背景**：调研对比五种模式：云端 loop+薄客户端、本地 sidecar server（OpenCode）、Pi 进程内嵌、AI SDK 薄循环、stdio/ACP。云端 loop 评分最高但被用户否决（不想承担云端运维、要快出 POC）；Claude Agent SDK 被用户明确排除；Pi 落选主因是审批/权限层需全自建且 0.x 破坏性迭代。
-- **决策**：spawn 已发布二进制 `opencode-ai@1.17.3` 作 sidecar，主进程经 `@opencode-ai/sdk@1.17.3` HTTP+SSE 驱动；纯配置定制（自定义 agent prompt 整段替换 + `.opencode/tools/` 自定义工具），零源码改动。**不用 SDK 的 `createOpencodeServer`** 而是自己 spawn：后者不允许控制二进制路径/env/cwd，且生产打包时 opencode-ai 不在 node_modules（二进制走 extraResources）。
+- **决策**：spawn 已发布二进制 `opencode-ai@1.17.8` 作 sidecar，主进程经 `@opencode-ai/sdk@1.17.8` HTTP+SSE 驱动；纯配置定制（自定义 agent prompt 整段替换 + `.opencode/tools/` 自定义工具），零源码改动。**不用 SDK 的 `createOpencodeServer`** 而是自己 spawn：后者不允许控制二进制路径/env/cwd，且生产打包时 opencode-ai 不在 node_modules（二进制走 extraResources）。
 - **理由**：OpenCode 内置权限模型 + 会话基建 + 公司化维护；import 库不可行（调研时 server 相关包全 private，`opencode-ai` 是纯 bin 包）；vendor monorepo 维护负担大（2026-05 调研时上游约 41 commits/天、无 API 兼容承诺）。
-- **后果**：三包版本钉死 `1.17.3` 禁止浮动；sidecar 须隔离目录（`XDG_*` 指向 userData，否则读全局 `~/.config/opencode` 泄漏本机配置）；默认系统提示按模型 ID 选（编码人格），必须用 agent `prompt` 字段整段替换。
+- **后果**：三包版本钉死 `1.17.8` 禁止浮动；sidecar 须隔离目录（`XDG_*` 指向 userData，否则读全局 `~/.config/opencode` 泄漏本机配置）；默认系统提示按模型 ID 选（编码人格），必须用 agent `prompt` 字段整段替换。
 
 ## 3. 连接器调用全经内置 oo 二进制
 
@@ -47,7 +47,7 @@
 ## 6. oo CLI 调用失败修复：node_modules 二进制 → `.oo-bin/` 自管理
 
 - **背景（根因）**：agent 调连接器工具报 `spawn .../oo EACCES`。上游 `@oomol-lab/oo-cli-*` 平台包 tarball 内 `bin/oo` 本身就是 0644（发布时没带 +x）；dev 下 `which oo` 命中 `node_modules/.bin` 的 wrapper，wrapper spawn 无执行位的二进制 → EACCES。生产一直正常是因为 `prepare-binaries.ts` 复制时 chmod 0755——纯 dev 问题。
-- **决策**：移除 `@oomol-lab/oo-cli` npm 依赖；`scripts/oo-cli.ts` 为单一来源（`OO_CLI_VERSION = "1.2.0"`、平台/libc 映射、自写 ustar 提取器替代系统 tar、npm packument `dist.integrity` sha512 校验、原子落位 + `chmod 0o755`），postinstall（`scripts/download-oo.ts`，best-effort）下载到 gitignore 的 `.oo-bin/`，dev 与打包共用。dev 解析顺序：`LUMO_OO_BIN` 覆盖 > `.oo-bin/oo`，删除 `which oo`。opencode 来源同步改为 `node_modules/opencode-ai/bin/opencode.exe`（修复既存的 Windows 包名错误：上游叫 `opencode-windows-x64` 而非 `win32`）。
+- **决策**：移除 `@oomol-lab/oo-cli` npm 依赖；`scripts/oo-cli.ts` 为单一来源（`OO_CLI_VERSION = "1.2.2"`、平台/libc 映射、自写 ustar 提取器替代系统 tar、npm packument `dist.integrity` sha512 校验、原子落位 + `chmod 0o755`），postinstall（`scripts/download-oo.ts`，best-effort）下载到 gitignore 的 `.oo-bin/`，dev 与打包共用。dev 解析顺序：`LUMO_OO_BIN` 覆盖 > `.oo-bin/oo`，删除 `which oo`。opencode 来源同步改为 `node_modules/opencode-ai/bin/opencode.exe`（修复既存的 Windows 包名错误：上游叫 `opencode-windows-x64` 而非 `win32`）。
 - **理由（被否方案）**：主进程加 `existsSync` 预检被用户否决——**主进程禁用同步 fs（阻塞渲染）**，改为 `predev` 守卫 `scripts/check-oo.ts`（独立 CLI 脚本用 sync fs 无妨）。这条已成项目铁律。
 - **后果**：升级 oo 只改 `OO_CLI_VERSION` 一处；缺 `.oo-bin/oo` 时 App 照常启动（错误只在首次工具调用时以 JSON 返回给模型），这正是 predev 守卫存在的原因。
 

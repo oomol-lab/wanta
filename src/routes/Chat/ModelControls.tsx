@@ -572,7 +572,7 @@ export function AddCustomModelDialog({
           <Input
             value={baseUrl}
             onChange={(event) => setBaseUrl(event.target.value)}
-            placeholder="https://api.example.com/v1"
+            placeholder={t("chat.modelBaseUrlPlaceholder")}
             readOnly={!provider?.requiresBaseUrl}
             className={modelDialogControlClass}
           />
@@ -600,7 +600,7 @@ export function AddCustomModelDialog({
               <SelectContent position="popper" className="w-[var(--radix-select-trigger-width)]">
                 {modelOptions.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
-                    {option.id}
+                    {option.displayName ?? option.id}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -3,8 +3,11 @@ import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "vitest"
+import { externalModelProviderBaseUrls } from "../domain.ts"
 import { ModelsServiceImpl } from "./node.ts"
 import { ModelsStore } from "./store.ts"
+
+const providerBaseUrls = externalModelProviderBaseUrls
 
 test("ModelsServiceImpl preserves custom model image support on update", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "lumo-models-service-"))
@@ -13,7 +16,7 @@ test("ModelsServiceImpl preserves custom model image support on update", async (
   const created = await service.saveCustomModel({
     providerId: "openrouter",
     providerName: "OpenRouter",
-    baseUrl: "https://openrouter.ai/api/v1",
+    baseUrl: providerBaseUrls.openrouter,
     apiKey: "sk-secret",
     modelName: "vision-model",
     supportsImages: true,
@@ -25,7 +28,7 @@ test("ModelsServiceImpl preserves custom model image support on update", async (
     id: existing.id,
     providerId: "openrouter",
     providerName: "OpenRouter",
-    baseUrl: "https://openrouter.ai/api/v1",
+    baseUrl: providerBaseUrls.openrouter,
     modelName: "vision-model-v2",
   })
 
@@ -39,7 +42,7 @@ test("ModelsServiceImpl defaults known provider image support but honors user ch
   const qwen = await service.saveCustomModel({
     providerId: "qwen",
     providerName: "Qwen",
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    baseUrl: providerBaseUrls.qwenStandardCn,
     apiKey: "sk-secret",
     modelName: "qwen3.7-plus",
   })
@@ -48,7 +51,7 @@ test("ModelsServiceImpl defaults known provider image support but honors user ch
   const openRouter = await service.saveCustomModel({
     providerId: "openrouter",
     providerName: "OpenRouter",
-    baseUrl: "https://openrouter.ai/api/v1",
+    baseUrl: providerBaseUrls.openrouter,
     apiKey: "sk-secret",
     modelName: "openai/gpt-5.5",
     supportsImages: true,

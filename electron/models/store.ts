@@ -3,7 +3,10 @@ import type { CustomModelProvider, CustomModelSummary, ModelCatalog, ModelChoice
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { externalModelProviderBaseUrls } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
+
+const providerBaseUrls = externalModelProviderBaseUrls
 
 export interface PersistedCustomModel {
   id: string
@@ -25,7 +28,7 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "deepseek",
     displayName: "DeepSeek",
-    baseUrl: "https://api.deepseek.com",
+    baseUrl: providerBaseUrls.deepseek,
     modelOptions: [
       { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash" },
       { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro" },
@@ -36,30 +39,30 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "openrouter",
     displayName: "OpenRouter",
-    baseUrl: "https://openrouter.ai/api/v1",
+    baseUrl: providerBaseUrls.openrouter,
     requiresBaseUrl: true,
   },
   {
     id: "zhipu",
     displayName: "GLM API",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    baseUrl: providerBaseUrls.zhipuCn,
     apiPlans: [
       {
         id: "standard",
-        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+        baseUrl: providerBaseUrls.zhipuCn,
         apiRegions: [
-          { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-          { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+          { id: "cn", baseUrl: providerBaseUrls.zhipuCn },
+          { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
         ],
       },
       {
         id: "coding",
-        baseUrl: "https://api.z.ai/api/coding/paas/v4",
+        baseUrl: providerBaseUrls.zhipuCoding,
       },
     ],
     apiRegions: [
-      { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-      { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+      { id: "cn", baseUrl: providerBaseUrls.zhipuCn },
+      { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
     ],
     modelOptions: [
       { id: "glm-5.2", displayName: "GLM-5.2" },
@@ -75,10 +78,10 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "kimi",
     displayName: "Kimi",
-    baseUrl: "https://api.moonshot.cn/v1",
+    baseUrl: providerBaseUrls.kimiCn,
     apiRegions: [
-      { id: "cn", baseUrl: "https://api.moonshot.cn/v1" },
-      { id: "global", baseUrl: "https://api.moonshot.ai/v1" },
+      { id: "cn", baseUrl: providerBaseUrls.kimiCn },
+      { id: "global", baseUrl: providerBaseUrls.kimiGlobal },
     ],
     modelOptions: [
       { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true },
@@ -90,10 +93,10 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "minimax",
     displayName: "MiniMax",
-    baseUrl: "https://api.minimaxi.com/v1",
+    baseUrl: providerBaseUrls.minimaxCn,
     apiRegions: [
-      { id: "cn", baseUrl: "https://api.minimaxi.com/v1" },
-      { id: "global", baseUrl: "https://api.minimax.io/v1" },
+      { id: "cn", baseUrl: providerBaseUrls.minimaxCn },
+      { id: "global", baseUrl: providerBaseUrls.minimaxGlobal },
     ],
     modelOptions: [
       { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true },
@@ -110,28 +113,28 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "qwen",
     displayName: "Qwen",
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    baseUrl: providerBaseUrls.qwenStandardCn,
     apiPlans: [
       {
         id: "standard",
-        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        baseUrl: providerBaseUrls.qwenStandardCn,
         apiRegions: [
-          { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-          { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+          { id: "cn", baseUrl: providerBaseUrls.qwenStandardCn },
+          { id: "global", baseUrl: providerBaseUrls.qwenStandardGlobal },
         ],
       },
       {
         id: "coding",
-        baseUrl: "https://coding.dashscope.aliyuncs.com/v1",
+        baseUrl: providerBaseUrls.qwenCodingCn,
         apiRegions: [
-          { id: "cn", baseUrl: "https://coding.dashscope.aliyuncs.com/v1" },
-          { id: "global", baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1" },
+          { id: "cn", baseUrl: providerBaseUrls.qwenCodingCn },
+          { id: "global", baseUrl: providerBaseUrls.qwenCodingGlobal },
         ],
       },
     ],
     apiRegions: [
-      { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-      { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+      { id: "cn", baseUrl: providerBaseUrls.qwenStandardCn },
+      { id: "global", baseUrl: providerBaseUrls.qwenStandardGlobal },
     ],
     modelOptions: [
       { id: "qwen3.7-plus", displayName: "Qwen3.7 Plus", supportsImages: true },
@@ -142,19 +145,19 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "xiaomi",
     displayName: "Xiaomi MiMo",
-    baseUrl: "https://api.xiaomimimo.com/v1",
+    baseUrl: providerBaseUrls.xiaomiStandard,
     apiPlans: [
       {
         id: "standard",
-        baseUrl: "https://api.xiaomimimo.com/v1",
+        baseUrl: providerBaseUrls.xiaomiStandard,
       },
       {
         id: "token",
-        baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+        baseUrl: providerBaseUrls.xiaomiTokenCn,
         apiRegions: [
-          { id: "cn", baseUrl: "https://token-plan-cn.xiaomimimo.com/v1" },
-          { id: "sgp", baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1" },
-          { id: "ams", baseUrl: "https://token-plan-ams.xiaomimimo.com/v1" },
+          { id: "cn", baseUrl: providerBaseUrls.xiaomiTokenCn },
+          { id: "sgp", baseUrl: providerBaseUrls.xiaomiTokenSgp },
+          { id: "ams", baseUrl: providerBaseUrls.xiaomiTokenAms },
         ],
       },
     ],

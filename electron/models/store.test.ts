@@ -3,7 +3,10 @@ import { mkdtempSync, readdirSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { test } from "vitest"
+import { externalModelProviderBaseUrls } from "../domain.ts"
 import { defaultModelChoice, ModelsStore, sanitizeBaseUrl } from "./store.ts"
+
+const providerBaseUrls = externalModelProviderBaseUrls
 
 test("ModelsStore returns default catalog on missing file", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
@@ -24,37 +27,37 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
   const catalog = await store.catalog()
   const providers = new Map(catalog.providers.map((provider) => [provider.id, provider]))
 
-  assert.equal(providers.get("deepseek")?.baseUrl, "https://api.deepseek.com")
+  assert.equal(providers.get("deepseek")?.baseUrl, providerBaseUrls.deepseek)
   assert.equal(providers.get("deepseek")?.modelOptions?.[0]?.id, "deepseek-v4-flash")
   assert.equal(providers.get("deepseek")?.supportsImages, false)
-  assert.equal(providers.get("openrouter")?.baseUrl, "https://openrouter.ai/api/v1")
+  assert.equal(providers.get("openrouter")?.baseUrl, providerBaseUrls.openrouter)
   assert.equal(providers.get("openrouter")?.apiRegions, undefined)
   assert.equal(providers.get("openrouter")?.modelOptions, undefined)
   assert.equal(providers.get("openrouter")?.supportsImages, undefined)
-  assert.equal(providers.get("zhipu")?.baseUrl, "https://open.bigmodel.cn/api/paas/v4")
+  assert.equal(providers.get("zhipu")?.baseUrl, providerBaseUrls.zhipuCn)
   assert.deepEqual(providers.get("zhipu")?.apiRegions, [
-    { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-    { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+    { id: "cn", baseUrl: providerBaseUrls.zhipuCn },
+    { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
   ])
   assert.deepEqual(providers.get("zhipu")?.apiPlans, [
     {
       id: "standard",
-      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      baseUrl: providerBaseUrls.zhipuCn,
       apiRegions: [
-        { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
-        { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+        { id: "cn", baseUrl: providerBaseUrls.zhipuCn },
+        { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
       ],
     },
     {
       id: "coding",
-      baseUrl: "https://api.z.ai/api/coding/paas/v4",
+      baseUrl: providerBaseUrls.zhipuCoding,
     },
   ])
   assert.equal(providers.get("zhipu")?.supportsImages, false)
-  assert.equal(providers.get("kimi")?.baseUrl, "https://api.moonshot.cn/v1")
+  assert.equal(providers.get("kimi")?.baseUrl, providerBaseUrls.kimiCn)
   assert.deepEqual(providers.get("kimi")?.apiRegions, [
-    { id: "cn", baseUrl: "https://api.moonshot.cn/v1" },
-    { id: "global", baseUrl: "https://api.moonshot.ai/v1" },
+    { id: "cn", baseUrl: providerBaseUrls.kimiCn },
+    { id: "global", baseUrl: providerBaseUrls.kimiGlobal },
   ])
   assert.deepEqual(
     providers.get("kimi")?.modelOptions?.map((model) => model.id),
@@ -64,10 +67,10 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     providers.get("kimi")?.modelOptions?.map((model) => model.supportsImages),
     [true, true, true],
   )
-  assert.equal(providers.get("minimax")?.baseUrl, "https://api.minimaxi.com/v1")
+  assert.equal(providers.get("minimax")?.baseUrl, providerBaseUrls.minimaxCn)
   assert.deepEqual(providers.get("minimax")?.apiRegions, [
-    { id: "cn", baseUrl: "https://api.minimaxi.com/v1" },
-    { id: "global", baseUrl: "https://api.minimax.io/v1" },
+    { id: "cn", baseUrl: providerBaseUrls.minimaxCn },
+    { id: "global", baseUrl: providerBaseUrls.minimaxGlobal },
   ])
   assert.deepEqual(
     providers.get("minimax")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
@@ -82,27 +85,27 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
       ["MiniMax-M2", false],
     ],
   )
-  assert.equal(providers.get("qwen")?.baseUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1")
+  assert.equal(providers.get("qwen")?.baseUrl, providerBaseUrls.qwenStandardCn)
   assert.equal(providers.get("qwen")?.displayName, "Qwen")
   assert.deepEqual(providers.get("qwen")?.apiRegions, [
-    { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-    { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+    { id: "cn", baseUrl: providerBaseUrls.qwenStandardCn },
+    { id: "global", baseUrl: providerBaseUrls.qwenStandardGlobal },
   ])
   assert.deepEqual(providers.get("qwen")?.apiPlans, [
     {
       id: "standard",
-      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      baseUrl: providerBaseUrls.qwenStandardCn,
       apiRegions: [
-        { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-        { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+        { id: "cn", baseUrl: providerBaseUrls.qwenStandardCn },
+        { id: "global", baseUrl: providerBaseUrls.qwenStandardGlobal },
       ],
     },
     {
       id: "coding",
-      baseUrl: "https://coding.dashscope.aliyuncs.com/v1",
+      baseUrl: providerBaseUrls.qwenCodingCn,
       apiRegions: [
-        { id: "cn", baseUrl: "https://coding.dashscope.aliyuncs.com/v1" },
-        { id: "global", baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1" },
+        { id: "cn", baseUrl: providerBaseUrls.qwenCodingCn },
+        { id: "global", baseUrl: providerBaseUrls.qwenCodingGlobal },
       ],
     },
   ])
@@ -113,19 +116,19 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
       ["qwen3.7-max", true],
     ],
   )
-  assert.equal(providers.get("xiaomi")?.baseUrl, "https://api.xiaomimimo.com/v1")
+  assert.equal(providers.get("xiaomi")?.baseUrl, providerBaseUrls.xiaomiStandard)
   assert.deepEqual(providers.get("xiaomi")?.apiPlans, [
     {
       id: "standard",
-      baseUrl: "https://api.xiaomimimo.com/v1",
+      baseUrl: providerBaseUrls.xiaomiStandard,
     },
     {
       id: "token",
-      baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+      baseUrl: providerBaseUrls.xiaomiTokenCn,
       apiRegions: [
-        { id: "cn", baseUrl: "https://token-plan-cn.xiaomimimo.com/v1" },
-        { id: "sgp", baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1" },
-        { id: "ams", baseUrl: "https://token-plan-ams.xiaomimimo.com/v1" },
+        { id: "cn", baseUrl: providerBaseUrls.xiaomiTokenCn },
+        { id: "sgp", baseUrl: providerBaseUrls.xiaomiTokenSgp },
+        { id: "ams", baseUrl: providerBaseUrls.xiaomiTokenAms },
       ],
     },
   ])
@@ -150,7 +153,7 @@ test("ModelsStore persists custom models but public catalog redacts apiKey", asy
         id: "m1",
         providerId: "deepseek",
         providerName: "DeepSeek",
-        baseUrl: "https://api.deepseek.com/v1",
+        baseUrl: `${providerBaseUrls.deepseek}/v1`,
         apiKey: "sk-secret",
         modelName: "deepseek-chat",
       },
@@ -162,7 +165,7 @@ test("ModelsStore persists custom models but public catalog redacts apiKey", asy
     id: "m1",
     providerId: "deepseek",
     providerName: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
+    baseUrl: `${providerBaseUrls.deepseek}/v1`,
     modelName: "deepseek-chat",
     displayName: "DeepSeek:deepseek-chat",
     apiKeyConfigured: true,
@@ -182,7 +185,7 @@ test("ModelsStore exposes custom model image support", async () => {
         id: "m1",
         providerId: "openrouter",
         providerName: "OpenRouter",
-        baseUrl: "https://openrouter.ai/api/v1",
+        baseUrl: providerBaseUrls.openrouter,
         apiKey: "sk-secret",
         modelName: "vision-model",
         supportsImages: true,
@@ -196,6 +199,6 @@ test("ModelsStore exposes custom model image support", async () => {
 })
 
 test("sanitizeBaseUrl trims trailing slash and rejects invalid protocols", () => {
-  assert.equal(sanitizeBaseUrl(" https://openrouter.ai/api/v1/ "), "https://openrouter.ai/api/v1")
+  assert.equal(sanitizeBaseUrl(` ${providerBaseUrls.openrouter}/ `), providerBaseUrls.openrouter)
   assert.throws(() => sanitizeBaseUrl("file:///tmp/model"))
 })

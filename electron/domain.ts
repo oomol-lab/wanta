@@ -44,3 +44,24 @@ export const staticBaseUrl = `https://static.${ooEndpoint}`
 
 /** 语音转写服务基址。当前 Studio Chat 使用同一账号鉴权；域名仍由统一 endpoint 派生。 */
 export const voiceAsrBaseUrl = `https://chat-as-proxy-dev.${ooEndpoint}`
+
+/** 第三方自定义模型提供方默认 API 基址。业务代码统一从这里引用，避免域名散落。 */
+export const externalModelProviderBaseUrls = {
+  deepseek: "https://api.deepseek.com",
+  openrouter: "https://openrouter.ai/api/v1",
+  zhipuCn: "https://open.bigmodel.cn/api/paas/v4",
+  zhipuGlobal: "https://api.z.ai/api/paas/v4",
+  zhipuCoding: "https://api.z.ai/api/coding/paas/v4",
+  kimiCn: "https://api.moonshot.cn/v1",
+  kimiGlobal: "https://api.moonshot.ai/v1",
+  minimaxCn: "https://api.minimaxi.com/v1",
+  minimaxGlobal: "https://api.minimax.io/v1",
+  qwenStandardCn: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  qwenStandardGlobal: "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+  qwenCodingCn: "https://coding.dashscope.aliyuncs.com/v1",
+  qwenCodingGlobal: "https://coding-intl.dashscope.aliyuncs.com/v1",
+  xiaomiStandard: "https://api.xiaomimimo.com/v1",
+  xiaomiTokenCn: "https://token-plan-cn.xiaomimimo.com/v1",
+  xiaomiTokenSgp: "https://token-plan-sgp.xiaomimimo.com/v1",
+  xiaomiTokenAms: "https://token-plan-ams.xiaomimimo.com/v1",
+} as const

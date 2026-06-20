@@ -104,11 +104,19 @@ async function fetchBytes(url: string): Promise<Buffer> {
   return Buffer.from(await response.arrayBuffer())
 }
 
+// 从 .sha256 文件内容里抽取 64 位十六进制摘要。ripgrep 各平台格式不同：
+// Unix 是 sha256sum 风格（`<hash>  <file>`，哈希在首列），Windows 是 CertUtil
+// 风格（首行 `SHA256 hash of <file>:`，哈希独占第二行）。统一按内容匹配 64-hex
+// 串，不按 token 位置取——否则 Windows 会把字面量 "SHA256" 当成期望哈希。
+export function parseSha256(shaFile: string): string | null {
+  return shaFile.match(/[0-9a-f]{64}/i)?.[0]?.toLowerCase() ?? null
+}
+
 function verifySha256(data: Buffer, shaFile: string, source: string): void {
-  const expected = shaFile.trim().split(/\s+/)[0]
+  const expected = parseSha256(shaFile)
   const actual = createHash("sha256").update(data).digest("hex")
   if (!expected || actual !== expected) {
-    throw new Error(`sha256 mismatch for ${source}: expected ${expected || "<missing>"}, got ${actual}`)
+    throw new Error(`sha256 mismatch for ${source}: expected ${expected ?? "<missing>"}, got ${actual}`)
   }
 }
 

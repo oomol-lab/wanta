@@ -296,13 +296,44 @@ function attachmentsKey(attachments: ChatAttachment[] | undefined): string {
     .join("\n")
 }
 
-function hasUserMessage(msgs: ChatMessage[], text: string, attachments?: ChatAttachment[]): boolean {
-  const expectedAttachments = attachmentsKey(attachments)
+function contextMentionsKey(mentions: ChatContextMention[] | undefined): string {
+  return (mentions ?? [])
+    .map((mention) =>
+      mention.kind === "skill"
+        ? `skill:${mention.id}:${mention.name}`
+        : `connection:${mention.service}:${mention.displayName}:${mention.appId ?? ""}:${mention.accountLabel ?? ""}`,
+    )
+    .sort()
+    .join("\n")
+}
+
+function userContentKey(text: string, attachments?: ChatAttachment[]): string {
+  return `${text}\n---attachments---\n${attachmentsKey(attachments)}`
+}
+
+function userMessageKey(text: string, attachments?: ChatAttachment[], contextMentions?: ChatContextMention[]): string {
+  return `${userContentKey(text, attachments)}\n---context---\n${contextMentionsKey(contextMentions)}`
+}
+
+function hasUserMessage(
+  msgs: ChatMessage[],
+  text: string,
+  attachments?: ChatAttachment[],
+  contextMentions?: ChatContextMention[],
+): boolean {
+  const expectedKey = userMessageKey(text, attachments, contextMentions)
   return msgs.some(
     (message) =>
       message.role === "user" &&
-      messageText(message) === text &&
-      attachmentsKey(messageAttachments(message)) === expectedAttachments,
+      userMessageKey(messageText(message), messageAttachments(message), message.contextMentions) === expectedKey,
+  )
+}
+
+function hasUserContent(msgs: ChatMessage[], text: string, attachments?: ChatAttachment[]): boolean {
+  const expectedKey = userContentKey(text, attachments)
+  return msgs.some(
+    (message) =>
+      message.role === "user" && userContentKey(messageText(message), messageAttachments(message)) === expectedKey,
   )
 }
 
@@ -312,7 +343,7 @@ export function appendOptimisticConversationTurn(
   attachments?: ChatAttachment[],
   contextMentions?: ChatContextMention[],
 ): ChatMessage[] {
-  if (hasUserMessage(msgs, text, attachments)) {
+  if (hasUserMessage(msgs, text, attachments, contextMentions)) {
     return msgs
   }
   const now = Date.now()
@@ -361,6 +392,15 @@ export function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[
 }
 
 export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+  const localUsers = current.filter((message) => message.role === "user" && message.id.startsWith("local-user-"))
+  const localUsersByContent = new Map<string, ChatMessage[]>()
+  const localUserByMessageKey = new Map<string, ChatMessage>()
+  for (const message of localUsers) {
+    const attachments = messageAttachments(message)
+    const contentKey = userContentKey(messageText(message), attachments)
+    localUsersByContent.set(contentKey, [...(localUsersByContent.get(contentKey) ?? []), message])
+    localUserByMessageKey.set(userMessageKey(messageText(message), attachments, message.contextMentions), message)
+  }
   const currentErrorPartsById = new Map(
     current.map((message) => [
       message.id,
@@ -373,26 +413,24 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
       message.id.startsWith("local-assistant-") &&
       message.parts.some((part) => part.kind === "error" && Boolean(part.errorText)),
   )
-  const missingLocalUsers = current.filter(
-    (message) =>
-      message.role === "user" &&
-      message.id.startsWith("local-user-") &&
-      !hasUserMessage(fetched, messageText(message), messageAttachments(message)),
-  )
-  const localUserByContent = new Map(
-    current
-      .filter((message) => message.role === "user" && message.id.startsWith("local-user-"))
-      .map((message) => [`${messageText(message)}\n---\n${attachmentsKey(messageAttachments(message))}`, message]),
-  )
+  const missingLocalUsers = current.filter((message) => {
+    if (message.role !== "user" || !message.id.startsWith("local-user-")) {
+      return false
+    }
+    const attachments = messageAttachments(message)
+    const sameContentLocalUsers = localUsersByContent.get(userContentKey(messageText(message), attachments)) ?? []
+    if (sameContentLocalUsers.length === 1) {
+      return !hasUserContent(fetched, messageText(message), attachments)
+    }
+    return !hasUserMessage(fetched, messageText(message), attachments, message.contextMentions)
+  })
   const currentById = new Map(current.map((message) => [message.id, message]))
   const artifactRootByMessageId = new Map(
     current.flatMap((message) => (message.artifactRoot ? [[message.id, message.artifactRoot] as const] : [])),
   )
   const fetchedWithLocalState = fetched.map((message) => {
     const matchedLocalUser =
-      message.role === "user"
-        ? localUserByContent.get(`${messageText(message)}\n---\n${attachmentsKey(messageAttachments(message))}`)
-        : undefined
+      message.role === "user" ? matchLocalUser(message, localUserByMessageKey, localUsersByContent) : undefined
     const currentMessage = currentById.get(message.id) ?? matchedLocalUser
     const artifactRoot = artifactRootByMessageId.get(message.id)
     return {
@@ -407,6 +445,20 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
   })
   const merged = missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetchedWithLocalState] : fetchedWithLocalState
   return missingLocalAssistants.length > 0 ? [...merged, ...missingLocalAssistants] : merged
+}
+
+function matchLocalUser(
+  message: ChatMessage,
+  localUserByMessageKey: Map<string, ChatMessage>,
+  localUsersByContent: Map<string, ChatMessage[]>,
+): ChatMessage | undefined {
+  const attachments = messageAttachments(message)
+  const exact = localUserByMessageKey.get(userMessageKey(messageText(message), attachments, message.contextMentions))
+  if (exact) {
+    return exact
+  }
+  const candidates = localUsersByContent.get(userContentKey(messageText(message), attachments)) ?? []
+  return candidates.length === 1 ? candidates[0] : undefined
 }
 
 function preserveLocalErrorParts(

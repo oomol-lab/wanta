@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { describe, expect, it } from "vitest"
-import { AgentManager, isUserVisibleSession } from "./manager.ts"
+import { AgentManager, buildPromptParts, isUserVisibleSession, trustedAgentAttachmentRoot } from "./manager.ts"
 
 describe("AgentManager", () => {
   it("hides OpenCode subagent sessions from the user task list", () => {
@@ -57,5 +57,61 @@ describe("AgentManager", () => {
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("uses agent attachment copies only from the controlled clipboard attachment directory", () => {
+    const agentRoot = path.join(tmpdir(), "lumo-user-data", "agent")
+    const trustedRoot = trustedAgentAttachmentRoot(agentRoot)
+    const originalPath = path.join(tmpdir(), "original.png")
+    const trustedAgentPath = path.join(trustedRoot, "optimized.webp")
+    const untrustedAgentPath = path.join(tmpdir(), "other", "secret.txt")
+
+    const trustedParts = buildPromptParts(
+      "Read image",
+      [
+        {
+          id: "att-1",
+          name: "original.png",
+          mime: "image/png",
+          size: 100,
+          path: originalPath,
+          kind: "file",
+          agentName: "optimized.webp",
+          agentMime: "image/webp",
+          agentPath: trustedAgentPath,
+          agentSize: 80,
+        },
+      ],
+      trustedRoot,
+    )
+    const untrustedParts = buildPromptParts(
+      "Read image",
+      [
+        {
+          id: "att-2",
+          name: "original.png",
+          mime: "image/png",
+          size: 100,
+          path: originalPath,
+          kind: "file",
+          agentName: "secret.txt",
+          agentMime: "text/plain",
+          agentPath: untrustedAgentPath,
+          agentSize: 80,
+        },
+      ],
+      trustedRoot,
+    )
+
+    expect(trustedParts[0]).toMatchObject({
+      filename: "optimized.webp",
+      mime: "image/webp",
+      source: { path: trustedAgentPath },
+    })
+    expect(untrustedParts[0]).toMatchObject({
+      filename: "original.png",
+      mime: "image/png",
+      source: { path: originalPath },
+    })
   })
 })

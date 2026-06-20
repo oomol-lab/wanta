@@ -13,8 +13,8 @@ if (!process.env.LUMO_OO_BIN) {
   const ooBin = localOoBinPath()
   if (!existsSync(ooBin)) {
     console.error(
-      `[lumo] oo 二进制缺失：${ooBin}\n` +
-        "  运行 `npm run postinstall` 重新下载，或设 LUMO_OO_BIN 指向已有 oo（见 .env.example）。",
+      `[lumo] oo binary missing: ${ooBin}\n` +
+        "  Run `npm run postinstall` to download it again, or set LUMO_OO_BIN to an existing oo binary (see .env.example).",
     )
     process.exit(1)
   }
@@ -23,7 +23,8 @@ if (!process.env.LUMO_OO_BIN) {
 const rgBin = localRipgrepBinPath()
 if (!existsSync(rgBin)) {
   console.error(
-    `[lumo] ripgrep 二进制缺失：${rgBin}\n` + "  运行 `npm run postinstall` 重新下载；本地文件搜索工具需要 rg。",
+    `[lumo] ripgrep binary missing: ${rgBin}\n` +
+      "  Run `npm run postinstall` to download it again; local file search tooling requires rg.",
   )
   process.exit(1)
 }

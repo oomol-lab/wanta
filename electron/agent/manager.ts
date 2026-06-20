@@ -324,7 +324,7 @@ export class AgentManager {
           agent: LUMO_AGENT_NAME,
           model: this.resolveModel(options.model),
           ...(tail ? { system: tail } : {}),
-          parts: buildPromptParts(text, options.attachments),
+          parts: buildPromptParts(text, options.attachments, trustedAgentAttachmentRoot(this.options.rootDir)),
         },
       })
       if (options.signal?.aborted) {
@@ -434,15 +434,45 @@ export class AgentManager {
   }
 }
 
-function buildPromptParts(
+export function trustedAgentAttachmentRoot(agentRootDir: string): string {
+  return path.join(path.dirname(agentRootDir), "attachments", "clipboard")
+}
+
+function isPathInside(rootDir: string, candidate: string): boolean {
+  if (!path.isAbsolute(candidate)) {
+    return false
+  }
+  const root = path.resolve(rootDir)
+  const target = path.resolve(candidate)
+  const relative = path.relative(root, target)
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+}
+
+function trustedAgentInput(
+  attachment: ChatAttachment,
+  agentAttachmentRoot: string | undefined,
+): { mime: string; name: string; path: string } | undefined {
+  if (!attachment.agentPath || !agentAttachmentRoot || !isPathInside(agentAttachmentRoot, attachment.agentPath)) {
+    return undefined
+  }
+  return {
+    mime: attachment.agentMime ?? attachment.mime,
+    name: attachment.agentName ?? attachment.name,
+    path: attachment.agentPath,
+  }
+}
+
+export function buildPromptParts(
   text: string,
   attachments: ChatAttachment[] | undefined,
+  agentAttachmentRoot?: string,
 ): Array<TextPartInput | FilePartInput> {
   const parts: Array<TextPartInput | FilePartInput> = []
   for (const attachment of attachments ?? []) {
-    const inputPath = attachment.agentPath ?? attachment.path
-    const inputName = attachment.agentName ?? attachment.name
-    const inputMime = attachment.agentMime ?? attachment.mime
+    const agentInput = trustedAgentInput(attachment, agentAttachmentRoot)
+    const inputPath = agentInput?.path ?? attachment.path
+    const inputName = agentInput?.name ?? attachment.name
+    const inputMime = agentInput?.mime ?? attachment.mime
     parts.push({
       type: "file",
       mime: inputMime || "application/octet-stream",

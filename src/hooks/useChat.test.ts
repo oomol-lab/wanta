@@ -101,6 +101,22 @@ describe("chat message identity reconciliation", () => {
     expect(merged[0]?.contextMentions).toEqual([skillMention])
   })
 
+  it("does not deduplicate optimistic user messages with different context mentions", () => {
+    const otherSkillMention: ChatContextMention = {
+      id: "report-writer",
+      kind: "skill",
+      name: "report-writer",
+    }
+    const first = appendOptimisticConversationTurn([], "Run this", [], [skillMention])
+    const second = appendOptimisticConversationTurn(first, "Run this", [], [otherSkillMention])
+    const repeated = appendOptimisticConversationTurn(second, "Run this", [], [otherSkillMention])
+
+    expect(second.filter((message) => message.role === "user")).toHaveLength(2)
+    expect(second[0]?.contextMentions).toEqual([skillMention])
+    expect(second[2]?.contextMentions).toEqual([otherSkillMention])
+    expect(repeated).toBe(second)
+  })
+
   it("attaches message errors to the latest assistant bubble", () => {
     const current = appendOptimisticConversationTurn([], "Create a report", [])
     const updated = setErrorPart(current, {

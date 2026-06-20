@@ -224,14 +224,14 @@ export class AgentManager {
     try {
       const first = await this.requestSessionTitle(titleSource)
       const firstTitle = sanitizeGeneratedSessionTitle(first, input)
-      if (isGeneratedSessionTitleAcceptable(firstTitle)) {
-        return { generated: true, title: firstTitle }
+      if (!firstTitle.usedFallback && isGeneratedSessionTitleAcceptable(firstTitle.title)) {
+        return { generated: true, title: firstTitle.title }
       }
 
-      const retry = await this.requestSessionTitle(titleSource, firstTitle)
+      const retry = await this.requestSessionTitle(titleSource, firstTitle.title)
       const retryTitle = sanitizeGeneratedSessionTitle(retry, input)
-      return isGeneratedSessionTitleAcceptable(retryTitle)
-        ? { generated: true, title: retryTitle }
+      return !retryTitle.usedFallback && isGeneratedSessionTitleAcceptable(retryTitle.title)
+        ? { generated: true, title: retryTitle.title }
         : { generated: false, title: fallback }
     } catch (error) {
       console.warn("[lumo] failed to generate session title, using fallback:", error)
@@ -300,30 +300,47 @@ export class AgentManager {
       return
     }
     const tail = mergeSystemPrompts(
-      await this.buildAuthorizedSystem(),
+      await this.buildAuthorizedSystem(options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir),
     )
     if (options.signal?.aborted) {
       return
     }
-    const result = await this.client.session.promptAsync({
-      path: { id: sessionId },
-      body: {
-        agent: LUMO_AGENT_NAME,
-        model: this.resolveModel(options.model),
-        ...(tail ? { system: tail } : {}),
-        parts: buildPromptParts(text, options.attachments),
-      },
-    })
-    if (result.error) {
-      throw new Error(`session.promptAsync failed: ${JSON.stringify(result.error)}`)
+    const abortPrompt = (): void => {
+      void this.abort(sessionId).catch((error) => {
+        console.warn("[lumo] abort prompt after signal failed:", error)
+      })
+    }
+    options.signal?.addEventListener("abort", abortPrompt, { once: true })
+    try {
+      if (options.signal?.aborted) {
+        return
+      }
+      const result = await this.client.session.promptAsync({
+        path: { id: sessionId },
+        signal: options.signal,
+        body: {
+          agent: LUMO_AGENT_NAME,
+          model: this.resolveModel(options.model),
+          ...(tail ? { system: tail } : {}),
+          parts: buildPromptParts(text, options.attachments),
+        },
+      })
+      if (options.signal?.aborted) {
+        return
+      }
+      if (result.error) {
+        throw new Error(`session.promptAsync failed: ${JSON.stringify(result.error)}`)
+      }
+    } finally {
+      options.signal?.removeEventListener("abort", abortPrompt)
     }
   }
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
-  public async buildAuthorizedSystem(): Promise<string | undefined> {
-    const services = await this.listAuthorizedServices()
+  public async buildAuthorizedSystem(signal?: AbortSignal): Promise<string | undefined> {
+    const services = await this.listAuthorizedServices(signal)
     if (services.length === 0) {
       return undefined
     }
@@ -336,14 +353,15 @@ export class AgentManager {
   }
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
-  public async listAuthorizedServices(): Promise<string[]> {
+  public async listAuthorizedServices(signal?: AbortSignal): Promise<string[]> {
     if (!this.started) {
       return []
     }
+    const requestSignal = signalWithTimeout(signal, 15_000)
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
         headers: { Authorization: `Bearer ${this.options.apiKey}` },
-        signal: AbortSignal.timeout(15_000),
+        signal: requestSignal.signal,
       })
       if (!response.ok) {
         return []
@@ -353,6 +371,8 @@ export class AgentManager {
       return apps.filter((a) => a.status === "active" && a.service).map((a) => a.service as string)
     } catch {
       return []
+    } finally {
+      requestSignal.cleanup()
     }
   }
 
@@ -434,6 +454,29 @@ function buildPromptParts(
   }
   parts.push({ type: "text", text })
   return parts
+}
+
+function signalWithTimeout(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  const abort = (): void => {
+    controller.abort(signal?.reason)
+  }
+  if (signal?.aborted) {
+    abort()
+  } else {
+    signal?.addEventListener("abort", abort, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId)
+      signal?.removeEventListener("abort", abort)
+    },
+  }
 }
 
 function buildArtifactSystem(artifactDir: string | undefined): string | undefined {

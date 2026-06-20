@@ -30,7 +30,7 @@ describe("composer controls", () => {
     })
   })
 
-  it("keeps submitted submit clickable as an explicit stop control", () => {
+  it("keeps submitted submit disabled while the initial send is pending", () => {
     expect(
       composerSubmitState({
         canSubmit: true,
@@ -44,6 +44,9 @@ describe("composer controls", () => {
       stopsGeneration: false,
       visualStatus: "submitted",
     })
+  })
+
+  it("keeps submitted submit clickable as an explicit stop control after send starts", () => {
     expect(
       composerSubmitState({
         canSubmit: true,

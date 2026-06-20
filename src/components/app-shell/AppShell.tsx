@@ -1192,6 +1192,27 @@ export function AppShell() {
       }
 
       titleGenerationInFlightBySession.current.set(sessionId, generationKey)
+      const applyFallbackTitle = async (title: string): Promise<void> => {
+        const latest = sessionsRef.current.find((session) => session.id === sessionId)
+        if (!latest || !title) {
+          return
+        }
+        const canRefresh = isSessionTitleAutoRefreshable(
+          latest,
+          allowPlaceholder,
+          autoFallbackTitleBySession.current,
+          fallbackTitle,
+        )
+        if (!canRefresh && title !== latest.title) {
+          return
+        }
+        if (title !== latest.title) {
+          await rename(sessionId, title)
+        }
+        if (canRefresh || title === latest.title) {
+          autoFallbackTitleBySession.current.set(sessionId, title)
+        }
+      }
       try {
         const result = await generateTitle(input)
         const title = result.title
@@ -1209,6 +1230,7 @@ export function AppShell() {
         }
 
         if (!result.generated) {
+          await applyFallbackTitle(title || fallbackTitle)
           titleGenerationRetryAfterBySession.current.set(sessionId, {
             key: generationKey,
             retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
@@ -1237,6 +1259,7 @@ export function AppShell() {
         titleGenerationRetryAfterBySession.current.delete(sessionId)
         lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
       } catch (error) {
+        await applyFallbackTitle(fallbackTitle)
         titleGenerationRetryAfterBySession.current.set(sessionId, {
           key: generationKey,
           retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,

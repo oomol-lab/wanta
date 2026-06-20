@@ -9,11 +9,16 @@ const oldEllipsisPattern = /\.{3}$/
 const leadingChineseRequestPattern = /^(?:请|麻烦)?(?:你|您)?(?:帮(?:我|忙)|给我|替我)(?:一下|下)?(?:把|将)?/
 const leadingChineseObjectMarkerPattern = /^(?:把|将)/
 const leadingChinesePointerPattern = /^(?:这个|那个|这些|那些)/
-const trailingChineseFetchActionPattern = /(?:都)?(?:抓|抓取|下载|保存|提取)(?:下来|出来|一下|下)?$/
+const trailingChineseFetchActionPattern = /(?:都)?(抓取|抓|下载|保存|提取)(?:下来|出来|一下|下)?$/
 
 export interface BuildSessionTitleInput {
   text: string
   attachmentNames?: string[]
+}
+
+export interface SanitizedGeneratedSessionTitle {
+  title: string
+  usedFallback: boolean
 }
 
 export function buildFallbackSessionTitle(input: BuildSessionTitleInput): string {
@@ -23,24 +28,27 @@ export function buildFallbackSessionTitle(input: BuildSessionTitleInput): string
   return normalizeSessionTitle(compactTitleText(source ?? SESSION_TITLE_FALLBACK))
 }
 
-export function sanitizeGeneratedSessionTitle(raw: string, fallbackInput: BuildSessionTitleInput): string {
+export function sanitizeGeneratedSessionTitle(
+  raw: string,
+  fallbackInput: BuildSessionTitleInput,
+): SanitizedGeneratedSessionTitle {
   const title = titleFromGeneratedOutput(raw)
   const withoutPrefix = title.replace(/^(title|标题)\s*[:：]\s*/i, "")
   const stripped = stripWrappingPunctuation(withoutPrefix)
   const normalized = normalizeTitleText(stripped)
 
-  if (!normalized || isMostlyUrlTitle(normalized)) {
-    return buildFallbackSessionTitle(fallbackInput)
+  if (!normalized || containsHttpUrl(normalized)) {
+    return { title: buildFallbackSessionTitle(fallbackInput), usedFallback: true }
   }
 
-  return normalizeSessionTitle(compactTitleText(normalized))
+  return { title: normalizeSessionTitle(compactTitleText(normalized)), usedFallback: false }
 }
 
 export function isGeneratedSessionTitleAcceptable(title: string): boolean {
   const normalized = normalizeTitleText(title)
   if (
     !normalized ||
-    isMostlyUrlTitle(normalized) ||
+    containsHttpUrl(normalized) ||
     oldEllipsisPattern.test(normalized) ||
     normalized.includes("…") ||
     /[.!?。！？,，;；:：]$/.test(normalized)
@@ -67,7 +75,7 @@ export function shouldAutoRefreshSessionTitle(title: string, allowPlaceholder: b
   if (allowPlaceholder && isPlaceholderTitle(normalized)) {
     return true
   }
-  return isMostlyUrlTitle(normalized) || oldEllipsisPattern.test(normalized) || normalized.includes("…")
+  return containsHttpUrl(normalized) || oldEllipsisPattern.test(normalized) || normalized.includes("…")
 }
 
 export function isPlaceholderTitle(title: string): boolean {
@@ -106,9 +114,11 @@ function compactChineseRequestTitle(value: string): string | undefined {
     .replace(/中的/g, "")
     .trim()
 
-  if (trailingChineseFetchActionPattern.test(title)) {
+  const fetchActionMatch = title.match(trailingChineseFetchActionPattern)
+  if (fetchActionMatch) {
+    const action = fetchActionMatch[1] === "抓" ? "抓取" : fetchActionMatch[1]
     const object = title.replace(trailingChineseFetchActionPattern, "").replace(leadingChinesePointerPattern, "").trim()
-    return object ? `抓取${object}` : title
+    return object ? `${action}${object}` : title
   }
 
   return title || undefined
@@ -139,15 +149,32 @@ function titleFromGeneratedOutput(raw: string): string {
   if (!trimmed) {
     return ""
   }
-  try {
-    const parsed = JSON.parse(trimmed) as { title?: unknown }
-    if (parsed && typeof parsed.title === "string") {
-      return parsed.title
-    }
-  } catch {
-    // 非 JSON 输出按旧纯文本路径处理。
+  const unfenced = stripMarkdownFence(trimmed)
+  const parsedTitle = titleFromJsonObject(unfenced)
+  if (parsedTitle !== undefined) {
+    return parsedTitle
   }
-  return trimmed.split(/\r?\n/).find((line) => line.trim()) ?? ""
+
+  return unfenced.split(/\r?\n/).find((line) => line.trim()) ?? ""
+}
+
+function titleFromJsonObject(value: string): string | undefined {
+  try {
+    const parsed = JSON.parse(value) as { title?: unknown }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return typeof parsed.title === "string" ? parsed.title : ""
+    }
+    return ""
+  } catch {
+    return undefined
+  }
+}
+
+function stripMarkdownFence(value: string): string {
+  return value
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim()
 }
 
 function stripWrappingPunctuation(value: string): string {
@@ -171,14 +198,10 @@ function titleFromFirstUrl(value: string): string | undefined {
   }
 }
 
-function isMostlyUrlTitle(value: string): boolean {
+function containsHttpUrl(value: string): boolean {
   const normalized = normalizeTitleText(value)
   if (!normalized) {
     return false
   }
-  if (/^https?:\/\//i.test(normalized)) {
-    return true
-  }
-  const withoutUrls = normalizeTitleText(normalized.replace(urlPattern, " "))
-  return Boolean(withoutUrls.length === 0 && normalized.match(urlPattern))
+  return Boolean(normalized.match(urlPattern))
 }

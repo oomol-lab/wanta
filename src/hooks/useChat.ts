@@ -573,10 +573,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       clearSessionError(sessionId)
       markSessionUserStopped(sessionId)
       markCurrentToolsCancelled(sessionId)
-      setStatus(sessionId, "ready")
-      setActivity(sessionId, undefined)
       try {
         await chatService.invoke("stopGeneration", sessionId)
+        setStatus(sessionId, "ready")
+        setActivity(sessionId, undefined)
       } catch (err) {
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)

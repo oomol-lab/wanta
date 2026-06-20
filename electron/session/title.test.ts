@@ -25,6 +25,8 @@ describe("session title helpers", () => {
 
   it("compacts request-like fallback titles", () => {
     expect(buildFallbackSessionTitle({ text: "你帮我将这个店铺中商品相关的图片都抓下来" })).toBe("抓取店铺商品图片")
+    expect(buildFallbackSessionTitle({ text: "帮我把这个文件保存下来" })).toBe("保存文件")
+    expect(buildFallbackSessionTitle({ text: "帮我把这个文件下载下来" })).toBe("下载文件")
   })
 
   it("cleans model output before storing it", () => {
@@ -32,7 +34,23 @@ describe("session title helpers", () => {
       sanitizeGeneratedSessionTitle('{"title":"查找 1688 商品图片"}', {
         text: "https://detail.example.com/offer/123.html",
       }),
-    ).toBe("查找 1688 商品图片")
+    ).toEqual({ title: "查找 1688 商品图片", usedFallback: false })
+  })
+
+  it("parses fenced JSON model output", () => {
+    expect(
+      sanitizeGeneratedSessionTitle('```json\n{"title":"Gmail 三日报告"}\n```', {
+        text: "分析最近三天 Gmail 信息",
+      }),
+    ).toEqual({ title: "Gmail 三日报告", usedFallback: false })
+  })
+
+  it("falls back for malformed generated JSON", () => {
+    expect(
+      sanitizeGeneratedSessionTitle('{"title":123}', {
+        text: "分析最近三天 Gmail 信息",
+      }),
+    ).toEqual({ title: "分析最近三天 Gmail 信息", usedFallback: true })
   })
 
   it("validates generated titles by language-aware length rules", () => {
@@ -42,6 +60,7 @@ describe("session title helpers", () => {
     expect(isGeneratedSessionTitleAcceptable("分析一下我最近三天的 Gmail")).toBe(false)
     expect(isGeneratedSessionTitleAcceptable("Search 1688 product images with Metaso")).toBe(false)
     expect(isGeneratedSessionTitleAcceptable("分析一下我最近三天的 Gma")).toBe(false)
+    expect(isGeneratedSessionTitleAcceptable("Review https://a.co")).toBe(false)
   })
 
   it("falls back when the model returns a URL", () => {
@@ -49,7 +68,7 @@ describe("session title helpers", () => {
       sanitizeGeneratedSessionTitle("https://detail.example.com/offer/123.html", {
         text: "https://detail.example.com/offer/123.html",
       }),
-    ).toBe("detail.example.com")
+    ).toEqual({ title: "detail.example.com", usedFallback: true })
   })
 
   it("only auto-refreshes placeholders and obviously generated titles", () => {

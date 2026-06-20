@@ -1,4 +1,5 @@
 import type {
+  CustomModelApiPlan,
   CustomModelProvider,
   ModelCatalog,
   ModelChoice,
@@ -294,16 +295,50 @@ export function ModelPicker({
   )
 }
 
-function providerBaseUrl(provider: CustomModelProvider | undefined): string {
-  return provider?.apiRegions?.[0]?.baseUrl ?? provider?.baseUrl ?? ""
+type ApiEndpointSource = Pick<CustomModelProvider | CustomModelApiPlan, "apiRegions" | "baseUrl">
+
+function selectedApiPlan(provider: CustomModelProvider | undefined, apiPlanId: string): CustomModelApiPlan | undefined {
+  return provider?.apiPlans?.find((plan) => plan.id === apiPlanId) ?? provider?.apiPlans?.[0]
 }
 
-function providerDefaultApiRegionId(provider: CustomModelProvider | undefined): string {
-  return provider?.apiRegions?.[0]?.id ?? ""
+function providerDefaultApiPlanId(provider: CustomModelProvider | undefined): string {
+  return provider?.apiPlans?.[0]?.id ?? ""
+}
+
+function providerEndpoint(
+  provider: CustomModelProvider | undefined,
+  apiPlanId = providerDefaultApiPlanId(provider),
+): ApiEndpointSource | undefined {
+  return selectedApiPlan(provider, apiPlanId) ?? provider
+}
+
+function endpointBaseUrl(endpoint: ApiEndpointSource | undefined): string {
+  return endpoint?.apiRegions?.[0]?.baseUrl ?? endpoint?.baseUrl ?? ""
+}
+
+function providerBaseUrl(provider: CustomModelProvider | undefined): string {
+  return endpointBaseUrl(providerEndpoint(provider))
+}
+
+function endpointDefaultApiRegionId(endpoint: ApiEndpointSource | undefined): string {
+  return endpoint?.apiRegions?.[0]?.id ?? ""
 }
 
 function providerDefaultModelName(provider: CustomModelProvider | undefined): string {
   return provider?.modelOptions?.[0]?.id ?? ""
+}
+
+function apiPlanLabel(id: string, t: ReturnType<typeof useT>): string {
+  if (id === "standard") {
+    return t("chat.modelApiPlanStandard")
+  }
+  if (id === "coding") {
+    return t("chat.modelApiPlanCoding")
+  }
+  if (id === "token") {
+    return t("chat.modelApiPlanToken")
+  }
+  return id
 }
 
 function apiRegionLabel(id: string, t: ReturnType<typeof useT>): string {
@@ -312,6 +347,12 @@ function apiRegionLabel(id: string, t: ReturnType<typeof useT>): string {
   }
   if (id === "global") {
     return t("chat.modelApiRegionGlobal")
+  }
+  if (id === "sgp") {
+    return t("chat.modelApiRegionSgp")
+  }
+  if (id === "ams") {
+    return t("chat.modelApiRegionAms")
   }
   return id
 }
@@ -349,16 +390,19 @@ export function AddCustomModelDialog({
   const t = useT()
   const firstProvider = providers[0]
   const [providerId, setProviderId] = React.useState(firstProvider?.id ?? "custom")
+  const [apiPlanId, setApiPlanId] = React.useState(providerDefaultApiPlanId(firstProvider))
   const [baseUrl, setBaseUrl] = React.useState(providerBaseUrl(firstProvider))
   const [apiKey, setApiKey] = React.useState("")
   const [modelName, setModelName] = React.useState("")
-  const [apiRegionId, setApiRegionId] = React.useState(providerDefaultApiRegionId(firstProvider))
+  const [apiRegionId, setApiRegionId] = React.useState(endpointDefaultApiRegionId(providerEndpoint(firstProvider)))
   const [supportsImages, setSupportsImages] = React.useState(providerDefaultSupportsImages(firstProvider, ""))
   const [saving, setSaving] = React.useState(false)
   const supportsImagesId = React.useId()
   const provider = providers.find((item) => item.id === providerId)
   const modelOptions = provider?.modelOptions ?? []
-  const apiRegions = provider?.apiRegions ?? []
+  const apiPlans = provider?.apiPlans ?? []
+  const apiEndpoint = providerEndpoint(provider, apiPlanId)
+  const apiRegions = apiEndpoint?.apiRegions ?? []
 
   React.useEffect(() => {
     if (open) {
@@ -367,7 +411,8 @@ export function AddCustomModelDialog({
       setBaseUrl(providerBaseUrl(initial))
       const initialModelName = providerDefaultModelName(initial)
       setModelName(initialModelName)
-      setApiRegionId(providerDefaultApiRegionId(initial))
+      setApiPlanId(providerDefaultApiPlanId(initial))
+      setApiRegionId(endpointDefaultApiRegionId(providerEndpoint(initial)))
       setSupportsImages(providerDefaultSupportsImages(initial, initialModelName))
       setApiKey("")
       setSaving(false)
@@ -376,17 +421,30 @@ export function AddCustomModelDialog({
 
   const handleProviderChange = (nextId: string): void => {
     const next = providers.find((item) => item.id === nextId)
+    const nextPlanId = providerDefaultApiPlanId(next)
+    const nextEndpoint = providerEndpoint(next, nextPlanId)
     const nextModelName = providerDefaultModelName(next)
     setProviderId(nextId)
-    setBaseUrl(providerBaseUrl(next))
+    setApiPlanId(nextPlanId)
+    setBaseUrl(endpointBaseUrl(nextEndpoint))
     setModelName(nextModelName)
-    setApiRegionId(providerDefaultApiRegionId(next))
+    setApiRegionId(endpointDefaultApiRegionId(nextEndpoint))
     setSupportsImages(providerDefaultSupportsImages(next, nextModelName))
   }
 
   const handleModelChange = (nextModelName: string): void => {
     setModelName(nextModelName)
     setSupportsImages(providerDefaultSupportsImages(provider, nextModelName))
+  }
+
+  const handleApiPlanChange = (nextId: string): void => {
+    if (!nextId) {
+      return
+    }
+    const nextEndpoint = providerEndpoint(provider, nextId)
+    setApiPlanId(nextId)
+    setBaseUrl(endpointBaseUrl(nextEndpoint))
+    setApiRegionId(endpointDefaultApiRegionId(nextEndpoint))
   }
 
   const handleApiRegionChange = (nextId: string): void => {
@@ -455,6 +513,26 @@ export function AddCustomModelDialog({
             </SelectContent>
           </Select>
         </div>
+
+        {apiPlans.length > 0 ? (
+          <div className="grid gap-1.5">
+            <Label>{t("chat.modelApiPlan")}</Label>
+            <ToggleGroup
+              type="single"
+              value={apiPlanId}
+              onValueChange={handleApiPlanChange}
+              variant="outline"
+              className="w-full"
+              aria-label={t("chat.modelApiPlan")}
+            >
+              {apiPlans.map((plan) => (
+                <ToggleGroupItem key={plan.id} value={plan.id} className="flex-1">
+                  {apiPlanLabel(plan.id, t)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+        ) : null}
 
         {apiRegions.length > 0 ? (
           <div className="grid gap-1.5">

@@ -47,6 +47,20 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
     { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
   ])
+  assert.deepEqual(providers.get("zhipu")?.apiPlans, [
+    {
+      id: "standard",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      apiRegions: [
+        { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+        { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+      ],
+    },
+    {
+      id: "coding",
+      baseUrl: "https://api.z.ai/api/coding/paas/v4",
+    },
+  ])
   assert.equal(providers.get("zhipu")?.supportsImages, false)
   assert.equal(providers.get("kimi")?.baseUrl, "https://api.moonshot.cn/v1")
   assert.deepEqual(providers.get("kimi")?.apiRegions, [
@@ -85,6 +99,24 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
     { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
   ])
+  assert.deepEqual(providers.get("qwen")?.apiPlans, [
+    {
+      id: "standard",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiRegions: [
+        { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+        { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+      ],
+    },
+    {
+      id: "coding",
+      baseUrl: "https://coding.dashscope.aliyuncs.com/v1",
+      apiRegions: [
+        { id: "cn", baseUrl: "https://coding.dashscope.aliyuncs.com/v1" },
+        { id: "global", baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1" },
+      ],
+    },
+  ])
   assert.deepEqual(
     providers.get("qwen")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
     [
@@ -93,6 +125,21 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     ],
   )
   assert.equal(providers.get("xiaomi")?.baseUrl, "https://api.xiaomimimo.com/v1")
+  assert.deepEqual(providers.get("xiaomi")?.apiPlans, [
+    {
+      id: "standard",
+      baseUrl: "https://api.xiaomimimo.com/v1",
+    },
+    {
+      id: "token",
+      baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+      apiRegions: [
+        { id: "cn", baseUrl: "https://token-plan-cn.xiaomimimo.com/v1" },
+        { id: "sgp", baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1" },
+        { id: "ams", baseUrl: "https://token-plan-ams.xiaomimimo.com/v1" },
+      ],
+    },
+  ])
   assert.deepEqual(
     providers.get("xiaomi")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
     [

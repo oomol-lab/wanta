@@ -43,6 +43,20 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
     id: "zhipu",
     displayName: "GLM API",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    apiPlans: [
+      {
+        id: "standard",
+        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+        apiRegions: [
+          { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+          { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
+        ],
+      },
+      {
+        id: "coding",
+        baseUrl: "https://api.z.ai/api/coding/paas/v4",
+      },
+    ],
     apiRegions: [
       { id: "cn", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
       { id: "global", baseUrl: "https://api.z.ai/api/paas/v4" },
@@ -97,6 +111,24 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
     id: "qwen",
     displayName: "Qwen",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiPlans: [
+      {
+        id: "standard",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        apiRegions: [
+          { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+          { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+        ],
+      },
+      {
+        id: "coding",
+        baseUrl: "https://coding.dashscope.aliyuncs.com/v1",
+        apiRegions: [
+          { id: "cn", baseUrl: "https://coding.dashscope.aliyuncs.com/v1" },
+          { id: "global", baseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1" },
+        ],
+      },
+    ],
     apiRegions: [
       { id: "cn", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
       { id: "global", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
@@ -111,6 +143,21 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
     id: "xiaomi",
     displayName: "Xiaomi MiMo",
     baseUrl: "https://api.xiaomimimo.com/v1",
+    apiPlans: [
+      {
+        id: "standard",
+        baseUrl: "https://api.xiaomimimo.com/v1",
+      },
+      {
+        id: "token",
+        baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+        apiRegions: [
+          { id: "cn", baseUrl: "https://token-plan-cn.xiaomimimo.com/v1" },
+          { id: "sgp", baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1" },
+          { id: "ams", baseUrl: "https://token-plan-ams.xiaomimimo.com/v1" },
+        ],
+      },
+    ],
     modelOptions: [
       { id: "mimo-v2.5-pro", displayName: "MiMo V2.5 Pro", supportsImages: false },
       { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true },

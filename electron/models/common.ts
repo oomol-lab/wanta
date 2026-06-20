@@ -23,10 +23,17 @@ export interface CustomModelApiRegion {
   baseUrl: string
 }
 
+export interface CustomModelApiPlan {
+  id: string
+  baseUrl: string
+  apiRegions?: CustomModelApiRegion[]
+}
+
 export interface CustomModelProvider {
   id: string
   displayName: string
   baseUrl: string
+  apiPlans?: CustomModelApiPlan[]
   apiRegions?: CustomModelApiRegion[]
   modelOptions?: CustomModelOption[]
   supportsImages?: boolean

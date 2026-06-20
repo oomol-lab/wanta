@@ -17,6 +17,11 @@ export interface DialogProps {
 /** 轻量模态：portal + 遮罩 + Esc 关闭 + 挂载聚焦。无 Radix 依赖。 */
 export function Dialog({ open, onClose, title, description, children, footer, closeLabel, className }: DialogProps) {
   const panelRef = React.useRef<HTMLDivElement>(null)
+  const onCloseRef = React.useRef(onClose)
+
+  React.useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   React.useEffect(() => {
     if (!open) {
@@ -24,14 +29,14 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
     }
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === "Escape") {
-        onClose()
+        onCloseRef.current()
       }
     }
     document.addEventListener("keydown", onKey)
     // 挂载后聚焦面板，便于 Esc / 表单内首个输入接管。
     panelRef.current?.focus()
     return () => document.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+  }, [open])
 
   if (!open) {
     return null

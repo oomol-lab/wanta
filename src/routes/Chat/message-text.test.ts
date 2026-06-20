@@ -3,6 +3,7 @@ import {
   assistantResponseActionTextByMessageId,
   copyableMessageText,
   reuseStableTextMap,
+  shouldCollapseUserMessageText,
   visibleUserText,
 } from "./message-text.ts"
 
@@ -57,6 +58,16 @@ describe("copyableMessageText", () => {
         ],
       }),
     ).toBe("第一段\n\n第二段")
+  })
+})
+
+describe("shouldCollapseUserMessageText", () => {
+  it("collapses long user messages by length or line count", () => {
+    expect(shouldCollapseUserMessageText("short message")).toBe(false)
+    expect(shouldCollapseUserMessageText("x".repeat(701))).toBe(true)
+    expect(shouldCollapseUserMessageText(Array.from({ length: 13 }, (_, index) => `line ${index}`).join("\n"))).toBe(
+      true,
+    )
   })
 })
 

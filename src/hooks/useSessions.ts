@@ -14,8 +14,12 @@ export interface UseSessions {
   loaded: boolean
   error: UserFacingError | null
   create: (title?: string) => Promise<SessionInfo>
+  listArchived: () => Promise<SessionInfo[]>
   generateTitle: (req: GenerateSessionTitleRequest) => Promise<GenerateSessionTitleResult>
   rename: (id: string, title: string) => Promise<void>
+  pin: (id: string, pinned: boolean) => Promise<void>
+  archive: (id: string) => Promise<void>
+  unarchive: (id: string) => Promise<void>
   remove: (id: string) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -89,6 +93,10 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
     [sessionService, refresh],
   )
 
+  const listArchived = React.useCallback(async () => {
+    return sessionService.invoke("listArchived")
+  }, [sessionService])
+
   const generateTitle = React.useCallback(
     async (req: GenerateSessionTitleRequest) => {
       return sessionService.invoke("generateTitle", req)
@@ -103,6 +111,27 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
     [sessionService],
   )
 
+  const pin = React.useCallback(
+    async (id: string, pinned: boolean) => {
+      await sessionService.invoke("pin", { id, pinned })
+    },
+    [sessionService],
+  )
+
+  const archive = React.useCallback(
+    async (id: string) => {
+      await sessionService.invoke("archive", id)
+    },
+    [sessionService],
+  )
+
+  const unarchive = React.useCallback(
+    async (id: string) => {
+      await sessionService.invoke("unarchive", id)
+    },
+    [sessionService],
+  )
+
   const remove = React.useCallback(
     async (id: string) => {
       await sessionService.invoke("remove", id)
@@ -110,5 +139,18 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
     [sessionService],
   )
 
-  return { sessions, loaded, error, create, generateTitle, rename, remove, refresh }
+  return {
+    sessions,
+    loaded,
+    error,
+    create,
+    listArchived,
+    generateTitle,
+    rename,
+    pin,
+    archive,
+    unarchive,
+    remove,
+    refresh,
+  }
 }

@@ -1,7 +1,16 @@
 import type { ChatContextMention } from "../../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { composerReducer, contextMentionKey, initialComposerState } from "./composer-state.ts"
+import {
+  buildComposerSubmitText,
+  buildVoiceTranscriptDraft,
+  composerReducer,
+  contextMentionKey,
+  hasComposerDraftContent,
+  initialComposerState,
+  shouldCollapseVoiceTranscript,
+  toCachedComposerState,
+} from "./composer-state.ts"
 
 const skillMention: ChatContextMention = {
   id: "skill-a",
@@ -45,26 +54,60 @@ describe("composer state", () => {
     })
   })
 
-  it("appends transcription with a separating space only when needed", () => {
-    const withDraft = composerReducer(
+  it("stores transcription as a separate voice transcript", () => {
+    const transcript = buildVoiceTranscriptDraft({
+      createdAt: 1,
+      id: "voice-1",
+      text: "Summarize this",
+    })
+    const state = composerReducer(
       composerReducer(initialComposerState(), {
-        draft: "Summarize",
-        selection: { end: 9, start: 9 },
+        draft: "Please",
+        selection: { end: 6, start: 6 },
         type: "set-draft",
       }),
-      { text: "this", type: "append-transcription" },
-    )
-    const withTrailingSpace = composerReducer(
-      composerReducer(initialComposerState(), {
-        draft: "Summarize ",
-        selection: { end: 10, start: 10 },
-        type: "set-draft",
-      }),
-      { text: "this", type: "append-transcription" },
+      { transcript, type: "append-transcription" },
     )
 
-    expect(withDraft.draft).toBe("Summarize this")
-    expect(withTrailingSpace.draft).toBe("Summarize this")
+    expect(state.draft).toBe("Please")
+    expect(state.voiceTranscripts).toEqual([transcript])
+  })
+
+  it("collapses long voice transcripts by default", () => {
+    expect(shouldCollapseVoiceTranscript("short transcript")).toBe(false)
+    expect(shouldCollapseVoiceTranscript(["one", "two", "three", "four", "five", "six"].join("\n"))).toBe(true)
+    expect(shouldCollapseVoiceTranscript("x".repeat(241))).toBe(true)
+  })
+
+  it("combines draft and voice transcripts for submit text", () => {
+    expect(
+      buildComposerSubmitText(" Please summarize ", [
+        buildVoiceTranscriptDraft({ createdAt: 1, id: "voice-1", text: " first part " }),
+        buildVoiceTranscriptDraft({ createdAt: 2, id: "voice-2", text: "second part" }),
+      ]),
+    ).toBe("Please summarize\n\nfirst part\n\nsecond part")
+  })
+
+  it("updates, collapses, and removes voice transcripts by id", () => {
+    const initial = composerReducer(initialComposerState(), {
+      transcript: buildVoiceTranscriptDraft({ createdAt: 1, id: "voice-1", text: "hello" }),
+      type: "append-transcription",
+    })
+    const collapsed = composerReducer(initial, {
+      collapsed: true,
+      id: "voice-1",
+      type: "set-voice-transcript-collapsed",
+    })
+    const updated = composerReducer(collapsed, {
+      id: "voice-1",
+      text: "updated",
+      type: "update-voice-transcript",
+    })
+    const removed = composerReducer(updated, { id: "voice-1", type: "remove-voice-transcript" })
+
+    expect(collapsed.voiceTranscripts[0]?.collapsed).toBe(true)
+    expect(updated.voiceTranscripts[0]).toMatchObject({ collapsed: false, text: "updated" })
+    expect(removed.voiceTranscripts).toEqual([])
   })
 
   it("clears palette suppression when resetting after submit", () => {
@@ -72,11 +115,39 @@ describe("composer state", () => {
       ...initialComposerState(),
       dismissedTriggerKey: "slash:0:rev",
       draft: "/rev",
+      voiceTranscripts: [buildVoiceTranscriptDraft({ createdAt: 1, id: "voice-1", text: "hello" })],
     }
 
     expect(composerReducer(state, { type: "reset-after-submit" })).toMatchObject({
       dismissedTriggerKey: null,
       draft: "",
+      voiceTranscripts: [],
     })
+  })
+
+  it("detects cacheable draft content without preserving attachment previews", () => {
+    const empty = initialComposerState()
+    const withAttachment = {
+      ...empty,
+      attachments: [
+        {
+          id: "file-1",
+          kind: "file" as const,
+          mime: "text/plain",
+          name: "note.txt",
+          path: "/tmp/note.txt",
+          previewUrl: "blob:preview",
+          size: 10,
+        },
+      ],
+    }
+    const withTranscript = {
+      ...empty,
+      voiceTranscripts: [buildVoiceTranscriptDraft({ createdAt: 1, id: "voice-1", text: "hello" })],
+    }
+
+    expect(hasComposerDraftContent(empty)).toBe(false)
+    expect(hasComposerDraftContent(withTranscript)).toBe(true)
+    expect(toCachedComposerState(withAttachment).attachments).toEqual([])
   })
 })

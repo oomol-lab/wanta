@@ -11,10 +11,12 @@ import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
+import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  Archive,
   Building2,
   Download,
   LogOut,
@@ -25,12 +27,13 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Pin,
+  PinOff,
   Plug,
   RefreshCw,
   Search,
   Settings,
   SquarePen,
-  Trash2,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -41,12 +44,12 @@ import {
 } from "../../../electron/session/title.ts"
 import {
   appendQueuedMessage,
-  clearQueuedMessages,
   consumeNextQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
+import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
@@ -71,6 +74,7 @@ import { useI18n, useT } from "@/i18n/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
+import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 
 type Route = "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 
@@ -103,6 +107,7 @@ const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
 const TURN_RETRY_OPTIONS_LIMIT = 48
 const SESSION_TITLE_RETRY_DELAY_MS = 20_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
+const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 
 function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
@@ -264,7 +269,8 @@ function SessionItem({
   now,
   onSelect,
   onRenameRequest,
-  onDelete,
+  onPinToggle,
+  onArchive,
 }: {
   session: SessionInfo
   active: boolean
@@ -273,12 +279,14 @@ function SessionItem({
   now: number
   onSelect: () => void
   onRenameRequest: () => void
-  onDelete: () => void
+  onPinToggle: () => void
+  onArchive: () => void
 }) {
   const t = useT()
   const { locale } = useI18n()
   const relativeTime = formatSessionRelativeTime(session.updatedAt, now, locale)
   const absoluteTime = formatSessionAbsoluteTime(session.updatedAt, locale)
+  const pinned = Boolean(session.pinnedAt)
   const handleRenameKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
     if (event.key === "F2") {
       event.preventDefault()
@@ -327,14 +335,30 @@ function SessionItem({
           </span>
         ) : null}
       </button>
-      <button
-        type="button"
-        aria-label={t("aria.deleteSession")}
-        onClick={onDelete}
-        className="ml-1 hidden size-5 shrink-0 items-center justify-center rounded group-hover:flex hover:text-destructive"
-      >
-        <Trash2 className="size-3.5" />
-      </button>
+      <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:flex">
+        <button
+          type="button"
+          aria-label={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
+          title={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
+          onClick={onPinToggle}
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            pinned && "text-sidebar-accent-foreground",
+          )}
+        >
+          {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+        </button>
+        <button
+          type="button"
+          aria-label={running ? t("aria.archiveRunningSession") : t("aria.archiveSession")}
+          title={running ? t("aria.archiveRunningSession") : t("aria.archiveSession")}
+          onClick={onArchive}
+          disabled={running}
+          className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Archive className="size-3.5" />
+        </button>
+      </div>
     </div>
   )
 }
@@ -871,7 +895,8 @@ export function AppShell() {
     create,
     generateTitle,
     rename,
-    remove,
+    pin,
+    archive,
   } = useSessions({ enabled: ready })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
@@ -910,6 +935,7 @@ export function AppShell() {
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
+  const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
@@ -995,6 +1021,9 @@ export function AppShell() {
   }, [connections.summary, send])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(sessions), [sessions])
+  const activeComposerDraftKey = activeSessionId ?? NEW_SESSION_COMPOSER_DRAFT_KEY
+  const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
@@ -1151,6 +1180,22 @@ export function AppShell() {
       window.removeEventListener("pointercancel", handlePointerUp)
     }
   }, [isArtifactsPanelResizing])
+
+  const handleComposerStateChange = React.useCallback(
+    (state: ComposerState): void => {
+      const cached = toCachedComposerState(state)
+      if (hasComposerDraftContent(cached)) {
+        composerDraftsByKey.current.set(activeComposerDraftKey, cached)
+      } else {
+        composerDraftsByKey.current.delete(activeComposerDraftKey)
+      }
+    },
+    [activeComposerDraftKey],
+  )
+
+  const clearComposerDraft = React.useCallback((draftKey: string): void => {
+    composerDraftsByKey.current.delete(draftKey)
+  }, [])
 
   const handleNewSession = (): void => {
     setActiveSessionId(null)
@@ -1386,14 +1431,20 @@ export function AppShell() {
       contextMentions: ChatContextMention[] = [],
       model?: ModelChoice,
     ): Promise<boolean> => {
+      const draftKey = activeSessionId ?? NEW_SESSION_COMPOSER_DRAFT_KEY
       if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
         const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, contextMentions, model)
         setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
+        clearComposerDraft(draftKey)
         return true
       }
-      return sendNow(text, attachments, contextMentions, model)
+      const accepted = await sendNow(text, attachments, contextMentions, model)
+      if (accepted) {
+        clearComposerDraft(draftKey)
+      }
+      return accepted
     },
-    [activeSessionId, isSessionRunning, sendNow],
+    [activeSessionId, clearComposerDraft, isSessionRunning, sendNow],
   )
 
   React.useEffect(() => {
@@ -1432,31 +1483,33 @@ export function AppShell() {
       })
   }, [activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
 
-  const handleDelete = async (id: string): Promise<void> => {
-    if (renameSessionId === id) {
-      setRenameSessionId(null)
+  const handlePinSession = async (session: SessionInfo): Promise<void> => {
+    try {
+      await pin(session.id, !session.pinnedAt)
+    } catch (cause) {
+      const notice = resolveUserFacingError(cause, { area: "session" })
+      toast.error(userFacingErrorDescription(notice, t))
+    }
+  }
+
+  const handleArchiveSession = async (session: SessionInfo): Promise<void> => {
+    if (isSessionRunning(session.id)) {
+      return
     }
     try {
-      await remove(id)
+      await archive(session.id)
     } catch (cause) {
       const notice = resolveUserFacingError(cause, { area: "session" })
       toast.error(userFacingErrorDescription(notice, t))
       return
     }
-    if (activeSessionId === id) {
-      setActiveSessionId(null)
+    if (activeSessionId === session.id) {
+      setActiveSessionId(nextActiveSessionIdAfterArchive(sessions, session.id))
       setIsDraftSession(false)
       setPendingChatTransition(null)
+      setRoute("chat")
     }
-    dispatchingQueuedSessionsRef.current.delete(id)
-    setQueuedMessagesBySession((current) => clearQueuedMessages(current, id))
-    lastModelBySession.current.delete(id)
-    lastContextMentionsBySession.current.delete(id)
-    turnRetryOptionsBySession.current.delete(id)
-    titleGenerationInFlightBySession.current.delete(id)
-    lastTitleGenerationKeyBySession.current.delete(id)
-    titleGenerationRetryAfterBySession.current.delete(id)
-    autoFallbackTitleBySession.current.delete(id)
+    toast.success(t("session.archivedToast"))
   }
 
   const handleAuthorize = React.useCallback(
@@ -1679,29 +1732,57 @@ export function AppShell() {
           </nav>
 
           <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
-            <div className="oo-text-caption shrink-0 px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
             <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
               {sessionsError ? (
                 <ErrorNotice error={sessionsError} compact className="mx-0" />
               ) : sessions.length > 0 ? (
-                <div className="grid gap-0.5">
-                  {sessions.map((session) => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      active={route === "chat" && activeSessionId === session.id}
-                      running={isSessionRunning(session.id)}
-                      unread={hasUnreadSession(session.id)}
-                      now={relativeTimeNow}
-                      onSelect={() => {
-                        setActiveSessionId(session.id)
-                        setIsDraftSession(false)
-                        setRoute("chat")
-                      }}
-                      onRenameRequest={() => setRenameSessionId(session.id)}
-                      onDelete={() => void handleDelete(session.id)}
-                    />
-                  ))}
+                <div className="grid gap-3">
+                  {sidebarSessionGroups.pinned.length > 0 ? (
+                    <div className="grid gap-0.5">
+                      <div className="oo-text-caption px-3 pt-1 pb-2">{t("sidebar.pinned")}</div>
+                      {sidebarSessionGroups.pinned.map((session) => (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          active={route === "chat" && activeSessionId === session.id}
+                          running={isSessionRunning(session.id)}
+                          unread={hasUnreadSession(session.id)}
+                          now={relativeTimeNow}
+                          onSelect={() => {
+                            setActiveSessionId(session.id)
+                            setIsDraftSession(false)
+                            setRoute("chat")
+                          }}
+                          onRenameRequest={() => setRenameSessionId(session.id)}
+                          onPinToggle={() => void handlePinSession(session)}
+                          onArchive={() => void handleArchiveSession(session)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                  {sidebarSessionGroups.regular.length > 0 ? (
+                    <div className="grid gap-0.5">
+                      <div className="oo-text-caption px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
+                      {sidebarSessionGroups.regular.map((session) => (
+                        <SessionItem
+                          key={session.id}
+                          session={session}
+                          active={route === "chat" && activeSessionId === session.id}
+                          running={isSessionRunning(session.id)}
+                          unread={hasUnreadSession(session.id)}
+                          now={relativeTimeNow}
+                          onSelect={() => {
+                            setActiveSessionId(session.id)
+                            setIsDraftSession(false)
+                            setRoute("chat")
+                          }}
+                          onRenameRequest={() => setRenameSessionId(session.id)}
+                          onPinToggle={() => void handlePinSession(session)}
+                          onArchive={() => void handleArchiveSession(session)}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <SidebarEmptyState />
@@ -1796,6 +1877,7 @@ export function AppShell() {
                 <div className="h-full min-h-0 overflow-hidden">
                   <ChatArea
                     billingCacheScope={billingCacheScope}
+                    composerDraftKey={activeComposerDraftKey}
                     messages={bridgeInitialSendPending ? [] : messages}
                     status={displayedStatus}
                     activity={bridgeInitialSendPending ? null : activity}
@@ -1804,6 +1886,7 @@ export function AppShell() {
                     startupError={startupError}
                     error={error}
                     submitDisabled={!ready || chatBootstrapping}
+                    initialComposerState={initialComposerState}
                     initialSendPending={initialSendPending}
                     providers={activeProviders}
                     queuedMessages={activeQueuedMessages}
@@ -1814,6 +1897,7 @@ export function AppShell() {
                           ? t("chat.inputPlaceholder")
                           : t("chat.agentStarting")
                     }
+                    onComposerStateChange={handleComposerStateChange}
                     onSend={handleSend}
                     onStop={handleChatStop}
                     onQueuedMessageRemove={handleQueuedMessageRemove}

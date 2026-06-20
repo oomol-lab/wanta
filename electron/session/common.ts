@@ -7,6 +7,8 @@ export interface SessionInfo {
   title: string
   createdAt: number
   updatedAt: number
+  pinnedAt?: number
+  archivedAt?: number
 }
 
 export interface SessionsChangedEvent {
@@ -30,9 +32,13 @@ export const SessionService = serviceName("session-service") as ServiceName<{
   }
   ClientInvokes: {
     list(): Promise<SessionInfo[]>
+    listArchived(): Promise<SessionInfo[]>
     create(title?: string): Promise<SessionInfo>
     generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult>
     rename(req: { id: string; title: string }): Promise<void>
+    pin(req: { id: string; pinned: boolean }): Promise<void>
+    archive(id: string): Promise<void>
+    unarchive(id: string): Promise<void>
     remove(id: string): Promise<void>
   }
 }>

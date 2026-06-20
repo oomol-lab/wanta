@@ -29,6 +29,7 @@ import { ModelsStore } from "./models/store.ts"
 import { OrganizationsServiceImpl } from "./organizations/node.ts"
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
+import { SessionMetadataStore } from "./session/metadata-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
@@ -92,10 +93,14 @@ let pendingSkillRuntimeRefresh: NodeJS.Timeout | undefined
 
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
+const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
 const artifactRootStore = new ArtifactRootStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const chatService = new ChatServiceImpl(null, { artifactRootStore, stoppedGenerationStore })
-const sessionService = new SessionServiceImpl(null, { activityStore: sessionActivityStore })
+const sessionService = new SessionServiceImpl(null, {
+  activityStore: sessionActivityStore,
+  metadataStore: sessionMetadataStore,
+})
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,
   onCustomModelsChanged: restartAgentForModelConfig,

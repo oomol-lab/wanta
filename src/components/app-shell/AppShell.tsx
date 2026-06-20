@@ -101,6 +101,7 @@ const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
 const TURN_RETRY_OPTIONS_LIMIT = 48
+const SESSION_TITLE_RETRY_DELAY_MS = 20_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 
 function RouteLoadingFallback({ className }: { className?: string }) {
@@ -222,6 +223,16 @@ function sessionTitleGenerationKey(
     replaceableTitle: replaceableTitle ?? "",
     text: input.text,
   })
+}
+
+function isSessionTitleAutoRefreshable(
+  session: SessionInfo,
+  allowPlaceholder: boolean,
+  fallbackTitles: Map<string, string>,
+): boolean {
+  return (
+    shouldAutoRefreshSessionTitle(session.title, allowPlaceholder) || fallbackTitles.get(session.id) === session.title
+  )
 }
 
 function createQueuedChatMessage(
@@ -901,6 +912,8 @@ export function AppShell() {
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
   const titleGenerationInFlightBySession = React.useRef<Map<string, string>>(new Map())
   const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
+  const titleGenerationRetryAfterBySession = React.useRef<Map<string, { key: string; retryAfter: number }>>(new Map())
+  const autoFallbackTitleBySession = React.useRef<Map<string, string>>(new Map())
 
   React.useEffect(() => {
     sessionsRef.current = sessions
@@ -1157,13 +1170,20 @@ export function AppShell() {
       ) {
         return
       }
+      const retryAfter = titleGenerationRetryAfterBySession.current.get(sessionId)
+      if (retryAfter?.key === generationKey && Date.now() < retryAfter.retryAfter) {
+        return
+      }
 
       const current = sessionsRef.current.find((session) => session.id === sessionId)
       if (
         current &&
         current.title !== replaceableTitle &&
-        !shouldAutoRefreshSessionTitle(current.title, allowPlaceholder)
+        !isSessionTitleAutoRefreshable(current, allowPlaceholder, autoFallbackTitleBySession.current)
       ) {
+        autoFallbackTitleBySession.current.delete(sessionId)
+        titleGenerationRetryAfterBySession.current.delete(sessionId)
+        lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
         return
       }
 
@@ -1171,18 +1191,42 @@ export function AppShell() {
       try {
         const title = await generateTitle(input)
         const latest = sessionsRef.current.find((session) => session.id === sessionId)
+        const latestTitle = latest?.title ?? replaceableTitle
         if (
           latest &&
           latest.title !== replaceableTitle &&
-          !shouldAutoRefreshSessionTitle(latest.title, allowPlaceholder)
+          !isSessionTitleAutoRefreshable(latest, allowPlaceholder, autoFallbackTitleBySession.current)
         ) {
+          autoFallbackTitleBySession.current.delete(sessionId)
+          titleGenerationRetryAfterBySession.current.delete(sessionId)
+          lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
           return
         }
-        if (title && title !== latest?.title) {
+        if (title && title !== latestTitle) {
           await rename(sessionId, title)
+          autoFallbackTitleBySession.current.delete(sessionId)
+          titleGenerationRetryAfterBySession.current.delete(sessionId)
+          lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
+          return
         }
+        if (
+          latestTitle &&
+          (shouldAutoRefreshSessionTitle(latestTitle, allowPlaceholder) ||
+            autoFallbackTitleBySession.current.get(sessionId) === latestTitle)
+        ) {
+          titleGenerationRetryAfterBySession.current.set(sessionId, {
+            key: generationKey,
+            retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
+          })
+          return
+        }
+        titleGenerationRetryAfterBySession.current.delete(sessionId)
         lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
       } catch (error) {
+        titleGenerationRetryAfterBySession.current.set(sessionId, {
+          key: generationKey,
+          retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
+        })
         console.error("[lumo] generate session title failed", error)
       } finally {
         if (titleGenerationInFlightBySession.current.get(sessionId) === generationKey) {
@@ -1194,10 +1238,10 @@ export function AppShell() {
   )
 
   React.useEffect(() => {
-    if (!activeSession || status !== "ready" || !messagesLoaded || messages.length === 0) {
+    if (!activeSession || !messagesLoaded || messages.length === 0) {
       return
     }
-    if (!shouldAutoRefreshSessionTitle(activeSession.title, true)) {
+    if (!isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current)) {
       return
     }
     const titleInput = buildSessionTitleInput(messages, "", [])
@@ -1205,7 +1249,7 @@ export function AppShell() {
       return
     }
     void refreshGeneratedTitle(activeSession.id, titleInput, true, activeSession.title)
-  }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle, status])
+  }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
 
   const sendNow = React.useCallback(
     async (
@@ -1223,11 +1267,17 @@ export function AppShell() {
         let sessionId = activeSessionId
         const titleInput = buildSessionTitleInput(messages, text, attachments)
         const fallbackTitle = buildFallbackSessionTitle(titleInput)
+        const autoFallbackTitle = sessionId ? autoFallbackTitleBySession.current.get(sessionId) : undefined
         const allowPlaceholderTitle =
-          !sessionId || (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, true) : false)
+          !sessionId ||
+          (activeSession
+            ? isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current)
+            : false)
         const shouldRefreshTitle =
           !sessionId ||
-          (activeSession ? shouldAutoRefreshSessionTitle(activeSession.title, allowPlaceholderTitle) : false)
+          (activeSession
+            ? isSessionTitleAutoRefreshable(activeSession, allowPlaceholderTitle, autoFallbackTitleBySession.current)
+            : false)
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()
         if (bridgeEmptySend) {
@@ -1244,6 +1294,7 @@ export function AppShell() {
             throw error
           }
           sessionId = info.id
+          autoFallbackTitleBySession.current.set(sessionId, fallbackTitle)
           setActiveSessionId(sessionId)
           setIsDraftSession(false)
           setPendingChatTransition((pending) =>
@@ -1255,7 +1306,7 @@ export function AppShell() {
             sessionId,
             titleInput,
             allowPlaceholderTitle,
-            !activeSessionId ? fallbackTitle : undefined,
+            !activeSessionId ? fallbackTitle : autoFallbackTitle,
           )
         }
         lastModelBySession.current.set(sessionId, model)
@@ -1361,6 +1412,8 @@ export function AppShell() {
     turnRetryOptionsBySession.current.delete(id)
     titleGenerationInFlightBySession.current.delete(id)
     lastTitleGenerationKeyBySession.current.delete(id)
+    titleGenerationRetryAfterBySession.current.delete(id)
+    autoFallbackTitleBySession.current.delete(id)
   }
 
   const handleAuthorize = React.useCallback(
@@ -1447,6 +1500,7 @@ export function AppShell() {
   }
   const handleOpenSearch = (): void => setSearchOpen(true)
   const handleRenameSession = (sessionId: string, title: string): void => {
+    autoFallbackTitleBySession.current.delete(sessionId)
     void rename(sessionId, title).catch((cause: unknown) => {
       console.error("[lumo] rename session failed", cause)
       toast.error(t("session.renameFailed"))

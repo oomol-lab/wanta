@@ -80,6 +80,7 @@ const sessionTitleSystemPrompt = [
   'User: 你帮我将这个店铺中商品相关的图片都抓下来 -> {"title":"抓取店铺商品图片"}',
   'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
 ].join("\n")
+const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
 
 function toSessionInfo(session: RawSession): SessionInfo {
   return {
@@ -225,7 +226,8 @@ export class AgentManager {
       const retry = await this.requestSessionTitle(titleSource, firstTitle)
       const retryTitle = sanitizeGeneratedSessionTitle(retry, input)
       return isGeneratedSessionTitleAcceptable(retryTitle) ? retryTitle : fallback
-    } catch {
+    } catch (error) {
+      console.warn("[lumo] failed to generate session title, using fallback:", error)
       return fallback
     }
   }
@@ -250,7 +252,7 @@ export class AgentManager {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: LUMO_MODEL_ID,
+        model: sessionTitleModelID,
         temperature: 0.1,
         max_tokens: 80,
         messages,
@@ -258,7 +260,7 @@ export class AgentManager {
       signal: AbortSignal.timeout(12_000),
     })
     if (!response.ok) {
-      throw new Error("session title request failed")
+      throw new Error(`session title request failed: ${response.status} ${response.statusText}`)
     }
     const payload = (await response.json()) as ChatCompletionResponse
     return payload.choices?.[0]?.message?.content ?? ""

@@ -3,10 +3,10 @@
 // 本项目只用 oo 的二进制，不再把 @oomol-lab/oo-cli 列为 npm 依赖：
 //   - postinstall（scripts/download-oo.ts）把【当前平台】的 oo 下载到 .oo-bin/（gitignore）；
 //   - dev（electron/main.ts → resolveDevOoBin）与打包前置（scripts/prepare-binaries.ts）共用这一份；
-//   - 上游发布的平台包 tarball 内 bin/oo 是 0644（缺少可执行位，见 1.2.0），故提取后必须 chmod 0o755，
+//   - 上游发布的平台包 tarball 内 bin/oo 是 0644（缺少可执行位，1.2.0 起、1.2.2 复核仍是），故提取后必须 chmod 0o755，
 //     否则直接 spawn 会 EACCES——这正是改造前 dev 直连 node_modules 报错的根因。
 //
-// 平台映射取自 @oomol-lab/oo-cli 的 platform-targets.json（1.2.0），含 Linux glibc/musl 判别。
+// 平台映射取自 @oomol-lab/oo-cli 的 platform-targets.json（1.2.0；1.2.2 复核平台集未变），含 Linux glibc/musl 判别。
 
 import { createHash } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
@@ -18,7 +18,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
 
 // oo-cli 版本：原先经 package-lock 间接锁定，移除依赖后由此处单一锁定。升级 oo 改这里。
-export const OO_CLI_VERSION = "1.2.0"
+export const OO_CLI_VERSION = "1.2.2"
 
 // 下载落地目录（gitignore）。dev 侧的同名路径解析见 electron/agent/binaries.ts resolveDevOoBin。
 const localOoBinDir = path.join(repoRoot, ".oo-bin")

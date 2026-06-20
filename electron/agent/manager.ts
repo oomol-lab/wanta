@@ -12,7 +12,11 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
-import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
+import {
+  buildFallbackSessionTitle,
+  isGeneratedSessionTitleAcceptable,
+  sanitizeGeneratedSessionTitle,
+} from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
 import { buildOoEnv } from "./oo.ts"
@@ -43,6 +47,7 @@ export interface PromptStreamingOptions {
   attachments?: ChatAttachment[]
   model?: ModelChoice
   artifactDir?: string
+  signal?: AbortSignal
 }
 
 export interface RawSession {
@@ -57,6 +62,30 @@ export interface RawSession {
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>
 }
+
+export interface GeneratedSessionTitle {
+  title: string
+  generated: boolean
+}
+
+const sessionTitleSystemPrompt = [
+  "Generate a short chat title as a task label.",
+  'Return JSON only, exactly like {"title":"Gmail 三日报告"}.',
+  "Keep the user's language when possible.",
+  "Length rules:",
+  "- Chinese/Japanese/Korean or mixed CJK+English: at most 8 CJK characters and at most 2 Latin words.",
+  "- English or other Latin-script languages: 2-4 words.",
+  "- Other languages: 2-5 words or at most 32 characters.",
+  "Quality rules:",
+  "- Preserve complete brand, product, app, domain, and file names. Never cut Gmail to Gma or truncate any word.",
+  "- Prefer the core action and object; remove polite wording such as help me, 请, 帮我, 麻烦.",
+  "- No URLs, no ellipses, no markdown, no explanations, no trailing punctuation.",
+  "Examples:",
+  'User: 你帮我分析一下我最近三天的 Gmail 信息，然后给我总结出一个报告 -> {"title":"Gmail 三日报告"}',
+  'User: 你帮我将这个店铺中商品相关的图片都抓下来 -> {"title":"抓取店铺商品图片"}',
+  'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
+].join("\n")
+const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
 
 function toSessionInfo(session: RawSession): SessionInfo {
   return {
@@ -185,46 +214,63 @@ export class AgentManager {
     await this.client.session.delete({ path: { id } })
   }
 
-  public async generateSessionTitle(input: BuildSessionTitleInput): Promise<string> {
+  public async generateSessionTitle(input: BuildSessionTitleInput): Promise<GeneratedSessionTitle> {
     const fallback = buildFallbackSessionTitle(input)
     const titleSource = buildTitleSource(input)
     if (!titleSource) {
-      return fallback
+      return { generated: false, title: fallback }
     }
 
     try {
-      const response = await fetch(`${llmBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.options.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: LUMO_MODEL_ID,
-          temperature: 0.2,
-          max_tokens: 40,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Generate a concise chat title for the user's task. Output only the title. Keep the user's language. Use 3-6 English words or 6-14 Chinese characters when possible. Do not output a URL, punctuation wrapper, markdown, or explanations.",
-            },
-            {
-              role: "user",
-              content: titleSource,
-            },
-          ],
-        }),
-        signal: AbortSignal.timeout(12_000),
-      })
-      if (!response.ok) {
-        return fallback
+      const first = await this.requestSessionTitle(titleSource)
+      const firstTitle = sanitizeGeneratedSessionTitle(first, input)
+      if (!firstTitle.usedFallback && isGeneratedSessionTitleAcceptable(firstTitle.title)) {
+        return { generated: true, title: firstTitle.title }
       }
-      const payload = (await response.json()) as ChatCompletionResponse
-      return sanitizeGeneratedSessionTitle(payload.choices?.[0]?.message?.content ?? "", input)
-    } catch {
-      return fallback
+
+      const retry = await this.requestSessionTitle(titleSource, firstTitle.title)
+      const retryTitle = sanitizeGeneratedSessionTitle(retry, input)
+      return !retryTitle.usedFallback && isGeneratedSessionTitleAcceptable(retryTitle.title)
+        ? { generated: true, title: retryTitle.title }
+        : { generated: false, title: fallback }
+    } catch (error) {
+      console.warn("[lumo] failed to generate session title, using fallback:", error)
+      return { generated: false, title: fallback }
     }
+  }
+
+  private async requestSessionTitle(titleSource: string, previousTitle?: string): Promise<string> {
+    const messages = [
+      {
+        role: "system",
+        content: sessionTitleSystemPrompt,
+      },
+      {
+        role: "user",
+        content: previousTitle
+          ? `Rewrite the title because it violated the length or quality rules: ${JSON.stringify(previousTitle)}\n\nSource:\n${titleSource}`
+          : titleSource,
+      },
+    ]
+    const response = await fetch(`${llmBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.options.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: sessionTitleModelID,
+        temperature: 0.1,
+        max_tokens: 80,
+        messages,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    })
+    if (!response.ok) {
+      throw new Error(`session title request failed: ${response.status} ${response.statusText}`)
+    }
+    const payload = (await response.json()) as ChatCompletionResponse
+    return payload.choices?.[0]?.message?.content ?? ""
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -250,28 +296,51 @@ export class AgentManager {
    * （人格/工具/契约）留在 agent.prompt 以利缓存。
    */
   public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
+    if (options.signal?.aborted) {
+      return
+    }
     const tail = mergeSystemPrompts(
-      await this.buildAuthorizedSystem(),
+      await this.buildAuthorizedSystem(options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir),
     )
-    const result = await this.client.session.promptAsync({
-      path: { id: sessionId },
-      body: {
-        agent: LUMO_AGENT_NAME,
-        model: this.resolveModel(options.model),
-        ...(tail ? { system: tail } : {}),
-        parts: buildPromptParts(text, options.attachments),
-      },
-    })
-    if (result.error) {
-      throw new Error(`session.promptAsync failed: ${JSON.stringify(result.error)}`)
+    if (options.signal?.aborted) {
+      return
+    }
+    const abortPrompt = (): void => {
+      void this.abort(sessionId).catch((error) => {
+        console.warn("[lumo] abort prompt after signal failed:", error)
+      })
+    }
+    options.signal?.addEventListener("abort", abortPrompt, { once: true })
+    try {
+      if (options.signal?.aborted) {
+        return
+      }
+      const result = await this.client.session.promptAsync({
+        path: { id: sessionId },
+        signal: options.signal,
+        body: {
+          agent: LUMO_AGENT_NAME,
+          model: this.resolveModel(options.model),
+          ...(tail ? { system: tail } : {}),
+          parts: buildPromptParts(text, options.attachments),
+        },
+      })
+      if (options.signal?.aborted) {
+        return
+      }
+      if (result.error) {
+        throw new Error(`session.promptAsync failed: ${JSON.stringify(result.error)}`)
+      }
+    } finally {
+      options.signal?.removeEventListener("abort", abortPrompt)
     }
   }
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
-  public async buildAuthorizedSystem(): Promise<string | undefined> {
-    const services = await this.listAuthorizedServices()
+  public async buildAuthorizedSystem(signal?: AbortSignal): Promise<string | undefined> {
+    const services = await this.listAuthorizedServices(signal)
     if (services.length === 0) {
       return undefined
     }
@@ -284,14 +353,15 @@ export class AgentManager {
   }
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
-  public async listAuthorizedServices(): Promise<string[]> {
+  public async listAuthorizedServices(signal?: AbortSignal): Promise<string[]> {
     if (!this.started) {
       return []
     }
+    const requestSignal = signalWithTimeout(signal, 15_000)
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
         headers: { Authorization: `Bearer ${this.options.apiKey}` },
-        signal: AbortSignal.timeout(15_000),
+        signal: requestSignal.signal,
       })
       if (!response.ok) {
         return []
@@ -301,6 +371,8 @@ export class AgentManager {
       return apps.filter((a) => a.status === "active" && a.service).map((a) => a.service as string)
     } catch {
       return []
+    } finally {
+      requestSignal.cleanup()
     }
   }
 
@@ -382,6 +454,29 @@ function buildPromptParts(
   }
   parts.push({ type: "text", text })
   return parts
+}
+
+function signalWithTimeout(
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  const abort = (): void => {
+    controller.abort(signal?.reason)
+  }
+  if (signal?.aborted) {
+    abort()
+  } else {
+    signal?.addEventListener("abort", abort, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId)
+      signal?.removeEventListener("abort", abort)
+    },
+  }
 }
 
 function buildArtifactSystem(artifactDir: string | undefined): string | undefined {

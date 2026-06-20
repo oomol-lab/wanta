@@ -525,7 +525,6 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
       >
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
-            <SummaryHeader />
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
             {error ? <ErrorNotice error={error} compact /> : null}
             {filteredProviders.length === 0 ? (
@@ -736,15 +735,6 @@ function FilterToggleItem({ count, label, value }: { count: number; label: strin
       <span className="truncate">{label}</span>
       <span className="oo-text-micro oo-text-muted">{count}</span>
     </ToggleGroupItem>
-  )
-}
-
-function SummaryHeader() {
-  const t = useT()
-  return (
-    <div className="grid gap-1 px-1 py-1">
-      <div className="oo-text-title truncate">{t("connections.providers")}</div>
-    </div>
   )
 }
 

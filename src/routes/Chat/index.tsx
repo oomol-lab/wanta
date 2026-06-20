@@ -43,7 +43,7 @@ import {
   visibleUserText,
 } from "./message-text.ts"
 import { renderBlocks } from "./render-blocks.ts"
-import { formatToolActivityDuration } from "./tool-activity.ts"
+import { formatToolActivityDuration, formatWholeSecondDuration } from "./tool-activity.ts"
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
 import { hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
@@ -148,10 +148,6 @@ function formatProcessDuration(
     return null
   }
   return formatWholeSecondDuration(end - start)
-}
-
-function formatWholeSecondDuration(ms: number): string {
-  return `${Math.max(1, Math.round(ms / 1000))}s`
 }
 
 function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {

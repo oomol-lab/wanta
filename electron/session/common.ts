@@ -20,6 +20,7 @@ export interface GenerateSessionTitleRequest {
 
 export interface GenerateSessionTitleResult {
   title: string
+  generated: boolean
 }
 
 export type SessionService = typeof SessionService

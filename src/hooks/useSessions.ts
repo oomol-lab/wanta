@@ -1,4 +1,8 @@
-import type { GenerateSessionTitleRequest, SessionInfo } from "../../electron/session/common.ts"
+import type {
+  GenerateSessionTitleRequest,
+  GenerateSessionTitleResult,
+  SessionInfo,
+} from "../../electron/session/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
@@ -10,7 +14,7 @@ export interface UseSessions {
   loaded: boolean
   error: UserFacingError | null
   create: (title?: string) => Promise<SessionInfo>
-  generateTitle: (req: GenerateSessionTitleRequest) => Promise<string>
+  generateTitle: (req: GenerateSessionTitleRequest) => Promise<GenerateSessionTitleResult>
   rename: (id: string, title: string) => Promise<void>
   remove: (id: string) => Promise<void>
   refresh: () => Promise<void>
@@ -87,8 +91,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
 
   const generateTitle = React.useCallback(
     async (req: GenerateSessionTitleRequest) => {
-      const result = await sessionService.invoke("generateTitle", req)
-      return result.title
+      return sessionService.invoke("generateTitle", req)
     },
     [sessionService],
   )

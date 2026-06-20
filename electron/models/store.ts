@@ -3,7 +3,10 @@ import type { CustomModelProvider, CustomModelSummary, ModelCatalog, ModelChoice
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { externalModelProviderBaseUrls } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
+
+const providerBaseUrls = externalModelProviderBaseUrls
 
 export interface PersistedCustomModel {
   id: string
@@ -25,37 +28,143 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
   {
     id: "deepseek",
     displayName: "DeepSeek",
-    baseUrl: "",
+    baseUrl: providerBaseUrls.deepseek,
+    modelOptions: [
+      { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash" },
+      { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro" },
+    ],
+    supportsImages: false,
     requiresBaseUrl: true,
   },
   {
     id: "openrouter",
     displayName: "OpenRouter",
-    baseUrl: "",
+    baseUrl: providerBaseUrls.openrouter,
     requiresBaseUrl: true,
   },
   {
     id: "zhipu",
     displayName: "GLM API",
-    baseUrl: "",
+    baseUrl: providerBaseUrls.zhipuCn,
+    apiPlans: [
+      {
+        id: "standard",
+        baseUrl: providerBaseUrls.zhipuCn,
+        apiRegions: [
+          { id: "cn", baseUrl: providerBaseUrls.zhipuCn },
+          { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
+        ],
+      },
+      {
+        id: "coding",
+        baseUrl: providerBaseUrls.zhipuCoding,
+      },
+    ],
+    apiRegions: [
+      { id: "cn", baseUrl: providerBaseUrls.zhipuCn },
+      { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
+    ],
+    modelOptions: [
+      { id: "glm-5.2", displayName: "GLM-5.2" },
+      { id: "glm-5.1", displayName: "GLM-5.1" },
+      { id: "glm-5-turbo", displayName: "GLM-5-Turbo" },
+      { id: "glm-5", displayName: "GLM-5" },
+      { id: "glm-4.7", displayName: "GLM-4.7" },
+      { id: "glm-4.7-flash", displayName: "GLM-4.7 Flash" },
+    ],
+    supportsImages: false,
     requiresBaseUrl: true,
   },
   {
     id: "kimi",
     displayName: "Kimi",
-    baseUrl: "",
+    baseUrl: providerBaseUrls.kimiCn,
+    apiRegions: [
+      { id: "cn", baseUrl: providerBaseUrls.kimiCn },
+      { id: "global", baseUrl: providerBaseUrls.kimiGlobal },
+    ],
+    modelOptions: [
+      { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true },
+      { id: "kimi-k2.7-code-highspeed", displayName: "Kimi K2.7 Code Highspeed", supportsImages: true },
+      { id: "kimi-k2.6", displayName: "Kimi K2.6", supportsImages: true },
+    ],
     requiresBaseUrl: true,
   },
   {
     id: "minimax",
     displayName: "MiniMax",
-    baseUrl: "",
+    baseUrl: providerBaseUrls.minimaxCn,
+    apiRegions: [
+      { id: "cn", baseUrl: providerBaseUrls.minimaxCn },
+      { id: "global", baseUrl: providerBaseUrls.minimaxGlobal },
+    ],
+    modelOptions: [
+      { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true },
+      { id: "MiniMax-M2.7", displayName: "MiniMax M2.7", supportsImages: false },
+      { id: "MiniMax-M2.7-highspeed", displayName: "MiniMax M2.7 Highspeed", supportsImages: false },
+      { id: "MiniMax-M2.5", displayName: "MiniMax M2.5", supportsImages: false },
+      { id: "MiniMax-M2.5-highspeed", displayName: "MiniMax M2.5 Highspeed", supportsImages: false },
+      { id: "MiniMax-M2.1", displayName: "MiniMax M2.1", supportsImages: false },
+      { id: "MiniMax-M2.1-highspeed", displayName: "MiniMax M2.1 Highspeed", supportsImages: false },
+      { id: "MiniMax-M2", displayName: "MiniMax M2", supportsImages: false },
+    ],
     requiresBaseUrl: true,
   },
   {
-    id: "ollama",
-    displayName: "Ollama",
-    baseUrl: "",
+    id: "qwen",
+    displayName: "Qwen",
+    baseUrl: providerBaseUrls.qwenStandardCn,
+    apiPlans: [
+      {
+        id: "standard",
+        baseUrl: providerBaseUrls.qwenStandardCn,
+        apiRegions: [
+          { id: "cn", baseUrl: providerBaseUrls.qwenStandardCn },
+          { id: "global", baseUrl: providerBaseUrls.qwenStandardGlobal },
+        ],
+      },
+      {
+        id: "coding",
+        baseUrl: providerBaseUrls.qwenCodingCn,
+        apiRegions: [
+          { id: "cn", baseUrl: providerBaseUrls.qwenCodingCn },
+          { id: "global", baseUrl: providerBaseUrls.qwenCodingGlobal },
+        ],
+      },
+    ],
+    apiRegions: [
+      { id: "cn", baseUrl: providerBaseUrls.qwenStandardCn },
+      { id: "global", baseUrl: providerBaseUrls.qwenStandardGlobal },
+    ],
+    modelOptions: [
+      { id: "qwen3.7-plus", displayName: "Qwen3.7 Plus", supportsImages: true },
+      { id: "qwen3.7-max", displayName: "Qwen3.7 Max", supportsImages: true },
+    ],
+    requiresBaseUrl: true,
+  },
+  {
+    id: "xiaomi",
+    displayName: "Xiaomi MiMo",
+    baseUrl: providerBaseUrls.xiaomiStandard,
+    apiPlans: [
+      {
+        id: "standard",
+        baseUrl: providerBaseUrls.xiaomiStandard,
+      },
+      {
+        id: "token",
+        baseUrl: providerBaseUrls.xiaomiTokenCn,
+        apiRegions: [
+          { id: "cn", baseUrl: providerBaseUrls.xiaomiTokenCn },
+          { id: "sgp", baseUrl: providerBaseUrls.xiaomiTokenSgp },
+          { id: "ams", baseUrl: providerBaseUrls.xiaomiTokenAms },
+        ],
+      },
+    ],
+    modelOptions: [
+      { id: "mimo-v2.5-pro", displayName: "MiMo V2.5 Pro", supportsImages: false },
+      { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true },
+    ],
     requiresBaseUrl: true,
   },
   {
@@ -70,6 +179,14 @@ export function customModelDisplayName(
   model: Pick<PersistedCustomModel, "displayName" | "providerName" | "modelName">,
 ): string {
   return model.displayName?.trim() || `${model.providerName}:${model.modelName}`
+}
+
+export function customProviderModelSupportsImages(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): boolean {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.supportsImages ?? provider?.supportsImages ?? false
 }
 
 export function publicCustomModel(model: PersistedCustomModel): CustomModelSummary {

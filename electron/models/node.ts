@@ -5,7 +5,13 @@ import type { IConnectionService } from "@oomol/connection"
 import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
 import { ModelsService as ModelsServiceName } from "./common.ts"
-import { CUSTOM_MODEL_PROVIDERS, defaultModelChoice, isKnownModelChoice, sanitizeBaseUrl } from "./store.ts"
+import {
+  CUSTOM_MODEL_PROVIDERS,
+  customProviderModelSupportsImages,
+  defaultModelChoice,
+  isKnownModelChoice,
+  sanitizeBaseUrl,
+} from "./store.ts"
 
 export interface ModelsServiceDeps {
   store: ModelsStore
@@ -54,7 +60,8 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       apiKey,
       modelName,
       displayName: req.displayName?.trim() || undefined,
-      supportsImages: req.supportsImages ?? existing?.supportsImages ?? false,
+      supportsImages:
+        req.supportsImages ?? existing?.supportsImages ?? customProviderModelSupportsImages(provider, modelName),
     }
     const customModels = existing
       ? current.map((model) => (model.id === existing.id ? next : model))

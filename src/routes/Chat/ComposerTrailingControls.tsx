@@ -14,7 +14,6 @@ interface ComposerTrailingControlsProps {
   composerDisabled: boolean
   initialSendPending: boolean
   isGenerating: boolean
-  isSubmitted: boolean
   modelCatalog: ModelCatalog | null
   status: ChatStatus
   voiceActive: boolean
@@ -136,7 +135,6 @@ export function ComposerTrailingControls({
   composerDisabled,
   initialSendPending,
   isGenerating,
-  isSubmitted,
   modelCatalog,
   status,
   voiceActive,
@@ -158,7 +156,7 @@ export function ComposerTrailingControls({
   const t = useT()
   const visibleVoiceError = voiceError ?? voiceRecorderError
   const voiceMode = composerVoiceControlMode({ voiceActive, voiceTranscribing, visibleVoiceError })
-  const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, isSubmitted, status })
+  const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status })
   const retryDisabled = !voiceRetryBlob || voiceTranscribing
 
   return (

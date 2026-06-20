@@ -105,7 +105,6 @@ export function ChatComposer({
   }, [])
   const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
   const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
-  const isSubmitted = status === "submitted"
   const isGenerating = status === "submitted" || status === "streaming"
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled = voiceInput.busy || initialSendPending
@@ -314,7 +313,6 @@ export function ChatComposer({
           composerDisabled={composerDisabled}
           initialSendPending={initialSendPending}
           isGenerating={isGenerating}
-          isSubmitted={isSubmitted}
           modelCatalog={modelCatalog}
           status={status}
           voiceActive={voiceInput.active}

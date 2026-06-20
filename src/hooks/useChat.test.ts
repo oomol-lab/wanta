@@ -171,6 +171,36 @@ describe("chat message identity reconciliation", () => {
     ])
   })
 
+  it("deduplicates classified realtime errors against unclassified fetched history errors", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            kind: "error",
+            partId: "local-error-1",
+            errorText: "The selected model does not exist.",
+            errorKind: "unknown",
+          },
+        ],
+        createdAt: 1,
+      },
+    ]
+    const fetched: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ kind: "error", partId: "message-error-APIError", errorText: "The selected model does not exist." }],
+        createdAt: 1,
+      },
+    ]
+
+    expect(mergeFetchedMessages(current, fetched)[0]?.parts).toEqual([
+      { kind: "error", partId: "message-error-APIError", errorText: "The selected model does not exist." },
+    ])
+  })
+
   it("tracks completed sessions as unread only when they are not visible", () => {
     const current = new Set<string>()
 

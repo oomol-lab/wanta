@@ -8,6 +8,7 @@ import {
   compactToolDetail,
   formatToolActivityDuration,
   formatToolDuration,
+  formatWholeSecondDuration,
   shouldShowRunningNoOutput,
   summarizeToolCategory,
   toolActivityTitle,
@@ -177,6 +178,29 @@ describe("formatToolActivityDuration", () => {
         3200,
       ),
     ).toBe("1s")
+  })
+
+  it("formats minute-length activity durations with minutes and seconds", () => {
+    expect(
+      formatToolActivityDuration([
+        toolPart("tool-1", { timing: { start: 1000, end: 25_000 } }),
+        toolPart("tool-2", { timing: { start: 80_000, end: 220_000 } }),
+      ]),
+    ).toBe("3m 39s")
+  })
+})
+
+describe("formatWholeSecondDuration", () => {
+  it("keeps short durations in seconds", () => {
+    expect(formatWholeSecondDuration(11_200)).toBe("11s")
+  })
+
+  it("uses minutes and seconds once the rounded duration reaches a minute", () => {
+    expect(formatWholeSecondDuration(110_000)).toBe("1m 50s")
+  })
+
+  it("keeps the seconds slot visible for exact minutes", () => {
+    expect(formatWholeSecondDuration(120_000)).toBe("2m 0s")
   })
 })
 

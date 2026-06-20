@@ -57,7 +57,7 @@ export class SessionServiceImpl
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    return { title: await this.agent.generateSessionTitle(req) }
+    return this.agent.generateSessionTitle(req)
   }
 
   public async rename(req: { id: string; title: string }): Promise<void> {

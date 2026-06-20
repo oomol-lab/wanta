@@ -56,6 +56,7 @@ import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,10 +77,13 @@ import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 
-type Route = "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
+type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 
 const ArtifactsPanel = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.ArtifactsPanel })),
+)
+const ArchivedRoute = React.lazy(() =>
+  import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
 )
 const BillingRoute = React.lazy(() => import("@/routes/Billing").then((module) => ({ default: module.BillingRoute })))
 const ChatArea = React.lazy(() => import("@/routes/Chat").then((module) => ({ default: module.ChatArea })))
@@ -124,7 +128,8 @@ function initialRoute(): Route {
     route === "connections" ||
     route === "skills" ||
     route === "organizations" ||
-    route === "billing"
+    route === "billing" ||
+    route === "archived"
     ? route
     : "chat"
 }
@@ -472,6 +477,46 @@ function RenameSessionDialog({
   )
 }
 
+function ArchiveSessionDialog({
+  confirming,
+  open,
+  onClose,
+  onConfirm,
+}: {
+  confirming: boolean
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const t = useT()
+
+  return (
+    <Dialog
+      open={open}
+      onClose={() => {
+        if (!confirming) {
+          onClose()
+        }
+      }}
+      closeLabel={t("common.cancel")}
+      title={t("session.archiveConfirmTitle")}
+      footer={
+        <>
+          <Button type="button" variant="outline" disabled={confirming} onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" disabled={confirming} onClick={onConfirm}>
+            {confirming ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+            {confirming ? t("session.archiveConfirming") : t("session.archiveConfirmAction")}
+          </Button>
+        </>
+      }
+    >
+      <p className="oo-text-body text-muted-foreground">{t("session.archiveConfirmDescription")}</p>
+    </Dialog>
+  )
+}
+
 function EditableTitlebarTitle({
   title,
   editable,
@@ -744,7 +789,8 @@ function SidebarAccountMenu({
           type="button"
           className={cn(
             "oo-sidebar-account oo-sidebar-nav-item -mx-3 flex h-12 shrink-0 items-center gap-2 px-4 text-left [-webkit-app-region:no-drag]",
-            activeRoute === "settings" && "bg-sidebar-accent text-sidebar-accent-foreground",
+            (activeRoute === "settings" || activeRoute === "archived") &&
+              "bg-sidebar-accent text-sidebar-accent-foreground",
           )}
           aria-label={t("sidebar.accountMenu")}
           title={t("sidebar.accountMenu")}
@@ -770,6 +816,10 @@ function SidebarAccountMenu({
         <DropdownMenuItem onSelect={() => onNavigate("skills")}>
           <Package className="size-4" />
           {t("skills.title")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNavigate("archived")}>
+          <Archive className="size-4" />
+          {t("archived.navTitle")}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onNavigate("settings")}>
           <Settings className="size-4" />
@@ -897,6 +947,10 @@ export function AppShell() {
     rename,
     pin,
     archive,
+    listArchived,
+    unarchive,
+    remove: removeSession,
+    refresh: refreshSessions,
   } = useSessions({ enabled: ready })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
@@ -909,6 +963,8 @@ export function AppShell() {
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
+  const [archiveSessionId, setArchiveSessionId] = React.useState<string | null>(null)
+  const [archiveConfirming, setArchiveConfirming] = React.useState(false)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
@@ -1026,6 +1082,7 @@ export function AppShell() {
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
+  const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
@@ -1063,7 +1120,9 @@ export function AppShell() {
             ? t("skills.title")
             : route === "organizations"
               ? t("organizations.title")
-              : (activeSession?.title ?? t("chat.newSession"))
+              : route === "archived"
+                ? t("archived.title")
+                : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
 
   React.useEffect(() => {
@@ -1077,6 +1136,12 @@ export function AppShell() {
       setRenameSessionId(null)
     }
   }, [renameSession, renameSessionId])
+
+  React.useEffect(() => {
+    if (archiveSessionId && !archiveSession) {
+      setArchiveSessionId(null)
+    }
+  }, [archiveSession, archiveSessionId])
 
   React.useEffect(() => {
     setArtifactSelection(null)
@@ -1492,16 +1557,26 @@ export function AppShell() {
     }
   }
 
+  const handleArchiveSessionRequest = (session: SessionInfo): void => {
+    if (isSessionRunning(session.id)) {
+      return
+    }
+    setArchiveSessionId(session.id)
+  }
+
   const handleArchiveSession = async (session: SessionInfo): Promise<void> => {
     if (isSessionRunning(session.id)) {
       return
     }
+    setArchiveConfirming(true)
     try {
       await archive(session.id)
     } catch (cause) {
       const notice = resolveUserFacingError(cause, { area: "session" })
       toast.error(userFacingErrorDescription(notice, t))
       return
+    } finally {
+      setArchiveConfirming(false)
     }
     if (activeSessionId === session.id) {
       setActiveSessionId(nextActiveSessionIdAfterArchive(sessions, session.id))
@@ -1509,7 +1584,7 @@ export function AppShell() {
       setPendingChatTransition(null)
       setRoute("chat")
     }
-    toast.success(t("session.archivedToast"))
+    setArchiveSessionId(null)
   }
 
   const handleAuthorize = React.useCallback(
@@ -1653,6 +1728,27 @@ export function AppShell() {
     )
   }
 
+  if (route === "archived") {
+    return (
+      <React.Suspense fallback={<RouteLoadingFallback />}>
+        <ArchivedRoute
+          listArchived={listArchived}
+          onBack={() => setRoute("chat")}
+          onOpenSession={(sessionId) => {
+            setActiveSessionId(sessionId)
+            setIsDraftSession(false)
+            setPendingChatTransition(null)
+            setRoute("chat")
+          }}
+          refreshSessions={refreshSessions}
+          removeSession={removeSession}
+          ready={ready}
+          unarchiveSession={unarchive}
+        />
+      </React.Suspense>
+    )
+  }
+
   return (
     <div
       className={cn(
@@ -1755,7 +1851,7 @@ export function AppShell() {
                           }}
                           onRenameRequest={() => setRenameSessionId(session.id)}
                           onPinToggle={() => void handlePinSession(session)}
-                          onArchive={() => void handleArchiveSession(session)}
+                          onArchive={() => handleArchiveSessionRequest(session)}
                         />
                       ))}
                     </div>
@@ -1778,7 +1874,7 @@ export function AppShell() {
                           }}
                           onRenameRequest={() => setRenameSessionId(session.id)}
                           onPinToggle={() => void handlePinSession(session)}
-                          onArchive={() => void handleArchiveSession(session)}
+                          onArchive={() => handleArchiveSessionRequest(session)}
                         />
                       ))}
                     </div>
@@ -1960,6 +2056,16 @@ export function AppShell() {
         open={Boolean(renameSession)}
         onClose={() => setRenameSessionId(null)}
         onRename={handleRenameSession}
+      />
+      <ArchiveSessionDialog
+        confirming={archiveConfirming}
+        open={Boolean(archiveSession)}
+        onClose={() => setArchiveSessionId(null)}
+        onConfirm={() => {
+          if (archiveSession) {
+            void handleArchiveSession(archiveSession)
+          }
+        }}
       />
     </div>
   )

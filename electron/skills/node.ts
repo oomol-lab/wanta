@@ -80,7 +80,8 @@ const publicSkillPackagePageSize = 100
 const myPublishedSkillPackageInfoConcurrency = 10
 
 interface MyPublishedSkillAccount {
-  apiKey: string
+  /** 凭证：现为会话 token（注入 registry/search 的 Authorization；网关层统一鉴权）。 */
+  authToken: string
   avatarUrl?: string
   id: string
   name: string
@@ -171,16 +172,16 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     options: Omit<Parameters<typeof runOoCommand>[1], "env">,
   ): Promise<OoCommandResult> {
     await this.authService.getAuthState()
-    const account = this.authService.activeAccount()
+    const authToken = await this.authService.currentSessionToken()
 
-    if (!account) {
+    if (!authToken) {
       throw new Error("Skills not available (sign in first)")
     }
 
     return runOoCommand(args, {
       ...options,
       env: buildOoEnv({
-        apiKey: account.apiKey,
+        authToken,
         storeDir: path.join(app.getPath("userData"), "agent", "oo-store"),
         ooBinPath: process.env["OO_CLI_PATH"],
       }),
@@ -270,10 +271,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return inFlight
     }
 
+    const authToken = await this.authService.currentSessionToken()
+    if (!authToken) {
+      throw new Error("Published Skills not available (sign in first)")
+    }
+
     const cacheGeneration = this.skillPackageCatalogCacheGeneration
     const promise = this.readMyPublishedSkillPackageCatalog({
       account: {
-        apiKey: account.apiKey,
+        authToken,
         id: account.id,
         name: account.name,
         avatarUrl: account.avatarUrl,
@@ -1063,7 +1069,7 @@ async function readPublicSkillPackageCatalog(request: {
 }
 
 async function readMyPublishedSkillPackageList(request: {
-  account: { apiKey: string }
+  account: { authToken: string }
   next?: string
 }): Promise<PublicSkillPackageCatalog> {
   const url = new URL("/v1/packages/-/my", searchBaseUrl)
@@ -1082,7 +1088,8 @@ async function readMyPublishedSkillPackageList(request: {
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
-        Authorization: request.account.apiKey,
+        // registry/search 历史上用裸 Authorization 收凭证；值由长期 api-key 换为会话 token（网关层统一鉴权）。
+        Authorization: request.account.authToken,
       },
       signal: controller.signal,
     })
@@ -1130,7 +1137,7 @@ function compareMyPublishedPackages(left: PublicSkillPackage, right: PublicSkill
 
 async function readRegistrySkillPackageInfo(
   packageName: string,
-  account: { apiKey: string },
+  account: { authToken: string },
   maintainer: { id: string; name: string; url?: string },
 ) {
   const url = new URL(`/-/oomol/package-info/${encodeURIComponent(packageName)}/latest`, registryBaseUrl)
@@ -1141,7 +1148,8 @@ async function readRegistrySkillPackageInfo(
     const response = await fetch(url, {
       headers: {
         Accept: "application/json",
-        Authorization: account.apiKey,
+        // registry 历史上用裸 Authorization 收凭证；值由长期 api-key 换为会话 token（网关层统一鉴权）。
+        Authorization: account.authToken,
       },
       signal: controller.signal,
     })

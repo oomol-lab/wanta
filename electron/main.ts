@@ -15,7 +15,6 @@ import {
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
-import { readOomolSessionCookie } from "./auth/session-cookie.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
 import { ArtifactRootStore } from "./chat/artifact-roots.ts"
@@ -171,14 +170,20 @@ if (isLocked) {
       console.warn("[lumo] startup update check failed:", error)
     })
 
-    const account = authManager.activeAccount()
-    if (account) {
-      void applyAuthAccount(account).catch((error: unknown) => {
+    // 启动时一次性抹除磁盘上残留的旧长期 api-key（迁移到纯会话 token 后不再落盘任何凭证）。
+    authStore.purgeLegacy()
+    void authManager
+      .activeRuntimeAccount()
+      .then((account) => {
+        if (account) {
+          return applyAuthAccount(account)
+        }
+        console.log("[lumo] not signed in (or session expired) — login page will be shown")
+        return undefined
+      })
+      .catch((error: unknown) => {
         console.error("[lumo] agent sidecar failed to start:", error)
       })
-    } else {
-      console.log("[lumo] not signed in — login page will be shown")
-    }
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -266,17 +271,15 @@ function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
 let appliedAccount: AuthRuntimeAccount | null = null
 
 async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<void> {
-  const effectiveAccount =
-    account && !account.sessionToken ? { ...account, sessionToken: await readOomolSessionCookie() } : account
+  // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
   // 幂等短路：冷启动 deep-link 与 whenReady 双路径会用同一账号 apply 两次。
   if (
-    effectiveAccount &&
+    account &&
     appliedAccount &&
     agent?.isReady() &&
     appliedAgentRuntimeVersion === agentRuntimeVersion &&
-    effectiveAccount.id === appliedAccount.id &&
-    effectiveAccount.apiKey === appliedAccount.apiKey &&
-    effectiveAccount.sessionToken === appliedAccount.sessionToken
+    account.id === appliedAccount.id &&
+    account.sessionToken === appliedAccount.sessionToken
   ) {
     return
   }
@@ -284,19 +287,19 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   agent?.dispose()
   agent = null
   chatService.setAgent(null)
-  chatService.setAgentStatus(effectiveAccount ? { status: "starting" } : { status: "signed_out" })
-  chatService.setBillingAccountContext({ token: effectiveAccount?.sessionToken, userId: effectiveAccount?.id })
+  chatService.setAgentStatus(account ? { status: "starting" } : { status: "signed_out" })
+  chatService.setBillingAccountContext({ token: account?.sessionToken, userId: account?.id })
   sessionService.setAgent(null)
-  connectionsService.setApiKey(effectiveAccount?.apiKey)
+  connectionsService.setAuthToken(account?.sessionToken)
   // 凭证变化后主动广播摘要，连接面板即时刷新（失败静默，面板有自己的拉取路径）。
   void connectionsService.refreshAndEmit().catch(() => undefined)
 
-  if (!effectiveAccount) {
+  if (!account) {
     return
   }
 
   const nextAgent = new AgentManager({
-    apiKey: effectiveAccount.apiKey,
+    authToken: account.sessionToken,
     opencodeBinPath,
     ooBinPath,
     rootDir: path.join(app.getPath("userData"), "agent"),
@@ -316,7 +319,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     sessionService.setAgent(null)
     throw error
   }
-  appliedAccount = effectiveAccount
+  appliedAccount = account
   appliedAgentRuntimeVersion = agentRuntimeVersion
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
@@ -325,9 +328,18 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
 
 function restartAgentForModelConfig(): void {
   agentRuntimeVersion += 1
-  void applyAuthAccount(authManager.activeAccount()).catch((error: unknown) => {
-    console.error("[lumo] failed to restart agent after model config change:", error)
-  })
+  void authManager
+    .activeRuntimeAccount()
+    .then(async (account) => {
+      await applyAuthAccount(account)
+      // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
+      if (!account) {
+        await authManager.broadcastAuthState()
+      }
+    })
+    .catch((error: unknown) => {
+      console.error("[lumo] failed to restart agent after model config change:", error)
+    })
 }
 
 function scheduleAgentRefreshForSkillChange(
@@ -363,9 +375,18 @@ function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
   }
 
   agentRuntimeVersion += 1
-  void applyAuthAccount(authManager.activeAccount()).catch((error: unknown) => {
-    console.error("[lumo] failed to restart agent after skill change:", { error, reason })
-  })
+  void authManager
+    .activeRuntimeAccount()
+    .then(async (account) => {
+      await applyAuthAccount(account)
+      // 会话中途过期：装配登出态后主动广播"未登录"，渲染层据此落回登录页（一致生命周期）。
+      if (!account) {
+        await authManager.broadcastAuthState()
+      }
+    })
+    .catch((error: unknown) => {
+      console.error("[lumo] failed to restart agent after skill change:", { error, reason })
+    })
 }
 
 /**

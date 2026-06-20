@@ -16,7 +16,7 @@ describe("AgentManager", () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
     try {
       const manager = new AgentManager({
-        apiKey: "test",
+        authToken: "test",
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,
@@ -41,7 +41,7 @@ describe("AgentManager", () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
     try {
       const manager = new AgentManager({
-        apiKey: "test",
+        authToken: "test",
         opencodeBinPath: "/tmp/opencode",
         ooBinPath: "/tmp/oo",
         rootDir,

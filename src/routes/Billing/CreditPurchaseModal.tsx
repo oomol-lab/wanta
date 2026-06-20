@@ -1,6 +1,6 @@
 import type { RechargePrice, SubscriptionPlanTag } from "../../../electron/chat/common.ts"
 
-import { CheckIcon, CreditCardIcon, ExternalLinkIcon, RefreshCwIcon } from "lucide-react"
+import { CheckIcon, CreditCardIcon, ExternalLinkIcon, LogInIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { formatCredit } from "./usage.ts"
@@ -9,6 +9,7 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
+import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -121,8 +122,13 @@ export function CreditPurchaseModal({
   showViewDetails = true,
 }: CreditPurchaseModalProps) {
   const t = useT()
+  const { login } = useAuth()
   const chatService = useChatService()
   const overview = useBillingOverview(30, { cacheScope, enabled: open })
+  const isSessionExpired = overview.error?.kind === "auth_required"
+  const handleSignIn = React.useCallback(() => {
+    void login().then(() => overview.refresh({ force: true }))
+  }, [login, overview])
   const [subscriptionLoading, setSubscriptionLoading] = React.useState<SubscriptionPlanTag | null>(null)
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
@@ -195,10 +201,17 @@ export function CreditPurchaseModal({
             <span />
           )}
           {overview.error ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => void overview.refresh({ force: true })}>
-              <RefreshCwIcon className={cn("size-3.5", overview.loading && "animate-spin")} />
-              {t("billing.refresh")}
-            </Button>
+            isSessionExpired ? (
+              <Button type="button" variant="outline" size="sm" onClick={handleSignIn}>
+                <LogInIcon className="size-3.5" />
+                {t("billing.signInAgain")}
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" onClick={() => void overview.refresh({ force: true })}>
+                <RefreshCwIcon className={cn("size-3.5", overview.loading && "animate-spin")} />
+                {t("billing.refresh")}
+              </Button>
+            )
           ) : null}
         </div>
         {overview.error ? <ErrorNotice error={overview.error} compact /> : null}

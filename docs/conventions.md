@@ -41,13 +41,13 @@
 
 ## 5. 安全基线（新代码不得弱化）
 
-- apiKey 永不进渲染进程：持有凭证的 `AuthManager` 不注册为 RPC service（`@oomol/connection` 注册即全公开、无方法白名单）；只注册契约门面。
-- `auth.json`：0600 权限、tmp+rename 原子写；会话 token `oomol-token` 仅内存。
+- 凭证永不进渲染进程：全应用唯一凭证是会话 token `oomol-token`；持有它的 `AuthManager`（`currentSessionToken`/`activeRuntimeAccount`）不注册为 RPC service（`@oomol/connection` 注册即全公开、无方法白名单）；只注册契约门面。**不再获取或落盘长期 api-key**——网关层统一接受 cookie/token/api-key，全程用会话 token。
+- `auth.json`：0600 权限、tmp+rename 原子写；**只存账号 profile、不存任何凭证**。会话 token 只活在 Electron 会话 cookie 与运行态内存；启动 `AuthStore.purgeLegacy()` 抹除旧版残留的落盘 api-key。
 - 非本应用发起的 signin deep link 须系统对话框确认（防 login-CSRF），勿绕过。
 - sidecar HTTP server 带随机口令 Basic Auth（`OPENCODE_SERVER_PASSWORD`）。
 - 外开 URL 协议白名单 `{http, https, mailto, tel}`，集中在 `main.ts` 的 `openExternalUrl`；`setWindowOpenHandler` 与 `will-navigate` 必须共用该 helper。新增协议要同时考虑两条路径。审查误报留档（已证伪，勿再报）："dev host 非 localhost 时 will-navigate 误拦渲染页"——窗口加载的就是同一 `viteDevServerUrl` 字符串（前缀自匹配恒成立），且 vite-plugin-electron 的 `resolveServerUrl` 把 `0.0.0.0`/`::` 都映射成 localhost。
 - Markdown 渲染不引入 raw HTML（streamdown/原 react-markdown 均保持 HTML 转义防 XSS）；收紧链接协议应在渲染层做，而非只在 Electron 侧 deny（否则出现"可点击但无反应"）。
-- OpenCode 配置经 `OPENCODE_CONFIG_CONTENT` 内联注入，apiKey 只入内存 env 不落盘。
+- OpenCode 配置经 `OPENCODE_CONFIG_CONTENT` 内联注入，凭证（会话 token）只入内存 env 不落盘；provider 的 `options.apiKey` 与 oo 的 `OO_API_KEY` 字段名保留（外部契约），值为会话 token。
 
 ## 6. 错误处理
 
@@ -63,7 +63,7 @@
 - **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器三工具照常 spawn oo，不受影响。
 - 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 search/inspect/call 三者的交叉引用。
 - sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界靠 `external_directory: "allow"`。
-- `parseConnectorErrorCode`（`oo.ts`）与 `call_action` 内联正则必须保持一致，改一处要同步另一处。`AUTH_BLOCKING_ERROR_CODES`（`connection_required` 等）来自 connector 上游而非 oo-cli，**权威定义**是 connector OpenAPI 错误 schema（`https://connector.<endpoint>/openapi.json`，需 `Authorization: Bearer <api-key>`）——增删该集合先核对此处。
+- `parseConnectorErrorCode`（`oo.ts`）与 `call_action` 内联正则必须保持一致，改一处要同步另一处。`AUTH_BLOCKING_ERROR_CODES`（`connection_required` 等）来自 connector 上游而非 oo-cli，**权威定义**是 connector OpenAPI 错误 schema（`https://connector.<endpoint>/openapi.json`，需 `Authorization: Bearer <会话 token>`）——增删该集合先核对此处。
 - 新增需要 endpoint 的代码：从 `domain.ts` import 派生常量；不要新增 `__OO_ENDPOINT__` 引用点（define 覆盖范围需与 vite/vitest 配置同步；当前三处 define：renderer/main/preload）。
 
 ## 8. 渲染层 / UI

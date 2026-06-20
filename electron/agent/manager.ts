@@ -24,7 +24,8 @@ import { OpencodeSidecar } from "./sidecar.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
 
 export interface AgentManagerOptions {
-  apiKey: string
+  /** 网关鉴权凭证：现为会话 token（网关层接受 cookie/token/api-key）。LLM 网关 / connector / oo-cli 共用。 */
+  authToken: string
   /** opencode 二进制绝对路径。 */
   opencodeBinPath: string
   /** oo 二进制绝对路径。 */
@@ -127,15 +128,15 @@ export class AgentManager {
   }
 
   public async start(): Promise<void> {
-    const { apiKey, opencodeBinPath, ooBinPath, rootDir, disableServerAuth, customModels } = this.options
+    const { authToken, opencodeBinPath, ooBinPath, rootDir, disableServerAuth, customModels } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
     const storeDir = path.join(rootDir, "oo-store")
 
     await ensureAgentWorkspace(workspaceDir)
 
-    const config = buildOpencodeConfig({ apiKey, customModels })
-    const ooEnv = buildOoEnv({ apiKey, storeDir, ooBinPath })
+    const config = buildOpencodeConfig({ authToken, customModels })
+    const ooEnv = buildOoEnv({ authToken, storeDir, ooBinPath })
     const ooDir = path.dirname(ooBinPath)
     const env: Record<string, string> = {
       ...ooEnv,
@@ -255,7 +256,7 @@ export class AgentManager {
     const response = await fetch(`${llmBaseUrl}/chat/completions`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.options.apiKey}`,
+        Authorization: `Bearer ${this.options.authToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -360,7 +361,7 @@ export class AgentManager {
     const requestSignal = signalWithTimeout(signal, 15_000)
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
-        headers: { Authorization: `Bearer ${this.options.apiKey}` },
+        headers: { Authorization: `Bearer ${this.options.authToken}` },
         signal: requestSignal.signal,
       })
       if (!response.ok) {

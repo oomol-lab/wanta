@@ -17,6 +17,22 @@ describe("resolveUserFacingError", () => {
     })
   })
 
+  it("classifies the billing session-expiry sentinel as a recoverable, billing-scoped sign-in prompt", () => {
+    // billing.ts 在会话 token 缺失/401 时抛出该消息：必须归类为可恢复的 auth_required（info），
+    // 且用账单专属文案（聊天不受影响），而非全局"登录已失效"，否则会误导成整个账号登出。
+    expect(resolveUserFacingError("Sign in is required.", { area: "billing" })).toMatchObject({
+      kind: "auth_required",
+      severity: "info",
+      titleKey: "error.billingSessionExpired.title",
+      descriptionKey: "error.billingSessionExpired.description",
+    })
+    // 非 billing 作用域（如语音）仍走通用登录文案。
+    expect(resolveUserFacingError("HTTP 401 unauthorized", { area: "voice" })).toMatchObject({
+      kind: "auth_required",
+      titleKey: "error.authRequired.title",
+    })
+  })
+
   it("maps OAuth polling outcomes without exposing English hook text", () => {
     expect(resolveUserFacingError("LUMO_OAUTH_PENDING", { area: "connections" })).toMatchObject({
       kind: "timeout",

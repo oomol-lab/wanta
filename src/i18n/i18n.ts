@@ -51,6 +51,8 @@ const messages = {
     "error.connections.oauthCancelled.description": "本次浏览器授权已经取消，需要时可以重新连接。",
     "error.billing.title": "无法读取用量",
     "error.billing.description": "用量和额度暂时无法刷新。你可以稍后重试，已加载的数据会继续保留。",
+    "error.billingSessionExpired.title": "用量暂时无法刷新",
+    "error.billingSessionExpired.description": "账单会话已过期，重新登录即可恢复用量与余额；当前对话不受影响。",
     "error.model.title": "模型配置失败",
     "error.model.description": "模型配置没有保存或切换成功。请检查配置后重试。",
     "error.model.validationDescription": "模型配置不完整或格式不正确，请检查 Base URL、API Key 和模型名称。",
@@ -289,6 +291,7 @@ const messages = {
     "billing.period30": "30 天",
     "billing.period90": "90 天",
     "billing.refresh": "刷新",
+    "billing.signInAgain": "重新登录",
     "billing.purchaseCredits": "购买额度",
     "billing.popover.tooltip": "用量与额度",
     "billing.popover.title": "我的用量",
@@ -774,6 +777,9 @@ const messages = {
     "error.billing.title": "Unable to read usage",
     "error.billing.description":
       "Usage and credits cannot be refreshed right now. Try again later; loaded data is kept.",
+    "error.billingSessionExpired.title": "Usage temporarily unavailable",
+    "error.billingSessionExpired.description":
+      "Your billing session expired. Sign in again to restore usage and credits — your current chat is unaffected.",
     "error.model.title": "Model configuration failed",
     "error.model.description":
       "The model configuration was not saved or selected. Check the configuration and try again.",
@@ -1023,6 +1029,7 @@ const messages = {
     "billing.period30": "30 days",
     "billing.period90": "90 days",
     "billing.refresh": "Refresh",
+    "billing.signInAgain": "Sign in again",
     "billing.purchaseCredits": "Buy credits",
     "billing.popover.tooltip": "Usage and credits",
     "billing.popover.title": "My usage",

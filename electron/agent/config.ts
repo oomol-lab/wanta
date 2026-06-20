@@ -39,17 +39,18 @@ const LUMO_PERMISSION = {
 } as const
 
 export interface OpencodeConfigOptions {
-  apiKey: string
+  /** 网关鉴权凭证：现为会话 token（网关层接受 cookie/token/api-key）。仅入内存 env，不落盘。 */
+  authToken: string
   customModels?: OpencodeCustomModel[]
 }
 
-/** 构建 OpenCode 配置（经 OPENCODE_CONFIG_CONTENT 内联注入；apiKey 仅入内存 env，不落盘）。 */
-export function buildOpencodeConfig({ apiKey, customModels = [] }: OpencodeConfigOptions): Config {
+/** 构建 OpenCode 配置（经 OPENCODE_CONFIG_CONTENT 内联注入；authToken 仅入内存 env，不落盘）。 */
+export function buildOpencodeConfig({ authToken, customModels = [] }: OpencodeConfigOptions): Config {
   return {
     $schema: "https://opencode.ai/config.json",
     model: `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`,
     provider: {
-      ...builtinProviderConfigs(apiKey),
+      ...builtinProviderConfigs(authToken),
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),
     },
     agent: {
@@ -69,7 +70,7 @@ export function customProviderId(id: string): string {
   return `lumo-custom-${id}`
 }
 
-function builtinProviderConfigs(apiKey: string): NonNullable<Config["provider"]> {
+function builtinProviderConfigs(authToken: string): NonNullable<Config["provider"]> {
   return Object.fromEntries(
     BUILTIN_PROVIDER_DEFINITIONS.map((provider) => [
       provider.id,
@@ -78,7 +79,8 @@ function builtinProviderConfigs(apiKey: string): NonNullable<Config["provider"]>
         ...(provider.npm ? { npm: provider.npm } : {}),
         options: {
           baseURL: llmBaseUrl,
-          apiKey,
+          // SDK 字段名固定为 apiKey（外部契约）；值是会话 token，网关层统一鉴权。
+          apiKey: authToken,
         },
         models: Object.fromEntries(
           BUILTIN_MODEL_DEFINITIONS.filter((model) => model.runtime.providerID === provider.id).map((model) => [

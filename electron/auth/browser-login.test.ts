@@ -4,7 +4,6 @@ import { ooEndpoint } from "../domain.ts"
 import {
   extractOomolTokenFromCookies,
   hubSigninUrl,
-  normalizeDefaultApiKey,
   normalizeLoginProfile,
   parseSigninCallback,
 } from "./browser-login.ts"
@@ -32,12 +31,6 @@ test("extractOomolTokenFromCookies finds the session token", () => {
   assert.equal(extractOomolTokenFromCookies(["foo=bar; Path=/", "oomol-token=tok-123; HttpOnly; Secure"]), "tok-123")
   assert.equal(extractOomolTokenFromCookies(["foo=bar"]), undefined)
   assert.equal(extractOomolTokenFromCookies([]), undefined)
-})
-
-test("normalizeDefaultApiKey requires a non-empty string key", () => {
-  assert.equal(normalizeDefaultApiKey({ key: "oo-key" }), "oo-key")
-  assert.equal(normalizeDefaultApiKey({ key: "" }), undefined)
-  assert.equal(normalizeDefaultApiKey({}), undefined)
 })
 
 test("normalizeLoginProfile prefers nickname and requires uid", () => {

@@ -13,7 +13,7 @@ import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 test("buildOpencodeConfig wires the default GPT 5.5 OpenAI Responses model", () => {
-  const config = buildOpencodeConfig({ apiKey: "api-test" })
+  const config = buildOpencodeConfig({ authToken: "api-test" })
   assert.equal(config.model, `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`)
   assert.equal(config.model, "openai/gpt-5.5")
   const provider = config.provider?.[LUMO_PROVIDER_ID]
@@ -28,7 +28,7 @@ test("buildOpencodeConfig wires the default GPT 5.5 OpenAI Responses model", () 
 })
 
 test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
-  const config = buildOpencodeConfig({ apiKey: "api-test" })
+  const config = buildOpencodeConfig({ authToken: "api-test" })
   const auto = resolveBuiltinModel("oopilot")
   const provider = config.provider?.[auto.runtime.providerID]
   assert.ok(provider)
@@ -42,7 +42,7 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
 })
 
 test("buildOpencodeConfig covers every registered built-in model runtime", () => {
-  const config = buildOpencodeConfig({ apiKey: "api-test" })
+  const config = buildOpencodeConfig({ authToken: "api-test" })
 
   for (const providerDefinition of BUILTIN_PROVIDER_DEFINITIONS) {
     const provider = config.provider?.[providerDefinition.id]
@@ -66,7 +66,7 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
 test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics", () => {
   const gpt55 = resolveBuiltinModel("gpt-5.5")
   assert.deepEqual(gpt55.runtime, { providerID: "openai", modelID: "gpt-5.5" })
-  const config = buildOpencodeConfig({ apiKey: "api-test" })
+  const config = buildOpencodeConfig({ authToken: "api-test" })
   const provider = config.provider?.[gpt55.runtime.providerID]
   const model = provider?.models?.[gpt55.runtime.modelID]
   assert.ok(provider)
@@ -81,7 +81,7 @@ test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics",
 
 test("buildOpencodeConfig wires text-only custom openai-compatible providers without changing the default model", () => {
   const config = buildOpencodeConfig({
-    apiKey: "api-test",
+    authToken: "api-test",
     customModels: [
       {
         id: "custom-1",
@@ -106,7 +106,7 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
 
 test("buildOpencodeConfig marks custom providers as image-capable only when requested", () => {
   const config = buildOpencodeConfig({
-    apiKey: "api-test",
+    authToken: "api-test",
     customModels: [
       {
         id: "custom-vision",
@@ -126,7 +126,7 @@ test("buildOpencodeConfig marks custom providers as image-capable only when requ
 })
 
 test("lumo agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {
-  const config = buildOpencodeConfig({ apiKey: "k" })
+  const config = buildOpencodeConfig({ authToken: "k" })
   const agent = config.agent?.[LUMO_AGENT_NAME]
   assert.ok(agent)
   assert.ok(typeof agent.prompt === "string" && agent.prompt.length > 0)
@@ -159,7 +159,7 @@ test("system prompt treats Link as a contextual capability, not the default path
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
-  const env = buildOoEnv({ apiKey: "api-x", storeDir: "/tmp/store", ooBinPath: "/usr/bin/oo" })
+  const env = buildOoEnv({ authToken: "api-x", storeDir: "/tmp/store", ooBinPath: "/usr/bin/oo" })
   assert.equal(env.OO_API_KEY, "api-x")
   assert.equal(env.OO_ENDPOINT, ooEndpoint)
   assert.equal(env.OO_SKILLS_SYNC_DISABLED, "1")
@@ -202,7 +202,7 @@ test("agent tool sources are present and shaped", () => {
 test("createArtifactDir creates an isolated per-session turn directory", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "lumo-agent-artifacts-"))
   const manager = new AgentManager({
-    apiKey: "api-test",
+    authToken: "api-test",
     opencodeBinPath: "/bin/opencode",
     ooBinPath: "/bin/oo",
     rootDir,

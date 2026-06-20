@@ -57,3 +57,13 @@ test("local activity never moves a session timestamp backwards", async () => {
 
   assert.equal(sessions[0]?.updatedAt, 5_000)
 })
+
+test("generateTitle preserves whether the title came from the model", async () => {
+  const service = new SessionServiceImpl({
+    generateSessionTitle: async () => ({ generated: true, title: "Gmail 三日报告" }),
+  } as unknown as AgentManager)
+
+  const result = await service.generateTitle({ text: "分析最近三天 Gmail 信息" })
+
+  assert.deepEqual(result, { generated: true, title: "Gmail 三日报告" })
+})

@@ -63,6 +63,11 @@ interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>
 }
 
+export interface GeneratedSessionTitle {
+  title: string
+  generated: boolean
+}
+
 const sessionTitleSystemPrompt = [
   "Generate a short chat title as a task label.",
   'Return JSON only, exactly like {"title":"Gmail 三日报告"}.',
@@ -209,26 +214,28 @@ export class AgentManager {
     await this.client.session.delete({ path: { id } })
   }
 
-  public async generateSessionTitle(input: BuildSessionTitleInput): Promise<string> {
+  public async generateSessionTitle(input: BuildSessionTitleInput): Promise<GeneratedSessionTitle> {
     const fallback = buildFallbackSessionTitle(input)
     const titleSource = buildTitleSource(input)
     if (!titleSource) {
-      return fallback
+      return { generated: false, title: fallback }
     }
 
     try {
       const first = await this.requestSessionTitle(titleSource)
       const firstTitle = sanitizeGeneratedSessionTitle(first, input)
       if (isGeneratedSessionTitleAcceptable(firstTitle)) {
-        return firstTitle
+        return { generated: true, title: firstTitle }
       }
 
       const retry = await this.requestSessionTitle(titleSource, firstTitle)
       const retryTitle = sanitizeGeneratedSessionTitle(retry, input)
-      return isGeneratedSessionTitleAcceptable(retryTitle) ? retryTitle : fallback
+      return isGeneratedSessionTitleAcceptable(retryTitle)
+        ? { generated: true, title: retryTitle }
+        : { generated: false, title: fallback }
     } catch (error) {
       console.warn("[lumo] failed to generate session title, using fallback:", error)
-      return fallback
+      return { generated: false, title: fallback }
     }
   }
 

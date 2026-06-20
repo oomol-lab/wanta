@@ -229,9 +229,12 @@ function isSessionTitleAutoRefreshable(
   session: SessionInfo,
   allowPlaceholder: boolean,
   fallbackTitles: Map<string, string>,
+  fallbackTitle?: string,
 ): boolean {
   return (
-    shouldAutoRefreshSessionTitle(session.title, allowPlaceholder) || fallbackTitles.get(session.id) === session.title
+    shouldAutoRefreshSessionTitle(session.title, allowPlaceholder) ||
+    fallbackTitles.get(session.id) === session.title ||
+    fallbackTitle === session.title
   )
 }
 
@@ -1175,11 +1178,12 @@ export function AppShell() {
         return
       }
 
+      const fallbackTitle = buildFallbackSessionTitle(input)
       const current = sessionsRef.current.find((session) => session.id === sessionId)
       if (
         current &&
         current.title !== replaceableTitle &&
-        !isSessionTitleAutoRefreshable(current, allowPlaceholder, autoFallbackTitleBySession.current)
+        !isSessionTitleAutoRefreshable(current, allowPlaceholder, autoFallbackTitleBySession.current, fallbackTitle)
       ) {
         autoFallbackTitleBySession.current.delete(sessionId)
         titleGenerationRetryAfterBySession.current.delete(sessionId)
@@ -1189,19 +1193,29 @@ export function AppShell() {
 
       titleGenerationInFlightBySession.current.set(sessionId, generationKey)
       try {
-        const title = await generateTitle(input)
+        const result = await generateTitle(input)
+        const title = result.title
         const latest = sessionsRef.current.find((session) => session.id === sessionId)
         const latestTitle = latest?.title ?? replaceableTitle
         if (
           latest &&
           latest.title !== replaceableTitle &&
-          !isSessionTitleAutoRefreshable(latest, allowPlaceholder, autoFallbackTitleBySession.current)
+          !isSessionTitleAutoRefreshable(latest, allowPlaceholder, autoFallbackTitleBySession.current, fallbackTitle)
         ) {
           autoFallbackTitleBySession.current.delete(sessionId)
           titleGenerationRetryAfterBySession.current.delete(sessionId)
           lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
           return
         }
+
+        if (!result.generated) {
+          titleGenerationRetryAfterBySession.current.set(sessionId, {
+            key: generationKey,
+            retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
+          })
+          return
+        }
+
         if (title && title !== latestTitle) {
           await rename(sessionId, title)
           autoFallbackTitleBySession.current.delete(sessionId)
@@ -1212,12 +1226,12 @@ export function AppShell() {
         if (
           latestTitle &&
           (shouldAutoRefreshSessionTitle(latestTitle, allowPlaceholder) ||
-            autoFallbackTitleBySession.current.get(sessionId) === latestTitle)
+            autoFallbackTitleBySession.current.get(sessionId) === latestTitle ||
+            fallbackTitle === latestTitle)
         ) {
-          titleGenerationRetryAfterBySession.current.set(sessionId, {
-            key: generationKey,
-            retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
-          })
+          autoFallbackTitleBySession.current.delete(sessionId)
+          titleGenerationRetryAfterBySession.current.delete(sessionId)
+          lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
           return
         }
         titleGenerationRetryAfterBySession.current.delete(sessionId)
@@ -1241,11 +1255,12 @@ export function AppShell() {
     if (!activeSession || !messagesLoaded || messages.length === 0) {
       return
     }
-    if (!isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current)) {
-      return
-    }
     const titleInput = buildSessionTitleInput(messages, "", [])
     if (!titleInput.text && !titleInput.attachmentNames?.length) {
+      return
+    }
+    const fallbackTitle = buildFallbackSessionTitle(titleInput)
+    if (!isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current, fallbackTitle)) {
       return
     }
     void refreshGeneratedTitle(activeSession.id, titleInput, true, activeSession.title)
@@ -1271,12 +1286,17 @@ export function AppShell() {
         const allowPlaceholderTitle =
           !sessionId ||
           (activeSession
-            ? isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current)
+            ? isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current, fallbackTitle)
             : false)
         const shouldRefreshTitle =
           !sessionId ||
           (activeSession
-            ? isSessionTitleAutoRefreshable(activeSession, allowPlaceholderTitle, autoFallbackTitleBySession.current)
+            ? isSessionTitleAutoRefreshable(
+                activeSession,
+                allowPlaceholderTitle,
+                autoFallbackTitleBySession.current,
+                fallbackTitle,
+              )
             : false)
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()

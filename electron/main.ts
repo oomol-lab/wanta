@@ -34,6 +34,11 @@ import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
 import { SkillServiceImpl } from "./skills/node.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
+import {
+  buildWindowsTitleBarOverlay,
+  resolveWindowsTitleBarTheme,
+  windowBackgroundColorForTheme,
+} from "./window/title-bar-overlay.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(dirname, "..")
@@ -42,10 +47,7 @@ process.env.APP_ROOT = appRoot
 const viteDevServerUrl = process.env["VITE_DEV_SERVER_URL"]
 const rendererDist = path.join(appRoot, "dist")
 const preloadPath = path.join(dirname, "preload.js")
-const titleBarHeight = 48
 const macTrafficLightPosition = { x: 15, y: 17 }
-const darkWindowColor = "#171717"
-const lightWindowColor = "#ffffff"
 const skillRuntimeRefreshDelayMs = 1_500
 const skillRuntimeRefreshBusyRetryMs = 2_000
 const skillRuntimeRefreshMaxBusyRetries = 10
@@ -419,7 +421,8 @@ function openExternalUrl(url: string): void {
 function createMainWindow(): void {
   installPermissionRequestHandler()
   const isMac = process.platform === "darwin"
-  const backgroundColor = nativeTheme.shouldUseDarkColors ? darkWindowColor : lightWindowColor
+  const titleBarTheme = resolveWindowsTitleBarTheme(nativeTheme.shouldUseDarkColors)
+  const backgroundColor = windowBackgroundColorForTheme(titleBarTheme)
 
   mainWindow = new BrowserWindow({
     width: 1080,
@@ -436,11 +439,7 @@ function createMainWindow(): void {
       ? {}
       : {
           frame: false,
-          titleBarOverlay: {
-            color: backgroundColor,
-            symbolColor: nativeTheme.shouldUseDarkColors ? "#e5e5e5" : "#404040",
-            height: titleBarHeight,
-          },
+          titleBarOverlay: buildWindowsTitleBarOverlay(titleBarTheme),
         }),
     webPreferences: {
       preload: preloadPath,

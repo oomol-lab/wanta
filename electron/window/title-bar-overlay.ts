@@ -2,17 +2,17 @@ import type { TitleBarOverlayOptions } from "electron"
 
 export type WindowsTitleBarTheme = "light" | "dark"
 
-export const windowsTitleBarOverlayHeight = 48
+export const windowsTitleBarOverlayHeight = 47
 
 const windowsTitleBarOverlayColors: Record<WindowsTitleBarTheme, { color: string; symbolColor: string }> = {
-  // 与 src/index.css 里的顶栏背景/前景保持同步。
+  // 与 Chat desktop 的 Windows 顶栏叠层基线保持同步；高度少 1px 以露出顶栏底部分隔线。
   light: {
     color: "#ffffff",
-    symbolColor: "#1c2024",
+    symbolColor: "#252a2e",
   },
   dark: {
-    color: "#111113",
-    symbolColor: "#edeef0",
+    color: "#111213",
+    symbolColor: "#f0f6fc",
   },
 }
 

@@ -11,15 +11,15 @@ describe("buildWindowsTitleBarOverlay", () => {
   it("uses the light title bar colors", () => {
     expect(buildWindowsTitleBarOverlay("light")).toEqual({
       color: "#ffffff",
-      symbolColor: "#1c2024",
+      symbolColor: "#252a2e",
       height: windowsTitleBarOverlayHeight,
     })
   })
 
   it("uses the dark title bar colors", () => {
     expect(buildWindowsTitleBarOverlay("dark")).toEqual({
-      color: "#111113",
-      symbolColor: "#edeef0",
+      color: "#111213",
+      symbolColor: "#f0f6fc",
       height: windowsTitleBarOverlayHeight,
     })
   })
@@ -28,7 +28,7 @@ describe("buildWindowsTitleBarOverlay", () => {
 describe("windowBackgroundColorForTheme", () => {
   it("matches the overlay background color", () => {
     expect(windowBackgroundColorForTheme("light")).toBe("#ffffff")
-    expect(windowBackgroundColorForTheme("dark")).toBe("#111113")
+    expect(windowBackgroundColorForTheme("dark")).toBe("#111213")
   })
 })
 

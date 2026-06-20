@@ -69,8 +69,9 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 3. **品牌标识只改一处**：`electron/branding.ts`（R1）。但 `OO_` 环境变量前缀、
    `x-oomol-*` 头是外部协议契约，不随品牌改。
 4. **凭证永不进渲染进程**。`@oomol/connection` 注册即全公开（无方法白名单），
-   持有 apiKey 的 `AuthManager` 刻意不注册为 RPC service，只注册薄门面 `AuthServiceImpl`。
-   auth.json 0600 + 原子写；deep-link 日志必须脱敏（query 含 authID）。
+   持有会话 token 的 `AuthManager`（`currentSessionToken` / `activeRuntimeAccount`）刻意不注册为
+   RPC service，只注册薄门面 `AuthServiceImpl`。auth.json 0600 + 原子写、**只存 profile 不存凭证**；
+   deep-link 日志必须脱敏（query 含 authID）。
 5. **版本钉死，禁止浮动**：`opencode-ai` / `@opencode-ai/sdk` / `@opencode-ai/plugin`
    三包同为 `1.17.8`（上游无 API 稳定承诺）；oo CLI 版本由 `scripts/oo-cli.ts` 的
    `OO_CLI_VERSION = "1.2.2"` 单一锁定。
@@ -110,8 +111,10 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
   默认模型是 `openai/gpt-5.5`，Auto 选项是 `oomol/oopilot`，agent 名 `lumo`
   （`electron/agent/config.ts`）。网关 `/v1/models` **不会列出** `oopilot`
   （网关侧别名），勿据此"纠正"Auto 模型名。
-- 登录：浏览器登录 + deep-link（生产 `lumo://signin`，dev `lumo-local://signin`），
-  唯一落盘凭证是 default-api-key（`userData/auth.json`）。
+- 登录：浏览器登录 + deep-link（生产 `lumo://signin`，dev `lumo-local://signin`）。
+  **全应用唯一凭证是会话 token `oomol-token`**（Electron 会话 cookie，短命会过期；网关层统一接受
+  cookie/token/api-key，故聊天/连接器/组织/技能/账单一律用它）；`userData/auth.json` 只存账号 profile
+  **不存任何凭证**，也不再获取长期 api-key。token 失效即全局判为未登录（`AuthManager.currentState` 门控）。
 - 连接器三工具：`search_actions` → `inspect_action` → `call_action`
   （源码内嵌在 `electron/agent/tool-sources.ts`，运行于 OpenCode 的 Bun，
   不参与本项目 lint/tsc）。

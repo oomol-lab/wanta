@@ -133,14 +133,14 @@ function normalizeOptionalUsageSummary(
 }
 
 export interface ConnectionsServiceOptions {
-  apiKey?: string
+  authToken?: string
 }
 
 export class ConnectionsServiceImpl
   extends ConnectionService<ConnectionsService>
   implements IConnectionService<ConnectionsService>
 {
-  private apiKey?: string
+  private authToken?: string
   private readonly connectorGetCache = new Map<string, ConnectorCacheEntry<unknown>>()
   private readonly connectorGetInFlight = new Map<string, Promise<{ data: unknown; meta: unknown }>>()
   private connectionSummaryCache: ConnectionSummaryCacheEntry | undefined
@@ -150,22 +150,22 @@ export class ConnectionsServiceImpl
 
   public constructor(options?: ConnectionsServiceOptions) {
     super(ConnectionsServiceName)
-    this.apiKey = options?.apiKey
+    this.authToken = options?.authToken
   }
 
-  /** 登录 / 登出时由 main 更新凭证（账号的默认 api-key，等价旧 OO_API_KEY）。 */
-  public setApiKey(apiKey: string | undefined): void {
-    if (this.apiKey === apiKey) {
+  /** 登录 / 登出时由 main 更新凭证（现为会话 token；注入 connector 请求的 Bearer，网关层统一鉴权）。 */
+  public setAuthToken(authToken: string | undefined): void {
+    if (this.authToken === authToken) {
       return
     }
 
-    this.apiKey = apiKey
+    this.authToken = authToken
     this.clearConnectionSummaryState()
     this.clearConnectorGetCache()
   }
 
   public isReady(): Promise<boolean> {
-    return Promise.resolve(Boolean(this.apiKey))
+    return Promise.resolve(Boolean(this.authToken))
   }
 
   public getSummary(request?: ConnectionSummaryRequest): Promise<ConnectionSummary> {
@@ -173,12 +173,12 @@ export class ConnectionsServiceImpl
   }
 
   public async getConnectionSummary(request: ConnectionSummaryRequest = {}): Promise<ConnectionSummary> {
-    if (!this.apiKey) {
+    if (!this.authToken) {
       this.clearConnectionSummaryState()
       return createEmptyConnectionSummary("signed-out", "未登录")
     }
 
-    const accountKey = this.apiKey
+    const accountKey = this.authToken
     const now = Date.now()
     if (!request.forceRefresh) {
       const cachedSummary = this.getCachedConnectionSummary(accountKey, now)
@@ -477,10 +477,10 @@ export class ConnectionsServiceImpl
   }
 
   private getConnectorRequestContext(): ConnectorRequestContext {
-    if (!this.apiKey) {
+    if (!this.authToken) {
       throw new Error("Connections not available (sign in first)")
     }
-    return this.createConnectorRequestContext(this.apiKey)
+    return this.createConnectorRequestContext(this.authToken)
   }
 
   private getConnector<T>(path: string, options: { forceRefresh?: boolean } = {}): Promise<{ data: T; meta: unknown }> {
@@ -588,12 +588,12 @@ export class ConnectionsServiceImpl
   }
 
   private isCurrentConnectionSummaryRefresh(accountKey: string, generation: number): boolean {
-    return this.connectionSummaryGeneration === generation && this.apiKey === accountKey
+    return this.connectionSummaryGeneration === generation && this.authToken === accountKey
   }
 
   private createSupersededConnectionSummary(accountKey: string, message?: string): ConnectionSummary {
     return createSupersededConnectionSummaryFallback({
-      accountMatches: this.apiKey === accountKey,
+      accountMatches: this.authToken === accountKey,
       cached: this.getCachedConnectionSummary(accountKey, Date.now()),
       message,
       previous: this.getLastReadySummary(accountKey),

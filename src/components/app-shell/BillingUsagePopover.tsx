@@ -1,4 +1,4 @@
-import { ArrowRightIcon, GaugeIcon, RefreshCwIcon, WalletCardsIcon, XIcon } from "lucide-react"
+import { ArrowRightIcon, GaugeIcon, LogInIcon, RefreshCwIcon, WalletCardsIcon, XIcon } from "lucide-react"
 import * as React from "react"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
@@ -6,6 +6,7 @@ import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/compone
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -28,6 +29,7 @@ interface BillingUsagePopoverProps {
 
 export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsagePopoverProps) {
   const t = useT()
+  const { login } = useAuth()
   const [open, setOpen] = React.useState(false)
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
@@ -35,6 +37,11 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
     summaryOnly: true,
     staleMs: cacheFreshMs,
   })
+  // 会话过期（计费用的 oomol-token 失效，agent 仍可用）：重新登录刷新会话，而非误导用户去充值。
+  const isSessionExpired = error?.kind === "auth_required"
+  const handleSignIn = React.useCallback(() => {
+    void login().then(() => refresh({ force: true }))
+  }, [login, refresh])
 
   const summaries = React.useMemo(
     () => buildCategorySummaries(data?.spend, data?.metering),
@@ -58,7 +65,8 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
       : currentCredit > 0
         ? 100
         : 0
-  const hasNoCredits = Boolean(data && currentCredit <= 0)
+  // 仅在真正拿到余额（无错误）且为 0 时才提示耗尽；会话过期/读取失败一律不显示破坏性"余额耗尽"。
+  const hasNoCredits = Boolean(data && currentCredit <= 0 && !error)
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -107,11 +115,19 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
             <ErrorNotice
               error={error}
               compact
-              action={{
-                icon: <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />,
-                label: t("billing.popover.retry"),
-                onClick: () => void refresh({ force: true }),
-              }}
+              action={
+                isSessionExpired
+                  ? {
+                      icon: <LogInIcon className="size-4" />,
+                      label: t("billing.signInAgain"),
+                      onClick: handleSignIn,
+                    }
+                  : {
+                      icon: <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />,
+                      label: t("billing.popover.retry"),
+                      onClick: () => void refresh({ force: true }),
+                    }
+              }
             />
           ) : (
             <>

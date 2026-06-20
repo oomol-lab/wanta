@@ -9,12 +9,11 @@ import { ServiceEvent } from "../service-events.ts"
 import {
   extractOomolTokenFromCookies,
   hubSigninUrl,
-  normalizeDefaultApiKey,
   normalizeLoginProfile,
   parseSigninCallback,
 } from "./browser-login.ts"
 import { AuthService as AuthServiceName } from "./common.ts"
-import { clearOomolSessionCookies, persistOomolSessionCookie } from "./session-cookie.ts"
+import { clearOomolSessionCookies, persistOomolSessionCookie, readOomolSessionCookie } from "./session-cookie.ts"
 import { removeAccount, selectAccount, upsertAccount } from "./store.ts"
 
 export interface AuthManagerDeps {
@@ -37,8 +36,8 @@ const loginTimeoutMs = 10 * 60_000
 /**
  * 浏览器登录的全部逻辑与凭证持有者。**不注册为 RPC service**：
  * @oomol/connection 的 invoke 按方法名动态派发、无白名单，注册实例上的任何公开方法
- * （包括返回 apiKey 的 activeAccount）都会暴露给渲染进程。凭证只能留在这里，
- * 渲染层经 AuthServiceImpl（薄门面，仅 getAuthState/login/logout）访问。
+ * （如返回会话 token 的 currentSessionToken / activeRuntimeAccount）都会暴露给渲染进程。
+ * 凭证只能留在这里，渲染层经 AuthServiceImpl（薄门面，仅 getAuthState/login/logout）访问。
  */
 export class AuthManager {
   private readonly deps: AuthManagerDeps
@@ -56,16 +55,48 @@ export class AuthManager {
     this.emitState = emit
   }
 
-  /** 生效账号（含 apiKey，仅主进程内部使用）。 */
+  /** 生效账号的持久化 profile（不含任何凭证）。 */
   public activeAccount(): AuthAccount | null {
     return selectAccount(this.deps.store.read())
+  }
+
+  /** 当前会话 token（全应用唯一凭证，来自 Electron 会话 cookie）；未登录或已过期/被驱逐时为 undefined。 */
+  public currentSessionToken(): Promise<string | undefined> {
+    return readOomolSessionCookie()
+  }
+
+  /**
+   * 运行时账号 = 持久化 profile + 会话 token。无 profile 或无 token（过期）时返回 null —— 即"未登录/会话失效"。
+   * main 用它装配 agent / connector / org / skills，billing 也由它派生：token 在则全可用，token 失则全不可用（一致生命周期）。
+   */
+  public async activeRuntimeAccount(): Promise<AuthRuntimeAccount | null> {
+    const account = this.activeAccount()
+    if (!account) {
+      return null
+    }
+    const sessionToken = await readOomolSessionCookie()
+    if (!sessionToken) {
+      return null
+    }
+    return { ...account, sessionToken }
   }
 
   public getAuthState(): Promise<AuthState> {
     void this.refreshActiveAccountProfile().catch((error: unknown) => {
       console.warn("[lumo] failed to refresh account profile:", error)
     })
-    return Promise.resolve(this.currentState())
+    return this.currentState()
+  }
+
+  /**
+   * 重新计算并广播当前鉴权状态。供 main 在"会话中途过期"装配登出态时调用：渲染层的 useAuth 只在挂载或
+   * 收到 authStateChanged 时更新，不轮询；故 token 失效后必须主动推一次"未登录"，渲染层才会落回登录页
+   * （否则 AppShell 会停在"Agent 启动中"）。
+   */
+  public async broadcastAuthState(): Promise<void> {
+    const state = await this.currentState()
+    this.stateChanged.emit(state)
+    await this.emitState(state)
   }
 
   /** 打开系统浏览器登录；promise 在 deep-link 回调完成后 resolve（agent 在后台启动）。 */
@@ -94,7 +125,7 @@ export class AuthManager {
     await clearOomolSessionCookies().catch((error: unknown) => {
       console.warn("[lumo] failed to clear session cookies:", error)
     })
-    const state = this.currentState()
+    const state = await this.currentState()
     this.stateChanged.emit(state)
     await this.emitState(state)
     return state
@@ -133,10 +164,18 @@ export class AuthManager {
     this.rejectPending(new Error("Sign-in was cancelled."))
   }
 
-  private currentState(): AuthState {
+  /**
+   * 鉴权状态。唯一凭证是会话 token：profile 仍在但 cookie 已过期/被驱逐时一律判为未登录
+   * （一致生命周期 —— 渲染层据此落到登录页，聊天/连接器/用量随之全部不可用）。
+   */
+  private async currentState(): Promise<AuthState> {
     const account = this.activeAccount()
     const updatedAt = new Date().toISOString()
     if (!account) {
+      return { status: "unauthenticated", updatedAt }
+    }
+    const sessionToken = await readOomolSessionCookie()
+    if (!sessionToken) {
       return { status: "unauthenticated", updatedAt }
     }
     return {
@@ -146,13 +185,11 @@ export class AuthManager {
     }
   }
 
-  /** 落盘 + 广播 + 后台装配 agent（启动较慢，渲染层用既有 isReady 轮询显示"Agent 启动中"）。 */
+  /** 落盘 profile + 持久化会话 cookie + 广播 + 后台装配 agent（启动较慢，渲染层用既有 isReady 轮询显示"Agent 启动中"）。 */
   private async adoptAccount(account: AuthRuntimeAccount): Promise<AuthState> {
-    if (account.sessionToken) {
-      await persistOomolSessionCookie(account.sessionToken)
-    }
+    await persistOomolSessionCookie(account.sessionToken)
     this.deps.store.write(upsertAccount(this.deps.store.read(), account))
-    const state = this.currentState()
+    const state = await this.currentState()
     this.stateChanged.emit(state)
     await this.emitState(state)
     void this.deps.applyAccount(account).catch((error: unknown) => {
@@ -161,16 +198,20 @@ export class AuthManager {
     return state
   }
 
-  /** 兼容旧 auth.json：若账号缺头像，后台补拉 profile 并只广播渲染层展示状态。 */
+  /** 兼容旧 auth.json：若账号缺头像，用当前会话 token 后台补拉 profile 并只广播渲染层展示状态。 */
   private async refreshActiveAccountProfile(): Promise<void> {
     const account = this.activeAccount()
     if (!account || account.avatarUrl || this.profileRefreshAccountId === account.id) {
       return
     }
+    const sessionToken = await readOomolSessionCookie()
+    if (!sessionToken) {
+      return
+    }
     this.profileRefreshAccountId = account.id
-    const profile = await requestLoginProfile(apiBaseUrl, account.apiKey)
+    const profile = await requestLoginProfile(apiBaseUrl, sessionToken)
     const currentAccount = this.activeAccount()
-    if (!currentAccount || currentAccount.id !== account.id || currentAccount.apiKey !== account.apiKey) {
+    if (!currentAccount || currentAccount.id !== account.id) {
       return
     }
     if (!profile.avatarUrl && profile.name === currentAccount.name) {
@@ -181,9 +222,10 @@ export class AuthManager {
         ...currentAccount,
         name: profile.name,
         ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+        sessionToken,
       }),
     )
-    await this.emitState(this.currentState())
+    await this.emitState(await this.currentState())
   }
 
   private createPending(): PendingLogin {
@@ -265,16 +307,15 @@ async function confirmExternalLogin(account: AuthRuntimeAccount): Promise<boolea
   return response === 0
 }
 
-/** authID → 会话 token → { apiKey, profile }。纯网络交换，无副作用。 */
+/** authID → 会话 token → profile。纯网络交换，无副作用。会话 token 即全应用唯一凭证，不再换取长期 api-key。 */
 async function exchangeLogin(authId: string): Promise<AuthRuntimeAccount> {
   const api = apiBaseUrl
   const token = await requestSigninWithAuthId(api, authId)
-  const [apiKey, profile] = await Promise.all([requestDefaultApiKey(api, token), requestLoginProfile(api, token)])
+  const profile = await requestLoginProfile(api, token)
   return {
     id: profile.id,
     name: profile.name,
     ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
-    apiKey,
     sessionToken: token,
   }
 }
@@ -309,23 +350,6 @@ async function requestSigninWithAuthId(api: string, authId: string): Promise<str
     throw new Error("OOMOL sign-in did not return a session token.")
   }
   return token
-}
-
-/** 会话 token → 默认 api-key（即旧 OO_API_KEY 的等价物，唯一落盘凭证）。 */
-async function requestDefaultApiKey(api: string, token: string): Promise<string> {
-  const response = await fetch(`${api}/v1/users/default-api-key`, {
-    method: "GET",
-    signal: authRequestSignal(),
-    headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    throw new Error(`Failed to get OOMOL API key: ${response.status}`)
-  }
-  const apiKey = normalizeDefaultApiKey((await response.json()) as { key?: unknown })
-  if (!apiKey) {
-    throw new Error("OOMOL API key response is invalid.")
-  }
-  return apiKey
 }
 
 async function requestLoginProfile(

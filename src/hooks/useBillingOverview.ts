@@ -96,7 +96,15 @@ export function useBillingOverview(
         return nextData
       } catch (nextError) {
         if (mounted.current && requestId.current === currentRequest) {
-          setError(resolveUserFacingError(nextError, { area: "billing" }))
+          const resolved = resolveUserFacingError(nextError, { area: "billing" })
+          setError(resolved)
+          // 会话过期（auth_required）：清掉可能残留的旧余额（含模块级缓存），否则 popover 红点 / 账单页
+          // 标题会把陈旧或零值再渲染成假 "$0"。其他错误（网络抖动）保留旧值以免闪烁。
+          if (resolved.kind === "auth_required") {
+            entry.data = null
+            entry.loadedAt = 0
+            setData(null)
+          }
         }
         return null
       } finally {

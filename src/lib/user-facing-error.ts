@@ -139,12 +139,15 @@ export function resolveUserFacingError(
   }
 
   if (status === 401 || includesAny(normalized, ["unauthorized", "sign in", "login required", "fresh sign-in"])) {
+    // 账单/用量走的是短命会话 token（与聊天用的 apiKey 相互独立）：会话过期只影响用量展示，
+    // 聊天仍可用。故 billing 作用域用专属文案点明"当前对话不受影响"，避免误导成"整个账号登出"。
+    const isBilling = area === "billing"
     return buildError(
       area,
       "auth_required",
       "info",
-      "error.authRequired.title",
-      "error.authRequired.description",
+      isBilling ? "error.billingSessionExpired.title" : "error.authRequired.title",
+      isBilling ? "error.billingSessionExpired.description" : "error.authRequired.description",
       diagnostics,
     )
   }

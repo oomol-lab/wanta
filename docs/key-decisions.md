@@ -26,7 +26,8 @@
 ## 4. 登录流修正：OO_API_KEY env → 浏览器登录
 
 - **背景（错在哪）**：原实现启动时直接读 `process.env["OO_API_KEY"]`，无该变量时 App 打开后什么都用不了，且无登录入口——对最终用户不可用。
-- **决策**：改为浏览器登录流（hub 登录页 → deep-link 回跳 → authID 换 token → default-api-key 落盘 `auth.json` → `applyAuthAccount` 动态装配 agent）。完整 5 步与凭证细节见 [architecture.md §5](architecture.md)（现行流程的唯一权威描述）。default-api-key 与旧 `OO_API_KEY` 完全等价。
+- **决策**：改为浏览器登录流（hub 登录页 → deep-link 回跳 → authID 换 `oomol-token` 会话 token → profile 落盘 `auth.json` → `applyAuthAccount` 动态装配 agent）。完整 5 步与凭证细节见 [architecture.md §5](architecture.md)（现行流程的唯一权威描述）。
+- **后续修订（凭证统一为会话 token）**：原方案曾用会话 token 再换取**长期 default-api-key** 落盘并喂给 agent/连接器，仅账单用会话 token——导致会话过期时"聊天能用、用量看不了"的割裂，且长期 key 落盘不安全。现已改为**全程只用会话 token**（网关层统一接受 cookie/token/api-key），不再获取或落盘 api-key；token 失效即全局未登录、需重新登录（一致生命周期）。`auth.json` 只存 profile。
 - **理由**：流程与 oo-desktop 完全一致（仅协议名不同），复用已验证的模式。
 - **后果（多 agent 对抗审查确认 13 个问题并修复，要点）**：
   - macOS 冷启动丢登录回调：`open-url` 在 ready 前派发且无缓冲 → 监听提前到模块顶层注册（oo-desktop 上游同 bug 未修）。

@@ -453,10 +453,15 @@ export class OrganizationsServiceImpl
   }
 
   private async requestJson(baseUrl: string, path: string, options: RequestOptions = {}): Promise<unknown> {
-    const account = this.requireAccount()
+    this.requireAccount()
+    const sessionToken = await this.authManager.currentSessionToken()
+    if (!sessionToken) {
+      throw new Error("Organizations not available (sign in first)")
+    }
     const headers: Record<string, string> = {
       Accept: "application/json, text/plain, */*",
-      Authorization: `Bearer ${account.apiKey}`,
+      // 凭证现为会话 token（网关层统一鉴权）；不再使用长期 api-key。
+      Authorization: `Bearer ${sessionToken}`,
       ...options.headers,
     }
 

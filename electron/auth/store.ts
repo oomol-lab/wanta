@@ -2,17 +2,20 @@ import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node
 import path from "node:path"
 import { ooEndpoint } from "../domain.ts"
 
-/** 登录账号（apiKey 即网关 api-key，等价于旧 OO_API_KEY env）。 */
+/** 持久化的账号资料：只存身份与展示信息，**不含任何凭证**。唯一凭证是会话 token（见 AuthRuntimeAccount）。 */
 export interface AuthAccount {
   id: string
   name: string
   avatarUrl?: string
-  apiKey: string
 }
 
-/** 运行时账号：sessionToken 只留在主进程内存，用于 Studio authFetchJSON 同源的服务调用，不落盘。 */
+/**
+ * 运行时账号：profile + 会话 token（oomol-token）。会话 token 是全应用唯一凭证——
+ * 聊天/连接器/组织/技能/账单一律用它鉴权（网关层接受 cookie/token/api-key），不再获取或落盘长期 api-key。
+ * token 只活在 Electron 会话 cookie（持久但会过期）与运行态内存，永不写入 auth.json。
+ */
 export interface AuthRuntimeAccount extends AuthAccount {
-  sessionToken?: string
+  sessionToken: string
 }
 
 export interface PersistedAuth {
@@ -30,7 +33,6 @@ function persistableAccount(account: AuthRuntimeAccount): AuthAccount {
     id: account.id,
     name: account.name,
     ...(account.avatarUrl ? { avatarUrl: account.avatarUrl } : {}),
-    apiKey: account.apiKey,
   }
 }
 
@@ -62,21 +64,28 @@ export function selectAccount(auth: PersistedAuth): AuthAccount | null {
 }
 
 /**
- * 历史数据迁移：早期版本曾支持多 endpoint，auth.json 可能残留带 `endpoint` 字段的账号，
- * 甚至同一 uid 在不同 endpoint 各有一行。endpoint 概念已移除（编译期单一常量），读取时
- * 一次性归一：丢弃 endpoint 与当前构建不符的历史账号（其凭证对当前构建无效），并剥离已
- * 无意义的 endpoint 字段。无历史字段（新格式 / 空数据）时原样返回。
+ * 读取时归一历史数据：
+ *  - 早期多 endpoint 残留：丢弃 endpoint 与当前构建不符的历史账号（其凭证对当前构建无效），剥离 endpoint 字段；
+ *  - 早期把长期 api-key 落盘的残留：一律剥离 `apiKey`——凭证不再落盘（见 AuthAccount），唯一凭证是会话 cookie。
+ * 无任何遗留字段（新格式 / 空数据）时原样返回，避免无谓重写。
  */
 function migrateLegacyAccounts(auth: PersistedAuth): PersistedAuth {
-  const accounts = asAccounts(auth) as Array<AuthAccount & { endpoint?: string }>
-  if (!accounts.some((a) => a.endpoint !== undefined)) {
+  const accounts = asAccounts(auth) as Array<AuthAccount & { endpoint?: string; apiKey?: string }>
+  if (!accounts.some((a) => a.endpoint !== undefined || a.apiKey !== undefined)) {
     return auth
   }
   const normalized: AuthAccount[] = accounts
     .filter((a) => a.endpoint === undefined || a.endpoint === ooEndpoint)
-    .map((a) => ({ id: a.id, name: a.name, ...(a.avatarUrl ? { avatarUrl: a.avatarUrl } : {}), apiKey: a.apiKey }))
+    .map((a) => ({ id: a.id, name: a.name, ...(a.avatarUrl ? { avatarUrl: a.avatarUrl } : {}) }))
   const currentId = normalized.some((a) => a.id === auth.currentId) ? auth.currentId : undefined
   return { currentId, accounts: normalized }
+}
+
+/** 是否仍有历史遗留字段（endpoint / 落盘 apiKey）需要清洗 —— 供启动时一次性磁盘清理用。 */
+export function hasLegacyAccountFields(auth: PersistedAuth): boolean {
+  return asAccounts(auth).some(
+    (a) => (a as { endpoint?: unknown }).endpoint !== undefined || (a as { apiKey?: unknown }).apiKey !== undefined,
+  )
 }
 
 /** 凭证持久化到 userData/auth.json（与 settings.json 分离：R8 settings 不存凭证）。 */
@@ -92,6 +101,23 @@ export class AuthStore {
       return migrateLegacyAccounts(JSON.parse(readFileSync(this.file, "utf-8")) as PersistedAuth)
     } catch {
       return {}
+    }
+  }
+
+  /**
+   * 启动时一次性清除磁盘上残留的旧凭证（早期落盘的长期 api-key / endpoint 字段）。
+   * read() 在内存里已剥离这些字段，但磁盘文件要等下次写才更新；此方法主动重写以尽快抹除长期 key。
+   * 无残留则不写（避免无谓 IO）。
+   */
+  public purgeLegacy(): void {
+    let parsed: PersistedAuth
+    try {
+      parsed = JSON.parse(readFileSync(this.file, "utf-8")) as PersistedAuth
+    } catch {
+      return
+    }
+    if (hasLegacyAccountFields(parsed)) {
+      this.write(migrateLegacyAccounts(parsed))
     }
   }
 

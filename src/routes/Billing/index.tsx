@@ -5,6 +5,7 @@ import {
   CreditCardIcon,
   ImageIcon,
   ListIcon,
+  LogInIcon,
   MessageCircleIcon,
   PiggyBankIcon,
   RefreshCwIcon,
@@ -33,6 +34,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -46,9 +48,15 @@ const periods: BillingPeriodDays[] = [7, 30, 90]
 
 export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
   const t = useT()
+  const { login } = useAuth()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
   const { data, error, loading, refresh } = useBillingOverview(period, { cacheScope })
+  // 会话过期：引导重新登录刷新会话，并避免在错误下方继续显示误导性的 "$0" 余额标题。
+  const isSessionExpired = error?.kind === "auth_required"
+  const handleSignIn = React.useCallback(() => {
+    void login().then(() => refresh({ force: true }))
+  }, [login, refresh])
 
   const summaries = React.useMemo(
     () => buildCategorySummaries(data?.spend, data?.metering),
@@ -111,14 +119,23 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
           </div>
         </section>
 
-        {error ? <ErrorNotice error={error} /> : null}
+        {error ? (
+          <ErrorNotice
+            error={error}
+            action={
+              isSessionExpired
+                ? { icon: <LogInIcon className="size-4" />, label: t("billing.signInAgain"), onClick: handleSignIn }
+                : undefined
+            }
+          />
+        ) : null}
 
         <BalanceOverview
           averageDailySpend={averageDailySpend}
           chatSpend={chatSpend}
           coverageDays={coverageDays}
           currentCredit={currentCredit}
-          loading={loading && !data}
+          loading={(loading && !data) || isSessionExpired}
           totalEvents={totalEvents}
           totalSpend={totalSpend}
           availableShare={availableShare}

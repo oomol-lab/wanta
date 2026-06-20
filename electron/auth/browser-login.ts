@@ -2,17 +2,13 @@
 // 流程与 oo-desktop 完全一致，仅 deep-link 协议不同（branding.protocolScheme）：
 //   1. 系统浏览器打开 https://hub.<endpoint>/signin-app?protocol=<scheme>
 //   2. 网页登录完成后跳回 <scheme>://signin?authID=<id>
-//   3. POST api.<endpoint>/v1/auth/auth_id 用 authID 换 Set-Cookie 中的 oomol-token（会话 token）
-//   4. 用该 token 取 /v1/users/default-api-key（= OO_API_KEY 等价物，唯一落盘凭证）与 /v1/users/profile
+//   3. POST api.<endpoint>/v1/auth/auth_id 用 authID 换 Set-Cookie 中的 oomol-token（会话 token，全应用唯一凭证）
+//   4. 用该 token 取 /v1/users/profile（账号画像）。**不再换取长期 api-key**：网关层统一接受 cookie/token/api-key 鉴权。
 
 import { hubBaseUrl } from "../domain.ts"
 
 /** deep-link 回调的 host 段：<scheme>://signin?authID=...。 */
 const signinAction = "signin"
-
-interface DefaultApiKeyResponse {
-  key?: unknown
-}
 
 interface UserProfileResponse {
   avatar?: unknown
@@ -91,10 +87,6 @@ export function extractOomolTokenFromCookies(cookies: readonly string[]): string
     }
   }
   return undefined
-}
-
-export function normalizeDefaultApiKey(response: DefaultApiKeyResponse): string | undefined {
-  return asString(response.key)
 }
 
 export function normalizeLoginProfile(response: UserProfileResponse): BrowserLoginProfile | undefined {

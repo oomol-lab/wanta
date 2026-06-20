@@ -1,9 +1,96 @@
 import assert from "node:assert/strict"
 import { afterEach, test, vi } from "vitest"
-import { BillingClient } from "./billing.ts"
+import { billingAuthRequiredMessage, BillingClient } from "./billing.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+async function rejectionMessage(run: () => Promise<unknown>): Promise<string> {
+  try {
+    await run()
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  throw new Error("Expected the call to reject, but it resolved.")
+}
+
+test("billing reads throw the auth-required sentinel when the session token is missing", async () => {
+  const client = new BillingClient()
+  // 会话过期后 userId 仍在（来自 auth.json），token 缺失：必须抛错而非返回空成功的 balance:null。
+  client.setAccountContext({ token: undefined, userId: "user-1" })
+
+  assert.equal(await rejectionMessage(() => client.getBillingSummary({ days: 30 })), billingAuthRequiredMessage)
+  assert.equal(await rejectionMessage(() => client.getBillingOverview({ days: 30 })), billingAuthRequiredMessage)
+  assert.equal(await rejectionMessage(() => client.getCreditBalance()), billingAuthRequiredMessage)
+})
+
+test("getCreditBalance maps 401 to the auth-required sentinel but leaves other statuses generic", async () => {
+  let status = 401
+  vi.stubGlobal("fetch", async () => new Response("nope", { status }))
+  const client = new BillingClient()
+  client.setAccountContext({ token: "oomol-token", userId: "user-1" })
+
+  assert.equal(await rejectionMessage(() => client.getCreditBalance()), billingAuthRequiredMessage)
+
+  status = 403
+  assert.equal(await rejectionMessage(() => client.getCreditBalance()), "Failed to get credit balance: 403")
+})
+
+test("getBillingSummary surfaces session expiry even if spend/metering succeed", async () => {
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
+    // 仅余额端点 401（会话过期），用量统计照常返回：必须以 auth_required 上抛，不能落到 balance:null 假 $0。
+    if (url.pathname === "/v1/balance/available") {
+      return new Response("unauthorized", { status: 401 })
+    }
+    return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
+  })
+  const client = new BillingClient()
+  client.setAccountContext({ token: "oomol-token", userId: "user-1" })
+
+  assert.equal(await rejectionMessage(() => client.getBillingSummary({ days: 30 })), billingAuthRequiredMessage)
+})
+
+test("getBillingSummary never serves stale cache after the session expires", async () => {
+  let unauthorized = false
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
+    if (unauthorized) {
+      return new Response("unauthorized", { status: 401 })
+    }
+    if (url.pathname === "/v1/balance/available") {
+      return Response.json({
+        data: {
+          deficit: "0",
+          items: [{ currentCredit: "5", originalCredit: "5" }],
+          total: { currentCredit: "5", originalCredit: "5" },
+        },
+      })
+    }
+    return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
+  })
+  const client = new BillingClient()
+  client.setAccountContext({ token: "oomol-token", userId: "user-1" })
+
+  const fresh = await client.getBillingSummary({ days: 30 })
+  assert.equal(fresh.balance?.total.currentCredit, "5")
+
+  // 会话过期后强制刷新：绝不能用旧缓存兜底（accountKey 不变），必须抛 auth_required 触发重新登录提示。
+  unauthorized = true
+  assert.equal(
+    await rejectionMessage(() => client.getBillingSummary({ days: 30, forceRefresh: true })),
+    billingAuthRequiredMessage,
+  )
+})
+
+test("topUpCheckoutUrl falls back to the billing page (no throw) when the session token is missing", async () => {
+  const client = new BillingClient()
+  client.setAccountContext({ token: undefined, userId: "user-1" })
+
+  const url = new URL(await client.topUpCheckoutUrl({ price: "20_USD" }))
+
+  assert.equal(url.pathname, "/billing")
 })
 
 test("subscriptionCheckoutUrl keeps the console subscription page contract", async () => {

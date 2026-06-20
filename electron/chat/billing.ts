@@ -45,6 +45,23 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * 计费会话缺失/过期的哨兵错误。全应用唯一凭证是 oomol-token 会话 cookie（短命，过期即被 Chromium 驱逐）；
+ * token 失效时整个 app 会判为未登录（一致生命周期）。但若 token 在使用期间过期（mid-session），额度查询会
+ * 先于全局状态感知到失权——此时**必须抛错**而非返回空成功（balance:null 会被 UI 渲染成确定的"$0 / 余额耗尽"
+ * 假象）。消息文案刻意含 "sign in"，经 renderer 的 resolveUserFacingError 归类为 auth_required（info 级，
+ * 可恢复），引导重新登录刷新会话。
+ */
+export const billingAuthRequiredMessage = "Sign in is required."
+
+function billingAuthRequiredError(): Error {
+  return new Error(billingAuthRequiredMessage)
+}
+
+function isBillingAuthRequiredReason(reason: unknown): boolean {
+  return errorMessage(reason) === billingAuthRequiredMessage
+}
+
 function formatCredits(value: unknown): string | null {
   const amount = typeof value === "string" || typeof value === "number" ? Number(value) : Number.NaN
   if (!Number.isFinite(amount)) {
@@ -301,7 +318,7 @@ export class BillingClient {
 
   public async getBillingSummary(req: BillingOverviewRequest): Promise<BillingSummaryResult> {
     if (!this.authToken) {
-      return createEmptyBillingOverviewResult()
+      throw billingAuthRequiredError()
     }
     return this.getCachedBillingResult(`summary:${req.days}`, billingSummaryCacheMs, Boolean(req.forceRefresh), () =>
       this.fetchBillingSummary(req.days),
@@ -310,7 +327,7 @@ export class BillingClient {
 
   public async getBillingOverview(req: BillingOverviewRequest): Promise<BillingOverviewResult> {
     if (!this.authToken) {
-      return createEmptyBillingOverviewResult()
+      throw billingAuthRequiredError()
     }
     return this.getCachedBillingResult(`overview:${req.days}`, billingOverviewCacheMs, Boolean(req.forceRefresh), () =>
       this.fetchBillingOverview(req.days),
@@ -319,13 +336,17 @@ export class BillingClient {
 
   public async getCreditBalance(): Promise<CreditBalanceResult> {
     if (!this.authToken) {
-      return { balance: null, hasCredits: false }
+      throw billingAuthRequiredError()
     }
     const response = await fetch(new URL("/v1/balance/available", insightBaseUrl), {
       ...authRequest(this.authToken),
       signal: AbortSignal.timeout(billingRequestTimeoutMs),
     })
     const text = await response.text()
+    // 401 = 会话过期；归一为 auth_required，避免下游把"无法鉴权"误判成"没有额度"。403（权限/账号问题）保持原样。
+    if (response.status === 401) {
+      throw billingAuthRequiredError()
+    }
     if (!response.ok) {
       throw new Error(`Failed to get credit balance: ${response.status}`)
     }
@@ -347,6 +368,11 @@ export class BillingClient {
     logSettledFailure("balance", balance)
     logSettledFailure("spend", spend)
     logSettledFailure("metering", metering)
+    // 会话过期优先于一切：哪怕 spend/metering 侥幸成功，余额鉴权失败也必须上抛为 auth_required，
+    // 否则会落到 balance:null 分支被 UI 渲染成假 $0。
+    if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
+      throw balance.reason
+    }
     const criticalResults = [balance, spend, metering]
     const allCriticalFailed = criticalResults.every((result) => result.status === "rejected")
     if (allCriticalFailed && balance.status === "rejected") {
@@ -377,6 +403,10 @@ export class BillingClient {
     logSettledFailure("logs", logs)
     logSettledFailure("subscription", subscription)
     logSettledFailure("schedules", schedules)
+    // 会话过期优先于一切（见 fetchBillingSummary 同款注释）。
+    if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
+      throw balance.reason
+    }
     const criticalResults = [balance, spend, metering]
     const allCriticalFailed = criticalResults.every((result) => result.status === "rejected")
     if (allCriticalFailed && balance.status === "rejected") {
@@ -422,6 +452,11 @@ export class BillingClient {
         return data
       })
       .catch((error: unknown) => {
+        // 会话过期绝不能用旧缓存兜底：accountKey = userId ?? token，过期后 userId 仍在、accountKey 不变，
+        // 旧缓存会被命中而把陈旧余额当成功返回，用户永远等不到"重新登录"提示。只对该哨兵直接上抛。
+        if (isBillingAuthRequiredReason(error)) {
+          throw error
+        }
         if (cached?.accountKey === accountKey) {
           console.warn("[lumo] using stale billing cache after refresh failed", { key, error: errorMessage(error) })
           return cached.data
@@ -457,13 +492,17 @@ export class BillingClient {
 
   private async fetchAuthenticatedJson(url: URL): Promise<unknown> {
     if (!this.authToken) {
-      throw new Error("Sign in is required.")
+      throw billingAuthRequiredError()
     }
     const response = await fetch(url, {
       ...authRequest(this.authToken),
       signal: AbortSignal.timeout(billingRequestTimeoutMs),
     })
     const text = await response.text()
+    // 401 = 会话过期，归一为 auth_required（可恢复）。403 等保持原样，交由 UI 当作权限/服务错误处理。
+    if (response.status === 401) {
+      throw billingAuthRequiredError()
+    }
     if (!response.ok) {
       throw new Error(text || `Request failed with status ${response.status}`)
     }

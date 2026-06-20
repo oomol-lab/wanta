@@ -151,6 +151,8 @@ export interface ChatMessage {
   id: string
   /** UI 身份：不同于服务端 id，乐观消息绑定到真实消息后仍保持稳定。 */
   clientId?: string
+  /** Lumo 侧展示元数据：本轮发送时显式选择的 skill / connection 上下文。 */
+  contextMentions?: ChatContextMention[]
   role: ChatRole
   parts: ChatMessagePart[]
   createdAt: number
@@ -187,6 +189,11 @@ export interface ChatAttachment {
   size: number
   path: string
   kind?: "file" | "directory"
+  /** 可选 agent 输入优化副本；UI 仍展示 path/name/mime/size 指向的原始附件。 */
+  agentPath?: string
+  agentName?: string
+  agentMime?: string
+  agentSize?: number
 }
 
 export interface TranscribeVoiceRequest {

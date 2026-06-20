@@ -312,6 +312,9 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
     }
     const state = part.state
     const context = toolContext(state)
+    if (state.error && state.status !== "completed") {
+      return [{ event: "toolCallResult", data: { ...base, ...context, status: "error", error: state.error } }]
+    }
     if (state.status === "pending" || state.status === "running") {
       return [{ event: "toolCallStarted", data: { ...base, ...context, status: state.status } }]
     }
@@ -404,7 +407,7 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         partId: part.id,
         callId: part.callID,
         tool: part.tool,
-        status: state.status,
+        status: state.error && state.status !== "completed" ? "error" : state.status,
         input: state.input ?? {},
         output: state.output,
         error: state.error,

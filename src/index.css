@@ -50,6 +50,7 @@
   --traffic-light-top: calc((var(--app-titlebar-height) - 12px) / 2);
   --titlebar-control-offset: 5px;
   --window-control-right-space: 12px;
+  --sidebar-titlebar-left-space: var(--traffic-light-space);
   --sidebar-width: 264px;
   --sidebar-collapsed-width: 79px;
   --sidebar-item-height: 36px;
@@ -336,6 +337,7 @@
 :root[data-platform="win32"],
 :root[data-platform="linux"] {
   --traffic-light-space: 0px;
+  --sidebar-titlebar-left-space: 20px;
   --titlebar-control-offset: 8px;
   --window-control-right-space: 142px;
   --oo-radius-shell: 0.75rem;
@@ -343,11 +345,13 @@
 
 :root[data-platform="browser"] {
   --traffic-light-space: 0px;
+  --sidebar-titlebar-left-space: 20px;
   --titlebar-control-offset: 8px;
   --oo-radius-shell: 0.75rem;
 }
 
 :root[data-dev-window-controls="windows"] {
+  --sidebar-titlebar-left-space: 20px;
   --window-control-right-space: 142px;
 }
 
@@ -395,6 +399,11 @@
     transition:
       opacity 120ms ease-out,
       border-color 120ms ease-out;
+  }
+
+  .oo-sidebar-chrome-header {
+    padding-right: 12px;
+    padding-left: var(--sidebar-titlebar-left-space);
   }
 
   .oo-sidebar-collapsed .oo-sidebar {
@@ -620,6 +629,12 @@
   :root[data-platform="linux"] .oo-page-titlebar,
   :root[data-dev-window-controls="windows"] .oo-page-titlebar {
     padding-right: calc(var(--window-control-right-space) + 1rem);
+  }
+
+  :root[data-platform="win32"] .oo-artifacts-titlebar,
+  :root[data-platform="linux"] .oo-artifacts-titlebar,
+  :root[data-dev-window-controls="windows"] .oo-artifacts-titlebar {
+    padding-right: calc(var(--window-control-right-space) + 0.75rem);
   }
 
   .oo-titlebar-collapsed-controls {

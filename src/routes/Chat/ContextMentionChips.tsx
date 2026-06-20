@@ -3,15 +3,18 @@ import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import { Package, Plug, X } from "lucide-react"
 import { contextMentionKey } from "./composer-state.ts"
 import { useT } from "@/i18n/i18n"
+import { cn } from "@/lib/utils"
 
 function contextMentionLabel(mention: ChatContextMention): string {
   return mention.kind === "skill" ? mention.name : mention.displayName
 }
 
 export function ContextMentionChips({
+  className,
   mentions,
   onRemove,
 }: {
+  className?: string
   mentions: ChatContextMention[]
   onRemove?: (mention: ChatContextMention) => void
 }) {
@@ -20,7 +23,7 @@ export function ContextMentionChips({
     return null
   }
   return (
-    <div className="flex w-full flex-wrap gap-2">
+    <div className={cn("flex w-full flex-wrap gap-2", className)}>
       {mentions.map((mention) => (
         <span
           key={contextMentionKey(mention)}

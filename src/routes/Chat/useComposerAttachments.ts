@@ -11,6 +11,10 @@ import {
 import { useT } from "@/i18n/i18n"
 
 interface AttachmentInput {
+  agentMime?: string
+  agentName?: string
+  agentPath?: string
+  agentSize?: number
   name: string
   mime: string
   size: number
@@ -38,8 +42,73 @@ export interface UseComposerAttachments {
   selectAttachments: (kind: "file" | "directory") => Promise<void>
 }
 
+const imageOptimizeMaxSidePx = 1600
+const imageOptimizeMinBytes = 1.5 * 1024 * 1024
+const imageOptimizeQuality = 0.84
+const optimizableImageMimes = new Set(["image/bmp", "image/jpeg", "image/jpg", "image/png", "image/webp"])
+
+function optimizedImageName(name: string, mime: string): string {
+  const base = name.replace(/\.[^.\\/]+$/, "") || "image"
+  return `${base}-optimized.${mime === "image/jpeg" ? "jpg" : "webp"}`
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), mime, quality)
+  })
+}
+
+async function optimizeImageFileForAgent(
+  file: File,
+): Promise<{ bytes: ArrayBuffer; mime: string; name: string } | null> {
+  const sourceMime = file.type.toLowerCase()
+  if (!optimizableImageMimes.has(sourceMime)) {
+    return null
+  }
+
+  const bitmap = await createImageBitmap(file)
+  try {
+    const scale = Math.min(1, imageOptimizeMaxSidePx / Math.max(bitmap.width, bitmap.height))
+    if (scale >= 1 && file.size < imageOptimizeMinBytes) {
+      return null
+    }
+
+    const width = Math.max(1, Math.round(bitmap.width * scale))
+    const height = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement("canvas")
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext("2d")
+    if (!context) {
+      return null
+    }
+    context.drawImage(bitmap, 0, 0, width, height)
+
+    const outputMime = sourceMime === "image/jpeg" || sourceMime === "image/jpg" ? "image/jpeg" : "image/webp"
+    const blob = await canvasToBlob(canvas, outputMime, imageOptimizeQuality)
+    if (!blob || blob.size >= file.size * 0.9) {
+      return null
+    }
+    return {
+      bytes: await blob.arrayBuffer(),
+      mime: blob.type || outputMime,
+      name: optimizedImageName(file.name || "image", blob.type || outputMime),
+    }
+  } finally {
+    bitmap.close()
+  }
+}
+
 function toDraftAttachment(item: AttachmentInput): DraftAttachment {
   const attachment: DraftAttachment = {
+    ...(item.agentPath
+      ? {
+          agentMime: item.agentMime,
+          agentName: item.agentName,
+          agentPath: item.agentPath,
+          agentSize: item.agentSize,
+        }
+      : {}),
     id: `${Date.now()}-${item.kind ?? "file"}-${item.name}-${item.size}-${Math.random().toString(36).slice(2)}`,
     name: item.name || item.path.split(/[\\/]/).pop() || "attachment",
     mime: item.mime || (item.kind === "directory" ? "inode/directory" : "application/octet-stream"),
@@ -101,18 +170,37 @@ export function useComposerAttachments({
       const next: AttachmentInput[] = []
       for (const file of Array.from(files)) {
         const path = globalThis.lumo?.getPathForFile(file)
+        const saver = globalThis.lumo?.saveClipboardAttachment
+        let optimized: {
+          name: string
+          mime: string
+          size: number
+          path: string
+          kind: "file" | "directory"
+        } | null = null
+        if (saver) {
+          try {
+            const optimizedFile = await optimizeImageFileForAgent(file)
+            if (optimizedFile) {
+              optimized = await saver(optimizedFile)
+            }
+          } catch {
+            optimized = null
+          }
+        }
         if (!path) {
-          const saver = globalThis.lumo?.saveClipboardAttachment
           if (!saver) {
             setInputError(t("chat.attachmentPathUnavailable"))
             continue
           }
           try {
-            const saved = await saver({
-              name: file.name,
-              mime: file.type || "application/octet-stream",
-              bytes: await file.arrayBuffer(),
-            })
+            const saved =
+              optimized ??
+              (await saver({
+                name: file.name,
+                mime: file.type || "application/octet-stream",
+                bytes: await file.arrayBuffer(),
+              }))
             next.push({
               name: saved.name,
               mime: saved.mime,
@@ -132,6 +220,14 @@ export function useComposerAttachments({
           size: file.size,
           path,
           kind: "file",
+          ...(optimized
+            ? {
+                agentMime: optimized.mime,
+                agentName: optimized.name,
+                agentPath: optimized.path,
+                agentSize: optimized.size,
+              }
+            : {}),
           file,
         })
       }

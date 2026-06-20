@@ -76,6 +76,7 @@ import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-f
 import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
+import { visibleUserText } from "@/routes/Chat/message-text"
 
 type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 
@@ -169,10 +170,11 @@ function readStoredArtifactsPanelWidth(): number {
 }
 
 function chatMessageText(message: ChatMessage): string {
-  return message.parts
+  const text = message.parts
     .filter((part) => part.kind === "text")
     .map((part) => part.text ?? "")
     .join("")
+  return message.role === "user" ? visibleUserText(text) : text
 }
 
 function normalizeSearchText(value: string): string {
@@ -1765,8 +1767,7 @@ export function AppShell() {
       <aside className="oo-sidebar oo-border-divider relative z-20 flex min-h-0 flex-col border-r">
         <header
           data-slot="sidebar-chrome-header"
-          className="relative flex h-[var(--app-titlebar-height)] items-center justify-between gap-3 [-webkit-app-region:drag]"
-          style={{ paddingLeft: "var(--traffic-light-space)", paddingRight: "12px" }}
+          className="oo-sidebar-chrome-header relative flex h-[var(--app-titlebar-height)] items-center justify-between gap-3 [-webkit-app-region:drag]"
         >
           <div className="oo-sidebar-chrome-brand min-w-0 items-center gap-2">
             <BrandIcon className="size-6" />
@@ -1914,7 +1915,7 @@ export function AppShell() {
       {/* 右：主区（顶部工具条 + 内容） */}
       <div className="flex min-h-0">
         <div className="grid min-w-0 flex-1 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
-          <header className="oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
+          <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
             <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
               <div className="oo-titlebar-control-spacer shrink-0" />
               <SidebarTitlebarActions

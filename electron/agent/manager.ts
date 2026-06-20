@@ -440,15 +440,18 @@ function buildPromptParts(
 ): Array<TextPartInput | FilePartInput> {
   const parts: Array<TextPartInput | FilePartInput> = []
   for (const attachment of attachments ?? []) {
+    const inputPath = attachment.agentPath ?? attachment.path
+    const inputName = attachment.agentName ?? attachment.name
+    const inputMime = attachment.agentMime ?? attachment.mime
     parts.push({
       type: "file",
-      mime: attachment.mime || "application/octet-stream",
-      filename: attachment.name,
-      url: pathToFileUrl(attachment.path),
+      mime: inputMime || "application/octet-stream",
+      filename: inputName,
+      url: pathToFileUrl(inputPath),
       source: {
         type: "file",
-        path: attachment.path,
-        text: { value: attachment.name, start: 0, end: attachment.name.length },
+        path: inputPath,
+        text: { value: inputName, start: 0, end: inputName.length },
       },
     })
   }

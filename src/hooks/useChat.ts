@@ -542,7 +542,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       cancelledToolParts.current.delete(sessionId)
       setStatus(sessionId, "submitted")
       setActivity(sessionId, { sessionId, phase: "thinking" })
-      patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments))
+      patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments, options.contextMentions))
       try {
         await chatService.invoke("sendMessage", {
           sessionId,

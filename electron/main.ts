@@ -409,7 +409,7 @@ function createMainWindow(): void {
     title: branding.appName,
     icon: getBrandingResourcePath("icon.png"),
     backgroundColor,
-    titleBarStyle: isMac ? "hidden" : "default",
+    titleBarStyle: "hidden",
     ...(isMac ? { trafficLightPosition: macTrafficLightPosition } : {}),
     ...(isMac
       ? {}

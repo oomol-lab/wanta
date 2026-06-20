@@ -36,6 +36,7 @@ import {
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
+import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import {
   assistantResponseActionTextByMessageId,
@@ -612,12 +613,16 @@ function MessageBubble({
     const attachments = message.parts
       .filter((p) => p.kind === "attachment" && p.attachment)
       .map((p) => attachmentWithPreview(p.attachment as ChatAttachment))
+    const contextMentions = message.contextMentions ?? []
     const collapsible = shouldCollapseUserMessageText(visibleText)
-    if (!visibleText && attachments.length === 0) {
+    if (!visibleText && attachments.length === 0 && contextMentions.length === 0) {
       return null
     }
     return (
       <Message from="user" className={cn("items-end", copyText && "pb-7")}>
+        {contextMentions.length > 0 ? (
+          <ContextMentionChips mentions={contextMentions} className="max-w-[min(34rem,85%)] justify-end" />
+        ) : null}
         {attachments.length > 0 ? <AttachmentList attachments={attachments} className="justify-end" /> : null}
         {visibleText ? (
           <MessageContent className={cn(collapsible && "pb-2")}>

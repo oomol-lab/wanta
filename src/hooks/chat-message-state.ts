@@ -1,5 +1,6 @@
 import type {
   ChatAttachment,
+  ChatContextMention,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
@@ -309,6 +310,7 @@ export function appendOptimisticConversationTurn(
   msgs: ChatMessage[],
   text: string,
   attachments?: ChatAttachment[],
+  contextMentions?: ChatContextMention[],
 ): ChatMessage[] {
   if (hasUserMessage(msgs, text, attachments)) {
     return msgs
@@ -326,6 +328,7 @@ export function appendOptimisticConversationTurn(
       clientId: createClientId("user"),
       role: "user",
       parts: [...attachmentParts, ...(text ? [{ kind: "text" as const, partId: "local", text }] : [])],
+      ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
       createdAt: now,
     },
     {
@@ -340,6 +343,14 @@ export function appendOptimisticConversationTurn(
 
 export function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[] {
   return attachments.map((attachment) => ({
+    ...(attachment.agentPath
+      ? {
+          agentMime: attachment.agentMime,
+          agentName: attachment.agentName,
+          agentPath: attachment.agentPath,
+          agentSize: attachment.agentSize,
+        }
+      : {}),
     id: attachment.id,
     name: attachment.name,
     mime: attachment.mime,
@@ -387,6 +398,9 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
     return {
       ...message,
       clientId: currentMessage?.clientId ?? message.clientId ?? serverClientId(message.id),
+      ...(message.role === "user" && currentMessage?.contextMentions && !message.contextMentions
+        ? { contextMentions: currentMessage.contextMentions }
+        : {}),
       parts: preserveLocalErrorParts(message.parts, currentErrorPartsById.get(message.id)),
       ...(artifactRoot && !message.artifactRoot ? { artifactRoot } : {}),
     }

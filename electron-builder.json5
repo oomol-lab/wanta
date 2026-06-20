@@ -27,7 +27,7 @@
   ],
   files: ["dist", "dist-electron", "!**/*.{map,d.ts}"],
   afterPack: "scripts/electron-builder-after-pack.cjs",
-  // 内置 oo + opencode 平台二进制（由 scripts/prepare-binaries.ts 在构建前复制到 resources/bin）。
+  // 内置 oo + opencode + rg 平台二进制（由 scripts/prepare-binaries.ts 在构建前复制到 resources/bin）。
   // 运行时 app.isPackaged 走 process.resourcesPath/bin。
   extraResources: [
     {

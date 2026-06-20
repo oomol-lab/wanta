@@ -814,7 +814,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
 
   return (
     <aside className="oo-border-divider flex h-full min-h-0 w-full flex-col border-l bg-background">
-      <header className="oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b px-3 [-webkit-app-region:drag]">
+      <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b px-3 [-webkit-app-region:drag]">
         <div className="oo-text-title min-w-0 truncate">{selectedPack?.title ?? t("artifacts.title")}</div>
         <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
           {selectedItem ? (

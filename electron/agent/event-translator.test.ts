@@ -179,6 +179,39 @@ test("tool part pending → toolCallStarted", () => {
   assert.equal(out[0].event, "toolCallStarted")
 })
 
+test("tool part with error is normalized to toolCallResult error", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "p2",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "tool",
+        callID: "c1",
+        tool: "grep",
+        state: { status: "running", input: { pattern: "hello" }, error: "ripgrep execution failed" },
+      },
+    },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "toolCallResult",
+      data: {
+        sessionId: "s1",
+        messageId: "m1",
+        partId: "p2",
+        callId: "c1",
+        tool: "grep",
+        input: { pattern: "hello" },
+        status: "error",
+        error: "ripgrep execution failed",
+      },
+    },
+  ])
+})
+
 test("tool events preserve title, metadata and timing for renderer summaries", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",

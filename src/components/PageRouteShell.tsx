@@ -15,7 +15,7 @@ export function PageRouteShell({
 }) {
   return (
     <div className="grid h-full min-h-0 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)] bg-background text-foreground">
-      <header className="oo-page-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center border-b [-webkit-app-region:drag]">
+      <header className="oo-titlebar oo-page-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center border-b [-webkit-app-region:drag]">
         <button
           type="button"
           onClick={onBack}

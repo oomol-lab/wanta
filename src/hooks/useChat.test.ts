@@ -1,4 +1,4 @@
-import type { ChatAttachment, ChatMessage } from "../../electron/chat/common.ts"
+import type { ChatAttachment, ChatContextMention, ChatMessage } from "../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
 import {
@@ -22,6 +22,12 @@ const pdfAttachment: ChatAttachment = {
   size: 12,
   path: "/Users/me/report.pdf",
   kind: "file",
+}
+
+const skillMention: ChatContextMention = {
+  id: "gpt-image-2",
+  kind: "skill",
+  name: "gpt-image-2",
 }
 
 describe("chat message identity reconciliation", () => {
@@ -77,6 +83,22 @@ describe("chat message identity reconciliation", () => {
     expect(merged[0]?.clientId).toBe(current[0]?.clientId)
     expect(merged[1]?.clientId).toBe(current[1]?.clientId)
     expect(merged[1]?.parts).toEqual([{ kind: "text", partId: "text-1", text: "Done" }])
+  })
+
+  it("preserves local context mentions when full history reloads", () => {
+    const current = appendOptimisticConversationTurn([], "Generate an image", [], [skillMention])
+    const fetched: ChatMessage[] = [
+      {
+        id: "real-user-1",
+        role: "user",
+        parts: current[0]?.parts ?? [],
+        createdAt: 1,
+      },
+    ]
+
+    const merged = mergeFetchedMessages(current, fetched)
+
+    expect(merged[0]?.contextMentions).toEqual([skillMention])
   })
 
   it("attaches message errors to the latest assistant bubble", () => {

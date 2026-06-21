@@ -246,6 +246,10 @@ function logSettledFailure(label: string, result: PromiseSettledResult<unknown>)
   }
 }
 
+function billingLogKey(item: BillingLogItem): string {
+  return item.eventID || item.traceID || `${item.source}:${item.subject}:${item.createdAt}:${item.debitCredit}`
+}
+
 function createEmptyBillingOverviewResult(): BillingOverviewResult {
   return { balance: null, spend: null, metering: null, logs: [], subscription: null, schedules: [] }
 }
@@ -514,8 +518,17 @@ export class BillingClient {
     const items = [...firstPage.items]
     let nextToken = firstPage.nextToken
     let pageCount = 1
+    const seenTokens = new Set<string>()
     while (nextToken && pageCount < billingCreditUsagesMaxPages) {
+      if (seenTokens.has(nextToken)) {
+        console.warn("[lumo] stopped billing balance pagination after repeated token")
+        break
+      }
+      seenTokens.add(nextToken)
       const nextPage = await this.getCreditUsages(nextToken)
+      if (nextPage.items.length === 0) {
+        break
+      }
       items.push(...nextPage.items)
       nextToken = nextPage.nextToken
       pageCount += 1
@@ -557,12 +570,25 @@ export class BillingClient {
 
   private async getAllBillingLogsInRange(range: BillingLogRange): Promise<BillingLogItem[]> {
     const items: BillingLogItem[] = []
+    const seenKeys = new Set<string>()
     for (let page = 1; page <= billingLogsMaxPagesPerRange; page += 1) {
       const pageItems = await this.getBillingLogsPage(range, page)
       if (pageItems.length === 0) {
         break
       }
-      items.push(...pageItems)
+      const freshItems = pageItems.filter((item) => {
+        const key = billingLogKey(item)
+        if (seenKeys.has(key)) {
+          return false
+        }
+        seenKeys.add(key)
+        return true
+      })
+      if (freshItems.length === 0) {
+        console.warn("[lumo] stopped billing log pagination after repeated page", { page })
+        break
+      }
+      items.push(...freshItems)
     }
     return items
   }

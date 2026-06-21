@@ -6,6 +6,7 @@ import { useChatService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 const defaultStaleMs = 60_000
+const billingOverviewRequestTimeoutMs = 15_000
 
 interface BillingOverviewCacheEntry {
   data: BillingOverviewResult | null
@@ -153,11 +154,12 @@ function isFresh(
   return Boolean(entry.data && Date.now() - entry.loadedAt < staleMs)
 }
 
-function startBillingOverviewRequest(
+export function startBillingOverviewRequest(
   entry: BillingOverviewCacheEntry,
   request: () => Promise<BillingOverviewResult>,
+  timeoutMs = billingOverviewRequestTimeoutMs,
 ): Promise<BillingOverviewResult> {
-  const promise = request()
+  const promise = withBillingOverviewTimeout(request(), timeoutMs)
   entry.promise = promise
   void promise.then(
     (nextData) => {
@@ -174,4 +176,17 @@ function startBillingOverviewRequest(
     },
   )
   return promise
+}
+
+function withBillingOverviewTimeout(
+  request: Promise<BillingOverviewResult>,
+  timeoutMs: number,
+): Promise<BillingOverviewResult> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("Billing overview request timed out."))
+    }, timeoutMs)
+
+    void request.then(resolve, reject).finally(() => clearTimeout(timer))
+  })
 }

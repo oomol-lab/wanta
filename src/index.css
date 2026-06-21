@@ -351,6 +351,7 @@
 }
 
 :root[data-dev-window-controls="windows"] {
+  --traffic-light-space: 0px;
   --sidebar-titlebar-left-space: 20px;
   --window-control-right-space: 142px;
 }
@@ -667,7 +668,7 @@
   }
 
   .oo-sidebar-collapsed .oo-titlebar-control-spacer {
-    width: calc(var(--traffic-light-space) - 20px);
+    width: max(0px, calc(var(--traffic-light-space) - 20px));
   }
 
   .oo-main-titlebar-title {
@@ -1507,6 +1508,12 @@
     gap: 0.5rem;
     pointer-events: auto;
     -webkit-app-region: no-drag;
+  }
+
+  :root[data-platform="win32"] .oo-markdown-image-viewer-actions,
+  :root[data-platform="linux"] .oo-markdown-image-viewer-actions,
+  :root[data-dev-window-controls="windows"] .oo-markdown-image-viewer-actions {
+    right: calc(var(--window-control-right-space) + 1.25rem);
   }
 
   .oo-markdown-image-viewer-action {

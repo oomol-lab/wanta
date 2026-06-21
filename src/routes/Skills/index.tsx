@@ -613,10 +613,6 @@ export function SkillsRoute() {
     }
   }, [homeSummaryResource, inventoryResource, skillService, versionResource])
 
-  const isPublicPackageBusy =
-    activePackageCatalog.status === "loading" ||
-    activePackageCatalog.status === "loading-more" ||
-    activePackageCatalog.status === "refreshing"
   const isPublicPackageLoadingMore = activePackageCatalog.status === "loading-more"
   const isPublicPackageReplacing =
     activePackageCatalog.status === "loading" || activePackageCatalog.status === "refreshing"
@@ -646,17 +642,15 @@ export function SkillsRoute() {
           activeTab={activeTab}
           checkVersions={checkVersions}
           disabled={inventoryResource.isInitialLoading}
+          discoveryFilter={discoveryFilter}
           discoveryQuery={discoveryQuery}
           executeCliUpdate={executeCliUpdate}
+          installedFilter={installedFilter}
           installedQuery={query}
           isExecutingCliUpdate={isExecutingCliUpdate}
-          isDiscoveryLoading={isPublicPackageBusy}
+          onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
-          onDiscoveryRefresh={() =>
-            void (discoveryFilter === "mine" && authResource.data?.status === "authenticated"
-              ? loadMyPublishedSkillPackages({ forceRefresh: true })
-              : loadPublicSkillPackages({ forceRefresh: true }))
-          }
+          onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
           onTabChange={setActiveTab}
           versionReport={versionResource.data}
@@ -676,7 +670,6 @@ export function SkillsRoute() {
             packages={filteredPublicPackages}
             selectedPackage={selectedPublicPackage}
             onClosePackage={() => activePackageDispatcher({ id: null, type: "select" })}
-            onFilterChange={setDiscoveryFilter}
             onInstall={installPublicSkill}
             onLoadMore={() =>
               void (discoveryFilter === "mine"
@@ -684,12 +677,16 @@ export function SkillsRoute() {
                 : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
+            onRetry={() =>
+              void (discoveryFilter === "mine" && authResource.data?.status === "authenticated"
+                ? loadMyPublishedSkillPackages({ forceRefresh: true })
+                : loadPublicSkillPackages({ forceRefresh: true }))
+            }
             onSelectPackage={(pkg) => activePackageDispatcher({ id: pkg.id, type: "select" })}
           />
         ) : (
           <InstalledSkillsPane
             detailContentProps={detailContentProps}
-            filter={installedFilter}
             groups={filteredInstalledGroups}
             isDetailOpen={narrowPane === "detail"}
             systemAttentionGroups={systemAttentionGroups}
@@ -708,7 +705,6 @@ export function SkillsRoute() {
             onSelectSkill={(skillId) => {
               selectSkill(skillId)
             }}
-            onFilterChange={setInstalledFilter}
           />
         )}
       </section>
@@ -826,12 +822,14 @@ function SkillDetailContent({
 
 interface SkillPageHeaderProps extends SkillsSyncMenuProps {
   activeTab: SkillPageTab
+  discoveryFilter: DiscoverSkillFilter
   discoveryQuery: string
+  installedFilter: InstalledSkillFilter
   installedQuery: string
-  isDiscoveryLoading: boolean
+  onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
+  onInstalledFilterChange: (filter: InstalledSkillFilter) => void
   onInstalledQueryChange: (value: string) => void
-  onDiscoveryRefresh: () => void
   onTabChange: (tab: SkillPageTab) => void
 }
 
@@ -839,13 +837,15 @@ function SkillPageHeader({
   activeTab,
   checkVersions,
   disabled,
+  discoveryFilter,
   discoveryQuery,
+  installedFilter,
   installedQuery,
   executeCliUpdate,
   isExecutingCliUpdate,
-  isDiscoveryLoading,
+  onDiscoveryFilterChange,
   onDiscoveryQueryChange,
-  onDiscoveryRefresh,
+  onInstalledFilterChange,
   onInstalledQueryChange,
   onTabChange,
   versionReport,
@@ -855,9 +855,20 @@ function SkillPageHeader({
   const isDiscoverTab = activeTab === "discover"
   const searchValue = isDiscoverTab ? discoveryQuery : installedQuery
   const searchPlaceholder = isDiscoverTab ? "skills.discoverSearch" : "skills.installedSearch"
+  const filterValue = isDiscoverTab ? discoveryFilter : installedFilter
+  const filterOptions = isDiscoverTab
+    ? [
+        { label: t("skills.discoverFilter.all"), value: "all" },
+        { label: t("skills.discoverFilter.mine"), value: "mine" },
+      ]
+    : [
+        { label: t("skills.installedFilter.all"), value: "all" },
+        { label: t("skills.installedFilter.updates"), value: "updates" },
+        { label: t("skills.installedFilter.local"), value: "local" },
+      ]
 
   return (
-    <header className="oo-border-divider flex min-h-12 items-center gap-3 border-b px-3 py-2">
+    <header className="oo-border-divider flex min-h-12 items-center gap-2 border-b px-3 py-2">
       <ToggleGroup
         type="single"
         variant="outline"
@@ -873,7 +884,12 @@ function SkillPageHeader({
         <ToggleGroupItem value="discover">{t("skills.tab.discover")}</ToggleGroupItem>
         <ToggleGroupItem value="installed">{t("skills.tab.installed")}</ToggleGroupItem>
       </ToggleGroup>
-      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+      <div
+        className={cn(
+          "grid min-w-0 flex-1 items-center gap-2",
+          isDiscoverTab ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto]",
+        )}
+      >
         <SearchField
           placeholder={t(searchPlaceholder)}
           value={searchValue}
@@ -886,27 +902,22 @@ function SkillPageHeader({
             }
           }}
         />
-        {isDiscoverTab ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("skills.discoverRefresh")}
-                disabled={isDiscoveryLoading}
-                onClick={onDiscoveryRefresh}
-              >
-                {isDiscoveryLoading ? (
-                  <AppIcons.status.loading className="animate-spin" />
-                ) : (
-                  <AppIcons.action.refresh />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("skills.discoverRefresh")}</TooltipContent>
-          </Tooltip>
-        ) : (
+        <SkillFilterDropdown
+          ariaLabel={t("skills.filter")}
+          options={filterOptions}
+          value={filterValue}
+          onValueChange={(value) => {
+            if (isDiscoverTab && isDiscoverSkillFilter(value)) {
+              onDiscoveryFilterChange(value)
+              return
+            }
+
+            if (!isDiscoverTab && isInstalledSkillFilter(value)) {
+              onInstalledFilterChange(value)
+            }
+          }}
+        />
+        {isDiscoverTab ? null : (
           <SkillsSyncMenu
             checkVersions={checkVersions}
             disabled={disabled}
@@ -921,6 +932,52 @@ function SkillPageHeader({
   )
 }
 
+interface SkillFilterDropdownProps {
+  ariaLabel: string
+  onValueChange: (value: string) => void
+  options: { label: string; value: string }[]
+  value: string
+}
+
+function SkillFilterDropdown({ ariaLabel, onValueChange, options, value }: SkillFilterDropdownProps) {
+  const selectedOption = options.find((option) => option.value === value) ?? options[0]
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="max-w-36 min-w-24 justify-between px-2"
+          aria-label={ariaLabel}
+        >
+          <AppIcons.action.settings className="size-3.5" />
+          <span className="min-w-0 truncate">{selectedOption?.label ?? value}</span>
+          <AppIcons.status.disclosure className="size-3.5 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6} className="w-36">
+        {options.map((option) => {
+          const selected = option.value === value
+
+          return (
+            <DropdownMenuItem
+              key={option.value}
+              className="min-w-0 justify-between gap-3"
+              aria-checked={selected}
+              onSelect={() => onValueChange(option.value)}
+            >
+              <span className="min-w-0 truncate">{option.label}</span>
+              {selected ? <AppIcons.status.check className="size-4" /> : null}
+            </DropdownMenuItem>
+          )
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 interface DiscoverSkillsPaneProps {
   error: string | null
   filter: DiscoverSkillFilter
@@ -932,10 +989,10 @@ interface DiscoverSkillsPaneProps {
   locale: string
   next: string | null
   onClosePackage: () => void
-  onFilterChange: (filter: DiscoverSkillFilter) => void
   onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onLoadMore: () => void
   onOpenManagedSkill: (skillName: string) => void
+  onRetry: () => void
   onSelectPackage: (pkg: PublicSkillPackage) => void
   packages: PublicSkillPackage[]
   selectedPackage: PublicSkillPackage | undefined
@@ -952,10 +1009,10 @@ function DiscoverSkillsPane({
   locale,
   next,
   onClosePackage,
-  onFilterChange,
   onInstall,
   onLoadMore,
   onOpenManagedSkill,
+  onRetry,
   onSelectPackage,
   packages,
   selectedPackage,
@@ -985,22 +1042,19 @@ function DiscoverSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
       <div className="grid gap-3 pr-1">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          className="w-fit max-w-full flex-wrap justify-start"
-          value={filter}
-          onValueChange={(value) => {
-            if (isDiscoverSkillFilter(value)) {
-              onFilterChange(value)
-            }
-          }}
-        >
-          <ToggleGroupItem value="all">{t("skills.discoverFilter.all")}</ToggleGroupItem>
-          <ToggleGroupItem value="mine">{t("skills.discoverFilter.mine")}</ToggleGroupItem>
-        </ToggleGroup>
-        <SkillErrorNotice error={error} />
+        {error ? (
+          <div className="flex min-w-0 items-start gap-2">
+            <SkillErrorNotice className="min-w-0 flex-1" error={error} />
+            <Button type="button" variant="outline" size="sm" disabled={isLoading} onClick={onRetry}>
+              {isLoading ? (
+                <AppIcons.status.loading className="size-3.5 animate-spin" />
+              ) : (
+                <AppIcons.action.refresh className="size-3.5" />
+              )}
+              {t("skills.retry")}
+            </Button>
+          </div>
+        ) : null}
         {isLoading && packages.length === 0 ? (
           <PublicSkillGridSkeleton />
         ) : packages.length === 0 ? (
@@ -1160,11 +1214,9 @@ function PublicSkillPackageCard({
 
 interface InstalledSkillsPaneProps {
   detailContentProps: SkillDetailContentProps
-  filter: InstalledSkillFilter
   groups: ManagedSkillGroup[]
   isDetailOpen: boolean
   onCloseDetail: () => void
-  onFilterChange: (filter: InstalledSkillFilter) => void
   onSelectBuiltIn: () => void
   onSelectSkill: (skillId: string) => void
   selectedSkill: ManagedSkillGroup | undefined
@@ -1176,11 +1228,9 @@ interface InstalledSkillsPaneProps {
 
 function InstalledSkillsPane({
   detailContentProps,
-  filter,
   groups,
   isDetailOpen,
   onCloseDetail,
-  onFilterChange,
   onSelectBuiltIn,
   onSelectSkill,
   selectedSkill,
@@ -1194,22 +1244,6 @@ function InstalledSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3">
       <div className="grid gap-3 pr-1">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          className="w-fit max-w-full flex-wrap justify-start"
-          value={filter}
-          onValueChange={(value) => {
-            if (isInstalledSkillFilter(value)) {
-              onFilterChange(value)
-            }
-          }}
-        >
-          <ToggleGroupItem value="all">{t("skills.installedFilter.all")}</ToggleGroupItem>
-          <ToggleGroupItem value="updates">{t("skills.installedFilter.updates")}</ToggleGroupItem>
-          <ToggleGroupItem value="local">{t("skills.installedFilter.local")}</ToggleGroupItem>
-        </ToggleGroup>
         {systemAttentionGroups.length > 0 ? (
           <SystemSkillAttentionCard groups={systemAttentionGroups} onOpen={onSelectBuiltIn} />
         ) : null}

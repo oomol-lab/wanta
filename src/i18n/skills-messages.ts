@@ -86,7 +86,6 @@ export const skillsMessages = {
     "organizations.revokeProviderAccessConfirmTitle": "撤销连接器权限？",
     "organizations.revokeProviderAccessConfirmDescription": "撤销后，该成员将不能继续使用这些组织连接器。",
     "skills.discoverSearch": "搜索在线技能",
-    "skills.discoverRefresh": "刷新技能列表",
     "skills.discoverEmpty": "没有找到匹配的在线技能。",
     "skills.discoverMineEmpty": "没有找到你发布的在线技能。可以继续加载更多，或搜索包名。",
     "skills.discoverMineSignedOut": "登录后可以查看你发布到技能市场的 Skill。",
@@ -109,6 +108,8 @@ export const skillsMessages = {
     "skills.discoverMaintainer": "维护者",
     "skills.discoverUpdated": "更新",
     "skills.installedSearch": "搜索已安装技能",
+    "skills.filter": "筛选",
+    "skills.retry": "重试",
     "skills.search": "搜索技能",
     "skills.list": "技能列表",
     "skills.managedList": "已识别",
@@ -335,7 +336,6 @@ export const skillsMessages = {
     "organizations.revokeProviderAccessConfirmDescription":
       "After revocation, this member will no longer be able to use these organization connections.",
     "skills.discoverSearch": "Search online Skills",
-    "skills.discoverRefresh": "Refresh Skill list",
     "skills.discoverEmpty": "No matching online Skills found.",
     "skills.discoverMineEmpty":
       "No published Skills from your account were found. Load more or search by package name.",
@@ -359,6 +359,8 @@ export const skillsMessages = {
     "skills.discoverMaintainer": "Maintainer",
     "skills.discoverUpdated": "Updated",
     "skills.installedSearch": "Search installed Skills",
+    "skills.filter": "Filter",
+    "skills.retry": "Retry",
     "skills.search": "Search Skill",
     "skills.list": "Skill list",
     "skills.managedList": "Recognized",

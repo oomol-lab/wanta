@@ -1,5 +1,6 @@
 import type {
   ConnectionAuthType,
+  ConnectionAppSummary,
   ConnectionConnectInput,
   ConnectionExecutionLogSummary,
   ConnectionProviderDetail,
@@ -22,6 +23,7 @@ import {
   LoaderCircle,
   Plug,
   RefreshCw,
+  Star,
   Unplug,
   X,
 } from "lucide-react"
@@ -93,6 +95,11 @@ interface ConnectionCategoryFilter {
   count: number
   displayLabel: string
   label: string
+}
+
+interface DisconnectTarget {
+  app?: ConnectionAppSummary
+  provider: ConnectionProviderSummary
 }
 
 function isConnected(provider: ConnectionProviderSummary): boolean {
@@ -184,6 +191,9 @@ function getProviderDescription(provider: ConnectionProviderSummary, t: ReturnTy
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
+      if (provider.appCount > 1) {
+        return t("connections.connectionCount", { count: provider.appCount })
+      }
       return provider.accountLabel && provider.accountLabel !== provider.displayName
         ? provider.accountLabel
         : getProviderCategoryLabel(provider, t)
@@ -255,7 +265,23 @@ function formatProviderCategoryLabels(provider: ConnectionProviderSummary, t: Tr
 }
 
 function getProviderMeta(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
+  if (provider.status === "connected" && provider.appCount > 1) {
+    return t("connections.connectionCount", { count: provider.appCount })
+  }
   return provider.accountLabel ?? getProviderCategoryLabel(provider, t)
+}
+
+function getConnectionAppDisplayName(app: ConnectionAppSummary): string {
+  return app.displayName || app.alias || app.accountLabel || app.providerAccountId || app.id
+}
+
+function getConnectionAppSecondaryLabel(app: ConnectionAppSummary): string | null {
+  const primary = getConnectionAppDisplayName(app)
+  const account = app.accountLabel || app.providerAccountId
+  if (!account || account === primary) {
+    return null
+  }
+  return account
 }
 
 function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQuery: string, t: TranslateFn): boolean {
@@ -271,7 +297,14 @@ function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQue
         getCategoryDisplayLabel(label, t).toLowerCase().includes(normalizedQuery)
       )
     }) ||
-    provider.accountLabel?.toLowerCase().includes(normalizedQuery) === true
+    provider.accountLabel?.toLowerCase().includes(normalizedQuery) === true ||
+    provider.apps.some((app) => {
+      return (
+        getConnectionAppDisplayName(app).toLowerCase().includes(normalizedQuery) ||
+        app.accountLabel?.toLowerCase().includes(normalizedQuery) === true ||
+        app.providerAccountId?.toLowerCase().includes(normalizedQuery) === true
+      )
+    })
   )
 }
 
@@ -337,10 +370,11 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   const [detailError, setDetailError] = React.useState<UserFacingError | null>(null)
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
+    appId?: string
     authType: "api_key" | "custom_credential" | "federated"
     detail: ConnectionProviderDetail
   } | null>(null)
-  const [confirmDisconnect, setConfirmDisconnect] = React.useState<ConnectionProviderSummary | null>(null)
+  const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
   const detailCacheRef = React.useRef<Map<string, ConnectionProviderDetail>>(new Map())
   const detailRequestIdRef = React.useRef(0)
@@ -488,9 +522,16 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
   }, [getProviderDetail, selectedDetailService])
 
   const connectProvider = React.useCallback(
-    async (provider: ConnectionProviderSummary, authType: Exclude<ConnectionAuthType, null>): Promise<void> => {
+    async (
+      provider: ConnectionProviderSummary,
+      authType: Exclude<ConnectionAuthType, null>,
+      appId?: string,
+    ): Promise<void> => {
       if (authType === "oauth2" || authType === "no_auth") {
-        const input: ConnectionConnectInput = { authType, service: provider.service }
+        const input: ConnectionConnectInput =
+          authType === "oauth2"
+            ? { authType, service: provider.service, appId }
+            : { authType, service: provider.service }
         const ok = await connect(input)
         if (ok) {
           detailCacheRef.current.delete(provider.service)
@@ -499,7 +540,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
       }
 
       const loaded = detailService === provider.service && detail ? detail : await getProviderDetail(provider.service)
-      setDialog({ detail: loaded, authType })
+      setDialog({ detail: loaded, authType, appId })
     },
     [connect, detail, detailService, getProviderDetail],
   )
@@ -598,6 +639,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         open={dialog !== null}
         detail={dialog?.detail ?? null}
         authType={dialog?.authType ?? null}
+        appId={dialog?.appId}
         busy={busy === "connect"}
         onClose={() => setDialog(null)}
         onSubmit={async (input) => {
@@ -611,14 +653,16 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
       />
 
       <DisconnectDialog
-        provider={confirmDisconnect}
+        target={confirmDisconnect}
         busy={busy === "disconnect"}
         onClose={() => setConfirmDisconnect(null)}
-        onConfirm={async (provider) => {
-          const ok = await disconnect(provider.service)
+        onConfirm={async (target) => {
+          const ok = target.app
+            ? await connections.disconnectAccount(target.app.id)
+            : await disconnect(target.provider.service)
           if (ok) {
-            detailCacheRef.current.delete(provider.service)
-            if (detailService === provider.service) {
+            detailCacheRef.current.delete(target.provider.service)
+            if (detailService === target.provider.service) {
               setDetail(null)
               setDetailService(null)
             }
@@ -988,8 +1032,12 @@ function ProviderDetail({
   detailLoading: boolean
   onCancelPolling: () => void
   onClose: () => void
-  onConnect: (provider: ConnectionProviderSummary, authType: Exclude<ConnectionAuthType, null>) => Promise<void>
-  onDisconnect: (provider: ConnectionProviderSummary) => void
+  onConnect: (
+    provider: ConnectionProviderSummary,
+    authType: Exclude<ConnectionAuthType, null>,
+    appId?: string,
+  ) => Promise<void>
+  onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
   provider: ConnectionProviderSummary
   summary: ConnectionSummary | null
@@ -1040,6 +1088,8 @@ function ProviderDetail({
         {detailError ? <ErrorNotice error={detailError} compact /> : null}
         <ConnectionPanel
           busy={busy}
+          canSetDefault={summary?.workspace.type !== "organization"}
+          connections={connections}
           currentAuthType={currentAuthType}
           detail={detail}
           detailLoading={detailLoading}
@@ -1063,7 +1113,14 @@ function ProviderDetail({
       <section className="grid gap-1.5">
         <h3 className="oo-text-title px-0.5">{t("connections.providerDetails")}</h3>
         <dl className="overflow-hidden rounded-md border">
-          <DetailRow label={t("connections.account")} value={provider.accountLabel ?? t("connections.notConnected")} />
+          <DetailRow
+            label={t("connections.account")}
+            value={
+              provider.appCount > 1
+                ? t("connections.connectionCount", { count: provider.appCount })
+                : (provider.accountLabel ?? t("connections.notConnected"))
+            }
+          />
           <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
           <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
           <DetailRow label={t("connections.service")} value={provider.service} mono />
@@ -1076,6 +1133,8 @@ function ProviderDetail({
 
 function ConnectionPanel({
   busy,
+  canSetDefault,
+  connections,
   currentAuthType,
   detail,
   detailLoading,
@@ -1086,12 +1145,18 @@ function ConnectionPanel({
   provider,
 }: {
   busy: UseConnections["busy"]
+  canSetDefault: boolean
+  connections: UseConnections
   currentAuthType: Exclude<ConnectionAuthType, null> | null
   detail: ConnectionProviderDetail | null
   detailLoading: boolean
   onCancelPolling: () => void
-  onConnect: (provider: ConnectionProviderSummary, authType: Exclude<ConnectionAuthType, null>) => Promise<void>
-  onDisconnect: (provider: ConnectionProviderSummary) => void
+  onConnect: (
+    provider: ConnectionProviderSummary,
+    authType: Exclude<ConnectionAuthType, null>,
+    appId?: string,
+  ) => Promise<void>
+  onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
   provider: ConnectionProviderSummary
 }) {
@@ -1114,7 +1179,11 @@ function ConnectionPanel({
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="oo-text-title truncate">
-            {isConnected(provider) ? t("connections.connectedConnection") : t("connections.connectProvider")}
+            {provider.status === "connected" && provider.apps.length > 1
+              ? t("connections.connectedConnections")
+              : isConnected(provider)
+                ? t("connections.connectedConnection")
+                : t("connections.connectProvider")}
           </h3>
           {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
@@ -1151,26 +1220,117 @@ function ConnectionPanel({
               ) : (
                 <Plug className="size-4" />
               )}
-              {isConnected(provider) ? t("connections.modifyConnection") : t("connections.connectProvider")}
+              {provider.apps.length > 0 ? t("connections.addConnection") : t("connections.connectProvider")}
             </Button>
           )}
-
-          {isConnected(provider) && provider.canDisconnect ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy === "disconnect"}
-              className="gap-1.5 border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive"
-              onClick={() => onDisconnect(provider)}
-            >
-              <Unplug className="size-4" />
-              {t("connections.disconnect")}
-            </Button>
-          ) : null}
         </div>
       ) : (
         <div className="oo-text-caption oo-text-muted">{t("connections.unsupportedConnectionDescription")}</div>
       )}
+
+      {provider.apps.length > 0 ? (
+        <ConnectionAccountsList
+          busy={busy}
+          canSetDefault={canSetDefault}
+          connections={connections}
+          onConnect={onConnect}
+          onDisconnect={onDisconnect}
+          provider={provider}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function ConnectionAccountsList({
+  busy,
+  canSetDefault,
+  connections,
+  onConnect,
+  onDisconnect,
+  provider,
+}: {
+  busy: UseConnections["busy"]
+  canSetDefault: boolean
+  connections: UseConnections
+  onConnect: (
+    provider: ConnectionProviderSummary,
+    authType: Exclude<ConnectionAuthType, null>,
+    appId?: string,
+  ) => Promise<void>
+  onDisconnect: (target: DisconnectTarget) => void
+  provider: ConnectionProviderSummary
+}) {
+  const t = useT()
+  return (
+    <div className="grid overflow-hidden rounded-md border">
+      <div className="oo-text-caption oo-text-muted border-b px-2.5 py-1.5">{t("connections.connectionAccounts")}</div>
+      {provider.apps.map((app) => {
+        const reconnectAuthType =
+          app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
+            ? app.authType
+            : null
+        return (
+          <div
+            key={app.id}
+            className="grid min-w-0 gap-2 border-b px-2.5 py-2 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto]"
+          >
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="oo-text-control truncate font-medium">{getConnectionAppDisplayName(app)}</span>
+                {app.isDefault ? <Badge variant="success">{t("connections.defaultConnection")}</Badge> : null}
+                {app.status === "reauth_required" || app.status === "error" ? (
+                  <Badge variant="warning">{t("connections.providerNeedsAttention")}</Badge>
+                ) : null}
+              </div>
+              <div className="oo-text-micro oo-text-muted mt-0.5 min-w-0 truncate">
+                {getConnectionAppSecondaryLabel(app) ??
+                  (app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown"))}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+              {canSetDefault && !app.isDefault && provider.apps.length > 1 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => void connections.setDefaultAccount(provider.service, app.id)}
+                >
+                  <Star className="size-3.5" />
+                  {t("connections.setDefaultConnection")}
+                </Button>
+              ) : null}
+              {reconnectAuthType ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={busy === "connect"}
+                  onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
+                >
+                  <KeyRound className="size-3.5" />
+                  {t("connections.reconnect")}
+                </Button>
+              ) : null}
+              {provider.canDisconnect ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy === "disconnect"}
+                  className="gap-1.5 border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive"
+                  onClick={() => onDisconnect({ provider, app })}
+                >
+                  <Unplug className="size-3.5" />
+                  {t("connections.disconnect")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -1489,33 +1649,36 @@ function DetailRow({ label, value, mono }: { label: string; value: string; mono?
 }
 
 function DisconnectDialog({
-  provider,
+  target,
   busy,
   onClose,
   onConfirm,
 }: {
-  provider: ConnectionProviderSummary | null
+  target: DisconnectTarget | null
   busy: boolean
   onClose: () => void
-  onConfirm: (provider: ConnectionProviderSummary) => void
+  onConfirm: (target: DisconnectTarget) => void
 }) {
   const t = useT()
-  if (!provider) {
+  if (!target) {
     return null
   }
+
+  const { app, provider } = target
+  const displayName = app ? `${provider.displayName} · ${getConnectionAppDisplayName(app)}` : provider.displayName
 
   return (
     <Dialog
       open
       onClose={busy ? () => undefined : onClose}
       title={t("connections.confirmDisconnectTitle")}
-      description={t("connections.confirmDisconnectDescription", { name: provider.displayName })}
+      description={t("connections.confirmDisconnectDescription", { name: displayName })}
       footer={
         <>
           <Button variant="outline" disabled={busy} onClick={onClose}>
             {t("connections.confirmDisconnectCancel")}
           </Button>
-          <Button variant="outline" disabled={busy} className="text-destructive" onClick={() => onConfirm(provider)}>
+          <Button variant="outline" disabled={busy} className="text-destructive" onClick={() => onConfirm(target)}>
             {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Unplug className="size-4" />}
             {busy ? t("connections.disconnecting") : t("connections.disconnect")}
           </Button>
@@ -1526,7 +1689,9 @@ function DisconnectDialog({
         <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
         <div className="min-w-0">
           <div className="oo-text-label truncate">{provider.displayName}</div>
-          <div className="oo-text-caption oo-text-muted truncate">{provider.accountLabel ?? provider.service}</div>
+          <div className="oo-text-caption oo-text-muted truncate">
+            {app ? getConnectionAppDisplayName(app) : (provider.accountLabel ?? provider.service)}
+          </div>
         </div>
       </div>
     </Dialog>

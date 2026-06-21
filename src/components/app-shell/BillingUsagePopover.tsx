@@ -176,20 +176,10 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/40 px-4 py-3">
+        <div className="border-t border-border bg-muted/40 px-4 py-3">
           <Button
             type="button"
-            variant="outline"
-            size="icon"
-            disabled={loading}
-            onClick={() => void refresh({ force: true })}
-          >
-            <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
-            <span className="sr-only">{t("billing.refresh")}</span>
-          </Button>
-          <Button
-            type="button"
-            className="min-w-0 flex-1"
+            className="w-full min-w-0"
             onClick={() => {
               setOpen(false)
               onViewDetails()

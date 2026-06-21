@@ -90,7 +90,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -222,7 +221,6 @@ export function SkillsRoute() {
   const [installingBuiltInSkillId, setInstallingBuiltInSkillId] = React.useState<BuiltInSkillId | null>(null)
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
-  const [isCheckingVersions, setIsCheckingVersions] = React.useState(false)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const installBuiltInInFlightRef = React.useRef(false)
@@ -573,24 +571,6 @@ export function SkillsRoute() {
     ],
   )
 
-  const checkVersions = React.useCallback(async () => {
-    if (isCheckingVersions) {
-      return
-    }
-
-    setIsCheckingVersions(true)
-    setPlanError(null)
-
-    try {
-      await versionResource.refresh({ forceRefresh: true })
-      homeSummaryResource.invalidate()
-    } catch (cause) {
-      setPlanError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setIsCheckingVersions(false)
-    }
-  }, [homeSummaryResource, isCheckingVersions, versionResource])
-
   const executeCliUpdate = React.useCallback(async () => {
     if (cliUpdateInFlightRef.current) {
       return
@@ -613,10 +593,6 @@ export function SkillsRoute() {
     }
   }, [homeSummaryResource, inventoryResource, skillService, versionResource])
 
-  const isPublicPackageBusy =
-    activePackageCatalog.status === "loading" ||
-    activePackageCatalog.status === "loading-more" ||
-    activePackageCatalog.status === "refreshing"
   const isPublicPackageLoadingMore = activePackageCatalog.status === "loading-more"
   const isPublicPackageReplacing =
     activePackageCatalog.status === "loading" || activePackageCatalog.status === "refreshing"
@@ -644,23 +620,15 @@ export function SkillsRoute() {
       <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
         <SkillPageHeader
           activeTab={activeTab}
-          checkVersions={checkVersions}
-          disabled={inventoryResource.isInitialLoading}
+          discoveryFilter={discoveryFilter}
           discoveryQuery={discoveryQuery}
-          executeCliUpdate={executeCliUpdate}
+          installedFilter={installedFilter}
           installedQuery={query}
-          isExecutingCliUpdate={isExecutingCliUpdate}
-          isDiscoveryLoading={isPublicPackageBusy}
+          onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
-          onDiscoveryRefresh={() =>
-            void (discoveryFilter === "mine" && authResource.data?.status === "authenticated"
-              ? loadMyPublishedSkillPackages({ forceRefresh: true })
-              : loadPublicSkillPackages({ forceRefresh: true }))
-          }
+          onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
           onTabChange={setActiveTab}
-          versionReport={versionResource.data}
-          versionsRefreshing={isCheckingVersions}
         />
         {activeTab === "discover" ? (
           <DiscoverSkillsPane
@@ -676,7 +644,6 @@ export function SkillsRoute() {
             packages={filteredPublicPackages}
             selectedPackage={selectedPublicPackage}
             onClosePackage={() => activePackageDispatcher({ id: null, type: "select" })}
-            onFilterChange={setDiscoveryFilter}
             onInstall={installPublicSkill}
             onLoadMore={() =>
               void (discoveryFilter === "mine"
@@ -684,13 +651,23 @@ export function SkillsRoute() {
                 : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
+            onRetry={() => {
+              if (discoveryFilter === "mine") {
+                if (authResource.data?.status === "authenticated") {
+                  void loadMyPublishedSkillPackages({ forceRefresh: true })
+                }
+                return
+              }
+              void loadPublicSkillPackages({ forceRefresh: true })
+            }}
             onSelectPackage={(pkg) => activePackageDispatcher({ id: pkg.id, type: "select" })}
           />
         ) : (
           <InstalledSkillsPane
+            cliVersionCheck={versionResource.data?.cli}
             detailContentProps={detailContentProps}
-            filter={installedFilter}
             groups={filteredInstalledGroups}
+            isExecutingCliUpdate={isExecutingCliUpdate}
             isDetailOpen={narrowPane === "detail"}
             systemAttentionGroups={systemAttentionGroups}
             updateRegistrySkill={updateRegistrySkill}
@@ -708,21 +685,12 @@ export function SkillsRoute() {
             onSelectSkill={(skillId) => {
               selectSkill(skillId)
             }}
-            onFilterChange={setInstalledFilter}
+            onUpdateCli={executeCliUpdate}
           />
         )}
       </section>
     </>
   )
-}
-
-interface SkillsSyncMenuProps {
-  checkVersions: () => void
-  disabled: boolean
-  executeCliUpdate: () => void
-  isExecutingCliUpdate: boolean
-  versionReport: SkillVersionReport | null
-  versionsRefreshing: boolean
 }
 
 function SkillDetailSkeleton() {
@@ -824,40 +792,49 @@ function SkillDetailContent({
   return <div className="oo-text-body oo-text-muted p-4">{t("skills.detailPlaceholder")}</div>
 }
 
-interface SkillPageHeaderProps extends SkillsSyncMenuProps {
+interface SkillPageHeaderProps {
   activeTab: SkillPageTab
+  discoveryFilter: DiscoverSkillFilter
   discoveryQuery: string
+  installedFilter: InstalledSkillFilter
   installedQuery: string
-  isDiscoveryLoading: boolean
+  onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
+  onInstalledFilterChange: (filter: InstalledSkillFilter) => void
   onInstalledQueryChange: (value: string) => void
-  onDiscoveryRefresh: () => void
   onTabChange: (tab: SkillPageTab) => void
 }
 
 function SkillPageHeader({
   activeTab,
-  checkVersions,
-  disabled,
+  discoveryFilter,
   discoveryQuery,
+  installedFilter,
   installedQuery,
-  executeCliUpdate,
-  isExecutingCliUpdate,
-  isDiscoveryLoading,
+  onDiscoveryFilterChange,
   onDiscoveryQueryChange,
-  onDiscoveryRefresh,
+  onInstalledFilterChange,
   onInstalledQueryChange,
   onTabChange,
-  versionReport,
-  versionsRefreshing,
 }: SkillPageHeaderProps) {
   const { t } = useAppI18n()
   const isDiscoverTab = activeTab === "discover"
   const searchValue = isDiscoverTab ? discoveryQuery : installedQuery
   const searchPlaceholder = isDiscoverTab ? "skills.discoverSearch" : "skills.installedSearch"
+  const filterValue = isDiscoverTab ? discoveryFilter : installedFilter
+  const filterOptions = isDiscoverTab
+    ? [
+        { label: t("skills.discoverFilter.all"), value: "all" },
+        { label: t("skills.discoverFilter.mine"), value: "mine" },
+      ]
+    : [
+        { label: t("skills.installedFilter.all"), value: "all" },
+        { label: t("skills.installedFilter.updates"), value: "updates" },
+        { label: t("skills.installedFilter.local"), value: "local" },
+      ]
 
   return (
-    <header className="oo-border-divider flex min-h-12 items-center gap-3 border-b px-3 py-2">
+    <header className="oo-border-divider flex min-h-12 items-center gap-2 border-b px-3 py-2">
       <ToggleGroup
         type="single"
         variant="outline"
@@ -886,38 +863,69 @@ function SkillPageHeader({
             }
           }}
         />
-        {isDiscoverTab ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("skills.discoverRefresh")}
-                disabled={isDiscoveryLoading}
-                onClick={onDiscoveryRefresh}
-              >
-                {isDiscoveryLoading ? (
-                  <AppIcons.status.loading className="animate-spin" />
-                ) : (
-                  <AppIcons.action.refresh />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("skills.discoverRefresh")}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <SkillsSyncMenu
-            checkVersions={checkVersions}
-            disabled={disabled}
-            executeCliUpdate={executeCliUpdate}
-            isExecutingCliUpdate={isExecutingCliUpdate}
-            versionReport={versionReport}
-            versionsRefreshing={versionsRefreshing}
-          />
-        )}
+        <SkillFilterDropdown
+          ariaLabel={t("skills.filter")}
+          options={filterOptions}
+          value={filterValue}
+          onValueChange={(value) => {
+            if (isDiscoverTab && isDiscoverSkillFilter(value)) {
+              onDiscoveryFilterChange(value)
+              return
+            }
+
+            if (!isDiscoverTab && isInstalledSkillFilter(value)) {
+              onInstalledFilterChange(value)
+            }
+          }}
+        />
       </div>
     </header>
+  )
+}
+
+interface SkillFilterDropdownProps {
+  ariaLabel: string
+  onValueChange: (value: string) => void
+  options: { label: string; value: string }[]
+  value: string
+}
+
+function SkillFilterDropdown({ ariaLabel, onValueChange, options, value }: SkillFilterDropdownProps) {
+  const selectedOption = options.find((option) => option.value === value) ?? options[0]
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="max-w-36 min-w-24 justify-between px-2"
+          aria-label={ariaLabel}
+        >
+          <AppIcons.action.settings className="size-3.5" />
+          <span className="min-w-0 truncate">{selectedOption?.label ?? value}</span>
+          <AppIcons.status.disclosure className="size-3.5 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6} className="w-36">
+        {options.map((option) => {
+          const selected = option.value === value
+
+          return (
+            <DropdownMenuItem
+              key={option.value}
+              className="min-w-0 justify-between gap-3"
+              aria-checked={selected}
+              onSelect={() => onValueChange(option.value)}
+            >
+              <span className="min-w-0 truncate">{option.label}</span>
+              {selected ? <AppIcons.status.check className="size-4" /> : null}
+            </DropdownMenuItem>
+          )
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -932,10 +940,10 @@ interface DiscoverSkillsPaneProps {
   locale: string
   next: string | null
   onClosePackage: () => void
-  onFilterChange: (filter: DiscoverSkillFilter) => void
   onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onLoadMore: () => void
   onOpenManagedSkill: (skillName: string) => void
+  onRetry: () => void
   onSelectPackage: (pkg: PublicSkillPackage) => void
   packages: PublicSkillPackage[]
   selectedPackage: PublicSkillPackage | undefined
@@ -952,10 +960,10 @@ function DiscoverSkillsPane({
   locale,
   next,
   onClosePackage,
-  onFilterChange,
   onInstall,
   onLoadMore,
   onOpenManagedSkill,
+  onRetry,
   onSelectPackage,
   packages,
   selectedPackage,
@@ -985,22 +993,19 @@ function DiscoverSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
       <div className="grid gap-3 pr-1">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          className="w-fit max-w-full flex-wrap justify-start"
-          value={filter}
-          onValueChange={(value) => {
-            if (isDiscoverSkillFilter(value)) {
-              onFilterChange(value)
-            }
-          }}
-        >
-          <ToggleGroupItem value="all">{t("skills.discoverFilter.all")}</ToggleGroupItem>
-          <ToggleGroupItem value="mine">{t("skills.discoverFilter.mine")}</ToggleGroupItem>
-        </ToggleGroup>
-        <SkillErrorNotice error={error} />
+        {error ? (
+          <div className="flex min-w-0 items-start gap-2">
+            <SkillErrorNotice className="min-w-0 flex-1" error={error} />
+            <Button type="button" variant="outline" size="sm" disabled={isLoading} onClick={onRetry}>
+              {isLoading ? (
+                <AppIcons.status.loading className="size-3.5 animate-spin" />
+              ) : (
+                <AppIcons.action.refresh className="size-3.5" />
+              )}
+              {t("skills.retry")}
+            </Button>
+          </div>
+        ) : null}
         {isLoading && packages.length === 0 ? (
           <PublicSkillGridSkeleton />
         ) : packages.length === 0 ? (
@@ -1159,14 +1164,15 @@ function PublicSkillPackageCard({
 }
 
 interface InstalledSkillsPaneProps {
+  cliVersionCheck: SkillVersionReport["cli"] | undefined
   detailContentProps: SkillDetailContentProps
-  filter: InstalledSkillFilter
   groups: ManagedSkillGroup[]
+  isExecutingCliUpdate: boolean
   isDetailOpen: boolean
   onCloseDetail: () => void
-  onFilterChange: (filter: InstalledSkillFilter) => void
   onSelectBuiltIn: () => void
   onSelectSkill: (skillId: string) => void
+  onUpdateCli: () => void
   selectedSkill: ManagedSkillGroup | undefined
   systemAttentionGroups: ManagedSkillGroup[]
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
@@ -1175,14 +1181,15 @@ interface InstalledSkillsPaneProps {
 }
 
 function InstalledSkillsPane({
+  cliVersionCheck,
   detailContentProps,
-  filter,
   groups,
+  isExecutingCliUpdate,
   isDetailOpen,
   onCloseDetail,
-  onFilterChange,
   onSelectBuiltIn,
   onSelectSkill,
+  onUpdateCli,
   selectedSkill,
   systemAttentionGroups,
   updateRegistrySkill,
@@ -1194,22 +1201,7 @@ function InstalledSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3">
       <div className="grid gap-3 pr-1">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          className="w-fit max-w-full flex-wrap justify-start"
-          value={filter}
-          onValueChange={(value) => {
-            if (isInstalledSkillFilter(value)) {
-              onFilterChange(value)
-            }
-          }}
-        >
-          <ToggleGroupItem value="all">{t("skills.installedFilter.all")}</ToggleGroupItem>
-          <ToggleGroupItem value="updates">{t("skills.installedFilter.updates")}</ToggleGroupItem>
-          <ToggleGroupItem value="local">{t("skills.installedFilter.local")}</ToggleGroupItem>
-        </ToggleGroup>
+        <CliUpdateNotice cli={cliVersionCheck} isUpdating={isExecutingCliUpdate} onUpdate={onUpdateCli} />
         {systemAttentionGroups.length > 0 ? (
           <SystemSkillAttentionCard groups={systemAttentionGroups} onOpen={onSelectBuiltIn} />
         ) : null}
@@ -1238,6 +1230,42 @@ function InstalledSkillsPane({
         </SkillManagementSheet>
       ) : null}
     </div>
+  )
+}
+
+function CliUpdateNotice({
+  cli,
+  isUpdating,
+  onUpdate,
+}: {
+  cli: SkillVersionReport["cli"] | undefined
+  isUpdating: boolean
+  onUpdate: () => void
+}) {
+  const { t } = useAppI18n()
+
+  if (cli?.status !== "update-available") {
+    return null
+  }
+
+  return (
+    <Card className="grid gap-2 rounded-md border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2 shadow-none">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <div className="text-sm font-medium">{t("skills.cliUpdateAvailableTitle")}</div>
+          <CardDescription className="text-xs">
+            {t("skills.cliUpdateAvailableDescription", {
+              current: cli.currentVersion ?? t("skills.none"),
+              latest: cli.latestVersion ?? t("skills.none"),
+            })}
+          </CardDescription>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={isUpdating} onClick={onUpdate}>
+          {isUpdating ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.download />}
+          {isUpdating ? t("skills.updatingCli") : t("skills.updateCli")}
+        </Button>
+      </div>
+    </Card>
   )
 }
 
@@ -1769,70 +1797,6 @@ function PublicSkillPackageDetail({
         </div>
       </InspectorInsetCard>
     </aside>
-  )
-}
-
-function SkillsSyncMenu({
-  checkVersions,
-  disabled,
-  executeCliUpdate,
-  isExecutingCliUpdate,
-  versionReport,
-  versionsRefreshing,
-}: SkillsSyncMenuProps) {
-  const { t } = useAppI18n()
-  const hasCliUpdate = versionReport?.cli.status === "update-available"
-  const isBusy = versionsRefreshing || isExecutingCliUpdate
-
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={t("skills.syncMenu")}
-              title={t("skills.syncMenu")}
-              disabled={disabled}
-              className="oo-icon-muted"
-            >
-              {isBusy ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.refresh />}
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("skills.syncMenu")}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="min-w-44">
-        <DropdownMenuItem
-          disabled={disabled || isBusy}
-          onSelect={(event) => {
-            event.preventDefault()
-            checkVersions()
-          }}
-        >
-          {versionsRefreshing ? (
-            <AppIcons.status.loading className="animate-spin" />
-          ) : (
-            <AppIcons.action.checkForUpdates />
-          )}
-          <span>{versionsRefreshing ? t("skills.checkingVersions") : t("skills.checkVersions")}</span>
-        </DropdownMenuItem>
-        {hasCliUpdate ? (
-          <DropdownMenuItem
-            disabled={disabled || isBusy}
-            onSelect={(event) => {
-              event.preventDefault()
-              executeCliUpdate()
-            }}
-          >
-            {isExecutingCliUpdate ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.download />}
-            <span>{isExecutingCliUpdate ? t("skills.updatingCli") : t("skills.updateCli")}</span>
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

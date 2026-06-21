@@ -1,6 +1,7 @@
-import type { ConnectionSummary } from "./common.ts"
+import type { ConnectionSummary, ConnectionWorkspace } from "./common.ts"
 
 export const connectionUsageSummaryDays = 7
+export const personalConnectionWorkspace: ConnectionWorkspace = { type: "personal" }
 
 export function createEmptyConnectionUsageSummary(): ConnectionSummary["usage"] {
   return {
@@ -14,7 +15,11 @@ export function createEmptyConnectionUsageSummary(): ConnectionSummary["usage"] 
   }
 }
 
-export function createEmptyConnectionSummary(status: ConnectionSummary["status"], message?: string): ConnectionSummary {
+export function createEmptyConnectionSummary(
+  status: ConnectionSummary["status"],
+  message?: string,
+  workspace: ConnectionWorkspace = personalConnectionWorkspace,
+): ConnectionSummary {
   return {
     status,
     activeConnections: 0,
@@ -27,6 +32,7 @@ export function createEmptyConnectionSummary(status: ConnectionSummary["status"]
     usage: createEmptyConnectionUsageSummary(),
     message,
     updatedAt: new Date().toISOString(),
+    workspace,
   }
 }
 

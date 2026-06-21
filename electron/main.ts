@@ -1,4 +1,5 @@
 import type { AuthRuntimeAccount } from "./auth/store.ts"
+import type { ConnectionWorkspace } from "./connections/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
@@ -107,7 +108,9 @@ const modelsService = new ModelsServiceImpl({
   onCustomModelsChanged: restartAgentForModelConfig,
 })
 // Connections 直调 connector HTTP（与 agent 解耦），复用同一账号 api-key。
-const connectionsService = new ConnectionsServiceImpl()
+const connectionsService = new ConnectionsServiceImpl({
+  onWorkspaceChanged: handleConnectionWorkspaceChanged,
+})
 // 凭证逻辑在未注册的 AuthManager；注册给渲染层的 AuthServiceImpl 只是薄门面（防 RPC 凭证泄露）。
 const authManager = new AuthManager({
   store: authStore,
@@ -271,6 +274,7 @@ function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
 
 /** 最近一次成功装配的账号：同凭证重复 apply 时短路，避免无谓的 sidecar 重启。 */
 let appliedAccount: AuthRuntimeAccount | null = null
+let activeConnectionWorkspace: ConnectionWorkspace = { type: "personal" }
 
 async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<void> {
   // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
@@ -304,6 +308,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     authToken: account.sessionToken,
     opencodeBinPath,
     ooBinPath,
+    organizationName:
+      activeConnectionWorkspace.type === "organization" ? activeConnectionWorkspace.organizationName : undefined,
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels: await modelsStore.runtimeCustomModels(),
   })
@@ -326,6 +332,14 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
   console.log("[lumo] agent sidecar ready at", nextAgent.url)
+}
+
+function handleConnectionWorkspaceChanged(workspace: ConnectionWorkspace): void {
+  activeConnectionWorkspace = workspace
+  const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
+  void agent?.setOrganizationName(organizationName).catch((error: unknown) => {
+    console.error("[lumo] failed to update agent workspace scope:", error)
+  })
 }
 
 function restartAgentForModelConfig(): void {

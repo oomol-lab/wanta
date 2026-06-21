@@ -10,6 +10,7 @@ import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
+import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -18,6 +19,8 @@ import type { ChatStatus } from "ai"
 import {
   Archive,
   Building2,
+  Check,
+  ChevronsUpDown,
   Download,
   LogOut,
   LoaderCircle,
@@ -55,6 +58,7 @@ import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/componen
 import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import {
@@ -70,6 +74,11 @@ import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
+import {
+  organizationAvatarStyle,
+  organizationInitials,
+  useOrganizationWorkspace,
+} from "@/hooks/useOrganizationWorkspace"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -184,6 +193,164 @@ function normalizeSearchText(value: string): string {
 function accountInitial(name?: string): string {
   const trimmed = name?.trim()
   return trimmed ? trimmed.charAt(0).toLocaleUpperCase() : "L"
+}
+
+function workspaceSelectionKey(workspace: WorkspaceSelection): string {
+  return workspace.type === "organization" ? `organization:${workspace.organizationId}` : "personal"
+}
+
+function WorkspaceAvatar({
+  accountAvatarUrl,
+  accountName,
+  className = "size-7",
+  workspace,
+}: {
+  accountAvatarUrl?: string
+  accountName?: string
+  className?: string
+  workspace: WorkspaceSelection
+}) {
+  const [failed, setFailed] = React.useState(false)
+  const avatarUrl = workspace.type === "organization" ? workspace.organization?.avatar : accountAvatarUrl
+  const fallback =
+    workspace.type === "organization"
+      ? organizationInitials(workspace.organization?.name ?? workspace.organizationId)
+      : accountInitial(accountName)
+  const fallbackStyle =
+    workspace.type === "organization" && (!avatarUrl || failed)
+      ? organizationAvatarStyle(workspace.organizationId)
+      : undefined
+
+  React.useEffect(() => {
+    setFailed(false)
+  }, [avatarUrl])
+
+  return (
+    <span
+      className={cn(
+        "grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background text-xs font-medium text-foreground",
+        className,
+      )}
+      style={fallbackStyle}
+    >
+      {avatarUrl && !failed ? (
+        <img
+          src={avatarUrl}
+          alt=""
+          className="size-full object-cover"
+          draggable={false}
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        fallback
+      )}
+    </span>
+  )
+}
+
+function WorkspaceMenuContent({
+  accountAvatarUrl,
+  accountName,
+  align = "start",
+  loading,
+  onManageOrganizations,
+  onRefresh,
+  onSelectOrganization,
+  onSelectPersonal,
+  error,
+  getOrganizationRole,
+  organizations,
+  side = "bottom",
+  workspace,
+}: {
+  accountAvatarUrl?: string
+  accountName?: string
+  align?: "center" | "end" | "start"
+  error: UseOrganizationWorkspace["error"]
+  getOrganizationRole: UseOrganizationWorkspace["getOrganizationRole"]
+  loading: boolean
+  onManageOrganizations: () => void
+  onRefresh: () => void
+  onSelectOrganization: (organizationId: string) => void
+  onSelectPersonal: () => void
+  organizations: UseOrganizationWorkspace["organizations"]
+  side?: "bottom" | "left" | "right" | "top"
+  workspace: WorkspaceSelection
+}) {
+  const t = useT()
+  const activeKey = workspaceSelectionKey(workspace)
+  const personalLabel = accountName?.trim() || t("organizations.personal")
+  const personalDescription =
+    personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
+
+  return (
+    <DropdownMenuContent align={align} side={side} sideOffset={8} className="w-72">
+      <DropdownMenuLabel>{t("organizations.workspaceGroup")}</DropdownMenuLabel>
+      <DropdownMenuItem
+        className="min-w-0 items-center gap-2 py-2"
+        onSelect={onSelectPersonal}
+        aria-checked={activeKey === "personal"}
+      >
+        <WorkspaceAvatar
+          accountAvatarUrl={accountAvatarUrl}
+          accountName={accountName}
+          workspace={{ type: "personal" }}
+        />
+        <span className="grid min-w-0 flex-1 gap-0.5">
+          <span className="truncate">{personalLabel}</span>
+          <span className="truncate text-xs text-muted-foreground">{personalDescription}</span>
+        </span>
+        {activeKey === "personal" ? <Check className="size-4" /> : null}
+      </DropdownMenuItem>
+      {loading ? (
+        <DropdownMenuItem disabled>
+          <LoaderCircle className="size-4 animate-spin" />
+          {t("organizations.loading")}
+        </DropdownMenuItem>
+      ) : null}
+      {error ? (
+        <div className="px-2 py-1.5">
+          <ErrorNotice error={error} compact />
+        </div>
+      ) : null}
+      {organizations.map((organization) => {
+        const selected = activeKey === `organization:${organization.id}`
+        const role = getOrganizationRole(organization)
+        return (
+          <DropdownMenuItem
+            key={organization.id}
+            className="min-w-0 items-center gap-2 py-2"
+            onSelect={() => onSelectOrganization(organization.id)}
+            aria-checked={selected}
+          >
+            <WorkspaceAvatar
+              workspace={{ type: "organization", organization, organizationId: organization.id, role }}
+            />
+            <span className="min-w-0 flex-1 truncate">{organization.name}</span>
+            <Badge variant="outline" className="shrink-0 font-normal">
+              {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+            </Badge>
+            {selected ? <Check className="size-4" /> : null}
+          </DropdownMenuItem>
+        )
+      })}
+      {!loading && organizations.length === 0 ? (
+        <div className="oo-text-caption oo-text-muted px-2 py-1.5">{t("organizations.emptyOrganizations")}</div>
+      ) : null}
+      <DropdownMenuSeparator />
+      {error ? (
+        <DropdownMenuItem onSelect={onRefresh}>
+          <RefreshCw className="size-4" />
+          {t("organizations.retry")}
+        </DropdownMenuItem>
+      ) : null}
+      <DropdownMenuItem onSelect={onManageOrganizations}>
+        <Building2 className="size-4" />
+        {t("organizations.manageOrganizations")}
+      </DropdownMenuItem>
+    </DropdownMenuContent>
+  )
 }
 
 function rememberTurnRetryOptions(
@@ -766,13 +933,14 @@ function SidebarTitlebarActions({
   )
 }
 
-function SidebarAccountMenu({
+function SidebarFooterControls({
   accountName,
   avatarUrl,
   activeRoute,
   loggingOut,
   onNavigate,
   onLogout,
+  workspace,
 }: {
   accountName?: string
   avatarUrl?: string
@@ -780,60 +948,105 @@ function SidebarAccountMenu({
   loggingOut: boolean
   onNavigate: (route: Route) => void
   onLogout: () => void
+  workspace: UseOrganizationWorkspace
 }) {
   const t = useT()
-  const displayName = accountName?.trim() || t("settings.account")
+  const trimmedAccountName = accountName?.trim()
+  const displayName = trimmedAccountName || t("settings.account")
+  const personalWorkspaceLabel = trimmedAccountName || t("organizations.personal")
+  const activeWorkspaceLabel =
+    workspace.activeWorkspace.type === "organization"
+      ? (workspace.activeWorkspace.organization?.name ?? t("organizations.workspace"))
+      : personalWorkspaceLabel
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "oo-sidebar-account oo-sidebar-nav-item -mx-3 flex h-12 shrink-0 items-center gap-2 px-4 text-left [-webkit-app-region:no-drag]",
-            (activeRoute === "settings" || activeRoute === "archived") &&
-              "bg-sidebar-accent text-sidebar-accent-foreground",
-          )}
-          aria-label={t("sidebar.accountMenu")}
-          title={t("sidebar.accountMenu")}
-        >
-          <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
-          <div className="oo-sidebar-nav-label min-w-0 flex-1">
-            <div className="oo-text-control truncate text-foreground" title={displayName}>
-              {displayName}
+    <div className="oo-sidebar-account -mx-3 flex h-12 shrink-0 items-center gap-1 px-3 [-webkit-app-region:no-drag]">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left"
+            aria-label={t("organizations.workspaceSwitcher")}
+            title={activeWorkspaceLabel}
+          >
+            <WorkspaceAvatar
+              accountAvatarUrl={avatarUrl}
+              accountName={displayName}
+              className="size-7"
+              workspace={workspace.activeWorkspace}
+            />
+            <div className="oo-sidebar-nav-label min-w-0 flex-1">
+              <div className="oo-text-control truncate text-foreground" title={activeWorkspaceLabel}>
+                {activeWorkspaceLabel}
+              </div>
             </div>
-          </div>
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md">
+            <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <WorkspaceMenuContent
+          accountAvatarUrl={avatarUrl}
+          accountName={trimmedAccountName}
+          align="start"
+          error={workspace.error}
+          getOrganizationRole={workspace.getOrganizationRole}
+          loading={workspace.loading}
+          organizations={workspace.organizations}
+          side="top"
+          workspace={workspace.activeWorkspace}
+          onManageOrganizations={() => onNavigate("organizations")}
+          onRefresh={() => void workspace.refresh()}
+          onSelectOrganization={workspace.selectOrganization}
+          onSelectPersonal={workspace.selectPersonal}
+        />
+      </DropdownMenu>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "oo-sidebar-nav-item flex size-10 shrink-0 items-center justify-center rounded-md",
+              (activeRoute === "settings" || activeRoute === "archived") &&
+                "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+            aria-label={t("sidebar.accountMenu")}
+            title={t("settings.title")}
+          >
             <Settings className="size-4" />
-          </span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" align="start" alignOffset={12} sideOffset={8} className="w-56">
-        <DropdownMenuLabel className="truncate">{displayName}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => onNavigate("connections")}>
-          <Plug className="size-4" />
-          {t("connections.title")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onNavigate("skills")}>
-          <Package className="size-4" />
-          {t("skills.title")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onNavigate("archived")}>
-          <Archive className="size-4" />
-          {t("archived.navTitle")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onNavigate("settings")}>
-          <Settings className="size-4" />
-          {t("settings.title")}
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" disabled={loggingOut} onSelect={onLogout}>
-          <LogOut className="size-4" />
-          {t("settings.logout")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
+          <DropdownMenuLabel>
+            <div className="flex min-w-0 items-center gap-2">
+              <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
+              <span className="truncate">{displayName}</span>
+            </div>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => onNavigate("connections")}>
+            <Plug className="size-4" />
+            {t("connections.title")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onNavigate("skills")}>
+            <Package className="size-4" />
+            {t("skills.title")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onNavigate("archived")}>
+            <Archive className="size-4" />
+            {t("archived.navTitle")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onNavigate("settings")}>
+            <Settings className="size-4" />
+            {t("settings.title")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" disabled={loggingOut} onSelect={onLogout}>
+            <LogOut className="size-4" />
+            {t("settings.logout")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 
@@ -978,6 +1191,7 @@ export function AppShell() {
     route === "chat" ? activeSessionId : null,
   )
   const connections = useConnections()
+  const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
   const pendingRetry = React.useRef<{
@@ -1001,10 +1215,29 @@ export function AppShell() {
   const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
   const titleGenerationRetryAfterBySession = React.useRef<Map<string, { key: string; retryAfter: number }>>(new Map())
   const autoFallbackTitleBySession = React.useRef<Map<string, string>>(new Map())
+  const appliedConnectionWorkspaceKey = React.useRef<string | null>(null)
 
   React.useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
+
+  React.useEffect(() => {
+    const workspace = organizationWorkspace.connectionWorkspace
+    if (!workspace) {
+      return
+    }
+
+    const key = workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
+    if (appliedConnectionWorkspaceKey.current === key) {
+      return
+    }
+    appliedConnectionWorkspaceKey.current = key
+    void connections.setWorkspace(workspace).then((summary) => {
+      if (!summary && appliedConnectionWorkspaceKey.current === key) {
+        appliedConnectionWorkspaceKey.current = null
+      }
+    })
+  }, [connections.setWorkspace, organizationWorkspace.connectionWorkspace])
 
   React.useEffect(() => {
     let cancelled = false
@@ -1782,7 +2015,7 @@ export function AppShell() {
         </header>
 
         <div className="oo-sidebar-content flex min-h-0 flex-1 flex-col">
-          <nav aria-label="primary" className="grid gap-1 px-3 pb-3 [-webkit-app-region:no-drag]">
+          <nav aria-label="primary" className="grid gap-1 px-3 pt-0 pb-3 [-webkit-app-region:no-drag]">
             <button
               type="button"
               onClick={handleNewSession}
@@ -1887,11 +2120,12 @@ export function AppShell() {
               )}
             </div>
 
-            <SidebarAccountMenu
+            <SidebarFooterControls
               accountName={auth.state?.account?.name}
               avatarUrl={auth.state?.account?.avatarUrl}
               activeRoute={route}
               loggingOut={auth.loggingOut}
+              workspace={organizationWorkspace}
               onNavigate={setRoute}
               onLogout={() => void auth.logout()}
             />
@@ -1970,7 +2204,7 @@ export function AppShell() {
               ) : route === "skills" ? (
                 <SkillsRoute />
               ) : route === "organizations" ? (
-                <OrganizationManagementRoute />
+                <OrganizationManagementRoute workspace={organizationWorkspace} />
               ) : (
                 <div className="h-full min-h-0 overflow-hidden">
                   <ChatArea

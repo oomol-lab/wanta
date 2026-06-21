@@ -65,10 +65,33 @@ export default tool({
 
 const CALL_ACTION_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.LUMO_OO_BIN || "oo"
+
+function currentOrganizationName() {
+  const scopePath = process.env.LUMO_ORGANIZATION_SCOPE_PATH || ""
+  if (scopePath) {
+    try {
+      const parsed = JSON.parse(readFileSync(scopePath, "utf8"))
+      if (parsed && typeof parsed.organizationName === "string") {
+        return parsed.organizationName
+      }
+    } catch {
+      // 启动期或文件损坏时回退到进程启动时的组织名。
+    }
+  }
+  return process.env.LUMO_ORGANIZATION_NAME || ""
+}
+
+function appendIdentityArgs(argv) {
+  const organizationName = currentOrganizationName().trim()
+  if (organizationName) {
+    argv.push("--organization", organizationName)
+  }
+}
 
 // 授权阻断码（上游 connector 透传）。命中即返回结构化 authorization_required。
 const AUTH_BLOCKING = new Set([
@@ -97,6 +120,7 @@ export default tool({
       }
     }
     const argv = ["connector", "run", args.service, "--action", args.action, "--data", data, "--json"]
+    appendIdentityArgs(argv)
     try {
       const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
       return (result.stdout || "").trim() || "{}"

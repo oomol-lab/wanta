@@ -25,6 +25,10 @@ export function isAuthBlocking(code: string | null): boolean {
 export interface OoEnvOptions {
   /** 网关鉴权凭证：现为会话 token（注入到 OO_API_KEY，网关层接受 cookie/token/api-key）。 */
   authToken: string
+  /** 当前组织工作区名称；未设置表示个人空间。 */
+  organizationName?: string
+  /** 当前组织工作区状态文件；工具运行时读取，避免切换工作区时重启 sidecar。 */
+  organizationScopePath?: string
   /** oo-cli 私有目录根（App userData 下）。 */
   storeDir: string
   /** oo 二进制绝对路径（注入 LUMO_OO_BIN，供自定义工具直接调用，比 PATH 更稳）。 */
@@ -32,7 +36,13 @@ export interface OoEnvOptions {
 }
 
 /** R3：自定义工具经 OpenCode 调用 oo 所需的全部环境变量。 */
-export function buildOoEnv({ authToken, storeDir, ooBinPath }: OoEnvOptions): Record<string, string> {
+export function buildOoEnv({
+  authToken,
+  organizationName,
+  organizationScopePath,
+  storeDir,
+  ooBinPath,
+}: OoEnvOptions): Record<string, string> {
   const env: Record<string, string> = {
     // 环境变量名固定为 OO_API_KEY（oo-cli 契约）；值是会话 token。
     OO_API_KEY: authToken,
@@ -51,6 +61,12 @@ export function buildOoEnv({ authToken, storeDir, ooBinPath }: OoEnvOptions): Re
   }
   if (ooBinPath) {
     env.LUMO_OO_BIN = ooBinPath
+  }
+  if (organizationScopePath) {
+    env.LUMO_ORGANIZATION_SCOPE_PATH = organizationScopePath
+  }
+  if (organizationName) {
+    env.LUMO_ORGANIZATION_NAME = organizationName
   }
   return env
 }

@@ -10,6 +10,7 @@ import type {
   ConnectionsService,
   ConnectionSummary,
   ConnectionSummaryRequest,
+  ConnectionWorkspace,
 } from "./common.ts"
 import type { RawApp, RawAppListMeta, RawProvider } from "./summary.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -48,6 +49,8 @@ interface ConnectorRequestContext {
   accountKey: string
   connectorOrigin: string
   headers: Record<string, string>
+  workspace: ConnectionWorkspace
+  workspaceKey: string
 }
 
 interface ConnectorCacheEntry<T> {
@@ -76,6 +79,19 @@ const connectionSummaryCacheMs = 10_000
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function normalizeConnectionWorkspace(workspace: ConnectionWorkspace): ConnectionWorkspace {
+  if (workspace.type !== "organization") {
+    return { type: "personal" }
+  }
+
+  const organizationName = workspace.organizationName.trim()
+  return organizationName ? { type: "organization", organizationName } : { type: "personal" }
+}
+
+function connectionWorkspaceKey(workspace: ConnectionWorkspace): string {
+  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
 }
 
 function isAccountEntry<T extends { accountKey: string }>(entry: T | undefined, accountKey: string): entry is T {
@@ -134,6 +150,7 @@ function normalizeOptionalUsageSummary(
 
 export interface ConnectionsServiceOptions {
   authToken?: string
+  onWorkspaceChanged?: (workspace: ConnectionWorkspace) => void
 }
 
 export class ConnectionsServiceImpl
@@ -147,10 +164,13 @@ export class ConnectionsServiceImpl
   private connectionSummaryGeneration = 0
   private connectionSummaryInFlight: ConnectionSummaryInFlight | undefined
   private lastReadySummary: ConnectionSummaryCacheEntry | undefined
+  private readonly onWorkspaceChanged?: (workspace: ConnectionWorkspace) => void
+  private workspace: ConnectionWorkspace = { type: "personal" }
 
   public constructor(options?: ConnectionsServiceOptions) {
     super(ConnectionsServiceName)
     this.authToken = options?.authToken
+    this.onWorkspaceChanged = options?.onWorkspaceChanged
   }
 
   /** 登录 / 登出时由 main 更新凭证（现为会话 token；注入 connector 请求的 Bearer，网关层统一鉴权）。 */
@@ -175,10 +195,11 @@ export class ConnectionsServiceImpl
   public async getConnectionSummary(request: ConnectionSummaryRequest = {}): Promise<ConnectionSummary> {
     if (!this.authToken) {
       this.clearConnectionSummaryState()
-      return createEmptyConnectionSummary("signed-out", "未登录")
+      return createEmptyConnectionSummary("signed-out", "未登录", this.workspace)
     }
 
-    const accountKey = this.authToken
+    const authToken = this.authToken
+    const accountKey = this.connectionAccountKey(authToken)
     const now = Date.now()
     if (!request.forceRefresh) {
       const cachedSummary = this.getCachedConnectionSummary(accountKey, now)
@@ -193,7 +214,7 @@ export class ConnectionsServiceImpl
     }
 
     const generation = this.connectionSummaryGeneration
-    const refreshPromise = this.refreshConnectionSummary(accountKey, request, generation).finally(() => {
+    const refreshPromise = this.refreshConnectionSummary(authToken, accountKey, request, generation).finally(() => {
       if (this.connectionSummaryInFlight?.promise === refreshPromise) {
         this.connectionSummaryInFlight = undefined
       }
@@ -240,14 +261,20 @@ export class ConnectionsServiceImpl
         break
       }
       case "custom_credential": {
-        await this.requestConnector(`/v1/apps/${service}/connect/custom-credential`, {
+        const path = input.appId
+          ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect/custom-credential`
+          : `/v1/apps/${service}/connect/custom-credential`
+        await this.requestConnector(path, {
           method: "POST",
           body: JSON.stringify({ values: input.values, label: input.label }),
         })
         break
       }
       case "federated": {
-        await this.requestConnector(`/v1/apps/${service}/connect/federated`, {
+        const path = input.appId
+          ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect/federated`
+          : `/v1/apps/${service}/connect/federated`
+        await this.requestConnector(path, {
           method: "POST",
           body: JSON.stringify(createFederatedConnectBody(input)),
         })
@@ -285,6 +312,21 @@ export class ConnectionsServiceImpl
     return { status: "disconnected", summary }
   }
 
+  public async setWorkspace(workspace: ConnectionWorkspace): Promise<ConnectionSummary> {
+    const nextWorkspace = normalizeConnectionWorkspace(workspace)
+    if (connectionWorkspaceKey(nextWorkspace) === connectionWorkspaceKey(this.workspace)) {
+      return this.getConnectionSummary()
+    }
+
+    this.workspace = nextWorkspace
+    this.clearConnectionSummaryState()
+    this.clearConnectorGetCache()
+    this.onWorkspaceChanged?.(nextWorkspace)
+    const summary = await this.getConnectionSummary({ forceRefresh: true })
+    await this.emitSummaryChanged(summary)
+    return summary
+  }
+
   public getProviderDetail(service: string): Promise<ConnectionProviderDetail> {
     return this.getConnectionProviderDetail(service)
   }
@@ -294,8 +336,13 @@ export class ConnectionsServiceImpl
       this.getConnectionSummary(),
       this.getConnector<RawProvider>(`/v1/providers/${encodeURIComponent(service)}`),
     ])
-    const appByService = new Map(summary.apps.map((app) => [app.service, app] as const))
-    const provider = normalizeProvider(providerResult.data, appByService)
+    const appsByService = new Map<string, ConnectionSummary["apps"]>()
+    for (const app of summary.apps) {
+      const current = appsByService.get(app.service) ?? []
+      current.push(app)
+      appsByService.set(app.service, current)
+    }
+    const provider = normalizeProvider(providerResult.data, appsByService)
     if (!provider) {
       throw new Error(`Provider ${service} is not available`)
     }
@@ -397,12 +444,13 @@ export class ConnectionsServiceImpl
   }
 
   private async refreshConnectionSummary(
+    authToken: string,
     accountKey: string,
     request: ConnectionSummaryRequest,
     generation: number,
   ): Promise<ConnectionSummary> {
     try {
-      const context = this.createConnectorRequestContext(accountKey)
+      const context = this.createConnectorRequestContext(authToken)
       const usageResultsRequest = Promise.allSettled([
         this.getConnectorWithContext<unknown>(context, `/v1/usage/daily?days=${connectionUsageSummaryDays}`, request),
         this.getConnectorWithContext<unknown>(
@@ -421,6 +469,7 @@ export class ConnectionsServiceImpl
         meta: appsResult.meta as RawAppListMeta | null,
         providers: providersResult.data,
         usage: normalizeOptionalUsageSummary(usageResults),
+        workspace: context.workspace,
       })
 
       if (!this.isCurrentConnectionSummaryRefresh(accountKey, generation)) {
@@ -442,20 +491,26 @@ export class ConnectionsServiceImpl
         return fallback
       }
 
-      const summary = createEmptyConnectionSummary("unavailable", message)
+      const summary = createEmptyConnectionSummary("unavailable", message, this.workspace)
       this.setConnectionSummaryCache(accountKey, summary)
       return summary
     }
   }
 
-  private createConnectorRequestContext(accountKey: string): ConnectorRequestContext {
+  private createConnectorRequestContext(authToken: string): ConnectorRequestContext {
+    const workspaceKey = connectionWorkspaceKey(this.workspace)
     return {
-      accountKey,
+      accountKey: authToken,
       connectorOrigin: connectorBaseUrl,
       headers: {
-        Authorization: `Bearer ${accountKey}`,
+        Authorization: `Bearer ${authToken}`,
         "content-type": "application/json",
+        ...(this.workspace.type === "organization"
+          ? { "x-oo-organization-name": this.workspace.organizationName }
+          : {}),
       },
+      workspace: this.workspace,
+      workspaceKey,
     }
   }
 
@@ -492,7 +547,7 @@ export class ConnectionsServiceImpl
     path: string,
     options: { forceRefresh?: boolean } = {},
   ): Promise<{ data: T; meta: unknown }> {
-    const cacheKey = `${context.connectorOrigin}:${context.accountKey}:${path}`
+    const cacheKey = `${context.connectorOrigin}:${context.accountKey}:${context.workspaceKey}:${path}`
     const cached = this.connectorGetCache.get(cacheKey) as ConnectorCacheEntry<T> | undefined
     const now = Date.now()
 
@@ -588,16 +643,39 @@ export class ConnectionsServiceImpl
   }
 
   private isCurrentConnectionSummaryRefresh(accountKey: string, generation: number): boolean {
-    return this.connectionSummaryGeneration === generation && this.authToken === accountKey
+    const authToken = this.authToken
+    return (
+      this.connectionSummaryGeneration === generation &&
+      authToken !== undefined &&
+      this.connectionAccountKey(authToken) === accountKey
+    )
   }
 
   private createSupersededConnectionSummary(accountKey: string, message?: string): ConnectionSummary {
+    const authToken = this.authToken
+    if (authToken === undefined) {
+      return createEmptyConnectionSummary("signed-out", message, this.workspace)
+    }
+
+    const currentAccountKey = this.connectionAccountKey(authToken)
+    if (currentAccountKey !== accountKey) {
+      return (
+        this.getCachedConnectionSummary(currentAccountKey, Date.now()) ??
+        this.getLastReadySummary(currentAccountKey) ??
+        createEmptyConnectionSummary("unavailable", message, this.workspace)
+      )
+    }
+
     return createSupersededConnectionSummaryFallback({
-      accountMatches: this.authToken === accountKey,
+      accountMatches: true,
       cached: this.getCachedConnectionSummary(accountKey, Date.now()),
       message,
       previous: this.getLastReadySummary(accountKey),
     })
+  }
+
+  private connectionAccountKey(authToken: string): string {
+    return `${authToken}:${connectionWorkspaceKey(this.workspace)}`
   }
 
   private async emitSummaryChanged(summary: ConnectionSummary): Promise<void> {

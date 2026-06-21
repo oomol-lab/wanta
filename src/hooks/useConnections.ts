@@ -6,6 +6,7 @@ import type {
   ConnectionProviderDetail,
   ConnectionSummary,
   ConnectionSummaryRequest,
+  ConnectionWorkspace,
 } from "../../electron/connections/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
@@ -49,11 +50,15 @@ export interface UseConnections {
   refresh: (request?: ConnectionSummaryRequest) => Promise<ConnectionSummary | null>
   connect: (input: ConnectionConnectInput) => Promise<boolean>
   disconnect: (service: string) => Promise<boolean>
+  disconnectAccount: (appId: string) => Promise<boolean>
   cancelPolling: () => void
   getProviderDetail: (service: string) => Promise<ConnectionProviderDetail>
   getExecutionLogs: (request: ConnectionExecutionLogRequest) => Promise<ConnectionExecutionLogSummary>
   openExternal: (url: string) => Promise<void>
+  setDefaultAccount: (service: string, appId: string) => Promise<boolean>
   setSummary: (summary: ConnectionSummary) => void
+  setWorkspace: (workspace: ConnectionWorkspace) => Promise<ConnectionSummary | null>
+  updateAlias: (appId: string, alias: string) => Promise<boolean>
 }
 
 export function useConnections(): UseConnections {
@@ -156,6 +161,74 @@ export function useConnections(): UseConnections {
     [service],
   )
 
+  const disconnectAccount = React.useCallback(
+    async (appId: string): Promise<boolean> => {
+      setError(null)
+      setBusy("disconnect")
+      try {
+        const result = await service.invoke("disconnectAccount", appId)
+        setSummary(result.summary)
+        return true
+      } catch (err) {
+        setError(resolveUserFacingError(err, { area: "connections" }))
+        return false
+      } finally {
+        setBusy(null)
+      }
+    },
+    [service],
+  )
+
+  const setDefaultAccount = React.useCallback(
+    async (svc: string, appId: string): Promise<boolean> => {
+      setError(null)
+      try {
+        await service.invoke("setDefaultAccount", svc, appId)
+        const next = await service.invoke("getConnectionSummary", { forceRefresh: true })
+        setSummary(next)
+        return true
+      } catch (err) {
+        setError(resolveUserFacingError(err, { area: "connections" }))
+        return false
+      }
+    },
+    [service],
+  )
+
+  const updateAlias = React.useCallback(
+    async (appId: string, alias: string): Promise<boolean> => {
+      setError(null)
+      try {
+        await service.invoke("updateAlias", appId, alias)
+        const next = await service.invoke("getConnectionSummary", { forceRefresh: true })
+        setSummary(next)
+        return true
+      } catch (err) {
+        setError(resolveUserFacingError(err, { area: "connections" }))
+        return false
+      }
+    },
+    [service],
+  )
+
+  const setWorkspace = React.useCallback(
+    async (workspace: ConnectionWorkspace): Promise<ConnectionSummary | null> => {
+      setBusy((current) => current ?? "refresh")
+      try {
+        const next = await service.invoke("setWorkspace", workspace)
+        setSummary(next)
+        setError(null)
+        return next
+      } catch (err) {
+        setError(resolveUserFacingError(err, { area: "connections" }))
+        return null
+      } finally {
+        setBusy((current) => (current === "refresh" ? null : current))
+      }
+    },
+    [service],
+  )
+
   const cancelPolling = React.useCallback(() => {
     pollAbort.current?.abort()
     pollAbort.current = null
@@ -181,10 +254,14 @@ export function useConnections(): UseConnections {
     refresh,
     connect,
     disconnect,
+    disconnectAccount,
     cancelPolling,
     getProviderDetail,
     getExecutionLogs,
     openExternal,
+    setDefaultAccount,
     setSummary,
+    setWorkspace,
+    updateAlias,
   }
 }

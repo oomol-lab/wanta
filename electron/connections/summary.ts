@@ -9,15 +9,20 @@ import type {
   ConnectionProviderSummary,
   ConnectionSummary,
   ConnectionUsageSummary,
+  ConnectionWorkspace,
 } from "./common.ts"
 
 import { createEmptyConnectionSummary } from "./summary-model.ts"
 
 export interface RawApp {
   accountLabel?: unknown
+  alias?: unknown
   authType?: unknown
+  createdAt?: unknown
   displayName?: unknown
   id?: unknown
+  isDefault?: unknown
+  providerAccountId?: unknown
   service?: unknown
   status?: unknown
   updatedAt?: unknown
@@ -128,6 +133,42 @@ function normalizeCategories(value: unknown): string[] {
     .filter((item): item is string => Boolean(item))
 }
 
+function isVirtualNoAuthApp(app: Pick<ConnectionAppSummary, "id">): boolean {
+  return app.id.startsWith("no_auth:")
+}
+
+function isManageableApp(app: ConnectionAppSummary): boolean {
+  return !isVirtualNoAuthApp(app) && app.status !== "disconnected"
+}
+
+function getManageableApps(apps: ConnectionAppSummary[]): ConnectionAppSummary[] {
+  return apps.filter(isManageableApp)
+}
+
+function getAppDisplayName(app: ConnectionAppSummary): string {
+  return app.displayName || app.alias || app.accountLabel || app.providerAccountId || app.id
+}
+
+function pickDefaultOrSingleApp(apps: ConnectionAppSummary[]): ConnectionAppSummary | undefined {
+  const candidates = getManageableApps(apps)
+  return candidates.find((app) => app.isDefault) ?? (candidates.length === 1 ? candidates[0] : undefined)
+}
+
+function pickStatusApp(apps: ConnectionAppSummary[]): ConnectionAppSummary | undefined {
+  const candidates = getManageableApps(apps)
+  return (
+    pickDefaultOrSingleApp(candidates) ??
+    candidates.find((app) => app.status === "active") ??
+    candidates[0] ??
+    undefined
+  )
+}
+
+function latestUpdatedAt(apps: ConnectionAppSummary[]): number | undefined {
+  const values = apps.map((app) => app.updatedAt).filter((value) => value > 0)
+  return values.length > 0 ? Math.max(...values) : undefined
+}
+
 export function normalizeCredentialField(item: unknown, secretFallback = false): ConnectionCredentialField | undefined {
   if (!item || typeof item !== "object" || Array.isArray(item)) {
     return undefined
@@ -216,8 +257,13 @@ export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
   return {
     id,
     service,
+    alias: asString(item.alias),
     accountLabel: asString(item.accountLabel) ?? asString(item.displayName),
     authType: normalizeAuthType(item.authType),
+    createdAt: asNumber(item.createdAt) ?? 0,
+    displayName: asString(item.displayName),
+    isDefault: item.isDefault === true,
+    providerAccountId: asString(item.providerAccountId),
     status: normalizeAppStatus(item.status),
     updatedAt: asNumber(item.updatedAt) ?? 0,
   }
@@ -225,35 +271,41 @@ export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
 
 export function normalizeProvider(
   item: RawProvider,
-  appsByService: Map<string, ConnectionAppSummary>,
+  appsByService: Map<string, ConnectionAppSummary[]>,
 ): ConnectionProviderSummary | undefined {
   const service = asString(item.service)
   if (!service) {
     return undefined
   }
 
-  const app = appsByService.get(service)
-  const status: ConnectionProviderStatus =
-    app?.status === "reauth_required" || app?.status === "error"
-      ? "needs_attention"
-      : app?.status === "active"
-        ? "connected"
-        : "available"
+  const apps = appsByService.get(service) ?? []
+  const manageableApps = getManageableApps(apps)
+  const app = pickStatusApp(manageableApps)
+  const hasNoAuthReadyApp = apps.some((candidate) => isVirtualNoAuthApp(candidate) && candidate.status === "active")
+  const status: ConnectionProviderStatus = apps.some(
+    (candidate) => candidate.status === "reauth_required" || candidate.status === "error",
+  )
+    ? "needs_attention"
+    : manageableApps.some((candidate) => candidate.status === "active") || hasNoAuthReadyApp
+      ? "connected"
+      : "available"
   const normalizedAuthTypes = normalizeAuthTypes(item.authTypes)
   const isPureNoAuthProvider = normalizedAuthTypes.length === 1 && normalizedAuthTypes[0] === "no_auth"
 
   return {
     service,
     status,
-    accountLabel: app?.accountLabel,
+    accountLabel: app ? getAppDisplayName(app) : undefined,
     appId: app?.id,
     appAuthType: app?.authType,
     appStatus: app?.status,
+    appCount: manageableApps.length,
+    apps: manageableApps,
     actionKind: getProviderActionKind(normalizedAuthTypes),
     authTypes: normalizedAuthTypes,
-    canDisconnect: Boolean(app) && !isPureNoAuthProvider,
+    canDisconnect: manageableApps.length > 0 && !isPureNoAuthProvider,
     categoryLabels: normalizeCategories(item.categories),
-    connectedUpdatedAt: app?.updatedAt,
+    connectedUpdatedAt: latestUpdatedAt(manageableApps),
     displayName: asString(item.displayName) ?? service,
     iconUrl: asString(item.iconUrl) ?? asString(item.icon),
   }
@@ -283,15 +335,22 @@ export function mergeConnectionSummary({
   meta,
   providers: rawProviders,
   usage,
+  workspace,
 }: {
   apps: RawApp[]
   meta?: RawAppListMeta | null
   providers: RawProvider[]
   usage: ConnectionUsageSummary
+  workspace?: ConnectionWorkspace
 }): ConnectionSummary {
   const apps = rawApps.map(normalizeApp).filter((app): app is ConnectionAppSummary => Boolean(app))
   const visibleApps = apps.filter((app) => app.status !== "disconnected")
-  const appsByService = new Map(visibleApps.map((app) => [app.service, app] as const))
+  const appsByService = new Map<string, ConnectionAppSummary[]>()
+  for (const app of visibleApps) {
+    const current = appsByService.get(app.service) ?? []
+    current.push(app)
+    appsByService.set(app.service, current)
+  }
   const providers = rawProviders
     .map((provider) => normalizeProvider(provider, appsByService))
     .filter((provider): provider is ConnectionProviderSummary => Boolean(provider))
@@ -304,10 +363,12 @@ export function mergeConnectionSummary({
   }
 
   return {
-    ...createEmptyConnectionSummary("ready"),
+    ...createEmptyConnectionSummary("ready", undefined, workspace),
     activeConnections: visibleApps.filter((app) => app.status === "active").length,
     apps: visibleApps,
-    connectedProviderCount: asNumber(appListSummary?.connectedProviderCount) ?? visibleApps.length,
+    connectedProviderCount:
+      asNumber(appListSummary?.connectedProviderCount) ??
+      providers.filter((provider) => provider.status === "connected" || provider.status === "needs_attention").length,
     connectableProviderCount: asNumber(appListSummary?.connectableProviderCount) ?? 0,
     needsAttention: visibleApps.filter((app) => app.status === "reauth_required" || app.status === "error").length,
     providerCount,

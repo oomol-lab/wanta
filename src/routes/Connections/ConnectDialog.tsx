@@ -170,11 +170,12 @@ export function ConnectDialog({
           policy: collected.policy,
         },
         label,
+        appId,
       })
       return
     }
 
-    onSubmit({ authType: "custom_credential", service: detail.service, values: collected, label })
+    onSubmit({ authType: "custom_credential", service: detail.service, values: collected, label, appId })
   }
 
   return (

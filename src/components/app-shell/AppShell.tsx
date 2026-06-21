@@ -74,7 +74,11 @@ import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
-import { organizationInitials, useOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
+import {
+  organizationAvatarStyle,
+  organizationInitials,
+  useOrganizationWorkspace,
+} from "@/hooks/useOrganizationWorkspace"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -212,6 +216,10 @@ function WorkspaceAvatar({
     workspace.type === "organization"
       ? organizationInitials(workspace.organization?.name ?? workspace.organizationId)
       : accountInitial(accountName)
+  const fallbackStyle =
+    workspace.type === "organization" && (!avatarUrl || failed)
+      ? organizationAvatarStyle(workspace.organizationId)
+      : undefined
 
   React.useEffect(() => {
     setFailed(false)
@@ -223,6 +231,7 @@ function WorkspaceAvatar({
         "grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background text-xs font-medium text-foreground",
         className,
       )}
+      style={fallbackStyle}
     >
       {avatarUrl && !failed ? (
         <img
@@ -330,10 +339,12 @@ function WorkspaceMenuContent({
         <div className="oo-text-caption oo-text-muted px-2 py-1.5">{t("organizations.emptyOrganizations")}</div>
       ) : null}
       <DropdownMenuSeparator />
-      <DropdownMenuItem onSelect={onRefresh}>
-        <RefreshCw className="size-4" />
-        {t("organizations.retry")}
-      </DropdownMenuItem>
+      {error ? (
+        <DropdownMenuItem onSelect={onRefresh}>
+          <RefreshCw className="size-4" />
+          {t("organizations.retry")}
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem onSelect={onManageOrganizations}>
         <Building2 className="size-4" />
         {t("organizations.manageOrganizations")}
@@ -954,7 +965,7 @@ function SidebarFooterControls({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="oo-sidebar-nav-item flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left"
+            className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left"
             aria-label={t("organizations.workspaceSwitcher")}
             title={activeWorkspaceLabel}
           >

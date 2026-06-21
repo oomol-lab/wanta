@@ -158,10 +158,6 @@ export function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values))
 }
 
-export function organizationInitials(name: string): string {
-  return name.trim().slice(0, 2).toLocaleUpperCase() || "OR"
-}
-
 export function userFallback(value: string): string {
   return value.trim().slice(0, 2).toLocaleUpperCase() || "U"
 }

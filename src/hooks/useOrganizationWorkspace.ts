@@ -6,6 +6,8 @@ import * as React from "react"
 import { useOrganizationsService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
+export { organizationAvatarStyle, organizationInitials, organizationAvatarPalette } from "../lib/organization-avatar.ts"
+
 export type WorkspaceSelection =
   | { type: "personal" }
   | { organization: Organization | null; organizationId: string; role: OrganizationRole | null; type: "organization" }
@@ -91,10 +93,6 @@ function organizationRole(
     overview.created.some((created) => created.id === organization.id)
     ? "creator"
     : "member"
-}
-
-export function organizationInitials(name: string): string {
-  return name.trim().slice(0, 2).toLocaleUpperCase() || "OR"
 }
 
 export function useOrganizationWorkspace(accountId: string | undefined): UseOrganizationWorkspace {

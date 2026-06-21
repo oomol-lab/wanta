@@ -44,7 +44,6 @@ import {
   maxOrganizationAvatarLength,
   maxOrganizationNameLength,
   minimumMemberSearchLength,
-  organizationInitials,
   organizationManagementSnapshotsByAccountId,
   organizationNameValidation,
   organizationRole,
@@ -88,6 +87,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { organizationAvatarStyle, organizationInitials } from "@/hooks/useOrganizationWorkspace"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
@@ -926,139 +926,147 @@ function OrganizationSwitcherPanel({
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="grid min-h-20 min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 px-4 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[var(--oo-control-height)_var(--oo-control-height)] sm:items-center">
-        <div className="row-span-2 self-center">
-          {personalSelected ? (
-            <AccountWorkspaceAvatar
-              avatarUrl={accountAvatarUrl}
-              className="size-16 rounded-md text-lg"
-              name={accountName}
-            />
-          ) : selectedOrganization ? (
-            <OrganizationAvatar organization={selectedOrganization} className="size-16 rounded-md text-lg" />
-          ) : (
-            <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
-              <Building2Icon className="size-5" />
-            </div>
-          )}
-        </div>
+      <div className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="shrink-0">
+            {personalSelected ? (
+              <AccountWorkspaceAvatar
+                avatarUrl={accountAvatarUrl}
+                className="size-16 rounded-md text-lg"
+                name={accountName}
+              />
+            ) : selectedOrganization ? (
+              <OrganizationAvatar organization={selectedOrganization} className="size-16 rounded-md text-lg" />
+            ) : (
+              <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
+                <Building2Icon className="size-5" />
+              </div>
+            )}
+          </div>
 
-        <div className="flex min-w-0 items-baseline gap-3 self-end sm:self-center">
-          {personalSelected ? (
-            <span className="min-w-0 truncate text-base font-semibold text-foreground">{personalLabel}</span>
-          ) : selectedOrganization ? (
-            <>
-              <span className="min-w-0 truncate text-base font-semibold text-foreground">
-                {selectedOrganization.name}
-              </span>
-              <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-                {selectedOrganization.id}
-              </span>
-            </>
-          ) : (
-            <span className="min-w-0 truncate text-sm text-muted-foreground">
-              {t("organizations.selectOrganization")}
-            </span>
-          )}
-        </div>
-
-        <div className="flex min-w-0 items-center gap-2 self-start sm:self-center">
-          <span className="oo-text-caption shrink-0">
-            {personalSelected ? t("organizations.selectedWorkspace") : t("organizations.selectedOrganization")}
-          </span>
-          {personalSelected ? (
-            <Badge variant="secondary" className="shrink-0">
-              {t("organizations.workspace")}
-            </Badge>
-          ) : selectedRole ? (
-            <Badge variant="secondary" className="shrink-0">
-              {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-            </Badge>
-          ) : null}
-        </div>
-
-        <Button
-          type="button"
-          variant="outline"
-          className="col-span-2 w-full sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-auto sm:justify-self-end"
-          onClick={onCreate}
-        >
-          <PlusIcon className="size-4" />
-          {t("organizations.createOrganization")}
-        </Button>
-        <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-2 sm:justify-self-end">
-          <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="ghost" className="px-2">
-                {t("organizations.switchOrganization")}
-                <ChevronsUpDownIcon className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
-              <DropdownMenuLabel>{t("organizations.selectWorkspace")}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className={cn(
-                  "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
-                  personalSelected && "bg-accent",
-                )}
-                onSelect={onSelectPersonal}
-              >
-                <AccountWorkspaceAvatar
-                  avatarUrl={accountAvatarUrl}
-                  className="size-10 rounded-md text-sm"
-                  name={accountName}
-                />
-                <span className="grid min-h-10 min-w-0 content-center">
-                  <span className="flex min-h-5 min-w-0 items-center gap-2">
-                    <span className="truncate text-sm leading-5 font-medium">{personalLabel}</span>
-                    {personalSelected ? (
-                      <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                    ) : null}
+          <div className="grid min-h-16 min-w-0 content-center gap-1.5">
+            <div className="flex min-w-0 items-baseline gap-3">
+              {personalSelected ? (
+                <span className="min-w-0 truncate text-base font-semibold text-foreground">{personalLabel}</span>
+              ) : selectedOrganization ? (
+                <>
+                  <span className="min-w-0 truncate text-base font-semibold text-foreground">
+                    {selectedOrganization.name}
                   </span>
-                  <span className="block truncate text-xs leading-5 text-muted-foreground">{personalDescription}</span>
+                  <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                    {selectedOrganization.id}
+                  </span>
+                </>
+              ) : (
+                <span className="min-w-0 truncate text-sm text-muted-foreground">
+                  {t("organizations.selectOrganization")}
                 </span>
-                {personalSelected ? <CheckIcon className="size-4 justify-self-end" /> : null}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {organizations.map((organization) => {
-                const role = organizationRole(overview, organization)
-                const selected = !personalSelected && organization.id === selectedOrganizationId
-                return (
-                  <DropdownMenuItem
-                    key={organization.id}
-                    className={cn(
-                      "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
-                      selected && "bg-accent",
-                    )}
-                    onSelect={() => onSelect(organization.id)}
-                  >
-                    <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
-                    <span className="grid min-h-10 min-w-0 content-center">
-                      <span className="flex min-h-5 min-w-0 items-center gap-2">
-                        <span className="truncate text-sm leading-5 font-medium">{organization.name}</span>
-                        {selected ? (
-                          <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                        ) : null}
-                      </span>
-                      <span className="block truncate font-mono text-xs leading-5 text-muted-foreground">
-                        {organization.id}
-                      </span>
+              )}
+            </div>
+
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="oo-text-caption shrink-0">
+                {personalSelected ? t("organizations.selectedWorkspace") : t("organizations.selectedOrganization")}
+              </span>
+              {personalSelected ? (
+                <Badge variant="secondary" className="shrink-0">
+                  {t("organizations.workspace")}
+                </Badge>
+              ) : selectedRole ? (
+                <Badge variant="secondary" className="shrink-0">
+                  {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                </Badge>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid min-w-0 gap-2 sm:h-16 sm:min-w-fit sm:shrink-0 sm:content-between sm:justify-items-end sm:gap-0">
+          <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onCreate}>
+            <PlusIcon className="size-3.5" />
+            {t("organizations.createOrganization")}
+          </Button>
+          <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
+            <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="px-2 focus-visible:border-transparent focus-visible:ring-0"
+                >
+                  {t("organizations.switchOrganization")}
+                  <ChevronsUpDownIcon className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
+                <DropdownMenuLabel>{t("organizations.selectWorkspace")}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className={cn(
+                    "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
+                    personalSelected && "bg-accent",
+                  )}
+                  onSelect={onSelectPersonal}
+                >
+                  <AccountWorkspaceAvatar
+                    avatarUrl={accountAvatarUrl}
+                    className="size-10 rounded-md text-sm"
+                    name={accountName}
+                  />
+                  <span className="grid min-h-10 min-w-0 content-center">
+                    <span className="flex min-h-5 min-w-0 items-center gap-2">
+                      <span className="truncate text-sm leading-5 font-medium">{personalLabel}</span>
+                      {personalSelected ? (
+                        <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                      ) : null}
                     </span>
-                    <Badge variant="secondary" className="justify-self-end">
-                      {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                    </Badge>
-                  </DropdownMenuItem>
-                )
-              })}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
-                <PlusIcon className="size-4" />
-                <span>{t("organizations.createOrganization")}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                    <span className="block truncate text-xs leading-5 text-muted-foreground">
+                      {personalDescription}
+                    </span>
+                  </span>
+                  {personalSelected ? <CheckIcon className="size-4 justify-self-end" /> : null}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {organizations.map((organization) => {
+                  const role = organizationRole(overview, organization)
+                  const selected = !personalSelected && organization.id === selectedOrganizationId
+                  return (
+                    <DropdownMenuItem
+                      key={organization.id}
+                      className={cn(
+                        "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
+                        selected && "bg-accent",
+                      )}
+                      onSelect={() => onSelect(organization.id)}
+                    >
+                      <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
+                      <span className="grid min-h-10 min-w-0 content-center">
+                        <span className="flex min-h-5 min-w-0 items-center gap-2">
+                          <span className="truncate text-sm leading-5 font-medium">{organization.name}</span>
+                          {selected ? (
+                            <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                          ) : null}
+                        </span>
+                        <span className="block truncate font-mono text-xs leading-5 text-muted-foreground">
+                          {organization.id}
+                        </span>
+                      </span>
+                      <Badge variant="secondary" className="justify-self-end">
+                        {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                      </Badge>
+                    </DropdownMenuItem>
+                  )
+                })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2 py-2" onSelect={onCreate}>
+                  <PlusIcon className="size-4" />
+                  <span>{t("organizations.createOrganization")}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
     </section>
@@ -1069,20 +1077,26 @@ function OrganizationManagementSkeleton() {
   return (
     <>
       <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-        <div className="grid min-h-20 min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 px-4 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[var(--oo-control-height)_var(--oo-control-height)] sm:items-center">
-          <Skeleton className="row-span-2 size-16 self-center rounded-md" />
-          <div className="flex min-w-0 items-baseline gap-3 self-end sm:self-center">
-            <Skeleton className="h-5 w-28 rounded-md" />
-            <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />
+        <div className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <Skeleton className="size-16 shrink-0 rounded-md" />
+            <div className="grid min-h-16 min-w-0 content-center gap-1.5">
+              <div className="flex min-w-0 items-baseline gap-3">
+                <Skeleton className="h-5 w-28 rounded-md" />
+                <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <Skeleton className="h-4 w-20 rounded-md" />
+                <Skeleton className="h-6 w-16 rounded-full" />
+              </div>
+            </div>
           </div>
-          <div className="flex min-w-0 items-center gap-2 self-start sm:self-center">
-            <Skeleton className="h-4 w-20 rounded-md" />
-            <Skeleton className="h-6 w-16 rounded-full" />
-          </div>
-          <Skeleton className="col-span-2 h-[var(--oo-control-height)] w-full rounded-md sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:w-32 sm:justify-self-end" />
-          <div className="col-span-2 flex min-w-0 items-center justify-between gap-2 sm:col-span-1 sm:col-start-3 sm:row-start-2 sm:justify-self-end">
-            <Skeleton className="h-5 w-24 rounded-md" />
-            <Skeleton className="h-[var(--oo-control-height)] w-16 rounded-md" />
+          <div className="grid min-w-0 gap-2 sm:h-16 sm:min-w-fit sm:shrink-0 sm:content-between sm:justify-items-end sm:gap-0">
+            <Skeleton className="h-[var(--oo-control-height-compact)] w-full rounded-md sm:w-32" />
+            <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
+              <Skeleton className="h-5 w-24 rounded-md" />
+              <Skeleton className="h-[var(--oo-control-height-compact)] w-16 rounded-md" />
+            </div>
           </div>
         </div>
       </section>
@@ -1193,7 +1207,7 @@ function OrganizationDetailPanel({
         action={
           canManage ? (
             <Button type="button" size="sm" disabled={busyAction === "add"} onClick={onAddMember}>
-              <PlusIcon className="size-4" />
+              <PlusIcon className="size-3.5" />
               {t("organizations.addMember")}
             </Button>
           ) : null
@@ -1847,15 +1861,30 @@ function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string
 }
 
 function OrganizationAvatar({ className, organization }: { className?: string; organization: Organization }) {
+  const [failed, setFailed] = React.useState(false)
+  const avatarVisible = Boolean(organization.avatar && !failed)
+
+  React.useEffect(() => {
+    setFailed(false)
+  }, [organization.avatar])
+
   return (
     <span
       className={cn(
         "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
         className,
       )}
+      style={avatarVisible ? undefined : organizationAvatarStyle(organization.id || organization.name)}
     >
-      {organization.avatar ? (
-        <img src={organization.avatar} alt={organization.name} className="size-full object-cover" />
+      {avatarVisible ? (
+        <img
+          src={organization.avatar}
+          alt={organization.name}
+          className="size-full object-cover"
+          draggable={false}
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
       ) : (
         organizationInitials(organization.name)
       )}

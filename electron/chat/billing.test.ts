@@ -184,3 +184,93 @@ test("getBillingSummary caps credit usage pagination", async () => {
   assert.equal(balanceRequests[0], "first")
   assert.equal(balanceRequests[99], "next-99")
 })
+
+test("getBillingSummary stops credit usage pagination when nextToken repeats", async () => {
+  const balanceRequests: string[] = []
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
+    if (url.pathname === "/v1/balance/available") {
+      balanceRequests.push(url.searchParams.get("nextToken") ?? "first")
+      return Response.json({
+        data: {
+          deficit: "0",
+          items: [{ currentCredit: "1", originalCredit: "1" }],
+          nextToken: "repeat-token",
+          total: { currentCredit: "1", originalCredit: "1" },
+        },
+      })
+    }
+    if (url.pathname === "/v1/stats/billing" || url.pathname === "/v1/stats/metering") {
+      return Response.json({
+        data: {
+          items: [],
+          sourceTotals: {},
+          total: { eventCount: 0, totalCredit: "0", totalUsage: "0" },
+        },
+      })
+    }
+    throw new Error(`Unexpected billing endpoint: ${url.pathname}`)
+  })
+  const client = new BillingClient()
+  client.setAccountContext({ token: "oomol-token", userId: "user-1" })
+
+  const summary = await client.getBillingSummary({ days: 30 })
+
+  assert.equal(summary.balance?.items.length, 2)
+  assert.deepEqual(balanceRequests, ["first", "repeat-token"])
+})
+
+test("getBillingOverview stops billing log pagination when a page repeats", async () => {
+  const logPages: string[] = []
+  const log = {
+    createdAt: Date.UTC(2026, 5, 15),
+    debitCredit: "1",
+    eventID: "event-1",
+    payload: {},
+    serviceScope: "all",
+    source: "SERVICE_LLM",
+    sourceType: "chat",
+    subject: "chat",
+    traceID: "trace-1",
+    userID: "user-1",
+  }
+  vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
+    if (url.pathname === "/v1/balance/available") {
+      return Response.json({
+        data: {
+          deficit: "0",
+          items: [{ currentCredit: "1", originalCredit: "1" }],
+          total: { currentCredit: "1", originalCredit: "1" },
+        },
+      })
+    }
+    if (url.pathname === "/v1/stats/billing" || url.pathname === "/v1/stats/metering") {
+      return Response.json({
+        data: {
+          items: [],
+          sourceTotals: {},
+          total: { eventCount: 0, totalCredit: "0", totalUsage: "0" },
+        },
+      })
+    }
+    if (url.pathname === "/v1/logs/billing") {
+      logPages.push(url.searchParams.get("page") ?? "")
+      return Response.json({ items: [log] })
+    }
+    if (url.pathname === "/api/user/subscriptions") {
+      return Response.json({ data: { features: [], plan: null, plans: [], platforms: {} }, success: true })
+    }
+    if (url.pathname === "/api/user/subscriptions/schedulers") {
+      return Response.json({ data: [], success: true })
+    }
+    throw new Error(`Unexpected billing endpoint: ${url.pathname}`)
+  })
+  const client = new BillingClient()
+  client.setAccountContext({ token: "oomol-token", userId: "user-1" })
+
+  const overview = await client.getBillingOverview({ days: 30 })
+
+  assert.equal(overview.logs.length, 1)
+  assert.deepEqual(logPages, ["1", "2"])
+})

@@ -37,6 +37,10 @@
       to: "icon.png",
     },
     {
+      from: "resources/branding/icon.ico",
+      to: "icon.ico",
+    },
+    {
       from: "resources/bin",
       to: "bin",
     },

@@ -42,6 +42,8 @@ import {
   resolveWindowsTitleBarTheme,
   windowBackgroundColorForTheme,
 } from "./window/title-bar-overlay.ts"
+import { createWindowsCloseHandler, revealWindowFromTray } from "./window/windows-tray-close-behavior.ts"
+import { createWindowsTrayLifecycle } from "./window/windows-tray-lifecycle.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(dirname, "..")
@@ -73,6 +75,11 @@ interface SaveClipboardAttachmentRequest {
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
 
 let mainWindow: BrowserWindow | null = null
+let isQuitting = false
+let windowsTrayLifecycle: {
+  dispose: () => void
+  setLocale: (locale: string) => void
+} | null = null
 
 const server = new ConnectionServer(new ElectronServerAdapter())
 
@@ -211,10 +218,13 @@ if (isLocked) {
   })
 
   app.on("before-quit", () => {
+    isQuitting = true
     if (pendingSkillRuntimeRefresh) {
       clearTimeout(pendingSkillRuntimeRefresh)
       pendingSkillRuntimeRefresh = undefined
     }
+    windowsTrayLifecycle?.dispose()
+    windowsTrayLifecycle = null
     agent?.dispose()
     server.dispose()
   })
@@ -470,6 +480,38 @@ function createMainWindow(): void {
 
   mainWindow.once("ready-to-show", () => mainWindow?.show())
 
+  if (process.platform === "win32") {
+    mainWindow.on(
+      "close",
+      createWindowsCloseHandler({
+        hide: () => mainWindow?.hide(),
+        isQuitting: () => isQuitting,
+      }),
+    )
+
+    if (!windowsTrayLifecycle) {
+      try {
+        windowsTrayLifecycle = createWindowsTrayLifecycle({
+          iconPath: getBrandingResourcePath("icon.ico"),
+          locale: app.getLocale(),
+          onExit: () => {
+            isQuitting = true
+            app.quit()
+          },
+          onOpen: () => {
+            if (mainWindow) {
+              revealWindowFromTray(mainWindow)
+            } else {
+              createMainWindow()
+            }
+          },
+        })
+      } catch (error) {
+        console.warn("[lumo] failed to initialize Windows tray lifecycle", error)
+      }
+    }
+  }
+
   // 渲染层里的外链（如 Markdown 里的链接、授权 URL）走系统浏览器，绝不在应用窗口内导航。
   // 仅放行安全的用户意图协议（http/https/mailto/tel），其余忽略，避免诱导触发 file:// 或自定义协议。
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -513,6 +555,9 @@ function showMainWindow(): void {
   }
   if (mainWindow.isMinimized()) {
     mainWindow.restore()
+  }
+  if (process.platform === "win32") {
+    mainWindow.show()
   }
   mainWindow.focus()
 }

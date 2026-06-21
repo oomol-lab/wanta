@@ -281,10 +281,8 @@ export function normalizeProvider(
   const apps = appsByService.get(service) ?? []
   const manageableApps = getManageableApps(apps)
   const app = pickStatusApp(manageableApps)
-  const hasNoAuthReadyApp = apps.some(
-    (candidate) => isVirtualNoAuthApp(candidate) && candidate.status !== "disconnected",
-  )
-  const status: ConnectionProviderStatus = manageableApps.some(
+  const hasNoAuthReadyApp = apps.some((candidate) => isVirtualNoAuthApp(candidate) && candidate.status === "active")
+  const status: ConnectionProviderStatus = apps.some(
     (candidate) => candidate.status === "reauth_required" || candidate.status === "error",
   )
     ? "needs_attention"

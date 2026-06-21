@@ -578,8 +578,9 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         setCreateName("")
         setCreateAvatar("")
         setCreateDuplicated(false)
-        setSelectedOrganizationId(organization.id)
         await loadOrganizations({ forceRefresh: true })
+        setSelectedOrganizationId(organization.id)
+        selectOrganizationWorkspace?.(organization.id)
       } catch (error) {
         if (isConflictError(error)) {
           setCreateDuplicated(true)
@@ -591,7 +592,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         setBusyAction(null)
       }
     },
-    [createAvatar, createName, loadOrganizations, organizationService, t],
+    [createAvatar, createName, loadOrganizations, organizationService, selectOrganizationWorkspace, t],
   )
 
   const reloadMembersAndAccess = React.useCallback(async () => {
@@ -990,12 +991,7 @@ function OrganizationSwitcherPanel({
             <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="px-2 focus-visible:border-transparent focus-visible:ring-0"
-                >
+                <Button type="button" variant="ghost" size="sm" className="px-2">
                   {t("organizations.switchOrganization")}
                   <ChevronsUpDownIcon className="size-3.5" />
                 </Button>

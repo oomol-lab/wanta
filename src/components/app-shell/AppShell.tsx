@@ -1237,7 +1237,7 @@ export function AppShell() {
         appliedConnectionWorkspaceKey.current = null
       }
     })
-  }, [connections, organizationWorkspace.connectionWorkspace])
+  }, [connections.setWorkspace, organizationWorkspace.connectionWorkspace])
 
   React.useEffect(() => {
     let cancelled = false

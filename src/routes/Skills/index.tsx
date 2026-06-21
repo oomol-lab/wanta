@@ -651,11 +651,15 @@ export function SkillsRoute() {
                 : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
-            onRetry={() =>
-              void (discoveryFilter === "mine" && authResource.data?.status === "authenticated"
-                ? loadMyPublishedSkillPackages({ forceRefresh: true })
-                : loadPublicSkillPackages({ forceRefresh: true }))
-            }
+            onRetry={() => {
+              if (discoveryFilter === "mine") {
+                if (authResource.data?.status === "authenticated") {
+                  void loadMyPublishedSkillPackages({ forceRefresh: true })
+                }
+                return
+              }
+              void loadPublicSkillPackages({ forceRefresh: true })
+            }}
             onSelectPackage={(pkg) => activePackageDispatcher({ id: pkg.id, type: "select" })}
           />
         ) : (

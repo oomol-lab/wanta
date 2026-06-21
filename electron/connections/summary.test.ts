@@ -72,6 +72,18 @@ test("non-active app becomes needs_attention", () => {
   assert.equal(ably?.appStatus, "reauth_required")
 })
 
+test("virtual no_auth app in error becomes needs_attention", () => {
+  const summary = mergeConnectionSummary({
+    apps: [{ id: "no_auth:quickchart", service: "quickchart", status: "error", authType: "no_auth" }],
+    providers,
+    usage: emptyUsage,
+  })
+  const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
+
+  assert.equal(quickchart?.status, "needs_attention")
+  assert.equal(quickchart?.appCount, 0)
+})
+
 test("merge preserves multiple apps for one provider", () => {
   const summary = mergeConnectionSummary({
     apps: [

@@ -653,8 +653,21 @@ export class ConnectionsServiceImpl
 
   private createSupersededConnectionSummary(accountKey: string, message?: string): ConnectionSummary {
     const authToken = this.authToken
+    if (authToken === undefined) {
+      return createEmptyConnectionSummary("signed-out", message, this.workspace)
+    }
+
+    const currentAccountKey = this.connectionAccountKey(authToken)
+    if (currentAccountKey !== accountKey) {
+      return (
+        this.getCachedConnectionSummary(currentAccountKey, Date.now()) ??
+        this.getLastReadySummary(currentAccountKey) ??
+        createEmptyConnectionSummary("unavailable", message, this.workspace)
+      )
+    }
+
     return createSupersededConnectionSummaryFallback({
-      accountMatches: authToken !== undefined && this.connectionAccountKey(authToken) === accountKey,
+      accountMatches: true,
       cached: this.getCachedConnectionSummary(accountKey, Date.now()),
       message,
       previous: this.getLastReadySummary(accountKey),

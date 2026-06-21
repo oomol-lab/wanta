@@ -24,6 +24,7 @@ import type {
   SkillVersionReport,
   UpdateRegistrySkillRequest,
 } from "./common.ts"
+import type { DefaultRegistrySkillSpec } from "./default-registry-skills.ts"
 import type { InstalledSkill } from "./types.ts"
 import type { IConnectionService } from "@oomol/connection"
 import type { FSWatcher } from "node:fs"
@@ -61,6 +62,12 @@ import {
 } from "./actions.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
 import { metadataFileName } from "./constants.ts"
+import {
+  DefaultSkillInstallStore,
+  readDefaultSkillInstallRecord,
+  upsertDefaultSkillInstallRecord,
+} from "./default-install-store.ts"
+import { defaultRegistrySkills } from "./default-registry-skills.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
 import {
   areManifestStoresEqual,
@@ -127,6 +134,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private versionReportInFlight: { generation: number; key: string; promise: Promise<SkillVersionReport> } | undefined
   private versionReportCacheGeneration = 0
   private inventoryInFlight: { promise: Promise<SkillInventory>; writeManifest: boolean } | undefined
+  private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
   private inventoryChangeTimer: NodeJS.Timeout | undefined
   private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
@@ -155,6 +163,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private getManifestPath(): string {
     return path.join(app.getPath("userData"), "skills", "manifest.json")
+  }
+
+  private getDefaultSkillInstallStore(): DefaultSkillInstallStore {
+    return new DefaultSkillInstallStore(app.getPath("userData"))
   }
 
   private getLumoSkillStoreRoot(): string {
@@ -198,6 +210,25 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   public async getSkillSummary(): Promise<SkillSummary> {
     return (await this.getSkillInventory()).summary
+  }
+
+  public async ensureDefaultRegistrySkillsInstalled(
+    specs: readonly DefaultRegistrySkillSpec[] = defaultRegistrySkills,
+  ): Promise<void> {
+    if (this.defaultRegistrySkillInstallInFlight) {
+      return this.defaultRegistrySkillInstallInFlight
+    }
+
+    const promise = this.installDefaultRegistrySkills(specs)
+    this.defaultRegistrySkillInstallInFlight = promise
+
+    try {
+      await promise
+    } finally {
+      if (this.defaultRegistrySkillInstallInFlight === promise) {
+        this.defaultRegistrySkillInstallInFlight = undefined
+      }
+    }
   }
 
   public async searchRegistrySkills(request: { query: string }) {
@@ -397,6 +428,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     })
     assertOoSkillOperationResult(result, "skills.uninstall")
     await this.deleteSharedSkillTarget(request.skillId)
+    await this.rememberDefaultRegistrySkillRemovedByUser(request.skillId)
     this.notifyRuntimeSkillsChanged("delete-skill")
 
     return this.readAndPublishSkillInventory()
@@ -549,6 +581,86 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     this.cliChanged.emit({
       updatedAt: new Date().toISOString(),
     })
+  }
+
+  private async installDefaultRegistrySkills(specs: readonly DefaultRegistrySkillSpec[]): Promise<void> {
+    const enabledSpecs = specs.filter((spec) => spec.enabled)
+    if (enabledSpecs.length === 0) {
+      return
+    }
+
+    const store = this.getDefaultSkillInstallStore()
+    let installStore = await store.read()
+    let inventory = await this.readSharedSkillInventory({ writeManifest: true })
+
+    for (const spec of enabledSpecs) {
+      const request = normalizeDefaultRegistrySkillRequest(spec)
+      const existingRecord = readDefaultSkillInstallRecord(installStore, request)
+      const now = new Date().toISOString()
+
+      if (isRuntimeSkillInstalled(inventory, request.skillId)) {
+        installStore = upsertDefaultSkillInstallRecord(installStore, {
+          ...request,
+          installedAt: existingRecord?.installedAt ?? now,
+          status: "installed",
+          updatedAt: now,
+        })
+        await store.write(installStore)
+        continue
+      }
+
+      if (existingRecord?.status === "removed-by-user") {
+        continue
+      }
+
+      try {
+        inventory = await this.installRegistrySkill(request)
+        installStore = upsertDefaultSkillInstallRecord(installStore, {
+          ...request,
+          installedAt: now,
+          lastAttemptAt: now,
+          status: "installed",
+          updatedAt: now,
+        })
+      } catch (error) {
+        const message = runtimeErrorMessage(error)
+        console.warn("[lumo] failed to install default registry skill:", {
+          error: message,
+          packageName: request.packageName,
+          skillId: request.skillId,
+        })
+        installStore = upsertDefaultSkillInstallRecord(installStore, {
+          ...request,
+          lastAttemptAt: now,
+          lastError: message,
+          status: "failed",
+          updatedAt: now,
+        })
+      }
+
+      await store.write(installStore)
+    }
+  }
+
+  private async rememberDefaultRegistrySkillRemovedByUser(skillId: string): Promise<void> {
+    const normalizedSkillId = normalizeSkillId(skillId)
+    const spec = defaultRegistrySkills.find((item) => item.skillId.trim() === normalizedSkillId)
+    if (!spec) {
+      return
+    }
+
+    const request = normalizeDefaultRegistrySkillRequest(spec)
+    const store = this.getDefaultSkillInstallStore()
+    const current = await store.read()
+    const now = new Date().toISOString()
+
+    await store.write(
+      upsertDefaultSkillInstallRecord(current, {
+        ...request,
+        status: "removed-by-user",
+        updatedAt: now,
+      }),
+    )
   }
 
   private async refreshManifestRecordsForTargets(targetPaths: string[]): Promise<void> {
@@ -1194,6 +1306,28 @@ function assertOoSkillOperationResult(
 
     throw cause
   }
+}
+
+function normalizeDefaultRegistrySkillRequest(spec: DefaultRegistrySkillSpec): InstallRegistrySkillRequest {
+  const packageName = spec.packageName.trim()
+  if (!packageName) {
+    throw new Error("Default registry Skill packageName is empty.")
+  }
+
+  return {
+    packageName,
+    skillId: normalizeSkillId(spec.skillId),
+  }
+}
+
+function isRuntimeSkillInstalled(inventory: SkillInventory, skillId: string): boolean {
+  const normalizedSkillId = normalizeSkillId(skillId)
+  const group = inventory.groups.find((item) => item.id === normalizedSkillId)
+  return group?.runtimeHosts.some((host) => host.status === "installed") ?? false
+}
+
+function runtimeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function createVersionReportCacheKey(inventory: SkillInventory): string {

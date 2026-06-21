@@ -18,7 +18,7 @@ describe("buildWindowsTitleBarOverlay", () => {
 
   it("uses the dark title bar colors", () => {
     expect(buildWindowsTitleBarOverlay("dark")).toEqual({
-      color: "#111213",
+      color: "#111113",
       symbolColor: "#f0f6fc",
       height: windowsTitleBarOverlayHeight,
     })
@@ -28,7 +28,7 @@ describe("buildWindowsTitleBarOverlay", () => {
 describe("windowBackgroundColorForTheme", () => {
   it("matches the overlay background color", () => {
     expect(windowBackgroundColorForTheme("light")).toBe("#ffffff")
-    expect(windowBackgroundColorForTheme("dark")).toBe("#111213")
+    expect(windowBackgroundColorForTheme("dark")).toBe("#111113")
   })
 })
 

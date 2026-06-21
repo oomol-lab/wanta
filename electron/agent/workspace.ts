@@ -20,22 +20,29 @@ export async function ensureAgentWorkspace(rootDir: string, bundledSkillsDir?: s
   return rootDir
 }
 
-/** 以打包内置 skill 为准重建 .opencode/skill/：先清空（避免旧版本/已移除的 skill 残留）再逐个拷入。 */
+/**
+ * 以打包内置 skill 为准重建 .opencode/skill/：先读源目录、确认可用后再清空旧目录逐个拷入。
+ * 先读后删，避免源不可读时误删上一份好副本（rm 不能先于 readdir）。
+ */
 async function syncBundledSkills(opencodeDir: string, bundledSkillsDir: string | undefined): Promise<void> {
   const skillDir = path.join(opencodeDir, "skill")
-  await rm(skillDir, { force: true, recursive: true })
 
   if (!bundledSkillsDir) {
+    await rm(skillDir, { force: true, recursive: true })
     return
   }
 
   let entries
   try {
     entries = await readdir(bundledSkillsDir, { withFileTypes: true })
-  } catch {
-    // dev 未导出内置 skill（如跳过 postinstall）时静默跳过；predev 守卫负责提示缺失。
+  } catch (error) {
+    // 源缺失/不可读（如 dev 跳过 postinstall）：非致命——skills 全程 best-effort，不为 4 个可选 skill 阻断
+    // agent 启动。但显式告警（不再静默），避免发布包遗漏 Resources/skills 时问题被完全掩盖；保留已有副本不删。
+    console.warn(`[lumo] bundled skills source unavailable at ${bundledSkillsDir}; keeping existing skills:`, error)
     return
   }
+
+  await rm(skillDir, { force: true, recursive: true })
 
   const skillNames = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
   if (skillNames.length === 0) {

@@ -350,6 +350,9 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
   console.log("[lumo] agent sidecar ready at", nextAgent.url)
+  void skillService.ensureDefaultRegistrySkillsInstalled().catch((error: unknown) => {
+    console.warn("[lumo] default registry skill installation failed:", error)
+  })
 }
 
 function handleConnectionWorkspaceChanged(workspace: ConnectionWorkspace): void {

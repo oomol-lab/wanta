@@ -15,6 +15,7 @@ import type {
   ProviderAccessForm,
   ProviderGrantView,
 } from "./organization-management-model.ts"
+import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 
 import {
   Building2Icon,
@@ -99,11 +100,18 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
   )
 }
 
-export function OrganizationManagementRoute() {
+export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrganizationWorkspace }) {
   const { t } = useAppI18n()
   const organizationService = useOrganizationsService()
   const authResource = useAuthStateResource()
-  const activeAccountId = authResource.data?.status === "authenticated" ? authResource.data.account?.id : undefined
+  const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
+  const activeAccountId = activeAccount?.id
+  const activeWorkspace = workspace?.activeWorkspace
+  const selectPersonalWorkspace = workspace?.selectPersonal
+  const selectOrganizationWorkspace = workspace?.selectOrganization
+  const hasWorkspaceController = Boolean(workspace)
+  const activeWorkspaceOrganizationId = activeWorkspace?.type === "organization" ? activeWorkspace.organizationId : null
+  const activeWorkspaceIsPersonal = activeWorkspace?.type === "personal"
   const initialSnapshot = readOrganizationManagementSnapshot(activeAccountId)
   const [overviewState, setOverviewState] = React.useState<LoadState<OrganizationOverview | null>>(
     () => initialSnapshot?.overviewState ?? loadState(null),
@@ -219,6 +227,15 @@ export function OrganizationManagementRoute() {
         setOverviewState(readyState(overview))
         setSelectedOrganizationId((current) => {
           const listedOrganizations = allOrganizations(overview)
+          if (activeWorkspaceIsPersonal) {
+            return null
+          }
+          if (
+            activeWorkspaceOrganizationId &&
+            listedOrganizations.some((organization) => organization.id === activeWorkspaceOrganizationId)
+          ) {
+            return activeWorkspaceOrganizationId
+          }
           if (current && listedOrganizations.some((organization) => organization.id === current)) {
             return current
           }
@@ -237,7 +254,7 @@ export function OrganizationManagementRoute() {
         }
       }
     },
-    [organizationService],
+    [activeWorkspaceIsPersonal, activeWorkspaceOrganizationId, organizationService],
   )
 
   const loadSelectedDetails = React.useCallback(
@@ -451,6 +468,19 @@ export function OrganizationManagementRoute() {
   }, [loadOrganizations, organizationService.serverEvents])
 
   React.useEffect(() => {
+    if (!hasWorkspaceController) {
+      return
+    }
+    if (activeWorkspaceIsPersonal) {
+      setSelectedOrganizationId(null)
+      return
+    }
+    if (activeWorkspaceOrganizationId) {
+      setSelectedOrganizationId(activeWorkspaceOrganizationId)
+    }
+  }, [activeWorkspaceIsPersonal, activeWorkspaceOrganizationId, hasWorkspaceController])
+
+  React.useEffect(() => {
     const accountId = overviewState.data?.accountId
     if (!accountId || !selectedOrganizationId) {
       return
@@ -569,6 +599,19 @@ export function OrganizationManagementRoute() {
       await loadSelectedDetails(selectedOrganization, selectedRole, { forceRefresh: true })
     }
   }, [loadSelectedDetails, selectedOrganization, selectedRole])
+
+  const handleSelectPersonalWorkspace = React.useCallback(() => {
+    setSelectedOrganizationId(null)
+    selectPersonalWorkspace?.()
+  }, [selectPersonalWorkspace])
+
+  const handleSelectOrganizationWorkspace = React.useCallback(
+    (organizationId: string) => {
+      setSelectedOrganizationId(organizationId)
+      selectOrganizationWorkspace?.(organizationId)
+    },
+    [selectOrganizationWorkspace],
+  )
 
   const handleAddMember = React.useCallback(
     async (event: React.FormEvent) => {
@@ -765,12 +808,16 @@ export function OrganizationManagementRoute() {
             ) : (
               <>
                 <OrganizationSwitcherPanel
+                  activeWorkspace={activeWorkspace}
+                  accountAvatarUrl={activeAccount?.avatarUrl}
+                  accountName={activeAccount?.name}
                   organizations={organizations}
                   overview={overviewState.data}
                   selectedOrganization={selectedOrganization}
                   selectedOrganizationId={selectedOrganizationId}
                   onCreate={() => setCreateOpen(true)}
-                  onSelect={setSelectedOrganizationId}
+                  onSelect={handleSelectOrganizationWorkspace}
+                  onSelectPersonal={handleSelectPersonalWorkspace}
                 />
                 <OrganizationDetailPanel
                   appAccessLoading={appAccessState.status === "loading" || providerOptionsState.status === "loading"}
@@ -847,15 +894,23 @@ export function OrganizationManagementRoute() {
 }
 
 function OrganizationSwitcherPanel({
+  activeWorkspace,
+  accountAvatarUrl,
+  accountName,
   onCreate,
   onSelect,
+  onSelectPersonal,
   organizations,
   overview,
   selectedOrganization,
   selectedOrganizationId,
 }: {
+  activeWorkspace?: WorkspaceSelection
+  accountAvatarUrl?: string
+  accountName?: string
   onCreate: () => void
   onSelect: (organizationId: string) => void
+  onSelectPersonal: () => void
   organizations: Organization[]
   overview: OrganizationOverview | null
   selectedOrganization: Organization | null
@@ -864,12 +919,22 @@ function OrganizationSwitcherPanel({
   const { t } = useAppI18n()
   const countLabel = t("organizations.organizationCount", { count: organizations.length })
   const selectedRole = selectedOrganization ? organizationRole(overview, selectedOrganization) : null
+  const personalSelected = activeWorkspace?.type === "personal"
+  const personalLabel = accountName?.trim() || t("organizations.personal")
+  const personalDescription =
+    personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       <div className="grid min-h-20 min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 px-4 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[var(--oo-control-height)_var(--oo-control-height)] sm:items-center">
         <div className="row-span-2 self-center">
-          {selectedOrganization ? (
+          {personalSelected ? (
+            <AccountWorkspaceAvatar
+              avatarUrl={accountAvatarUrl}
+              className="size-16 rounded-md text-lg"
+              name={accountName}
+            />
+          ) : selectedOrganization ? (
             <OrganizationAvatar organization={selectedOrganization} className="size-16 rounded-md text-lg" />
           ) : (
             <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
@@ -879,7 +944,9 @@ function OrganizationSwitcherPanel({
         </div>
 
         <div className="flex min-w-0 items-baseline gap-3 self-end sm:self-center">
-          {selectedOrganization ? (
+          {personalSelected ? (
+            <span className="min-w-0 truncate text-base font-semibold text-foreground">{personalLabel}</span>
+          ) : selectedOrganization ? (
             <>
               <span className="min-w-0 truncate text-base font-semibold text-foreground">
                 {selectedOrganization.name}
@@ -896,8 +963,14 @@ function OrganizationSwitcherPanel({
         </div>
 
         <div className="flex min-w-0 items-center gap-2 self-start sm:self-center">
-          <span className="oo-text-caption shrink-0">{t("organizations.selectedOrganization")}</span>
-          {selectedRole ? (
+          <span className="oo-text-caption shrink-0">
+            {personalSelected ? t("organizations.selectedWorkspace") : t("organizations.selectedOrganization")}
+          </span>
+          {personalSelected ? (
+            <Badge variant="secondary" className="shrink-0">
+              {t("organizations.workspace")}
+            </Badge>
+          ) : selectedRole ? (
             <Badge variant="secondary" className="shrink-0">
               {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
             </Badge>
@@ -923,11 +996,35 @@ function OrganizationSwitcherPanel({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={6} className="w-[min(36rem,calc(100vw-2rem))]">
-              <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
+              <DropdownMenuLabel>{t("organizations.selectWorkspace")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className={cn(
+                  "grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2",
+                  personalSelected && "bg-accent",
+                )}
+                onSelect={onSelectPersonal}
+              >
+                <AccountWorkspaceAvatar
+                  avatarUrl={accountAvatarUrl}
+                  className="size-10 rounded-md text-sm"
+                  name={accountName}
+                />
+                <span className="grid min-h-10 min-w-0 content-center">
+                  <span className="flex min-h-5 min-w-0 items-center gap-2">
+                    <span className="truncate text-sm leading-5 font-medium">{personalLabel}</span>
+                    {personalSelected ? (
+                      <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                    ) : null}
+                  </span>
+                  <span className="block truncate text-xs leading-5 text-muted-foreground">{personalDescription}</span>
+                </span>
+                {personalSelected ? <CheckIcon className="size-4 justify-self-end" /> : null}
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               {organizations.map((organization) => {
                 const role = organizationRole(overview, organization)
-                const selected = organization.id === selectedOrganizationId
+                const selected = !personalSelected && organization.id === selectedOrganizationId
                 return (
                   <DropdownMenuItem
                     key={organization.id}
@@ -1761,6 +1858,45 @@ function OrganizationAvatar({ className, organization }: { className?: string; o
         <img src={organization.avatar} alt={organization.name} className="size-full object-cover" />
       ) : (
         organizationInitials(organization.name)
+      )}
+    </span>
+  )
+}
+
+function AccountWorkspaceAvatar({
+  avatarUrl,
+  className,
+  name,
+}: {
+  avatarUrl?: string
+  className?: string
+  name?: string
+}) {
+  const [failed, setFailed] = React.useState(false)
+  const label = name?.trim() || "User"
+
+  React.useEffect(() => {
+    setFailed(false)
+  }, [avatarUrl])
+
+  return (
+    <span
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
+        className,
+      )}
+    >
+      {avatarUrl && !failed ? (
+        <img
+          src={avatarUrl}
+          alt={label}
+          className="size-full object-cover"
+          draggable={false}
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        userFallback(label)
       )}
     </span>
   )

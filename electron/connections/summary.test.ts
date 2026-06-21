@@ -34,6 +34,7 @@ test("merge marks connected providers and computes counts", () => {
   assert.equal(gmail?.appStatus, "active")
   assert.equal(gmail?.canDisconnect, true)
   assert.deepEqual(gmail?.categoryLabels, ["Email"])
+  assert.equal(gmail?.appCount, 1)
 })
 
 test("connected providers sort before available ones", () => {
@@ -56,6 +57,7 @@ test("pure no_auth connected provider cannot be disconnected", () => {
 
   assert.equal(quickchart?.status, "connected")
   assert.equal(quickchart?.canDisconnect, false)
+  assert.equal(quickchart?.appCount, 1)
 })
 
 test("non-active app becomes needs_attention", () => {
@@ -68,6 +70,47 @@ test("non-active app becomes needs_attention", () => {
 
   assert.equal(ably?.status, "needs_attention")
   assert.equal(ably?.appStatus, "reauth_required")
+})
+
+test("merge preserves multiple apps for one provider", () => {
+  const summary = mergeConnectionSummary({
+    apps: [
+      {
+        accountLabel: "first@example.com",
+        authType: "oauth2",
+        id: "app-1",
+        isDefault: false,
+        service: "gmail",
+        status: "active",
+        updatedAt: 5,
+      },
+      {
+        accountLabel: "second@example.com",
+        authType: "oauth2",
+        id: "app-2",
+        isDefault: true,
+        service: "gmail",
+        status: "active",
+        updatedAt: 10,
+      },
+    ],
+    providers,
+    usage: emptyUsage,
+  })
+
+  const gmail = summary.providers.find((provider) => provider.service === "gmail")
+
+  assert.equal(summary.activeConnections, 2)
+  assert.equal(summary.connectedProviderCount, 1)
+  assert.equal(gmail?.status, "connected")
+  assert.equal(gmail?.appCount, 2)
+  assert.equal(gmail?.accountLabel, "second@example.com")
+  assert.equal(gmail?.appId, "app-2")
+  assert.equal(gmail?.connectedUpdatedAt, 10)
+  assert.deepEqual(
+    gmail?.apps.map((app) => app.id),
+    ["app-1", "app-2"],
+  )
 })
 
 test("createEmptyConnectionSummary exposes a signed-out state", () => {

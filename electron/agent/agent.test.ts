@@ -159,7 +159,12 @@ test("system prompt treats Link as a contextual capability, not the default path
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
-  const env = buildOoEnv({ authToken: "api-x", storeDir: "/tmp/store", ooBinPath: "/usr/bin/oo" })
+  const env = buildOoEnv({
+    authToken: "api-x",
+    organizationScopePath: "/tmp/scope.json",
+    storeDir: "/tmp/store",
+    ooBinPath: "/usr/bin/oo",
+  })
   assert.equal(env.OO_API_KEY, "api-x")
   assert.equal(env.OO_ENDPOINT, ooEndpoint)
   assert.equal(env.OO_SKILLS_SYNC_DISABLED, "1")
@@ -171,6 +176,7 @@ test("buildOoEnv injects the required OO_* control vars (R3)", () => {
   assert.ok(env.OO_LOG_DIR.endsWith("/store/log"))
   assert.equal(env.LUMO_CONSOLE_URL, `https://console.${ooEndpoint}`)
   assert.equal(env.LUMO_OO_BIN, "/usr/bin/oo")
+  assert.equal(env.LUMO_ORGANIZATION_SCOPE_PATH, "/tmp/scope.json")
 })
 
 test("parseConnectorErrorCode extracts code in both en and zh (full-width parens) locales", () => {

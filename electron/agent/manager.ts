@@ -7,7 +7,7 @@ import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 
 import { randomBytes, randomUUID } from "node:crypto"
-import { mkdir } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
@@ -30,12 +30,19 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** oo 二进制绝对路径。 */
   ooBinPath: string
+  /** 当前组织工作区名称；未设置表示个人空间。 */
+  organizationName?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
   rootDir: string
   /** 自定义 OpenAI-compatible 模型配置。apiKey 只进入 sidecar env config，不落到 OpenCode 文件。 */
   customModels?: PersistedCustomModel[]
   /** 关闭 sidecar Basic Auth（默认开，随机口令）。 */
   disableServerAuth?: boolean
+}
+
+function normalizeOrganizationName(organizationName: string | undefined): string | undefined {
+  const normalized = organizationName?.trim()
+  return normalized ? normalized : undefined
 }
 
 export interface SendMessageResult {
@@ -107,9 +114,12 @@ export class AgentManager {
   private sidecar: OpencodeSidecar | null = null
   private started = false
   private eventLoopStopped = false
+  private organizationName: string | undefined
+  private organizationScopePath: string | undefined
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
+    this.organizationName = normalizeOrganizationName(options.organizationName)
   }
 
   public get client(): OpencodeClient {
@@ -127,16 +137,35 @@ export class AgentManager {
     return this.started
   }
 
+  /** 更新 Link 工具使用的组织工作区，不重启 sidecar，避免刷新会话列表。 */
+  public async setOrganizationName(organizationName?: string): Promise<void> {
+    const nextOrganizationName = normalizeOrganizationName(organizationName)
+    if (nextOrganizationName === this.organizationName) {
+      return
+    }
+    this.organizationName = nextOrganizationName
+    await this.writeOrganizationScope()
+  }
+
   public async start(): Promise<void> {
     const { authToken, opencodeBinPath, ooBinPath, rootDir, disableServerAuth, customModels } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
     const storeDir = path.join(rootDir, "oo-store")
+    const organizationScopePath = path.join(rootDir, "organization-scope.json")
 
     await ensureAgentWorkspace(workspaceDir)
+    this.organizationScopePath = organizationScopePath
+    await this.writeOrganizationScope()
 
     const config = buildOpencodeConfig({ authToken, customModels })
-    const ooEnv = buildOoEnv({ authToken, storeDir, ooBinPath })
+    const ooEnv = buildOoEnv({
+      authToken,
+      organizationName: this.organizationName,
+      organizationScopePath,
+      storeDir,
+      ooBinPath,
+    })
     const ooDir = path.dirname(ooBinPath)
     const env: Record<string, string> = {
       ...ooEnv,
@@ -346,7 +375,7 @@ export class AgentManager {
       return undefined
     }
     return (
-      `Some Link providers are already authorized for this account. ` +
+      `Some Link providers are already authorized for the active workspace. ` +
       `This is availability awareness only: it is not a recommendation to use Link tools and does not indicate that any provider fits the current task. ` +
       `When, and only when, the user's request needs private/account-specific SaaS data or actions, use Link tools to discover the appropriate action; search results include whether a provider is authenticated. ` +
       `Ignore this note for direct answers, local files, commands, concrete URLs, webpage fetching, and general web browsing.`
@@ -361,7 +390,10 @@ export class AgentManager {
     const requestSignal = signalWithTimeout(signal, 15_000)
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
-        headers: { Authorization: `Bearer ${this.options.authToken}` },
+        headers: {
+          Authorization: `Bearer ${this.options.authToken}`,
+          ...(this.organizationName ? { "x-oo-organization-name": this.organizationName } : {}),
+        },
         signal: requestSignal.signal,
       })
       if (!response.ok) {
@@ -413,6 +445,18 @@ export class AgentManager {
     }
     const messages = (await this.client.session.messages({ path: { id } })).data
     return { sessionId: id, messages }
+  }
+
+  private async writeOrganizationScope(): Promise<void> {
+    if (!this.organizationScopePath) {
+      return
+    }
+    await mkdir(path.dirname(this.organizationScopePath), { recursive: true })
+    await writeFile(
+      this.organizationScopePath,
+      JSON.stringify({ organizationName: this.organizationName ?? "" }),
+      "utf8",
+    )
   }
 
   public dispose(): void {

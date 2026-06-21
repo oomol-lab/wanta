@@ -152,7 +152,17 @@ export default defineConfig(({ command, mode }) => {
     // 重型依赖（含 lazy chunk 里才用到的 streamdown / motion）显式预打包：server 启动时
     // 一次性 esbuild 预构建，避免渲染进程首次触达这些依赖时才即时优化、进而触发整页 reload 的卡顿。
     optimizeDeps: {
-      include: ["streamdown", "motion/react", "radix-ui", "use-stick-to-bottom"],
+      include: [
+        "@iconify-icons/simple-icons/cloudflare",
+        "@iconify-icons/simple-icons/googlebigquery",
+        "@iconify-icons/simple-icons/openai",
+        "@iconify-icons/simple-icons/tencentqq",
+        "@iconify-icons/tabler/photo-star",
+        "streamdown",
+        "motion/react",
+        "radix-ui",
+        "use-stick-to-bottom",
+      ],
     },
   }
 })

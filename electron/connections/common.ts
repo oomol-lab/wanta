@@ -6,6 +6,7 @@ export type ConnectionBackendStatus = "ready" | "signed-out" | "unavailable"
 export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth" | null
 export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"
 export type ConnectionProviderStatus = "available" | "connected" | "needs_attention"
+export type ConnectionWorkspace = { type: "personal" } | { organizationName: string; type: "organization" }
 export type ConnectionProviderActionKind =
   | "oauth2"
   | "api_key"
@@ -16,8 +17,13 @@ export type ConnectionProviderActionKind =
 
 export interface ConnectionAppSummary {
   accountLabel?: string
+  alias?: string
   authType: ConnectionAuthType
+  createdAt: number
+  displayName?: string
   id: string
+  isDefault: boolean
+  providerAccountId?: string
   service: string
   status: ConnectionAppStatus
   updatedAt: number
@@ -28,6 +34,8 @@ export interface ConnectionProviderSummary {
   appId?: string
   appStatus?: ConnectionAppStatus
   appAuthType?: ConnectionAuthType
+  appCount: number
+  apps: ConnectionAppSummary[]
   authTypes: Exclude<ConnectionAuthType, null>[]
   actionKind: ConnectionProviderActionKind
   canDisconnect: boolean
@@ -144,6 +152,7 @@ export interface ConnectionSummary {
   usage: ConnectionUsageSummary
   message?: string
   updatedAt: string
+  workspace: ConnectionWorkspace
 }
 
 export interface ConnectionSummaryRequest {
@@ -161,12 +170,14 @@ export type ConnectionConnectInput =
       service: string
     }
   | {
+      appId?: string
       authType: "custom_credential"
       label?: string
       service: string
       values: Record<string, string>
     }
   | {
+      appId?: string
       authType: "federated"
       config: ConnectionFederatedConfig
       label?: string
@@ -229,6 +240,7 @@ export const ConnectionsService = serviceName("connections-service") as ServiceN
     listExecutions(service: string): Promise<ConnectionExecution[]>
     openExternal(url: string): Promise<void>
     setDefaultAccount(service: string, appId: string): Promise<void>
+    setWorkspace(workspace: ConnectionWorkspace): Promise<ConnectionSummary>
     updateAlias(appId: string, alias: string): Promise<void>
   }
 }>

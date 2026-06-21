@@ -26,7 +26,9 @@ test("createUnavailableConnectionSummaryFallback preserves provider catalog", ()
     apps: [
       {
         authType: "oauth2",
+        createdAt: 0,
         id: "app-1",
+        isDefault: true,
         service: "gmail",
         status: "active",
         updatedAt: 123,
@@ -44,6 +46,18 @@ test("createUnavailableConnectionSummaryFallback preserves provider catalog", ()
         displayName: "Gmail",
         service: "gmail",
         status: "connected",
+        appCount: 1,
+        apps: [
+          {
+            authType: "oauth2",
+            createdAt: 0,
+            id: "app-1",
+            isDefault: true,
+            service: "gmail",
+            status: "active",
+            updatedAt: 123,
+          },
+        ],
       },
     ],
   }

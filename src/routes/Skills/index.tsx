@@ -90,7 +90,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -222,7 +221,6 @@ export function SkillsRoute() {
   const [installingBuiltInSkillId, setInstallingBuiltInSkillId] = React.useState<BuiltInSkillId | null>(null)
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
-  const [isCheckingVersions, setIsCheckingVersions] = React.useState(false)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const installBuiltInInFlightRef = React.useRef(false)
@@ -573,24 +571,6 @@ export function SkillsRoute() {
     ],
   )
 
-  const checkVersions = React.useCallback(async () => {
-    if (isCheckingVersions) {
-      return
-    }
-
-    setIsCheckingVersions(true)
-    setPlanError(null)
-
-    try {
-      await versionResource.refresh({ forceRefresh: true })
-      homeSummaryResource.invalidate()
-    } catch (cause) {
-      setPlanError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setIsCheckingVersions(false)
-    }
-  }, [homeSummaryResource, isCheckingVersions, versionResource])
-
   const executeCliUpdate = React.useCallback(async () => {
     if (cliUpdateInFlightRef.current) {
       return
@@ -640,21 +620,15 @@ export function SkillsRoute() {
       <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
         <SkillPageHeader
           activeTab={activeTab}
-          checkVersions={checkVersions}
-          disabled={inventoryResource.isInitialLoading}
           discoveryFilter={discoveryFilter}
           discoveryQuery={discoveryQuery}
-          executeCliUpdate={executeCliUpdate}
           installedFilter={installedFilter}
           installedQuery={query}
-          isExecutingCliUpdate={isExecutingCliUpdate}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
           onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
           onTabChange={setActiveTab}
-          versionReport={versionResource.data}
-          versionsRefreshing={isCheckingVersions}
         />
         {activeTab === "discover" ? (
           <DiscoverSkillsPane
@@ -686,8 +660,10 @@ export function SkillsRoute() {
           />
         ) : (
           <InstalledSkillsPane
+            cliVersionCheck={versionResource.data?.cli}
             detailContentProps={detailContentProps}
             groups={filteredInstalledGroups}
+            isExecutingCliUpdate={isExecutingCliUpdate}
             isDetailOpen={narrowPane === "detail"}
             systemAttentionGroups={systemAttentionGroups}
             updateRegistrySkill={updateRegistrySkill}
@@ -705,20 +681,12 @@ export function SkillsRoute() {
             onSelectSkill={(skillId) => {
               selectSkill(skillId)
             }}
+            onUpdateCli={executeCliUpdate}
           />
         )}
       </section>
     </>
   )
-}
-
-interface SkillsSyncMenuProps {
-  checkVersions: () => void
-  disabled: boolean
-  executeCliUpdate: () => void
-  isExecutingCliUpdate: boolean
-  versionReport: SkillVersionReport | null
-  versionsRefreshing: boolean
 }
 
 function SkillDetailSkeleton() {
@@ -820,7 +788,7 @@ function SkillDetailContent({
   return <div className="oo-text-body oo-text-muted p-4">{t("skills.detailPlaceholder")}</div>
 }
 
-interface SkillPageHeaderProps extends SkillsSyncMenuProps {
+interface SkillPageHeaderProps {
   activeTab: SkillPageTab
   discoveryFilter: DiscoverSkillFilter
   discoveryQuery: string
@@ -835,21 +803,15 @@ interface SkillPageHeaderProps extends SkillsSyncMenuProps {
 
 function SkillPageHeader({
   activeTab,
-  checkVersions,
-  disabled,
   discoveryFilter,
   discoveryQuery,
   installedFilter,
   installedQuery,
-  executeCliUpdate,
-  isExecutingCliUpdate,
   onDiscoveryFilterChange,
   onDiscoveryQueryChange,
   onInstalledFilterChange,
   onInstalledQueryChange,
   onTabChange,
-  versionReport,
-  versionsRefreshing,
 }: SkillPageHeaderProps) {
   const { t } = useAppI18n()
   const isDiscoverTab = activeTab === "discover"
@@ -884,12 +846,7 @@ function SkillPageHeader({
         <ToggleGroupItem value="discover">{t("skills.tab.discover")}</ToggleGroupItem>
         <ToggleGroupItem value="installed">{t("skills.tab.installed")}</ToggleGroupItem>
       </ToggleGroup>
-      <div
-        className={cn(
-          "grid min-w-0 flex-1 items-center gap-2",
-          isDiscoverTab ? "grid-cols-[minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto]",
-        )}
-      >
+      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <SearchField
           placeholder={t(searchPlaceholder)}
           value={searchValue}
@@ -917,16 +874,6 @@ function SkillPageHeader({
             }
           }}
         />
-        {isDiscoverTab ? null : (
-          <SkillsSyncMenu
-            checkVersions={checkVersions}
-            disabled={disabled}
-            executeCliUpdate={executeCliUpdate}
-            isExecutingCliUpdate={isExecutingCliUpdate}
-            versionReport={versionReport}
-            versionsRefreshing={versionsRefreshing}
-          />
-        )}
       </div>
     </header>
   )
@@ -1213,12 +1160,15 @@ function PublicSkillPackageCard({
 }
 
 interface InstalledSkillsPaneProps {
+  cliVersionCheck: SkillVersionReport["cli"] | undefined
   detailContentProps: SkillDetailContentProps
   groups: ManagedSkillGroup[]
+  isExecutingCliUpdate: boolean
   isDetailOpen: boolean
   onCloseDetail: () => void
   onSelectBuiltIn: () => void
   onSelectSkill: (skillId: string) => void
+  onUpdateCli: () => void
   selectedSkill: ManagedSkillGroup | undefined
   systemAttentionGroups: ManagedSkillGroup[]
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
@@ -1227,12 +1177,15 @@ interface InstalledSkillsPaneProps {
 }
 
 function InstalledSkillsPane({
+  cliVersionCheck,
   detailContentProps,
   groups,
+  isExecutingCliUpdate,
   isDetailOpen,
   onCloseDetail,
   onSelectBuiltIn,
   onSelectSkill,
+  onUpdateCli,
   selectedSkill,
   systemAttentionGroups,
   updateRegistrySkill,
@@ -1244,6 +1197,7 @@ function InstalledSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3">
       <div className="grid gap-3 pr-1">
+        <CliUpdateNotice cli={cliVersionCheck} isUpdating={isExecutingCliUpdate} onUpdate={onUpdateCli} />
         {systemAttentionGroups.length > 0 ? (
           <SystemSkillAttentionCard groups={systemAttentionGroups} onOpen={onSelectBuiltIn} />
         ) : null}
@@ -1272,6 +1226,42 @@ function InstalledSkillsPane({
         </SkillManagementSheet>
       ) : null}
     </div>
+  )
+}
+
+function CliUpdateNotice({
+  cli,
+  isUpdating,
+  onUpdate,
+}: {
+  cli: SkillVersionReport["cli"] | undefined
+  isUpdating: boolean
+  onUpdate: () => void
+}) {
+  const { t } = useAppI18n()
+
+  if (cli?.status !== "update-available") {
+    return null
+  }
+
+  return (
+    <Card className="grid gap-2 rounded-md border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2 shadow-none">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="grid min-w-0 gap-1">
+          <div className="text-sm font-medium">{t("skills.cliUpdateAvailableTitle")}</div>
+          <CardDescription className="text-xs">
+            {t("skills.cliUpdateAvailableDescription", {
+              current: cli.currentVersion ?? t("skills.none"),
+              latest: cli.latestVersion ?? t("skills.none"),
+            })}
+          </CardDescription>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={isUpdating} onClick={onUpdate}>
+          {isUpdating ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.download />}
+          {isUpdating ? t("skills.updatingCli") : t("skills.updateCli")}
+        </Button>
+      </div>
+    </Card>
   )
 }
 
@@ -1803,70 +1793,6 @@ function PublicSkillPackageDetail({
         </div>
       </InspectorInsetCard>
     </aside>
-  )
-}
-
-function SkillsSyncMenu({
-  checkVersions,
-  disabled,
-  executeCliUpdate,
-  isExecutingCliUpdate,
-  versionReport,
-  versionsRefreshing,
-}: SkillsSyncMenuProps) {
-  const { t } = useAppI18n()
-  const hasCliUpdate = versionReport?.cli.status === "update-available"
-  const isBusy = versionsRefreshing || isExecutingCliUpdate
-
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={t("skills.syncMenu")}
-              title={t("skills.syncMenu")}
-              disabled={disabled}
-              className="oo-icon-muted"
-            >
-              {isBusy ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.refresh />}
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("skills.syncMenu")}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="min-w-44">
-        <DropdownMenuItem
-          disabled={disabled || isBusy}
-          onSelect={(event) => {
-            event.preventDefault()
-            checkVersions()
-          }}
-        >
-          {versionsRefreshing ? (
-            <AppIcons.status.loading className="animate-spin" />
-          ) : (
-            <AppIcons.action.checkForUpdates />
-          )}
-          <span>{versionsRefreshing ? t("skills.checkingVersions") : t("skills.checkVersions")}</span>
-        </DropdownMenuItem>
-        {hasCliUpdate ? (
-          <DropdownMenuItem
-            disabled={disabled || isBusy}
-            onSelect={(event) => {
-              event.preventDefault()
-              executeCliUpdate()
-            }}
-          >
-            {isExecutingCliUpdate ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.download />}
-            <span>{isExecutingCliUpdate ? t("skills.updatingCli") : t("skills.updateCli")}</span>
-          </DropdownMenuItem>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

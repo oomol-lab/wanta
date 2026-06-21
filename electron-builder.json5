@@ -29,6 +29,8 @@
   afterPack: "scripts/electron-builder-after-pack.cjs",
   // 内置 oo + opencode + rg 平台二进制（由 scripts/prepare-binaries.ts 在构建前复制到 resources/bin）。
   // 运行时 app.isPackaged 走 process.resourcesPath/bin。
+  // resources/skills 是 oo 自带的 4 个内置 skill（同由 prepare-binaries.ts 导出）；运行时拷进 OpenCode
+  // workspace 的 .opencode/skill/，使 Lumo agent 直接读到。
   extraResources: [
     {
       from: "resources/branding/icon.png",
@@ -37,6 +39,10 @@
     {
       from: "resources/bin",
       to: "bin",
+    },
+    {
+      from: "resources/skills",
+      to: "skills",
     },
   ],
   mac: {

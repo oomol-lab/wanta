@@ -3,14 +3,12 @@ import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/sk
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
-  getBuiltInStatus,
   getPublicPackageInstallState,
   initialPublicPackageCatalogState,
   isEmojiIcon,
   publicPackageCatalogReducer,
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
-import { translate } from "@/i18n/i18n.ts"
 
 test("skillDocumentPreviewSource strips frontmatter only when a closing delimiter exists", () => {
   assert.equal(skillDocumentPreviewSource("---\nname: demo\n---\n# Demo\n"), "# Demo\n")
@@ -72,14 +70,6 @@ test("getPublicPackageInstallState distinguishes installed, conflict, and instal
   )
 })
 
-test("getBuiltInStatus reports missing runtime built-in skills as attention", () => {
-  const status = getBuiltInStatus([builtInGroup("oo", "missing")], (key, vars) => translate("en", key, vars))
-
-  assert.equal(status.tone, "attention")
-  assert.equal(status.label, "Needs repair")
-  assert.equal(status.meta, "Lumo is missing this built-in Skill and needs repair.")
-})
-
 function publicPackage(name: string): PublicSkillPackage {
   return {
     displayName: name,
@@ -107,30 +97,9 @@ function managedSkillGroup(name: string, packageName: string): ManagedSkillGroup
     externalHosts: [],
     hosts: [host],
     id: name,
-    isBuiltIn: false,
     kind: "registry",
     name,
     packageName,
     runtimeHosts: [host],
-  }
-}
-
-function builtInGroup(name: string, status: "installed" | "missing"): ManagedSkillGroup {
-  const runtimeHost = {
-    agentId: "lumo",
-    agentName: "Lumo",
-    kind: "bundled" as const,
-    scope: "runtime" as const,
-    status,
-  }
-
-  return {
-    externalHosts: [],
-    hosts: [runtimeHost],
-    id: name,
-    isBuiltIn: true,
-    kind: "bundled",
-    name,
-    runtimeHosts: [runtimeHost],
   }
 }

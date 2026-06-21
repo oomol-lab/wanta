@@ -51,9 +51,6 @@ function installedSkillHostCount(group: ManagedSkillGroup): number {
 }
 
 function skillKindMeta(group: ManagedSkillGroup): string {
-  if (group.kind === "bundled") {
-    return "bundled"
-  }
   if (group.kind === "registry") {
     return "registry"
   }

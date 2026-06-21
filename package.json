@@ -8,7 +8,7 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
-    "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts && node --experimental-strip-types ./scripts/download-ripgrep.ts",
+    "postinstall": "node --experimental-strip-types ./scripts/download-electron.ts && node --experimental-strip-types ./scripts/download-oo.ts && node --experimental-strip-types ./scripts/download-skills.ts && node --experimental-strip-types ./scripts/download-ripgrep.ts",
     "predev": "node --experimental-strip-types ./scripts/check-oo.ts",
     "dev": "vite",
     "dev:no-electron": "vite --mode no-electron",

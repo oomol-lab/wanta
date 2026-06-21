@@ -10,6 +10,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { downloadOoBinary, ooExecutableName } from "./oo-cli.ts"
 import { downloadRipgrepBinary, ripgrepExecutableName } from "./ripgrep.ts"
+import { bundledSkillsDir, exportBundledSkills } from "./skills.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.join(dirname, "..")
@@ -40,3 +41,8 @@ bundle("oo", ooSrc, ooExecutableName())
 // rg 与 oo 放在同一 bin 目录；AgentManager 会把该目录前置注入 PATH，供 OpenCode grep 工具使用。
 const ripgrepSrc = await downloadRipgrepBinary()
 bundle("ripgrep", ripgrepSrc, ripgrepExecutableName())
+
+// 内置 4 个 oo skill：导出到 resources/skills/，由 electron-builder extraResources 打入 Resources/skills，
+// 运行时拷进 OpenCode workspace 的 .opencode/skill/（见 electron/agent/workspace.ts）。
+await exportBundledSkills()
+console.log(`[lumo] bundled skills: ${path.basename(bundledSkillsDir)}`)

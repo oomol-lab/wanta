@@ -1,22 +1,11 @@
-import type { BuiltInSkillId } from "./constants.ts"
 import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
 
-export type BuiltInSkillStatus = "installed" | "missing" | "unknown"
-export type { BuiltInSkillId }
 export type SkillControlState = "controlled" | "modified" | "source-missing" | "unknown"
-export type ManagedSkillKind = "bundled" | "registry" | "local" | "unknown"
+export type ManagedSkillKind = "registry" | "local" | "unknown"
 export type SkillHostStatus = "installed" | "missing"
 export type SkillHostScope = "external" | "runtime"
-
-export interface BuiltInSkillCoverage {
-  id: string
-  name: string
-  status: BuiltInSkillStatus
-  installedAgents: string[]
-  missingAgents: string[]
-}
 
 export interface SkillSummaryItem {
   attentionHosts: number
@@ -36,9 +25,6 @@ export interface SkillSummaryItem {
 }
 
 export interface SkillSummary {
-  builtInTotal: number
-  builtInInstalled: number
-  builtInMissing: number
   localSkills: number
   managedSkills: number
   modifiedHosts: number
@@ -46,27 +32,7 @@ export interface SkillSummary {
   publishableSkills: number
   registrySkills: number
   sourceMissingHosts: number
-  builtInSkills: BuiltInSkillCoverage[]
-  nonBuiltInSkills: SkillSummaryItem[]
-}
-
-export function selectSkillShortcuts(summary: SkillSummary, limit = 3): SkillSummaryItem[] {
-  return summary.nonBuiltInSkills
-    .slice()
-    .sort((left, right) => {
-      if (left.attentionHosts !== right.attentionHosts) {
-        return right.attentionHosts - left.attentionHosts
-      }
-
-      const leftPublishWeight = left.kind === "local" ? 1 : 0
-      const rightPublishWeight = right.kind === "local" ? 1 : 0
-      if (leftPublishWeight !== rightPublishWeight) {
-        return rightPublishWeight - leftPublishWeight
-      }
-
-      return left.name.localeCompare(right.name)
-    })
-    .slice(0, limit)
+  skills: SkillSummaryItem[]
 }
 
 export interface ManagedSkillHostCoverage {
@@ -87,7 +53,6 @@ export interface ManagedSkillGroup {
   icon?: string
   id: string
   name: string
-  isBuiltIn: boolean
   kind: ManagedSkillKind
   packageName?: string
   version?: string
@@ -169,7 +134,6 @@ export interface SkillCliVersionCheck {
 }
 
 export interface SkillVersionSummary {
-  bundledSkillUpdates: number
   cliUpdates: number
   errors: number
   registrySkillUpdates: number
@@ -190,10 +154,6 @@ export interface CheckSkillVersionsRequest {
 export interface ExecuteSkillUpdateRequest {
   packageName?: string
   skillId?: string
-}
-
-export interface InstallBuiltInSkillRequest {
-  skillId: BuiltInSkillId
 }
 
 export interface UpdateRegistrySkillRequest {
@@ -268,7 +228,6 @@ export const SkillService = serviceName("skill-service") as ServiceName<{
     getSkillInventory(): Promise<SkillInventory>
     getSkillSummary(): Promise<SkillSummary>
     deleteSkill(request: DeleteSkillRequest): Promise<SkillInventory>
-    installBuiltInSkill(request: InstallBuiltInSkillRequest): Promise<SkillInventory>
     installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory>
     listMyPublishedSkillPackages(request?: ListMyPublishedSkillPackagesRequest): Promise<PublicSkillPackageCatalog>
     listPublicSkillPackages(request?: ListPublicSkillPackagesRequest): Promise<PublicSkillPackageCatalog>

@@ -1,5 +1,5 @@
 import type {
-  BuiltInSkillId,
+  ManagedSkillKind,
   PublicSkillPackage,
   PublicSkillPackageCatalog,
   PublicSkillPackageMaintainer,
@@ -8,8 +8,6 @@ import type {
   SkillPackageVersionCheck,
   SkillSearchResult,
 } from "./common.ts"
-
-import { builtInSkillIds } from "./constants.ts"
 
 type SkillOperationCommand = "skills.install" | "skills.publish" | "skills.uninstall" | "skills.update"
 
@@ -358,7 +356,7 @@ function readPackageVisibility(
 export function createRegistrySkillVersionCheck(
   skill: {
     id: string
-    kind: "registry" | "bundled" | "local" | "unknown"
+    kind: ManagedSkillKind
     name: string
     packageName?: string
     version?: string
@@ -430,7 +428,7 @@ export function normalizeRegistrySkillCheckUpdateResults(stdout: string): RawReg
 export function createRegistrySkillVersionCheckFromUpdateResult(
   skill: {
     id: string
-    kind: "registry" | "bundled" | "local" | "unknown"
+    kind: ManagedSkillKind
     name: string
     packageName?: string
     version?: string
@@ -531,7 +529,7 @@ export function createRegistrySkillVersionCheckFromUpdateResult(
 export function createFailedSkillVersionCheck(
   skill: {
     id: string
-    kind: "registry" | "bundled" | "local" | "unknown"
+    kind: ManagedSkillKind
     name: string
     packageName?: string
     version?: string
@@ -554,7 +552,7 @@ export function createFailedSkillVersionCheck(
 export function createFailedRegistrySkillVersionCheck(
   skill: {
     id: string
-    kind: "registry" | "bundled" | "local" | "unknown"
+    kind: ManagedSkillKind
     name: string
     packageName?: string
     version?: string
@@ -572,49 +570,6 @@ export function createFailedRegistrySkillVersionCheck(
     packageName: skill.packageName,
     skillId: skill.id,
     status: "failed",
-  }
-}
-
-export function createBundledSkillVersionCheck(
-  skill: {
-    id: string
-    kind: "registry" | "bundled" | "local" | "unknown"
-    name: string
-    packageName?: string
-    version?: string
-  },
-  cli: SkillCliVersionCheck,
-): SkillPackageVersionCheck {
-  if (skill.kind !== "bundled") {
-    return {
-      currentVersion: skill.version,
-      id: skill.id,
-      kind: skill.kind,
-      name: skill.name,
-      packageName: skill.packageName,
-      skillId: skill.id,
-      status: "not-checkable",
-    }
-  }
-
-  return {
-    command: cli.command,
-    currentVersion: skill.version,
-    error: cli.status === "failed" ? cli.error : undefined,
-    id: skill.id,
-    kind: skill.kind,
-    latestVersion: cli.status === "update-available" ? cli.latestVersion : undefined,
-    name: skill.name,
-    packageName: skill.packageName,
-    skillId: skill.id,
-    status:
-      cli.status === "update-available"
-        ? "update-available"
-        : cli.status === "failed"
-          ? "failed"
-          : cli.status === "unavailable" || cli.status === "unsupported"
-            ? "unknown"
-            : "current",
   }
 }
 
@@ -733,11 +688,6 @@ export function createPublishSkillArgs(request: { path: string; visibility?: "pu
 
 export function createDeleteSkillArgs(request: { skillId: string }): string[] {
   const skillId = asRequiredCommandValue(request.skillId, "skillId")
-
-  if (builtInSkillIds.includes(skillId as BuiltInSkillId)) {
-    throw new Error("Built-in Skills cannot be deleted.")
-  }
-
   return ["skills", "uninstall", skillId, "--json"]
 }
 

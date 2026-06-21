@@ -2,7 +2,6 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
   assertSkillOperationSucceeded,
-  createBundledSkillVersionCheck,
   createCliCheckUpdateArgs,
   createCliUpdateArgs,
   createDeleteSkillArgs,
@@ -485,26 +484,6 @@ test("createFailedRegistrySkillVersionCheck records check-update command metadat
   )
 })
 
-test("createBundledSkillVersionCheck follows cli update availability", () => {
-  assert.equal(
-    createBundledSkillVersionCheck(
-      {
-        id: "oo",
-        kind: "bundled",
-        name: "oo",
-        version: "1.0.0",
-      },
-      {
-        command: ["check-update", "--json"],
-        currentVersion: "1.0.0",
-        latestVersion: "1.1.0",
-        status: "update-available",
-      },
-    ).status,
-    "update-available",
-  )
-})
-
 test("normalizeCliCheckUpdateResult recognizes update notices", () => {
   assert.deepEqual(
     normalizeCliCheckUpdateResult(
@@ -666,10 +645,6 @@ test("assertSkillOperationSucceeded rejects unexpected command responses", () =>
       ),
     /unexpected command/,
   )
-})
-
-test("createDeleteSkillArgs blocks built-in skills", () => {
-  assert.throws(() => createDeleteSkillArgs({ skillId: "oo" }), /Built-in Skills/)
 })
 
 test("createDeleteSkillArgs uninstalls a Skill from Lumo", () => {

@@ -11,6 +11,8 @@ import {
   ooBinaryName,
   opencodeBinaryName,
   resolveBundledBin,
+  resolveBundledSkillsDir,
+  resolveDevBundledSkillsDir,
   resolveDevOoBin,
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
@@ -82,6 +84,11 @@ const opencodeBinPath = app.isPackaged
   : resolveDevOpencodeBin(appRoot)
 const ooBinPath = app.isPackaged ? resolveBundledBin(process.resourcesPath, ooBinaryName()) : resolveOoBin()
 process.env.OO_CLI_PATH = ooBinPath
+// 内置 oo skill 源目录：生产从打包 Resources/skills，dev 从 resources/skills（postinstall 导出）。
+// AgentManager 启动时拷进 OpenCode workspace 的 .opencode/skill/，使 agent 直接读到。
+const bundledSkillsDir = app.isPackaged
+  ? resolveBundledSkillsDir(process.resourcesPath)
+  : resolveDevBundledSkillsDir(appRoot)
 
 // Agent 内核：凭证来自浏览器登录（userData/auth.json，账号默认 api-key 等价旧 OO_API_KEY env）。
 // 未登录时 agent=null，服务仍注册但 isReady()=false，渲染层显示登录页；
@@ -308,6 +315,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     authToken: account.sessionToken,
     opencodeBinPath,
     ooBinPath,
+    bundledSkillsDir,
     organizationName:
       activeConnectionWorkspace.type === "organization" ? activeConnectionWorkspace.organizationName : undefined,
     rootDir: path.join(app.getPath("userData"), "agent"),

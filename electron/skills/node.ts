@@ -6,7 +6,6 @@ import type {
   DeleteSkillRequest,
   ExecuteSkillUpdateRequest,
   InstallRegistrySkillRequest,
-  InstallBuiltInSkillRequest,
   ListMyPublishedSkillPackagesRequest,
   ListPublicSkillPackagesRequest,
   PublicSkillPackage,
@@ -44,7 +43,6 @@ import { ServiceEvent } from "../service-events.ts"
 import {
   assertSkillOperationSucceeded,
   createDeleteSkillArgs,
-  createBundledSkillVersionCheck,
   createCliCheckUpdateArgs,
   createCliUpdateArgs,
   createFailedRegistrySkillVersionCheck,
@@ -62,7 +60,7 @@ import {
   normalizeSkillSearchResults,
 } from "./actions.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
-import { builtInSkillIds, metadataFileName } from "./constants.ts"
+import { metadataFileName } from "./constants.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
 import {
   areManifestStoresEqual,
@@ -304,20 +302,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
     this.myPublishedSkillPackageCatalogInFlightByKey.set(cacheKey, promise)
     return promise
-  }
-
-  public async installBuiltInSkill(request: InstallBuiltInSkillRequest): Promise<SkillInventory> {
-    if (!builtInSkillIds.includes(request.skillId)) {
-      throw new Error(`Unsupported built-in skill: ${request.skillId}`)
-    }
-
-    await this.runOoCommand(["skills", "add", request.skillId], {
-      owner: "skill-service",
-    })
-    await this.syncCachedSkillToSharedAgentRoot(request.skillId, { force: true })
-    this.notifyRuntimeSkillsChanged("install-built-in-skill")
-
-    return this.readAndPublishSkillInventory()
   }
 
   public async installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory> {
@@ -770,10 +754,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
           )
         }
 
-        if (group.kind === "bundled") {
-          return createBundledSkillVersionCheck(group, cli)
-        }
-
         return {
           currentVersion: group.version,
           id: group.id,
@@ -786,15 +766,13 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       }),
     )
     const summary = {
-      bundledSkillUpdates: checks.filter((check) => check.kind === "bundled" && check.status === "update-available")
-        .length,
       cliUpdates: cli.status === "update-available" ? 1 : 0,
       errors: checks.filter((check) => check.status === "failed").length + (cli.status === "failed" ? 1 : 0),
       registrySkillUpdates: checks.filter((check) => check.kind === "registry" && check.status === "update-available")
         .length,
       totalUpdates: 0,
     }
-    summary.totalUpdates = summary.bundledSkillUpdates + summary.cliUpdates + summary.registrySkillUpdates
+    summary.totalUpdates = summary.cliUpdates + summary.registrySkillUpdates
     const report: SkillVersionReport = {
       checkedAt: new Date().toISOString(),
       cli,
@@ -1362,9 +1340,5 @@ async function replaceDirectory(sourcePath: string, targetPath: string): Promise
 }
 
 function readCachedSkillSourceCandidates(cacheSkillStoreRoot: string, skillId: string): string[] {
-  return [
-    path.join(cacheSkillStoreRoot, "registry", skillId),
-    path.join(cacheSkillStoreRoot, "bundled", "lumo", skillId),
-    path.join(cacheSkillStoreRoot, "bundled", "universal", skillId),
-  ]
+  return [path.join(cacheSkillStoreRoot, "registry", skillId)]
 }

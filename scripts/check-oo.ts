@@ -8,6 +8,7 @@
 import { existsSync } from "node:fs"
 import { localOoBinPath } from "./oo-cli.ts"
 import { localRipgrepBinPath } from "./ripgrep.ts"
+import { bundledSkillsDir, exportBundledSkills } from "./skills.ts"
 
 if (!process.env.LUMO_OO_BIN) {
   const ooBin = localOoBinPath()
@@ -26,4 +27,15 @@ if (!existsSync(rgBin)) {
     `[lumo] ripgrep 二进制缺失：${rgBin}\n` + "  运行 `npm run postinstall` 重新下载；本地文件搜索工具需要 rg。",
   )
   process.exit(1)
+}
+
+// 内置 oo skill 缺失（如跳过 postinstall）时自动导出，使 dev 下 agent 也能读到这 4 个 skill。
+// 非致命：导出失败仅告警，运行时 workspace 同步会优雅跳过。
+if (!existsSync(bundledSkillsDir)) {
+  try {
+    await exportBundledSkills()
+    console.log(`[lumo] bundled skills ready at ${bundledSkillsDir}`)
+  } catch (error) {
+    console.warn("[lumo] failed to export bundled skills (non-fatal):", error)
+  }
 }

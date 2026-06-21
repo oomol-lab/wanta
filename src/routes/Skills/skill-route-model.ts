@@ -1,5 +1,4 @@
 import type {
-  BuiltInSkillId,
   ManagedSkillGroup,
   ManagedSkillHostCoverage,
   ManagedSkillKind,
@@ -12,10 +11,9 @@ import type { TranslateFn as TFunction } from "@/i18n"
 
 import { cn } from "@/lib/utils"
 
-export const builtInSelectionKey = "__built-in-skills__"
 export const discoverAutoLoadThresholdPx = 160
 
-export type SkillSelectionKey = typeof builtInSelectionKey | string
+export type SkillSelectionKey = string
 export type SkillPageTab = "discover" | "installed"
 export type DiscoverSkillFilter = "all" | "mine"
 export type InstalledSkillFilter = "all" | "updates" | "local"
@@ -166,28 +164,8 @@ export function getAttentionHostCount(group: ManagedSkillGroup, hosts = group.ho
   return hosts.filter((host) => host.controlState === "modified" || host.controlState === "source-missing").length
 }
 
-export function getMissingHostCount(group: ManagedSkillGroup, hosts = group.hosts): number {
-  return hosts.filter((host) => host.status === "missing").length
-}
-
 export function isInstalledSkillGroup(group: ManagedSkillGroup): boolean {
-  return !group.isBuiltIn && getInstalledSkillHosts(group).length > 0
-}
-
-export function getHostCoverageLabel(group: ManagedSkillGroup, t: TFunction, hosts = group.hosts): string | undefined {
-  const totalHostCount = hosts.length
-
-  if (totalHostCount === 0) {
-    return undefined
-  }
-
-  return t("skills.availableCoverage", { installed: getInstalledHostCount(group, hosts), total: totalHostCount })
-}
-
-export function shouldInstallBuiltInSkill(group: ManagedSkillGroup): group is ManagedSkillGroup & {
-  id: BuiltInSkillId
-} {
-  return group.isBuiltIn && (getMissingHostCount(group) > 0 || getAttentionHostCount(group) > 0)
+  return getInstalledSkillHosts(group).length > 0
 }
 
 export function shouldUpdatePublishedSkill(group: ManagedSkillGroup): boolean {
@@ -252,8 +230,6 @@ export function hasSkillUpdateAvailable(versionCheck: SkillVersionReport["skills
 
 export function getSkillKindLabel(kind: ManagedSkillKind, t: TFunction): string {
   switch (kind) {
-    case "bundled":
-      return t("skills.kind.bundled")
     case "registry":
       return t("skills.kind.registry")
     case "local":
@@ -356,41 +332,6 @@ export function joinSkillMeta(parts: Array<string | undefined>): string | undefi
     .join(" · ")
 
   return line || undefined
-}
-
-export function getBuiltInSkillDesign(skillId: string, t: TFunction) {
-  switch (skillId) {
-    case "oo":
-      return {
-        name: t("skills.builtInCatalog.oo.name"),
-        role: t("skills.builtInCatalog.oo.role"),
-        description: t("skills.builtInCatalog.oo.description"),
-      }
-    case "oo-find-skills":
-      return {
-        name: t("skills.builtInCatalog.find.name"),
-        role: t("skills.builtInCatalog.find.role"),
-        description: t("skills.builtInCatalog.find.description"),
-      }
-    case "oo-create-skill":
-      return {
-        name: t("skills.builtInCatalog.create.name"),
-        role: t("skills.builtInCatalog.create.role"),
-        description: t("skills.builtInCatalog.create.description"),
-      }
-    case "oo-publish-skill":
-      return {
-        name: t("skills.builtInCatalog.publish.name"),
-        role: t("skills.builtInCatalog.publish.role"),
-        description: t("skills.builtInCatalog.publish.description"),
-      }
-    default:
-      return {
-        name: skillId,
-        role: t("skills.builtIn"),
-        description: "",
-      }
-  }
 }
 
 export function getPublicPackagePrimarySkill(
@@ -569,55 +510,4 @@ export function getSkillRowStatusBadgeClassName(tone: ObjectStatusTone): string 
   }
 
   return baseClassName
-}
-
-export function getBuiltInCoverageLabel(groups: ManagedSkillGroup[], t: TFunction): string | undefined {
-  const installedHostCount = groups.reduce((count, group) => count + getInstalledHostCount(group), 0)
-  const totalHostCount = groups.reduce((count, group) => count + group.hosts.length, 0)
-
-  if (totalHostCount === 0) {
-    return undefined
-  }
-
-  return t("skills.availableCoverage", { installed: installedHostCount, total: totalHostCount })
-}
-
-export function getBuiltInStatus(groups: ManagedSkillGroup[], t: TFunction) {
-  const attentionHostCount = groups.reduce((count, group) => count + getAttentionHostCount(group), 0)
-  const missingHostCount = groups.reduce((count, group) => count + getMissingHostCount(group), 0)
-  const installedHostCount = groups.reduce((count, group) => count + getInstalledHostCount(group), 0)
-
-  if (attentionHostCount > 0) {
-    return {
-      badge: "outline" as const,
-      label: t("skills.groupStatus.attention"),
-      meta: t("skills.rowAttention", { count: attentionHostCount }),
-      tone: "attention" as const satisfies ObjectStatusTone,
-    }
-  }
-
-  if (missingHostCount > 0) {
-    return {
-      badge: "outline" as const,
-      label: t("skills.groupStatus.attention"),
-      meta: t("skills.groupStatus.builtInMissingDescription", { count: missingHostCount }),
-      tone: "attention" as const satisfies ObjectStatusTone,
-    }
-  }
-
-  if (installedHostCount === 0) {
-    return {
-      badge: "outline" as const,
-      label: t("skills.notInstalled"),
-      meta: undefined,
-      tone: "pending" as const satisfies ObjectStatusTone,
-    }
-  }
-
-  return {
-    badge: "secondary" as const,
-    label: undefined,
-    meta: undefined,
-    tone: "ready" as const satisfies ObjectStatusTone,
-  }
 }

@@ -1,9 +1,4 @@
-import type {
-  BuiltInSkillId,
-  ManagedSkillGroup,
-  PublicSkillPackage,
-  SkillVersionReport,
-} from "../../../electron/skills/common.ts"
+import type { ManagedSkillGroup, PublicSkillPackage, SkillVersionReport } from "../../../electron/skills/common.ts"
 import type {
   DiscoverSkillFilter,
   InstalledSkillFilter,
@@ -19,20 +14,13 @@ import type { TranslateFn as TFunction } from "@/i18n"
 import * as React from "react"
 import { toast } from "sonner"
 import {
-  builtInSelectionKey,
   canInstallPublicSkill,
   formatPublicPackageUpdateTime,
-  getAttentionHostCount,
-  getBuiltInCoverageLabel,
-  getBuiltInSkillDesign,
-  getBuiltInStatus,
   getGroupRowPackageLine,
   getGroupStatus,
-  getHostCoverageLabel,
   getHostStatus,
   getInstalledSkillHosts,
   getLocalSkillPublishPath,
-  getMissingHostCount,
   getPublicPackageInstallState,
   getPublicPackageMaintainerLine,
   getPublicPackageMetaLine,
@@ -61,7 +49,6 @@ import {
   matchesInstalledSkillFilter,
   matchesPublicPackageQuery,
   publicPackageCatalogReducer,
-  shouldInstallBuiltInSkill,
   shouldShowStatusBadge,
   shouldUpdatePublishedSkill,
   skillDocumentPreviewSource,
@@ -218,12 +205,10 @@ export function SkillsRoute() {
   )
   const [installingRegistryResultId, setInstallingRegistryResultId] = React.useState<string | null>(null)
   const [planError, setPlanError] = React.useState<string | null>(null)
-  const [installingBuiltInSkillId, setInstallingBuiltInSkillId] = React.useState<BuiltInSkillId | null>(null)
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
-  const installBuiltInInFlightRef = React.useRef(false)
   const publishSkillInFlightRef = React.useRef(false)
   const updateRegistryInFlightRef = React.useRef(false)
   const cliUpdateInFlightRef = React.useRef(false)
@@ -235,39 +220,19 @@ export function SkillsRoute() {
 
   React.useEffect(() => {
     if (!selectedSkillId && inventory?.groups[0]) {
-      const firstManagedGroup = inventory.groups.find((group) => !group.isBuiltIn)
-      setSelectedSkillId(firstManagedGroup?.id ?? builtInSelectionKey)
+      setSelectedSkillId(inventory.groups[0].id)
     }
   }, [inventory?.groups, selectedSkillId])
-
-  const searchedBuiltInGroups = React.useMemo(() => {
-    const groups = inventory?.groups ?? []
-    const normalizedQuery = query.trim().toLowerCase()
-    const builtInGroups = groups.filter((group) => group.isBuiltIn)
-
-    if (!normalizedQuery) {
-      return builtInGroups
-    }
-
-    return builtInGroups.filter((group) => {
-      const design = getBuiltInSkillDesign(group.id, t)
-
-      return [group.name, group.description, design.name, design.role, design.description].some((value) =>
-        value?.toLowerCase().includes(normalizedQuery),
-      )
-    })
-  }, [inventory?.groups, query, t])
 
   const searchedGroups = React.useMemo(() => {
     const groups = inventory?.groups ?? []
     const normalizedQuery = query.trim().toLowerCase()
-    const managedGroups = groups.filter((group) => !group.isBuiltIn)
 
     if (!normalizedQuery) {
-      return managedGroups
+      return groups
     }
 
-    return managedGroups.filter((group) => {
+    return groups.filter((group) => {
       return (
         group.name.toLowerCase().includes(normalizedQuery) ||
         Boolean(group.description?.toLowerCase().includes(normalizedQuery)) ||
@@ -276,28 +241,13 @@ export function SkillsRoute() {
     })
   }, [inventory?.groups, query])
 
-  const filteredBuiltInGroups = React.useMemo(() => {
-    return searchedBuiltInGroups
-  }, [searchedBuiltInGroups])
   const installedGroups = React.useMemo(() => searchedGroups.filter(isInstalledSkillGroup), [searchedGroups])
   const filteredInstalledGroups = React.useMemo(() => {
     return installedGroups.filter((group) => {
       return matchesInstalledSkillFilter(group, installedFilter, getSkillVersionCheck(versionCheckByKey, group))
     })
   }, [installedFilter, installedGroups, versionCheckByKey])
-  const systemAttentionGroups = React.useMemo(() => {
-    return searchedBuiltInGroups.filter((group) => {
-      const runtimeHosts = getRuntimeHosts(group)
-      return getAttentionHostCount(group, runtimeHosts) > 0 || getMissingHostCount(group, runtimeHosts) > 0
-    })
-  }, [searchedBuiltInGroups])
-  const selectedSkill =
-    selectedSkillId === builtInSelectionKey
-      ? undefined
-      : searchedGroups.find((group) => group.id === selectedSkillId) || searchedGroups[0]
-  const isBuiltInSelected =
-    selectedSkillId === builtInSelectionKey || (!selectedSkill && filteredBuiltInGroups.length > 0)
-  const builtInStatus = React.useMemo(() => getBuiltInStatus(filteredBuiltInGroups, t), [filteredBuiltInGroups, t])
+  const selectedSkill = searchedGroups.find((group) => group.id === selectedSkillId) || searchedGroups[0]
   const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getInstalledSkillHosts(selectedSkill)) : null
   const selectedVersionCheck = getSkillVersionCheck(versionCheckByKey, selectedSkill)
   React.useEffect(() => {
@@ -460,30 +410,6 @@ export function SkillsRoute() {
     [homeSummaryResource, inventoryResource, skillService, t, versionResource],
   )
 
-  const installBuiltInSkill = React.useCallback(
-    async (skillId: BuiltInSkillId) => {
-      if (installBuiltInInFlightRef.current) {
-        return
-      }
-
-      installBuiltInInFlightRef.current = true
-      setInstallingBuiltInSkillId(skillId)
-      setPlanError(null)
-
-      try {
-        const nextInventory = await skillService.invoke("installBuiltInSkill", { skillId })
-        inventoryResource.setData(nextInventory)
-        homeSummaryResource.invalidate()
-      } catch (cause) {
-        setPlanError(cause instanceof Error ? cause.message : String(cause))
-      } finally {
-        installBuiltInInFlightRef.current = false
-        setInstallingBuiltInSkillId(null)
-      }
-    },
-    [homeSummaryResource, inventoryResource, skillService],
-  )
-
   const updateRegistrySkill = React.useCallback(
     async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
       if (updateRegistryInFlightRef.current) {
@@ -597,13 +523,8 @@ export function SkillsRoute() {
   const isPublicPackageReplacing =
     activePackageCatalog.status === "loading" || activePackageCatalog.status === "refreshing"
   const detailContentProps: SkillDetailContentProps = {
-    builtInStatus,
     copySkillPath,
-    filteredBuiltInGroups,
-    installBuiltInSkill,
-    installingBuiltInSkillId,
     inventoryInitialLoading: inventoryResource.isInitialLoading,
-    isBuiltInSelected,
     openSkillFolder,
     publishSkill,
     publishingSkillId,
@@ -669,7 +590,6 @@ export function SkillsRoute() {
             groups={filteredInstalledGroups}
             isExecutingCliUpdate={isExecutingCliUpdate}
             isDetailOpen={narrowPane === "detail"}
-            systemAttentionGroups={systemAttentionGroups}
             updateRegistrySkill={updateRegistrySkill}
             updatingRegistrySkillId={updatingRegistrySkillId}
             versionCheckByKey={versionCheckByKey}
@@ -679,9 +599,6 @@ export function SkillsRoute() {
                 : undefined
             }
             onCloseDetail={() => setNarrowPane("list")}
-            onSelectBuiltIn={() => {
-              selectSkill(builtInSelectionKey)
-            }}
             onSelectSkill={(skillId) => {
               selectSkill(skillId)
             }}
@@ -717,13 +634,8 @@ function SkillDetailSkeleton() {
 }
 
 interface SkillDetailContentProps {
-  builtInStatus: ReturnType<typeof getBuiltInStatus>
   copySkillPath: (pathname: string) => void
-  filteredBuiltInGroups: ManagedSkillGroup[]
-  installBuiltInSkill: (skillId: BuiltInSkillId) => Promise<void>
-  installingBuiltInSkillId: BuiltInSkillId | null
   inventoryInitialLoading: boolean
-  isBuiltInSelected: boolean
   openSkillFolder: (pathname: string) => void
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
   publishingSkillId: string | null
@@ -736,13 +648,8 @@ interface SkillDetailContentProps {
 }
 
 function SkillDetailContent({
-  builtInStatus,
   copySkillPath,
-  filteredBuiltInGroups,
-  installBuiltInSkill,
-  installingBuiltInSkillId,
   inventoryInitialLoading,
-  isBuiltInSelected,
   openSkillFolder,
   publishSkill,
   publishingSkillId,
@@ -759,22 +666,9 @@ function SkillDetailContent({
     return <SkillDetailSkeleton />
   }
 
-  if (isBuiltInSelected && filteredBuiltInGroups.length > 0) {
-    return (
-      <BuiltInSkillsPeek
-        installBuiltInSkill={installBuiltInSkill}
-        installingBuiltInSkillId={installingBuiltInSkillId}
-        groups={filteredBuiltInGroups}
-        status={builtInStatus}
-      />
-    )
-  }
-
   if (selectedSkill && selectedStatus) {
     return (
       <SkillPeek
-        installBuiltInSkill={installBuiltInSkill}
-        installingBuiltInSkillId={installingBuiltInSkillId}
         copySkillPath={copySkillPath}
         openSkillFolder={openSkillFolder}
         planError={selectedPlanError}
@@ -1170,11 +1064,9 @@ interface InstalledSkillsPaneProps {
   isExecutingCliUpdate: boolean
   isDetailOpen: boolean
   onCloseDetail: () => void
-  onSelectBuiltIn: () => void
   onSelectSkill: (skillId: string) => void
   onUpdateCli: () => void
   selectedSkill: ManagedSkillGroup | undefined
-  systemAttentionGroups: ManagedSkillGroup[]
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
   updatingRegistrySkillId: string | null
   versionCheckByKey: SkillVersionCheckByKey
@@ -1187,11 +1079,9 @@ function InstalledSkillsPane({
   isExecutingCliUpdate,
   isDetailOpen,
   onCloseDetail,
-  onSelectBuiltIn,
   onSelectSkill,
   onUpdateCli,
   selectedSkill,
-  systemAttentionGroups,
   updateRegistrySkill,
   updatingRegistrySkillId,
   versionCheckByKey,
@@ -1202,9 +1092,6 @@ function InstalledSkillsPane({
     <div className="min-h-0 overflow-auto px-3 py-3">
       <div className="grid gap-3 pr-1">
         <CliUpdateNotice cli={cliVersionCheck} isUpdating={isExecutingCliUpdate} onUpdate={onUpdateCli} />
-        {systemAttentionGroups.length > 0 ? (
-          <SystemSkillAttentionCard groups={systemAttentionGroups} onOpen={onSelectBuiltIn} />
-        ) : null}
         {groups.length === 0 ? (
           <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.installedEmpty")}</div>
         ) : (
@@ -1224,8 +1111,8 @@ function InstalledSkillsPane({
         )}
       </div>
 
-      {isDetailOpen && (selectedSkill || detailContentProps.isBuiltInSelected) ? (
-        <SkillManagementSheet title={selectedSkill?.name ?? t("skills.builtInGroupTitle")} onClose={onCloseDetail}>
+      {isDetailOpen && selectedSkill ? (
+        <SkillManagementSheet title={selectedSkill.name} onClose={onCloseDetail}>
           <SkillDetailContent {...detailContentProps} />
         </SkillManagementSheet>
       ) : null}
@@ -1370,30 +1257,6 @@ function InstalledSkillCard({
         )}
       </div>
     </div>
-  )
-}
-
-function SystemSkillAttentionCard({ groups, onOpen }: { groups: ManagedSkillGroup[]; onOpen: () => void }) {
-  const { t } = useAppI18n()
-  const attentionCount = groups.reduce(
-    (count, group) => count + getAttentionHostCount(group) + getMissingHostCount(group),
-    0,
-  )
-
-  return (
-    <Card className="grid gap-2 rounded-md border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2 shadow-none">
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="grid min-w-0 gap-1">
-          <div className="text-sm font-medium">{t("skills.systemAttentionTitle")}</div>
-          <CardDescription className="text-xs">
-            {t("skills.systemAttentionDescription", { count: attentionCount })}
-          </CardDescription>
-        </div>
-        <Button type="button" variant="outline" size="sm" onClick={onOpen}>
-          {t("skills.systemAttentionAction")}
-        </Button>
-      </div>
-    </Card>
   )
 }
 
@@ -1802,8 +1665,6 @@ function PublicSkillPackageDetail({
 
 interface SkillPeekProps {
   copySkillPath: (pathname: string) => void
-  installBuiltInSkill: (skillId: BuiltInSkillId) => Promise<void>
-  installingBuiltInSkillId: BuiltInSkillId | null
   openSkillFolder: (pathname: string) => void
   planError: string | null
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
@@ -1815,112 +1676,8 @@ interface SkillPeekProps {
   updatingRegistrySkillId: string | null
 }
 
-interface BuiltInSkillsPeekProps {
-  groups: ManagedSkillGroup[]
-  installBuiltInSkill: (skillId: BuiltInSkillId) => Promise<void>
-  installingBuiltInSkillId: BuiltInSkillId | null
-  status: ReturnType<typeof getBuiltInStatus>
-}
-
-function BuiltInSkillsPeek({ groups, installBuiltInSkill, installingBuiltInSkillId, status }: BuiltInSkillsPeekProps) {
-  const { t } = useAppI18n()
-  const repairableGroups = React.useMemo(() => groups.filter(shouldInstallBuiltInSkill), [groups])
-  const coverageLabel = getBuiltInCoverageLabel(groups, t)
-  const isRepairing = installingBuiltInSkillId !== null
-  const headingRef = useDesktopDetailHeadingFocus<HTMLHeadingElement>(groups.map((group) => group.id).join("|"))
-
-  const repairAll = React.useCallback(async () => {
-    for (const group of repairableGroups) {
-      await installBuiltInSkill(group.id)
-    }
-  }, [installBuiltInSkill, repairableGroups])
-
-  return (
-    <div className="grid min-w-0 gap-3 overflow-hidden">
-      <InspectorCard>
-        <CardHeader className="flex-row items-center gap-2 px-3 py-0">
-          <CardTitle ref={headingRef} className="min-w-0 truncate text-sm outline-none" tabIndex={-1}>
-            {t("skills.builtInGroupTitle")}
-          </CardTitle>
-          {shouldShowStatusBadge(status.tone) && status.label ? (
-            <Badge className={cn("shrink-0", getStatusBadgeClassName(status.tone))} variant={status.badge}>
-              {status.label}
-            </Badge>
-          ) : null}
-        </CardHeader>
-        <CardContent className="grid gap-2 px-3">
-          <CardDescription className="min-w-0 break-words">{t("skills.builtInGroupDescription")}</CardDescription>
-          {coverageLabel ? (
-            <div className="flex min-w-0 flex-wrap items-center gap-1">
-              <Badge variant="outline">{coverageLabel}</Badge>
-              <Badge variant="secondary">{t("skills.builtInSkillCount", { count: groups.length })}</Badge>
-            </div>
-          ) : null}
-          {repairableGroups.length > 0 ? (
-            <div>
-              <Button type="button" variant="outline" size="sm" disabled={isRepairing} onClick={() => void repairAll()}>
-                {isRepairing ? <AppIcons.status.loading className="animate-spin" /> : null}
-                {isRepairing ? t("skills.installingBuiltIn") : t("skills.repairBuiltInGroup")}
-              </Button>
-            </div>
-          ) : null}
-        </CardContent>
-      </InspectorCard>
-
-      <ItemGroup className="min-w-0 gap-1">
-        {groups.map((group) => {
-          const groupStatus = getGroupStatus(group, t)
-          const isInstallingBuiltInSkill = installingBuiltInSkillId === group.id
-          const canInstallBuiltInSkill = shouldInstallBuiltInSkill(group)
-          const design = getBuiltInSkillDesign(group.id, t)
-          const coverageLabel = getHostCoverageLabel(group, t)
-
-          return (
-            <Item key={group.id} size="sm" className="gap-3 rounded-md border-0 px-3 py-2">
-              <ItemMedia className="size-auto gap-2">
-                <ObjectStatusIcon tone={groupStatus.tone} />
-                <SkillIcon icon={group.icon} />
-              </ItemMedia>
-              <ItemContent className="min-w-0 gap-0.5">
-                <ItemTitle className="max-w-full truncate">{design.name}</ItemTitle>
-                <ItemDescription className="max-w-full truncate">{design.role}</ItemDescription>
-                <ItemDescription className="line-clamp-2">{design.description}</ItemDescription>
-              </ItemContent>
-              <ItemActions className="min-w-0 justify-end">
-                {coverageLabel ? <Badge variant="outline">{coverageLabel}</Badge> : null}
-                {canInstallBuiltInSkill ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={isInstallingBuiltInSkill}
-                    onClick={() => void installBuiltInSkill(group.id)}
-                  >
-                    {isInstallingBuiltInSkill ? <AppIcons.status.loading className="animate-spin" /> : null}
-                    {isInstallingBuiltInSkill ? t("skills.installingBuiltIn") : t("skills.installBuiltInShort")}
-                  </Button>
-                ) : null}
-                {shouldShowStatusBadge(groupStatus.tone) && groupStatus.label ? (
-                  <Badge
-                    className={cn("shrink-0", getStatusBadgeClassName(groupStatus.tone))}
-                    variant={groupStatus.badge}
-                  >
-                    {groupStatus.label}
-                  </Badge>
-                ) : null}
-              </ItemActions>
-            </Item>
-          )
-        })}
-      </ItemGroup>
-    </div>
-  )
-}
-
 function SkillPeek({
   copySkillPath,
-  installBuiltInSkill,
-  installingBuiltInSkillId,
   openSkillFolder,
   planError,
   publishSkill,
@@ -1937,8 +1694,6 @@ function SkillPeek({
   const installedHosts = getInstalledSkillHosts(selectedSkill)
   const allHosts = runtimeHosts.length > 0 ? runtimeHosts : installedHosts
   const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
-  const canInstallBuiltInSkill = shouldInstallBuiltInSkill(selectedSkill)
-  const isInstallingBuiltInSkill = canInstallBuiltInSkill && installingBuiltInSkillId === selectedSkill.id
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
   const isUpdatingRegistrySkill = updatingRegistrySkillId === selectedSkill.id
@@ -2069,18 +1824,6 @@ function SkillPeek({
             </CardDescription>
           ) : null}
           <div className="flex flex-wrap items-center gap-1">
-            {canInstallBuiltInSkill ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={isInstallingBuiltInSkill}
-                onClick={() => installBuiltInSkill(selectedSkill.id)}
-              >
-                {isInstallingBuiltInSkill ? <AppIcons.status.loading className="animate-spin" /> : null}
-                {isInstallingBuiltInSkill ? t("skills.installingBuiltIn") : t("skills.installBuiltIn")}
-              </Button>
-            ) : null}
             {canPublishLocalSkill ? (
               <Button
                 type="button"

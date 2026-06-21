@@ -12,7 +12,6 @@ test("normalizeMetadata reads supported fields", () => {
         packageName: "@oomol/example",
         version: "1.2.3",
       }),
-      "example",
     ),
     {
       description: "Generate images",
@@ -24,12 +23,12 @@ test("normalizeMetadata reads supported fields", () => {
   )
 })
 
-test("normalizeMetadata treats bundled skill ids as bundled when metadata is invalid", () => {
-  assert.deepEqual(normalizeMetadata("{", "oo-find-skills"), {
-    kind: "bundled",
+test("normalizeMetadata falls back to unknown when metadata is invalid", () => {
+  assert.deepEqual(normalizeMetadata("{"), {
+    kind: "unknown",
   })
 })
 
 test("normalizeMetadata treats unsupported kind as unknown", () => {
-  assert.equal(normalizeMetadata(JSON.stringify({ kind: "private" }), "custom-skill").kind, "unknown")
+  assert.equal(normalizeMetadata(JSON.stringify({ kind: "private" })).kind, "unknown")
 })

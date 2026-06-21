@@ -31,3 +31,13 @@ export function resolveDevOoBin(repoRoot: string, platform: NodeJS.Platform = pr
 export function resolveBundledBin(resourcesPath: string, binaryName: string): string {
   return path.join(resourcesPath, "bin", binaryName)
 }
+
+/** dev：内置 oo skill 源目录（resources/skills，由 scripts/skills.ts 导出，postinstall 生成）。 */
+export function resolveDevBundledSkillsDir(repoRoot: string): string {
+  return path.join(repoRoot, "resources", "skills")
+}
+
+/** 生产：从打包的 Resources/skills 解析内置 skill 源目录（extraResources 打入）。 */
+export function resolveBundledSkillsDir(resourcesPath: string): string {
+  return path.join(resourcesPath, "skills")
+}

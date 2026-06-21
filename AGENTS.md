@@ -74,7 +74,7 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
    deep-link 日志必须脱敏（query 含 authID）。
 5. **版本钉死，禁止浮动**：`opencode-ai` / `@opencode-ai/sdk` / `@opencode-ai/plugin`
    三包同为 `1.17.8`（上游无 API 稳定承诺）；oo CLI 版本由 `scripts/oo-cli.ts` 的
-   `OO_CLI_VERSION = "1.2.2"` 单一锁定。
+   `OO_CLI_VERSION = "1.2.3"` 单一锁定。
 6. **OpenCode permission 永远不要设 `"ask"`**——本应用未接 `permission.updated`
    确认 UI，会话会静默挂死。只能 allow / deny
    （现状全 allow，见 [docs/key-decisions.md](docs/key-decisions.md) §9）。

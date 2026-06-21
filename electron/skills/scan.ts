@@ -103,7 +103,7 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
         }
 
         const normalizedMetadata = metadataContent
-          ? normalizeMetadata(metadataContent, entry.name)
+          ? normalizeMetadata(metadataContent)
           : ({
               kind: "local",
             } satisfies ManagedSkillMetadata)
@@ -210,13 +210,6 @@ function readLumoSkillSourceCandidates(
 
   if (skill.metadata.kind === "registry") {
     return [path.join(cacheSkillStoreRoot, "registry", skill.name)]
-  }
-
-  if (skill.metadata.kind === "bundled") {
-    return [
-      path.join(cacheSkillStoreRoot, "bundled", "lumo", skill.name),
-      path.join(cacheSkillStoreRoot, "bundled", "universal", skill.name),
-    ]
   }
 
   return []

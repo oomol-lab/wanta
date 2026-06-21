@@ -22,27 +22,19 @@ const agents = [
   },
 ]
 
-const lumoAgent = {
-  cliCommands: [],
-  homeRoot: "",
-  id: "lumo",
-  name: "Lumo",
-  ooCliAgentId: "lumo",
-}
-
 const installedSkills: InstalledSkill[] = [
   {
     agent: agents[0],
     hash: "hash-a",
     metadata: {
-      description: "Use OOMOL hosted capabilities",
-      kind: "bundled",
+      description: "Local workflow skill",
+      kind: "local",
       version: "1.0.0",
     },
-    name: "oo",
-    path: "/codex/skills/oo",
+    name: "alpha",
+    path: "/codex/skills/alpha",
     sourceHash: "hash-b",
-    sourcePath: "/oo/skills/bundled/codex/oo",
+    sourcePath: "/workspace/alpha",
   },
   {
     agent: agents[1],
@@ -66,78 +58,46 @@ const manifestStore: SkillManifestStore = {
   records: [],
 }
 
-test("groupInstalledSkills includes built-in groups and agent coverage", () => {
+test("groupInstalledSkills groups installed skills with agent coverage and no built-in seeding", () => {
   const groups = groupInstalledSkills(installedSkills, manifestStore, agents)
-  const oo = groups.find((group) => group.id === "oo")
+  const alpha = groups.find((group) => group.id === "alpha")
   const example = groups.find((group) => group.id === "example")
 
-  assert.equal(oo?.isBuiltIn, true)
-  assert.equal(oo?.description, "Use OOMOL hosted capabilities")
-  assert.equal(oo?.hosts.length, 2)
-  assert.equal(oo?.externalHosts.length, 2)
-  assert.equal(oo?.runtimeHosts.length, 0)
-  assert.equal(oo?.hosts[0]?.controlState, "modified")
+  assert.equal(alpha?.kind, "local")
+  assert.equal(alpha?.description, "Local workflow skill")
+  assert.equal(alpha?.hosts.length, 2)
+  assert.equal(alpha?.externalHosts.length, 2)
+  assert.equal(alpha?.runtimeHosts.length, 0)
+  assert.equal(alpha?.hosts[0]?.controlState, "modified")
   assert.equal(example?.packageName, "@oomol/example")
   assert.equal(example?.icon, ":lucide:captions:")
   assert.equal(example?.description, "Example registry skill")
   assert.equal(example?.hosts[1]?.controlState, "controlled")
-  assert.equal(example?.runtimeHosts.length, 0)
+  // 只出现实际安装的 skill，不再用内置 skill id 预置任何分组。
   assert.deepEqual(
-    groups.slice(0, 4).map((group) => group.id),
-    ["oo", "oo-find-skills", "oo-create-skill", "oo-publish-skill"],
-  )
-  assert.deepEqual(
-    groups.slice(0, 4).map((group) => group.icon),
-    [":lucide:sparkles:", ":lucide:search:", ":lucide:wand-sparkles:", ":lucide:upload-cloud:"],
+    groups.map((group) => group.id),
+    ["alpha", "example"],
   )
 })
 
-test("buildSummary counts built-in coverage and attention hosts", () => {
+test("buildSummary counts managed skills and attention hosts", () => {
   const groups = groupInstalledSkills(installedSkills, manifestStore, agents)
   const summary = buildSummary(groups)
 
-  assert.equal(summary.builtInTotal, 4)
-  assert.equal(summary.builtInInstalled, 0)
-  assert.equal(summary.builtInMissing, 0)
   assert.equal(summary.managedSkills, 2)
   assert.equal(summary.modifiedHosts, 1)
   assert.equal(summary.needsAttention, 1)
-  assert.equal(summary.publishableSkills, 0)
+  assert.equal(summary.localSkills, 1)
   assert.equal(summary.registrySkills, 1)
+  assert.equal(summary.publishableSkills, 1)
   assert.deepEqual(
-    summary.nonBuiltInSkills.map((skill) => skill.id),
-    ["example"],
+    summary.skills.map((skill) => skill.id),
+    ["alpha", "example"],
   )
-  assert.equal(summary.nonBuiltInSkills[0]?.modifiedHosts, 0)
-  assert.equal(summary.nonBuiltInSkills[0]?.icon, ":lucide:captions:")
-  assert.equal(summary.nonBuiltInSkills[0]?.sourceMissingHosts, 0)
-  assert.equal(summary.nonBuiltInSkills[0]?.unknownHosts, 0)
-})
-
-test("buildSummary reports runtime built-in skills missing", () => {
-  const lumoOo: InstalledSkill = {
-    ...installedSkills[0]!,
-    agent: lumoAgent,
-    hash: "hash-a",
-    path: "/lumo/skills/oo",
-    sourceHash: "hash-a",
-    sourcePath: "/oo/skills/bundled/lumo/oo",
-  }
-  const groups = groupInstalledSkills([lumoOo], manifestStore, [lumoAgent])
-  const summary = buildSummary(groups)
-
-  assert.equal(summary.builtInInstalled, 1)
-  assert.equal(summary.builtInMissing, 3)
-  assert.equal(summary.needsAttention, 3)
-  assert.deepEqual(
-    summary.builtInSkills.map((skill) => [skill.id, skill.status, skill.missingAgents]),
-    [
-      ["oo", "installed", []],
-      ["oo-find-skills", "missing", ["lumo"]],
-      ["oo-create-skill", "missing", ["lumo"]],
-      ["oo-publish-skill", "missing", ["lumo"]],
-    ],
-  )
+  assert.equal(summary.skills[1]?.modifiedHosts, 0)
+  assert.equal(summary.skills[1]?.icon, ":lucide:captions:")
+  assert.equal(summary.skills[1]?.sourceMissingHosts, 0)
+  assert.equal(summary.skills[1]?.unknownHosts, 0)
 })
 
 test("buildSummary keeps mixed-kind same-id skills in one unknown group", () => {
@@ -177,22 +137,16 @@ test("buildSummary keeps mixed-kind same-id skills in one unknown group", () => 
   assert.equal(summary.localSkills, 0)
   assert.equal(summary.registrySkills, 0)
   assert.deepEqual(
-    summary.nonBuiltInSkills.map((skill) => skill.id),
+    summary.skills.map((skill) => skill.id),
     ["mixed-skill"],
   )
-  assert.equal(summary.nonBuiltInSkills[0]?.kind, "unknown")
+  assert.equal(summary.skills[0]?.kind, "unknown")
 })
 
-test("buildSummary does not report built-in missing when no agent is discovered", () => {
-  const groups = groupInstalledSkills([], manifestStore, [])
-  const summary = buildSummary(groups)
+test("buildSummary reports an empty inventory with no managed skills", () => {
+  const summary = buildSummary(groupInstalledSkills([], manifestStore, []))
 
-  assert.equal(summary.builtInTotal, 4)
-  assert.equal(summary.builtInInstalled, 0)
-  assert.equal(summary.builtInMissing, 0)
+  assert.equal(summary.managedSkills, 0)
   assert.equal(summary.needsAttention, 0)
-  assert.deepEqual(
-    summary.builtInSkills.map((skill) => skill.status),
-    ["unknown", "unknown", "unknown", "unknown"],
-  )
+  assert.deepEqual(summary.skills, [])
 })

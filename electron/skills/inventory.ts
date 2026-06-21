@@ -1,14 +1,7 @@
 import type { SupportedAgent } from "../agents/catalog.ts"
-import type {
-  BuiltInSkillCoverage,
-  ManagedSkillGroup,
-  ManagedSkillHostCoverage,
-  SkillSummary,
-  SkillSummaryItem,
-} from "./common.ts"
+import type { ManagedSkillGroup, ManagedSkillHostCoverage, SkillSummary, SkillSummaryItem } from "./common.ts"
 import type { InstalledSkill, SkillManifestStore } from "./types.ts"
 
-import { builtInSkillIconById, builtInSkillIds, builtInSkillOrderById } from "./constants.ts"
 import { readControlState } from "./manifest.ts"
 
 const lumoRuntimeHostId = "lumo"
@@ -56,17 +49,14 @@ export function groupInstalledSkills(
   agents?: readonly SupportedAgent[],
 ): ManagedSkillGroup[] {
   const coverageAgents = agents ?? getInstalledAgents(installedSkills)
-  const skillNames = Array.from(new Set([...builtInSkillIds, ...installedSkills.map((skill) => skill.name)])).sort(
-    compareSkillNames,
-  )
+  const skillNames = Array.from(new Set(installedSkills.map((skill) => skill.name))).sort(compareSkillNames)
 
   return skillNames.map((skillName) => {
     const matchedSkills = installedSkills.filter((skill) => skill.name === skillName)
     const firstMetadata = matchedSkills[0]?.metadata
-    const resolvedKind = resolveGroupKind(matchedSkills, isBuiltInSkillName(skillName))
+    const resolvedKind = resolveGroupKind(matchedSkills)
     const description = matchedSkills.find((skill) => skill.metadata.description)?.metadata.description
-    const icon = matchedSkills.find((skill) => skill.metadata.icon)?.metadata.icon ?? readBuiltInSkillIcon(skillName)
-    const isBuiltIn = isBuiltInSkillName(skillName)
+    const icon = matchedSkills.find((skill) => skill.metadata.icon)?.metadata.icon
 
     const coveredHosts = createHostCoverage(skillName, installedSkills, manifestStore, coverageAgents)
     const externalHosts = coveredHosts.filter((host) => host.scope === "external")
@@ -76,7 +66,6 @@ export function groupInstalledSkills(
       icon,
       id: skillName,
       name: skillName,
-      isBuiltIn,
       kind: resolvedKind,
       packageName: firstMetadata?.packageName,
       version: firstMetadata?.version,
@@ -87,19 +76,12 @@ export function groupInstalledSkills(
   })
 }
 
-function resolveGroupKind(matchedSkills: InstalledSkill[], isBuiltIn: boolean): ManagedSkillGroup["kind"] {
+function resolveGroupKind(matchedSkills: InstalledSkill[]): ManagedSkillGroup["kind"] {
   const kinds = new Set(matchedSkills.map((skill) => skill.metadata.kind).filter((kind) => kind !== undefined))
   if (kinds.size === 1) {
-    return Array.from(kinds)[0] ?? (isBuiltIn ? "bundled" : "unknown")
+    return Array.from(kinds)[0] ?? "unknown"
   }
-  if (kinds.size > 1) {
-    return isBuiltIn ? "bundled" : "unknown"
-  }
-  return isBuiltIn ? "bundled" : "unknown"
-}
-
-function isBuiltInSkillName(skillName: string): boolean {
-  return builtInSkillIds.includes(skillName as (typeof builtInSkillIds)[number])
+  return "unknown"
 }
 
 function getInstalledAgents(installedSkills: InstalledSkill[]): SupportedAgent[] {
@@ -113,45 +95,10 @@ function getInstalledAgents(installedSkills: InstalledSkill[]): SupportedAgent[]
 }
 
 function compareSkillNames(left: string, right: string): number {
-  const leftIndex = readBuiltInSkillOrder(left)
-  const rightIndex = readBuiltInSkillOrder(right)
-
-  if (leftIndex !== undefined || rightIndex !== undefined) {
-    return (leftIndex ?? Number.MAX_SAFE_INTEGER) - (rightIndex ?? Number.MAX_SAFE_INTEGER)
-  }
-
   return left.localeCompare(right)
 }
 
-function readBuiltInSkillIcon(skillName: string): string | undefined {
-  return isBuiltInSkillName(skillName) ? builtInSkillIconById[skillName as (typeof builtInSkillIds)[number]] : undefined
-}
-
-function readBuiltInSkillOrder(skillName: string): number | undefined {
-  return isBuiltInSkillName(skillName)
-    ? builtInSkillOrderById[skillName as (typeof builtInSkillIds)[number]]
-    : undefined
-}
-
 export function buildSummary(groups: ManagedSkillGroup[]): SkillSummary {
-  const builtInSkills: BuiltInSkillCoverage[] = builtInSkillIds.map((skillId) => {
-    const group = groups.find((item) => item.id === skillId)
-    const runtimeHosts = group?.runtimeHosts ?? []
-    const installedAgents = runtimeHosts.filter((host) => host.status === "installed").map((host) => host.agentId)
-    const missingAgents = runtimeHosts.filter((host) => host.status === "missing").map((host) => host.agentId)
-    const status: BuiltInSkillCoverage["status"] =
-      installedAgents.length > 0 ? "installed" : missingAgents.length > 0 ? "missing" : "unknown"
-
-    return {
-      id: skillId,
-      name: skillId,
-      status,
-      installedAgents,
-      missingAgents,
-    }
-  })
-  const builtInInstalled = builtInSkills.filter((skill) => skill.status === "installed").length
-  const builtInMissing = builtInSkills.filter((skill) => skill.status === "missing").length
   const installedGroups = groups.filter((group) => group.hosts.some((host) => host.status === "installed"))
   const localSkills = installedGroups.filter((group) => group.kind === "local").length
   const registrySkills = installedGroups.filter((group) => group.kind === "registry").length
@@ -164,30 +111,23 @@ export function buildSummary(groups: ManagedSkillGroup[]): SkillSummary {
     0,
   )
   const publishableSkills = installedGroups.filter((group) => group.kind === "local").length
-  const nonBuiltInSkills = installedGroups
-    .filter((group) => !group.isBuiltIn)
-    .map(toSkillSummaryItem)
-    .sort((left, right) => {
-      if (left.attentionHosts !== right.attentionHosts) {
-        return right.attentionHosts - left.attentionHosts
-      }
+  const skills = installedGroups.map(toSkillSummaryItem).sort((left, right) => {
+    if (left.attentionHosts !== right.attentionHosts) {
+      return right.attentionHosts - left.attentionHosts
+    }
 
-      return left.name.localeCompare(right.name)
-    })
+    return left.name.localeCompare(right.name)
+  })
 
   return {
-    builtInTotal: builtInSkills.length,
-    builtInInstalled,
-    builtInMissing,
     localSkills,
     managedSkills: installedGroups.length,
     modifiedHosts,
-    needsAttention: builtInMissing + modifiedHosts + sourceMissingHosts,
+    needsAttention: modifiedHosts + sourceMissingHosts,
     publishableSkills,
     registrySkills,
     sourceMissingHosts,
-    builtInSkills,
-    nonBuiltInSkills,
+    skills,
   }
 }
 

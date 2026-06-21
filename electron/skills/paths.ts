@@ -1,4 +1,3 @@
-import type { SupportedAgent } from "../agents/catalog.ts"
 import type { ManagedSkillKind } from "./common.ts"
 import type { InstalledSkill } from "./types.ts"
 
@@ -13,11 +12,7 @@ export function resolveSharedAgentSkillRoot(homeDirectory: string): string {
   return path.join(homeDirectory, ".agents", "skills")
 }
 
-function resolveCanonicalRootPath(kind: ManagedSkillKind | undefined, agent: SupportedAgent): string | undefined {
-  if (kind === "bundled") {
-    return path.join(resolveOoStoreDirectory(), "skills", "bundled", agent.ooCliAgentId)
-  }
-
+function resolveCanonicalRootPath(kind: ManagedSkillKind | undefined): string | undefined {
   if (kind === "registry") {
     return path.join(resolveOoStoreDirectory(), "skills", "registry")
   }
@@ -28,7 +23,7 @@ function resolveCanonicalRootPath(kind: ManagedSkillKind | undefined, agent: Sup
 export function resolveCanonicalSourcePath(
   skill: Pick<InstalledSkill, "agent" | "metadata" | "name" | "path">,
 ): string {
-  const rootPath = resolveCanonicalRootPath(skill.metadata.kind, skill.agent)
+  const rootPath = resolveCanonicalRootPath(skill.metadata.kind)
 
   if (!rootPath) {
     return path.resolve(skill.path)

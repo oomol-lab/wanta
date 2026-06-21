@@ -42,5 +42,8 @@ release
 # Bundled oo/opencode binaries staged by scripts/prepare-binaries.ts (not committed)
 resources/bin
 
+# Bundled oo skills exported by scripts/skills.ts (not committed)
+resources/skills
+
 # Local dev scratch
 .lumo-dev/

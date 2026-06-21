@@ -30,6 +30,8 @@ export interface AgentManagerOptions {
   opencodeBinPath: string
   /** oo 二进制绝对路径。 */
   ooBinPath: string
+  /** 内置 oo skill 源目录（resources/skills 或打包 Resources/skills）；启动时拷进 .opencode/skill/。 */
+  bundledSkillsDir?: string
   /** 当前组织工作区名称；未设置表示个人空间。 */
   organizationName?: string
   /** App 私有根目录（userData 下）：workspace / oo-store / isolation 都在其下。 */
@@ -148,13 +150,14 @@ export class AgentManager {
   }
 
   public async start(): Promise<void> {
-    const { authToken, opencodeBinPath, ooBinPath, rootDir, disableServerAuth, customModels } = this.options
+    const { authToken, opencodeBinPath, ooBinPath, bundledSkillsDir, rootDir, disableServerAuth, customModels } =
+      this.options
     const workspaceDir = path.join(rootDir, "workspace")
     const isolationDir = path.join(rootDir, "isolation")
     const storeDir = path.join(rootDir, "oo-store")
     const organizationScopePath = path.join(rootDir, "organization-scope.json")
 
-    await ensureAgentWorkspace(workspaceDir)
+    await ensureAgentWorkspace(workspaceDir, bundledSkillsDir)
     this.organizationScopePath = organizationScopePath
     await this.writeOrganizationScope()
 

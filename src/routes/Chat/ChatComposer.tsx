@@ -11,12 +11,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { buildConnectionPaletteItems, buildSkillPaletteItems, slashCommandItems } from "./composer-palette-items.ts"
-import {
-  buildComposerSubmitText,
-  buildVoiceTranscriptDraft,
-  composerReducer,
-  initialComposerState,
-} from "./composer-state.ts"
+import { composerReducer, initialComposerState } from "./composer-state.ts"
 import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
@@ -26,7 +21,6 @@ import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttac
 import { useComposerPalette } from "./useComposerPalette.ts"
 import { useModelCatalog } from "./useModelCatalog.ts"
 import { useVoiceComposerInput } from "./useVoiceComposerInput.ts"
-import { VoiceTranscriptBubbles } from "./VoiceTranscriptBubbles.tsx"
 import {
   PromptInput,
   PromptInputAttachments,
@@ -115,17 +109,11 @@ export function ChatComposer({
   const [inputError, setInputError] = React.useState<string | null>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const appendVoiceTranscription = React.useCallback((text: string) => {
-    dispatchComposer({
-      type: "append-transcription",
-      transcript: buildVoiceTranscriptDraft({
-        createdAt: Date.now(),
-        id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        text,
-      }),
-    })
+    dispatchComposer({ type: "insert-transcription", text })
+    window.requestAnimationFrame(() => textareaRef.current?.focus())
   }, [])
   const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
-  const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection, voiceTranscripts } = composer
+  const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   const isGenerating = status === "submitted" || status === "streaming"
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled = voiceInput.busy || initialSendPending
@@ -157,6 +145,14 @@ export function ChatComposer({
   React.useEffect(() => {
     onComposerStateChange?.(composer)
   }, [composer, onComposerStateChange])
+
+  React.useLayoutEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea || textarea.value !== draft) {
+      return
+    }
+    textarea.setSelectionRange(draftSelection.start, draftSelection.end)
+  }, [draft, draftSelection])
 
   const updateDraftSelection = React.useCallback(() => {
     const textarea = textareaRef.current
@@ -192,18 +188,6 @@ export function ChatComposer({
     dispatchComposer({ type: "remove-context-mention", mention })
   }, [])
 
-  const setVoiceTranscriptCollapsed = React.useCallback((id: string, collapsed: boolean) => {
-    dispatchComposer({ type: "set-voice-transcript-collapsed", collapsed, id })
-  }, [])
-
-  const removeVoiceTranscript = React.useCallback((id: string) => {
-    dispatchComposer({ type: "remove-voice-transcript", id })
-  }, [])
-
-  const updateVoiceTranscript = React.useCallback((id: string, text: string) => {
-    dispatchComposer({ type: "update-voice-transcript", id, text })
-  }, [])
-
   const composerPalette = useComposerPalette({
     connectionItems,
     disabled: composerDisabled,
@@ -221,7 +205,7 @@ export function ChatComposer({
   // 表单提交（含回车）始终走"发送"路径；"停止"只通过 ComposerTrailingControls
   // 的按钮点击触发，避免生成中按回车误中止流。
   const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
-    const text = buildComposerSubmitText(message.text, voiceTranscripts)
+    const text = message.text
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
@@ -261,9 +245,9 @@ export function ChatComposer({
   const errorBanner = visibleError ? (
     <ErrorNotice error={visibleError.error} compact showDiagnosticsCopy={visibleError.showDiagnosticsCopy} />
   ) : null
-  const submitText = buildComposerSubmitText(draft, voiceTranscripts)
+  const submitText = draft
   const canSubmit = !submitBlocked && !composerDisabled && (submitText.trim().length > 0 || attachments.length > 0)
-  const hasInputAddons = attachments.length > 0 || contextMentions.length > 0 || voiceTranscripts.length > 0
+  const hasInputAddons = attachments.length > 0 || contextMentions.length > 0
 
   const promptInput = (
     <PromptInput
@@ -278,13 +262,6 @@ export function ChatComposer({
             <ContextMentionChips
               mentions={contextMentions}
               onRemove={composerDisabled ? undefined : removeContextMention}
-            />
-            <VoiceTranscriptBubbles
-              disabled={composerDisabled}
-              transcripts={voiceTranscripts}
-              onCollapsedChange={setVoiceTranscriptCollapsed}
-              onRemove={removeVoiceTranscript}
-              onUpdate={updateVoiceTranscript}
             />
             {attachments.length > 0 ? (
               <AttachmentList

@@ -4,6 +4,7 @@ import { electronAPI } from "@electron-toolkit/preload"
 import { setupConnectionPreload } from "@oomol/connection-electron-adapter/preload"
 import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { APP_COMMAND_CHANNEL, isAppCommand } from "./app-command.ts"
+import { APP_LOCALE_CHANNEL, isAppLocale } from "./app-locale.ts"
 import { branding } from "./branding.ts"
 
 declare const __APP_COMMIT__: string | undefined
@@ -30,6 +31,7 @@ export interface LumoBridge {
   platform: NodeJS.Platform
   saveClipboardAttachment(input: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath>
   selectAttachmentPaths(kind: "file" | "directory"): Promise<SelectedAttachmentPath[]>
+  setAppLocale(locale: string): void
   version: string
 }
 
@@ -59,6 +61,11 @@ const lumo: LumoBridge = {
     electronAPI.ipcRenderer.invoke("lumo:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
   selectAttachmentPaths: (kind: "file" | "directory") =>
     electronAPI.ipcRenderer.invoke("lumo:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
+  setAppLocale: (locale: string) => {
+    if (isAppLocale(locale)) {
+      ipcRenderer.send(APP_LOCALE_CHANNEL, locale)
+    }
+  },
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
 }
 

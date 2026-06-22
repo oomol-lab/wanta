@@ -1,4 +1,5 @@
 import type { AppCommand } from "./app-command.ts"
+import type { AppLocale } from "./app-locale.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
@@ -18,6 +19,7 @@ import {
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
 import { APP_COMMAND_CHANNEL } from "./app-command.ts"
+import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
@@ -77,6 +79,7 @@ interface SaveClipboardAttachmentRequest {
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
 
 let mainWindow: BrowserWindow | null = null
+let currentLocale: AppLocale | null = null
 let isQuitting = false
 let windowsTrayLifecycle: {
   dispose: () => void
@@ -168,6 +171,7 @@ server.registerService(authService)
 server.registerService(updateService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandler()
+registerAppLocaleHandler()
 
 if (isLocked) {
   server.start()
@@ -470,12 +474,34 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
       buildApplicationMenuTemplate({
-        locale: app.getLocale(),
+        developmentMode: shouldShowDevelopmentMenu(),
+        locale: activeLocale(),
         onCommand: sendAppCommand,
         platform: process.platform,
       }),
     ),
   )
+}
+
+function activeLocale(): AppLocale {
+  return currentLocale ?? normalizeAppLocale(app.getLocale())
+}
+
+function shouldShowDevelopmentMenu(): boolean {
+  return !app.isPackaged || process.env["LUMO_ENABLE_DEV_MENU"] === "1"
+}
+
+function registerAppLocaleHandler(): void {
+  ipcMain.on(APP_LOCALE_CHANNEL, (_event, locale: unknown) => {
+    if (!isAppLocale(locale) || currentLocale === locale) {
+      return
+    }
+    currentLocale = locale
+    if (app.isReady()) {
+      installApplicationMenu()
+    }
+    windowsTrayLifecycle?.setLocale(locale)
+  })
 }
 
 function createMainWindow(): void {
@@ -521,7 +547,7 @@ function createMainWindow(): void {
       try {
         windowsTrayLifecycle = createWindowsTrayLifecycle({
           iconPath: getBrandingResourcePath("icon.ico"),
-          locale: app.getLocale(),
+          locale: activeLocale(),
           onExit: () => {
             isQuitting = true
             app.quit()

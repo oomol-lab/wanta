@@ -2,59 +2,15 @@ import type { AppCommand } from "../app-command.ts"
 import type { MenuItemConstructorOptions } from "electron"
 
 import { APP_COMMANDS } from "../app-command.ts"
+import { normalizeAppLocale } from "../app-locale.ts"
 import { branding } from "../branding.ts"
+import { applicationMenuLabels } from "./application-menu-messages.ts"
 
 interface ApplicationMenuOptions {
+  developmentMode: boolean
   locale?: string
   onCommand: (command: AppCommand) => void
   platform: NodeJS.Platform
-}
-
-function labels(locale: string | undefined): {
-  about: string
-  edit: string
-  file: string
-  focusComposer: string
-  help: string
-  newChat: string
-  searchTasks: string
-  settings: string
-  stopGeneration: string
-  toggleSidebar: string
-  view: string
-  window: string
-} {
-  const useChinese = locale?.toLowerCase().startsWith("zh") ?? false
-  if (useChinese) {
-    return {
-      about: `关于 ${branding.appName}`,
-      edit: "编辑",
-      file: "文件",
-      focusComposer: "聚焦输入框",
-      help: "帮助",
-      newChat: "新对话",
-      searchTasks: "搜索任务",
-      settings: "设置",
-      stopGeneration: "停止生成",
-      toggleSidebar: "切换侧边栏",
-      view: "视图",
-      window: "窗口",
-    }
-  }
-  return {
-    about: `About ${branding.appName}`,
-    edit: "Edit",
-    file: "File",
-    focusComposer: "Focus Composer",
-    help: "Help",
-    newChat: "New Chat",
-    searchTasks: "Search Tasks",
-    settings: "Settings",
-    stopGeneration: "Stop Generation",
-    toggleSidebar: "Toggle Sidebar",
-    view: "View",
-    window: "Window",
-  }
 }
 
 function settingsMenuItem(input: ApplicationMenuOptions, label: string): MenuItemConstructorOptions {
@@ -65,8 +21,15 @@ function settingsMenuItem(input: ApplicationMenuOptions, label: string): MenuIte
   }
 }
 
+function roleMenuItem(
+  role: NonNullable<MenuItemConstructorOptions["role"]>,
+  label: string,
+): MenuItemConstructorOptions {
+  return { label, role }
+}
+
 export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): MenuItemConstructorOptions[] {
-  const label = labels(input.locale)
+  const label = applicationMenuLabels(normalizeAppLocale(input.locale))
   const isMac = input.platform === "darwin"
 
   const template: MenuItemConstructorOptions[] = []
@@ -75,17 +38,17 @@ export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): Men
     template.push({
       label: branding.appName,
       submenu: [
-        { label: label.about, role: "about" },
+        roleMenuItem("about", label.about),
         { type: "separator" },
         settingsMenuItem(input, label.settings),
         { type: "separator" },
-        { role: "services" },
+        roleMenuItem("services", label.services),
         { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
+        roleMenuItem("hide", label.hide),
+        roleMenuItem("hideOthers", label.hideOthers),
+        roleMenuItem("unhide", label.showAll),
         { type: "separator" },
-        { role: "quit" },
+        roleMenuItem("quit", label.quit),
       ],
     })
   }
@@ -101,22 +64,22 @@ export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): Men
         },
         ...(isMac ? [] : [{ type: "separator" } as const, settingsMenuItem(input, label.settings)]),
         { type: "separator" },
-        isMac ? { role: "close" } : { role: "quit" },
+        isMac ? roleMenuItem("close", label.closeWindow) : roleMenuItem("quit", label.exit),
       ],
     },
     {
       label: label.edit,
       submenu: [
-        { role: "undo" },
-        { role: "redo" },
+        roleMenuItem("undo", label.undo),
+        roleMenuItem("redo", label.redo),
         { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "pasteAndMatchStyle" },
-        { role: "delete" },
+        roleMenuItem("cut", label.cut),
+        roleMenuItem("copy", label.copy),
+        roleMenuItem("paste", label.paste),
+        roleMenuItem("pasteAndMatchStyle", label.pasteAndMatchStyle),
+        roleMenuItem("delete", label.delete),
         { type: "separator" },
-        { role: "selectAll" },
+        roleMenuItem("selectAll", label.selectAll),
       ],
     },
     {
@@ -144,26 +107,42 @@ export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): Men
           label: label.toggleSidebar,
         },
         { type: "separator" },
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
+        roleMenuItem("resetZoom", label.resetZoom),
+        roleMenuItem("zoomIn", label.zoomIn),
+        roleMenuItem("zoomOut", label.zoomOut),
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
+        roleMenuItem("togglefullscreen", label.toggleFullScreen),
       ],
     },
+  )
+
+  if (input.developmentMode) {
+    template.push({
+      label: label.developer,
+      submenu: [
+        roleMenuItem("reload", label.reload),
+        roleMenuItem("forceReload", label.forceReload),
+        roleMenuItem("toggleDevTools", label.toggleDevTools),
+      ],
+    })
+  }
+
+  template.push(
     {
       label: label.window,
       submenu: isMac
-        ? [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }]
-        : [{ role: "minimize" }, { role: "close" }],
+        ? [
+            roleMenuItem("minimize", label.minimize),
+            roleMenuItem("zoom", label.zoom),
+            { type: "separator" },
+            roleMenuItem("front", label.front),
+          ]
+        : [roleMenuItem("minimize", label.minimize), roleMenuItem("close", label.closeWindow)],
     },
     {
+      role: "help",
       label: label.help,
-      submenu: [],
+      submenu: [roleMenuItem("about", label.about)],
     },
   )
 

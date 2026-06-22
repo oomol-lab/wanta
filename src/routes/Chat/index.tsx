@@ -256,18 +256,20 @@ function TurnProcessActivity({
 
   return (
     <Task open={open} onOpenChange={handleOpenChange} className="not-prose my-0 w-full">
-      <TaskTrigger title={title}>
-        <button
-          type="button"
-          className="group flex w-full max-w-full items-center gap-1.5 border-b border-border/60 py-1.5 pr-1.5 text-left text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 truncate">{titleText}</span>
-            {duration ? <span className="shrink-0 text-muted-foreground/75 tabular-nums">{duration}</span> : null}
-          </span>
-          <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-        </button>
-      </TaskTrigger>
+      <div className="border-b border-border/60 py-1.5 pr-1.5">
+        <TaskTrigger title={title}>
+          <button
+            type="button"
+            className="group inline-flex max-w-full items-center gap-1.5 text-left font-medium text-[var(--oo-section-heading-foreground)] transition-colors select-none"
+          >
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="min-w-0 truncate">{titleText}</span>
+              {duration ? <span className="shrink-0 tabular-nums">{duration}</span> : null}
+            </span>
+            <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
+          </button>
+        </TaskTrigger>
+      </div>
       <TaskContent className="[&>div]:mt-0">
         <div className="space-y-2 pt-2">
           {blocks.map(({ message, block }, index) => (

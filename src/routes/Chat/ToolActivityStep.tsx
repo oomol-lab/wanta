@@ -64,12 +64,12 @@ function ToolInlineDetail({ line }: { line: ToolDisplayLine }) {
   }
   if (line.detailKind === "code") {
     return (
-      <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-muted-foreground">
+      <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] font-medium text-muted-foreground">
         {line.detail}
       </code>
     )
   }
-  return <span className="min-w-0 flex-1 truncate text-muted-foreground">{line.detail}</span>
+  return <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">{line.detail}</span>
 }
 
 function formatToolOutput(output: string | undefined): string {
@@ -228,10 +228,12 @@ export function ToolActivityStep({
       <div className="min-w-0 flex-1 overflow-hidden">
         {showShimmer ? (
           <div className="flex min-w-0 items-center gap-2">
-            <LoadingShimmerText className="min-w-0 shrink-0 truncate">{displayLine.title}</LoadingShimmerText>
+            <LoadingShimmerText className="min-w-0 shrink-0 truncate font-medium">
+              {displayLine.title}
+            </LoadingShimmerText>
             <ToolInlineDetail line={displayLine} />
             {displayLine.detail ? null : <span aria-hidden="true" className="min-w-0 flex-1" />}
-            <span className="flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground">
+            <span className="flex min-w-0 shrink-0 items-center gap-1 font-medium text-muted-foreground">
               {metaItems.map((item, index) => (
                 <React.Fragment key={`${index}:${item}`}>
                   {index > 0 ? <span className="text-muted-foreground/70">·</span> : null}
@@ -242,13 +244,15 @@ export function ToolActivityStep({
           </div>
         ) : (
           <div className="flex min-w-0 items-center gap-2">
-            <span className={cn("min-w-0 truncate text-foreground", displayLine.detail ? "shrink-0" : "flex-1")}>
+            <span
+              className={cn("min-w-0 truncate font-medium text-foreground", displayLine.detail ? "shrink-0" : "flex-1")}
+            >
               {displayLine.title}
             </span>
             <ToolInlineDetail line={displayLine} />
             <span
               className={cn(
-                "flex min-w-0 shrink-0 items-center gap-1 text-muted-foreground transition-opacity",
+                "flex min-w-0 shrink-0 items-center gap-1 font-medium text-muted-foreground transition-opacity",
                 completedMeta && "opacity-0 group-hover/tool-step:opacity-100",
                 completedMeta &&
                   details &&

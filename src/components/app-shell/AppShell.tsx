@@ -507,7 +507,7 @@ function SessionItem({
   return (
     <div
       className={cn(
-        "oo-sidebar-nav-item group oo-text-control flex h-8 items-center rounded-md px-3",
+        "oo-sidebar-nav-item group oo-text-body flex h-8 items-center rounded-md px-3",
         active && "bg-sidebar-accent text-sidebar-accent-foreground",
       )}
     >
@@ -1096,7 +1096,7 @@ function SidebarFooterControls({
               workspace={workspace.activeWorkspace}
             />
             <div className="oo-sidebar-nav-label min-w-0 flex-1">
-              <div className="oo-text-control truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
+              <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
                 {activeWorkspaceLabel}
               </div>
             </div>
@@ -2254,7 +2254,7 @@ export function AppShell() {
               aria-label={newChatLabel}
               aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.newChat)}
               className={cn(
-                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
                 route === "chat" && !activeSessionId && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
@@ -2265,7 +2265,7 @@ export function AppShell() {
               type="button"
               onClick={() => setRoute("connections")}
               className={cn(
-                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
                 route === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
@@ -2276,7 +2276,7 @@ export function AppShell() {
               type="button"
               onClick={() => setRoute("skills")}
               className={cn(
-                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
                 route === "skills" && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >
@@ -2287,7 +2287,7 @@ export function AppShell() {
               type="button"
               onClick={() => setRoute("organizations")}
               className={cn(
-                "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
+                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
                 route === "organizations" && "bg-sidebar-accent text-sidebar-accent-foreground",
               )}
             >

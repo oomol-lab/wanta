@@ -1788,7 +1788,7 @@ function SkillPeek({
                 <div className="grid min-w-0 gap-1">
                   <div className="text-xs font-medium">{t("skills.localChangeActionTitle")}</div>
                   <CardDescription className="text-xs">
-                    {hasSourceMissingHost
+                    {hasSourceMissingHost && canRestoreRegistrySkill
                       ? t("skills.localChangeSourceMissingDescription")
                       : canRestoreRegistrySkill
                         ? t("skills.localChangeRegistryDescription")

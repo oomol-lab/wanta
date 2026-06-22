@@ -58,12 +58,32 @@ function mergedVary(headers: Record<string, string[]>): string[] {
 }
 
 /**
+ * 仅放行本应用渲染进程的 origin：生产 file://（跨站 fetch 的 Origin 为 "null" 或 "file://"）、
+ * dev 的 http(s)://localhost|127.0.0.1（任意端口）。即便 webRequest 已限定 *.<endpoint>，
+ * 也不给其他 origin 回显带凭证的 CORS（防 webview / 被导航文档借本会话读已鉴权响应）。
+ */
+function isAllowedRendererOrigin(origin: string): boolean {
+  if (origin === "null" || origin === "file://") {
+    return true
+  }
+  try {
+    const url = new URL(origin)
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false
+    }
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1"
+  } catch {
+    return false
+  }
+}
+
+/**
  * 纯函数：给定一条来自 oomol 域名的响应，算出注入 CORS 头后的响应头（含预检的 200 改写）。
  * 主进程的 webRequest 监听只是这层纯逻辑的薄壳。
  */
 export function applyOomolCors(input: OomolCorsOverrideInput): OomolCorsOverrideResult {
   const { method, origin, requestedHeaders } = input
-  if (!origin) {
+  if (!origin || !isAllowedRendererOrigin(origin)) {
     return { responseHeaders: input.responseHeaders }
   }
   const vary = mergedVary(input.responseHeaders)

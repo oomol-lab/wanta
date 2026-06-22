@@ -44,13 +44,13 @@ IPC 只承载"必须在主进程做"的事（agent 内核、deep-link 鉴权、f
 
 **已搬到渲染层的域**（各有 `src/lib/*-client.ts`，无状态函数集，缓存交给各自的 hook）：
 
-| 域 | 渲染层落点 | 主进程残留 |
-| --- | --- | --- |
-| billing | `billing-client.ts`（insight/console-server 认证 GET 扇出 + 结账 URL 解析）；主进程 `chat/billing.ts` 已删 | open* 改 `chatService.openExternalUrl` IPC（仅 `shell.openExternal` 校验外开） |
-| voice ASR | `routes/Chat/voice-asr.ts`（音频本就在渲染层录制，免去 base64 穿 IPC） | 无 |
-| organizations | `organizations-client.ts` + `organization-change-bus.ts`（渲染层事件总线替代旧 RPC `organizationChanged` 广播）；**整个 IPC service 已删** | 无 |
-| skills 浏览 | `skills-catalog-client.ts`（registry/search 浏览 GET + 并发 10 详情扇出） | install/update 仍是 oo CLI spawn + 写盘 + 刷新 agent（本就不是 fetch） |
-| connections | `connections-client.ts`（连接器全量 HTTP + etag/30s GET 缓存 + summary merge）；`useConnections(workspace)` 持 summary 状态与 oauth 轮询；**整个 IPC service 已删** | oauth 开浏览器走 `chatService.openExternalUrl`；workspace→agent 组织作用域走 `chatService.setAgentOrganization` |
+| 域            | 渲染层落点                                                                                                                                                          | 主进程残留                                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| billing       | `billing-client.ts`（insight/console-server 认证 GET 扇出 + 结账 URL 解析）；主进程 `chat/billing.ts` 已删                                                          | open\* 改 `chatService.openExternalUrl` IPC（仅 `shell.openExternal` 校验外开）                                 |
+| voice ASR     | `routes/Chat/voice-asr.ts`（音频本就在渲染层录制，免去 base64 穿 IPC）                                                                                              | 无                                                                                                              |
+| organizations | `organizations-client.ts` + `organization-change-bus.ts`（渲染层事件总线替代旧 RPC `organizationChanged` 广播）；**整个 IPC service 已删**                          | 无                                                                                                              |
+| skills 浏览   | `skills-catalog-client.ts`（registry/search 浏览 GET + 并发 10 详情扇出）                                                                                           | install/update 仍是 oo CLI spawn + 写盘 + 刷新 agent（本就不是 fetch）                                          |
+| connections   | `connections-client.ts`（连接器全量 HTTP + etag/30s GET 缓存 + summary merge）；`useConnections(workspace)` 持 summary 状态与 oauth 轮询；**整个 IPC service 已删** | oauth 开浏览器走 `chatService.openExternalUrl`；workspace→agent 组织作用域走 `chatService.setAgentOrganization` |
 
 **仍留主进程的请求（正确，非渲染业务）**：`auth/node.ts` 的 deep-link 取 token（`POST /v1/auth/auth_id` + `GET /v1/users/profile`，cookie 必须在主进程设，见 §6）；`agent/manager.ts` 的 `listAuthorizedServices`（`GET /v1/apps`，构建 system-prompt 尾的已授权提示）与标题生成 `chat/completions`——都是 agent 内核内部、sidecar 驱动，不是渲染业务。
 

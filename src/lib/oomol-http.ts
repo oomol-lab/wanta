@@ -11,12 +11,12 @@ const defaultTimeoutMs = 15_000
 export const authRequiredMessage = "Sign in is required."
 
 export class OomolHttpError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
+  readonly status: number
+
+  constructor(message: string, status: number) {
     super(message)
     this.name = "OomolHttpError"
+    this.status = status
   }
 }
 
@@ -38,10 +38,15 @@ export interface OomolFetchOptions extends Omit<RequestInit, "credentials"> {
  */
 export function oomolFetch(input: string | URL, options: OomolFetchOptions = {}): Promise<Response> {
   const { timeoutMs = defaultTimeoutMs, headers, signal, ...init } = options
+  // 用 Headers 规范化：调用方可能传 Headers 实例或 tuple 数组，对象展开会丢头（仅对纯对象有效）。
+  const mergedHeaders = new Headers(headers)
+  if (!mergedHeaders.has("Accept")) {
+    mergedHeaders.set("Accept", "application/json")
+  }
   return fetch(input, {
     ...init,
     credentials: "include",
-    headers: { Accept: "application/json", ...headers },
+    headers: mergedHeaders,
     signal: signal ?? AbortSignal.timeout(timeoutMs),
   })
 }

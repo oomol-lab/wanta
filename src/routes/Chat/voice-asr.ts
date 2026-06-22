@@ -69,7 +69,8 @@ export async function transcribeVoice(audioBase64: string): Promise<string> {
       timeoutMs: voiceAsrTimeoutMs,
     })
   } catch (error) {
-    throw new Error(`Voice transcription request failed: ${describeVoiceAsrFetchFailure(error)}`)
+    // 保留原始错误链：describeVoiceAsrFetchFailure 已提取 cause.code/message 入文案，cause 再留结构化细节。
+    throw new Error(`Voice transcription request failed: ${describeVoiceAsrFetchFailure(error)}`, { cause: error })
   }
   const text = await response.text()
   let payload: VoiceAsrResponse | undefined

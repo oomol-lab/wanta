@@ -14,7 +14,12 @@ export function onOrganizationChanged(listener: OrganizationChangeListener): () 
 }
 
 export function emitOrganizationChanged(): void {
+  // 逐个隔离异常：单个 listener 抛错不应中断后续广播（否则会出现"部分组件未刷新"）。
   for (const listener of listeners) {
-    listener()
+    try {
+      listener()
+    } catch (error) {
+      console.error("[lumo] organization change listener failed:", error)
+    }
   }
 }

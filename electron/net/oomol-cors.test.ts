@@ -48,6 +48,16 @@ describe("applyOomolCors", () => {
     expect(result.responseHeaders["Access-Control-Allow-Origin"]).not.toEqual(["*"])
   })
 
+  it("does NOT inject CORS for an origin outside the renderer allowlist", () => {
+    const responseHeaders = { "content-type": ["application/json"] }
+    for (const origin of ["https://evil.example.com", "https://chat.oomol.com", "http://localhost.evil.com"]) {
+      const result = applyOomolCors({ method: "GET", origin, requestedHeaders: undefined, responseHeaders })
+      expect(result.responseHeaders["Access-Control-Allow-Origin"]).toBeUndefined()
+      expect(result.responseHeaders).toBe(responseHeaders)
+      expect(result.statusLine).toBeUndefined()
+    }
+  })
+
   it("answers a preflight OPTIONS with 200 + methods/headers/max-age", () => {
     const result = applyOomolCors({
       method: "OPTIONS",
@@ -57,7 +67,7 @@ describe("applyOomolCors", () => {
     })
     expect(result.statusLine).toBe("HTTP/1.1 200 OK")
     expect(result.responseHeaders["Access-Control-Allow-Methods"]?.[0]).toContain("POST")
-    // Access-Control-Request-Headers is reflected so any custom header passes preflight.
+    // 回显 Access-Control-Request-Headers，确保任意自定义请求头都能通过预检。
     expect(result.responseHeaders["Access-Control-Allow-Headers"]).toEqual(["x-oo-organization-name,content-type"])
     expect(result.responseHeaders["Access-Control-Max-Age"]).toEqual(["600"])
   })
@@ -84,7 +94,7 @@ describe("applyOomolCors", () => {
       },
     })
     expect(result.responseHeaders["Access-Control-Allow-Origin"]).toEqual(["http://localhost:5273"])
-    // Only one ACAO survives (ours); the server's conflicting copy is removed.
+    // 只保留一个 ACAO（本地注入的值）；服务端冲突的那份被移除。
     const acaoKeys = Object.keys(result.responseHeaders).filter(
       (name) => name.toLowerCase() === "access-control-allow-origin",
     )

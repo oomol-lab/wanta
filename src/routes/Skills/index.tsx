@@ -89,6 +89,25 @@ function skillErrorMessage(cause: unknown, t: TFunction): string {
   return userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t)
 }
 
+type SkillOperationError = {
+  message: string
+  operation: "publish" | "update"
+  skillId: SkillSelectionKey
+}
+
+function visibleSkillOperationError(
+  error: SkillOperationError | null,
+  skillId: SkillSelectionKey | undefined,
+): string | null {
+  if (!error) {
+    return null
+  }
+  if (error.skillId === skillId) {
+    return error.message
+  }
+  return null
+}
+
 const publishableSkillBadgeClassName =
   "h-5 shrink-0 border-blue-200 bg-blue-50 px-1.5 text-[11px] leading-none font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-300"
 
@@ -202,7 +221,8 @@ export function SkillsRoute() {
     initialPublicPackageCatalogState,
   )
   const [installingRegistryResultId, setInstallingRegistryResultId] = React.useState<string | null>(null)
-  const [planError, setPlanError] = React.useState<string | null>(null)
+  const [planError, setPlanError] = React.useState<SkillOperationError | null>(null)
+  const [cliUpdateError, setCliUpdateError] = React.useState<string | null>(null)
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
@@ -256,6 +276,12 @@ export function SkillsRoute() {
     requestedVersionCheckRef.current = true
     void versionResource.refresh({ silent: true }).catch(() => {})
   }, [versionResource])
+
+  React.useEffect(() => {
+    if (versionResource.data?.cli?.status !== "update-available") {
+      setCliUpdateError(null)
+    }
+  }, [versionResource.data?.cli?.status])
 
   const selectSkill = React.useCallback((skillId: SkillSelectionKey) => {
     setSelectedSkillId(skillId)
@@ -437,7 +463,11 @@ export function SkillsRoute() {
         await versionResource.refresh({ forceRefresh: true, silent: true })
         homeSummaryResource.invalidate()
       } catch (cause) {
-        setPlanError(cause instanceof Error ? cause.message : String(cause))
+        setPlanError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          operation: "update",
+          skillId: skill.id,
+        })
       } finally {
         updateRegistryInFlightRef.current = false
         setUpdatingRegistrySkillId(null)
@@ -477,8 +507,7 @@ export function SkillsRoute() {
         }
       } catch (cause) {
         const message = skillErrorMessage(cause, t)
-        setPlanError(message)
-        toast.error(t("skills.publishFailed", { error: message }))
+        setPlanError({ message, operation: "publish", skillId: skill.id })
       } finally {
         publishSkillInFlightRef.current = false
         setPublishingSkillId(null)
@@ -503,7 +532,7 @@ export function SkillsRoute() {
 
     cliUpdateInFlightRef.current = true
     setIsExecutingCliUpdate(true)
-    setPlanError(null)
+    setCliUpdateError(null)
 
     try {
       const report = await skillService.invoke("executeCliUpdate")
@@ -511,7 +540,7 @@ export function SkillsRoute() {
       await inventoryResource.refresh({ forceRefresh: true, silent: true })
       homeSummaryResource.invalidate()
     } catch (cause) {
-      setPlanError(cause instanceof Error ? cause.message : String(cause))
+      setCliUpdateError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       cliUpdateInFlightRef.current = false
       setIsExecutingCliUpdate(false)
@@ -526,7 +555,7 @@ export function SkillsRoute() {
     openSkillFolder,
     publishSkill,
     publishingSkillId,
-    selectedPlanError: planError,
+    selectedPlanError: visibleSkillOperationError(planError, selectedSkill?.id),
     selectedSkill,
     selectedStatus,
     selectedVersionCheck,
@@ -583,6 +612,7 @@ export function SkillsRoute() {
           />
         ) : (
           <InstalledSkillsPane
+            cliUpdateError={cliUpdateError}
             cliVersionCheck={versionResource.data?.cli}
             detailContentProps={detailContentProps}
             groups={filteredInstalledGroups}
@@ -1053,6 +1083,7 @@ function PublicSkillPackageCard({
 }
 
 interface InstalledSkillsPaneProps {
+  cliUpdateError: string | null
   cliVersionCheck: SkillVersionReport["cli"] | undefined
   detailContentProps: SkillDetailContentProps
   groups: ManagedSkillGroup[]
@@ -1068,6 +1099,7 @@ interface InstalledSkillsPaneProps {
 }
 
 function InstalledSkillsPane({
+  cliUpdateError,
   cliVersionCheck,
   detailContentProps,
   groups,
@@ -1086,7 +1118,12 @@ function InstalledSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3">
       <div className="grid gap-3 pr-1">
-        <CliUpdateNotice cli={cliVersionCheck} isUpdating={isExecutingCliUpdate} onUpdate={onUpdateCli} />
+        <CliUpdateNotice
+          cli={cliVersionCheck}
+          error={cliUpdateError}
+          isUpdating={isExecutingCliUpdate}
+          onUpdate={onUpdateCli}
+        />
         {groups.length === 0 ? (
           <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.installedEmpty")}</div>
         ) : (
@@ -1117,10 +1154,12 @@ function InstalledSkillsPane({
 
 function CliUpdateNotice({
   cli,
+  error,
   isUpdating,
   onUpdate,
 }: {
   cli: SkillVersionReport["cli"] | undefined
+  error: string | null
   isUpdating: boolean
   onUpdate: () => void
 }) {
@@ -1147,6 +1186,7 @@ function CliUpdateNotice({
           {isUpdating ? t("skills.updatingCli") : t("skills.updateCli")}
         </Button>
       </div>
+      <SkillErrorNotice error={error} />
     </Card>
   )
 }
@@ -1889,7 +1929,7 @@ function SkillPeek({
               type="button"
               variant="outline"
               size="sm"
-              disabled={!skillDocumentRootPath}
+              disabled={!skillDocumentRootPath || Boolean(skillDocumentError)}
               onClick={() => void openSkillDocument()}
             >
               <AppIcons.action.openExternal />

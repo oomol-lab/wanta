@@ -265,9 +265,7 @@ function AboutSettings({ update }: { update: UseAppUpdate }) {
         <div className="oo-text-label text-muted-foreground">{branding.appName}</div>
         <div className="oo-text-value text-foreground">v{version}</div>
         <div className="oo-text-caption">{t("settings.platform", { platform })}</div>
-        <div className={cn("oo-text-caption", update.state?.status.status === "error" && "text-destructive")}>
-          {statusText}
-        </div>
+        {updateError ? null : <div className="oo-text-caption">{statusText}</div>}
         {updateError ? <ErrorNotice error={updateError} compact className="mt-2 max-w-xl" /> : null}
         {downloadingStatus ? <Progress value={percent} className="mt-3 h-1.5 max-w-sm" /> : null}
       </div>

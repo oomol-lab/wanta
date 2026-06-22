@@ -1,0 +1,51 @@
+import type { UserFacingError } from "@/lib/user-facing-error"
+
+export interface ConnectionErrorNotice {
+  error: UserFacingError
+  showDiagnosticsCopy: boolean
+}
+
+interface DetailErrorNoticeInput {
+  actionError: UserFacingError | null
+  detailError: UserFacingError | null
+}
+
+interface ListErrorNoticeInput {
+  detailError?: UserFacingError | null
+  summaryError: UserFacingError | null
+}
+
+export function getConnectionDetailErrorNotice({
+  actionError,
+  detailError,
+}: DetailErrorNoticeInput): ConnectionErrorNotice | null {
+  const error = actionError ?? detailError
+  return error ? { error, showDiagnosticsCopy: true } : null
+}
+
+export function getConnectionListErrorNotice({
+  detailError,
+  summaryError,
+}: ListErrorNoticeInput): ConnectionErrorNotice | null {
+  if (!summaryError) {
+    return null
+  }
+
+  if (detailError && connectionErrorSignature(summaryError) === connectionErrorSignature(detailError)) {
+    return null
+  }
+
+  return { error: summaryError, showDiagnosticsCopy: true }
+}
+
+export function connectionErrorSignature(error: UserFacingError): string {
+  return [
+    error.area,
+    error.kind,
+    error.severity,
+    error.titleKey,
+    error.descriptionKey,
+    error.descriptionText ?? "",
+    error.diagnostics ?? "",
+  ].join("\u001f")
+}

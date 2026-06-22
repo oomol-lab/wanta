@@ -1183,32 +1183,48 @@ function OrganizationDetailPanel({
           ) : null
         }
       >
-        {membersLoading ? (
-          <MemberRowsSkeleton canManage={canManage} />
-        ) : membersError ? (
-          <EmptyBlock>
-            {membersError.includes("HTTP 403") ? t("organizations.membersForbidden") : membersError}
-          </EmptyBlock>
-        ) : members.length === 0 ? (
-          <EmptyBlock>{t("organizations.emptyMembersDescription")}</EmptyBlock>
-        ) : (
-          <MembersTable
-            appAccessLoading={appAccessLoading}
-            busyAction={busyAction}
-            canManage={canManage}
-            grantsByUserId={grantsByUserId}
-            members={members}
-            providerAccessError={providerAccessError}
-            onEditProviderAccess={onEditProviderAccess}
-            onGrantProviderAccess={onGrantProviderAccess}
-            onRemoveMember={onRemoveMember}
-            onRevokeProviderAccess={onRevokeProviderAccess}
-          />
-        )}
+        <>
+          {providerAccessError && !membersError ? <ProviderAccessWarning error={providerAccessError} /> : null}
+          {membersLoading ? (
+            <MemberRowsSkeleton canManage={canManage} />
+          ) : membersError ? (
+            <EmptyBlock>
+              {membersError.includes("HTTP 403") ? t("organizations.membersForbidden") : membersError}
+            </EmptyBlock>
+          ) : members.length === 0 ? (
+            <EmptyBlock>{t("organizations.emptyMembersDescription")}</EmptyBlock>
+          ) : (
+            <MembersTable
+              appAccessLoading={appAccessLoading}
+              busyAction={busyAction}
+              canManage={canManage}
+              grantsByUserId={grantsByUserId}
+              members={members}
+              providerAccessError={providerAccessError}
+              onEditProviderAccess={onEditProviderAccess}
+              onGrantProviderAccess={onGrantProviderAccess}
+              onRemoveMember={onRemoveMember}
+              onRevokeProviderAccess={onRevokeProviderAccess}
+            />
+          )}
+        </>
       </Panel>
     </div>
   )
 }
+
+function ProviderAccessWarning({ error }: { error: string }) {
+  const { t } = useAppI18n()
+  return (
+    <div className="mx-3 mt-3 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
+      <div className="text-sm font-medium text-foreground">{t("organizations.providerAccessLoadFailed")}</div>
+      <div className="oo-text-caption mt-0.5 break-words" title={error}>
+        {t("organizations.providerAccessLoadFailedDescription")}
+      </div>
+    </div>
+  )
+}
+
 function MembersTable({
   appAccessLoading,
   busyAction,
@@ -1285,7 +1301,11 @@ function MembersTable({
                         allProvidersLabel={t("organizations.allProviders")}
                         grant={grant}
                         loading={appAccessLoading}
-                        notAuthorizedLabel={providerAccessError ?? t("organizations.notAuthorized")}
+                        notAuthorizedLabel={
+                          providerAccessError
+                            ? t("organizations.providerAccessUnavailable")
+                            : t("organizations.notAuthorized")
+                        }
                       />
                     )}
                   </div>

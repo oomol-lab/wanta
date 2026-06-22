@@ -76,6 +76,8 @@ export const skillsMessages = {
     "organizations.editProviderAccess": "编辑连接器权限",
     "organizations.providerAccessDescription": "成员可通过组织使用被授权的连接器账号，无需持有原始凭证。",
     "organizations.providerAccessLoadFailed": "连接器权限加载失败",
+    "organizations.providerAccessLoadFailedDescription": "暂时无法读取成员可使用的组织连接器。",
+    "organizations.providerAccessUnavailable": "权限数据暂不可用",
     "organizations.providerAccessSaveSuccess": "连接器权限已保存",
     "organizations.providerAccessRevokeSuccess": "连接器权限已撤销",
     "organizations.memberRequired": "请选择成员",
@@ -301,6 +303,8 @@ export const skillsMessages = {
     "organizations.providerAccessDescription":
       "Members can use authorized organization connections without seeing the original credential.",
     "organizations.providerAccessLoadFailed": "Failed to load connector access",
+    "organizations.providerAccessLoadFailedDescription": "Member connector access cannot be loaded right now.",
+    "organizations.providerAccessUnavailable": "Access data unavailable",
     "organizations.providerAccessSaveSuccess": "Connector access saved",
     "organizations.providerAccessRevokeSuccess": "Connector access revoked",
     "organizations.memberRequired": "Select a member",

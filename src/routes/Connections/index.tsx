@@ -9,6 +9,7 @@ import type {
   ConnectionUsageDailyPoint,
   ConnectionUsageServiceItem,
 } from "../../../electron/connections/common.ts"
+import type { ConnectionErrorNotice } from "./connection-error-display.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
@@ -29,6 +30,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { ConnectDialog } from "./ConnectDialog.tsx"
+import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./connection-error-display.ts"
 import {
   getProviderGridColumnCount,
   getProviderGridVisibleRange,
@@ -60,6 +62,7 @@ import {
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
+import { resolveConnectionError } from "@/lib/connections-error"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -359,7 +362,18 @@ interface ConnectionsPanelProps {
 
 export function ConnectionsPanel({ connections, selectedService }: ConnectionsPanelProps) {
   const t = useT()
-  const { summary, busy, polling, error, connect, disconnect, cancelPolling, getProviderDetail } = connections
+  const {
+    actionError,
+    busy,
+    cancelPolling,
+    clearActionError,
+    connect,
+    disconnect,
+    getProviderDetail,
+    polling,
+    summary,
+    summaryError,
+  } = connections
   const [query, setQuery] = React.useState("")
   const [activeFilter, setActiveFilter] = React.useState<ConnectionCatalogFilter>({ kind: "all" })
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
@@ -399,6 +413,11 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
   const selectedDetailService = selectedProvider?.service ?? null
+  const detailErrorNotice = selectedProvider ? getConnectionDetailErrorNotice({ actionError, detailError }) : null
+  const listErrorNotice = getConnectionListErrorNotice({
+    summaryError,
+    detailError: detailErrorNotice?.error ?? null,
+  })
 
   const clearDetailCloseTimer = React.useCallback(() => {
     if (detailCloseTimerRef.current === null) {
@@ -413,10 +432,11 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     (service: string) => {
       clearDetailCloseTimer()
       setDetailPaneClosing(false)
+      clearActionError()
       setSelectedProviderService(service)
       setNarrowPane("detail")
     },
-    [clearDetailCloseTimer],
+    [clearActionError, clearDetailCloseTimer],
   )
 
   const closeDetail = React.useCallback(() => {
@@ -507,7 +527,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         if (!cancelled && detailRequestIdRef.current === requestId) {
           setDetail(null)
           setDetailService(null)
-          setDetailError(resolveUserFacingError(err, { area: "connections" }))
+          setDetailError(resolveConnectionError(err, "detail"))
         }
       })
       .finally(() => {
@@ -527,20 +547,24 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
       authType: Exclude<ConnectionAuthType, null>,
       appId?: string,
     ): Promise<void> => {
-      if (authType === "oauth2" || authType === "no_auth") {
-        const input: ConnectionConnectInput =
-          authType === "oauth2"
-            ? { authType, service: provider.service, appId }
-            : { authType, service: provider.service }
-        const ok = await connect(input)
-        if (ok) {
-          detailCacheRef.current.delete(provider.service)
+      try {
+        if (authType === "oauth2" || authType === "no_auth") {
+          const input: ConnectionConnectInput =
+            authType === "oauth2"
+              ? { authType, service: provider.service, appId }
+              : { authType, service: provider.service }
+          const ok = await connect(input)
+          if (ok) {
+            detailCacheRef.current.delete(provider.service)
+          }
+          return
         }
-        return
-      }
 
-      const loaded = detailService === provider.service && detail ? detail : await getProviderDetail(provider.service)
-      setDialog({ detail: loaded, authType, appId })
+        const loaded = detailService === provider.service && detail ? detail : await getProviderDetail(provider.service)
+        setDialog({ detail: loaded, authType, appId })
+      } catch (err) {
+        setDetailError(resolveConnectionError(err, "detail"))
+      }
     },
     [connect, detail, detailService, getProviderDetail],
   )
@@ -567,7 +591,13 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
         <SplitViewListPane ref={listPaneRef} narrowPane={narrowPane} className="pt-3">
           <div className="grid gap-3">
             {summary && summary.status !== "ready" && <StatusNotice summary={summary} />}
-            {error ? <ErrorNotice error={error} compact /> : null}
+            {listErrorNotice ? (
+              <ErrorNotice
+                error={listErrorNotice.error}
+                compact
+                showDiagnosticsCopy={listErrorNotice.showDiagnosticsCopy}
+              />
+            ) : null}
             {filteredProviders.length === 0 ? (
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
@@ -590,10 +620,9 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
               </Button>
             </div>
             <ProviderDetail
-              actionError={error}
               busy={busy}
               detail={detailService === selectedProvider.service ? detail : null}
-              detailError={detailError}
+              errorNotice={detailErrorNotice}
               detailLoading={detailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
@@ -617,10 +646,9 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
             )}
           >
             <ProviderDetail
-              actionError={error}
               busy={busy}
               detail={detailService === selectedProvider.service ? detail : null}
-              detailError={detailError}
+              errorNotice={detailErrorNotice}
               detailLoading={detailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
@@ -1010,10 +1038,9 @@ function EmptyList({ summary, hasQuery }: { summary: ConnectionSummary | null; h
 }
 
 function ProviderDetail({
-  actionError,
   busy,
   detail,
-  detailError,
+  errorNotice,
   detailLoading,
   connections,
   onCancelPolling,
@@ -1024,11 +1051,10 @@ function ProviderDetail({
   provider,
   summary,
 }: {
-  actionError: UserFacingError | null
   busy: UseConnections["busy"]
   connections: UseConnections
   detail: ConnectionProviderDetail | null
-  detailError: UserFacingError | null
+  errorNotice: ConnectionErrorNotice | null
   detailLoading: boolean
   onCancelPolling: () => void
   onClose: () => void
@@ -1084,8 +1110,9 @@ function ProviderDetail({
             </Button>
           </div>
         </div>
-        {actionError ? <ErrorNotice error={actionError} compact /> : null}
-        {detailError ? <ErrorNotice error={detailError} compact /> : null}
+        {errorNotice ? (
+          <ErrorNotice error={errorNotice.error} compact showDiagnosticsCopy={errorNotice.showDiagnosticsCopy} />
+        ) : null}
         <ConnectionPanel
           busy={busy}
           canSetDefault={summary?.workspace.type !== "organization"}

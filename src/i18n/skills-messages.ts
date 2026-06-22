@@ -23,6 +23,9 @@ export const skillsMessages = {
     "organizations.emptyOrganizations": "暂无组织",
     "organizations.emptyOrganizationsDescription": "创建组织后，可以添加成员并配置连接器权限。",
     "organizations.loadFailed": "组织加载失败",
+    "organizations.loadFailedDescription": "暂时无法读取工作区信息。请检查网络后重试。",
+    "organizations.refreshFailedTitle": "工作区暂时无法刷新",
+    "organizations.refreshFailedDescription": "正在显示已加载的工作区信息。请稍后重试。",
     "organizations.selectedOrganization": "当前组织",
     "organizations.selectedWorkspace": "当前工作区",
     "organizations.roleCreator": "创建者",
@@ -239,6 +242,10 @@ export const skillsMessages = {
     "organizations.emptyOrganizationsDescription":
       "Create an organization to add members and configure connector permissions.",
     "organizations.loadFailed": "Failed to load organizations",
+    "organizations.loadFailedDescription":
+      "Workspace information is unavailable right now. Check the network and retry.",
+    "organizations.refreshFailedTitle": "Workspace could not refresh",
+    "organizations.refreshFailedDescription": "Showing the workspace information already loaded. Try again later.",
     "organizations.selectedOrganization": "Selected organization",
     "organizations.selectedWorkspace": "Selected workspace",
     "organizations.roleCreator": "Creator",

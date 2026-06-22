@@ -216,7 +216,7 @@ export function CreditPurchaseModal({
             )
           ) : null}
         </div>
-        {overview.error ? <ErrorNotice error={overview.error} compact /> : null}
+        {overview.error ? <ErrorNotice error={overview.error} compact showDiagnosticsCopy={false} /> : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <SummaryCell

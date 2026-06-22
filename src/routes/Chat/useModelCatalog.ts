@@ -7,8 +7,10 @@ import { resolveUserFacingError } from "../../lib/user-facing-error.ts"
 
 export interface UseModelCatalog {
   catalog: ModelCatalog | null
+  catalogError: UserFacingError | null
   dialogOpen: boolean
-  error: UserFacingError | null
+  dialogError: UserFacingError | null
+  selectionError: UserFacingError | null
   closeDialog: () => void
   deleteModel: (id: string) => void
   openDialog: () => void
@@ -40,7 +42,9 @@ export function useModelCatalog(): UseModelCatalog {
   const modelsService = useModelsService()
   const [catalog, setCatalog] = React.useState<ModelCatalog | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [error, setError] = React.useState<UserFacingError | null>(null)
+  const [catalogError, setCatalogError] = React.useState<UserFacingError | null>(null)
+  const [dialogError, setDialogError] = React.useState<UserFacingError | null>(null)
+  const [selectionError, setSelectionError] = React.useState<UserFacingError | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -49,14 +53,18 @@ export function useModelCatalog(): UseModelCatalog {
       .then((nextCatalog) => {
         if (!cancelled) {
           setCatalog(nextCatalog)
+          setCatalogError(null)
         }
       })
       .catch((cause) => {
         if (!cancelled) {
-          setError(resolveUserFacingError(cause, { area: "model" }))
+          setCatalogError(resolveUserFacingError(cause, { area: "model" }))
         }
       })
-    const off = modelsService.serverEvents.on("modelsChanged", (nextCatalog) => setCatalog(nextCatalog))
+    const off = modelsService.serverEvents.on("modelsChanged", (nextCatalog) => {
+      setCatalog(nextCatalog)
+      setCatalogError(null)
+    })
     return () => {
       cancelled = true
       off()
@@ -65,7 +73,7 @@ export function useModelCatalog(): UseModelCatalog {
 
   const selectModel = React.useCallback(
     (choice: ModelChoice) => {
-      setError(null)
+      setSelectionError(null)
       let previousCatalog: ModelCatalog | null = null
       setCatalog((current) => {
         previousCatalog = current
@@ -75,7 +83,7 @@ export function useModelCatalog(): UseModelCatalog {
         .invoke("setSelectedModel", choice)
         .then(setCatalog)
         .catch((cause) => {
-          setError(resolveUserFacingError(cause, { area: "model" }))
+          setSelectionError(resolveUserFacingError(cause, { area: "model" }))
           void modelsService
             .invoke("listModels")
             .then(setCatalog)
@@ -87,24 +95,24 @@ export function useModelCatalog(): UseModelCatalog {
 
   const deleteModel = React.useCallback(
     (id: string) => {
-      setError(null)
+      setSelectionError(null)
       void modelsService
         .invoke("deleteCustomModel", id)
         .then(setCatalog)
-        .catch((cause) => setError(resolveUserFacingError(cause, { area: "model" })))
+        .catch((cause) => setSelectionError(resolveUserFacingError(cause, { area: "model" })))
     },
     [modelsService],
   )
 
   const saveModel = React.useCallback(
     async (request: SaveCustomModelRequest) => {
-      setError(null)
+      setDialogError(null)
       try {
         const nextCatalog = await modelsService.invoke("saveCustomModel", request)
         setCatalog(nextCatalog)
         setDialogOpen(false)
       } catch (cause) {
-        setError(resolveUserFacingError(cause, { area: "model" }))
+        setDialogError(resolveUserFacingError(cause, { area: "model" }))
         throw cause
       }
     },
@@ -112,18 +120,21 @@ export function useModelCatalog(): UseModelCatalog {
   )
 
   const openDialog = React.useCallback(() => {
-    setError(null)
+    setDialogError(null)
     setDialogOpen(true)
   }, [])
 
   const closeDialog = React.useCallback(() => {
+    setDialogError(null)
     setDialogOpen(false)
   }, [])
 
   return {
     catalog,
+    catalogError,
     dialogOpen,
-    error,
+    dialogError,
+    selectionError,
     closeDialog,
     deleteModel,
     openDialog,

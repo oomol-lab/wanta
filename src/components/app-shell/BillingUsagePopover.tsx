@@ -115,6 +115,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
             <ErrorNotice
               error={error}
               compact
+              showDiagnosticsCopy={false}
               action={
                 isSessionExpired
                   ? {

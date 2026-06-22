@@ -120,7 +120,7 @@ export function ChatComposer({
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled = voiceInput.busy || initialSendPending
   const modelCatalog = modelCatalogState.catalog
-  const modelError = modelCatalogState.error
+  const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({
     attachments,
     disabled: composerDisabled,
@@ -372,7 +372,7 @@ export function ChatComposer({
     <AddCustomModelDialog
       open={modelCatalogState.dialogOpen}
       providers={modelCatalog?.providers ?? []}
-      error={modelError}
+      error={modelCatalogState.dialogError}
       onClose={modelCatalogState.closeDialog}
       onSave={modelCatalogState.saveModel}
     />

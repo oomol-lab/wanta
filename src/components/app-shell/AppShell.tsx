@@ -118,9 +118,9 @@ const SIDEBAR_DEFAULT_WIDTH_PX = 264
 const SIDEBAR_MIN_WIDTH_PX = 220
 const SIDEBAR_MAX_WIDTH_PX = 420
 const SIDEBAR_WIDTH_STORAGE_KEY = "lumo.sidebarWidth"
+const CHAT_AREA_MIN_WIDTH_PX = 320
 const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
-const ARTIFACTS_PANEL_MAX_WIDTH_PX = 520
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
 const TURN_RETRY_OPTIONS_LIMIT = 48
 const SESSION_TITLE_RETRY_DELAY_MS = 20_000
@@ -166,7 +166,17 @@ function readStoredSidebarWidth(): number {
 }
 
 function clampArtifactsPanelWidth(width: number): number {
-  return Math.min(ARTIFACTS_PANEL_MAX_WIDTH_PX, Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, width))
+  return Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, width)
+}
+
+function artifactsPanelMaxWidth(appWidth: number, sidebarWidth: number, sidebarCollapsed: boolean): number {
+  const sidebarTrackWidth = sidebarCollapsed ? 0 : sidebarWidth
+  const maxWidth = Math.floor(appWidth - sidebarTrackWidth - CHAT_AREA_MIN_WIDTH_PX)
+  return Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, maxWidth)
+}
+
+function clampArtifactsPanelWidthForLayout(width: number, maxWidth: number): number {
+  return Math.min(maxWidth, clampArtifactsPanelWidth(width))
 }
 
 function readStoredArtifactsPanelWidth(): number {
@@ -1086,7 +1096,7 @@ function SidebarFooterControls({
               workspace={workspace.activeWorkspace}
             />
             <div className="oo-sidebar-nav-label min-w-0 flex-1">
-              <div className="oo-text-control truncate text-foreground" title={activeWorkspaceLabel}>
+              <div className="oo-text-control truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
                 {activeWorkspaceLabel}
               </div>
             </div>
@@ -1296,6 +1306,7 @@ export function AppShell() {
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
+  const [artifactsPanelMaxWidthState, setArtifactsPanelMaxWidthState] = React.useState<number | null>(null)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
 
   const { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
@@ -1316,6 +1327,11 @@ export function AppShell() {
   } | null>(null)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
+  const artifactsPanelResizeFrame = React.useRef<number | null>(null)
+  const artifactsPanelPendingWidth = React.useRef<number | null>(null)
+  const appChromeRef = React.useRef<HTMLDivElement | null>(null)
+  const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
+  const artifactsPanelContentRef = React.useRef<HTMLDivElement | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
@@ -1451,6 +1467,29 @@ export function AppShell() {
                 ? t("archived.title")
                 : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
+  const artifactsPanelMaxWidthValue = artifactsPanelMaxWidthState ?? Number.POSITIVE_INFINITY
+  const clampArtifactsPanelWidthToLayout = React.useCallback(
+    (width: number): number => clampArtifactsPanelWidthForLayout(width, artifactsPanelMaxWidthValue),
+    [artifactsPanelMaxWidthValue],
+  )
+  const applyArtifactsPanelShellWidth = React.useCallback((width: number): void => {
+    const element = artifactsPanelShellRef.current
+    if (element) {
+      element.style.width = `${width}px`
+    }
+  }, [])
+  const freezeArtifactsPanelContentWidth = React.useCallback((width: number): void => {
+    const element = artifactsPanelContentRef.current
+    if (element) {
+      element.style.width = `${width}px`
+    }
+  }, [])
+  const clearArtifactsPanelContentWidth = React.useCallback((): void => {
+    const element = artifactsPanelContentRef.current
+    if (element) {
+      element.style.removeProperty("width")
+    }
+  }, [])
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
@@ -1503,6 +1542,24 @@ export function AppShell() {
     return () => mediaQuery.removeEventListener("change", onChange)
   }, [])
 
+  React.useLayoutEffect(() => {
+    const element = appChromeRef.current
+    if (!element) {
+      return
+    }
+
+    const updateArtifactsPanelBounds = (): void => {
+      const maxWidth = artifactsPanelMaxWidth(element.clientWidth, sidebarWidth, sidebarCollapsed)
+      setArtifactsPanelMaxWidthState(maxWidth)
+      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthForLayout(width, maxWidth))
+    }
+
+    updateArtifactsPanelBounds()
+    const observer = new ResizeObserver(updateArtifactsPanelBounds)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [sidebarCollapsed, sidebarWidth])
+
   React.useEffect(() => {
     try {
       globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
@@ -1551,14 +1608,37 @@ export function AppShell() {
       return
     }
 
+    const flushArtifactsPanelWidth = (): void => {
+      artifactsPanelResizeFrame.current = null
+      const width = artifactsPanelPendingWidth.current
+      if (width !== null) {
+        applyArtifactsPanelShellWidth(width)
+      }
+    }
     const handlePointerMove = (event: PointerEvent): void => {
       const start = artifactsPanelResizeStart.current
       if (!start) {
         return
       }
-      setArtifactsPanelWidth(clampArtifactsPanelWidth(start.width + start.pointerX - event.clientX))
+      artifactsPanelPendingWidth.current = clampArtifactsPanelWidthToLayout(
+        start.width + start.pointerX - event.clientX,
+      )
+      if (artifactsPanelResizeFrame.current === null) {
+        artifactsPanelResizeFrame.current = window.requestAnimationFrame(flushArtifactsPanelWidth)
+      }
     }
     const handlePointerUp = (): void => {
+      if (artifactsPanelResizeFrame.current !== null) {
+        window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
+        artifactsPanelResizeFrame.current = null
+      }
+      const width = artifactsPanelPendingWidth.current
+      artifactsPanelPendingWidth.current = null
+      if (width !== null) {
+        applyArtifactsPanelShellWidth(width)
+        setArtifactsPanelWidth(width)
+      }
+      clearArtifactsPanelContentWidth()
       artifactsPanelResizeStart.current = null
       setIsArtifactsPanelResizing(false)
     }
@@ -1567,11 +1647,22 @@ export function AppShell() {
     window.addEventListener("pointerup", handlePointerUp, { once: true })
     window.addEventListener("pointercancel", handlePointerUp, { once: true })
     return () => {
+      if (artifactsPanelResizeFrame.current !== null) {
+        window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
+        artifactsPanelResizeFrame.current = null
+      }
+      artifactsPanelPendingWidth.current = null
+      clearArtifactsPanelContentWidth()
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
       window.removeEventListener("pointercancel", handlePointerUp)
     }
-  }, [isArtifactsPanelResizing])
+  }, [
+    applyArtifactsPanelShellWidth,
+    clampArtifactsPanelWidthToLayout,
+    clearArtifactsPanelContentWidth,
+    isArtifactsPanelResizing,
+  ])
 
   const handleComposerStateChange = React.useCallback(
     (state: ComposerState): void => {
@@ -1984,7 +2075,15 @@ export function AppShell() {
       return
     }
     event.preventDefault()
-    artifactsPanelResizeStart.current = { pointerX: event.clientX, width: artifactsPanelWidth }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const dragStartWidth = visibleArtifactsPanelWidth
+    const frozenContentWidth = Math.max(
+      dragStartWidth,
+      Number.isFinite(artifactsPanelMaxWidthValue) ? artifactsPanelMaxWidthValue : dragStartWidth,
+    )
+    applyArtifactsPanelShellWidth(dragStartWidth)
+    freezeArtifactsPanelContentWidth(frozenContentWidth)
+    artifactsPanelResizeStart.current = { pointerX: event.clientX, width: dragStartWidth }
     setIsArtifactsPanelResizing(true)
   }
   const handleArtifactsPanelResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -1995,16 +2094,13 @@ export function AppShell() {
     const step = event.shiftKey ? 24 : 12
     if (event.key === "ArrowLeft") {
       event.preventDefault()
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidth(width + step))
+      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width + step))
     } else if (event.key === "ArrowRight") {
       event.preventDefault()
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidth(width - step))
+      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width - step))
     } else if (event.key === "Home") {
       event.preventDefault()
       setArtifactsPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
-    } else if (event.key === "End") {
-      event.preventDefault()
-      setArtifactsPanelWidth(ARTIFACTS_PANEL_MAX_WIDTH_PX)
     }
   }
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
@@ -2074,6 +2170,7 @@ export function AppShell() {
   }, [])
   const hasArtifactSelection = artifactSelection !== null
   const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasArtifactSelection
+  const visibleArtifactsPanelWidth = clampArtifactsPanelWidthToLayout(artifactsPanelWidth)
   const showArtifactsToggle = route === "chat" && hasArtifactSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
@@ -2120,6 +2217,7 @@ export function AppShell() {
 
   return (
     <div
+      ref={appChromeRef}
       className={cn(
         "oo-app-chrome grid h-full text-foreground",
         sidebarCollapsed && "oo-sidebar-collapsed",
@@ -2206,7 +2304,9 @@ export function AppShell() {
                 <div className="grid gap-3">
                   {sidebarSessionGroups.pinned.length > 0 ? (
                     <div className="grid gap-0.5">
-                      <div className="oo-text-caption px-3 pt-1 pb-2">{t("sidebar.pinned")}</div>
+                      <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
+                        {t("sidebar.pinned")}
+                      </div>
                       {sidebarSessionGroups.pinned.map((session) => (
                         <SessionItem
                           key={session.id}
@@ -2229,7 +2329,9 @@ export function AppShell() {
                   ) : null}
                   {sidebarSessionGroups.regular.length > 0 ? (
                     <div className="grid gap-0.5">
-                      <div className="oo-text-caption px-3 pt-1 pb-2">{t("sidebar.tasks")}</div>
+                      <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
+                        {t("sidebar.tasks")}
+                      </div>
                       {sidebarSessionGroups.regular.map((session) => (
                         <SessionItem
                           key={session.id}
@@ -2383,26 +2485,28 @@ export function AppShell() {
         </div>
 
         <div
+          ref={artifactsPanelShellRef}
           className={cn(
-            "oo-artifacts-panel-shell relative min-h-0 shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
+            "oo-artifacts-panel-shell relative min-h-0 shrink-0 overflow-hidden",
+            isArtifactsPanelResizing ? "transition-none" : "transition-[width,opacity,transform] duration-200 ease-out",
             artifactsPanelVisible ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-3 opacity-0",
           )}
-          style={{ width: artifactsPanelVisible ? `${artifactsPanelWidth}px` : "0px" }}
+          style={{ width: artifactsPanelVisible ? `${visibleArtifactsPanelWidth}px` : "0px" }}
         >
           <div
             role="separator"
             aria-orientation="vertical"
             aria-label={t("aria.resizeArtifactsPanel")}
             aria-valuemin={ARTIFACTS_PANEL_MIN_WIDTH_PX}
-            aria-valuemax={ARTIFACTS_PANEL_MAX_WIDTH_PX}
-            aria-valuenow={artifactsPanelWidth}
+            aria-valuemax={artifactsPanelMaxWidthState ?? undefined}
+            aria-valuenow={visibleArtifactsPanelWidth}
             title={t("aria.resizeArtifactsPanel")}
             tabIndex={artifactsPanelVisible ? 0 : -1}
             className="oo-artifacts-panel-resize-handle"
             onPointerDown={handleArtifactsPanelResizeStart}
             onKeyDown={handleArtifactsPanelResizeKeyDown}
           />
-          <div className="h-full" style={{ width: `${artifactsPanelWidth}px` }}>
+          <div ref={artifactsPanelContentRef} className="h-full w-full min-w-0">
             {artifactsPanelVisible ? (
               <React.Suspense fallback={null}>
                 <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />

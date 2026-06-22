@@ -90,6 +90,7 @@ const intermediateCodeExtensions = new Set([
 ])
 const codeRequestPattern =
   /\b(api|app|cli|code|component|css|html|javascript|js|node|program|python|react|script|typescript|ts|website)\b|代码|脚本|程序|网页|网站|应用|组件|前端|后端|接口|库|插件|扩展|源码|项目/i
+const htmlPreviewResetStyle = "<style>html,body{background:transparent;}body{min-width:0;}</style>"
 
 export interface ResolvedArtifactGroup {
   messageId: string
@@ -307,6 +308,10 @@ function isCsvArtifact(item: LocalArtifactItem | undefined): boolean {
 
 function isJsonArtifact(item: LocalArtifactItem | undefined): boolean {
   return Boolean(item && (item.mime === "application/json" || fileExtension(item.name) === ".json"))
+}
+
+function isHtmlArtifact(item: LocalArtifactItem | undefined): boolean {
+  return Boolean(item && ["text/html", "application/xhtml+xml"].includes(item.mime.toLowerCase()))
 }
 
 function isTextArtifact(item: LocalArtifactItem | undefined): boolean {
@@ -1342,6 +1347,10 @@ function ArtifactConsumablePreview({
     )
   }
 
+  if (preview?.kind === "text" && isHtmlArtifact(item)) {
+    return <ArtifactHtmlPreview preview={preview} />
+  }
+
   if (preview?.kind === "text") {
     return <ArtifactSourcePreview item={item} preview={preview} />
   }
@@ -1361,6 +1370,33 @@ function ArtifactConsumablePreview({
       </Button>
     </div>
   )
+}
+
+function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult }) {
+  const t = useT()
+
+  return (
+    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
+      <iframe
+        title={t("artifacts.htmlPreview")}
+        srcDoc={htmlPreviewSrcDoc(preview.text ?? "")}
+        sandbox=""
+        className="block h-full min-h-[480px] w-full min-w-0 flex-1 border-0 bg-transparent"
+      />
+      {preview.truncated ? (
+        <p className="oo-text-caption oo-border-divider border-t px-3 py-2 text-muted-foreground">
+          {t("artifacts.previewTruncated")}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function htmlPreviewSrcDoc(source: string): string {
+  if (/<head[\s>]/i.test(source)) {
+    return source.replace(/<head([^>]*)>/i, `<head$1>${htmlPreviewResetStyle}`)
+  }
+  return `${htmlPreviewResetStyle}${source}`
 }
 
 function ArtifactInfo({ group, item }: { group: LocalArtifactGroup | null; item: LocalArtifactItem }) {

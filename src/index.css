@@ -42,7 +42,9 @@
 
 :root {
   color-scheme: light;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Segoe UI", ui-sans-serif,
+    system-ui, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --app-titlebar-height: 48px;
   --traffic-light-space: 78px;
@@ -118,9 +120,10 @@
   --oo-sidebar: oklch(0.983 0.003 288);
   --oo-toolbar: var(--oo-content-surface);
   --sidebar: var(--oo-sidebar);
-  --sidebar-foreground: var(--muted-foreground);
-  --sidebar-accent: oklch(0.956 0.004 287);
-  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-foreground: oklch(0.31 0.009 265);
+  --sidebar-muted-foreground: oklch(0.61 0.01 265);
+  --sidebar-accent: oklch(0.936 0.004 287);
+  --sidebar-accent-foreground: var(--sidebar-foreground);
   --sidebar-border: var(--oo-border-subtle);
   --sidebar-ring: var(--control-focus-ring);
   --oo-surface: oklch(0.991 0.002 289);
@@ -197,9 +200,10 @@
   --oo-sidebar: oklch(0.213 0.004 265);
   --oo-toolbar: var(--oo-content-surface);
   --sidebar: var(--oo-sidebar);
-  --sidebar-foreground: var(--muted-foreground);
-  --sidebar-accent: oklch(0.283 0.007 249);
-  --sidebar-accent-foreground: var(--accent-foreground);
+  --sidebar-foreground: oklch(0.84 0.006 265);
+  --sidebar-muted-foreground: oklch(0.6 0.008 265);
+  --sidebar-accent: oklch(0.285 0.006 265);
+  --sidebar-accent-foreground: var(--sidebar-foreground);
   --sidebar-border: var(--oo-border-subtle);
   --sidebar-ring: var(--control-focus-ring);
   --oo-surface: oklch(0.213 0.004 265);
@@ -390,6 +394,10 @@
     transition: none;
   }
 
+  .oo-app-chrome.oo-artifacts-panel-resizing .oo-artifacts-panel-shell iframe {
+    pointer-events: none;
+  }
+
   .oo-app-chrome.oo-sidebar-collapsed {
     grid-template-columns: 0px minmax(0, 1fr);
   }
@@ -479,6 +487,7 @@
 
   .oo-sidebar-nav-item {
     color: var(--sidebar-foreground);
+    font-weight: 500;
     outline: none;
     overflow: hidden;
     transition:
@@ -499,15 +508,21 @@
       transform 180ms cubic-bezier(0.2, 0, 0, 1);
   }
 
+  .oo-sidebar-section-heading.oo-text-caption {
+    color: var(--sidebar-muted-foreground);
+    font-weight: 500;
+  }
+
   .oo-sidebar-session-time {
     min-width: 3rem;
-    color: color-mix(in oklab, var(--sidebar-foreground) 72%, transparent);
+    color: var(--sidebar-muted-foreground);
     font-size: var(--oo-font-caption);
+    font-weight: 400;
     line-height: var(--oo-line-caption);
   }
 
   .oo-sidebar-session-activity {
-    color: color-mix(in oklab, var(--sidebar-foreground) 72%, transparent);
+    color: var(--sidebar-muted-foreground);
   }
 
   .oo-sidebar-collapsed .oo-sidebar-nav-label {

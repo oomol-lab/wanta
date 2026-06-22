@@ -3,11 +3,13 @@ import type { ChatStatus } from "ai"
 
 import { Loader2, Mic, RotateCcw, Square, X } from "lucide-react"
 import * as React from "react"
+import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 import { ModelPicker } from "./ModelControls.tsx"
 import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
+import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { cn } from "@/lib/utils"
 
 interface ComposerTrailingControlsProps {
@@ -159,6 +161,7 @@ export function ComposerTrailingControls({
   const voiceMode = composerVoiceControlMode({ voiceActive, voiceTranscribing, visibleVoiceError })
   const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status })
   const retryDisabled = !voiceRetryBlob || voiceTranscribing
+  const stopLabel = labelWithShortcut(t("aria.stop"), appCommandShortcutLabel(APP_COMMANDS.stopGeneration))
 
   return (
     <>
@@ -268,6 +271,10 @@ export function ComposerTrailingControls({
               aria-label={
                 submit.aria === "sending" ? t("aria.sending") : submit.aria === "stop" ? t("aria.stop") : t("aria.send")
               }
+              aria-keyshortcuts={
+                submit.stopsGeneration ? appCommandAriaShortcut(APP_COMMANDS.stopGeneration) : undefined
+              }
+              title={submit.stopsGeneration ? stopLabel : undefined}
               onClick={
                 submit.stopsGeneration
                   ? (event) => {

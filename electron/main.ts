@@ -1,8 +1,9 @@
+import type { AppCommand } from "./app-command.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron"
 import { stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -16,6 +17,7 @@ import {
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
+import { APP_COMMAND_CHANNEL } from "./app-command.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
@@ -36,6 +38,7 @@ import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
 import { SkillServiceImpl } from "./skills/node.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
+import { buildApplicationMenuTemplate } from "./window/application-menu.ts"
 import {
   buildWindowsTitleBarOverlay,
   resolveWindowsTitleBarTheme,
@@ -183,6 +186,7 @@ if (isLocked) {
   app.whenReady().then(() => {
     // 放行渲染进程对 *.<endpoint> 的已鉴权直连请求（凭证经会话 cookie 自动附带，token 不进渲染层）。
     installOomolCorsShim(session.defaultSession)
+    installApplicationMenu()
     createMainWindow()
     // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
     void updateService.checkForAppUpdate().catch((error: unknown) => {
@@ -446,6 +450,32 @@ function openExternalUrl(url: string): void {
   if (/^(https?|mailto|tel):/i.test(url)) {
     void shell.openExternal(url)
   }
+}
+
+function sendAppCommand(command: AppCommand): void {
+  showMainWindow()
+  const target = mainWindow
+  if (!target) {
+    return
+  }
+  const send = (): void => target.webContents.send(APP_COMMAND_CHANNEL, command)
+  if (target.webContents.isLoading()) {
+    target.webContents.once("did-finish-load", send)
+    return
+  }
+  send()
+}
+
+function installApplicationMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      buildApplicationMenuTemplate({
+        locale: app.getLocale(),
+        onCommand: sendAppCommand,
+        platform: process.platform,
+      }),
+    ),
+  )
 }
 
 function createMainWindow(): void {

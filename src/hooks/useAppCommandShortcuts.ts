@@ -1,0 +1,41 @@
+import type { AppCommand } from "../../electron/app-command.ts"
+
+import * as React from "react"
+import { appCommandForKeyboardShortcut } from "@/lib/app-shortcuts"
+
+const blockingOverlaySelector = [
+  '[role="dialog"][aria-modal="true"]',
+  '[role="menu"]',
+  '[data-slot="dropdown-menu-content"]',
+  '[data-slot="select-content"]',
+].join(",")
+
+function hasBlockingOverlay(): boolean {
+  return Boolean(document.querySelector(blockingOverlaySelector))
+}
+
+export function useAppCommandEvents(runCommand: (command: AppCommand) => void): void {
+  React.useEffect(() => {
+    const bridge = globalThis.lumo
+    if (!bridge?.onAppCommand) {
+      return undefined
+    }
+    return bridge.onAppCommand(runCommand)
+  }, [runCommand])
+}
+
+export function useAppCommandShortcuts(runCommand: (command: AppCommand) => void): void {
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      const command = appCommandForKeyboardShortcut(event)
+      if (!command || hasBlockingOverlay()) {
+        return
+      }
+      event.preventDefault()
+      runCommand(command)
+    }
+
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [runCommand])
+}

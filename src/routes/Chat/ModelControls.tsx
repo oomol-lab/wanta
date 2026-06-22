@@ -60,35 +60,88 @@ function clampNumber(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
-function ModelRow({
-  active,
-  icon,
-  title,
-  supportsImages,
-  visionLabel,
-  deleteLabel,
-  onSelect,
-  onDelete,
-}: {
+type ModelMenuItem =
+  | {
+      active: boolean
+      choice: ModelChoice
+      id: string
+      kind: "builtin"
+      supportsImages?: boolean
+      title: string
+    }
+  | {
+      active: boolean
+      choice: ModelChoice
+      id: string
+      kind: "custom"
+      modelId: string
+      providerName: string
+      supportsImages?: boolean
+      title: string
+    }
+  | {
+      active: false
+      id: string
+      kind: "add"
+      title: string
+    }
+
+function nextModelMenuIndex(currentIndex: number, itemCount: number, direction: -1 | 1): number {
+  return itemCount === 0 ? 0 : (currentIndex + direction + itemCount) % itemCount
+}
+
+function modelMenuItemElementId(itemId: string): string {
+  return `model-menu-item-${itemId.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+}
+
+interface ModelRowProps {
   active: boolean
-  icon: React.ReactNode
-  title: string
-  supportsImages?: boolean
-  visionLabel: string
   deleteLabel?: string
-  onSelect: () => void
+  highlighted: boolean
+  icon: React.ReactNode
+  id: string
   onDelete?: () => void
-}) {
+  onHighlight: () => void
+  onSelect: () => void
+  role: "menuitem" | "menuitemradio"
+  supportsImages?: boolean
+  title: string
+  visionLabel: string
+}
+
+const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(function ModelRow(
+  {
+    active,
+    highlighted,
+    icon,
+    id,
+    role,
+    title,
+    supportsImages,
+    visionLabel,
+    deleteLabel,
+    onHighlight,
+    onSelect,
+    onDelete,
+  },
+  ref,
+) {
   return (
     <div className="group flex min-w-0 items-center gap-1">
       <button
+        ref={ref}
+        id={id}
         type="button"
-        aria-current={active ? "true" : undefined}
+        role={role}
+        aria-checked={role === "menuitemradio" ? active : undefined}
         className={cn(
           "flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
           active && "bg-accent font-medium text-accent-foreground",
+          highlighted && "bg-accent text-accent-foreground",
         )}
+        tabIndex={-1}
         title={title}
+        onMouseEnter={onHighlight}
         onClick={onSelect}
       >
         {icon}
@@ -112,6 +165,7 @@ function ModelRow({
       {onDelete ? (
         <button
           type="button"
+          tabIndex={-1}
           className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100"
           aria-label={deleteLabel}
           onClick={(event) => {
@@ -124,7 +178,7 @@ function ModelRow({
       ) : null}
     </div>
   )
-}
+})
 
 export function ModelPicker({
   catalog,
@@ -141,11 +195,59 @@ export function ModelPicker({
 }) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
+  const [activeIndex, setActiveIndex] = React.useState(0)
   const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({})
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const menuRef = React.useRef<HTMLDivElement | null>(null)
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const itemRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const selected = selectedModelSummary(catalog)
   const selectedTitle = selected.supportsImages ? `${selected.label} · ${t("chat.modelVision")}` : selected.label
+  const items = React.useMemo<ModelMenuItem[]>(() => {
+    if (!catalog) {
+      return [
+        {
+          active: true,
+          choice: { kind: "builtin", id: DEFAULT_BUILTIN_MODEL_ID },
+          id: `builtin:${DEFAULT_BUILTIN_MODEL_ID}`,
+          kind: "builtin",
+          supportsImages: selected.supportsImages,
+          title: selected.label,
+        },
+        { active: false, id: "action:add", kind: "add", title: t("chat.modelAdd") },
+      ]
+    }
+
+    return [
+      ...catalog.builtins.map((model): ModelMenuItem => {
+        const choice: ModelChoice = { kind: "builtin", id: model.id }
+        return {
+          active: sameModelChoice(catalog.selected, choice),
+          choice,
+          id: `builtin:${model.id}`,
+          kind: "builtin",
+          supportsImages: model.supportsImages,
+          title: model.displayName,
+        }
+      }),
+      ...catalog.customModels.map((model): ModelMenuItem => {
+        const choice: ModelChoice = { kind: "custom", id: model.id }
+        return {
+          active: sameModelChoice(catalog.selected, choice),
+          choice,
+          id: `custom:${model.id}`,
+          kind: "custom",
+          modelId: model.id,
+          providerName: model.providerName,
+          supportsImages: model.supportsImages,
+          title: model.displayName,
+        }
+      }),
+      { active: false, id: "action:add", kind: "add", title: t("chat.modelAdd") },
+    ]
+  }, [catalog, selected.label, selected.supportsImages, t])
+  const activeItem = items[activeIndex]
+  const activeItemElementId = activeItem ? modelMenuItemElementId(activeItem.id) : undefined
 
   const updateMenuPosition = React.useCallback(() => {
     const anchor = rootRef.current
@@ -168,6 +270,50 @@ export function ModelPicker({
     }
   }, [open, updateMenuPosition])
 
+  const closeMenu = React.useCallback((restoreFocus = true): void => {
+    setOpen(false)
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => triggerRef.current?.focus())
+    }
+  }, [])
+
+  const activateItem = React.useCallback(
+    (item: ModelMenuItem | undefined): void => {
+      if (!item) {
+        return
+      }
+      if (item.kind === "add") {
+        closeMenu(false)
+        onAdd()
+        return
+      }
+      onSelect(item.choice)
+      closeMenu()
+    },
+    [closeMenu, onAdd, onSelect],
+  )
+
+  const focusItem = React.useCallback((item: ModelMenuItem | undefined): void => {
+    if (!item) {
+      return
+    }
+    itemRefs.current.get(item.id)?.focus()
+  }, [])
+
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
+    const selectedIndex = items.findIndex((item) => item.active)
+    const nextIndex = selectedIndex >= 0 ? selectedIndex : 0
+    setActiveIndex(nextIndex)
+    window.requestAnimationFrame(() => focusItem(items[nextIndex]))
+  }, [focusItem, items, open])
+
+  React.useEffect(() => {
+    setActiveIndex((index) => Math.min(index, Math.max(0, items.length - 1)))
+  }, [items.length])
+
   React.useEffect(() => {
     if (!open) {
       return
@@ -175,12 +321,12 @@ export function ModelPicker({
     const onMouseDown = (event: MouseEvent): void => {
       const target = event.target as Node
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        setOpen(false)
+        closeMenu(false)
       }
     }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
-        setOpen(false)
+        closeMenu()
       }
     }
     const onReposition = (): void => updateMenuPosition()
@@ -194,61 +340,129 @@ export function ModelPicker({
       window.removeEventListener("resize", onReposition)
       window.removeEventListener("scroll", onReposition, true)
     }
-  }, [open, updateMenuPosition])
+  }, [closeMenu, open, updateMenuPosition])
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (items.length === 0) {
+      return
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault()
+      closeMenu()
+      return
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault()
+      const nextIndex = nextModelMenuIndex(activeIndex, items.length, 1)
+      setActiveIndex(nextIndex)
+      focusItem(items[nextIndex])
+      return
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault()
+      const nextIndex = nextModelMenuIndex(activeIndex, items.length, -1)
+      setActiveIndex(nextIndex)
+      focusItem(items[nextIndex])
+      return
+    }
+    if (event.key === "Home") {
+      event.preventDefault()
+      setActiveIndex(0)
+      focusItem(items[0])
+      return
+    }
+    if (event.key === "End") {
+      event.preventDefault()
+      const nextIndex = items.length - 1
+      setActiveIndex(nextIndex)
+      focusItem(items[nextIndex])
+      return
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      activateItem(items[activeIndex])
+      return
+    }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      const item = items[activeIndex]
+      if (item?.kind === "custom") {
+        event.preventDefault()
+        onDelete(item.modelId)
+      }
+    }
+  }
 
   const menu = open
     ? createPortal(
         <div
           ref={menuRef}
           style={menuStyle}
+          role="menu"
+          tabIndex={-1}
+          aria-activedescendant={activeItemElementId}
+          aria-label={t("chat.modelPicker")}
           className="oo-border-divider fixed z-50 overflow-y-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-xl"
+          onKeyDown={handleMenuKeyDown}
         >
           <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelBuiltIn")}</div>
-          {catalog?.builtins.map((model) => {
-            const choice: ModelChoice = { kind: "builtin", id: model.id }
+          {items.map((item, index) => {
+            if (item.kind !== "builtin") {
+              return null
+            }
             return (
               <ModelRow
-                key={model.id}
-                active={sameModelChoice(catalog.selected, choice)}
-                icon={<Brain className="size-4 shrink-0 text-muted-foreground" />}
-                title={model.displayName}
-                supportsImages={model.supportsImages}
-                visionLabel={t("chat.modelVision")}
-                onSelect={() => {
-                  onSelect(choice)
-                  setOpen(false)
+                key={item.id}
+                id={modelMenuItemElementId(item.id)}
+                ref={(node) => {
+                  if (node) {
+                    itemRefs.current.set(item.id, node)
+                  } else {
+                    itemRefs.current.delete(item.id)
+                  }
                 }}
+                active={item.active}
+                highlighted={index === activeIndex}
+                icon={<Brain className="size-4 shrink-0 text-muted-foreground" />}
+                role="menuitemradio"
+                title={item.title}
+                supportsImages={item.supportsImages}
+                visionLabel={t("chat.modelVision")}
+                onHighlight={() => setActiveIndex(index)}
+                onSelect={() => activateItem(item)}
               />
             )
-          }) ?? (
-            <ModelRow
-              active
-              icon={<Brain className="size-4 shrink-0 text-muted-foreground" />}
-              title="Auto"
-              visionLabel={t("chat.modelVision")}
-              onSelect={() => setOpen(false)}
-            />
-          )}
+          })}
 
-          {catalog && catalog.customModels.length > 0 ? (
+          {items.some((item) => item.kind === "custom") ? (
             <div className="oo-border-divider mt-1 border-t pt-1">
               <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelCustom")}</div>
-              {catalog.customModels.map((model) => {
-                const choice: ModelChoice = { kind: "custom", id: model.id }
+              {items.map((item, index) => {
+                if (item.kind !== "custom") {
+                  return null
+                }
                 return (
                   <ModelRow
-                    key={model.id}
-                    active={sameModelChoice(catalog.selected, choice)}
-                    icon={<ProviderMark name={model.providerName} />}
-                    title={model.displayName}
-                    supportsImages={model.supportsImages}
+                    key={item.id}
+                    id={modelMenuItemElementId(item.id)}
+                    ref={(node) => {
+                      if (node) {
+                        itemRefs.current.set(item.id, node)
+                      } else {
+                        itemRefs.current.delete(item.id)
+                      }
+                    }}
+                    active={item.active}
+                    highlighted={index === activeIndex}
+                    icon={<ProviderMark name={item.providerName} />}
+                    role="menuitemradio"
+                    title={item.title}
+                    supportsImages={item.supportsImages}
                     visionLabel={t("chat.modelVision")}
                     deleteLabel={t("chat.modelDelete")}
-                    onSelect={() => {
-                      onSelect(choice)
-                      setOpen(false)
-                    }}
-                    onDelete={() => onDelete(model.id)}
+                    onHighlight={() => setActiveIndex(index)}
+                    onSelect={() => activateItem(item)}
+                    onDelete={() => onDelete(item.modelId)}
                   />
                 )
               })}
@@ -256,17 +470,36 @@ export function ModelPicker({
           ) : null}
 
           <div className="oo-border-divider mt-1 border-t pt-1">
-            <button
-              type="button"
-              className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-              onClick={() => {
-                setOpen(false)
-                onAdd()
-              }}
-            >
-              <Settings2 className="size-4 text-muted-foreground" />
-              <span>{t("chat.modelAdd")}</span>
-            </button>
+            {items.map((item, index) => {
+              if (item.kind !== "add") {
+                return null
+              }
+              return (
+                <button
+                  key={item.id}
+                  id={modelMenuItemElementId(item.id)}
+                  ref={(node) => {
+                    if (node) {
+                      itemRefs.current.set(item.id, node)
+                    } else {
+                      itemRefs.current.delete(item.id)
+                    }
+                  }}
+                  type="button"
+                  role="menuitem"
+                  tabIndex={-1}
+                  className={cn(
+                    "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                    index === activeIndex && "bg-accent text-accent-foreground",
+                  )}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => activateItem(item)}
+                >
+                  <Settings2 className="size-4 text-muted-foreground" />
+                  <span>{item.title}</span>
+                </button>
+              )
+            })}
           </div>
         </div>,
         document.body,
@@ -276,15 +509,23 @@ export function ModelPicker({
   return (
     <div ref={rootRef} className="min-w-0">
       <Button
+        ref={triggerRef}
         type="button"
         variant="ghost"
         size="sm"
         title={selectedTitle}
         aria-label={t("chat.modelPicker")}
         aria-expanded={open}
+        aria-haspopup="menu"
         disabled={disabled}
         className="h-8 max-w-[min(14rem,100%)] min-w-0 shrink rounded-full px-2"
         onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            setOpen(true)
+          }
+        }}
       >
         <Brain className="size-4" />
         <span className="min-w-0 truncate">{selected.label}</span>

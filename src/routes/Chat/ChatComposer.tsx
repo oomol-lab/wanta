@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils"
 
 interface ChatComposerProps {
   error: string | null
+  focusRequest: number
   hasMessages: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
@@ -85,6 +86,7 @@ function paletteLabels({
 
 export function ChatComposer({
   error,
+  focusRequest,
   hasMessages,
   initialComposerState: initialComposerStateProp,
   initialSendPending,
@@ -141,6 +143,14 @@ export function ChatComposer({
     () => buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service })),
     [providers, t],
   )
+
+  React.useEffect(() => {
+    if (focusRequest <= 0) {
+      return
+    }
+    const frame = window.requestAnimationFrame(() => textareaRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [focusRequest])
 
   React.useEffect(() => {
     onComposerStateChange?.(composer)

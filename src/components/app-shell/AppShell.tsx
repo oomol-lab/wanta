@@ -311,7 +311,6 @@ function WorkspaceMenuContent({
       <DropdownMenuItem
         className={workspaceItemClassName}
         onSelect={onSelectPersonal}
-        aria-checked={activeKey === "personal"}
         data-active={activeKey === "personal"}
       >
         <WorkspaceAvatar
@@ -323,6 +322,7 @@ function WorkspaceMenuContent({
           <span className="truncate">{personalLabel}</span>
           <span className="truncate text-xs text-muted-foreground">{personalDescription}</span>
         </span>
+        <span aria-hidden="true" />
       </DropdownMenuItem>
       {loading ? (
         <DropdownMenuItem disabled>
@@ -349,14 +349,13 @@ function WorkspaceMenuContent({
             key={organization.id}
             className={workspaceItemClassName}
             onSelect={() => onSelectOrganization(organization.id)}
-            aria-checked={selected}
             data-active={selected}
           >
             <WorkspaceAvatar
               workspace={{ type: "organization", organization, organizationId: organization.id, role }}
             />
             <span className="min-w-0 flex-1 truncate">{organization.name}</span>
-            <Badge variant="outline" className="w-full justify-end text-right font-normal">
+            <Badge variant="outline" className="flex w-full justify-end text-right font-normal">
               {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
             </Badge>
           </DropdownMenuItem>

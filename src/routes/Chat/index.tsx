@@ -71,6 +71,7 @@ const GeneratedArtifacts = React.lazy(() =>
 interface ChatAreaProps {
   billingCacheScope: string
   composerDraftKey: string
+  composerFocusRequest: number
   messages: ChatMessage[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
@@ -1022,6 +1023,7 @@ const ChatTimeline = React.memo(function ChatTimeline({
 export const ChatArea = React.memo(function ChatArea({
   billingCacheScope,
   composerDraftKey,
+  composerFocusRequest,
   messages,
   status,
   activity,
@@ -1062,6 +1064,7 @@ export const ChatArea = React.memo(function ChatArea({
     <ChatComposer
       key={composerDraftKey}
       error={error}
+      focusRequest={composerFocusRequest}
       hasMessages={hasMessages}
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}

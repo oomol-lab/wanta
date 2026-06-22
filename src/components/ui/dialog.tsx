@@ -14,7 +14,33 @@ export interface DialogProps {
   className?: string
 }
 
-/** 轻量模态：portal + 遮罩 + Esc 关闭 + 挂载聚焦。无 Radix 依赖。 */
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  const selector = [
+    "a[href]",
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(",")
+
+  return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((element) => {
+    return (
+      !element.hasAttribute("disabled") &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      element.getClientRects().length > 0
+    )
+  })
+}
+
+function isPortalKeyboardOwner(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    Boolean(target.closest('[data-slot="select-content"], [data-slot="dropdown-menu-content"]'))
+  )
+}
+
+/** 轻量模态：portal + 遮罩 + Esc 关闭 + 焦点循环 / 恢复。无 Radix 依赖。 */
 export function Dialog({ open, onClose, title, description, children, footer, closeLabel, className }: DialogProps) {
   const panelRef = React.useRef<HTMLDivElement>(null)
   const onCloseRef = React.useRef(onClose)
@@ -27,15 +53,66 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
     if (!open) {
       return
     }
+    const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const onKey = (e: KeyboardEvent): void => {
+      if (isPortalKeyboardOwner(e.target)) {
+        return
+      }
+
       if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopPropagation()
         onCloseRef.current()
+        return
+      }
+
+      if (e.key !== "Tab") {
+        return
+      }
+
+      const panel = panelRef.current
+      if (!panel) {
+        return
+      }
+      const focusableElements = getFocusableElements(panel)
+      if (focusableElements.length === 0) {
+        e.preventDefault()
+        panel.focus()
+        return
+      }
+
+      const firstElement = focusableElements[0]
+      const lastElement = focusableElements[focusableElements.length - 1]
+      const activeElement = document.activeElement
+      if (e.shiftKey) {
+        if (activeElement === firstElement || activeElement === panel || !panel.contains(activeElement)) {
+          e.preventDefault()
+          lastElement.focus()
+        }
+        return
+      }
+
+      if (activeElement === lastElement || activeElement === panel || !panel.contains(activeElement)) {
+        e.preventDefault()
+        firstElement.focus()
       }
     }
     document.addEventListener("keydown", onKey)
-    // 挂载后聚焦面板，便于 Esc / 表单内首个输入接管。
-    panelRef.current?.focus()
-    return () => document.removeEventListener("keydown", onKey)
+    // 挂载后优先聚焦第一个控件；没有控件时聚焦面板本身。
+    const frame = window.requestAnimationFrame(() => {
+      const panel = panelRef.current
+      if (!panel) {
+        return
+      }
+      ;(getFocusableElements(panel)[0] ?? panel).focus()
+    })
+    return () => {
+      window.cancelAnimationFrame(frame)
+      document.removeEventListener("keydown", onKey)
+      if (previousActiveElement?.isConnected) {
+        previousActiveElement.focus()
+      }
+    }
   }, [open])
 
   if (!open) {

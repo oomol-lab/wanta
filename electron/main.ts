@@ -1,8 +1,10 @@
+import type { AppCommand } from "./app-command.ts"
+import type { AppLocale } from "./app-locale.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron"
 import { stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -16,6 +18,8 @@ import {
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
+import { APP_COMMAND_CHANNEL } from "./app-command.ts"
+import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
@@ -36,6 +40,7 @@ import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
 import { SkillServiceImpl } from "./skills/node.ts"
 import { UpdateServiceImpl } from "./update/node.ts"
+import { buildApplicationMenuTemplate } from "./window/application-menu.ts"
 import {
   buildWindowsTitleBarOverlay,
   resolveWindowsTitleBarTheme,
@@ -74,6 +79,7 @@ interface SaveClipboardAttachmentRequest {
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
 
 let mainWindow: BrowserWindow | null = null
+let currentLocale: AppLocale | null = null
 let isQuitting = false
 let windowsTrayLifecycle: {
   dispose: () => void
@@ -165,6 +171,7 @@ server.registerService(authService)
 server.registerService(updateService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandler()
+registerAppLocaleHandler()
 
 if (isLocked) {
   server.start()
@@ -183,6 +190,7 @@ if (isLocked) {
   app.whenReady().then(() => {
     // 放行渲染进程对 *.<endpoint> 的已鉴权直连请求（凭证经会话 cookie 自动附带，token 不进渲染层）。
     installOomolCorsShim(session.defaultSession)
+    installApplicationMenu()
     createMainWindow()
     // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
     void updateService.checkForAppUpdate().catch((error: unknown) => {
@@ -448,6 +456,54 @@ function openExternalUrl(url: string): void {
   }
 }
 
+function sendAppCommand(command: AppCommand): void {
+  showMainWindow()
+  const target = mainWindow
+  if (!target) {
+    return
+  }
+  const send = (): void => target.webContents.send(APP_COMMAND_CHANNEL, command)
+  if (target.webContents.isLoading()) {
+    target.webContents.once("did-finish-load", send)
+    return
+  }
+  send()
+}
+
+function installApplicationMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      buildApplicationMenuTemplate({
+        developmentMode: shouldShowDevelopmentMenu(),
+        locale: activeLocale(),
+        onCommand: sendAppCommand,
+        platform: process.platform,
+      }),
+    ),
+  )
+}
+
+function activeLocale(): AppLocale {
+  return currentLocale ?? normalizeAppLocale(app.getLocale())
+}
+
+function shouldShowDevelopmentMenu(): boolean {
+  return !app.isPackaged || process.env["LUMO_ENABLE_DEV_MENU"] === "1"
+}
+
+function registerAppLocaleHandler(): void {
+  ipcMain.on(APP_LOCALE_CHANNEL, (_event, locale: unknown) => {
+    if (!isAppLocale(locale) || currentLocale === locale) {
+      return
+    }
+    currentLocale = locale
+    if (app.isReady()) {
+      installApplicationMenu()
+    }
+    windowsTrayLifecycle?.setLocale(locale)
+  })
+}
+
 function createMainWindow(): void {
   installPermissionRequestHandler()
   const isMac = process.platform === "darwin"
@@ -491,7 +547,7 @@ function createMainWindow(): void {
       try {
         windowsTrayLifecycle = createWindowsTrayLifecycle({
           iconPath: getBrandingResourcePath("icon.ico"),
-          locale: app.getLocale(),
+          locale: activeLocale(),
           onExit: () => {
             isQuitting = true
             app.quit()

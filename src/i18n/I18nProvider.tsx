@@ -8,6 +8,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     document.documentElement.lang = locale
+    globalThis.lumo?.setAppLocale(locale)
   }, [locale])
 
   const setLocale = React.useCallback((next: Locale) => {

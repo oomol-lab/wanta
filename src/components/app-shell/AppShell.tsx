@@ -1,3 +1,4 @@
+import type { AppCommand } from "../../../electron/app-command.ts"
 import type {
   AgentRuntimeStatus,
   AuthorizationInfo,
@@ -41,6 +42,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import {
   buildFallbackSessionTitle,
   shouldAutoRefreshSessionTitle,
@@ -71,6 +73,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
@@ -82,6 +85,7 @@ import {
 } from "@/hooks/useOrganizationWorkspace"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
+import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
@@ -189,6 +193,17 @@ function chatMessageText(message: ChatMessage): string {
 
 function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase()
+}
+
+function encodedDomIdSegment(value: string): string {
+  return Array.from(value, (char) => {
+    const codePoint = char.codePointAt(0)
+    return codePoint === undefined ? "0" : codePoint.toString(16)
+  }).join("-")
+}
+
+function sessionSearchResultId(sessionId: string): string {
+  return `session-search-result-${encodedDomIdSegment(sessionId)}`
 }
 
 function accountInitial(name?: string): string {
@@ -819,18 +834,45 @@ function SessionSearchOverlay({
 }) {
   const t = useT()
   const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const resultRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const [query, setQuery] = React.useState("")
+  const [activeIndex, setActiveIndex] = React.useState(0)
   const normalizedQuery = normalizeSearchText(query)
   const filteredSessions = normalizedQuery
     ? sessions.filter((session) => normalizeSearchText(session.title).includes(normalizedQuery))
     : sessions
+  const activeSession = filteredSessions[activeIndex]
+  const activeResultId = activeSession ? sessionSearchResultId(activeSession.id) : undefined
 
   React.useEffect(() => {
     if (open) {
       setQuery("")
+      setActiveIndex(0)
       window.setTimeout(() => inputRef.current?.focus(), 0)
     }
   }, [open])
+
+  React.useEffect(() => {
+    setActiveIndex(0)
+  }, [normalizedQuery])
+
+  React.useEffect(() => {
+    setActiveIndex((index) => Math.min(index, Math.max(0, filteredSessions.length - 1)))
+  }, [filteredSessions.length])
+
+  React.useEffect(() => {
+    if (!activeSession) {
+      return
+    }
+    resultRefs.current.get(activeSession.id)?.scrollIntoView({ block: "nearest" })
+  }, [activeSession])
+
+  const selectSession = (session: SessionInfo | undefined): void => {
+    if (!session) {
+      return
+    }
+    onSelect(session)
+  }
 
   if (!open) {
     return null
@@ -849,7 +891,36 @@ function SessionSearchOverlay({
       }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
+          event.preventDefault()
           onClose()
+          return
+        }
+        if (filteredSessions.length === 0) {
+          return
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault()
+          setActiveIndex((index) => (index + 1) % filteredSessions.length)
+          return
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault()
+          setActiveIndex((index) => (index - 1 + filteredSessions.length) % filteredSessions.length)
+          return
+        }
+        if (event.key === "Home") {
+          event.preventDefault()
+          setActiveIndex(0)
+          return
+        }
+        if (event.key === "End") {
+          event.preventDefault()
+          setActiveIndex(filteredSessions.length - 1)
+          return
+        }
+        if (event.key === "Enter") {
+          event.preventDefault()
+          selectSession(filteredSessions[activeIndex])
         }
       }}
     >
@@ -862,22 +933,45 @@ function SessionSearchOverlay({
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("sidebar.searchPlaceholder")}
             aria-label={t("sidebar.searchPlaceholder")}
+            aria-activedescendant={activeResultId}
+            aria-controls="session-search-results"
+            aria-expanded="true"
             className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+            role="combobox"
           />
         </div>
 
         <p className="oo-text-control mt-4 px-3 text-muted-foreground">
           {t("sidebar.searchResults", { count: filteredSessions.length })}
         </p>
-        <div className="mt-3 max-h-[min(46vh,420px)] overflow-y-auto pr-1">
+        <div
+          id="session-search-results"
+          className="mt-3 max-h-[min(46vh,420px)] overflow-y-auto pr-1"
+          role="listbox"
+          aria-label={t("sidebar.searchResults", { count: filteredSessions.length })}
+        >
           <div className="grid gap-1">
-            {filteredSessions.map((session) => (
+            {filteredSessions.map((session, index) => (
               <button
                 key={session.id}
+                id={sessionSearchResultId(session.id)}
+                ref={(node) => {
+                  if (node) {
+                    resultRefs.current.set(session.id, node)
+                  } else {
+                    resultRefs.current.delete(session.id)
+                  }
+                }}
                 type="button"
-                onClick={() => onSelect(session)}
+                role="option"
+                aria-selected={index === activeIndex}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => selectSession(session)}
                 title={session.title}
-                className="oo-session-search-result oo-text-value flex h-10 min-w-0 items-center rounded-lg px-3 text-left"
+                className={cn(
+                  "oo-session-search-result oo-text-value flex h-10 min-w-0 items-center rounded-lg px-3 text-left",
+                  index === activeIndex && "bg-accent text-accent-foreground",
+                )}
               >
                 <span className="truncate">{session.title}</span>
               </button>
@@ -918,13 +1012,17 @@ function SidebarTitlebarActions({
   onSearch: () => void
 }) {
   const t = useT()
+  const sidebarLabel = collapsed ? t("aria.expandSidebar") : t("aria.collapseSidebar")
+  const sidebarTitle = labelWithShortcut(sidebarLabel, appCommandShortcutLabel(APP_COMMANDS.toggleSidebar))
+  const searchTitle = labelWithShortcut(t("sidebar.search"), appCommandShortcutLabel(APP_COMMANDS.openSearch))
 
   return (
     <div className="oo-sidebar-titlebar-actions flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
       <button
         type="button"
-        title={collapsed ? t("aria.expandSidebar") : t("aria.collapseSidebar")}
-        aria-label={collapsed ? t("aria.expandSidebar") : t("aria.collapseSidebar")}
+        title={sidebarTitle}
+        aria-label={sidebarTitle}
+        aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.toggleSidebar)}
         aria-pressed={collapsed}
         onClick={onToggleCollapsed}
         className="oo-sidebar-titlebar-button flex size-7 shrink-0 items-center justify-center rounded-md"
@@ -933,8 +1031,9 @@ function SidebarTitlebarActions({
       </button>
       <button
         type="button"
-        title={t("sidebar.search")}
-        aria-label={t("sidebar.search")}
+        title={searchTitle}
+        aria-label={searchTitle}
+        aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.openSearch)}
         onClick={onSearch}
         className="oo-sidebar-titlebar-button flex size-7 shrink-0 items-center justify-center rounded-md"
       >
@@ -1189,6 +1288,7 @@ export function AppShell() {
   const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [composerFocusRequest, setComposerFocusRequest] = React.useState(0)
   const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
   const [archiveSessionId, setArchiveSessionId] = React.useState<string | null>(null)
   const [archiveConfirming, setArchiveConfirming] = React.useState(false)
@@ -1489,12 +1589,20 @@ export function AppShell() {
     composerDraftsByKey.current.delete(draftKey)
   }, [])
 
-  const handleNewSession = (): void => {
+  const requestComposerFocus = React.useCallback((): void => {
+    setRoute("chat")
+    setSearchOpen(false)
+    setComposerFocusRequest((request) => request + 1)
+  }, [])
+
+  const handleNewSession = React.useCallback((): void => {
     setActiveSessionId(null)
     setIsDraftSession(true)
     setPendingChatTransition(null)
     setRoute("chat")
-  }
+    setSearchOpen(false)
+    setComposerFocusRequest((request) => request + 1)
+  }, [])
 
   const refreshGeneratedTitle = React.useCallback(
     async (
@@ -1835,12 +1943,14 @@ export function AppShell() {
     },
     [activeSessionId],
   )
-  const handleToggleSidebar = (): void => {
-    if (sidebarCollapsed) {
-      setIsSidebarRestoring(true)
-    }
-    setSidebarCollapsed((collapsed) => !collapsed)
-  }
+  const handleToggleSidebar = React.useCallback((): void => {
+    setSidebarCollapsed((collapsed) => {
+      if (collapsed) {
+        setIsSidebarRestoring(true)
+      }
+      return !collapsed
+    })
+  }, [])
   const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (sidebarCollapsed) {
       return
@@ -1897,7 +2007,7 @@ export function AppShell() {
       setArtifactsPanelWidth(ARTIFACTS_PANEL_MAX_WIDTH_PX)
     }
   }
-  const handleOpenSearch = (): void => setSearchOpen(true)
+  const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
   const handleRenameSession = (sessionId: string, title: string): void => {
     autoFallbackTitleBySession.current.delete(sessionId)
     void rename(sessionId, title).catch((cause: unknown) => {
@@ -1921,6 +2031,35 @@ export function AppShell() {
       void stop(activeSessionId)
     }
   }, [activeSessionId, stop])
+  const runAppCommand = React.useCallback(
+    (command: AppCommand): void => {
+      switch (command) {
+        case APP_COMMANDS.focusComposer:
+          requestComposerFocus()
+          return
+        case APP_COMMANDS.newChat:
+          handleNewSession()
+          return
+        case APP_COMMANDS.openSearch:
+          handleOpenSearch()
+          return
+        case APP_COMMANDS.openSettings:
+          setSearchOpen(false)
+          setRoute("settings")
+          return
+        case APP_COMMANDS.stopGeneration:
+          handleChatStop()
+          return
+        case APP_COMMANDS.toggleSidebar:
+          handleToggleSidebar()
+          return
+      }
+    },
+    [handleChatStop, handleNewSession, handleOpenSearch, handleToggleSidebar, requestComposerFocus],
+  )
+  useAppCommandEvents(runAppCommand)
+  useAppCommandShortcuts(runAppCommand)
+
   const handleQueuedMessageRemove = React.useCallback(
     (messageId: string) => {
       if (!activeSessionId) {
@@ -1939,6 +2078,8 @@ export function AppShell() {
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
+  const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
+  const newChatLabel = labelWithShortcut(t("sidebar.newSession"), newChatShortcut)
 
   if (route === "settings") {
     return (
@@ -2011,6 +2152,9 @@ export function AppShell() {
             <button
               type="button"
               onClick={handleNewSession}
+              title={newChatLabel}
+              aria-label={newChatLabel}
+              aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.newChat)}
               className={cn(
                 "oo-sidebar-nav-item oo-text-control flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
                 route === "chat" && !activeSessionId && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -2212,6 +2356,7 @@ export function AppShell() {
                     submitDisabled={!ready || chatBootstrapping}
                     initialComposerState={initialComposerState}
                     initialSendPending={initialSendPending}
+                    composerFocusRequest={composerFocusRequest}
                     providers={activeProviders}
                     queuedMessages={activeQueuedMessages}
                     placeholder={

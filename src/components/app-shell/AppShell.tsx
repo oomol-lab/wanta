@@ -21,7 +21,6 @@ import {
   AlertTriangle,
   Archive,
   Building2,
-  Check,
   ChevronsUpDown,
   Download,
   LogOut,
@@ -303,14 +302,17 @@ function WorkspaceMenuContent({
     personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
   const showBlockingError = Boolean(error && !hasLoaded)
   const showRefreshWarning = Boolean(error && hasLoaded)
+  const workspaceItemClassName =
+    "my-1 grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_3.5rem] items-center gap-2 rounded-md py-2 data-[active=true]:bg-accent data-[active=true]:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
 
   return (
     <DropdownMenuContent align={align} side={side} sideOffset={8} className="w-72">
       <DropdownMenuLabel>{t("organizations.workspaceGroup")}</DropdownMenuLabel>
       <DropdownMenuItem
-        className="min-w-0 items-center gap-2 py-2"
+        className={workspaceItemClassName}
         onSelect={onSelectPersonal}
         aria-checked={activeKey === "personal"}
+        data-active={activeKey === "personal"}
       >
         <WorkspaceAvatar
           accountAvatarUrl={accountAvatarUrl}
@@ -321,7 +323,6 @@ function WorkspaceMenuContent({
           <span className="truncate">{personalLabel}</span>
           <span className="truncate text-xs text-muted-foreground">{personalDescription}</span>
         </span>
-        {activeKey === "personal" ? <Check className="size-4" /> : null}
       </DropdownMenuItem>
       {loading ? (
         <DropdownMenuItem disabled>
@@ -346,18 +347,18 @@ function WorkspaceMenuContent({
         return (
           <DropdownMenuItem
             key={organization.id}
-            className="min-w-0 items-center gap-2 py-2"
+            className={workspaceItemClassName}
             onSelect={() => onSelectOrganization(organization.id)}
             aria-checked={selected}
+            data-active={selected}
           >
             <WorkspaceAvatar
               workspace={{ type: "organization", organization, organizationId: organization.id, role }}
             />
             <span className="min-w-0 flex-1 truncate">{organization.name}</span>
-            <Badge variant="outline" className="shrink-0 font-normal">
+            <Badge variant="outline" className="w-full justify-end text-right font-normal">
               {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
             </Badge>
-            {selected ? <Check className="size-4" /> : null}
           </DropdownMenuItem>
         )
       })}

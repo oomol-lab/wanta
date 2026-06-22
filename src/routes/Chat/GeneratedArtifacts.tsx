@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -90,7 +91,6 @@ const intermediateCodeExtensions = new Set([
 ])
 const codeRequestPattern =
   /\b(api|app|cli|code|component|css|html|javascript|js|node|program|python|react|script|typescript|ts|website)\b|代码|脚本|程序|网页|网站|应用|组件|前端|后端|接口|库|插件|扩展|源码|项目/i
-const htmlPreviewResetStyle = "<style>html,body{background:transparent;}body{min-width:0;}</style>"
 
 export interface ResolvedArtifactGroup {
   messageId: string
@@ -1379,6 +1379,7 @@ function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult 
         title={t("artifacts.htmlPreview")}
         srcDoc={htmlPreviewSrcDoc(preview.text ?? "")}
         sandbox=""
+        referrerPolicy="no-referrer"
         className="block h-full min-h-[480px] w-full min-w-0 flex-1 border-0 bg-transparent"
       />
       {preview.truncated ? (
@@ -1388,13 +1389,6 @@ function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult 
       ) : null}
     </div>
   )
-}
-
-function htmlPreviewSrcDoc(source: string): string {
-  if (/<head[\s>]/i.test(source)) {
-    return source.replace(/<head([^>]*)>/i, `<head$1>${htmlPreviewResetStyle}`)
-  }
-  return `${htmlPreviewResetStyle}${source}`
 }
 
 function ArtifactInfo({ group, item }: { group: LocalArtifactGroup | null; item: LocalArtifactItem }) {

@@ -43,7 +43,7 @@
 :root {
   color-scheme: light;
   --font-sans:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Segoe UI", ui-sans-serif,
+    -apple-system, "BlinkMacSystemFont", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Segoe UI", ui-sans-serif,
     system-ui, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --app-titlebar-height: 48px;

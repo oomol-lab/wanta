@@ -2,7 +2,7 @@ import type { BillingOverviewResult, BillingPeriodDays } from "../../electron/ch
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useChatService } from "../components/AppContext.ts"
+import { getBillingOverview, getBillingSummary } from "../lib/billing-client.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 const defaultStaleMs = 60_000
@@ -43,7 +43,6 @@ export function useBillingOverview(
     summaryOnly = false,
   }: UseBillingOverviewOptions = {},
 ): UseBillingOverview {
-  const chatService = useChatService()
   const cacheScopeKey = `${cacheScope}:${summaryOnly ? "summary" : "overview"}`
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
   const [loading, setLoading] = React.useState(false)
@@ -81,10 +80,7 @@ export function useBillingOverview(
       const promise =
         force || !entry.promise
           ? startBillingOverviewRequest(entry, () => {
-              return chatService.invoke(summaryOnly ? "getBillingSummary" : "getBillingOverview", {
-                days,
-                forceRefresh: force,
-              })
+              return summaryOnly ? getBillingSummary(days) : getBillingOverview(days)
             })
           : entry.promise
 
@@ -114,7 +110,7 @@ export function useBillingOverview(
         }
       }
     },
-    [cacheScopeKey, chatService, days, staleMs, summaryOnly],
+    [cacheScopeKey, days, staleMs, summaryOnly],
   )
 
   React.useEffect(() => {

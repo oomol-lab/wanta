@@ -12,6 +12,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
+import { subscriptionCheckoutUrl, subscriptionPortalUrl, topUpCheckoutUrl } from "@/lib/billing-client"
 import { cn } from "@/lib/utils"
 
 export interface CreditPurchaseModalProps {
@@ -122,7 +123,8 @@ export function CreditPurchaseModal({
   showViewDetails = true,
 }: CreditPurchaseModalProps) {
   const t = useT()
-  const { login } = useAuth()
+  const { login, state } = useAuth()
+  const userId = state?.account?.id
   const chatService = useChatService()
   const overview = useBillingOverview(30, { cacheScope, enabled: open })
   const isSessionExpired = overview.error?.kind === "auth_required"
@@ -142,11 +144,10 @@ export function CreditPurchaseModal({
     async (plan: SubscriptionPlanTag, isCurrent: boolean) => {
       setSubscriptionLoading(plan)
       try {
-        if (currentPlans.length > 0 && !isCurrent) {
-          await chatService.invoke("openSubscriptionPortal")
-        } else {
-          await chatService.invoke("openSubscriptionCheckout", { plan })
-        }
+        // 渲染层解析结账/门户 URL，再交主进程 openExternalUrl 用系统浏览器打开（主进程只校验+外开）。
+        const url =
+          currentPlans.length > 0 && !isCurrent ? await subscriptionPortalUrl() : subscriptionCheckoutUrl(plan, userId)
+        await chatService.invoke("openExternalUrl", { url })
         onCheckoutOpened?.()
       } catch {
         toast.error(t("billing.purchaseDialog.checkoutFailed"))
@@ -154,14 +155,15 @@ export function CreditPurchaseModal({
         setSubscriptionLoading(null)
       }
     },
-    [chatService, currentPlans.length, onCheckoutOpened, t],
+    [chatService, currentPlans.length, onCheckoutOpened, t, userId],
   )
 
   const handleTopUp = React.useCallback(
     async (price: RechargePrice) => {
       setTopUpLoading(price)
       try {
-        await chatService.invoke("openTopUpCheckout", { price })
+        const url = await topUpCheckoutUrl(price)
+        await chatService.invoke("openExternalUrl", { url })
         onCheckoutOpened?.()
       } catch {
         toast.error(t("billing.purchaseDialog.checkoutFailed"))

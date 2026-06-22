@@ -1190,8 +1190,8 @@ export function AppShell() {
     activeSessionId,
     route === "chat" ? activeSessionId : null,
   )
-  const connections = useConnections()
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
+  const connections = useConnections(organizationWorkspace.connectionWorkspace)
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
   const pendingRetry = React.useRef<{
@@ -1215,29 +1215,9 @@ export function AppShell() {
   const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
   const titleGenerationRetryAfterBySession = React.useRef<Map<string, { key: string; retryAfter: number }>>(new Map())
   const autoFallbackTitleBySession = React.useRef<Map<string, string>>(new Map())
-  const appliedConnectionWorkspaceKey = React.useRef<string | null>(null)
-
   React.useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
-
-  React.useEffect(() => {
-    const workspace = organizationWorkspace.connectionWorkspace
-    if (!workspace) {
-      return
-    }
-
-    const key = workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
-    if (appliedConnectionWorkspaceKey.current === key) {
-      return
-    }
-    appliedConnectionWorkspaceKey.current = key
-    void connections.setWorkspace(workspace).then((summary) => {
-      if (!summary && appliedConnectionWorkspaceKey.current === key) {
-        appliedConnectionWorkspaceKey.current = null
-      }
-    })
-  }, [connections.setWorkspace, organizationWorkspace.connectionWorkspace])
 
   React.useEffect(() => {
     let cancelled = false

@@ -6,11 +6,7 @@ import type {
   DeleteSkillRequest,
   ExecuteSkillUpdateRequest,
   InstallRegistrySkillRequest,
-  ListMyPublishedSkillPackagesRequest,
-  ListPublicSkillPackagesRequest,
-  PublicSkillPackage,
   OpenSkillPathRequest,
-  PublicSkillPackageCatalog,
   PublishSkillRequest,
   PublishSkillResult,
   SkillDocument,
@@ -38,7 +34,7 @@ import path from "node:path"
 import { buildOoEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
 import { logDiagnosticOnChange } from "../diagnostics-log.ts"
-import { ooEndpoint, registryBaseUrl, searchBaseUrl } from "../domain.ts"
+import { ooEndpoint } from "../domain.ts"
 import { normalizeOoCliVersion, runOoCommand } from "../oo-command.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
@@ -50,8 +46,6 @@ import {
   createFailedSkillVersionCheck,
   createInstallRegistrySkillArgs,
   createPublishSkillArgs,
-  normalizePublicSkillPackageCatalog,
-  normalizeRegistrySkillPackageInfo,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
   createSkillSearchArgs,
@@ -80,24 +74,6 @@ import { resolveSharedAgentSkillRoot } from "./paths.ts"
 import { assertSafeResetPaths } from "./reset.ts"
 import { lumoRuntimeAgent, scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
 
-const skillPackageCatalogCacheTtlMs = 5 * 60_000
-const publicSkillPackagePageSize = 100
-const myPublishedSkillPackageInfoConcurrency = 10
-
-interface MyPublishedSkillAccount {
-  /** 凭证：现为会话 token（注入 registry/search 的 Authorization；网关层统一鉴权）。 */
-  authToken: string
-  avatarUrl?: string
-  id: string
-  name: string
-}
-
-interface MyPublishedSkillPackageMaintainer {
-  id: string
-  name: string
-  url?: string
-}
-
 interface SkillVersionAuthSnapshot {
   cacheKey: string
 }
@@ -114,22 +90,6 @@ type RunSkillOoCommand = (
 export class SkillServiceImpl extends ConnectionService<SkillService> implements IConnectionService<SkillService> {
   private readonly authService: AuthManager
   private readonly watchers: FSWatcher[] = []
-  private readonly publicSkillPackageCatalogCacheByKey = new Map<
-    string,
-    { catalog: PublicSkillPackageCatalog; time: number }
-  >()
-  private readonly publicSkillPackageCatalogInFlightByKey = new Map<string, Promise<PublicSkillPackageCatalog>>()
-  private readonly myPublishedSkillPackageCatalogCacheByKey = new Map<
-    string,
-    { catalog: PublicSkillPackageCatalog; time: number }
-  >()
-  private readonly myPublishedSkillPackageCatalogInFlightByKey = new Map<string, Promise<PublicSkillPackageCatalog>>()
-  private readonly myPublishedSkillPackageInfoCacheByKey = new Map<
-    string,
-    { item: PublicSkillPackage | undefined; time: number }
-  >()
-  private readonly myPublishedSkillPackageInfoInFlightByKey = new Map<string, Promise<PublicSkillPackage | undefined>>()
-  private skillPackageCatalogCacheGeneration = 0
   private versionReportCache: { generation: number; key: string; report: SkillVersionReport; time: number } | undefined
   private versionReportInFlight: { generation: number; key: string; promise: Promise<SkillVersionReport> } | undefined
   private versionReportCacheGeneration = 0
@@ -148,7 +108,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     this.options = options
     this.unsubscribeAuthStateChanged = this.authService.stateChanged.on(() => {
       this.invalidateVersionReport()
-      this.invalidateMyPublishedSkillPackageCaches()
     })
     if (app.isReady()) {
       this.startWatching()
@@ -239,102 +198,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return normalizeSkillSearchResults(result.stdout)
   }
 
-  public async listPublicSkillPackages(
-    request: ListPublicSkillPackagesRequest = {},
-  ): Promise<PublicSkillPackageCatalog> {
-    const next = request.next?.trim() ?? ""
-    const size = request.size ?? publicSkillPackagePageSize
-    const cacheKey = `${searchBaseUrl}:${size}:${next}`
-    const cached = this.publicSkillPackageCatalogCacheByKey.get(cacheKey)
-
-    if (!request.forceRefresh && cached && Date.now() - cached.time < skillPackageCatalogCacheTtlMs) {
-      return cached.catalog
-    }
-
-    const inFlight = this.publicSkillPackageCatalogInFlightByKey.get(cacheKey)
-    if (!request.forceRefresh && inFlight) {
-      return inFlight
-    }
-
-    const cacheGeneration = this.skillPackageCatalogCacheGeneration
-    const promise = readPublicSkillPackageCatalog({ next, size })
-      .then((catalog) => {
-        if (
-          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
-          this.publicSkillPackageCatalogInFlightByKey.get(cacheKey) === promise
-        ) {
-          this.publicSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
-        }
-        return catalog
-      })
-      .finally(() => {
-        if (this.publicSkillPackageCatalogInFlightByKey.get(cacheKey) === promise) {
-          this.publicSkillPackageCatalogInFlightByKey.delete(cacheKey)
-        }
-      })
-
-    this.publicSkillPackageCatalogInFlightByKey.set(cacheKey, promise)
-    return promise
-  }
-
-  public async listMyPublishedSkillPackages(
-    request: ListMyPublishedSkillPackagesRequest = {},
-  ): Promise<PublicSkillPackageCatalog> {
-    await this.authService.getAuthState()
-    const account = this.authService.activeAccount()
-
-    if (!account) {
-      throw new Error("Published Skills not available (sign in first)")
-    }
-
-    const next = request.next?.trim() ?? ""
-    const cacheKey = `${searchBaseUrl}:${account.id}:${next}`
-    const cached = this.myPublishedSkillPackageCatalogCacheByKey.get(cacheKey)
-
-    if (!request.forceRefresh && cached && Date.now() - cached.time < skillPackageCatalogCacheTtlMs) {
-      return cached.catalog
-    }
-
-    const inFlight = this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey)
-    if (!request.forceRefresh && inFlight) {
-      return inFlight
-    }
-
-    const authToken = await this.authService.currentSessionToken()
-    if (!authToken) {
-      throw new Error("Published Skills not available (sign in first)")
-    }
-
-    const cacheGeneration = this.skillPackageCatalogCacheGeneration
-    const promise = this.readMyPublishedSkillPackageCatalog({
-      account: {
-        authToken,
-        id: account.id,
-        name: account.name,
-        avatarUrl: account.avatarUrl,
-      },
-      forceRefresh: request.forceRefresh,
-      next,
-    })
-      .then((catalog) => {
-        if (
-          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
-          this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey) === promise
-        ) {
-          this.myPublishedSkillPackageCatalogCacheByKey.set(cacheKey, { catalog, time: Date.now() })
-        }
-        return catalog
-      })
-      .finally(() => {
-        if (this.myPublishedSkillPackageCatalogInFlightByKey.get(cacheKey) === promise) {
-          this.myPublishedSkillPackageCatalogInFlightByKey.delete(cacheKey)
-        }
-      })
-
-    this.myPublishedSkillPackageCatalogInFlightByKey.set(cacheKey, promise)
-    return promise
-  }
-
   public async installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory> {
     const result = await this.runOoCommand(createInstallRegistrySkillArgs(request), {
       owner: "skill-service",
@@ -408,7 +271,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       owner: "skill-service",
     })
     this.invalidateVersionReport()
-    this.invalidateSkillPackageCatalogCaches()
     this.notifyRuntimeSkillsChanged("publish-skill")
 
     return {
@@ -739,25 +601,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     this.versionReportInFlight = undefined
   }
 
-  private invalidateSkillPackageCatalogCaches(): void {
-    this.skillPackageCatalogCacheGeneration += 1
-    this.publicSkillPackageCatalogCacheByKey.clear()
-    this.publicSkillPackageCatalogInFlightByKey.clear()
-    this.clearMyPublishedSkillPackageCaches()
-  }
-
-  private invalidateMyPublishedSkillPackageCaches(): void {
-    this.skillPackageCatalogCacheGeneration += 1
-    this.clearMyPublishedSkillPackageCaches()
-  }
-
-  private clearMyPublishedSkillPackageCaches(): void {
-    this.myPublishedSkillPackageCatalogCacheByKey.clear()
-    this.myPublishedSkillPackageCatalogInFlightByKey.clear()
-    this.myPublishedSkillPackageInfoCacheByKey.clear()
-    this.myPublishedSkillPackageInfoInFlightByKey.clear()
-  }
-
   private isCurrentVersionReportRequest(
     cacheKey: string,
     cacheGeneration: number,
@@ -916,111 +759,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  private async readMyPublishedSkillPackageCatalog(request: {
-    account: MyPublishedSkillAccount
-    forceRefresh?: boolean
-    next?: string
-  }): Promise<PublicSkillPackageCatalog> {
-    const startedAtMs = Date.now()
-    const publishedPackages = await readMyPublishedSkillPackageList({
-      account: request.account,
-      next: request.next,
-    })
-    const maintainer = {
-      id: request.account.id,
-      name: request.account.name,
-      url: request.account.avatarUrl,
-    }
-    const items = (
-      await mapWithConcurrency(
-        publishedPackages.items,
-        myPublishedSkillPackageInfoConcurrency,
-        async (publishedPackage) => {
-          const packageInfo = await this.readMyPublishedSkillPackageInfo({
-            account: request.account,
-            forceRefresh: request.forceRefresh,
-            maintainer,
-            packageName: publishedPackage.name,
-          })
-
-          return mergeMyPublishedPackage(publishedPackage, packageInfo)
-        },
-      )
-    ).filter((item): item is NonNullable<typeof item> => Boolean(item))
-
-    const catalog = {
-      items: items.sort(compareMyPublishedPackages),
-      next: publishedPackages.next,
-      updatedAt: new Date().toISOString(),
-    }
-
-    logDiagnosticOnChange(
-      `skill-service:my-published-catalog:${request.account.id}`,
-      "skill-service",
-      "my published skill package catalog read",
-      {
-        durationMs: Date.now() - startedAtMs,
-        itemCount: catalog.items.length,
-        packageCount: publishedPackages.items.length,
-      },
-      "trace",
-      {
-        itemCount: catalog.items.length,
-        packageCount: publishedPackages.items.length,
-      },
-    )
-
-    return catalog
-  }
-
-  private async readMyPublishedSkillPackageInfo(request: {
-    account: MyPublishedSkillAccount
-    forceRefresh?: boolean
-    maintainer: MyPublishedSkillPackageMaintainer
-    packageName: string
-  }): Promise<PublicSkillPackage | undefined> {
-    const cacheKey = `${registryBaseUrl}:${request.account.id}:${request.packageName}`
-    const cached = this.myPublishedSkillPackageInfoCacheByKey.get(cacheKey)
-
-    if (!request.forceRefresh && cached && Date.now() - cached.time < skillPackageCatalogCacheTtlMs) {
-      return cached.item
-    }
-
-    const inFlight = this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey)
-    if (!request.forceRefresh && inFlight) {
-      return inFlight
-    }
-
-    const cacheGeneration = this.skillPackageCatalogCacheGeneration
-    const promise = readRegistrySkillPackageInfo(request.packageName, request.account, request.maintainer)
-      .then((item) => {
-        if (
-          this.skillPackageCatalogCacheGeneration === cacheGeneration &&
-          this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey) === promise
-        ) {
-          this.myPublishedSkillPackageInfoCacheByKey.set(cacheKey, { item, time: Date.now() })
-        }
-        return item
-      })
-      .catch((error: unknown) => {
-        if (cached) {
-          console.warn("[lumo] failed to refresh my published skill package info, using cache:", error)
-          return cached.item
-        }
-
-        console.warn("[lumo] failed to read my published skill package info:", error)
-        return undefined
-      })
-      .finally(() => {
-        if (this.myPublishedSkillPackageInfoInFlightByKey.get(cacheKey) === promise) {
-          this.myPublishedSkillPackageInfoInFlightByKey.delete(cacheKey)
-        }
-      })
-
-    this.myPublishedSkillPackageInfoInFlightByKey.set(cacheKey, promise)
-    return promise
-  }
-
   private async readSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
     const startedAtMs = Date.now()
     const manifestPath = this.getManifestPath()
@@ -1125,155 +863,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       cacheKey: `${account.id}@${ooEndpoint}`,
     }
   }
-}
-
-async function readPublicSkillPackageCatalog(request: {
-  next?: string
-  size?: number
-}): Promise<PublicSkillPackageCatalog> {
-  const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
-  const next = request.next?.trim()
-  if (next) {
-    url.searchParams.set("next", next)
-  }
-  if (request.size && Number.isFinite(request.size)) {
-    url.searchParams.set("size", String(Math.min(Math.max(Math.trunc(request.size), 1), publicSkillPackagePageSize)))
-  }
-
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10000)
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`Public Skill list request failed with status ${response.status}.`)
-    }
-
-    return normalizePublicSkillPackageCatalog(await response.text())
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function readMyPublishedSkillPackageList(request: {
-  account: { authToken: string }
-  next?: string
-}): Promise<PublicSkillPackageCatalog> {
-  const url = new URL("/v1/packages/-/my", searchBaseUrl)
-  url.searchParams.set("size", "80")
-  url.searchParams.set("lang", "en")
-
-  const next = request.next?.trim()
-  if (next) {
-    url.searchParams.set("next", next)
-  }
-
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10000)
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        // registry/search 历史上用裸 Authorization 收凭证；值由长期 api-key 换为会话 token（网关层统一鉴权）。
-        Authorization: request.account.authToken,
-      },
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`Published Skill package list request failed with status ${response.status}.`)
-    }
-
-    return normalizePublicSkillPackageCatalog(await response.text())
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-function mergeMyPublishedPackage(
-  publishedPackage: PublicSkillPackage,
-  packageInfo: PublicSkillPackage | undefined,
-): PublicSkillPackage | undefined {
-  if (!packageInfo) {
-    return undefined
-  }
-
-  return {
-    ...packageInfo,
-    description: packageInfo.description ?? publishedPackage.description,
-    displayName: packageInfo.displayName || publishedPackage.displayName,
-    icon: packageInfo.icon ?? publishedPackage.icon,
-    isTemplate: publishedPackage.isTemplate || packageInfo.isTemplate,
-    updateTime: publishedPackage.updateTime,
-    version: packageInfo.version === "latest" ? publishedPackage.version : packageInfo.version,
-    visibility: packageInfo.visibility === "unknown" ? publishedPackage.visibility : packageInfo.visibility,
-  }
-}
-
-function compareMyPublishedPackages(left: PublicSkillPackage, right: PublicSkillPackage): number {
-  const leftTime = left.updateTime ?? 0
-  const rightTime = right.updateTime ?? 0
-
-  if (leftTime !== rightTime) {
-    return rightTime - leftTime
-  }
-
-  return left.displayName.localeCompare(right.displayName)
-}
-
-async function readRegistrySkillPackageInfo(
-  packageName: string,
-  account: { authToken: string },
-  maintainer: { id: string; name: string; url?: string },
-) {
-  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(packageName)}/latest`, registryBaseUrl)
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10000)
-
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        // registry 历史上用裸 Authorization 收凭证；值由长期 api-key 换为会话 token（网关层统一鉴权）。
-        Authorization: account.authToken,
-      },
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`Registry Skill package info request failed with status ${response.status}.`)
-    }
-
-    return normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  mapper: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = []
-  let nextIndex = 0
-  const workerCount = Math.min(Math.max(1, concurrency), items.length)
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (nextIndex < items.length) {
-        const index = nextIndex
-        nextIndex += 1
-        results[index] = await mapper(items[index] as T)
-      }
-    }),
-  )
-
-  return results
 }
 
 async function readCurrentOoCliVersion(runCommand: RunSkillOoCommand): Promise<string | undefined> {

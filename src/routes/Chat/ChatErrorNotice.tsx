@@ -5,10 +5,10 @@ import * as React from "react"
 import { toast } from "sonner"
 import { resolveChatError } from "./chat-error.ts"
 import { canAutoPromptPayment } from "./payment-auto-prompt.ts"
-import { useChatService } from "@/components/AppContext"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
+import { getCreditBalance } from "@/lib/billing-client"
 import { writeClipboardText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
 
@@ -96,7 +96,6 @@ export function ChatErrorNotice({
   onViewBilling,
 }: ChatErrorNoticeProps) {
   const t = useT()
-  const chatService = useChatService()
   const error = resolveChatError(message, { errorCode, errorKind })
   const [purchaseDialogOpen, setPurchaseDialogOpen] = React.useState(false)
   const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false)
@@ -115,7 +114,7 @@ export function ChatErrorNotice({
     setBalanceLoading(true)
     setRefreshFailed(false)
     try {
-      const result = await chatService.invoke("getCreditBalance")
+      const result = await getCreditBalance()
       setBalance(result.balance)
       setHasCredits(result.hasCredits)
       return result.hasCredits
@@ -128,7 +127,7 @@ export function ChatErrorNotice({
       setBalanceChecked(true)
       setBalanceLoading(false)
     }
-  }, [chatService])
+  }, [])
 
   React.useEffect(() => {
     setBalance(null)

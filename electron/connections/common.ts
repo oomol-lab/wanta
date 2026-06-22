@@ -1,7 +1,3 @@
-import type { ServiceName } from "@oomol/connection"
-
-import { serviceName } from "../branding.ts"
-
 export type ConnectionBackendStatus = "ready" | "signed-out" | "unavailable"
 export type ConnectionAuthType = "oauth2" | "api_key" | "custom_credential" | "federated" | "no_auth" | null
 export type ConnectionAppStatus = "active" | "reauth_required" | "error" | "disconnected"
@@ -213,34 +209,3 @@ export interface ConnectionAccount {
 }
 
 export type ConnectionExecution = ConnectionExecutionLogItem
-
-export interface ConnectionSummaryChangedEvent {
-  summary: ConnectionSummary
-}
-
-export type ConnectionsService = typeof ConnectionsService
-export const ConnectionsService = serviceName("connections-service") as ServiceName<{
-  ServerEvents: {
-    connectionSummaryChanged: ConnectionSummaryChangedEvent
-  }
-  ClientInvokes: {
-    connect(input: ConnectionConnectInput): Promise<ConnectionActionResult>
-    connectProvider(input: ConnectionConnectInput): Promise<ConnectionActionResult>
-    disconnect(service: string): Promise<ConnectionActionResult>
-    disconnectAccount(appId: string): Promise<ConnectionActionResult>
-    disconnectProvider(service: string): Promise<ConnectionActionResult>
-    getConnectionExecutionLogs(request: ConnectionExecutionLogRequest): Promise<ConnectionExecutionLogSummary>
-    getConnectionProviderDetail(service: string): Promise<ConnectionProviderDetail>
-    getConnectionSummary(request?: ConnectionSummaryRequest): Promise<ConnectionSummary>
-    getProviderDetail(service: string): Promise<ConnectionProviderDetail>
-    getSummary(request?: ConnectionSummaryRequest): Promise<ConnectionSummary>
-    isReady(): Promise<boolean>
-    listAccounts(service: string): Promise<ConnectionAccount[]>
-    listActions(service: string): Promise<ConnectionAction[]>
-    listExecutions(service: string): Promise<ConnectionExecution[]>
-    openExternal(url: string): Promise<void>
-    setDefaultAccount(service: string, appId: string): Promise<void>
-    setWorkspace(workspace: ConnectionWorkspace): Promise<ConnectionSummary>
-    updateAlias(appId: string, alias: string): Promise<void>
-  }
-}>

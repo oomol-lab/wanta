@@ -1,5 +1,4 @@
 import type { AuthRuntimeAccount } from "./auth/store.ts"
-import type { ConnectionWorkspace } from "./connections/common.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
@@ -25,10 +24,10 @@ import { mimeFromPath } from "./chat/artifacts.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
-import { ConnectionsServiceImpl } from "./connections/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
-import { OrganizationsServiceImpl } from "./organizations/node.ts"
+import { installOomolCorsShim } from "./net/oomol-cors.ts"
+// Organizations 请求已整体搬到渲染层（src/lib/organizations-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
@@ -112,7 +111,13 @@ const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
 const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
 const artifactRootStore = new ArtifactRootStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
-const chatService = new ChatServiceImpl(null, { artifactRootStore, stoppedGenerationStore })
+// Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
+// 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
+const chatService = new ChatServiceImpl(null, {
+  artifactRootStore,
+  stoppedGenerationStore,
+  onSetAgentOrganization: handleAgentOrganizationChanged,
+})
 const sessionService = new SessionServiceImpl(null, {
   activityStore: sessionActivityStore,
   metadataStore: sessionMetadataStore,
@@ -120,10 +125,6 @@ const sessionService = new SessionServiceImpl(null, {
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,
   onCustomModelsChanged: restartAgentForModelConfig,
-})
-// Connections 直调 connector HTTP（与 agent 解耦），复用同一账号 api-key。
-const connectionsService = new ConnectionsServiceImpl({
-  onWorkspaceChanged: handleConnectionWorkspaceChanged,
 })
 // 凭证逻辑在未注册的 AuthManager；注册给渲染层的 AuthServiceImpl 只是薄门面（防 RPC 凭证泄露）。
 const authManager = new AuthManager({
@@ -135,7 +136,6 @@ const authService = new AuthServiceImpl(authManager)
 const skillService = new SkillServiceImpl(authManager, {
   onRuntimeSkillsChanged: scheduleAgentRefreshForSkillChange,
 })
-const organizationsService = new OrganizationsServiceImpl(authManager)
 const settingsService = new SettingsServiceImpl({
   store: settingsStore,
 })
@@ -158,10 +158,8 @@ if (!isLocked) {
 // 注册所有 service 实现，必须在 server.start() 之前。
 server.registerService(chatService)
 server.registerService(sessionService)
-server.registerService(connectionsService)
 server.registerService(skillService)
 server.registerService(modelsService)
-server.registerService(organizationsService)
 server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)
@@ -183,6 +181,8 @@ if (isLocked) {
   }
 
   app.whenReady().then(() => {
+    // 放行渲染进程对 *.<endpoint> 的已鉴权直连请求（凭证经会话 cookie 自动附带，token 不进渲染层）。
+    installOomolCorsShim(session.defaultSession)
     createMainWindow()
     // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
     void updateService.checkForAppUpdate().catch((error: unknown) => {
@@ -291,7 +291,8 @@ function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
 
 /** 最近一次成功装配的账号：同凭证重复 apply 时短路，避免无谓的 sidecar 重启。 */
 let appliedAccount: AuthRuntimeAccount | null = null
-let activeConnectionWorkspace: ConnectionWorkspace = { type: "personal" }
+// agent 的当前组织作用域：由渲染层切 workspace 时经 setAgentOrganization IPC 更新；agent 重建时据此设初值。
+let activeAgentOrganizationName: string | undefined
 
 async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<void> {
   // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
@@ -311,11 +312,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   agent = null
   chatService.setAgent(null)
   chatService.setAgentStatus(account ? { status: "starting" } : { status: "signed_out" })
-  chatService.setBillingAccountContext({ token: account?.sessionToken, userId: account?.id })
   sessionService.setAgent(null)
-  connectionsService.setAuthToken(account?.sessionToken)
-  // 凭证变化后主动广播摘要，连接面板即时刷新（失败静默，面板有自己的拉取路径）。
-  void connectionsService.refreshAndEmit().catch(() => undefined)
 
   if (!account) {
     return
@@ -326,8 +323,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     opencodeBinPath,
     ooBinPath,
     bundledSkillsDir,
-    organizationName:
-      activeConnectionWorkspace.type === "organization" ? activeConnectionWorkspace.organizationName : undefined,
+    organizationName: activeAgentOrganizationName,
     rootDir: path.join(app.getPath("userData"), "agent"),
     customModels: await modelsStore.runtimeCustomModels(),
   })
@@ -355,9 +351,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   })
 }
 
-function handleConnectionWorkspaceChanged(workspace: ConnectionWorkspace): void {
-  activeConnectionWorkspace = workspace
-  const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
+function handleAgentOrganizationChanged(organizationName: string | undefined): void {
+  activeAgentOrganizationName = organizationName
   void agent?.setOrganizationName(organizationName).catch((error: unknown) => {
     console.error("[lumo] failed to update agent workspace scope:", error)
   })

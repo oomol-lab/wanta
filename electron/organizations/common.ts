@@ -1,7 +1,3 @@
-import type { ServiceName } from "@oomol/connection"
-
-import { serviceName } from "../branding.ts"
-
 export type OrganizationRole = "creator" | "member"
 
 export interface Organization {
@@ -78,29 +74,3 @@ export interface OrganizationUsersRequest extends OrganizationCacheRequest {
 export interface OrganizationUserSearchRequest extends OrganizationCacheRequest {
   keyword: string
 }
-
-export interface OrganizationChangedEvent {
-  updatedAt: string
-}
-
-export type OrganizationsService = typeof OrganizationsService
-export const OrganizationsService = serviceName("organizations-service") as ServiceName<{
-  ServerEvents: {
-    organizationChanged: OrganizationChangedEvent
-  }
-  ClientInvokes: {
-    addOrganizationMember(req: OrganizationMemberRequest): Promise<void>
-    createOrganization(req: CreateOrganizationRequest): Promise<Organization>
-    getOrganizationAppAccess(req: OrganizationIdRequest): Promise<OrganizationAppAccess>
-    getOrganizationOverview(req?: OrganizationCacheRequest): Promise<OrganizationOverview>
-    isReady(): Promise<boolean>
-    listCreatedOrganizations(req?: OrganizationCacheRequest): Promise<Organization[]>
-    listMyOrganizations(req?: OrganizationCacheRequest): Promise<Organization[]>
-    listOrganizationMembers(req: OrganizationIdRequest): Promise<OrganizationMember[]>
-    listOrganizationProviderOptions(req: OrganizationProviderOptionsRequest): Promise<OrganizationProviderOption[]>
-    listUserSummaries(req: OrganizationUsersRequest): Promise<Record<string, OrganizationUserSummary>>
-    removeOrganizationMember(req: OrganizationMemberRequest): Promise<void>
-    searchUsers(req: OrganizationUserSearchRequest): Promise<OrganizationUserSearchResult[]>
-    updateOrganizationAppAccess(req: UpdateOrganizationAppAccessRequest): Promise<OrganizationAppAccess>
-  }
-}>

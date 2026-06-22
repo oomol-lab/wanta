@@ -74,6 +74,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
+import { listMyPublishedSkillPackages, listPublicSkillPackages } from "@/lib/skills-catalog-client"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -270,10 +271,7 @@ export function SkillsRoute() {
       dispatchPublicPackageCatalog({ append, requestId, type: "load-start" })
 
       try {
-        const catalog = await skillService.invoke("listPublicSkillPackages", {
-          forceRefresh: options.forceRefresh,
-          next,
-        })
+        const catalog = await listPublicSkillPackages({ next })
         dispatchPublicPackageCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (cause) {
         dispatchPublicPackageCatalog({
@@ -283,11 +281,15 @@ export function SkillsRoute() {
         })
       }
     },
-    [skillService],
+    [],
   )
 
   const loadMyPublishedSkillPackages = React.useCallback(
     async (options: { forceRefresh?: boolean; next?: string | null } = {}) => {
+      const account = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
+      if (!account) {
+        return
+      }
       const next = options.next?.trim() || undefined
       const append = Boolean(next && !options.forceRefresh)
       const requestId = myPublishedPackageRequestIdRef.current + 1
@@ -295,8 +297,8 @@ export function SkillsRoute() {
       dispatchMyPublishedPackageCatalog({ append, requestId, type: "load-start" })
 
       try {
-        const catalog = await skillService.invoke("listMyPublishedSkillPackages", {
-          forceRefresh: options.forceRefresh,
+        const catalog = await listMyPublishedSkillPackages({
+          account: { avatarUrl: account.avatarUrl, id: account.id, name: account.name },
           next,
         })
         dispatchMyPublishedPackageCatalog({ append, catalog, requestId, type: "load-success" })
@@ -308,7 +310,7 @@ export function SkillsRoute() {
         })
       }
     },
-    [skillService],
+    [authResource.data],
   )
 
   React.useEffect(() => {

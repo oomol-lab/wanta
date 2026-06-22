@@ -1,0 +1,386 @@
+import type {
+  CreateOrganizationRequest,
+  Organization,
+  OrganizationAppAccess,
+  OrganizationMember,
+  OrganizationMemberRequest,
+  OrganizationOverview,
+  OrganizationProviderOption,
+  OrganizationUserSearchResult,
+  OrganizationUserSummary,
+} from "../../electron/organizations/common.ts"
+
+import { apiBaseUrl, connectorBaseUrl, orgControlBaseUrl } from "@/lib/domain"
+import { oomolFetch } from "@/lib/oomol-http"
+import { emitOrganizationChanged } from "@/lib/organization-change-bus"
+
+// 组织面板/管理 UI 的全部网络读写在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
+// OrganizationsServiceImpl 代发的请求（且其鉴权本就是读会话 cookie）。凭证经 httpOnly 会话 cookie
+// 自动附带（oomolFetch 内 credentials:"include"），token 不进渲染层（守 R4）；域名从 @/lib/domain
+// 派生（守 R2）。变更类操作成功后 emitOrganizationChanged() 通知其他组件刷新（替代原 RPC 广播）。
+
+interface OrganizationsEnvelope {
+  organizations?: unknown
+}
+
+interface OrganizationMembersEnvelope {
+  members?: unknown
+}
+
+interface ConnectorEnvelope<T> {
+  data?: T
+  errorMessage?: string
+  message?: string
+  meta?: unknown
+  success?: boolean
+}
+
+interface RawConnectorApp {
+  service?: unknown
+  status?: unknown
+}
+
+interface RawConnectorProvider {
+  displayName?: unknown
+  service?: unknown
+}
+
+interface RequestOptions extends RequestInit {
+  headers?: Record<string, string>
+  noResult?: boolean
+}
+
+const organizationRequestTimeoutMs = 20_000
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false
+  }
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function normalizeOrganization(value: unknown): Organization | undefined {
+  if (!isPlainObject(value)) {
+    return undefined
+  }
+  const id = asString(value["id"])
+  const name = asString(value["name"])
+  const creatorUserId = asString(value["creator_user_id"])
+  if (!id || !name || !creatorUserId) {
+    return undefined
+  }
+  return {
+    id,
+    name,
+    avatar: asString(value["avatar"]) ?? "",
+    creator_user_id: creatorUserId,
+  }
+}
+
+function normalizeOrganizationList(value: unknown): Organization[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.map(normalizeOrganization).filter((item): item is Organization => Boolean(item))
+}
+
+function normalizeOrganizationMember(value: unknown): OrganizationMember | undefined {
+  if (!isPlainObject(value)) {
+    return undefined
+  }
+  const userId = asString(value["user_id"])
+  const role = value["role"]
+  if (!userId || (role !== "creator" && role !== "member")) {
+    return undefined
+  }
+  return { user_id: userId, role }
+}
+
+function normalizeOrganizationMembers(value: unknown): OrganizationMember[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.map(normalizeOrganizationMember).filter((item): item is OrganizationMember => Boolean(item))
+}
+
+function normalizeUserSummaryMap(value: unknown): Record<string, OrganizationUserSummary> {
+  if (!isPlainObject(value)) {
+    return {}
+  }
+  const result: Record<string, OrganizationUserSummary> = {}
+  for (const [userId, summary] of Object.entries(value)) {
+    if (!isPlainObject(summary)) {
+      continue
+    }
+    result[userId] = {
+      nickname: asString(summary["nickname"]) ?? "",
+      ...(asString(summary["role"]) ? { role: asString(summary["role"]) } : {}),
+      ...(asString(summary["url"]) ? { url: asString(summary["url"]) } : {}),
+      username: asString(summary["username"]) ?? userId,
+    }
+  }
+  return result
+}
+
+function normalizeUserSearchResult(value: unknown): OrganizationUserSearchResult | undefined {
+  if (!isPlainObject(value)) {
+    return undefined
+  }
+  const userId = asString(value["user_id"])
+  const username = asString(value["username"])
+  if (!userId || !username) {
+    return undefined
+  }
+  return {
+    avatar: asString(value["avatar"]) ?? "",
+    nickname: asString(value["nickname"]) ?? "",
+    user_id: userId,
+    username,
+  }
+}
+
+function normalizeUserSearchResults(value: unknown): OrganizationUserSearchResult[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.map(normalizeUserSearchResult).filter((item): item is OrganizationUserSearchResult => Boolean(item))
+}
+
+function normalizeConnectorEnvelope<T>(payload: unknown): T {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload as T
+  }
+  const envelope = payload as ConnectorEnvelope<T>
+  if (envelope.success === false) {
+    throw new Error(envelope.errorMessage || envelope.message || "Connector request failed")
+  }
+  if ("data" in envelope) {
+    return envelope.data as T
+  }
+  return payload as T
+}
+
+function normalizeProviderOptions(
+  apps: RawConnectorApp[],
+  providers: RawConnectorProvider[],
+): OrganizationProviderOption[] {
+  const providerLabelByService = new Map(
+    providers
+      .map((provider) => {
+        const service = asString(provider.service)
+        return service ? ([service, asString(provider.displayName) ?? service] as const) : undefined
+      })
+      .filter((item): item is readonly [string, string] => Boolean(item)),
+  )
+  const connectedServices = new Set<string>()
+  for (const app of apps) {
+    const service = asString(app.service)
+    if (service && app.status !== "disconnected") {
+      connectedServices.add(service)
+    }
+  }
+  return Array.from(connectedServices)
+    .map((service) => ({ service, label: providerLabelByService.get(service) ?? service }))
+    .sort((left, right) => left.label.localeCompare(right.label))
+}
+
+function normalizeAppAccess(value: unknown): OrganizationAppAccess {
+  return isPlainObject(value) ? (value as OrganizationAppAccess) : {}
+}
+
+function encodePath(value: string): string {
+  return encodeURIComponent(value)
+}
+
+function requireIdentifier(value: string, label: string): string {
+  const normalized = value.trim()
+  if (!normalized) {
+    throw new Error(`${label} is required.`)
+  }
+  return normalized
+}
+
+async function readPayload(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) {
+    return null
+  }
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+function readErrorMessage(payload: unknown): string | undefined {
+  if (typeof payload === "string") {
+    return payload
+  }
+  if (!isPlainObject(payload)) {
+    return undefined
+  }
+  return (
+    asString(payload["errorMessage"]) ??
+    asString(payload["message"]) ??
+    asString(payload["detail"]) ??
+    asString(payload["error"]) ??
+    asString(payload["code"])
+  )
+}
+
+async function requestJson(baseUrl: string, path: string, options: RequestOptions = {}): Promise<unknown> {
+  const { headers: optionHeaders, noResult, ...init } = options
+  const headers: Record<string, string> = {
+    Accept: "application/json, text/plain, */*",
+    ...optionHeaders,
+  }
+  if (init.body !== undefined && !headers["content-type"]) {
+    headers["content-type"] = "application/json"
+  }
+  const response = await oomolFetch(new URL(path, baseUrl), {
+    ...init,
+    headers,
+    timeoutMs: organizationRequestTimeoutMs,
+  })
+  const payload = await readPayload(response)
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${readErrorMessage(payload) ?? response.statusText}`)
+  }
+  if (noResult || response.status === 204) {
+    return undefined
+  }
+  return payload
+}
+
+function requestApiJson(path: string, options: RequestOptions = {}): Promise<unknown> {
+  return requestJson(apiBaseUrl, path, options)
+}
+
+function requestOrgControlJson(path: string, options: RequestOptions = {}): Promise<unknown> {
+  return requestJson(orgControlBaseUrl, path, options)
+}
+
+async function requestConnectorJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return normalizeConnectorEnvelope<T>(await requestJson(connectorBaseUrl, path, options))
+}
+
+export async function listCreatedOrganizations(): Promise<Organization[]> {
+  const result = (await requestOrgControlJson("/v1/organizations")) as OrganizationsEnvelope
+  return normalizeOrganizationList(result.organizations)
+}
+
+export async function listMyOrganizations(): Promise<Organization[]> {
+  const result = (await requestOrgControlJson("/v1/me/organizations")) as OrganizationsEnvelope
+  return normalizeOrganizationList(result.organizations)
+}
+
+export async function getOrganizationOverview(accountId: string): Promise<OrganizationOverview> {
+  const [created, joined] = await Promise.all([listCreatedOrganizations(), listMyOrganizations()])
+  return { accountId, created, joined, updatedAt: new Date().toISOString() }
+}
+
+export async function createOrganization(req: CreateOrganizationRequest): Promise<Organization> {
+  const orgName = req.orgName.trim()
+  if (!orgName) {
+    throw new Error("Organization name is required.")
+  }
+  const organization = normalizeOrganization(
+    await requestApiJson("/v1/orgs", {
+      method: "POST",
+      body: JSON.stringify({ org_name: orgName, ...(req.avatar?.trim() ? { avatar: req.avatar.trim() } : {}) }),
+    }),
+  )
+  if (!organization) {
+    throw new Error("Organization response is invalid.")
+  }
+  emitOrganizationChanged()
+  return organization
+}
+
+export async function listOrganizationMembers(orgId: string): Promise<OrganizationMember[]> {
+  const id = requireIdentifier(orgId, "Organization id")
+  const result = (await requestOrgControlJson(
+    `/v1/organizations/${encodePath(id)}/members`,
+  )) as OrganizationMembersEnvelope
+  return normalizeOrganizationMembers(result.members)
+}
+
+export async function listUserSummaries(userIds: string[]): Promise<Record<string, OrganizationUserSummary>> {
+  const searchParams = new URLSearchParams()
+  const normalizedIds = Array.from(new Set(userIds.map((userId) => userId.trim()).filter(Boolean))).sort()
+  for (const userId of normalizedIds) {
+    searchParams.append("user_ids", userId)
+  }
+  if (!searchParams.toString()) {
+    return {}
+  }
+  return normalizeUserSummaryMap(await requestApiJson(`/v1/users/summaries?${searchParams.toString()}`))
+}
+
+export async function searchUsers(keyword: string): Promise<OrganizationUserSearchResult[]> {
+  const normalized = keyword.trim()
+  if (!normalized) {
+    return []
+  }
+  return normalizeUserSearchResults(
+    await requestApiJson(`/v1/users?${new URLSearchParams({ keyword: normalized }).toString()}`),
+  )
+}
+
+export async function addOrganizationMember(req: OrganizationMemberRequest): Promise<void> {
+  const orgId = requireIdentifier(req.orgId, "Organization id")
+  const userId = requireIdentifier(req.userId, "User id")
+  await requestOrgControlJson(`/v1/organizations/${encodePath(orgId)}/members`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId, role: "member" }),
+    noResult: true,
+  })
+  emitOrganizationChanged()
+}
+
+export async function removeOrganizationMember(req: OrganizationMemberRequest): Promise<void> {
+  const orgId = requireIdentifier(req.orgId, "Organization id")
+  const userId = requireIdentifier(req.userId, "User id")
+  await requestOrgControlJson(`/v1/organizations/${encodePath(orgId)}/members/${encodePath(userId)}`, {
+    method: "DELETE",
+    noResult: true,
+  })
+  emitOrganizationChanged()
+}
+
+export async function getOrganizationAppAccess(orgId: string): Promise<OrganizationAppAccess> {
+  const id = requireIdentifier(orgId, "Organization id")
+  return normalizeAppAccess(await requestOrgControlJson(`/v1/organizations/${encodePath(id)}/app-access`))
+}
+
+export async function updateOrganizationAppAccess(
+  orgId: string,
+  access: OrganizationAppAccess,
+): Promise<OrganizationAppAccess> {
+  const id = requireIdentifier(orgId, "Organization id")
+  const updated = normalizeAppAccess(
+    await requestOrgControlJson(`/v1/organizations/${encodePath(id)}/app-access`, {
+      method: "PUT",
+      body: JSON.stringify(access),
+    }),
+  )
+  emitOrganizationChanged()
+  return updated
+}
+
+export async function listOrganizationProviderOptions(organizationName: string): Promise<OrganizationProviderOption[]> {
+  const normalized = organizationName.trim()
+  if (!normalized) {
+    return []
+  }
+  const [apps, providers] = await Promise.all([
+    requestConnectorJson<RawConnectorApp[]>("/v1/apps", { headers: { "x-oo-organization-name": normalized } }),
+    requestConnectorJson<RawConnectorProvider[]>("/v1/providers"),
+  ])
+  return normalizeProviderOptions(Array.isArray(apps) ? apps : [], Array.isArray(providers) ? providers : [])
+}

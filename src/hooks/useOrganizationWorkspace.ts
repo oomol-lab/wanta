@@ -3,7 +3,8 @@ import type { Organization, OrganizationOverview, OrganizationRole } from "../..
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { useOrganizationsService } from "../components/AppContext.ts"
+import { onOrganizationChanged } from "../lib/organization-change-bus.ts"
+import { getOrganizationOverview } from "../lib/organizations-client.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 export { organizationAvatarStyle, organizationInitials, organizationAvatarPalette } from "../lib/organization-avatar.ts"
@@ -96,7 +97,6 @@ function organizationRole(
 }
 
 export function useOrganizationWorkspace(accountId: string | undefined): UseOrganizationWorkspace {
-  const organizationService = useOrganizationsService()
   const [overview, setOverview] = React.useState<OrganizationOverview | null>(null)
   const [selectedOrganizationId, setSelectedOrganizationId] = React.useState<string | null>(() =>
     readStoredOrganizationId(accountId),
@@ -129,7 +129,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     requestIdRef.current = requestId
     setLoading(true)
     try {
-      const next = await organizationService.invoke("getOrganizationOverview", { forceRefresh: true })
+      const next = await getOrganizationOverview(accountId)
       if (requestIdRef.current !== requestId) {
         return
       }
@@ -152,17 +152,17 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
         setLoading(false)
       }
     }
-  }, [accountId, organizationService])
+  }, [accountId])
 
   React.useEffect(() => {
     void refresh()
   }, [refresh])
 
   React.useEffect(() => {
-    return organizationService.serverEvents.on("organizationChanged", () => {
+    return onOrganizationChanged(() => {
       void refresh()
     })
-  }, [organizationService.serverEvents, refresh])
+  }, [refresh])
 
   const organizations = React.useMemo(() => uniqueOrganizations(overview), [overview])
   const selectedOrganization = selectedOrganizationId

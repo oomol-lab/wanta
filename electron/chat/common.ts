@@ -196,14 +196,6 @@ export interface ChatAttachment {
   agentSize?: number
 }
 
-export interface TranscribeVoiceRequest {
-  audioBase64: string
-}
-
-export interface TranscribeVoiceResult {
-  text: string
-}
-
 export interface AttachmentPreviewRequest {
   path: string
   mime: string
@@ -292,6 +284,14 @@ export interface ResolveLocalArtifactsResult {
 
 export interface OpenLocalPathRequest {
   path: string
+}
+
+export interface OpenExternalUrlRequest {
+  url: string
+}
+
+export interface SetAgentOrganizationRequest {
+  organizationName?: string
 }
 
 export type BillingPageTarget = "recharge" | "usage"
@@ -425,14 +425,10 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
-    openBillingPage(req: OpenBillingPageRequest): Promise<void>
-    openTopUpCheckout(req: OpenTopUpCheckoutRequest): Promise<void>
-    openSubscriptionCheckout(req: OpenSubscriptionCheckoutRequest): Promise<void>
-    openSubscriptionPortal(): Promise<void>
-    getBillingSummary(req: BillingOverviewRequest): Promise<BillingSummaryResult>
-    getBillingOverview(req: BillingOverviewRequest): Promise<BillingOverviewResult>
-    getCreditBalance(): Promise<CreditBalanceResult>
-    transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult>
+    /** 用系统浏览器打开一个 http/https URL（额度中心等渲染层已自行解析好 URL 后调用；主进程仅校验+外开）。 */
+    openExternalUrl(req: OpenExternalUrlRequest): Promise<void>
+    /** 同步 agent 的组织作用域（连接器请求已在渲染层带组织头；agent 仍由主进程持有，需单独告知）。 */
+    setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>
     getAgentStatus(): Promise<AgentRuntimeStatus>

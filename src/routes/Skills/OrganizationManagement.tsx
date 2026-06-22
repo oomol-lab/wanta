@@ -56,7 +56,6 @@ import {
   writeSelectedOrganizationId,
 } from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
-import { useOrganizationsService } from "@/components/AppContext"
 import { useAuthStateResource } from "@/components/AppDataHooks"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -89,6 +88,19 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { organizationAvatarStyle, organizationInitials } from "@/hooks/useOrganizationWorkspace"
 import { useAppI18n } from "@/i18n"
+import { onOrganizationChanged } from "@/lib/organization-change-bus"
+import {
+  addOrganizationMember,
+  createOrganization,
+  getOrganizationAppAccess,
+  getOrganizationOverview,
+  listOrganizationMembers,
+  listOrganizationProviderOptions,
+  listUserSummaries,
+  removeOrganizationMember,
+  searchUsers,
+  updateOrganizationAppAccess,
+} from "@/lib/organizations-client"
 import { cn } from "@/lib/utils"
 
 type AsyncResult<T> = { ok: true; value: T } | { error: unknown; ok: false }
@@ -102,7 +114,6 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
 
 export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrganizationWorkspace }) {
   const { t } = useAppI18n()
-  const organizationService = useOrganizationsService()
   const authResource = useAuthStateResource()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id
@@ -213,14 +224,15 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
   }, [])
 
   const loadOrganizations = React.useCallback(
-    async (options: { forceRefresh?: boolean } = {}) => {
+    async (_options: { forceRefresh?: boolean } = {}) => {
+      if (!activeAccountId) {
+        return
+      }
       const requestId = overviewRequestId.current + 1
       overviewRequestId.current = requestId
       setOverviewState((current) => loadingState(current))
       try {
-        const overview = await organizationService.invoke("getOrganizationOverview", {
-          forceRefresh: options.forceRefresh,
-        })
+        const overview = await getOrganizationOverview(activeAccountId)
         if (overviewRequestId.current !== requestId) {
           return
         }
@@ -254,11 +266,11 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         }
       }
     },
-    [activeWorkspaceIsPersonal, activeWorkspaceOrganizationId, organizationService],
+    [activeAccountId, activeWorkspaceIsPersonal, activeWorkspaceOrganizationId],
   )
 
   const loadSelectedDetails = React.useCallback(
-    async (organization: Organization, role: OrganizationRole | null, options: { forceRefresh?: boolean } = {}) => {
+    async (organization: Organization, role: OrganizationRole | null, _options: { forceRefresh?: boolean } = {}) => {
       const requestId = detailsRequestId.current + 1
       const preserveCurrentData = detailsOrganizationIdRef.current === organization.id
       detailsRequestId.current = requestId
@@ -275,29 +287,14 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
       )
 
       try {
-        const membersRequest = settle(
-          organizationService.invoke("listOrganizationMembers", {
-            forceRefresh: options.forceRefresh,
-            orgId: organization.id,
-          }),
-        )
+        const membersRequest = settle(listOrganizationMembers(organization.id))
         const providerOptionsRequest =
           role === "creator"
-            ? settle(
-                organizationService.invoke("listOrganizationProviderOptions", {
-                  forceRefresh: options.forceRefresh,
-                  organizationName: organization.name,
-                }),
-              )
+            ? settle(listOrganizationProviderOptions(organization.name))
             : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: [] })
         const appAccessRequest =
           role === "creator"
-            ? settle(
-                organizationService.invoke("getOrganizationAppAccess", {
-                  forceRefresh: options.forceRefresh,
-                  orgId: organization.id,
-                }),
-              )
+            ? settle(getOrganizationAppAccess(organization.id))
             : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
 
         const membersResult = await membersRequest
@@ -316,12 +313,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         const userIds = uniqueStrings(members.map((member) => member.user_id))
         const summariesRequest =
           userIds.length > 0
-            ? settle(
-                organizationService.invoke("listUserSummaries", {
-                  forceRefresh: options.forceRefresh,
-                  userIds,
-                }),
-              )
+            ? settle(listUserSummaries(userIds))
             : Promise.resolve<AsyncResult<Record<string, OrganizationUserSummary>>>({ ok: true, value: {} })
         const detailTasks = [
           summariesRequest.then((summariesResult) => {
@@ -380,7 +372,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         }
       }
     },
-    [organizationService],
+    [],
   )
 
   React.useEffect(() => {
@@ -462,10 +454,10 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
   }, [loadOrganizations])
 
   React.useEffect(() => {
-    return organizationService.serverEvents.on("organizationChanged", () => {
+    return onOrganizationChanged(() => {
       void loadOrganizations()
     })
-  }, [loadOrganizations, organizationService.serverEvents])
+  }, [loadOrganizations])
 
   React.useEffect(() => {
     if (!hasWorkspaceController) {
@@ -522,8 +514,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
 
     setMemberSearch({ error: null, items: [], loading: true, query })
     const timer = window.setTimeout(() => {
-      void organizationService
-        .invoke("searchUsers", { keyword: query })
+      void searchUsers(query)
         .then((users) => {
           if (memberSearchRequestId.current !== requestId) {
             return
@@ -549,7 +540,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
     }, 250)
 
     return () => window.clearTimeout(timer)
-  }, [addMemberOpen, memberInput, membersState.data, organizationService])
+  }, [addMemberOpen, memberInput, membersState.data])
 
   const handleCreateOrganization = React.useCallback(
     async (event: React.FormEvent) => {
@@ -569,7 +560,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
 
       setBusyAction("create")
       try {
-        const organization = await organizationService.invoke("createOrganization", {
+        const organization = await createOrganization({
           orgName,
           ...(createAvatar.trim() ? { avatar: createAvatar.trim() } : {}),
         })
@@ -592,7 +583,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         setBusyAction(null)
       }
     },
-    [createAvatar, createName, loadOrganizations, organizationService, selectOrganizationWorkspace, t],
+    [createAvatar, createName, loadOrganizations, selectOrganizationWorkspace, t],
   )
 
   const reloadMembersAndAccess = React.useCallback(async () => {
@@ -629,7 +620,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
 
       setBusyAction("add")
       try {
-        await organizationService.invoke("addOrganizationMember", { orgId: selectedOrganization.id, userId })
+        await addOrganizationMember({ orgId: selectedOrganization.id, userId })
         toast.success(t("organizations.addMemberSuccess"))
         setMemberInput("")
         setSelectedSearchUserId(null)
@@ -642,15 +633,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         setBusyAction(null)
       }
     },
-    [
-      canManage,
-      memberInput,
-      organizationService,
-      reloadMembersAndAccess,
-      selectedOrganization,
-      selectedSearchUserId,
-      t,
-    ],
+    [canManage, memberInput, reloadMembersAndAccess, selectedOrganization, selectedSearchUserId, t],
   )
 
   const handleRemoveMember = React.useCallback(
@@ -661,7 +644,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
 
       setBusyAction(`remove:${member.user_id}`)
       try {
-        await organizationService.invoke("removeOrganizationMember", {
+        await removeOrganizationMember({
           orgId: selectedOrganization.id,
           userId: member.user_id,
         })
@@ -673,7 +656,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         setBusyAction(null)
       }
     },
-    [canManage, organizationService, reloadMembersAndAccess, selectedOrganization, t],
+    [canManage, reloadMembersAndAccess, selectedOrganization, t],
   )
 
   const openGrantProviderAccess = React.useCallback((userId?: string) => {
@@ -722,10 +705,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
 
       setBusyAction("saveProviderAccess")
       try {
-        const latest = await organizationService.invoke("getOrganizationAppAccess", {
-          forceRefresh: true,
-          orgId: selectedOrganization.id,
-        })
+        const latest = await getOrganizationAppAccess(selectedOrganization.id)
         const parsed = parseProviderGrants(latest)
         if (!parsed.ok) {
           toast.error(t("organizations.providerAccessLoadFailed"))
@@ -742,10 +722,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
             ? uniqueStrings([...existingGrant.providers, ...providerAccessForm.providers]).sort()
             : providerAccessForm.providers
         const nextAccess = setProviderGrant(parsed.access, userId, providers, allProviders)
-        const updated = await organizationService.invoke("updateOrganizationAppAccess", {
-          access: nextAccess,
-          orgId: selectedOrganization.id,
-        })
+        const updated = await updateOrganizationAppAccess(selectedOrganization.id, nextAccess)
         setAppAccessState(readyState(updated))
         setProviderAccessForm(initialProviderAccessForm)
         toast.success(t("organizations.providerAccessSaveSuccess"))
@@ -755,7 +732,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         setBusyAction(null)
       }
     },
-    [canManage, organizationService, providerAccessError, providerAccessForm, selectedOrganization, t],
+    [canManage, providerAccessError, providerAccessForm, selectedOrganization, t],
   )
 
   const handleRevokeProviderAccess = React.useCallback(
@@ -766,19 +743,16 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
 
       setBusyAction(`revokeProviderAccess:${grant.userId}`)
       try {
-        const latest = await organizationService.invoke("getOrganizationAppAccess", {
-          forceRefresh: true,
-          orgId: selectedOrganization.id,
-        })
+        const latest = await getOrganizationAppAccess(selectedOrganization.id)
         const parsed = parseProviderGrants(latest)
         if (!parsed.ok) {
           toast.error(t("organizations.providerAccessLoadFailed"))
           return
         }
-        const updated = await organizationService.invoke("updateOrganizationAppAccess", {
-          access: removeProviderGrant(parsed.access, grant.userId),
-          orgId: selectedOrganization.id,
-        })
+        const updated = await updateOrganizationAppAccess(
+          selectedOrganization.id,
+          removeProviderGrant(parsed.access, grant.userId),
+        )
         setAppAccessState(readyState(updated))
         toast.success(t("organizations.providerAccessRevokeSuccess"))
       } catch (error) {
@@ -787,7 +761,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         setBusyAction(null)
       }
     },
-    [canManage, organizationService, providerAccessError, selectedOrganization, t],
+    [canManage, providerAccessError, selectedOrganization, t],
   )
 
   return (

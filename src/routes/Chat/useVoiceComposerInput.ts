@@ -1,11 +1,11 @@
 import * as React from "react"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
+import { transcribeVoice } from "./voice-asr.ts"
 import {
   invalidateVoiceTranscription,
   isCurrentVoiceTranscription,
   startVoiceTranscription,
 } from "./voice-transcription.ts"
-import { useChatService } from "@/components/AppContext"
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
@@ -18,7 +18,6 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 export function useVoiceComposerInput(onTranscription: (text: string) => void) {
-  const chatService = useChatService()
   const recorder = useVoiceRecorder()
   const transcriptionRef = React.useRef(0)
   const [transcribing, setTranscribing] = React.useState(false)
@@ -33,11 +32,11 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
       setRetryBlob(blob)
       try {
         const audioBase64 = arrayBufferToBase64(await blob.arrayBuffer())
-        const result = await chatService.invoke("transcribeVoice", { audioBase64 })
+        const text = await transcribeVoice(audioBase64)
         if (!isCurrentVoiceTranscription(transcriptionRef, transcriptionToken)) {
           return
         }
-        onTranscription(result.text)
+        onTranscription(text)
         setRetryBlob(null)
         recorder.cancel()
       } catch (cause) {
@@ -51,7 +50,7 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
         }
       }
     },
-    [chatService, onTranscription, recorder],
+    [onTranscription, recorder],
   )
 
   const stop = React.useCallback(async () => {

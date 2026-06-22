@@ -5,12 +5,8 @@ import type {
   AgentRuntimeStatus,
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
-  BillingOverviewRequest,
-  BillingOverviewResult,
-  BillingSummaryResult,
   ChatMessage,
   ChatService,
-  CreditBalanceResult,
   ChatContextMention,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
@@ -22,15 +18,12 @@ import type {
   LocalArtifactPack,
   LocalArtifactPackKind,
   MessageErrorEvent,
-  OpenBillingPageRequest,
+  OpenExternalUrlRequest,
   OpenLocalPathRequest,
-  OpenSubscriptionCheckoutRequest,
-  OpenTopUpCheckoutRequest,
   ResolveLocalArtifactsRequest,
   ResolveLocalArtifactsResult,
   SendMessageRequest,
-  TranscribeVoiceRequest,
-  TranscribeVoiceResult,
+  SetAgentOrganizationRequest,
 } from "./common.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -41,7 +34,6 @@ import { open, readdir, readFile, realpath, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
-import { voiceAsrBaseUrl } from "../domain.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
 import {
@@ -51,12 +43,9 @@ import {
   mimeFromPath,
   normalizeLocalPathCandidate,
 } from "./artifacts.ts"
-import { BillingClient } from "./billing.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import { normalizeChatError } from "./error.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
-
-export { billingLogRanges, readBillingLogs } from "./billing.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 const artifactTextPreviewMaxBytes = 512 * 1024
@@ -69,6 +58,15 @@ function errorMessage(error: unknown): string {
     return error.message
   }
   return String(error)
+}
+
+/** 仅放行 http/https 的外开 URL，避免渲染层诱导主进程打开 file:// 或自定义协议。 */
+function ensureExternalHttpUrl(rawUrl: string): string {
+  const url = new URL(rawUrl)
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Only http and https URLs can be opened.")
+  }
+  return url.toString()
 }
 
 function createErrorPartId(): string {
@@ -140,6 +138,8 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
 interface ChatServiceDeps {
   artifactRootStore?: ArtifactRootStore
   stoppedGenerationStore?: StoppedGenerationStore
+  /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
+  onSetAgentOrganization?: (organizationName: string | undefined) => void
 }
 
 interface SessionGeneration {
@@ -206,54 +206,6 @@ async function readTextPreview(filePath: string, size: number): Promise<{ text: 
   } finally {
     await file.close()
   }
-}
-
-export function createVoiceAsrRequestId(): string {
-  return crypto.randomUUID()
-}
-
-export function buildVoiceAsrRequest(authToken: string, audioBase64: string, requestId: string): RequestInit {
-  return {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${authToken}`,
-      "Content-Type": "application/json",
-      Cookie: `oomol-token=${authToken}`,
-      "X-Api-Request-Id": requestId,
-    },
-    body: JSON.stringify({
-      user: { uid: requestId },
-      audio: { data: audioBase64 },
-      request: {
-        model_name: "bigmodel",
-        enable_itn: true,
-        enable_punc: true,
-      },
-    }),
-  }
-}
-
-export function parseVoiceAsrTranscript(payload: VoiceAsrResponse | undefined): string {
-  const transcript = payload?.result?.text?.trim() ?? ""
-  if (!transcript) {
-    throw new Error("No speech was recognized.")
-  }
-  return transcript
-}
-
-export function describeVoiceAsrFetchFailure(error: unknown): string {
-  const message = errorMessage(error)
-  const cause = error instanceof Error ? error.cause : undefined
-  const causeCode =
-    cause && typeof cause === "object" && "code" in cause && typeof cause.code === "string" ? cause.code : undefined
-  const causeMessage =
-    cause && typeof cause === "object" && "message" in cause && typeof cause.message === "string"
-      ? cause.message
-      : undefined
-  const details = [causeCode, causeMessage].filter((item): item is string => Boolean(item)).join(": ")
-  return details ? `${message} (${details})` : message
 }
 
 function localArtifactName(filePath: string): string {
@@ -496,8 +448,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public readonly sessionActivity = new ServiceEvent<{ sessionId: string; usedAt: number }>()
 
   private agent: AgentManager | null
-  private voiceAuthToken: string | undefined
-  private readonly billing = new BillingClient()
   private bridged = false
   private userStoppedSessions = new Map<string, number>()
   private emittedMessageErrors = new Map<string, Set<string>>()
@@ -548,20 +498,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return (
       this.activeAssistantMessages.size > 0 || this.pendingArtifactDirs.size > 0 || this.sessionGenerations.size > 0
     )
-  }
-
-  /** 登录 / 登出时由 main 更新 Studio ASR 需要的 oomol-token。只在主进程内使用，renderer 不可见。 */
-  public setVoiceAuthToken(token: string | undefined): void {
-    if (this.voiceAuthToken !== token) {
-      this.billing.setToken(token)
-    }
-    this.voiceAuthToken = token
-  }
-
-  /** 登录 / 登出时由 main 更新额度中心所需上下文。凭证只留在主进程内。 */
-  public setBillingAccountContext(context: { token?: string; userId?: string }): void {
-    this.voiceAuthToken = context.token
-    this.billing.setAccountContext(context)
   }
 
   /** agent 就绪后调用：订阅 OpenCode SSE，转译为 ServerEvents 广播给渲染层。 */
@@ -1001,63 +937,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
-  public async openBillingPage(req: OpenBillingPageRequest): Promise<void> {
-    await shell.openExternal(this.billing.billingPageUrl(req))
+  public async openExternalUrl(req: OpenExternalUrlRequest): Promise<void> {
+    // 渲染层（额度中心等）已自行解析好目标 URL；主进程只校验 http/https 后外开，绝不在窗口内导航。
+    await shell.openExternal(ensureExternalHttpUrl(req.url))
   }
 
-  public async openTopUpCheckout(req: OpenTopUpCheckoutRequest): Promise<void> {
-    await shell.openExternal(await this.billing.topUpCheckoutUrl(req))
-  }
-
-  public async openSubscriptionCheckout(req: OpenSubscriptionCheckoutRequest): Promise<void> {
-    await shell.openExternal(await this.billing.subscriptionCheckoutUrl(req))
-  }
-
-  public async openSubscriptionPortal(): Promise<void> {
-    await shell.openExternal(await this.billing.subscriptionPortalUrl())
-  }
-
-  public async getBillingSummary(req: BillingOverviewRequest): Promise<BillingSummaryResult> {
-    return this.billing.getBillingSummary(req)
-  }
-
-  public async getBillingOverview(req: BillingOverviewRequest): Promise<BillingOverviewResult> {
-    return this.billing.getBillingOverview(req)
-  }
-
-  public async getCreditBalance(): Promise<CreditBalanceResult> {
-    return this.billing.getCreditBalance()
-  }
-
-  public async transcribeVoice(req: TranscribeVoiceRequest): Promise<TranscribeVoiceResult> {
-    if (!this.voiceAuthToken) {
-      throw new Error("Voice transcription requires a fresh sign-in. Please sign out and sign in again.")
-    }
-    const requestId = createVoiceAsrRequestId()
-    let response: Response
-    try {
-      response = await fetch(voiceAsrBaseUrl, {
-        ...buildVoiceAsrRequest(this.voiceAuthToken, req.audioBase64, requestId),
-        signal: AbortSignal.timeout(60_000),
-      })
-    } catch (error) {
-      const message = describeVoiceAsrFetchFailure(error)
-      console.error("[lumo] voice transcription fetch failed", { endpoint: voiceAsrBaseUrl, requestId, error: message })
-      throw new Error(`Voice transcription request failed: ${message}`)
-    }
-    const text = await response.text()
-    let payload: VoiceAsrResponse | undefined
-    if (text) {
-      try {
-        payload = JSON.parse(text) as VoiceAsrResponse
-      } catch {
-        payload = undefined
-      }
-    }
-    if (!response.ok) {
-      throw new Error(`Voice transcription failed with status ${response.status}: ${text || response.statusText}`)
-    }
-    return { text: parseVoiceAsrTranscript(payload) }
+  public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
+    const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
+    this.deps.onSetAgentOrganization?.(organizationName)
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {
@@ -1101,15 +988,5 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       applyArtifactRoots(messages, this.artifactRoots.get(sessionId)),
       this.stoppedGenerations.get(sessionId),
     )
-  }
-}
-
-export interface VoiceAsrResponse {
-  audio_info?: {
-    duration?: number
-  }
-  result?: {
-    text?: string
-    utterances?: unknown[]
   }
 }

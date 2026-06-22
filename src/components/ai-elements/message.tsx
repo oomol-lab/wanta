@@ -47,7 +47,7 @@ export type MessageContentProps = HTMLAttributes<HTMLDivElement>
 export const MessageContent = ({ children, className, ...props }: MessageContentProps) => (
   <div
     className={cn(
-      "flex max-w-full min-w-0 flex-col gap-2 overflow-hidden text-sm",
+      "oo-text-chat flex max-w-full min-w-0 flex-col gap-2 overflow-hidden",
       "group-[.is-user]:ml-auto group-[.is-user]:w-fit group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
       "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       className,
@@ -190,7 +190,10 @@ export function compactLocalPath(value: string, maxLength = 72): string {
 export function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
   return (
     <div className="my-3 max-w-full min-w-0 overflow-hidden">
-      <table className={cn("w-full table-fixed border-collapse border border-border text-sm", className)} {...props}>
+      <table
+        className={cn("oo-text-body w-full table-fixed border-collapse border border-border", className)}
+        {...props}
+      >
         {children}
       </table>
     </div>

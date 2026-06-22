@@ -50,7 +50,7 @@ function attachmentSummary(t: ReturnType<typeof useT>, attachment: ChatAttachmen
 function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) {
   if (isDirectoryAttachment(attachment)) {
     return (
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-cyan-500/12 text-cyan-700 dark:text-cyan-300">
+      <span className="oo-attachment-tile-directory flex size-10 shrink-0 items-center justify-center rounded-md">
         <Folder className="size-5" />
       </span>
     )
@@ -69,7 +69,7 @@ function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) 
 
   if (mime === "application/pdf" || extension === "pdf") {
     return (
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-red-500 text-[9px] font-semibold text-white">
+      <span className="oo-attachment-tile-pdf flex size-10 shrink-0 items-center justify-center rounded-md text-[9px] font-semibold">
         PDF
       </span>
     )
@@ -80,35 +80,35 @@ function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) 
 
   if (mime.startsWith("image/")) {
     return (
-      <span className={cn(tileClassName, "bg-sky-500/12 text-sky-700 dark:text-sky-300")}>
+      <span className={cn(tileClassName, "oo-attachment-tile-image")}>
         <FileImage className={iconClassName} />
       </span>
     )
   }
   if (mime.startsWith("video/")) {
     return (
-      <span className={cn(tileClassName, "bg-violet-500/12 text-violet-700 dark:text-violet-300")}>
+      <span className={cn(tileClassName, "oo-attachment-tile-video")}>
         <FileVideoCamera className={iconClassName} />
       </span>
     )
   }
   if (["zip", "gz", "tgz", "rar", "7z"].includes(extension)) {
     return (
-      <span className={cn(tileClassName, "bg-amber-500/14 text-amber-700 dark:text-amber-300")}>
+      <span className={cn(tileClassName, "oo-attachment-tile-archive")}>
         <FileArchive className={iconClassName} />
       </span>
     )
   }
   if (["csv", "tsv", "xls", "xlsx"].includes(extension)) {
     return (
-      <span className={cn(tileClassName, "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300")}>
+      <span className={cn(tileClassName, "oo-attachment-tile-sheet")}>
         <FileSpreadsheet className={iconClassName} />
       </span>
     )
   }
   if (["css", "html", "js", "json", "jsx", "md", "py", "ts", "tsx", "xml", "yaml", "yml"].includes(extension)) {
     return (
-      <span className={cn(tileClassName, "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300")}>
+      <span className={cn(tileClassName, "oo-attachment-tile-code")}>
         <FileCode className={iconClassName} />
       </span>
     )
@@ -250,10 +250,8 @@ export function AttachmentList({
             >
               <AttachmentPreviewTile attachment={attachment} />
               <span className="min-w-0 flex-1">
-                <span className="block max-w-56 truncate text-sm leading-5 font-medium text-foreground">
-                  {attachment.name}
-                </span>
-                <span className="block truncate text-xs leading-4 font-normal text-muted-foreground">
+                <span className="oo-text-label block max-w-56 truncate text-foreground">{attachment.name}</span>
+                <span className="oo-text-caption-compact block truncate font-normal text-muted-foreground">
                   {attachmentSummary(t, attachment)}
                 </span>
               </span>

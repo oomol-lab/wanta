@@ -189,7 +189,7 @@ export function ArchivedRoute({
   return (
     <PageRouteShell backLabel={t("archived.backToChat")} contentClassName="max-w-[82rem] gap-5" onBack={onBack}>
       <div className="flex min-w-0 items-center justify-between gap-4">
-        <h1 className="oo-text-title min-w-0 truncate text-2xl font-semibold tracking-normal">{t("archived.title")}</h1>
+        <h1 className="oo-text-page-title min-w-0 truncate">{t("archived.title")}</h1>
         <ConfirmDialog>
           <ConfirmDialogTrigger asChild>
             <Button

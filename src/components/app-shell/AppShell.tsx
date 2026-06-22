@@ -330,7 +330,7 @@ function WorkspaceMenuContent({
         />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="truncate">{personalLabel}</span>
-          <span className="truncate text-xs text-muted-foreground">{personalDescription}</span>
+          <span className="oo-text-caption-compact truncate text-muted-foreground">{personalDescription}</span>
         </span>
         <span aria-hidden="true" />
       </DropdownMenuItem>
@@ -346,7 +346,7 @@ function WorkspaceMenuContent({
         </div>
       ) : null}
       {showRefreshWarning ? (
-        <div className="mx-2 my-1.5 flex min-w-0 items-start gap-2 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+        <div className="oo-text-caption-compact mx-2 my-1.5 flex min-w-0 items-start gap-2 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2.5 py-2 text-muted-foreground">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--oo-warning-foreground)]" />
           <span className="min-w-0">{t("organizations.refreshFailedDescription")}</span>
         </div>
@@ -534,7 +534,7 @@ function SessionItem({
             aria-label={t("aria.unreadSession")}
             className="ml-auto flex size-5 shrink-0 items-center justify-center group-hover:hidden"
           >
-            <span className="size-2 rounded-full bg-blue-500" aria-hidden="true" />
+            <span className="oo-unread-dot size-2 rounded-full" aria-hidden="true" />
           </span>
         ) : relativeTime ? (
           <span
@@ -644,7 +644,7 @@ function RenameSessionDialog({
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 id="rename-session-title" className="oo-text-title text-lg font-semibold text-foreground">
+            <h2 id="rename-session-title" className="oo-text-dialog-title text-foreground">
               {t("session.renameTitle")}
             </h2>
             <p id="rename-session-description" className="oo-text-caption mt-1 text-muted-foreground">

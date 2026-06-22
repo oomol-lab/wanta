@@ -108,14 +108,13 @@ function visibleSkillOperationError(
   return null
 }
 
-const publishableSkillBadgeClassName =
-  "h-5 shrink-0 border-blue-200 bg-blue-50 px-1.5 text-[11px] leading-none font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-300"
+const publishableSkillBadgeClassName = "oo-badge-info oo-text-micro h-5 shrink-0 px-1.5 font-medium"
 
 const skillUpdateBadgeBaseClassName =
-  "h-5 shrink-0 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-1.5 text-[11px] leading-none font-medium text-[var(--oo-warning-foreground)]"
+  "oo-text-micro h-5 shrink-0 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-1.5 font-medium text-[var(--oo-warning-foreground)]"
 const skillUpdateBadgeClassName = skillUpdateBadgeBaseClassName
 const skillUpdateActionBadgeClassName = cn(
-  "h-7 shrink-0 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2 text-xs font-medium text-[var(--oo-warning-foreground)]",
+  "oo-text-caption-compact h-7 shrink-0 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2 font-medium text-[var(--oo-warning-foreground)]",
   "border shadow-none hover:bg-[var(--oo-warning-surface)] hover:text-[var(--oo-warning-foreground)]",
 )
 const skillDocumentToggleItemClassName =
@@ -1042,7 +1041,7 @@ function PublicSkillPackageCard({
         <div className="flex min-w-0 items-start gap-3">
           <SkillIconFrame icon={pkg.icon} />
           <div className="grid min-w-0 gap-1">
-            <div className="min-w-0 truncate text-sm font-medium">{pkg.displayName}</div>
+            <div className="oo-text-label min-w-0 truncate">{pkg.displayName}</div>
             <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={pkg.name}>
               {pkg.name}
             </div>
@@ -1173,8 +1172,8 @@ function CliUpdateNotice({
     <Card className="grid gap-2 rounded-md border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2 shadow-none">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="grid min-w-0 gap-1">
-          <div className="text-sm font-medium">{t("skills.cliUpdateAvailableTitle")}</div>
-          <CardDescription className="text-xs">
+          <div className="oo-text-label">{t("skills.cliUpdateAvailableTitle")}</div>
+          <CardDescription className="oo-text-caption-compact">
             {t("skills.cliUpdateAvailableDescription", {
               current: cli.currentVersion ?? t("skills.none"),
               latest: cli.latestVersion ?? t("skills.none"),
@@ -1255,7 +1254,7 @@ function InstalledSkillCard({
         <div className="flex min-w-0 items-start gap-3">
           <SkillIconFrame icon={group.icon} />
           <div className="grid min-w-0 gap-1">
-            <div className="min-w-0 truncate text-sm font-medium">{group.name}</div>
+            <div className="oo-text-label min-w-0 truncate">{group.name}</div>
             <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={packageLine}>
               {packageLine}
             </div>
@@ -1375,7 +1374,7 @@ function SkillManagementSheet({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2 [-webkit-app-region:no-drag]">
-          <div className="min-w-0 truncate text-sm font-medium">{title}</div>
+          <div className="oo-text-label min-w-0 truncate">{title}</div>
           <Button
             type="button"
             variant="ghost"
@@ -1535,7 +1534,7 @@ function PublicSkillPackageSheet({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
-          <div className="min-w-0 truncate text-sm font-medium">{pkg.displayName}</div>
+          <div className="oo-text-label min-w-0 truncate">{pkg.displayName}</div>
           <Button
             type="button"
             variant="ghost"
@@ -1593,7 +1592,7 @@ function PublicSkillPackageDetail({
         <CardHeader className="flex-row items-start gap-3 px-3 py-0">
           <SkillIconFrame icon={pkg.icon} />
           <div className="grid min-w-0 flex-1 gap-1">
-            <CardTitle className="min-w-0 truncate text-sm">{pkg.displayName}</CardTitle>
+            <CardTitle className="oo-text-label min-w-0 truncate">{pkg.displayName}</CardTitle>
             <CardDescription className="min-w-0 truncate">{pkg.name}</CardDescription>
           </div>
         </CardHeader>
@@ -1638,8 +1637,8 @@ function PublicSkillPackageDetail({
       </InspectorCard>
 
       <InspectorInsetCard className="gap-2 px-3 py-2">
-        <div className="text-xs font-medium">{t("skills.discoverPackageInfo")}</div>
-        <div className="grid gap-1 text-xs">
+        <div className="oo-text-caption-compact font-medium">{t("skills.discoverPackageInfo")}</div>
+        <div className="oo-text-caption-compact grid gap-1">
           <div className="flex min-w-0 justify-between gap-3">
             <span className="oo-text-muted">{t("skills.package")}</span>
             <span className="min-w-0 truncate text-right">{pkg.name}</span>
@@ -1772,7 +1771,7 @@ function SkillPeek({
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
       <InspectorCard className="shrink-0">
         <CardHeader className="grid gap-1 px-3 py-0">
-          <CardTitle ref={headingRef} className="min-w-0 truncate text-sm outline-none" tabIndex={-1}>
+          <CardTitle ref={headingRef} className="oo-text-label min-w-0 truncate outline-none" tabIndex={-1}>
             {selectedSkill.name}
           </CardTitle>
           {statusDescription ? (
@@ -1828,8 +1827,8 @@ function SkillPeek({
               <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
                 <ObjectStatusIcon tone={hostAttentionTone} />
                 <div className="grid min-w-0 gap-1">
-                  <div className="text-xs font-medium">{t("skills.localChangeActionTitle")}</div>
-                  <CardDescription className="text-xs">
+                  <div className="oo-text-caption-compact font-medium">{t("skills.localChangeActionTitle")}</div>
+                  <CardDescription className="oo-text-caption-compact">
                     {hasSourceMissingHost && canRestoreRegistrySkill
                       ? t("skills.localChangeSourceMissingDescription")
                       : canRestoreRegistrySkill
@@ -1878,7 +1877,9 @@ function SkillPeek({
                   </Button>
                 ) : null}
               </div>
-              <CardDescription className="pl-6 text-xs">{t("skills.localChangeSkipDescription")}</CardDescription>
+              <CardDescription className="oo-text-caption-compact pl-6">
+                {t("skills.localChangeSkipDescription")}
+              </CardDescription>
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-1">
@@ -1904,7 +1905,7 @@ function SkillPeek({
 
       <InspectorInsetCard className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0 truncate text-sm font-medium">{t("skills.documentTitle")}</div>
+          <div className="oo-text-label min-w-0 truncate">{t("skills.documentTitle")}</div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <ToggleGroup
               type="single"
@@ -1949,9 +1950,7 @@ function SkillPeek({
           ) : skillDocument ? (
             <div className="h-full min-h-32 overflow-auto rounded-md border bg-background p-3">
               {skillDocumentViewMode === "preview" ? (
-                <MessageResponse className="max-w-none text-sm leading-6 text-foreground/85">
-                  {previewDocumentContent}
-                </MessageResponse>
+                <MessageResponse className="max-w-none text-foreground/85">{previewDocumentContent}</MessageResponse>
               ) : (
                 <pre className="font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-foreground/80">
                   {skillDocument.content}
@@ -1959,7 +1958,7 @@ function SkillPeek({
               )}
             </div>
           ) : (
-            <CardDescription className="text-xs">{t("skills.documentUnavailable")}</CardDescription>
+            <CardDescription className="oo-text-caption-compact">{t("skills.documentUnavailable")}</CardDescription>
           )}
         </div>
       </InspectorInsetCard>
@@ -1969,8 +1968,8 @@ function SkillPeek({
           <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
             <ObjectStatusIcon tone="attention" />
             <div className="grid min-w-0 gap-1">
-              <div className="text-xs font-medium">{t("skills.installedSuggestedActionTitle")}</div>
-              <CardDescription className="text-xs">
+              <div className="oo-text-caption-compact font-medium">{t("skills.installedSuggestedActionTitle")}</div>
+              <CardDescription className="oo-text-caption-compact">
                 {t("skills.installedSuggestedUpdateDescription", {
                   latest: selectedVersionCheck?.latestVersion ?? "",
                 })}

@@ -93,7 +93,9 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
               <ChevronLeft className="size-4" />
             </button>
           ) : null}
-          <div className="min-w-0 truncate px-1 text-xs font-medium text-muted-foreground">{headerLabel}</div>
+          <div className="oo-text-caption-compact min-w-0 truncate px-1 font-medium text-muted-foreground">
+            {headerLabel}
+          </div>
         </div>
       ) : null}
       {items.length > 0 ? (
@@ -118,11 +120,11 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
                 {item.icon}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm leading-5 font-medium">{item.title}</span>
-                <span className="block truncate text-xs leading-4 text-muted-foreground">{item.description}</span>
+                <span className="oo-text-label block truncate">{item.title}</span>
+                <span className="oo-text-caption-compact block truncate text-muted-foreground">{item.description}</span>
               </span>
               {item.meta ? (
-                <span className="max-w-24 shrink-0 truncate text-xs leading-none text-muted-foreground">
+                <span className="oo-text-caption-compact max-w-24 shrink-0 truncate text-muted-foreground">
                   {item.meta}
                 </span>
               ) : null}
@@ -130,7 +132,7 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
           )
         })
       ) : (
-        <div className="px-3 py-5 text-center text-sm text-muted-foreground">{emptyLabel}</div>
+        <div className="oo-text-body px-3 py-5 text-center text-muted-foreground">{emptyLabel}</div>
       )}
     </div>
   )

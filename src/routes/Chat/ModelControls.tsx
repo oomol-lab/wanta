@@ -50,7 +50,7 @@ function providerInitial(name: string): string {
 
 function ProviderMark({ name }: { name: string }) {
   return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-[11px] font-medium text-muted-foreground">
+    <span className="oo-text-micro flex size-5 shrink-0 items-center justify-center rounded-md bg-muted font-medium text-muted-foreground">
       {providerInitial(name)}
     </span>
   )
@@ -150,7 +150,7 @@ const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(function Mod
       >
         {icon}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm leading-none">{title}</span>
+          <span className="oo-text-label block truncate">{title}</span>
         </span>
         <span className="flex shrink-0 justify-end">
           {supportsImages ? (
@@ -409,7 +409,9 @@ export function ModelPicker({
           className="oo-border-divider fixed z-50 overflow-y-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-xl"
           onKeyDown={handleMenuKeyDown}
         >
-          <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelBuiltIn")}</div>
+          <div className="oo-text-caption-compact px-2 py-1.5 font-medium text-muted-foreground">
+            {t("chat.modelBuiltIn")}
+          </div>
           {items.map((item, index) => {
             if (item.kind !== "builtin") {
               return null
@@ -440,7 +442,9 @@ export function ModelPicker({
 
           {items.some((item) => item.kind === "custom") ? (
             <div className="oo-border-divider mt-1 border-t pt-1">
-              <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">{t("chat.modelCustom")}</div>
+              <div className="oo-text-caption-compact px-2 py-1.5 font-medium text-muted-foreground">
+                {t("chat.modelCustom")}
+              </div>
               {items.map((item, index) => {
                 if (item.kind !== "custom") {
                   return null
@@ -493,7 +497,7 @@ export function ModelPicker({
                   role="menuitem"
                   tabIndex={-1}
                   className={cn(
-                    "flex h-9 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                    "oo-text-body flex h-9 w-full items-center gap-2 rounded-md px-2 text-left hover:bg-accent hover:text-accent-foreground",
                     index === activeIndex && "bg-accent text-accent-foreground",
                   )}
                   onMouseEnter={() => setActiveIndex(index)}
@@ -807,7 +811,7 @@ export function AddCustomModelDialog({
                 href={provider.documentationUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs font-normal text-primary hover:underline"
+                className="oo-text-caption-compact inline-flex items-center gap-1 font-normal text-primary hover:underline"
               >
                 {t("chat.modelDocs")}
                 <ExternalLink className="size-3" />
@@ -870,7 +874,7 @@ export function AddCustomModelDialog({
               className="mt-0.5 size-4 shrink-0 accent-primary"
             />
             <span className="grid gap-1">
-              <span className="text-sm font-medium">{t("chat.modelSupportsImages")}</span>
+              <span className="oo-text-label">{t("chat.modelSupportsImages")}</span>
               <span className="oo-text-caption text-muted-foreground">{t("chat.modelSupportsImagesDescription")}</span>
             </span>
           </label>

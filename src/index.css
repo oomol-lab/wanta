@@ -100,14 +100,29 @@
   --oo-search-surface: oklch(0.983 0.003 288);
   --oo-font-caption: 0.75rem;
   --oo-line-caption: 1.25rem;
+  --oo-line-caption-compact: 1rem;
   --oo-font-micro: 0.6875rem;
   --oo-line-micro: 1rem;
   --oo-font-body: 0.875rem;
   --oo-line-body: 1.25rem;
+  --oo-font-chat: 0.875rem;
+  --oo-line-chat: 1.375rem;
+  --oo-font-markdown: 0.9375rem;
+  --oo-line-markdown: 1.5rem;
   --oo-font-control: 0.8125rem;
   --oo-line-control: 1.25rem;
   --oo-font-value: 0.9375rem;
   --oo-line-value: 1.25rem;
+  --oo-font-metric: 1.125rem;
+  --oo-line-metric: 1.5rem;
+  --oo-font-metric-large: 1.75rem;
+  --oo-line-metric-large: 2.25rem;
+  --oo-font-dialog-title: 1.125rem;
+  --oo-line-dialog-title: 1.5rem;
+  --oo-font-page-title: 1.5rem;
+  --oo-line-page-title: 2rem;
+  --oo-font-empty-title: 1.625rem;
+  --oo-line-empty-title: 2.25rem;
   --oo-control-height: 2rem;
   --oo-control-height-compact: 1.75rem;
   --oo-control-height-comfortable: 2.25rem;
@@ -150,9 +165,27 @@
   --oo-warning-surface: color-mix(in oklab, var(--warning) 12%, transparent);
   --oo-warning-border: color-mix(in oklab, var(--warning) 32%, transparent);
   --oo-warning-foreground: var(--warning);
+  --oo-info-surface: color-mix(in oklab, var(--info) 12%, var(--background));
+  --oo-info-border: color-mix(in oklab, var(--info) 28%, var(--border));
+  --oo-info-foreground: oklch(0.42 0.14 255);
+  --oo-unread-foreground: var(--info);
   --oo-success-surface: color-mix(in oklab, var(--success) 14%, var(--background));
   --oo-success-border: color-mix(in oklab, var(--success) 40%, var(--border));
   --oo-success-foreground: var(--success);
+  --oo-attachment-directory-surface: color-mix(in oklab, oklch(0.58 0.13 205) 14%, var(--background));
+  --oo-attachment-directory-foreground: oklch(0.42 0.12 205);
+  --oo-attachment-pdf-surface: color-mix(in oklab, var(--destructive) 88%, black);
+  --oo-attachment-pdf-foreground: white;
+  --oo-attachment-image-surface: color-mix(in oklab, var(--info) 12%, var(--background));
+  --oo-attachment-image-foreground: oklch(0.42 0.14 255);
+  --oo-attachment-video-surface: color-mix(in oklab, oklch(0.55 0.17 305) 12%, var(--background));
+  --oo-attachment-video-foreground: oklch(0.42 0.14 305);
+  --oo-attachment-archive-surface: color-mix(in oklab, var(--warning) 14%, var(--background));
+  --oo-attachment-archive-foreground: oklch(0.43 0.12 70);
+  --oo-attachment-sheet-surface: color-mix(in oklab, var(--success) 12%, var(--background));
+  --oo-attachment-sheet-foreground: oklch(0.38 0.12 148);
+  --oo-attachment-code-surface: color-mix(in oklab, oklch(0.48 0.16 270) 12%, var(--background));
+  --oo-attachment-code-foreground: oklch(0.39 0.13 270);
   --radius: 0.5rem;
 }
 
@@ -230,9 +263,27 @@
   --oo-warning-surface: color-mix(in oklab, var(--warning) 14%, transparent);
   --oo-warning-border: color-mix(in oklab, var(--warning) 34%, transparent);
   --oo-warning-foreground: var(--warning);
+  --oo-info-surface: color-mix(in oklab, var(--info) 18%, var(--background));
+  --oo-info-border: color-mix(in oklab, var(--info) 38%, var(--border));
+  --oo-info-foreground: var(--info);
+  --oo-unread-foreground: var(--info);
   --oo-success-surface: color-mix(in oklab, var(--success) 18%, var(--background));
   --oo-success-border: color-mix(in oklab, var(--success) 40%, var(--border));
   --oo-success-foreground: var(--success);
+  --oo-attachment-directory-surface: color-mix(in oklab, oklch(0.72 0.13 205) 18%, var(--background));
+  --oo-attachment-directory-foreground: oklch(0.78 0.11 205);
+  --oo-attachment-pdf-surface: color-mix(in oklab, var(--destructive) 24%, var(--background));
+  --oo-attachment-pdf-foreground: oklch(0.86 0.11 24);
+  --oo-attachment-image-surface: color-mix(in oklab, var(--info) 18%, var(--background));
+  --oo-attachment-image-foreground: var(--info);
+  --oo-attachment-video-surface: color-mix(in oklab, oklch(0.72 0.15 305) 18%, var(--background));
+  --oo-attachment-video-foreground: oklch(0.8 0.12 305);
+  --oo-attachment-archive-surface: color-mix(in oklab, var(--warning) 18%, var(--background));
+  --oo-attachment-archive-foreground: var(--warning);
+  --oo-attachment-sheet-surface: color-mix(in oklab, var(--success) 18%, var(--background));
+  --oo-attachment-sheet-foreground: var(--success);
+  --oo-attachment-code-surface: color-mix(in oklab, oklch(0.72 0.13 270) 18%, var(--background));
+  --oo-attachment-code-foreground: oklch(0.78 0.11 270);
 }
 
 @layer base {
@@ -910,10 +961,38 @@
     line-height: var(--oo-line-body);
   }
 
+  .oo-text-chat {
+    font-size: var(--oo-font-chat);
+    line-height: var(--oo-line-chat);
+  }
+
+  .oo-text-markdown {
+    font-size: var(--oo-font-markdown);
+    line-height: var(--oo-line-markdown);
+  }
+
   .oo-text-title {
     font-size: var(--oo-font-body);
     font-weight: 600;
     line-height: var(--oo-line-body);
+  }
+
+  .oo-text-dialog-title {
+    font-size: var(--oo-font-dialog-title);
+    font-weight: 600;
+    line-height: var(--oo-line-dialog-title);
+  }
+
+  .oo-text-page-title {
+    font-size: var(--oo-font-page-title);
+    font-weight: 600;
+    line-height: var(--oo-line-page-title);
+  }
+
+  .oo-text-empty-title {
+    font-size: var(--oo-font-empty-title);
+    font-weight: 500;
+    line-height: var(--oo-line-empty-title);
   }
 
   .oo-text-label {
@@ -933,10 +1012,28 @@
     line-height: var(--oo-line-value);
   }
 
+  .oo-text-metric {
+    font-size: var(--oo-font-metric);
+    font-weight: 600;
+    line-height: var(--oo-line-metric);
+  }
+
+  .oo-text-metric-large {
+    font-size: var(--oo-font-metric-large);
+    font-weight: 600;
+    line-height: var(--oo-line-metric-large);
+  }
+
   .oo-text-caption {
     color: var(--muted-foreground);
     font-size: var(--oo-font-caption);
     line-height: var(--oo-line-caption);
+  }
+
+  .oo-text-caption-compact {
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-caption);
+    line-height: var(--oo-line-caption-compact);
   }
 
   .oo-text-micro {
@@ -998,6 +1095,12 @@
     color: var(--warning);
   }
 
+  .oo-badge-info {
+    border-color: var(--oo-info-border);
+    background: var(--oo-info-surface);
+    color: var(--oo-info-foreground);
+  }
+
   .oo-badge-outline {
     border: 1px solid var(--oo-divider);
     color: var(--muted-foreground);
@@ -1012,22 +1115,65 @@
     color: var(--accent-strong);
   }
 
+  .oo-unread-dot {
+    background: var(--oo-unread-foreground);
+  }
+
+  .oo-attachment-tile-directory {
+    background: var(--oo-attachment-directory-surface);
+    color: var(--oo-attachment-directory-foreground);
+  }
+
+  .oo-attachment-tile-pdf {
+    background: var(--oo-attachment-pdf-surface);
+    color: var(--oo-attachment-pdf-foreground);
+  }
+
+  .oo-attachment-tile-image {
+    background: var(--oo-attachment-image-surface);
+    color: var(--oo-attachment-image-foreground);
+  }
+
+  .oo-attachment-tile-video {
+    background: var(--oo-attachment-video-surface);
+    color: var(--oo-attachment-video-foreground);
+  }
+
+  .oo-attachment-tile-archive {
+    background: var(--oo-attachment-archive-surface);
+    color: var(--oo-attachment-archive-foreground);
+  }
+
+  .oo-attachment-tile-sheet {
+    background: var(--oo-attachment-sheet-surface);
+    color: var(--oo-attachment-sheet-foreground);
+  }
+
+  .oo-attachment-tile-code {
+    background: var(--oo-attachment-code-surface);
+    color: var(--oo-attachment-code-foreground);
+  }
+
   .oo-active-accent:active {
     background: var(--oo-row-selected);
     color: var(--foreground);
   }
 
   /* Markdown 渲染：Tailwind preflight 清掉了默认排版，这里在聊天气泡内按需恢复。 */
-  .oo-markdown {
-    line-height: var(--oo-line-body);
+  .oo-markdown,
+  .oo-message-response {
+    font-size: var(--oo-font-markdown);
+    line-height: var(--oo-line-markdown);
     overflow-wrap: anywhere;
   }
 
-  .oo-markdown > :first-child {
+  .oo-markdown > :first-child,
+  .oo-message-response > :first-child {
     margin-top: 0;
   }
 
-  .oo-markdown > :last-child {
+  .oo-markdown > :last-child,
+  .oo-message-response > :last-child {
     margin-bottom: 0;
   }
 
@@ -1036,7 +1182,13 @@
   .oo-markdown ol,
   .oo-markdown pre,
   .oo-markdown blockquote,
-  .oo-markdown table {
+  .oo-markdown table,
+  .oo-message-response p,
+  .oo-message-response ul,
+  .oo-message-response ol,
+  .oo-message-response pre,
+  .oo-message-response blockquote,
+  .oo-message-response table {
     margin: 0.5rem 0;
   }
 
@@ -1045,68 +1197,92 @@
   .oo-markdown h3,
   .oo-markdown h4,
   .oo-markdown h5,
-  .oo-markdown h6 {
+  .oo-markdown h6,
+  .oo-message-response h1,
+  .oo-message-response h2,
+  .oo-message-response h3,
+  .oo-message-response h4,
+  .oo-message-response h5,
+  .oo-message-response h6 {
     margin: 1rem 0 0.5rem;
     font-weight: 600;
     line-height: 1.3;
   }
 
-  .oo-markdown h1 {
+  .oo-markdown h1,
+  .oo-message-response h1 {
     font-size: 1.4em;
   }
-  .oo-markdown h2 {
+  .oo-markdown h2,
+  .oo-message-response h2 {
     font-size: 1.25em;
   }
-  .oo-markdown h3 {
+  .oo-markdown h3,
+  .oo-message-response h3 {
     font-size: 1.1em;
   }
   .oo-markdown h4,
   .oo-markdown h5,
-  .oo-markdown h6 {
+  .oo-markdown h6,
+  .oo-message-response h4,
+  .oo-message-response h5,
+  .oo-message-response h6 {
     font-size: 1em;
   }
 
-  .oo-markdown a {
+  .oo-markdown a,
+  .oo-message-response a {
     color: var(--accent-strong);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
 
-  .oo-markdown a:hover {
+  .oo-markdown a:hover,
+  .oo-message-response a:hover {
     text-decoration-thickness: 2px;
   }
 
-  .oo-markdown strong {
+  .oo-markdown strong,
+  .oo-message-response strong {
     font-weight: 600;
   }
 
-  .oo-markdown em {
+  .oo-markdown em,
+  .oo-message-response em {
     font-style: italic;
   }
 
   .oo-markdown ul,
-  .oo-markdown ol {
+  .oo-markdown ol,
+  .oo-message-response ul,
+  .oo-message-response ol {
     padding-left: 1.4em;
   }
 
-  .oo-markdown ul {
+  .oo-markdown ul,
+  .oo-message-response ul {
     list-style: disc;
   }
 
-  .oo-markdown ol {
+  .oo-markdown ol,
+  .oo-message-response ol {
     list-style: decimal;
   }
 
-  .oo-markdown li {
+  .oo-markdown li,
+  .oo-message-response li {
     margin: 0.2em 0;
   }
 
   .oo-markdown li > ul,
-  .oo-markdown li > ol {
+  .oo-markdown li > ol,
+  .oo-message-response li > ul,
+  .oo-message-response li > ol {
     margin: 0.2em 0;
   }
 
-  .oo-markdown code {
+  .oo-markdown code,
+  .oo-message-response code {
     border-radius: 4px;
     background: var(--muted);
     padding: 0.1em 0.35em;
@@ -1114,7 +1290,8 @@
     font-size: 0.875em;
   }
 
-  .oo-markdown pre {
+  .oo-markdown pre,
+  .oo-message-response pre {
     overflow-x: auto;
     border: 1px solid var(--oo-divider);
     border-radius: 8px;
@@ -1122,7 +1299,8 @@
     padding: 0.75rem;
   }
 
-  .oo-markdown pre code {
+  .oo-markdown pre code,
+  .oo-message-response pre code {
     border-radius: 0;
     background: transparent;
     padding: 0;
@@ -1333,6 +1511,21 @@
 
   .oo-message-response [data-streamdown="code-block-body"] code > span {
     display: block;
+  }
+
+  .oo-message-response [data-language] pre {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 1rem;
+  }
+
+  .oo-message-response [data-language] code {
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
   }
 
   .oo-artifact-code-preview > [data-language] {

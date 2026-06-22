@@ -27,7 +27,7 @@ export function ContextMentionChips({
       {mentions.map((mention) => (
         <span
           key={contextMentionKey(mention)}
-          className="oo-border-divider flex h-8 max-w-full items-center gap-2 rounded-lg border bg-background/70 px-2 text-sm shadow-xs"
+          className="oo-border-divider oo-text-body flex h-8 max-w-full items-center gap-2 rounded-lg border bg-background/70 px-2 shadow-xs"
           title={mention.kind === "skill" ? mention.description : mention.accountLabel}
         >
           <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">

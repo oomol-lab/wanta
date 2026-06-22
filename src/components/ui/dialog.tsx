@@ -140,7 +140,7 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
       >
         <div className="oo-border-divider flex items-start justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <h2 className="oo-text-title truncate">{title}</h2>
+            <h2 className="oo-text-dialog-title truncate">{title}</h2>
             {description && <p className="oo-text-caption mt-0.5">{description}</p>}
           </div>
           <button

@@ -64,7 +64,7 @@ function ConfirmDialogTitle({ className, ...props }: React.ComponentProps<typeof
   return (
     <AlertDialogPrimitive.Title
       data-slot="confirm-dialog-title"
-      className={cn("text-sm font-semibold", className)}
+      className={cn("oo-text-dialog-title", className)}
       {...props}
     />
   )
@@ -77,7 +77,7 @@ function ConfirmDialogDescription({
   return (
     <AlertDialogPrimitive.Description
       data-slot="confirm-dialog-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn("oo-text-body text-muted-foreground", className)}
       {...props}
     />
   )

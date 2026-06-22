@@ -644,7 +644,7 @@ function MessageBubble({
               <button
                 type="button"
                 aria-expanded={userMessageExpanded}
-                className="mt-1 -ml-1 flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:bg-background/60 focus-visible:text-foreground focus-visible:outline-none"
+                className="oo-text-caption-compact mt-1 -ml-1 flex h-7 w-fit items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:bg-background/60 hover:text-foreground focus-visible:bg-background/60 focus-visible:text-foreground focus-visible:outline-none"
                 onClick={() => setUserMessageExpanded((open) => !open)}
               >
                 {userMessageExpanded ? t("chat.userMessageShowLess") : t("chat.userMessageShowMore")}
@@ -1105,7 +1105,7 @@ export const ChatArea = React.memo(function ChatArea({
         )}
       >
         <div className="px-4 pb-1 text-center">
-          <h2 className="mx-auto max-w-2xl text-[1.625rem] leading-9 font-medium">{t("chat.emptyTitle")}</h2>
+          <h2 className="oo-text-empty-title mx-auto max-w-2xl">{t("chat.emptyTitle")}</h2>
         </div>
         {composer}
       </div>

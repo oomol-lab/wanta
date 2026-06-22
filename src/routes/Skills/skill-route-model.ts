@@ -496,7 +496,7 @@ export function isEmojiIcon(icon: string | undefined): boolean {
 }
 
 export function getSkillRowStatusBadgeClassName(tone: ObjectStatusTone): string {
-  const baseClassName = "h-5 max-w-28 shrink-0 px-1.5 text-[11px] leading-none font-medium"
+  const baseClassName = "oo-text-micro h-5 max-w-28 shrink-0 px-1.5 font-medium"
 
   if (tone === "attention") {
     return cn(

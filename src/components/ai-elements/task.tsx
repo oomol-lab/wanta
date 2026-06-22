@@ -9,7 +9,7 @@ export type TaskItemFileProps = ComponentProps<"div">
 export const TaskItemFile = ({ children, className, ...props }: TaskItemFileProps) => (
   <div
     className={cn(
-      "inline-flex items-center gap-1 rounded-md border bg-secondary px-1.5 py-0.5 text-xs text-foreground",
+      "oo-text-caption-compact inline-flex items-center gap-1 rounded-md border bg-secondary px-1.5 py-0.5 text-foreground",
       className,
     )}
     {...props}
@@ -21,7 +21,7 @@ export const TaskItemFile = ({ children, className, ...props }: TaskItemFileProp
 export type TaskItemProps = ComponentProps<"div">
 
 export const TaskItem = ({ children, className, ...props }: TaskItemProps) => (
-  <div className={cn("text-sm text-muted-foreground", className)} {...props}>
+  <div className={cn("oo-text-body text-muted-foreground", className)} {...props}>
     {children}
   </div>
 )
@@ -39,9 +39,9 @@ export type TaskTriggerProps = ComponentProps<typeof CollapsibleTrigger> & {
 export const TaskTrigger = ({ children, className, title, ...props }: TaskTriggerProps) => (
   <CollapsibleTrigger asChild className={cn("group", className)} {...props}>
     {children ?? (
-      <div className="flex w-full cursor-pointer items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+      <div className="oo-text-body flex w-full cursor-pointer items-center gap-2 text-muted-foreground transition-colors hover:text-foreground">
         <SearchIcon className="size-4" />
-        <p className="text-sm">{title}</p>
+        <p>{title}</p>
         <ChevronDownIcon className="size-4 transition-transform group-data-[state=open]:rotate-180" />
       </div>
     )}

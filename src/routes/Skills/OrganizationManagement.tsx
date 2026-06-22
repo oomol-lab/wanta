@@ -922,18 +922,18 @@ function OrganizationSwitcherPanel({
           <div className="grid min-h-16 min-w-0 content-center gap-1.5">
             <div className="flex min-w-0 items-baseline gap-3">
               {personalSelected ? (
-                <span className="min-w-0 truncate text-base font-semibold text-foreground">{personalLabel}</span>
+                <span className="oo-text-dialog-title min-w-0 truncate text-foreground">{personalLabel}</span>
               ) : selectedOrganization ? (
                 <>
-                  <span className="min-w-0 truncate text-base font-semibold text-foreground">
+                  <span className="oo-text-dialog-title min-w-0 truncate text-foreground">
                     {selectedOrganization.name}
                   </span>
-                  <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                  <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
                     {selectedOrganization.id}
                   </span>
                 </>
               ) : (
-                <span className="min-w-0 truncate text-sm text-muted-foreground">
+                <span className="oo-text-body min-w-0 truncate text-muted-foreground">
                   {t("organizations.selectOrganization")}
                 </span>
               )}
@@ -962,7 +962,7 @@ function OrganizationSwitcherPanel({
             {t("organizations.createOrganization")}
           </Button>
           <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
-            <span className="shrink-0 text-sm text-muted-foreground">{countLabel}</span>
+            <span className="oo-text-body shrink-0 text-muted-foreground">{countLabel}</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="ghost" size="sm" className="px-2">
@@ -987,12 +987,12 @@ function OrganizationSwitcherPanel({
                   />
                   <span className="grid min-h-10 min-w-0 content-center">
                     <span className="flex min-h-5 min-w-0 items-center gap-2">
-                      <span className="truncate text-sm leading-5 font-medium">{personalLabel}</span>
+                      <span className="oo-text-label truncate">{personalLabel}</span>
                       {personalSelected ? (
                         <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
                       ) : null}
                     </span>
-                    <span className="block truncate text-xs leading-5 text-muted-foreground">
+                    <span className="oo-text-caption-compact block truncate text-muted-foreground">
                       {personalDescription}
                     </span>
                   </span>
@@ -1014,12 +1014,12 @@ function OrganizationSwitcherPanel({
                       <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
                       <span className="grid min-h-10 min-w-0 content-center">
                         <span className="flex min-h-5 min-w-0 items-center gap-2">
-                          <span className="truncate text-sm leading-5 font-medium">{organization.name}</span>
+                          <span className="oo-text-label truncate">{organization.name}</span>
                           {selected ? (
                             <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
                           ) : null}
                         </span>
-                        <span className="block truncate font-mono text-xs leading-5 text-muted-foreground">
+                        <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
                           {organization.id}
                         </span>
                       </span>
@@ -1217,7 +1217,7 @@ function ProviderAccessWarning({ error }: { error: string }) {
   const { t } = useAppI18n()
   return (
     <div className="mx-3 mt-3 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
-      <div className="text-sm font-medium text-foreground">{t("organizations.providerAccessLoadFailed")}</div>
+      <div className="oo-text-label text-foreground">{t("organizations.providerAccessLoadFailed")}</div>
       <div className="oo-text-caption mt-0.5 break-words" title={error}>
         {t("organizations.providerAccessLoadFailedDescription")}
       </div>
@@ -1258,7 +1258,7 @@ function MembersTable({
       <div className="min-w-[44rem]">
         <div
           className={cn(
-            "grid gap-3 border-b bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground",
+            "oo-text-caption-compact grid gap-3 border-b bg-muted/30 px-3 py-2 font-medium text-muted-foreground",
             gridClassName,
           )}
         >
@@ -1276,10 +1276,10 @@ function MembersTable({
                 <div className="flex min-w-0 items-center gap-3">
                   <UserAvatar avatar={member.avatar} fallback={member.fallback} label={member.displayName} />
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{member.displayName}</div>
+                    <div className="oo-text-label truncate">{member.displayName}</div>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
+                        <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
                           {member.secondaryLabel}
                         </div>
                       </TooltipTrigger>
@@ -1313,7 +1313,7 @@ function MembersTable({
                 {canManage ? (
                   <div className="flex justify-end gap-2">
                     {member.role === "creator" ? (
-                      <span className="text-sm text-muted-foreground">{t("organizations.creatorProtected")}</span>
+                      <span className="oo-text-body text-muted-foreground">{t("organizations.creatorProtected")}</span>
                     ) : (
                       <>
                         <ProviderAccessActions
@@ -1375,7 +1375,7 @@ function ProviderAccessSummary({
     return <Skeleton className="h-6 w-28 rounded-md" />
   }
   if (!grant) {
-    return <span className="text-sm text-muted-foreground">{notAuthorizedLabel}</span>
+    return <span className="oo-text-body text-muted-foreground">{notAuthorizedLabel}</span>
   }
   if (grant.allProviders) {
     return <Badge variant="secondary">{allProvidersLabel}</Badge>
@@ -1510,9 +1510,11 @@ function CreateOrganizationDialog({
             onChange={(event) => onNameChange(event.currentTarget.value)}
           />
           {nameError ? (
-            <p className="text-xs text-destructive">{nameError}</p>
+            <p className="oo-text-caption-compact text-destructive">{nameError}</p>
           ) : (
-            <p className="text-xs text-muted-foreground">{t("organizations.organizationNameDescription")}</p>
+            <p className="oo-text-caption-compact text-muted-foreground">
+              {t("organizations.organizationNameDescription")}
+            </p>
           )}
         </div>
         <div className="grid gap-2">
@@ -1625,8 +1627,10 @@ function MemberSearchResults({
             >
               <UserAvatar avatar={user.avatar} fallback={user.fallback} label={user.displayName} />
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium">{user.displayName}</span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">{user.username}</span>
+                <span className="oo-text-label block truncate">{user.displayName}</span>
+                <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
+                  {user.username}
+                </span>
               </span>
             </button>
           ))}
@@ -1772,7 +1776,7 @@ function ProviderSelect({
       <PopoverContent align="start" sideOffset={6} className="w-[min(26rem,calc(100vw-2rem))] p-1">
         <button
           type="button"
-          className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+          className="oo-text-body flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground"
           onClick={() => {
             onAllProvidersChange(true)
             setOpen(false)
@@ -1783,7 +1787,7 @@ function ProviderSelect({
         </button>
         <div className="my-1 h-px bg-border" />
         {options.length === 0 ? (
-          <div className="px-2 py-6 text-center text-sm text-muted-foreground">{emptyLabel}</div>
+          <div className="oo-text-body px-2 py-6 text-center text-muted-foreground">{emptyLabel}</div>
         ) : (
           <div className="max-h-64 overflow-y-auto">
             {options.map((provider) => {
@@ -1799,8 +1803,10 @@ function ProviderSelect({
                   }}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm">{provider.label}</span>
-                    <span className="block truncate font-mono text-xs text-muted-foreground">{provider.service}</span>
+                    <span className="oo-text-body block truncate">{provider.label}</span>
+                    <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
+                      {provider.service}
+                    </span>
                   </span>
                   {selected ? <CheckIcon className="size-4 shrink-0" /> : null}
                 </button>
@@ -1937,8 +1943,8 @@ function MemberDisplay({ members, userId }: { members: MemberView[]; userId: str
     <div className="flex min-h-9 min-w-0 items-center gap-3 rounded-md border bg-muted/40 px-3 py-2">
       <UserAvatar avatar={member?.avatar ?? ""} fallback={member?.fallback ?? userFallback(label)} label={label} />
       <span className="min-w-0">
-        <span className="block truncate text-sm font-medium">{label}</span>
-        <span className="block truncate font-mono text-xs text-muted-foreground">{secondary}</span>
+        <span className="oo-text-label block truncate">{label}</span>
+        <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">{secondary}</span>
       </span>
     </div>
   )
@@ -1977,7 +1983,7 @@ function MemberRowsSkeleton({ canManage }: { canManage: boolean }) {
 
 function EmptyBlock({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-32 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+    <div className="oo-text-body flex min-h-32 items-center justify-center px-4 py-8 text-center text-muted-foreground">
       {children}
     </div>
   )
@@ -1987,7 +1993,7 @@ function ErrorBlock({ error, onRetry }: { error: string; onRetry: () => void }) 
   const { t } = useAppI18n()
   return (
     <div className="flex min-h-32 flex-col items-start justify-center gap-3 px-4 py-5">
-      <div className="text-sm text-muted-foreground">{error || t("organizations.loadFailed")}</div>
+      <div className="oo-text-body text-muted-foreground">{error || t("organizations.loadFailed")}</div>
       <Button type="button" variant="outline" size="sm" onClick={onRetry}>
         <RefreshCwIcon className="size-4" />
         {t("organizations.retry")}
@@ -1998,7 +2004,7 @@ function ErrorBlock({ error, onRetry }: { error: string; onRetry: () => void }) 
 
 function DialogHint({ children, danger = false }: { children: React.ReactNode; danger?: boolean }) {
   return (
-    <div className={cn("px-2 py-6 text-center text-sm text-muted-foreground", danger && "text-destructive")}>
+    <div className={cn("oo-text-body px-2 py-6 text-center text-muted-foreground", danger && "text-destructive")}>
       {children}
     </div>
   )

@@ -18,7 +18,6 @@ import {
   formatPublicPackageUpdateTime,
   getGroupRowPackageLine,
   getGroupStatus,
-  getHostStatus,
   getInstalledSkillHosts,
   getLocalSkillPublishPath,
   getPublicPackageInstallState,
@@ -28,9 +27,7 @@ import {
   getPublicPackagePrimarySkill,
   getPublicSkillInstallActionLabel,
   getPublicSkillInstallKey,
-  getPublicSkillInstallState,
   getPublicSkillInstallStateLabel,
-  getRuntimeHosts,
   getSkillDocumentRootPath,
   getSkillKindLabel,
   getSkillRowStatusBadgeClassName,
@@ -53,7 +50,6 @@ import {
   shouldUpdatePublishedSkill,
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
-import { AgentIcon } from "@/components/AgentIcon"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { useSkillService } from "@/components/AppContext"
 import {
@@ -74,7 +70,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
@@ -103,6 +98,8 @@ const skillUpdateActionBadgeClassName = cn(
   "h-7 shrink-0 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2 text-xs font-medium text-[var(--oo-warning-foreground)]",
   "border shadow-none hover:bg-[var(--oo-warning-surface)] hover:text-[var(--oo-warning-foreground)]",
 )
+const skillDocumentToggleItemClassName =
+  "data-[state=off]:bg-muted/60 data-[state=off]:text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground"
 
 function SkillUpdateBadge({ label }: { label: string }) {
   return (
@@ -216,7 +213,7 @@ export function SkillsRoute() {
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
   const myPublishedPackageRequestIdRef = React.useRef(0)
-  const { copySkillPath, openSkillFolder } = useSkillObjectActions()
+  const { openSkillFolder } = useSkillObjectActions()
 
   React.useEffect(() => {
     if (!selectedSkillId && inventory?.groups[0]) {
@@ -523,7 +520,6 @@ export function SkillsRoute() {
   const isPublicPackageReplacing =
     activePackageCatalog.status === "loading" || activePackageCatalog.status === "refreshing"
   const detailContentProps: SkillDetailContentProps = {
-    copySkillPath,
     inventoryInitialLoading: inventoryResource.isInitialLoading,
     openSkillFolder,
     publishSkill,
@@ -634,7 +630,6 @@ function SkillDetailSkeleton() {
 }
 
 interface SkillDetailContentProps {
-  copySkillPath: (pathname: string) => void
   inventoryInitialLoading: boolean
   openSkillFolder: (pathname: string) => void
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
@@ -648,7 +643,6 @@ interface SkillDetailContentProps {
 }
 
 function SkillDetailContent({
-  copySkillPath,
   inventoryInitialLoading,
   openSkillFolder,
   publishSkill,
@@ -669,7 +663,6 @@ function SkillDetailContent({
   if (selectedSkill && selectedStatus) {
     return (
       <SkillPeek
-        copySkillPath={copySkillPath}
         openSkillFolder={openSkillFolder}
         planError={selectedPlanError}
         publishSkill={publishSkill}
@@ -1015,7 +1008,7 @@ function PublicSkillPackageCard({
         onClick={onSelect}
       >
         <div className="flex min-w-0 items-start gap-3">
-          <PublicSkillIcon icon={pkg.icon} />
+          <SkillIconFrame icon={pkg.icon} />
           <div className="grid min-w-0 gap-1">
             <div className="min-w-0 truncate text-sm font-medium">{pkg.displayName}</div>
             <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={pkg.name}>
@@ -1218,9 +1211,7 @@ function InstalledSkillCard({
         onClick={onOpen}
       >
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-background">
-            <SkillIcon icon={group.icon} className="size-5" />
-          </span>
+          <SkillIconFrame icon={group.icon} />
           <div className="grid min-w-0 gap-1">
             <div className="min-w-0 truncate text-sm font-medium">{group.name}</div>
             <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={packageLine}>
@@ -1361,28 +1352,36 @@ function SkillManagementSheet({
   )
 }
 
-function PublicSkillIcon({ icon }: { icon?: string }) {
+function SkillIconFrame({
+  className,
+  icon,
+  iconClassName,
+}: {
+  className?: string
+  icon?: string
+  iconClassName?: string
+}) {
   const normalizedIcon = normalizeSkillIconSource(icon)
+  const frameClassName = cn(
+    "flex size-10 shrink-0 items-center justify-center rounded-md border bg-background",
+    className,
+  )
 
   if (isImageIcon(normalizedIcon)) {
     return (
-      <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background">
+      <span className={cn(frameClassName, "overflow-hidden")}>
         <img alt="" src={normalizedIcon} className="size-full object-contain p-1.5" />
       </span>
     )
   }
 
   if (isEmojiIcon(normalizedIcon)) {
-    return (
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-background text-xl">
-        {normalizedIcon}
-      </span>
-    )
+    return <span className={cn(frameClassName, "text-xl")}>{normalizedIcon}</span>
   }
 
   return (
-    <span className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-background">
-      <SkillIcon icon={normalizedIcon} className="size-5" />
+    <span className={frameClassName}>
+      <SkillIcon icon={normalizedIcon} className={cn("size-5", iconClassName)} />
     </span>
   )
 }
@@ -1550,7 +1549,7 @@ function PublicSkillPackageDetail({
     <aside className={cn("grid min-w-0 content-start gap-3", className)}>
       <InspectorCard>
         <CardHeader className="flex-row items-start gap-3 px-3 py-0">
-          <PublicSkillIcon icon={pkg.icon} />
+          <SkillIconFrame icon={pkg.icon} />
           <div className="grid min-w-0 flex-1 gap-1">
             <CardTitle className="min-w-0 truncate text-sm">{pkg.displayName}</CardTitle>
             <CardDescription className="min-w-0 truncate">{pkg.name}</CardDescription>
@@ -1597,50 +1596,6 @@ function PublicSkillPackageDetail({
       </InspectorCard>
 
       <InspectorInsetCard className="gap-2 px-3 py-2">
-        <div className="text-xs font-medium">{t("skills.discoverIncludedSkills")}</div>
-        <ItemGroup className="min-w-0 gap-1">
-          {pkg.skills.map((skill) => {
-            const state = getPublicSkillInstallState(groupById, pkg, skill.name)
-            const installKey = getPublicSkillInstallKey(pkg, skill.name)
-            const isInstalling = installingKey === installKey
-
-            return (
-              <Item key={skill.name} size="sm" className="gap-3 rounded-md border-0 px-2 py-1.5">
-                <ItemMedia className="size-auto">
-                  <SkillIcon icon={pkg.icon} />
-                </ItemMedia>
-                <ItemContent className="min-w-0 gap-0.5">
-                  <ItemTitle className="max-w-full truncate text-xs">{skill.title}</ItemTitle>
-                  <ItemDescription className="max-w-full truncate text-xs">{skill.name}</ItemDescription>
-                  {skill.description ? (
-                    <ItemDescription className="line-clamp-2 text-xs">{skill.description}</ItemDescription>
-                  ) : null}
-                </ItemContent>
-                <ItemActions className="min-w-0 justify-end">
-                  {state === "installed" || state === "name-conflict" ? (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(skill.name)}>
-                      {t("skills.discoverOpenManage")}
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={isInstalling || !canInstallPublicSkill(state)}
-                      onClick={() => onInstall(pkg, skill.name)}
-                    >
-                      {isInstalling ? <AppIcons.status.loading className="animate-spin" /> : null}
-                      {isInstalling ? t("skills.registryInstalling") : getPublicSkillInstallActionLabel(state, t)}
-                    </Button>
-                  )}
-                </ItemActions>
-              </Item>
-            )
-          })}
-        </ItemGroup>
-      </InspectorInsetCard>
-
-      <InspectorInsetCard className="gap-2 px-3 py-2">
         <div className="text-xs font-medium">{t("skills.discoverPackageInfo")}</div>
         <div className="grid gap-1 text-xs">
           <div className="flex min-w-0 justify-between gap-3">
@@ -1664,7 +1619,6 @@ function PublicSkillPackageDetail({
 }
 
 interface SkillPeekProps {
-  copySkillPath: (pathname: string) => void
   openSkillFolder: (pathname: string) => void
   planError: string | null
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
@@ -1677,7 +1631,6 @@ interface SkillPeekProps {
 }
 
 function SkillPeek({
-  copySkillPath,
   openSkillFolder,
   planError,
   publishSkill,
@@ -1690,28 +1643,27 @@ function SkillPeek({
 }: SkillPeekProps) {
   const { t } = useAppI18n()
   const skillService = useSkillService()
-  const runtimeHosts = getRuntimeHosts(selectedSkill)
   const installedHosts = getInstalledSkillHosts(selectedSkill)
-  const allHosts = runtimeHosts.length > 0 ? runtimeHosts : installedHosts
   const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
+  const canRestoreRegistrySkill = selectedSkill.kind === "registry" && Boolean(selectedSkill.packageName?.trim())
   const isUpdatingRegistrySkill = updatingRegistrySkillId === selectedSkill.id
   const localPublishPath = getLocalSkillPublishPath(selectedSkill)
   const canPublishLocalSkill = Boolean(localPublishPath)
   const isPublishingSkill = publishingSkillId === selectedSkill.id
-  const hostAttentionCount = allHosts.filter(
+  const attentionHosts = installedHosts.filter(
     (host) => host.controlState === "modified" || host.controlState === "source-missing",
-  ).length
+  )
+  const hostAttentionCount = attentionHosts.length
+  const canOpenLocalSkillFiles = Boolean(skillDocumentRootPath)
   const headingRef = useDesktopDetailHeadingFocus<HTMLHeadingElement>(selectedSkill.id)
-  const [isHostDetailsOpen, setIsHostDetailsOpen] = React.useState(false)
   const [skillDocument, setSkillDocument] = React.useState<{ content: string; path: string } | null>(null)
   const [skillDocumentError, setSkillDocumentError] = React.useState<string | null>(null)
   const [isSkillDocumentLoading, setIsSkillDocumentLoading] = React.useState(false)
   const [skillDocumentViewMode, setSkillDocumentViewMode] = React.useState<SkillDocumentViewMode>("preview")
-  const hasSourceMissingHost = allHosts.some((host) => host.controlState === "source-missing")
+  const hasSourceMissingHost = attentionHosts.some((host) => host.controlState === "source-missing")
   const hostAttentionTone: ObjectStatusTone = hasSourceMissingHost ? "danger" : "attention"
-  const canShowInstallLocations = allHosts.length > 0
   const packageLine = getGroupRowPackageLine(selectedSkill)
   const statusDescription = hasPublishedUpdate
     ? t("skills.versionUpdateAvailable", {
@@ -1722,7 +1674,6 @@ function SkillPeek({
   const previewDocumentContent = skillDocument ? skillDocumentPreviewSource(skillDocument.content) : ""
 
   React.useEffect(() => {
-    setIsHostDetailsOpen(false)
     setSkillDocumentViewMode("preview")
   }, [selectedSkill.id])
 
@@ -1823,8 +1774,73 @@ function SkillPeek({
               {selectedSkill.description}
             </CardDescription>
           ) : null}
+          {hostAttentionCount > 0 ? (
+            <div
+              className={cn(
+                "grid gap-2 rounded-md border px-2.5 py-2",
+                hasSourceMissingHost
+                  ? "border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)]"
+                  : "border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)]",
+              )}
+            >
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
+                <ObjectStatusIcon tone={hostAttentionTone} />
+                <div className="grid min-w-0 gap-1">
+                  <div className="text-xs font-medium">{t("skills.localChangeActionTitle")}</div>
+                  <CardDescription className="text-xs">
+                    {hasSourceMissingHost && canRestoreRegistrySkill
+                      ? t("skills.localChangeSourceMissingDescription")
+                      : canRestoreRegistrySkill
+                        ? t("skills.localChangeRegistryDescription")
+                        : t("skills.localChangeLocalDescription")}
+                  </CardDescription>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 pl-6">
+                {canRestoreRegistrySkill ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isUpdatingRegistrySkill}
+                    onClick={() => updateRegistrySkill(selectedSkill)}
+                  >
+                    {isUpdatingRegistrySkill ? <AppIcons.status.loading className="animate-spin" /> : null}
+                    {isUpdatingRegistrySkill ? t("skills.updatingRegistry") : t("skills.restoreRegistryVersion")}
+                  </Button>
+                ) : null}
+                {localPublishPath ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isPublishingSkill}
+                    onClick={() => void publishSkill(selectedSkill)}
+                  >
+                    {isPublishingSkill ? <AppIcons.status.loading className="animate-spin" /> : null}
+                    {isPublishingSkill ? t("skills.publishing") : t("skills.publishToMarket")}
+                  </Button>
+                ) : null}
+                {canOpenLocalSkillFiles ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (skillDocumentRootPath) {
+                        openSkillFolder(skillDocumentRootPath)
+                      }
+                    }}
+                  >
+                    {t("skills.openLocalFiles")}
+                  </Button>
+                ) : null}
+              </div>
+              <CardDescription className="pl-6 text-xs">{t("skills.localChangeSkipDescription")}</CardDescription>
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center gap-1">
-            {canPublishLocalSkill ? (
+            {canPublishLocalSkill && hostAttentionCount === 0 ? (
               <Button
                 type="button"
                 variant="outline"
@@ -1850,10 +1866,9 @@ function SkillPeek({
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <ToggleGroup
               type="single"
-              variant="default"
+              variant="outline"
               size="sm"
-              spacing={0.5}
-              className="rounded-md border bg-background/80 p-0.5 shadow-xs"
+              className="shrink-0"
               value={skillDocumentViewMode}
               onValueChange={(value) => {
                 if (value === "preview" || value === "raw") {
@@ -1861,16 +1876,10 @@ function SkillPeek({
                 }
               }}
             >
-              <ToggleGroupItem
-                value="preview"
-                className="rounded-sm text-muted-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-              >
+              <ToggleGroupItem value="preview" className={skillDocumentToggleItemClassName}>
                 {t("skills.documentPreview")}
               </ToggleGroupItem>
-              <ToggleGroupItem
-                value="raw"
-                className="rounded-sm text-muted-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-              >
+              <ToggleGroupItem value="raw" className={skillDocumentToggleItemClassName}>
                 {t("skills.documentRaw")}
               </ToggleGroupItem>
             </ToggleGroup>
@@ -1913,44 +1922,6 @@ function SkillPeek({
         </div>
       </InspectorInsetCard>
 
-      {hostAttentionCount > 0 ? (
-        <InspectorInsetCard
-          className={cn(
-            "shrink-0 gap-3 px-3 py-3",
-            hasSourceMissingHost
-              ? "border-[var(--oo-danger-border)] bg-[var(--oo-danger-surface)]"
-              : "border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)]",
-          )}
-        >
-          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
-            <ObjectStatusIcon tone={hostAttentionTone} />
-            <div className="grid min-w-0 gap-1">
-              <div className="text-xs font-medium">{selectedStatus.label}</div>
-              <CardDescription className="text-xs">{selectedStatus.description}</CardDescription>
-            </div>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            {localPublishPath ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={isPublishingSkill}
-                onClick={() => void publishSkill(selectedSkill)}
-              >
-                {isPublishingSkill ? <AppIcons.status.loading className="animate-spin" /> : null}
-                {isPublishingSkill ? t("skills.publishing") : t("skills.publishToMarket")}
-              </Button>
-            ) : null}
-            {canShowInstallLocations ? (
-              <Button type="button" variant="outline" size="sm" onClick={() => setIsHostDetailsOpen(true)}>
-                {t("skills.installedLocationsAction")}
-              </Button>
-            ) : null}
-          </div>
-        </InspectorInsetCard>
-      ) : null}
-
       {hasPublishedUpdate && canUpdatePublishedSkill ? (
         <InspectorInsetCard className="shrink-0 gap-2 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
           <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2">
@@ -1976,67 +1947,6 @@ function SkillPeek({
               {isUpdatingRegistrySkill ? t("skills.updatingRegistry") : t("skills.updateRegistry")}
             </Button>
           </div>
-        </InspectorInsetCard>
-      ) : null}
-
-      {isHostDetailsOpen && canShowInstallLocations ? (
-        <InspectorInsetCard className="shrink-0 gap-3 px-3 py-3">
-          <div className="flex min-w-0 items-start justify-between gap-3">
-            <div className="grid min-w-0 gap-1">
-              <div className="truncate text-sm font-medium">{t("skills.installedLocationsTitle")}</div>
-              <CardDescription className="text-xs">{t("skills.installedLocationsHelper")}</CardDescription>
-            </div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setIsHostDetailsOpen(false)}>
-              {t("skills.agentScopeHide")}
-            </Button>
-          </div>
-          <ItemGroup className="min-w-0 gap-1">
-            {allHosts.map((host) => {
-              const hostStatus = getHostStatus(host, t)
-              const hostPath = host.path
-
-              return (
-                <Item key={host.agentId} size="sm" className="gap-3 rounded-md border-0 px-2 py-2">
-                  <ItemMedia className="size-auto gap-2">
-                    <ObjectStatusIcon tone={hostStatus.tone} />
-                    <AgentIcon host={host.agentName} />
-                  </ItemMedia>
-                  <ItemContent className="min-w-0">
-                    <ItemTitle className="max-w-full truncate">{host.agentName}</ItemTitle>
-                  </ItemContent>
-                  <ItemActions className="min-w-0 justify-end gap-1.5">
-                    {shouldShowStatusBadge(hostStatus.tone) && (
-                      <Badge
-                        className={cn("shrink-0", getStatusBadgeClassName(hostStatus.tone))}
-                        variant={hostStatus.variant}
-                      >
-                        {hostStatus.label}
-                      </Badge>
-                    )}
-                    {hostPath ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button type="button" variant="ghost" size="icon" aria-label={t("skills.actions")}>
-                            <AppIcons.action.more />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="min-w-48">
-                          <DropdownMenuItem onSelect={() => openSkillFolder(hostPath)}>
-                            <AppIcons.action.openFolder />
-                            <span>{t("skills.openFolder")}</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => copySkillPath(hostPath)}>
-                            <AppIcons.action.copy />
-                            <span>{t("skills.copyPath")}</span>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
-                  </ItemActions>
-                </Item>
-              )
-            })}
-          </ItemGroup>
         </InspectorInsetCard>
       ) : null}
 

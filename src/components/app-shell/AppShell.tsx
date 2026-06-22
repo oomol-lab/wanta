@@ -195,6 +195,17 @@ function normalizeSearchText(value: string): string {
   return value.trim().toLocaleLowerCase()
 }
 
+function encodedDomIdSegment(value: string): string {
+  return Array.from(value, (char) => {
+    const codePoint = char.codePointAt(0)
+    return codePoint === undefined ? "0" : codePoint.toString(16)
+  }).join("-")
+}
+
+function sessionSearchResultId(sessionId: string): string {
+  return `session-search-result-${encodedDomIdSegment(sessionId)}`
+}
+
 function accountInitial(name?: string): string {
   const trimmed = name?.trim()
   return trimmed ? trimmed.charAt(0).toLocaleUpperCase() : "L"
@@ -830,6 +841,8 @@ function SessionSearchOverlay({
   const filteredSessions = normalizedQuery
     ? sessions.filter((session) => normalizeSearchText(session.title).includes(normalizedQuery))
     : sessions
+  const activeSession = filteredSessions[activeIndex]
+  const activeResultId = activeSession ? sessionSearchResultId(activeSession.id) : undefined
 
   React.useEffect(() => {
     if (open) {
@@ -848,12 +861,11 @@ function SessionSearchOverlay({
   }, [filteredSessions.length])
 
   React.useEffect(() => {
-    const activeSession = filteredSessions[activeIndex]
     if (!activeSession) {
       return
     }
     resultRefs.current.get(activeSession.id)?.scrollIntoView({ block: "nearest" })
-  }, [activeIndex, filteredSessions])
+  }, [activeSession])
 
   const selectSession = (session: SessionInfo | undefined): void => {
     if (!session) {
@@ -921,7 +933,11 @@ function SessionSearchOverlay({
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("sidebar.searchPlaceholder")}
             aria-label={t("sidebar.searchPlaceholder")}
+            aria-activedescendant={activeResultId}
+            aria-controls="session-search-results"
+            aria-expanded="true"
             className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+            role="combobox"
           />
         </div>
 
@@ -929,6 +945,7 @@ function SessionSearchOverlay({
           {t("sidebar.searchResults", { count: filteredSessions.length })}
         </p>
         <div
+          id="session-search-results"
           className="mt-3 max-h-[min(46vh,420px)] overflow-y-auto pr-1"
           role="listbox"
           aria-label={t("sidebar.searchResults", { count: filteredSessions.length })}
@@ -937,6 +954,7 @@ function SessionSearchOverlay({
             {filteredSessions.map((session, index) => (
               <button
                 key={session.id}
+                id={sessionSearchResultId(session.id)}
                 ref={(node) => {
                   if (node) {
                     resultRefs.current.set(session.id, node)

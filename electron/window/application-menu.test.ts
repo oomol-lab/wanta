@@ -3,6 +3,7 @@ import type { MenuItemConstructorOptions } from "electron"
 import { describe, expect, it, vi } from "vitest"
 import { APP_COMMANDS } from "../app-command.ts"
 import { normalizeAppLocale } from "../app-locale.ts"
+import { branding } from "../branding.ts"
 import { applicationMenuMessages } from "./application-menu-messages.ts"
 import { buildApplicationMenuTemplate } from "./application-menu.ts"
 
@@ -66,7 +67,7 @@ describe("buildApplicationMenuTemplate", () => {
     const template = menuTemplate({ developmentMode: false, locale: "zh-CN", platform: "darwin" })
     const labels = collectLabels(template)
 
-    expect(topLabels(template)).toEqual(["Lumo", "文件", "编辑", "视图", "窗口", "帮助"])
+    expect(topLabels(template)).toEqual([branding.appName, "文件", "编辑", "视图", "窗口", "帮助"])
     expect(labels).not.toContain("开发")
     expect(labels).not.toContain("重新加载窗口")
     expect(labels).not.toContain("强制重新加载")
@@ -77,7 +78,7 @@ describe("buildApplicationMenuTemplate", () => {
     const template = menuTemplate({ developmentMode: true, locale: "zh-CN", platform: "darwin" })
     const labels = collectLabels(template)
 
-    expect(topLabels(template)).toEqual(["Lumo", "文件", "编辑", "视图", "开发", "窗口", "帮助"])
+    expect(topLabels(template)).toEqual([branding.appName, "文件", "编辑", "视图", "开发", "窗口", "帮助"])
     expect(labels).toContain("重新加载窗口")
     expect(labels).toContain("强制重新加载")
     expect(labels).toContain("切换开发者工具")

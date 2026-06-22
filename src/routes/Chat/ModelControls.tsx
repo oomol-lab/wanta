@@ -91,7 +91,11 @@ function nextModelMenuIndex(currentIndex: number, itemCount: number, direction: 
 }
 
 function modelMenuItemElementId(itemId: string): string {
-  return `model-menu-item-${itemId.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+  const encoded = Array.from(itemId, (char) => {
+    const codePoint = char.codePointAt(0)
+    return codePoint === undefined ? "0" : codePoint.toString(16)
+  }).join("-")
+  return `model-menu-item-${encoded}`
 }
 
 interface ModelRowProps {

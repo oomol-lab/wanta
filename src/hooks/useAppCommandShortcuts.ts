@@ -14,6 +14,18 @@ function hasBlockingOverlay(): boolean {
   return Boolean(document.querySelector(blockingOverlaySelector))
 }
 
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false
+  }
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    Boolean(target.closest('[contenteditable="true"]'))
+  )
+}
+
 export function useAppCommandEvents(runCommand: (command: AppCommand) => void): void {
   React.useEffect(() => {
     const bridge = globalThis.lumo
@@ -27,6 +39,9 @@ export function useAppCommandEvents(runCommand: (command: AppCommand) => void): 
 export function useAppCommandShortcuts(runCommand: (command: AppCommand) => void): void {
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (isEditableShortcutTarget(event.target)) {
+        return
+      }
       const command = appCommandForKeyboardShortcut(event)
       if (!command || hasBlockingOverlay()) {
         return

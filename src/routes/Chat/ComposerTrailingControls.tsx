@@ -8,6 +8,7 @@ import { ModelPicker } from "./ModelControls.tsx"
 import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
+import { cn } from "@/lib/utils"
 
 interface ComposerTrailingControlsProps {
   canSubmit: boolean
@@ -162,7 +163,7 @@ export function ComposerTrailingControls({
   return (
     <>
       {voiceActive ? <VoiceRecorderPanel bars={voiceBars} durationMs={voiceDurationMs} /> : null}
-      <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
+      <div className={cn("flex min-w-0 items-center justify-end gap-1", voiceActive ? "shrink-0" : "flex-1")}>
         {voiceActive ? (
           <>
             {voiceMode === "recording-error" ? (

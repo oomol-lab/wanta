@@ -17,6 +17,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 
 import {
+  AlertTriangle,
   Archive,
   Building2,
   Check,
@@ -260,6 +261,7 @@ function WorkspaceMenuContent({
   onSelectPersonal,
   error,
   getOrganizationRole,
+  hasLoaded,
   organizations,
   side = "bottom",
   workspace,
@@ -269,6 +271,7 @@ function WorkspaceMenuContent({
   align?: "center" | "end" | "start"
   error: UseOrganizationWorkspace["error"]
   getOrganizationRole: UseOrganizationWorkspace["getOrganizationRole"]
+  hasLoaded: boolean
   loading: boolean
   onManageOrganizations: () => void
   onRefresh: () => void
@@ -283,6 +286,8 @@ function WorkspaceMenuContent({
   const personalLabel = accountName?.trim() || t("organizations.personal")
   const personalDescription =
     personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
+  const showBlockingError = Boolean(error && !hasLoaded)
+  const showRefreshWarning = Boolean(error && hasLoaded)
 
   return (
     <DropdownMenuContent align={align} side={side} sideOffset={8} className="w-72">
@@ -309,9 +314,15 @@ function WorkspaceMenuContent({
           {t("organizations.loading")}
         </DropdownMenuItem>
       ) : null}
-      {error ? (
+      {showBlockingError && error ? (
         <div className="px-2 py-1.5">
           <ErrorNotice error={error} compact />
+        </div>
+      ) : null}
+      {showRefreshWarning ? (
+        <div className="mx-2 my-1.5 flex min-w-0 items-start gap-2 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-[var(--oo-warning-foreground)]" />
+          <span className="min-w-0">{t("organizations.refreshFailedDescription")}</span>
         </div>
       ) : null}
       {organizations.map((organization) => {
@@ -335,7 +346,7 @@ function WorkspaceMenuContent({
           </DropdownMenuItem>
         )
       })}
-      {!loading && organizations.length === 0 ? (
+      {!loading && organizations.length === 0 && !showBlockingError ? (
         <div className="oo-text-caption oo-text-muted px-2 py-1.5">{t("organizations.emptyOrganizations")}</div>
       ) : null}
       <DropdownMenuSeparator />
@@ -989,12 +1000,13 @@ function SidebarFooterControls({
           align="start"
           error={workspace.error}
           getOrganizationRole={workspace.getOrganizationRole}
+          hasLoaded={workspace.hasLoaded}
           loading={workspace.loading}
           organizations={workspace.organizations}
           side="top"
           workspace={workspace.activeWorkspace}
           onManageOrganizations={() => onNavigate("organizations")}
-          onRefresh={() => void workspace.refresh()}
+          onRefresh={() => void workspace.refresh({ forceRefresh: true })}
           onSelectOrganization={workspace.selectOrganization}
           onSelectPersonal={workspace.selectPersonal}
         />

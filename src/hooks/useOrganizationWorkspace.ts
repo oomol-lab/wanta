@@ -18,14 +18,33 @@ export interface UseOrganizationWorkspace {
   connectionWorkspace: ConnectionWorkspace | null
   error: UserFacingError | null
   getOrganizationRole: (organization: Organization) => OrganizationRole
+  hasLoaded: boolean
   loading: boolean
   organizations: Organization[]
-  refresh: () => Promise<void>
+  refresh: (options?: OrganizationWorkspaceRefreshOptions) => Promise<void>
   selectOrganization: (organizationId: string) => void
   selectPersonal: () => void
 }
 
+export interface OrganizationWorkspaceRefreshOptions {
+  forceRefresh?: boolean
+}
+
+interface WorkspaceOverviewCacheEntry {
+  accountId: string
+  fetchedAt: number
+  overview: OrganizationOverview
+}
+
+interface WorkspaceOverviewInFlightEntry {
+  accountId: string
+  promise: Promise<OrganizationOverview>
+}
+
 const selectedWorkspaceStorageKeyPrefix = "lumo:active-workspace:"
+const workspaceOverviewCacheMs = 30_000
+let workspaceOverviewCache: WorkspaceOverviewCacheEntry | null = null
+let workspaceOverviewInFlight: WorkspaceOverviewInFlightEntry | null = null
 
 function selectedWorkspaceStorageKey(accountId: string): string {
   return `${selectedWorkspaceStorageKeyPrefix}${accountId}`
@@ -96,6 +115,49 @@ function organizationRole(
     : "member"
 }
 
+function workspaceError(cause: unknown, hasLoaded: boolean): UserFacingError {
+  const error = resolveUserFacingError(cause, { area: "generic" })
+  return {
+    ...error,
+    descriptionKey: hasLoaded ? "organizations.refreshFailedDescription" : "organizations.loadFailedDescription",
+    titleKey: hasLoaded ? "organizations.refreshFailedTitle" : "organizations.loadFailed",
+  }
+}
+
+function readCachedWorkspaceOverview(
+  accountId: string,
+  options: OrganizationWorkspaceRefreshOptions,
+): Promise<OrganizationOverview> {
+  const now = Date.now()
+  if (
+    !options.forceRefresh &&
+    workspaceOverviewCache?.accountId === accountId &&
+    now - workspaceOverviewCache.fetchedAt < workspaceOverviewCacheMs
+  ) {
+    return Promise.resolve(workspaceOverviewCache.overview)
+  }
+
+  if (!options.forceRefresh && workspaceOverviewInFlight?.accountId === accountId) {
+    return workspaceOverviewInFlight.promise
+  }
+
+  const promise = getOrganizationOverview(accountId).then((overview) => {
+    if (workspaceOverviewInFlight?.promise === promise) {
+      workspaceOverviewCache = { accountId, fetchedAt: Date.now(), overview }
+    }
+    return overview
+  })
+  workspaceOverviewInFlight = { accountId, promise }
+  void promise
+    .finally(() => {
+      if (workspaceOverviewInFlight?.promise === promise) {
+        workspaceOverviewInFlight = null
+      }
+    })
+    .catch(() => undefined)
+  return promise
+}
+
 export function useOrganizationWorkspace(accountId: string | undefined): UseOrganizationWorkspace {
   const [overview, setOverview] = React.useState<OrganizationOverview | null>(null)
   const [selectedOrganizationId, setSelectedOrganizationId] = React.useState<string | null>(() =>
@@ -105,6 +167,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const requestIdRef = React.useRef(0)
   const loadedAccountIdRef = React.useRef<string | undefined>(undefined)
+  const overviewRef = React.useRef<OrganizationOverview | null>(null)
 
   React.useEffect(() => {
     if (loadedAccountIdRef.current === accountId) {
@@ -112,47 +175,54 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     }
     loadedAccountIdRef.current = accountId
     requestIdRef.current += 1
+    overviewRef.current = null
     setOverview(null)
     setError(null)
     setSelectedOrganizationId(readStoredOrganizationId(accountId))
   }, [accountId])
 
-  const refresh = React.useCallback(async (): Promise<void> => {
-    if (!accountId) {
-      setOverview(null)
-      setError(null)
-      setLoading(false)
-      return
-    }
-
-    const requestId = requestIdRef.current + 1
-    requestIdRef.current = requestId
-    setLoading(true)
-    try {
-      const next = await getOrganizationOverview(accountId)
-      if (requestIdRef.current !== requestId) {
+  const refresh = React.useCallback(
+    async (options: OrganizationWorkspaceRefreshOptions = {}): Promise<void> => {
+      if (!accountId) {
+        overviewRef.current = null
+        setOverview(null)
+        setError(null)
+        setLoading(false)
         return
       }
-      setOverview(next)
-      setError(null)
-      const organizations = uniqueOrganizations(next)
-      setSelectedOrganizationId((current) => {
-        if (!current || organizations.some((organization) => organization.id === current)) {
-          return current
+
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
+      const hadOverview = overviewRef.current !== null
+      setLoading(true)
+      try {
+        const next = await readCachedWorkspaceOverview(accountId, options)
+        if (requestIdRef.current !== requestId) {
+          return
         }
-        writeStoredWorkspace(accountId, null)
-        return null
-      })
-    } catch (err) {
-      if (requestIdRef.current === requestId) {
-        setError(resolveUserFacingError(err, { area: "connections" }))
+        overviewRef.current = next
+        setOverview(next)
+        setError(null)
+        const organizations = uniqueOrganizations(next)
+        setSelectedOrganizationId((current) => {
+          if (!current || organizations.some((organization) => organization.id === current)) {
+            return current
+          }
+          writeStoredWorkspace(accountId, null)
+          return null
+        })
+      } catch (err) {
+        if (requestIdRef.current === requestId) {
+          setError(workspaceError(err, hadOverview))
+        }
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setLoading(false)
+        }
       }
-    } finally {
-      if (requestIdRef.current === requestId) {
-        setLoading(false)
-      }
-    }
-  }, [accountId])
+    },
+    [accountId],
+  )
 
   React.useEffect(() => {
     void refresh()
@@ -160,7 +230,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
 
   React.useEffect(() => {
     return onOrganizationChanged(() => {
-      void refresh()
+      void refresh({ forceRefresh: true })
     })
   }, [refresh])
 
@@ -209,6 +279,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     connectionWorkspace,
     error,
     getOrganizationRole,
+    hasLoaded: overview !== null,
     loading,
     organizations,
     refresh,

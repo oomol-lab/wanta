@@ -274,7 +274,7 @@ export function ModelPicker({
     : null
 
   return (
-    <div ref={rootRef}>
+    <div ref={rootRef} className="min-w-0">
       <Button
         type="button"
         variant="ghost"
@@ -283,7 +283,7 @@ export function ModelPicker({
         aria-label={t("chat.modelPicker")}
         aria-expanded={open}
         disabled={disabled}
-        className="h-8 max-w-44 rounded-full px-2"
+        className="h-8 max-w-[min(14rem,100%)] min-w-0 shrink rounded-full px-2"
         onClick={() => setOpen((value) => !value)}
       >
         <Brain className="size-4" />

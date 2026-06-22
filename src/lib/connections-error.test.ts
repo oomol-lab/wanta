@@ -5,6 +5,7 @@ describe("resolveConnectionError", () => {
   it("adds operation-specific titles to connector permission errors", () => {
     expect(resolveConnectionError("Connector /v1/apps/cloudflare failed: HTTP 403", "reconnect")).toMatchObject({
       kind: "permission_denied",
+      severity: "warning",
       titleKey: "error.connections.permissionReconnect.title",
       descriptionKey: "error.connections.permissionDenied.description",
     })

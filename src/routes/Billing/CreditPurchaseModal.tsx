@@ -242,22 +242,20 @@ export function CreditPurchaseModal({
                 <article key={plan.plan} className="grid gap-4 rounded-lg border border-border p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="grid gap-1">
-                      <div className="text-base font-semibold text-foreground">{t(plan.titleKey)}</div>
-                      <p className="text-sm leading-5 text-muted-foreground">{t(plan.summaryKey)}</p>
+                      <div className="oo-text-title text-foreground">{t(plan.titleKey)}</div>
+                      <p className="oo-text-body text-muted-foreground">{t(plan.summaryKey)}</p>
                     </div>
                     {isCurrent ? (
                       <Badge variant="secondary">{t("billing.subscriptions.currentSubscriptionButton")}</Badge>
                     ) : null}
                   </div>
                   <div className="flex items-end gap-1">
-                    <span className="text-4xl leading-none font-semibold tracking-normal text-foreground">
-                      {t(plan.priceKey)}
-                    </span>
-                    <span className="text-sm text-muted-foreground">{t("billing.subscriptions.priceUnit")}</span>
+                    <span className="text-4xl leading-none font-semibold text-foreground">{t(plan.priceKey)}</span>
+                    <span className="oo-text-body text-muted-foreground">{t("billing.subscriptions.priceUnit")}</span>
                   </div>
                   <div className="grid gap-2">
                     {plan.featureKeys.map((key) => (
-                      <div key={key} className="flex items-center gap-2 text-sm text-foreground">
+                      <div key={key} className="oo-text-body flex items-center gap-2 text-foreground">
                         <CheckIcon className="size-4 text-[var(--oo-success-foreground)]" />
                         <span>{t(key)}</span>
                       </div>
@@ -293,10 +291,10 @@ export function CreditPurchaseModal({
               return (
                 <article key={option.price} className="grid gap-3 rounded-lg border border-border p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-base font-semibold text-foreground">{t(option.titleKey)}</div>
+                    <div className="oo-text-title text-foreground">{t(option.titleKey)}</div>
                     <div className="text-2xl font-semibold text-foreground">${option.amount}</div>
                   </div>
-                  <p className="min-h-10 text-sm leading-5 text-muted-foreground">{t(option.descriptionKey)}</p>
+                  <p className="oo-text-body min-h-10 text-muted-foreground">{t(option.descriptionKey)}</p>
                   <Button
                     type="button"
                     variant="outline"
@@ -321,8 +319,8 @@ export function CreditPurchaseModal({
 function SectionHeader({ description, title }: { description: string; title: string }) {
   return (
     <div className="grid gap-1">
-      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-      <p className="text-sm leading-5 text-muted-foreground">{description}</p>
+      <h2 className="oo-text-dialog-title text-foreground">{title}</h2>
+      <p className="oo-text-body text-muted-foreground">{description}</p>
     </div>
   )
 }
@@ -330,8 +328,8 @@ function SectionHeader({ description, title }: { description: string; title: str
 function SummaryCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
-      <span className="text-sm font-medium text-muted-foreground">{label}</span>
-      <strong className="text-base font-semibold text-foreground">{value}</strong>
+      <span className="oo-text-label text-muted-foreground">{label}</span>
+      <strong className="oo-text-value text-foreground">{value}</strong>
     </div>
   )
 }

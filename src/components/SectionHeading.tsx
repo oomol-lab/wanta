@@ -21,7 +21,10 @@ export function SectionHeading({
   const Heading = level
 
   return (
-    <Heading className={cn("oo-text-caption flex min-h-5 items-center gap-1.5 px-1 font-medium", className)} {...props}>
+    <Heading
+      className={cn("oo-text-caption-compact flex min-h-5 items-center gap-1.5 px-1 font-medium", className)}
+      {...props}
+    >
       {Icon ? <Icon aria-hidden="true" className="oo-icon-muted size-3.5 shrink-0" /> : null}
       <span className="min-w-0 truncate">{children}</span>
       {trailing ? <span className="inline-flex size-3.5 shrink-0 items-center justify-center">{trailing}</span> : null}

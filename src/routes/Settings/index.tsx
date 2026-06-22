@@ -58,7 +58,7 @@ export function SettingsRoute({ onBack }: { onBack: () => void }) {
 
   return (
     <PageRouteShell backLabel={t("settings.backToApp")} contentClassName="max-w-[60rem] gap-6" onBack={onBack}>
-      <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("settings.title")}</h1>
+      <h1 className="oo-text-page-title">{t("settings.title")}</h1>
 
       <div className="grid gap-5">
         <SettingsSection title={t("settings.groupPersonal")}>

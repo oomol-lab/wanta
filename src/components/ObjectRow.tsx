@@ -94,7 +94,7 @@ export function ObjectRow({
       {hasTrailing ? (
         <ItemActions className="min-w-0 justify-end gap-3">
           {meta != null ? (
-            <span className="min-w-0 truncate text-right text-sm text-muted-foreground">{meta}</span>
+            <span className="oo-text-body min-w-0 truncate text-right text-muted-foreground">{meta}</span>
           ) : null}
           {badge != null ? renderObjectRowBadge(badge) : null}
           {shouldShowChevron ? <AppIcons.status.navigate className="oo-icon-muted size-4 shrink-0" /> : null}

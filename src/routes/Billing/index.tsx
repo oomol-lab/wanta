@@ -94,7 +94,7 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
   return (
     <>
       <PageRouteShell backLabel={t("billing.backToChat")} contentClassName="max-w-[84rem] gap-5" onBack={onBack}>
-        <h1 className="oo-text-title text-2xl font-semibold tracking-normal">{t("billing.title")}</h1>
+        <h1 className="oo-text-page-title">{t("billing.title")}</h1>
 
         <section className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--oo-divider)] pb-5">
           <div className="min-w-0">
@@ -252,7 +252,7 @@ function BalanceOverview({
                 <PiggyBankIcon className="oo-icon-muted size-4 shrink-0" />
                 <h2 className="oo-text-title truncate">{t("billing.availableCredits")}</h2>
               </div>
-              <div className="mt-2 text-[1.75rem] leading-9 font-semibold tracking-normal text-foreground">
+              <div className="oo-text-metric-large mt-2 text-foreground">
                 {loading ? "..." : formatCredit(currentCredit)}
               </div>
             </div>

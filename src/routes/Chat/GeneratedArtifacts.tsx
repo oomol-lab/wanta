@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -307,6 +308,10 @@ function isCsvArtifact(item: LocalArtifactItem | undefined): boolean {
 
 function isJsonArtifact(item: LocalArtifactItem | undefined): boolean {
   return Boolean(item && (item.mime === "application/json" || fileExtension(item.name) === ".json"))
+}
+
+function isHtmlArtifact(item: LocalArtifactItem | undefined): boolean {
+  return Boolean(item && ["text/html", "application/xhtml+xml"].includes(item.mime.toLowerCase()))
 }
 
 function isTextArtifact(item: LocalArtifactItem | undefined): boolean {
@@ -632,13 +637,13 @@ function GeneratedArtifactsGroup({
           <ArtifactIcon item={primaryItem} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{pack?.title ?? readableArtifactTitle(primaryItem)}</div>
-          <div className="truncate text-xs text-muted-foreground">
+          <div className="oo-text-label truncate">{pack?.title ?? readableArtifactTitle(primaryItem)}</div>
+          <div className="oo-text-caption-compact truncate text-muted-foreground">
             {artifactMetaLabel(t, primaryItem)}
             {group.items.length > 1 ? ` · ${artifactSummary(t, group)}` : ""}
           </div>
         </div>
-        <Badge variant="outline" className="rounded-md px-1.5 py-0 text-[0.6875rem]">
+        <Badge variant="outline" className="oo-text-micro rounded-md px-1.5 py-0">
           {artifactKindLabel(t, primaryItem)}
         </Badge>
       </div>
@@ -648,14 +653,14 @@ function GeneratedArtifactsGroup({
           {visibleItems.map((item) => (
             <span
               key={item.path}
-              className="oo-border-divider flex h-7 max-w-40 min-w-0 items-center gap-1.5 rounded-md border bg-background/70 px-2 text-xs"
+              className="oo-border-divider oo-text-caption-compact flex h-7 max-w-40 min-w-0 items-center gap-1.5 rounded-md border bg-background/70 px-2"
             >
               <ArtifactIcon item={item} className="size-3.5 text-muted-foreground" />
               <span className="min-w-0 truncate">{item.name}</span>
             </span>
           ))}
           {remaining > 0 ? (
-            <span className="flex h-7 items-center rounded-md px-2 text-xs text-primary">
+            <span className="oo-text-caption-compact flex h-7 items-center rounded-md px-2 text-primary">
               {t("artifacts.viewAll", { count: total })}
             </span>
           ) : null}
@@ -737,7 +742,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
 
   return (
     <section className="not-prose -mt-1 grid gap-1.5">
-      <div className="oo-text-caption font-medium text-muted-foreground">
+      <div className="oo-text-caption-compact font-medium text-muted-foreground">
         {t("artifacts.generatedSummary", { count: flattenPanelEntries(groups).length })}
       </div>
       <div className="grid gap-1.5">
@@ -882,10 +887,8 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
                       >
                         <ArtifactIcon item={entry.item} className="text-muted-foreground" />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">
-                            {readableArtifactTitle(entry.item)}
-                          </span>
-                          <span className="block truncate text-xs text-muted-foreground">
+                          <span className="oo-text-label block truncate">{readableArtifactTitle(entry.item)}</span>
+                          <span className="oo-text-caption-compact block truncate text-muted-foreground">
                             {artifactMetaLabel(t, entry.item)}
                           </span>
                         </span>
@@ -984,7 +987,7 @@ function ImageGalleryPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <section className="oo-border-divider shrink-0 border-b px-3 py-2">
         <div className="flex items-center justify-between gap-3">
-          <div className="oo-text-caption font-medium text-muted-foreground">
+          <div className="oo-text-caption-compact font-medium text-muted-foreground">
             {t("artifacts.imageCount", { count: entries.length })}
           </div>
           <div className="oo-text-caption text-muted-foreground">
@@ -1089,7 +1092,7 @@ function ImageGalleryPreview({
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <div className="oo-border-divider flex h-10 shrink-0 items-center justify-between gap-3 border-b px-3">
-        <div className="min-w-0 truncate text-xs text-muted-foreground">
+        <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">
           <span className="font-medium text-foreground">{item.name}</span>
           {fileSizeLabel(item.size) ? <span> · {fileSizeLabel(item.size)}</span> : null}
         </div>
@@ -1110,7 +1113,7 @@ function ImageGalleryPreview({
         {mode === "info" ? (
           <ArtifactInfo item={item} group={group} />
         ) : loading ? (
-          <div className="flex min-h-full items-center justify-center px-4 py-8 text-sm text-muted-foreground">
+          <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
             {t("artifacts.previewLoading")}
           </div>
         ) : preview?.kind === "image" && preview.dataUrl ? (
@@ -1165,8 +1168,8 @@ function ArtifactPreview({
               <ArtifactIcon item={item} />
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{readableArtifactTitle(item)}</div>
-              <div className="truncate text-xs text-muted-foreground">{artifactMetaLabel(t, item)}</div>
+              <div className="oo-text-title truncate">{readableArtifactTitle(item)}</div>
+              <div className="oo-text-caption-compact truncate text-muted-foreground">{artifactMetaLabel(t, item)}</div>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
@@ -1203,7 +1206,7 @@ function ArtifactPreview({
 
       <div className="min-h-0 flex-1 overflow-auto">
         {loading ? (
-          <div className="flex min-h-full items-center justify-center px-4 py-8 text-sm text-muted-foreground">
+          <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
             {t("artifacts.previewLoading")}
           </div>
         ) : mode === "info" ? (
@@ -1334,12 +1337,16 @@ function ArtifactConsumablePreview({
   if (preview?.kind === "text" && isMarkdownArtifact(item)) {
     return (
       <div className="min-h-full px-5 py-4">
-        <MessageResponse className="oo-markdown max-w-none text-sm leading-6">{preview.text ?? ""}</MessageResponse>
+        <MessageResponse className="oo-markdown max-w-none">{preview.text ?? ""}</MessageResponse>
         {preview.truncated ? (
           <p className="oo-text-caption mt-3 text-muted-foreground">{t("artifacts.previewTruncated")}</p>
         ) : null}
       </div>
     )
+  }
+
+  if (preview?.kind === "text" && isHtmlArtifact(item)) {
+    return <ArtifactHtmlPreview preview={preview} />
   }
 
   if (preview?.kind === "text") {
@@ -1355,10 +1362,31 @@ function ArtifactConsumablePreview({
       <p className="oo-text-caption mt-1 max-w-60 text-muted-foreground">
         {t("artifacts.previewUnavailableDescription", { type: preview?.mime ?? item.mime })}
       </p>
-      <Button type="button" variant="outline" size="sm" className="mt-4 h-8 gap-1 px-3 text-xs" onClick={onOpen}>
+      <Button type="button" variant="outline" size="sm" className="mt-4 h-8 gap-1 px-3" onClick={onOpen}>
         <ExternalLink className="size-3.5" />
         {t("artifacts.open")}
       </Button>
+    </div>
+  )
+}
+
+function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult }) {
+  const t = useT()
+
+  return (
+    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
+      <iframe
+        title={t("artifacts.htmlPreview")}
+        srcDoc={htmlPreviewSrcDoc(preview.text ?? "")}
+        sandbox=""
+        referrerPolicy="no-referrer"
+        className="block h-full min-h-[480px] w-full min-w-0 flex-1 border-0 bg-transparent"
+      />
+      {preview.truncated ? (
+        <p className="oo-text-caption oo-border-divider border-t px-3 py-2 text-muted-foreground">
+          {t("artifacts.previewTruncated")}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -1377,8 +1405,8 @@ function ArtifactInfo({ group, item }: { group: LocalArtifactGroup | null; item:
     <div className="grid gap-3 p-4">
       {rows.map(([label, value]) => (
         <div key={label} className="grid gap-1">
-          <div className="oo-text-caption font-medium text-muted-foreground">{label}</div>
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm break-all">{value}</div>
+          <div className="oo-text-caption-compact font-medium text-muted-foreground">{label}</div>
+          <div className="oo-text-body rounded-md border border-border bg-muted/30 px-3 py-2 break-all">{value}</div>
         </div>
       ))}
     </div>

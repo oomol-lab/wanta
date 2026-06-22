@@ -38,6 +38,7 @@ export function resolveConnectionError(cause: unknown, operation: ConnectionErro
   if (error.kind === "permission_denied") {
     return {
       ...error,
+      severity: "warning",
       titleKey: permissionTitleKeys[operation],
       descriptionKey: "error.connections.permissionDenied.description",
     }

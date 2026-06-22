@@ -126,7 +126,7 @@ function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; dur
       <div className="flex h-8 min-w-0 flex-1 items-center justify-center overflow-hidden">
         <VoiceWaveCanvas bars={bars} height={32} />
       </div>
-      <span className="min-w-9 shrink-0 text-right text-sm leading-none font-normal text-muted-foreground tabular-nums">
+      <span className="oo-text-control min-w-9 shrink-0 text-right font-normal text-muted-foreground tabular-nums">
         {voiceDurationLabel(durationMs)}
       </span>
     </div>

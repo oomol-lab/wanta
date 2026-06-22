@@ -279,10 +279,10 @@ export function ChatErrorNotice({
           </span>
           <div className="grid min-w-0 flex-1 gap-2">
             <div className="grid gap-1">
-              <div className="text-sm leading-5 font-medium text-foreground">{title}</div>
-              <div className="text-[13px] leading-5 text-muted-foreground">{description}</div>
+              <div className="oo-text-label text-foreground">{title}</div>
+              <div className="oo-text-control text-muted-foreground">{description}</div>
               {recovered && balance ? (
-                <div className="flex w-fit items-center gap-1.5 rounded-md bg-background/70 px-2 py-1 text-xs font-medium text-foreground">
+                <div className="oo-text-caption-compact flex w-fit items-center gap-1.5 rounded-md bg-background/70 px-2 py-1 font-medium text-foreground">
                   <span className="text-muted-foreground">{t("chatError.paymentDialog.currentCredits")}</span>
                   <span>{balance}</span>
                 </div>
@@ -352,7 +352,7 @@ export function ChatErrorNotice({
               </>
             }
           >
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[13px] leading-5 text-muted-foreground">
+            <div className="oo-text-control rounded-md border border-border bg-muted/40 px-3 py-2 text-muted-foreground">
               {refreshFailed ? t("chatError.paymentReturn.refreshFailed") : t("chatError.paymentReturn.refreshHint")}
             </div>
           </Dialog>

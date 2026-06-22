@@ -90,10 +90,10 @@ export function ErrorNotice({
         </span>
         <div className="grid min-w-0 flex-1 gap-2">
           <div className="grid gap-0.5">
-            <div className={cn("font-medium text-foreground", compact ? "text-[13px] leading-5" : "text-sm leading-5")}>
+            <div className={cn("font-medium text-foreground", compact ? "oo-text-control" : "oo-text-label")}>
               {t(error.titleKey)}
             </div>
-            <div className={cn("text-muted-foreground", compact ? "text-xs leading-5" : "text-[13px] leading-5")}>
+            <div className={cn("text-muted-foreground", compact ? "oo-text-caption" : "oo-text-control")}>
               {userFacingErrorDescription(error, t)}
             </div>
           </div>

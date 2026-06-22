@@ -93,7 +93,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
       </Tooltip>
       <PopoverContent align="end" sideOffset={8} className="w-[23rem] overflow-hidden p-0">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-2 font-semibold text-foreground">
+          <div className="oo-text-title flex items-center gap-2 text-foreground">
             <WalletCardsIcon className="size-4" />
             <span>{t("billing.popover.title")}</span>
           </div>
@@ -135,12 +135,10 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
               <section className="grid gap-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-muted-foreground">{t("billing.availableCredits")}</div>
-                    <div className="mt-1 text-3xl font-semibold tracking-normal text-foreground">
-                      {formatCredit(currentCredit)}
-                    </div>
+                    <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
+                    <div className="oo-text-metric-large mt-1 text-foreground">{formatCredit(currentCredit)}</div>
                   </div>
-                  <div className="pt-5 text-right text-sm text-muted-foreground">
+                  <div className="oo-text-body pt-5 text-right text-muted-foreground">
                     {averageDailySpend > 0
                       ? t("billing.popover.coverageDays", { days: coverageDays })
                       : t("billing.coverageStable")}
@@ -148,7 +146,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
                 </div>
                 <div className="grid gap-2">
                   <Progress value={availableShare} className="h-1.5 bg-muted" />
-                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                  <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
                     <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
                     <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
                   </div>
@@ -163,12 +161,12 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
               <section className="rounded-lg border border-border p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-foreground">{t("billing.balanceLotsTitle")}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
+                    <div className="oo-text-label text-foreground">{t("billing.balanceLotsTitle")}</div>
+                    <div className="oo-text-caption-compact mt-1 text-muted-foreground">
                       {t("billing.popover.creditSources", { count: sourceCount })}
                     </div>
                   </div>
-                  <div className="text-right text-sm font-semibold text-foreground">
+                  <div className="oo-text-title text-right text-foreground">
                     {t("billing.popover.availableSources", { count: availableSourceCount })}
                   </div>
                 </div>
@@ -215,8 +213,8 @@ function BillingUsageSkeleton() {
 function UsageMiniMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-1 rounded-lg border border-border p-3">
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div className="truncate text-lg font-semibold tracking-normal text-foreground">{value}</div>
+      <div className="oo-text-caption-compact font-medium text-muted-foreground">{label}</div>
+      <div className="oo-text-metric truncate text-foreground">{value}</div>
     </div>
   )
 }

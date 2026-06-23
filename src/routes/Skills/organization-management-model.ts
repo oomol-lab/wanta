@@ -67,7 +67,7 @@ export const minimumMemberSearchLength = 2
 
 const organizationNamePattern = /^[A-Za-z0-9._-]+$/
 const organizationPageSnapshotTtlMs = 30_000
-const selectedOrganizationStorageKeyPrefix = "lumo:organization-management:selected-organization:"
+const selectedOrganizationStorageKeyPrefix = "wanta:organization-management:selected-organization:"
 
 export const initialProviderAccessForm: ProviderAccessForm = {
   allProviders: false,

@@ -46,7 +46,7 @@ test("applyArtifactRoots overlays roots onto assistant messages only", () => {
 })
 
 test("ArtifactRootStore round trips persisted artifact roots", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifact-roots-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-roots-"))
   const store = new ArtifactRootStore(root)
   const records = new Map([["session-1", new Map([["message-1", "/tmp/artifacts/turn-1"]])]])
 

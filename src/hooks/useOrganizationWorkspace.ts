@@ -41,7 +41,7 @@ interface WorkspaceOverviewInFlightEntry {
   promise: Promise<OrganizationOverview>
 }
 
-const selectedWorkspaceStorageKeyPrefix = "lumo:active-workspace:"
+const selectedWorkspaceStorageKeyPrefix = "wanta:active-workspace:"
 const workspaceOverviewCacheMs = 30_000
 let workspaceOverviewCache: WorkspaceOverviewCacheEntry | null = null
 let workspaceOverviewInFlight: WorkspaceOverviewInFlightEntry | null = null

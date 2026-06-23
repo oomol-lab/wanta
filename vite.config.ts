@@ -11,7 +11,7 @@ import { branding, storageKey } from "./electron/branding.ts"
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // dev：让 vite-plugin-electron 启动 postinstall 下载到 .electron-dist 的那份
-// Electron（带 dev 专用 Bundle ID / URL scheme = lumo-local）。仅当该副本存在
+// Electron（带 dev 专用 Bundle ID / URL scheme = wanta-local）。仅当该副本存在
 // 且调用方未显式覆盖时设置；缺失时回退到 electron 包默认解析。仅影响 vite 进程，
 // 不影响后续独立运行的 electron-builder。
 applyDevElectronOverride()
@@ -35,7 +35,7 @@ const appCommit = resolveAppCommit()
 const appVersion = process.env.npm_package_version ?? "0.0.0"
 
 function resolveAppCommit(): string {
-  const fromEnv = process.env.LUMO_BUILD_COMMIT ?? process.env.GITHUB_SHA
+  const fromEnv = process.env.WANTA_BUILD_COMMIT ?? process.env.GITHUB_SHA
   if (fromEnv !== undefined && fromEnv.trim().length > 0) {
     return fromEnv.trim()
   }
@@ -50,18 +50,18 @@ function resolveAppCommit(): string {
 }
 
 // 解析构建期注入的 endpoint，缺省 oomol.com。优先级：
-//   1) 显式 LUMO_ENDPOINT 环境变量（shell / CI），两种模式都生效；
+//   1) 显式 WANTA_ENDPOINT 环境变量（shell / CI），两种模式都生效；
 //   2) 仅 dev/serve 读 .env(.local) 文件 —— build 刻意不读，避免本机 .env.local
 //      （开发常指向 oomol.dev）污染对外分发的包；
 //   3) 缺省 oomol.com。
 // 故 CI/发布（无显式变量、build 不读文件）始终是 oomol.com，产物不含开发域名。
 function resolveOoEndpoint(command: string, mode: string): string {
-  const explicit = process.env.LUMO_ENDPOINT?.trim()
+  const explicit = process.env.WANTA_ENDPOINT?.trim()
   if (explicit) {
     return explicit
   }
   if (command !== "build") {
-    const fromFile = loadEnv(mode, dirname, "").LUMO_ENDPOINT?.trim()
+    const fromFile = loadEnv(mode, dirname, "").WANTA_ENDPOINT?.trim()
     if (fromFile) {
       return fromFile
     }
@@ -74,7 +74,7 @@ function shouldAutoStartElectron(command: string, mode: string): boolean {
     return true
   }
 
-  const explicit = process.env.LUMO_ELECTRON_AUTO_START?.trim().toLowerCase()
+  const explicit = process.env.WANTA_ELECTRON_AUTO_START?.trim().toLowerCase()
   if (explicit) {
     return !["0", "false", "no", "off"].includes(explicit)
   }
@@ -83,7 +83,7 @@ function shouldAutoStartElectron(command: string, mode: string): boolean {
 }
 
 function skipElectronStartup(): void {
-  console.log("[lumo] Electron auto-start disabled for this Vite dev session.")
+  console.log("[wanta] Electron auto-start disabled for this Vite dev session.")
 }
 
 export default defineConfig(({ command, mode }) => {
@@ -106,9 +106,9 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       // index.html 内联首帧主题脚本里的品牌值由 branding 单一来源注入（守 R1，避免硬编码品牌前缀）。
       {
-        name: "lumo-inline-boot-theme-key",
+        name: "wanta-inline-boot-theme-key",
         transformIndexHtml(html: string) {
-          return html.replaceAll("%APP_NAME%", branding.appName).replaceAll("%LUMO_THEME_KEY%", storageKey("theme"))
+          return html.replaceAll("%APP_NAME%", branding.appName).replaceAll("%WANTA_THEME_KEY%", storageKey("theme"))
         },
       },
       tailwindcss(),

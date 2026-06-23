@@ -4,10 +4,10 @@ import type { InstalledSkill, SkillManifestStore } from "./types.ts"
 
 import { readControlState } from "./manifest.ts"
 
-const lumoRuntimeHostId = "lumo"
+const wantaRuntimeHostId = "wanta"
 
-function isLumoRuntimeAgent(agent: SupportedAgent): boolean {
-  return agent.id === lumoRuntimeHostId
+function isWantaRuntimeAgent(agent: SupportedAgent): boolean {
+  return agent.id === wantaRuntimeHostId
 }
 
 function createHostCoverage(
@@ -23,7 +23,7 @@ function createHostCoverage(
       return {
         agentId: agent.id,
         agentName: agent.name,
-        scope: isLumoRuntimeAgent(agent) ? "runtime" : "external",
+        scope: isWantaRuntimeAgent(agent) ? "runtime" : "external",
         status: "missing",
       }
     }
@@ -35,7 +35,7 @@ function createHostCoverage(
       kind: installedSkill.metadata.kind,
       packageName: installedSkill.metadata.packageName,
       path: installedSkill.path,
-      scope: isLumoRuntimeAgent(agent) ? "runtime" : "external",
+      scope: isWantaRuntimeAgent(agent) ? "runtime" : "external",
       sourcePath: installedSkill.sourcePath,
       status: "installed",
       version: installedSkill.metadata.version,

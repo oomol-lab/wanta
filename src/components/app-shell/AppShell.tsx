@@ -117,11 +117,11 @@ const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
 const SIDEBAR_DEFAULT_WIDTH_PX = 264
 const SIDEBAR_MIN_WIDTH_PX = 220
 const SIDEBAR_MAX_WIDTH_PX = 420
-const SIDEBAR_WIDTH_STORAGE_KEY = "lumo.sidebarWidth"
+const SIDEBAR_WIDTH_STORAGE_KEY = "wanta.sidebarWidth"
 const CHAT_AREA_MIN_WIDTH_PX = 420
 const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
-const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
+const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
 const TURN_RETRY_OPTIONS_LIMIT = 48
 const SESSION_TITLE_RETRY_DELAY_MS = 20_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
@@ -137,7 +137,7 @@ interface TurnRetryOptions {
 }
 
 function initialRoute(): Route {
-  const route = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_ROUTE"]
+  const route = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_ROUTE"]
   return route === "settings" ||
     route === "connections" ||
     route === "skills" ||
@@ -1383,10 +1383,10 @@ export function AppShell() {
     return () => window.clearInterval(id)
   }, [])
 
-  // dev/smoke：VITE_LUMO_SMOKE 设置时，就绪后自动发送一条消息用于可视化验证（生产无此 env，无害）。
+  // dev/smoke：VITE_WANTA_SMOKE 设置时，就绪后自动发送一条消息用于可视化验证（生产无此 env，无害）。
   const smokeSent = React.useRef(false)
   React.useEffect(() => {
-    const smoke = (import.meta.env as Record<string, string | undefined>)["VITE_LUMO_SMOKE"]
+    const smoke = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_SMOKE"]
     if (ready && smoke && !smokeSent.current) {
       smokeSent.current = true
       void handleSend(smoke)
@@ -1819,7 +1819,7 @@ export function AppShell() {
           key: generationKey,
           retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
         })
-        console.error("[lumo] generate session title failed", error)
+        console.error("[wanta] generate session title failed", error)
       } finally {
         if (titleGenerationInFlightBySession.current.get(sessionId) === generationKey) {
           titleGenerationInFlightBySession.current.delete(sessionId)
@@ -1986,7 +1986,7 @@ export function AppShell() {
       })
       .catch((cause: unknown) => {
         setQueuedMessagesBySession((current) => appendQueuedMessage(current, message))
-        console.error("[lumo] dispatch queued message failed", cause)
+        console.error("[wanta] dispatch queued message failed", cause)
       })
       .finally(() => {
         dispatchingQueuedSessionsRef.current.delete(activeSessionId)
@@ -2126,7 +2126,7 @@ export function AppShell() {
   const handleRenameSession = (sessionId: string, title: string): void => {
     autoFallbackTitleBySession.current.delete(sessionId)
     void rename(sessionId, title).catch((cause: unknown) => {
-      console.error("[lumo] rename session failed", cause)
+      console.error("[wanta] rename session failed", cause)
       toast.error(t("session.renameFailed"))
     })
   }

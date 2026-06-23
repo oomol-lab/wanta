@@ -6,7 +6,7 @@ import { test } from "vitest"
 import { SessionActivityStore } from "./activity-store.ts"
 
 test("SessionActivityStore persists recent session activity", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lumo-session-activity-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-activity-"))
   const store = new SessionActivityStore(dir)
   const activity = new Map([
     ["session-a", 1_000],
@@ -19,7 +19,7 @@ test("SessionActivityStore persists recent session activity", async () => {
 })
 
 test("SessionActivityStore supports concurrent writes", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lumo-session-activity-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-activity-"))
   const store = new SessionActivityStore(dir)
 
   await Promise.all([store.write(new Map([["session-a", 1_000]])), store.write(new Map([["session-b", 2_000]]))])

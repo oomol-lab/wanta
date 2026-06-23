@@ -57,7 +57,7 @@ test("removeAccount drops the account and clears dangling currentId", () => {
 })
 
 test("AuthStore round-trips and tolerates missing file", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-auth-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-auth-"))
   const store = new AuthStore(dir)
   assert.deepEqual(store.read(), {})
   store.write(upsertAccount({}, acme))
@@ -65,7 +65,7 @@ test("AuthStore round-trips and tolerates missing file", () => {
 })
 
 test("read() migrates legacy multi-endpoint auth.json and strips both endpoint and persisted api-key", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-auth-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-auth-"))
   const otherEndpoint = ooEndpoint === "oomol.com" ? "oomol.dev" : "oomol.com"
   writeFileSync(
     path.join(dir, "auth.json"),
@@ -88,7 +88,7 @@ test("read() migrates legacy multi-endpoint auth.json and strips both endpoint a
 })
 
 test("read() strips a legacy persisted api-key even without any endpoint field", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-auth-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-auth-"))
   writeFileSync(
     path.join(dir, "auth.json"),
     JSON.stringify({ currentId: "u1", accounts: [{ id: "u1", name: "Acme", apiKey: "legacy-key" }] }),
@@ -97,7 +97,7 @@ test("read() strips a legacy persisted api-key even without any endpoint field",
 })
 
 test("purgeLegacy rewrites the on-disk file to remove the long-lived api-key", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-auth-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-auth-"))
   const file = path.join(dir, "auth.json")
   writeFileSync(file, JSON.stringify({ currentId: "u1", accounts: [{ id: "u1", name: "Acme", apiKey: "legacy-key" }] }))
 

@@ -95,7 +95,7 @@ test("applyStoppedGenerations freezes cancelled running tool timing", () => {
 })
 
 test("StoppedGenerationStore persists stopped generation overlays", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-stopped-generations-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-stopped-generations-"))
   const store = new StoppedGenerationStore(root)
   const records: StoppedGenerations = new Map()
   recordStoppedGeneration(records, "session-1", "assistant-1", ["tool-stopped"], 100)
@@ -108,7 +108,7 @@ test("StoppedGenerationStore persists stopped generation overlays", async () => 
 })
 
 test("StoppedGenerationStore supports concurrent writes", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-stopped-generations-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-stopped-generations-"))
   const store = new StoppedGenerationStore(root)
   const first: StoppedGenerations = new Map()
   const second: StoppedGenerations = new Map()

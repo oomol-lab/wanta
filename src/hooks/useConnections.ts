@@ -174,11 +174,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           }
         }
 
-        setActionError(resolveConnectionError("LUMO_OAUTH_PENDING", operation))
+        setActionError(resolveConnectionError("WANTA_OAUTH_PENDING", operation))
         return false
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
-          setActionError(resolveConnectionError("LUMO_OAUTH_CANCELLED", operation))
+          setActionError(resolveConnectionError("WANTA_OAUTH_CANCELLED", operation))
           return false
         }
         setActionError(resolveConnectionError(err, operation))

@@ -183,7 +183,7 @@ if (isLocked) {
   if (initialUrl) {
     // 冷启动经协议 URL 拉起（win/linux argv）：先完成登录回调，窗口创建在 whenReady。
     void authManager.completeBrowserLoginCallback(initialUrl).catch((error: unknown) => {
-      console.error("[lumo] failed to handle startup deep link:", error)
+      console.error("[wanta] failed to handle startup deep link:", error)
     })
   }
 
@@ -194,7 +194,7 @@ if (isLocked) {
     createMainWindow()
     // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
     void updateService.checkForAppUpdate().catch((error: unknown) => {
-      console.warn("[lumo] startup update check failed:", error)
+      console.warn("[wanta] startup update check failed:", error)
     })
 
     // 启动时一次性抹除磁盘上残留的旧长期 api-key（迁移到纯会话 token 后不再落盘任何凭证）。
@@ -205,11 +205,11 @@ if (isLocked) {
         if (account) {
           return applyAuthAccount(account)
         }
-        console.log("[lumo] not signed in (or session expired) — login page will be shown")
+        console.log("[wanta] not signed in (or session expired) — login page will be shown")
         return undefined
       })
       .catch((error: unknown) => {
-        console.error("[lumo] agent sidecar failed to start:", error)
+        console.error("[wanta] agent sidecar failed to start:", error)
       })
 
     app.on("activate", () => {
@@ -240,7 +240,7 @@ if (isLocked) {
 
 function registerAttachmentDialogHandler(): void {
   ipcMain.handle(
-    "lumo:select-attachment-paths",
+    "wanta:select-attachment-paths",
     async (event, kind: "file" | "directory"): Promise<SelectedAttachmentPath[]> => {
       const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
       const properties: Electron.OpenDialogOptions["properties"] =
@@ -256,7 +256,7 @@ function registerAttachmentDialogHandler(): void {
     },
   )
   ipcMain.handle(
-    "lumo:save-clipboard-attachment",
+    "wanta:save-clipboard-attachment",
     async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
       const attachment = await saveClipboardAttachment(app.getPath("userData"), req)
       return {
@@ -353,16 +353,16 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   appliedAgentRuntimeVersion = agentRuntimeVersion
   chatService.startEventBridge()
   chatService.setAgentStatus({ status: "ready" })
-  console.log("[lumo] agent sidecar ready at", nextAgent.url)
+  console.log("[wanta] agent sidecar ready at", nextAgent.url)
   void skillService.ensureDefaultRegistrySkillsInstalled().catch((error: unknown) => {
-    console.warn("[lumo] default registry skill installation failed:", error)
+    console.warn("[wanta] default registry skill installation failed:", error)
   })
 }
 
 function handleAgentOrganizationChanged(organizationName: string | undefined): void {
   activeAgentOrganizationName = organizationName
   void agent?.setOrganizationName(organizationName).catch((error: unknown) => {
-    console.error("[lumo] failed to update agent workspace scope:", error)
+    console.error("[wanta] failed to update agent workspace scope:", error)
   })
 }
 
@@ -378,7 +378,7 @@ function restartAgentForModelConfig(): void {
       }
     })
     .catch((error: unknown) => {
-      console.error("[lumo] failed to restart agent after model config change:", error)
+      console.error("[wanta] failed to restart agent after model config change:", error)
     })
 }
 
@@ -408,7 +408,7 @@ function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
       scheduleAgentRefreshForSkillChange(reason, skillRuntimeRefreshBusyRetryMs, busyRetryCount + 1)
       return
     }
-    console.warn("[lumo] refreshing agent after skill change while generation is still active:", {
+    console.warn("[wanta] refreshing agent after skill change while generation is still active:", {
       busyRetryCount,
       reason,
     })
@@ -425,18 +425,18 @@ function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
       }
     })
     .catch((error: unknown) => {
-      console.error("[lumo] failed to restart agent after skill change:", { error, reason })
+      console.error("[wanta] failed to restart agent after skill change:", { error, reason })
     })
 }
 
 /**
- * dev：解析 oo 绝对路径（LUMO_OO_BIN 覆盖 > 项目本地 .oo-bin/，由 postinstall 下载）。生产由 extraResources 解析。
+ * dev：解析 oo 绝对路径（WANTA_OO_BIN 覆盖 > 项目本地 .oo-bin/，由 postinstall 下载）。生产由 extraResources 解析。
  * 不在此做存在性预检——主进程禁用同步 fs（阻塞渲染）；dev 缺失由 predev 守卫（scripts/check-oo.ts）提前报错退出，
  * 打包产物则一定内置 oo。
  */
 function resolveOoBin(): string {
-  if (process.env["LUMO_OO_BIN"]) {
-    return process.env["LUMO_OO_BIN"]
+  if (process.env["WANTA_OO_BIN"]) {
+    return process.env["WANTA_OO_BIN"]
   }
   return resolveDevOoBin(appRoot)
 }
@@ -488,7 +488,7 @@ function activeLocale(): AppLocale {
 }
 
 function shouldShowDevelopmentMenu(): boolean {
-  return !app.isPackaged || process.env["LUMO_ENABLE_DEV_MENU"] === "1"
+  return !app.isPackaged || process.env["WANTA_ENABLE_DEV_MENU"] === "1"
 }
 
 function registerAppLocaleHandler(): void {
@@ -561,7 +561,7 @@ function createMainWindow(): void {
           },
         })
       } catch (error) {
-        console.warn("[lumo] failed to initialize Windows tray lifecycle", error)
+        console.warn("[wanta] failed to initialize Windows tray lifecycle", error)
       }
     }
   }
@@ -621,7 +621,7 @@ async function handleDeepLink(url: string): Promise<boolean> {
   showMainWindow()
   const handled = await authManager.completeBrowserLoginCallback(url)
   if (!handled) {
-    console.log("[lumo] unrecognized deep link:", redactDeepLink(url))
+    console.log("[wanta] unrecognized deep link:", redactDeepLink(url))
   }
   return handled
 }

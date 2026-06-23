@@ -28,7 +28,7 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
 
 export function useAppCommandEvents(runCommand: (command: AppCommand) => void): void {
   React.useEffect(() => {
-    const bridge = globalThis.lumo
+    const bridge = globalThis.wanta
     if (!bridge?.onAppCommand) {
       return undefined
     }

@@ -18,7 +18,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: unknown): void {
-    console.error("[lumo] render error caught by boundary:", error)
+    console.error("[wanta] render error caught by boundary:", error)
   }
 
   render(): React.ReactNode {

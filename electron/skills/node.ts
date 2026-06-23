@@ -72,7 +72,7 @@ import {
 } from "./manifest.ts"
 import { resolveSharedAgentSkillRoot } from "./paths.ts"
 import { assertSafeResetPaths } from "./reset.ts"
-import { lumoRuntimeAgent, scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
+import { wantaRuntimeAgent, scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
 
 interface SkillVersionAuthSnapshot {
   cacheKey: string
@@ -128,7 +128,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return new DefaultSkillInstallStore(app.getPath("userData"))
   }
 
-  private getLumoSkillStoreRoot(): string {
+  private getWantaSkillStoreRoot(): string {
     return path.join(app.getPath("userData"), "agent", "oo-store", "config", "skills")
   }
 
@@ -370,7 +370,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     const watchedPaths = [
       { pathname: path.dirname(this.getManifestPath()), affectsRuntimeSkills: false },
       { pathname: this.getSharedAgentSkillRoot(), affectsRuntimeSkills: true },
-      { pathname: this.getLumoSkillStoreRoot(), affectsRuntimeSkills: false },
+      { pathname: this.getWantaSkillStoreRoot(), affectsRuntimeSkills: false },
       ...supportedAgents.map((agent) => ({ pathname: resolveAgentSkillRoot(agent), affectsRuntimeSkills: false })),
     ]
     const registeredPaths = new Set<string>()
@@ -486,7 +486,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         })
       } catch (error) {
         const message = runtimeErrorMessage(error)
-        console.warn("[lumo] failed to install default registry skill:", {
+        console.warn("[wanta] failed to install default registry skill:", {
           error: message,
           packageName: request.packageName,
           skillId: request.skillId,
@@ -528,8 +528,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private async refreshManifestRecordsForTargets(targetPaths: string[]): Promise<void> {
     const manifestPath = this.getManifestPath()
     const [installedSkills, manifestStore] = await Promise.all([
-      scanLumoInstalledSkills({
-        cacheSkillStoreRoot: this.getLumoSkillStoreRoot(),
+      scanWantaInstalledSkills({
+        cacheSkillStoreRoot: this.getWantaSkillStoreRoot(),
         sharedSkillRoot: this.getSharedAgentSkillRoot(),
       }),
       readManifestStore(manifestPath),
@@ -578,7 +578,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private async resolveCachedSkillSourcePath(skillId: string): Promise<string | undefined> {
     const normalizedSkillId = normalizeSkillId(skillId)
 
-    for (const sourcePath of readCachedSkillSourceCandidates(this.getLumoSkillStoreRoot(), normalizedSkillId)) {
+    for (const sourcePath of readCachedSkillSourceCandidates(this.getWantaSkillStoreRoot(), normalizedSkillId)) {
       if (await localPathExists(sourcePath)) {
         return sourcePath
       }
@@ -762,15 +762,15 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private async readSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
     const startedAtMs = Date.now()
     const manifestPath = this.getManifestPath()
-    const [lumoInstalledSkills, externalInstalledSkills, manifestStore] = await Promise.all([
-      scanLumoInstalledSkills({
-        cacheSkillStoreRoot: this.getLumoSkillStoreRoot(),
+    const [wantaInstalledSkills, externalInstalledSkills, manifestStore] = await Promise.all([
+      scanWantaInstalledSkills({
+        cacheSkillStoreRoot: this.getWantaSkillStoreRoot(),
         sharedSkillRoot: this.getSharedAgentSkillRoot(),
       }),
       scanInstalledSkills(),
       readManifestStore(manifestPath),
     ])
-    const installedSkills = mergeInstalledSkillSnapshots(lumoInstalledSkills, externalInstalledSkills)
+    const installedSkills = mergeInstalledSkillSnapshots(wantaInstalledSkills, externalInstalledSkills)
     const nextManifestStore = upsertManifestRecords(manifestStore, installedSkills)
     const groups = groupInstalledSkills(installedSkills, nextManifestStore, readSkillCoverageAgents(installedSkills))
 
@@ -984,19 +984,19 @@ function readSkillCoverageAgents(installedSkills: readonly InstalledSkill[]): Su
   const externalAgentsById = new Map<string, SupportedAgent>()
 
   for (const skill of installedSkills) {
-    if (skill.agent.id !== lumoRuntimeAgent.id) {
+    if (skill.agent.id !== wantaRuntimeAgent.id) {
       externalAgentsById.set(skill.agent.id, skill.agent)
     }
   }
 
   return [
-    lumoRuntimeAgent,
+    wantaRuntimeAgent,
     ...Array.from(externalAgentsById.values()).sort((left, right) => left.name.localeCompare(right.name)),
   ]
 }
 
 function mergeInstalledSkillSnapshots(
-  lumoInstalledSkills: InstalledSkill[],
+  wantaInstalledSkills: InstalledSkill[],
   externalInstalledSkills: InstalledSkill[],
 ): InstalledSkill[] {
   const merged = new Map<string, InstalledSkill>()
@@ -1004,7 +1004,7 @@ function mergeInstalledSkillSnapshots(
   for (const skill of externalInstalledSkills) {
     merged.set(skill.path, skill)
   }
-  for (const skill of lumoInstalledSkills) {
+  for (const skill of wantaInstalledSkills) {
     merged.set(skill.path, skill)
   }
 
@@ -1041,7 +1041,7 @@ async function replaceDirectory(sourcePath: string, targetPath: string): Promise
           hasBackup = false
         } catch (rollbackError) {
           preserveBackup = true
-          console.warn("[lumo] replaceDirectory rollback failed; backup preserved", {
+          console.warn("[wanta] replaceDirectory rollback failed; backup preserved", {
             backupPath,
             error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
           })

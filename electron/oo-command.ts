@@ -70,7 +70,7 @@ export async function runOoCommand(args: string[], options: RunOoCommandOptions)
 }
 
 export function getOoCommand(): string {
-  return process.env["OO_CLI_PATH"] || process.env["LUMO_OO_BIN"] || "oo"
+  return process.env["OO_CLI_PATH"] || process.env["WANTA_OO_BIN"] || "oo"
 }
 
 export function getOoPath(env: NodeJS.ProcessEnv = process.env): string {
@@ -127,6 +127,6 @@ async function recordOperation(
       stdout: result.stdout,
     })
   } catch (error) {
-    console.warn("[lumo] failed to record operation history", error)
+    console.warn("[wanta] failed to record operation history", error)
   }
 }

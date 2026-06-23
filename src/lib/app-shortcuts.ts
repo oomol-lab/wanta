@@ -11,13 +11,13 @@ export interface KeyboardShortcutEvent {
   shiftKey?: boolean
 }
 
-export function isMacPlatform(platform: NodeJS.Platform | undefined = globalThis.lumo?.platform): boolean {
+export function isMacPlatform(platform: NodeJS.Platform | undefined = globalThis.wanta?.platform): boolean {
   return platform === "darwin"
 }
 
 export function appCommandForKeyboardShortcut(
   event: KeyboardShortcutEvent,
-  platform: NodeJS.Platform | undefined = globalThis.lumo?.platform,
+  platform: NodeJS.Platform | undefined = globalThis.wanta?.platform,
 ): AppCommand | null {
   if (event.repeat || event.altKey || event.shiftKey) {
     return null
@@ -49,7 +49,7 @@ export function appCommandForKeyboardShortcut(
 
 export function appCommandShortcutLabel(
   command: AppCommand,
-  platform: NodeJS.Platform | undefined = globalThis.lumo?.platform,
+  platform: NodeJS.Platform | undefined = globalThis.wanta?.platform,
 ): string {
   const modifier = isMacPlatform(platform) ? "⌘" : "Ctrl+"
   switch (command) {
@@ -70,7 +70,7 @@ export function appCommandShortcutLabel(
 
 export function appCommandAriaShortcut(
   command: AppCommand,
-  platform: NodeJS.Platform | undefined = globalThis.lumo?.platform,
+  platform: NodeJS.Platform | undefined = globalThis.wanta?.platform,
 ): string {
   const modifier = isMacPlatform(platform) ? "Meta" : "Control"
   switch (command) {

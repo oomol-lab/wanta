@@ -23,7 +23,7 @@ async function writeSkill(skillsDir: string, name: string): Promise<void> {
 }
 
 test("ensureAgentWorkspace writes tool sources and copies bundled skills into .opencode/skill", async () => {
-  const base = await mkdtemp(path.join(os.tmpdir(), "lumo-workspace-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
   try {
     const workspaceDir = path.join(base, "workspace")
     const bundledSkillsDir = path.join(base, "bundled-skills")
@@ -47,7 +47,7 @@ test("ensureAgentWorkspace writes tool sources and copies bundled skills into .o
 })
 
 test("ensureAgentWorkspace rebuilds .opencode/skill so removed bundled skills do not linger", async () => {
-  const base = await mkdtemp(path.join(os.tmpdir(), "lumo-workspace-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
   try {
     const workspaceDir = path.join(base, "workspace")
     const bundledSkillsDir = path.join(base, "bundled-skills")
@@ -72,7 +72,7 @@ test("ensureAgentWorkspace rebuilds .opencode/skill so removed bundled skills do
 })
 
 test("ensureAgentWorkspace works without a bundled skills directory", async () => {
-  const base = await mkdtemp(path.join(os.tmpdir(), "lumo-workspace-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
   try {
     const workspaceDir = path.join(base, "workspace")
     await ensureAgentWorkspace(workspaceDir, path.join(base, "does-not-exist"))

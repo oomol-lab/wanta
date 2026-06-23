@@ -47,3 +47,4 @@ resources/skills
 
 # Local dev scratch
 .lumo-dev/
+.wanta-dev/

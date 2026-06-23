@@ -96,7 +96,7 @@ export function applyArtifactRoots(
   return changed ? nextMessages : messages
 }
 
-/** 制成品根目录 overlay：OpenCode 历史不保存本轮 artifactRoot，Lumo 需单独持久化。 */
+/** 制成品根目录 overlay：OpenCode 历史不保存本轮 artifactRoot，Wanta 需单独持久化。 */
 export class ArtifactRootStore {
   private readonly file: string
 

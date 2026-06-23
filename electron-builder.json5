@@ -3,9 +3,9 @@
 // 在后续阶段补齐；品牌标识与 electron/branding.ts 保持一致（R1）。
 {
   $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  appId: "com.oomol.lumo",
+  appId: "com.oomol.wanta",
   asar: true,
-  productName: "Lumo",
+  productName: "Wanta",
   directories: {
     buildResources: "resources",
     output: "release/${version}",
@@ -21,8 +21,8 @@
   generateUpdatesFilesForAllChannels: true,
   protocols: [
     {
-      name: "lumo",
-      schemes: ["lumo"],
+      name: "wanta",
+      schemes: ["wanta"],
     },
   ],
   files: ["dist", "dist-electron", "!**/*.{map,d.ts}"],
@@ -30,7 +30,7 @@
   // 内置 oo + opencode + rg 平台二进制（由 scripts/prepare-binaries.ts 在构建前复制到 resources/bin）。
   // 运行时 app.isPackaged 走 process.resourcesPath/bin。
   // resources/skills 是 oo 自带的 4 个内置 skill（同由 prepare-binaries.ts 导出）；运行时拷进 OpenCode
-  // workspace 的 .opencode/skill/，使 Lumo agent 直接读到。
+  // workspace 的 .opencode/skill/，使 Wanta agent 直接读到。
   extraResources: [
     {
       from: "resources/branding/icon.png",
@@ -53,7 +53,7 @@
     icon: "branding/icon.icns",
     electronLanguages: ["en", "zh_CN"],
     extendInfo: {
-      NSMicrophoneUsageDescription: "Lumo uses the microphone to record voice messages for chat input.",
+      NSMicrophoneUsageDescription: "Wanta uses the microphone to record voice messages for chat input.",
     },
     entitlements: "electron/entitlements.mac.plist",
     entitlementsInherit: "electron/entitlements.mac.plist",

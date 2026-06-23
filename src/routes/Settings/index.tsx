@@ -256,8 +256,8 @@ function AboutSettings({ update }: { update: UseAppUpdate }) {
   const updateError =
     updateStatus?.status === "error" ? resolveUserFacingError(updateStatus.error, { area: "update" }) : null
   const percent = Math.round(downloadingStatus?.percent ?? 0)
-  const version = update.state?.currentVersion ?? globalThis.lumo?.version ?? "—"
-  const platform = globalThis.lumo?.platform ?? "browser"
+  const version = update.state?.currentVersion ?? globalThis.wanta?.version ?? "—"
+  const platform = globalThis.wanta?.platform ?? "browser"
 
   return (
     <section className="grid min-h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 border-b border-[var(--oo-divider)] px-3 py-3 max-[760px]:grid-cols-1">
@@ -460,10 +460,10 @@ async function writeClipboardText(text: string): Promise<boolean> {
 }
 
 function formatAccountInfo(account: AuthAccountSummary, t: ReturnType<typeof useI18n>["t"]): string {
-  const lumo = globalThis.lumo
-  const version = lumo?.version ?? "unknown"
-  const platform = lumo?.platform ?? "browser"
-  const appCommit = lumo?.appCommit ?? "unknown"
+  const wanta = globalThis.wanta
+  const version = wanta?.version ?? "unknown"
+  const platform = wanta?.platform ?? "browser"
+  const appCommit = wanta?.appCommit ?? "unknown"
   const lines = [
     t("settings.accountDiagnosticsTitle"),
     `${t("settings.accountName")}: ${account.name}`,

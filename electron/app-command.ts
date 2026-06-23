@@ -1,4 +1,4 @@
-export const APP_COMMAND_CHANNEL = "lumo:app-command"
+export const APP_COMMAND_CHANNEL = "wanta:app-command"
 
 export const APP_COMMANDS = {
   focusComposer: "chat.focusComposer",

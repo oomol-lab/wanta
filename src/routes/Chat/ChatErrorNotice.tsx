@@ -21,7 +21,7 @@ interface ChatErrorNoticeProps {
   onViewBilling?: () => void
 }
 
-const paymentRecoveryPendingKey = "lumo-payment-recovery-pending"
+const paymentRecoveryPendingKey = "wanta-payment-recovery-pending"
 const paymentRecoveryPendingTtlMs = 24 * 60 * 60 * 1000
 const copyFeedbackMs = 1_500
 const CreditPurchaseModal = React.lazy(() =>
@@ -164,7 +164,7 @@ export function ChatErrorNotice({
     if (!canAutoPromptPayment({ autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered })) {
       return
     }
-    const storageKey = `lumo-payment-dialog-opened:${autoOpenKey}`
+    const storageKey = `wanta-payment-dialog-opened:${autoOpenKey}`
     try {
       if (sessionStorage.getItem(storageKey)) {
         return

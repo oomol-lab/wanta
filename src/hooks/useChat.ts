@@ -404,7 +404,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           })(),
         }))
       } catch (err) {
-        console.error("[lumo] getMessages failed", err)
+        console.error("[wanta] getMessages failed", err)
       }
     },
     [chatService, flushPendingToolParts, isSessionUserStopped, rememberCancelledToolParts],

@@ -62,7 +62,7 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
   return { version: 1, sessions }
 }
 
-/** 会话展示元数据：置顶和归档属于 Lumo 侧边栏状态，不修改 OpenCode 会话本体。 */
+/** 会话展示元数据：置顶和归档属于 Wanta 侧边栏状态，不修改 OpenCode 会话本体。 */
 export class SessionMetadataStore {
   private readonly file: string
 

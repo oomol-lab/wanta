@@ -169,8 +169,8 @@ export function useComposerAttachments({
       setInputError(null)
       const next: AttachmentInput[] = []
       for (const file of Array.from(files)) {
-        const path = globalThis.lumo?.getPathForFile(file)
-        const saver = globalThis.lumo?.saveClipboardAttachment
+        const path = globalThis.wanta?.getPathForFile(file)
+        const saver = globalThis.wanta?.saveClipboardAttachment
         let optimized: {
           name: string
           mime: string
@@ -239,7 +239,7 @@ export function useComposerAttachments({
   const selectAttachments = React.useCallback(
     async (kind: "file" | "directory") => {
       setInputError(null)
-      const picker = globalThis.lumo?.selectAttachmentPaths
+      const picker = globalThis.wanta?.selectAttachmentPaths
       if (!picker) {
         if (kind === "file") {
           fileInputRef.current?.click()

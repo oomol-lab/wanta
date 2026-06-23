@@ -6,7 +6,7 @@ import { test } from "vitest"
 import { SessionMetadataStore } from "./metadata-store.ts"
 
 test("SessionMetadataStore persists pinned and archived metadata", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lumo-session-metadata-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-metadata-"))
   const store = new SessionMetadataStore(dir)
   const metadata = new Map([
     ["pinned", { pinnedAt: 1_000 }],
@@ -19,7 +19,7 @@ test("SessionMetadataStore persists pinned and archived metadata", async () => {
 })
 
 test("SessionMetadataStore supports concurrent writes", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lumo-session-metadata-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-metadata-"))
   const store = new SessionMetadataStore(dir)
 
   await Promise.all([

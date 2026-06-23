@@ -611,7 +611,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
         }
       })
       .catch((error: unknown) => {
-        console.warn("[lumo] failed to resolve generated artifacts", { error })
+        console.warn("[wanta] failed to resolve generated artifacts", { error })
         if (!cancelled) {
           setGroups([])
         }

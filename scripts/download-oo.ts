@@ -15,8 +15,8 @@ async function main(): Promise<void> {
       return
     }
     const dest = await downloadOoBinary()
-    console.log(`[lumo] oo ${OO_CLI_VERSION} ready at ${dest}`)
+    console.log(`[wanta] oo ${OO_CLI_VERSION} ready at ${dest}`)
   } catch (error) {
-    console.warn("[lumo] download-oo postinstall failed (non-fatal):", error)
+    console.warn("[wanta] download-oo postinstall failed (non-fatal):", error)
   }
 }

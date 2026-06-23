@@ -24,7 +24,7 @@ function bundle(label: string, src: string, dstName: string): void {
   const dst = path.join(binDir, dstName)
   copyFileSync(src, dst)
   chmodSync(dst, 0o755)
-  console.log(`[lumo] bundled ${label}: ${dstName}`)
+  console.log(`[wanta] bundled ${label}: ${dstName}`)
 }
 
 bundle(
@@ -45,4 +45,4 @@ bundle("ripgrep", ripgrepSrc, ripgrepExecutableName())
 // 内置 4 个 oo skill：导出到 resources/skills/，由 electron-builder extraResources 打入 Resources/skills，
 // 运行时拷进 OpenCode workspace 的 .opencode/skill/（见 electron/agent/workspace.ts）。
 await exportBundledSkills()
-console.log(`[lumo] bundled skills: ${path.basename(bundledSkillsDir)}`)
+console.log(`[wanta] bundled skills: ${path.basename(bundledSkillsDir)}`)

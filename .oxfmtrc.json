@@ -29,6 +29,7 @@
     "node_modules",
     "release",
     ".electron-dist",
-    ".lumo-dev"
+    ".lumo-dev",
+    ".wanta-dev"
   ]
 }

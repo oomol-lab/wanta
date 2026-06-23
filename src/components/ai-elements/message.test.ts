@@ -68,11 +68,11 @@ describe("normalizeSingleLocalPathCodeFences", () => {
   it("turns a path-only fenced block into inline code", () => {
     expect(
       normalizeSingleLocalPathCodeFences(
-        ["文件路径：", "```", "/Users/me/Library/Application Support/lumo/agent/artifacts/turn/image.png", "```"].join(
+        ["文件路径：", "```", "/Users/me/Library/Application Support/wanta/agent/artifacts/turn/image.png", "```"].join(
           "\n",
         ),
       ),
-    ).toBe("文件路径：\n`/Users/me/Library/Application Support/lumo/agent/artifacts/turn/image.png`")
+    ).toBe("文件路径：\n`/Users/me/Library/Application Support/wanta/agent/artifacts/turn/image.png`")
   })
 
   it("leaves real code blocks unchanged", () => {
@@ -88,7 +88,7 @@ describe("compactLocalPath", () => {
   })
 
   it("middle-truncates long local paths", () => {
-    expect(compactLocalPath("/Users/me/Library/Application Support/lumo/agent/artifacts/turn/image.png", 32)).toBe(
+    expect(compactLocalPath("/Users/me/Library/Application Support/wanta/agent/artifacts/turn/image.png", 32)).toBe(
       "/Users/me/Libr.../turn/image.png",
     )
   })
@@ -227,7 +227,7 @@ describe("image viewer geometry", () => {
 
 describe("nextSmoothedText", () => {
   it("reveals a prefix incrementally", () => {
-    expect(nextSmoothedText("", "Lumo 正在处理一段较长的回复")).toBe("Lum")
+    expect(nextSmoothedText("", "Wanta 正在处理一段较长的回复")).toBe("Wan")
   })
 
   it("jumps to target when text is replaced instead of appended", () => {

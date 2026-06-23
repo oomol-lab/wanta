@@ -96,7 +96,7 @@ export function ArchivedRoute({
       setSessions(nextSessions)
       setError(null)
     } catch (cause) {
-      console.error("[lumo] list archived sessions failed", cause)
+      console.error("[wanta] list archived sessions failed", cause)
       setError(resolveUserFacingError(cause, { area: "session" }))
     } finally {
       setLoaded(true)
@@ -119,7 +119,7 @@ export function ArchivedRoute({
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          console.error("[lumo] list archived sessions failed", cause)
+          console.error("[wanta] list archived sessions failed", cause)
           setError(resolveUserFacingError(cause, { area: "session" }))
         }
       })

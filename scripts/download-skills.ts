@@ -15,8 +15,8 @@ async function main(): Promise<void> {
       return
     }
     const dest = await exportBundledSkills()
-    console.log(`[lumo] bundled skills ready at ${dest}`)
+    console.log(`[wanta] bundled skills ready at ${dest}`)
   } catch (error) {
-    console.warn("[lumo] download-skills postinstall failed (non-fatal):", error)
+    console.warn("[wanta] download-skills postinstall failed (non-fatal):", error)
   }
 }

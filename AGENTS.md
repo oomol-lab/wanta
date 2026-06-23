@@ -1,11 +1,11 @@
-# Lumo 仓库工作指南
+# Wanta 仓库工作指南
 
 > 本文件是 AI agent 的入口：项目一段话、命令、铁律、文档索引。
 > 细节全部在 [docs/](docs/) 里，按需读取，不要凭记忆推断。
 
 ## 项目是什么
 
-Lumo 是 OOMOL 出品的 Electron 桌面 AI Agent 聊天客户端：用户用自然语言提需求，
+Wanta 是 OOMOL 出品的 Electron 桌面 AI Agent 聊天客户端：用户用自然语言提需求，
 Agent 通过 OOMOL connector 云服务（约 600 个 SaaS provider、6000+ action，凭证云端托管）
 和本地工具（bash / 文件 / 代码）完成分析与自动化任务。连接器调用经内置的 `oo` CLI
 二进制（黑盒子进程，仅环境变量控制）；Agent 内核是本地 OpenCode sidecar
@@ -24,9 +24,9 @@ electron/        主进程 + preload（agent/ auth/ chat/ connections/ session/ 
 src/             渲染进程（React；routes/ hooks/ components/ i18n/）
 scripts/         构建与 postinstall 脚本（oo 下载、二进制准备、predev 守卫）
 resources/       打包资源；resources/bin 是二进制中转目录（gitignore）
-.lumo-dev/       手工 smoke 脚本（gitignore，不进 lint/tsc/打包）
+.wanta-dev/       手工 smoke 脚本（gitignore，不进 lint/tsc/打包）
 .oo-bin/         postinstall 下载的 oo 二进制（gitignore）
-.electron-dist/  dev 专用 Electron 副本，带 lumo-local scheme（gitignore）
+.electron-dist/  dev 专用 Electron 副本，带 wanta-local scheme（gitignore）
 .github/workflows/  pr.yml（质量门）+ release.yml（签名/公证/发布）
 docs/            本仓库文档（见下方索引）
 ```
@@ -88,7 +88,7 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
    故不能用 TS 参数属性（`constructor(private x)`）。
 10. 注释中文；代码标识符/日志/系统提示英文；所有 Git 操作中的人类可读文本必须英文
     （commit message、branch name、PR title/description/comment、tag/release note 等）；
-    主进程业务日志统一 `[lumo]` 前缀（既存例外见 [docs/conventions.md](docs/conventions.md) §4）。
+    主进程业务日志统一 `[wanta]` 前缀（既存例外见 [docs/conventions.md](docs/conventions.md) §4）。
 
 完整编码约定（文件命名、纯函数拆分、内嵌工具源码限制、vendored UI 规则等）见
 [docs/conventions.md](docs/conventions.md)。
@@ -97,7 +97,7 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 
 | 文档                                                 | 何时读                                                                                                     |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [docs/project-overview.md](docs/project-overview.md) | 想知道 Lumo 是什么、为谁做、与 OOMOL 云 / oo CLI / oo-desktop 的关系、原计划 vs 实际交付                   |
+| [docs/project-overview.md](docs/project-overview.md) | 想知道 Wanta 是什么、为谁做、与 OOMOL 云 / oo CLI / oo-desktop 的关系、原计划 vs 实际交付                  |
 | [docs/architecture.md](docs/architecture.md)         | 改任何主/渲染进程代码前：进程划分、Agent 内核、IPC 模式、聊天流式数据流、登录与连接面板流程、模块地图      |
 | [docs/key-decisions.md](docs/key-decisions.md)       | 想知道"为什么是现在这样"：9 个重大决策的背景 → 决策 → 理由 → 后果（含被否方案；个别条目理由并入背景/决策） |
 | [docs/development.md](docs/development.md)           | 搭环境、.env、跑 dev、测试、lint/format、打包签名发布、CI、各特殊目录的角色                                |
@@ -108,19 +108,19 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 - 入口：主进程 `electron/main.ts`，preload `electron/preload.ts`，渲染 `src/main.tsx`；
   无路由库，`src/components/app-shell/AppShell.tsx` 内部 state 切换 `"chat" | "settings"`。
 - LLM：OOMOL LLM 网关 `llm.<endpoint>/v1`，内置模型清单见 `electron/models/builtin.ts`；
-  默认模型是 `openai/gpt-5.5`，Auto 选项是 `oomol/oopilot`，agent 名 `lumo`
+  默认模型是 `openai/gpt-5.5`，Auto 选项是 `oomol/oopilot`，agent 名 `wanta`
   （`electron/agent/config.ts`）。网关 `/v1/models` **不会列出** `oopilot`
   （网关侧别名），勿据此"纠正"Auto 模型名。
-- 登录：浏览器登录 + deep-link（生产 `lumo://signin`，dev `lumo-local://signin`）。
+- 登录：浏览器登录 + deep-link（生产 `wanta://signin`，dev `wanta-local://signin`）。
   **全应用唯一凭证是会话 token `oomol-token`**（Electron 会话 cookie，短命会过期；网关层统一接受
   cookie/token/api-key，故聊天/连接器/组织/技能/账单一律用它）；`userData/auth.json` 只存账号 profile
   **不存任何凭证**，也不再获取长期 api-key。token 失效即全局判为未登录（`AuthManager.currentState` 门控）。
 - 连接器三工具：`search_actions` → `inspect_action` → `call_action`
   （源码内嵌在 `electron/agent/tool-sources.ts`，运行于 OpenCode 的 Bun，
   不参与本项目 lint/tsc）。
-- IPC：每个服务域 = `common.ts` 契约 + `node.ts` 实现，ServiceName 形如 `lumo/chat-service`；
+- IPC：每个服务域 = `common.ts` 契约 + `node.ts` 实现，ServiceName 形如 `wanta/chat-service`；
   `registerService()` 必须在 `server.start()` 之前。
 - 测试均为纯函数单测（vitest，include `electron/**` `src/**` `scripts/**` 的 `*.test.ts`）；
-  真实运行验证用 `.lumo-dev/` 的手工 smoke 脚本（gitignore，fresh clone 无；
+  真实运行验证用 `.wanta-dev/` 的手工 smoke 脚本（gitignore，fresh clone 无；
   跑法与缺失时如何重建见 [docs/development.md](docs/development.md) §4）。
 - 本指南在仓库根以两个文件名存在（互为 symlink 的同一文件），不要另建副本或第二份根指南。

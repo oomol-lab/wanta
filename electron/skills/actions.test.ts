@@ -647,6 +647,6 @@ test("assertSkillOperationSucceeded rejects unexpected command responses", () =>
   )
 })
 
-test("createDeleteSkillArgs uninstalls a Skill from Lumo", () => {
+test("createDeleteSkillArgs uninstalls a Skill from Wanta", () => {
   assert.deepEqual(createDeleteSkillArgs({ skillId: "demo" }), ["skills", "uninstall", "demo", "--json"])
 })

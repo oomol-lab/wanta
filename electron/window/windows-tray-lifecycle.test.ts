@@ -9,7 +9,7 @@ describe("buildWindowsTrayMenuTemplate", () => {
     const onExit = vi.fn()
     const [openItem, exitItem] = buildWindowsTrayMenuTemplate({ onExit, onOpen })
 
-    expect(openItem?.label).toBe("Open Lumo")
+    expect(openItem?.label).toBe("Open Wanta")
     expect(exitItem?.label).toBe("Exit")
 
     expect(openItem?.click).toBeTypeOf("function")
@@ -29,7 +29,7 @@ describe("buildWindowsTrayMenuTemplate", () => {
       onOpen: () => undefined,
     })
 
-    expect(openItem?.label).toBe("打开 Lumo")
+    expect(openItem?.label).toBe("打开 Wanta")
     expect(exitItem?.label).toBe("退出")
   })
 })

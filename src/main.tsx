@@ -15,10 +15,10 @@ import "./index.css"
 
 const rootElement = document.querySelector("#root")
 if (!rootElement) {
-  throw new Error("Lumo: missing #root mount node")
+  throw new Error("Wanta: missing #root mount node")
 }
 
-document.documentElement.dataset.platform = globalThis.lumo?.platform ?? "browser"
+document.documentElement.dataset.platform = globalThis.wanta?.platform ?? "browser"
 document.documentElement.dataset.window = "main"
 
 const client = new ConnectionClient(new ElectronClientAdapter())

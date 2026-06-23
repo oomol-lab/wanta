@@ -2,11 +2,11 @@ name: Release Build
 
 # 签名/公证/上传全部依赖 CI secrets（单机无法完成）。secret/vars 名照搬 oo-desktop。
 # 韧性步骤（OIDC 重试、rclone 缓存、Windows npm ci 重试与自动更新产物校验、release-size
-# 体积统计、富 Release notes、CDN 缓存刷新）与 oo-desktop 对齐；仅按 Lumo 适配：
-# 标准 GitHub runner（非 blacksmith 池）、产物名 Lumo-*、OSS 前缀 release/apps/lumo、
+# 体积统计、富 Release notes、CDN 缓存刷新）与 oo-desktop 对齐；仅按 Wanta 适配：
+# 标准 GitHub runner（非 blacksmith 池）、产物名 Wanta-*、OSS 前缀 release/apps/wanta、
 # 安装期注入 OO_SKIP_BINARY_DOWNLOAD（oo 二进制由 build:* 内的 prepare:binaries 构建时下载）。
 #
-# 双渠道（Lumo 相对 oo-desktop 的 deliberate divergence，见 docs/key-decisions.md §10）：
+# 双渠道（Wanta 相对 oo-desktop 的 deliberate divergence，见 docs/key-decisions.md §10）：
 # stable 发 X.Y.Z（latest*.yml，gh release --latest），beta 发 X.Y.Z-beta.N（beta*.yml，
 # --prerelease）。同一 OSS 目录下两套渠道指针并存；electron-builder 的
 # generateUpdatesFilesForAllChannels 让 stable 构建同步刷新 beta*.yml（beta 用户立即收敛）。
@@ -46,7 +46,7 @@ concurrency:
 env:
   NODE_OPTIONS: "--max-old-space-size=8192"
   OSS_BUCKET: oomol-static-cn-prod
-  OSS_PREFIX: release/apps/lumo
+  OSS_PREFIX: release/apps/wanta
 
 jobs:
   compute-version:
@@ -97,12 +97,12 @@ jobs:
           {
             echo "CDN_FILES<<CDN_EOF"
             if [ "$CHANNEL" = "stable" ]; then
-              echo "/release/apps/lumo/darwin/arm64/latest-mac.yml"
-              echo "/release/apps/lumo/win32/x64/latest.yml"
+              echo "/release/apps/wanta/darwin/arm64/latest-mac.yml"
+              echo "/release/apps/wanta/win32/x64/latest.yml"
             fi
             if [ "$REFRESH_BETA" = "true" ]; then
-              echo "/release/apps/lumo/darwin/arm64/beta-mac.yml"
-              echo "/release/apps/lumo/win32/x64/beta.yml"
+              echo "/release/apps/wanta/darwin/arm64/beta-mac.yml"
+              echo "/release/apps/wanta/win32/x64/beta.yml"
             fi
             echo "CDN_EOF"
           } >> "$GITHUB_OUTPUT"
@@ -198,13 +198,13 @@ jobs:
               exit 1
             fi
             # `grep -Fq`（定长匹配）使 $VERSION 里的点被字面匹配。
-            if ! grep -Fq "Lumo-${VERSION}.zip" "$YML"; then
-              echo "::error::${NAME} does not reference Lumo-${VERSION}.zip"
+            if ! grep -Fq "Wanta-${VERSION}.zip" "$YML"; then
+              echo "::error::${NAME} does not reference Wanta-${VERSION}.zip"
               cat "$YML"
               exit 1
             fi
           done
-          BLOCKMAP="${RELEASE_DIR}/Lumo-${VERSION}.zip.blockmap"
+          BLOCKMAP="${RELEASE_DIR}/Wanta-${VERSION}.zip.blockmap"
           if [ ! -f "$BLOCKMAP" ]; then
             echo "::error::Differential-update blockmap missing: $BLOCKMAP"
             ls -la "$RELEASE_DIR" || true
@@ -307,8 +307,8 @@ jobs:
             YML_INCLUDES+=(--include "beta-mac.yml")
           fi
           rclone copy "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/darwin/arm64/" \
-            --include "Lumo-${VERSION}.dmg" --include "Lumo-${VERSION}.dmg.blockmap" \
-            --include "Lumo-${VERSION}.zip" --include "Lumo-${VERSION}.zip.blockmap" \
+            --include "Wanta-${VERSION}.dmg" --include "Wanta-${VERSION}.dmg.blockmap" \
+            --include "Wanta-${VERSION}.zip" --include "Wanta-${VERSION}.zip.blockmap" \
             "${YML_INCLUDES[@]}" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
 
   release-win:
@@ -386,24 +386,24 @@ jobs:
             fi
 
             # `grep -Fq`（定长匹配）使 $VERSION 里的点被字面匹配——正则 `.` 会接受
-            # 像 Lumo-1x2x3-Setup.exe 这类病态文件名。
-            if ! grep -Fq "Lumo-${VERSION}-Setup.exe" "$YML"; then
-              echo "::error::${NAME} does not reference Lumo-${VERSION}-Setup.exe"
+            # 像 Wanta-1x2x3-Setup.exe 这类病态文件名。
+            if ! grep -Fq "Wanta-${VERSION}-Setup.exe" "$YML"; then
+              echo "::error::${NAME} does not reference Wanta-${VERSION}-Setup.exe"
               cat "$YML"
               exit 1
             fi
 
-            # Lumo 的 win target 只有 nsis（无 zip）。NSIS 自动更新器只消费 yml +
+            # Wanta 的 win target 只有 nsis（无 zip）。NSIS 自动更新器只消费 yml +
             # Setup.exe + Setup.exe.blockmap，从不读 Setup.zip。若日后误给 electron-builder
             # 加回 win zip target、让 yml 引到 Setup.zip，这里大声失败拦住回归。
-            if grep -Fq "Lumo-${VERSION}-Setup.zip" "$YML"; then
+            if grep -Fq "Wanta-${VERSION}-Setup.zip" "$YML"; then
               echo "::error::${NAME} unexpectedly references Setup.zip (Windows builds nsis only)"
               cat "$YML"
               exit 1
             fi
           done
 
-          BLOCKMAP="${RELEASE_DIR}/Lumo-${VERSION}-Setup.exe.blockmap"
+          BLOCKMAP="${RELEASE_DIR}/Wanta-${VERSION}-Setup.exe.blockmap"
           if [ ! -f "$BLOCKMAP" ]; then
             echo "::error::Differential-update blockmap missing: $BLOCKMAP"
             ls -la "$RELEASE_DIR" || true
@@ -497,7 +497,7 @@ jobs:
           fi
           rclone --config "$HOME/.config/rclone/rclone.conf" copy \
             "release/${VERSION}" "oss:${OSS_BUCKET}/${OSS_PREFIX}/win32/x64/" \
-            --include "Lumo-${VERSION}-Setup.exe" --include "Lumo-${VERSION}-Setup.exe.blockmap" \
+            --include "Wanta-${VERSION}-Setup.exe" --include "Wanta-${VERSION}-Setup.exe.blockmap" \
             "${YML_INCLUDES[@]}" --progress --retries 5 --retries-sleep 10s --low-level-retries 10
 
   create-release:
@@ -587,8 +587,8 @@ jobs:
             if [ "$CHANNEL" = "stable" ]; then
               echo "## Latest Downloads"
               echo ""
-              echo "- [Lumo macOS ARM64](https://app-downloads.oomol.com/lumo/darwin/arm64)"
-              echo "- [Lumo Windows x64](https://app-downloads.oomol.com/lumo/win32/x64)"
+              echo "- [Wanta macOS ARM64](https://app-downloads.oomol.com/wanta/darwin/arm64)"
+              echo "- [Wanta Windows x64](https://app-downloads.oomol.com/wanta/win32/x64)"
               echo ""
             fi
             echo "## Auto Update"
@@ -620,8 +620,8 @@ jobs:
     with:
       domain: static.oomol.com
       # 只刷自动更新渠道指针文件（清单由 compute-version 按渠道计算：stable 刷
-      # latest*+beta* 共 4 个，beta 只刷 beta* 两个）。版本化产物（Lumo-${VERSION}.dmg /
+      # latest*+beta* 共 4 个，beta 只刷 beta* 两个）。版本化产物（Wanta-${VERSION}.dmg /
       # -Setup.exe 及其 .blockmap）住在每次 release 不可变的版本戳 URL 上，永不陈旧。
       files: ${{ needs.compute-version.outputs.cdn_files }}
-      # Lumo 用标准 GitHub runner；共享 workflow 默认即 ubuntu-latest，这里显式指定。
+      # Wanta 用标准 GitHub runner；共享 workflow 默认即 ubuntu-latest，这里显式指定。
       runs-on: ubuntu-latest

@@ -19,7 +19,7 @@ export function emitOrganizationChanged(): void {
     try {
       listener()
     } catch (error) {
-      console.error("[lumo] organization change listener failed:", error)
+      console.error("[wanta] organization change listener failed:", error)
     }
   }
 }

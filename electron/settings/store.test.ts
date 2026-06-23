@@ -6,7 +6,7 @@ import { test } from "vitest"
 import { SettingsStore } from "./store.ts"
 
 test("SettingsStore round-trips persisted settings", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-settings-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-settings-"))
   const store = new SettingsStore(dir)
   assert.deepEqual(store.read(), {})
   store.write({ themeSource: "dark" })
@@ -16,7 +16,7 @@ test("SettingsStore round-trips persisted settings", () => {
 })
 
 test("SettingsStore round-trips updateChannel and leaves no tmp file", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-settings-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-settings-"))
   const store = new SettingsStore(dir)
   store.write({ themeSource: "dark", updateChannel: "beta" })
   assert.deepEqual(store.read(), { themeSource: "dark", updateChannel: "beta" })
@@ -25,6 +25,6 @@ test("SettingsStore round-trips updateChannel and leaves no tmp file", () => {
 })
 
 test("SettingsStore returns empty on missing/corrupt file", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-settings-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-settings-"))
   assert.deepEqual(new SettingsStore(dir).read(), {})
 })

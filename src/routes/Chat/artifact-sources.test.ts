@@ -43,17 +43,17 @@ describe("collectGeneratedArtifactSources", () => {
   it("collects one artifact source for an assistant turn", () => {
     const sources = collectGeneratedArtifactSources([
       user("user-1", "Convert this PDF"),
-      assistant("assistant-1", "I will create files.", "/tmp/lumo/artifacts/turn-1"),
-      assistant("assistant-2", "Done: `/tmp/lumo/artifacts/turn-1/page.png`"),
+      assistant("assistant-1", "I will create files.", "/tmp/wanta/artifacts/turn-1"),
+      assistant("assistant-2", "Done: `/tmp/wanta/artifacts/turn-1/page.png`"),
     ])
 
     expect(sources).toEqual([
       {
         messageId: "assistant-2",
         requestText: "Convert this PDF",
-        artifactRoot: "/tmp/lumo/artifacts/turn-1",
+        artifactRoot: "/tmp/wanta/artifacts/turn-1",
         sourcePaths: [],
-        text: "I will create files.\nDone: `/tmp/lumo/artifacts/turn-1/page.png`",
+        text: "I will create files.\nDone: `/tmp/wanta/artifacts/turn-1/page.png`",
       },
     ])
   })
@@ -81,7 +81,7 @@ describe("collectGeneratedArtifactSources", () => {
         "assistant-1",
         [
           "Source file: `/Users/me/Desktop/source.pdf`",
-          "Output file: `/Users/me/Library/Application Support/Lumo/agent/artifacts/turn/page.png`",
+          "Output file: `/Users/me/Library/Application Support/Wanta/agent/artifacts/turn/page.png`",
         ].join("\n"),
       ),
     ])
@@ -93,7 +93,7 @@ describe("collectGeneratedArtifactSources", () => {
         sourcePaths: ["/Users/me/Desktop/source.pdf"],
         text: [
           "Source file: `/Users/me/Desktop/source.pdf`",
-          "Output file: `/Users/me/Library/Application Support/Lumo/agent/artifacts/turn/page.png`",
+          "Output file: `/Users/me/Library/Application Support/Wanta/agent/artifacts/turn/page.png`",
         ].join("\n"),
       },
     ])
@@ -108,7 +108,10 @@ describe("collectGeneratedArtifactSources", () => {
 
 describe("collectVisibleGeneratedArtifactSources", () => {
   it("hides all artifact sources while a new turn is generating", () => {
-    const messages = [user("user-1", "Create an image"), assistant("assistant-1", "Output file: `/tmp/lumo/image.png`")]
+    const messages = [
+      user("user-1", "Create an image"),
+      assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
+    ]
 
     expect(collectVisibleGeneratedArtifactSources(messages, true)).toEqual([])
   })
@@ -116,7 +119,7 @@ describe("collectVisibleGeneratedArtifactSources", () => {
   it("keeps historical candidates after generation has stopped", () => {
     const messages = [
       user("user-1", "Create an image"),
-      assistant("assistant-1", "Output file: `/tmp/lumo/image.png`"),
+      assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
       user("user-2", "Describe the result"),
       assistant("assistant-2", "The image is ready."),
     ]
@@ -126,7 +129,7 @@ describe("collectVisibleGeneratedArtifactSources", () => {
         messageId: "assistant-1",
         requestText: "Create an image",
         sourcePaths: [],
-        text: "Output file: `/tmp/lumo/image.png`",
+        text: "Output file: `/tmp/wanta/image.png`",
       },
       {
         messageId: "assistant-2",
@@ -140,7 +143,7 @@ describe("collectVisibleGeneratedArtifactSources", () => {
   it("keeps older artifact sources when the latest assistant turn is empty", () => {
     const messages = [
       user("user-1", "Create an image"),
-      assistant("assistant-1", "Output file: `/tmp/lumo/image.png`"),
+      assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
       user("user-2", "Say nothing"),
       assistant("assistant-2", ""),
     ]
@@ -150,7 +153,7 @@ describe("collectVisibleGeneratedArtifactSources", () => {
         messageId: "assistant-1",
         requestText: "Create an image",
         sourcePaths: [],
-        text: "Output file: `/tmp/lumo/image.png`",
+        text: "Output file: `/tmp/wanta/image.png`",
       },
     ])
   })

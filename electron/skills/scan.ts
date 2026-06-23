@@ -12,12 +12,12 @@ import { hashTextFiles } from "./hash.ts"
 import { normalizeMetadata } from "./metadata.ts"
 import { resolveCanonicalSourcePath } from "./paths.ts"
 
-export const lumoRuntimeAgent: SupportedAgent = {
+export const wantaRuntimeAgent: SupportedAgent = {
   cliCommands: [],
   homeRoot: "",
-  id: "lumo",
-  name: "Lumo",
-  ooCliAgentId: "lumo",
+  id: "wanta",
+  name: "Wanta",
+  ooCliAgentId: "wanta",
 }
 
 interface SkillRootScanTarget {
@@ -67,13 +67,13 @@ export async function scanInstalledSkills(agents?: readonly SupportedAgent[]): P
   return installedSkills
 }
 
-export async function scanLumoInstalledSkills(request: {
+export async function scanWantaInstalledSkills(request: {
   cacheSkillStoreRoot: string
   sharedSkillRoot: string
 }): Promise<InstalledSkill[]> {
   return scanInstalledSkillRoot({
-    agent: lumoRuntimeAgent,
-    resolveSourcePath: (skill) => resolveLumoSkillSourcePath(skill, request.cacheSkillStoreRoot),
+    agent: wantaRuntimeAgent,
+    resolveSourcePath: (skill) => resolveWantaSkillSourcePath(skill, request.cacheSkillStoreRoot),
     skillRoot: request.sharedSkillRoot,
   })
 }
@@ -179,11 +179,11 @@ async function scanInstalledSkillRoot(target: SkillRootScanTarget): Promise<Inst
   return installedSkills
 }
 
-async function resolveLumoSkillSourcePath(
+async function resolveWantaSkillSourcePath(
   skill: { metadata: ManagedSkillMetadata; name: string; path: string },
   cacheSkillStoreRoot: string,
 ): Promise<string> {
-  const sourceCandidates = readLumoSkillSourceCandidates(skill, cacheSkillStoreRoot)
+  const sourceCandidates = readWantaSkillSourceCandidates(skill, cacheSkillStoreRoot)
 
   for (const candidate of sourceCandidates) {
     if (await isUsableSkillSourcePath(candidate)) {
@@ -200,7 +200,7 @@ async function isUsableSkillSourcePath(candidate: string): Promise<boolean> {
   return hasSkillDocument || hasMetadata
 }
 
-function readLumoSkillSourceCandidates(
+function readWantaSkillSourceCandidates(
   skill: { metadata: ManagedSkillMetadata; name: string },
   cacheSkillStoreRoot: string,
 ): string[] {

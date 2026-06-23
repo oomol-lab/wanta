@@ -8,7 +8,7 @@ import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 
 function artifactItem(name: string, mime: string): LocalArtifactItem {
   return {
-    path: `/tmp/lumo-artifacts/${name}`,
+    path: `/tmp/wanta-artifacts/${name}`,
     name,
     kind: "file",
     mime,
@@ -39,9 +39,9 @@ describe("htmlPreviewSrcDoc", () => {
 
 describe("parseCsvPreview", () => {
   it("parses quoted commas, escaped quotes, and CRLF rows", () => {
-    expect(parseCsvPreview('name,note\r\n"Lumo, app","said ""hi"""\r\nplain,value').rows).toEqual([
+    expect(parseCsvPreview('name,note\r\n"Wanta, app","said ""hi"""\r\nplain,value').rows).toEqual([
       ["name", "note"],
-      ["Lumo, app", 'said "hi"'],
+      ["Wanta, app", 'said "hi"'],
       ["plain", "value"],
     ])
   })
@@ -66,8 +66,8 @@ describe("filterArtifactPayloads", () => {
     const item = artifactItem("report.html", "text/html")
     const pack: LocalArtifactPack = {
       root: {
-        path: "/tmp/lumo-artifacts",
-        name: "lumo-artifacts",
+        path: "/tmp/wanta-artifacts",
+        name: "wanta-artifacts",
         kind: "directory",
         mime: "inode/directory",
       },
@@ -96,7 +96,7 @@ describe("filterArtifactPayloads", () => {
         messageId: "assistant-1",
         requestText: "Analyze the PostHog data",
         text: "Done",
-        artifactRoot: "/tmp/lumo-artifacts",
+        artifactRoot: "/tmp/wanta-artifacts",
         sourcePaths: [],
       })[0]?.group.items.map((artifact) => artifact.name),
     ).toEqual(["report.html"])
@@ -118,7 +118,7 @@ describe("filterArtifactPayloads", () => {
       filterArtifactPayloads(payloads, {
         messageId: "assistant-1",
         requestText: "Analyze the data",
-        text: "Output: `/tmp/lumo-artifacts/scratch.html`",
+        text: "Output: `/tmp/wanta-artifacts/scratch.html`",
         sourcePaths: [],
       }),
     ).toEqual([])
@@ -129,8 +129,8 @@ describe("filterArtifactPayloads", () => {
     const supporting = artifactItem("summary.md", "text/markdown")
     const pack: LocalArtifactPack = {
       root: {
-        path: "/tmp/lumo-artifacts",
-        name: "lumo-artifacts",
+        path: "/tmp/wanta-artifacts",
+        name: "wanta-artifacts",
         kind: "directory",
         mime: "inode/directory",
       },
@@ -158,7 +158,7 @@ describe("filterArtifactPayloads", () => {
       messageId: "assistant-1",
       requestText: "Analyze the PostHog data",
       text: "Done",
-      artifactRoot: "/tmp/lumo-artifacts",
+      artifactRoot: "/tmp/wanta-artifacts",
       sourcePaths: [],
     })
 
@@ -171,8 +171,8 @@ describe("filterArtifactPayloads", () => {
     const item = artifactItem("report.html", "text/html")
     const pack: LocalArtifactPack = {
       root: {
-        path: "/tmp/lumo-artifacts",
-        name: "lumo-artifacts",
+        path: "/tmp/wanta-artifacts",
+        name: "wanta-artifacts",
         kind: "directory",
         mime: "inode/directory",
       },

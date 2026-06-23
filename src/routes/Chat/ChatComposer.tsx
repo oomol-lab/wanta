@@ -136,7 +136,11 @@ export function ChatComposer({
     [onViewBilling, t],
   )
   const skillItems = React.useMemo(
-    () => buildSkillPaletteItems(skillInventory.data?.groups ?? [], t("chat.skillFallbackDescription")),
+    () =>
+      buildSkillPaletteItems(skillInventory.data?.groups ?? [], t("chat.skillFallbackDescription"), {
+        description: t("chat.commandCreatorSkillDescription"),
+        title: t("chat.commandCreatorSkill"),
+      }),
     [skillInventory.data?.groups, t],
   )
   const connectionItems = React.useMemo(

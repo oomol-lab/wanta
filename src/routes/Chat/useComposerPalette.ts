@@ -10,7 +10,7 @@ import type { ComposerAction } from "./composer-state.ts"
 import type { ComposerTrigger } from "./composer-triggers.ts"
 
 import * as React from "react"
-import { matchesComposerQuery } from "./composer-palette-items.ts"
+import { creatorSkillId, matchesComposerQuery } from "./composer-palette-items.ts"
 import { resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
 import {
   initialComposerPaletteNavigation,
@@ -126,12 +126,18 @@ export function useComposerPalette({
         focusDraftAt(currentTrigger.start)
         return
       }
-
-      const replacement = `${item.prompt ?? ""} `
-      dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement })
-      focusDraftAt(currentTrigger.start + replacement.length)
+      if (item.action === "creator-skill") {
+        onAddContextMention({
+          description: item.description,
+          id: creatorSkillId,
+          kind: "skill",
+          name: item.title,
+        })
+        dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
+        focusDraftAt(currentTrigger.start)
+      }
     },
-    [dispatch, focusDraftAt, onViewBilling, updatePaletteNavigation],
+    [dispatch, focusDraftAt, onAddContextMention, onViewBilling, updatePaletteNavigation],
   )
 
   const applySkillItem = React.useCallback(

@@ -1,8 +1,4 @@
 export const SESSION_TITLE_FALLBACK = "New chat"
-export const SESSION_TITLE_MAX_CJK_CHARS = 8
-export const SESSION_TITLE_MAX_LATIN_WORDS = 4
-export const SESSION_TITLE_MAX_MIXED_LATIN_WORDS = 2
-export const SESSION_TITLE_MAX_OTHER_CHARS = 32
 
 const urlPattern = /https?:\/\/[^\s]+/gi
 const oldEllipsisPattern = /\.{3}$/
@@ -42,29 +38,6 @@ export function sanitizeGeneratedSessionTitle(
   }
 
   return { title: normalizeSessionTitle(compactTitleText(normalized)), usedFallback: false }
-}
-
-export function isGeneratedSessionTitleAcceptable(title: string): boolean {
-  const normalized = normalizeTitleText(title)
-  if (
-    !normalized ||
-    containsHttpUrl(normalized) ||
-    oldEllipsisPattern.test(normalized) ||
-    normalized.includes("…") ||
-    /[.!?。！？,，;；:：]$/.test(normalized)
-  ) {
-    return false
-  }
-
-  const cjkChars = cjkCharacters(normalized)
-  const latinWords = latinTitleWords(normalized)
-  if (cjkChars.length > 0) {
-    return cjkChars.length <= SESSION_TITLE_MAX_CJK_CHARS && latinWords.length <= SESSION_TITLE_MAX_MIXED_LATIN_WORDS
-  }
-  if (latinWords.length > 0) {
-    return latinWords.length <= SESSION_TITLE_MAX_LATIN_WORDS
-  }
-  return graphemeLength(normalized) <= SESSION_TITLE_MAX_OTHER_CHARS
 }
 
 export function shouldAutoRefreshSessionTitle(title: string, allowPlaceholder: boolean): boolean {
@@ -126,18 +99,6 @@ function compactChineseRequestTitle(value: string): string | undefined {
 
 function containsCjk(value: string): boolean {
   return /[\u3400-\u9fff]/.test(value)
-}
-
-function cjkCharacters(value: string): string[] {
-  return Array.from(value.matchAll(/[\u3400-\u9fff]/g), (match) => match[0])
-}
-
-function latinTitleWords(value: string): string[] {
-  return value.match(/[A-Za-z0-9][A-Za-z0-9+.#'’-]*/g) ?? []
-}
-
-function graphemeLength(value: string): number {
-  return Array.from(value).length
 }
 
 function normalizeTitleText(value: string): string {

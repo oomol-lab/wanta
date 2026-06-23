@@ -1766,7 +1766,9 @@ export function AppShell() {
         }
 
         if (!result.generated) {
-          await applyFallbackTitle(title || fallbackTitle)
+          if (latestTitle && shouldAutoRefreshSessionTitle(latestTitle, allowPlaceholder)) {
+            await applyFallbackTitle(title || fallbackTitle)
+          }
           titleGenerationRetryAfterBySession.current.set(sessionId, {
             key: generationKey,
             retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
@@ -1795,7 +1797,10 @@ export function AppShell() {
         titleGenerationRetryAfterBySession.current.delete(sessionId)
         lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
       } catch (error) {
-        await applyFallbackTitle(fallbackTitle)
+        const latest = sessionsRef.current.find((session) => session.id === sessionId)
+        if (latest && shouldAutoRefreshSessionTitle(latest.title, allowPlaceholder)) {
+          await applyFallbackTitle(fallbackTitle)
+        }
         titleGenerationRetryAfterBySession.current.set(sessionId, {
           key: generationKey,
           retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,

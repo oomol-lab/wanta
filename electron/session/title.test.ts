@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   buildFallbackSessionTitle,
-  isGeneratedSessionTitleAcceptable,
   sanitizeGeneratedSessionTitle,
   shouldAutoRefreshSessionTitle,
   trimTitleToColumns,
@@ -53,14 +52,12 @@ describe("session title helpers", () => {
     ).toEqual({ title: "分析最近三天 Gmail 信息", usedFallback: true })
   })
 
-  it("validates generated titles by language-aware length rules", () => {
-    expect(isGeneratedSessionTitleAcceptable("Gmail 三日报告")).toBe(true)
-    expect(isGeneratedSessionTitleAcceptable("抓取店铺商品图片")).toBe(true)
-    expect(isGeneratedSessionTitleAcceptable("1688 Product Images")).toBe(true)
-    expect(isGeneratedSessionTitleAcceptable("分析一下我最近三天的 Gmail")).toBe(false)
-    expect(isGeneratedSessionTitleAcceptable("Search 1688 product images with Metaso")).toBe(false)
-    expect(isGeneratedSessionTitleAcceptable("分析一下我最近三天的 Gma")).toBe(false)
-    expect(isGeneratedSessionTitleAcceptable("Review https://a.co")).toBe(false)
+  it("keeps model-generated titles without local length scoring", () => {
+    expect(
+      sanitizeGeneratedSessionTitle('{"title":"PostHog 近 3 天注册来源分析报告"}', {
+        text: "你 PostHog 看一下近三天的数据，帮我看一下他们注册主要是来自于哪里？",
+      }),
+    ).toEqual({ title: "PostHog 近 3 天注册来源分析报告", usedFallback: false })
   })
 
   it("falls back when the model returns a URL", () => {

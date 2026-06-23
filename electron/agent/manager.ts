@@ -12,11 +12,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
-import {
-  buildFallbackSessionTitle,
-  isGeneratedSessionTitleAcceptable,
-  sanitizeGeneratedSessionTitle,
-} from "../session/title.ts"
+import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
 import { buildOoEnv } from "./oo.ts"
@@ -79,14 +75,10 @@ export interface GeneratedSessionTitle {
 }
 
 const sessionTitleSystemPrompt = [
-  "Generate a short chat title as a task label.",
+  "Generate a concise chat title as a task label.",
   'Return JSON only, exactly like {"title":"Gmail 三日报告"}.',
   "Keep the user's language when possible.",
-  "Length rules:",
-  "- Chinese/Japanese/Korean or mixed CJK+English: at most 8 CJK characters and at most 2 Latin words.",
-  "- English or other Latin-script languages: 2-4 words.",
-  "- Other languages: 2-5 words or at most 32 characters.",
-  "Quality rules:",
+  "Aim for a short phrase, usually 2-8 words.",
   "- Preserve complete brand, product, app, domain, and file names. Never cut Gmail to Gma or truncate any word.",
   "- Prefer the core action and object; remove polite wording such as help me, 请, 帮我, 麻烦.",
   "- No URLs, no ellipses, no markdown, no explanations, no trailing punctuation.",
@@ -255,17 +247,9 @@ export class AgentManager {
     }
 
     try {
-      const first = await this.requestSessionTitle(titleSource)
-      const firstTitle = sanitizeGeneratedSessionTitle(first, input)
-      if (!firstTitle.usedFallback && isGeneratedSessionTitleAcceptable(firstTitle.title)) {
-        return { generated: true, title: firstTitle.title }
-      }
-
-      const retry = await this.requestSessionTitle(titleSource, firstTitle.title)
-      const retryTitle = sanitizeGeneratedSessionTitle(retry, input)
-      return !retryTitle.usedFallback && isGeneratedSessionTitleAcceptable(retryTitle.title)
-        ? { generated: true, title: retryTitle.title }
-        : { generated: false, title: fallback }
+      const rawTitle = await this.requestSessionTitle(titleSource)
+      const title = sanitizeGeneratedSessionTitle(rawTitle, input)
+      return title.usedFallback ? { generated: false, title: fallback } : { generated: true, title: title.title }
     } catch (error) {
       console.warn("[lumo] failed to generate session title, using fallback:", error)
       return { generated: false, title: fallback }

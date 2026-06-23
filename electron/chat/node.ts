@@ -393,7 +393,7 @@ async function artifactManifestEntry(
 
 function artifactPackVisibleCount(primaryItems: LocalArtifactEntry[], supportingItems: LocalArtifactEntry[]): number {
   const supportingVisibleCount = supportingItems.filter((item) => item.role !== "metadata").length
-  return primaryItems.length > 0 ? primaryItems.length : supportingVisibleCount
+  return primaryItems.length + supportingVisibleCount
 }
 
 function normalizeArtifactManifestEntries(

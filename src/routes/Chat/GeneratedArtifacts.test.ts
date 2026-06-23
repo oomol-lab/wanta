@@ -124,6 +124,49 @@ describe("filterArtifactPayloads", () => {
     ).toEqual([])
   })
 
+  it("keeps manifest-declared supporting artifacts with primary items", () => {
+    const primary = artifactItem("report.html", "text/html")
+    const supporting = artifactItem("summary.md", "text/markdown")
+    const pack: LocalArtifactPack = {
+      root: {
+        path: "/tmp/lumo-artifacts",
+        name: "lumo-artifacts",
+        kind: "directory",
+        mime: "inode/directory",
+      },
+      title: "Report",
+      kind: "web_page",
+      display: "document",
+      items: [{ ...primary, role: "primary", order: 1 }],
+      supporting: [{ ...supporting, role: "summary", order: 1 }],
+      totalItems: 2,
+      truncated: false,
+    }
+    const payloads: ResolvedArtifactPayload[] = [
+      {
+        group: {
+          root: pack.root,
+          items: [primary],
+          totalItems: 1,
+          truncated: false,
+        },
+        pack,
+      },
+    ]
+
+    const [result] = filterArtifactPayloads(payloads, {
+      messageId: "assistant-1",
+      requestText: "Analyze the PostHog data",
+      text: "Done",
+      artifactRoot: "/tmp/lumo-artifacts",
+      sourcePaths: [],
+    })
+
+    expect(result?.pack?.items.map((artifact) => artifact.name)).toEqual(["report.html"])
+    expect(result?.pack?.supporting.map((artifact) => artifact.name)).toEqual(["summary.md"])
+    expect(result?.pack?.totalItems).toBe(2)
+  })
+
   it("dedupes the same artifact discovered from an artifact root and later text", () => {
     const item = artifactItem("report.html", "text/html")
     const pack: LocalArtifactPack = {

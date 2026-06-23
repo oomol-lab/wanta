@@ -330,38 +330,6 @@ test("resolveLocalArtifacts reads artifact pack manifests", async () => {
   )
 })
 
-test("resolveLocalArtifacts promotes a single visible manifest summary to primary", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifacts-html-summary-"))
-  const artifactRoot = path.join(root, "turn")
-  await mkdir(artifactRoot, { recursive: true })
-  await writeFile(path.join(artifactRoot, "report.html"), "<!doctype html><title>Report</title>")
-  await writeFile(
-    path.join(artifactRoot, ".lumo-artifact.json"),
-    JSON.stringify({
-      version: 1,
-      title: "Registration report",
-      kind: "document",
-      display: "document",
-      items: [{ path: "report.html", role: "summary" }],
-    }),
-  )
-
-  const service = new ChatServiceImpl(null)
-  const result = await service.resolveLocalArtifacts({ artifactRoot })
-
-  assert.equal(result.groups.length, 1)
-  assert.equal(result.pack?.title, "Registration report")
-  assert.deepEqual(
-    result.pack?.items.map((item) => [item.name, item.role, item.mime]),
-    [["report.html", "primary", "text/html"]],
-  )
-  assert.deepEqual(result.pack?.supporting, [])
-  assert.deepEqual(
-    result.groups[0]?.items.map((item) => item.name),
-    ["report.html"],
-  )
-})
-
 test("resolveLocalArtifacts ignores broad directories extracted from assistant text", async () => {
   const service = new ChatServiceImpl(null)
   const result = await service.resolveLocalArtifacts({

@@ -678,7 +678,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
   const selectedItem = selectedEntry?.item ?? null
-  const selectedPack = selectedEntry?.pack ?? selection?.pack ?? null
+  const selectedPack = selectedEntry ? (selectedEntry.pack ?? null) : (selection?.pack ?? null)
   const showImageGallery =
     selectedPack?.display === "gallery"
       ? entries.length > 0
@@ -796,7 +796,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
               <ArtifactPreview
                 item={selectedItem}
                 group={selectedEntry?.group ?? null}
-                pack={selectedEntry?.pack ?? selectedPack}
+                pack={selectedPack}
                 previewCache={previewCache}
                 onOpen={() => openPath(selectedItem?.path)}
               />

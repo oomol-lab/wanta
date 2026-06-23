@@ -111,7 +111,10 @@ export function filterArtifactPayloads(
         !sourcePaths.has(item.path) &&
         (manifestVisiblePaths.has(item.path) || !isIntermediateCodeArtifact(item, source)),
     )
-    const allowedPaths = new Set(items.map((item) => item.path))
+    const allowedPaths = new Set([
+      ...items.map((item) => item.path),
+      ...[...manifestVisiblePaths].filter((path) => !sourcePaths.has(path)),
+    ])
     const filteredPack = filterArtifactPack(pack, allowedPaths)
     if (items.length === 0) {
       return []

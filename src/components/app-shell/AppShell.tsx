@@ -118,7 +118,7 @@ const SIDEBAR_DEFAULT_WIDTH_PX = 264
 const SIDEBAR_MIN_WIDTH_PX = 220
 const SIDEBAR_MAX_WIDTH_PX = 420
 const SIDEBAR_WIDTH_STORAGE_KEY = "lumo.sidebarWidth"
-const CHAT_AREA_MIN_WIDTH_PX = 320
+const CHAT_AREA_MIN_WIDTH_PX = 420
 const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "lumo.artifactsPanelWidth"
@@ -1329,6 +1329,7 @@ export function AppShell() {
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
   const artifactsPanelPendingWidth = React.useRef<number | null>(null)
+  const artifactsPanelLayoutWidth = React.useRef<number | null>(null)
   const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelContentRef = React.useRef<HTMLDivElement | null>(null)
@@ -1549,16 +1550,29 @@ export function AppShell() {
     }
 
     const updateArtifactsPanelBounds = (): void => {
-      const maxWidth = artifactsPanelMaxWidth(element.clientWidth, sidebarWidth, sidebarCollapsed)
+      const appWidth = element.clientWidth
+      const previousAppWidth = artifactsPanelLayoutWidth.current
+      artifactsPanelLayoutWidth.current = appWidth
+      const maxWidth = artifactsPanelMaxWidth(appWidth, sidebarWidth, sidebarCollapsed)
+      const expandedBy = previousAppWidth === null ? 0 : Math.max(0, appWidth - previousAppWidth)
+      const shouldGrowPanel =
+        expandedBy > 0 &&
+        route === "chat" &&
+        artifactsPanelOpen &&
+        artifactSelection !== null &&
+        !isArtifactsPanelResizing
+
       setArtifactsPanelMaxWidthState(maxWidth)
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthForLayout(width, maxWidth))
+      setArtifactsPanelWidth((width) =>
+        clampArtifactsPanelWidthForLayout(width + (shouldGrowPanel ? expandedBy : 0), maxWidth),
+      )
     }
 
     updateArtifactsPanelBounds()
     const observer = new ResizeObserver(updateArtifactsPanelBounds)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [sidebarCollapsed, sidebarWidth])
+  }, [artifactSelection, artifactsPanelOpen, isArtifactsPanelResizing, route, sidebarCollapsed, sidebarWidth])
 
   React.useEffect(() => {
     try {
@@ -1766,7 +1780,9 @@ export function AppShell() {
         }
 
         if (!result.generated) {
-          await applyFallbackTitle(title || fallbackTitle)
+          if (latestTitle && shouldAutoRefreshSessionTitle(latestTitle, allowPlaceholder)) {
+            await applyFallbackTitle(title || fallbackTitle)
+          }
           titleGenerationRetryAfterBySession.current.set(sessionId, {
             key: generationKey,
             retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
@@ -1795,7 +1811,10 @@ export function AppShell() {
         titleGenerationRetryAfterBySession.current.delete(sessionId)
         lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
       } catch (error) {
-        await applyFallbackTitle(fallbackTitle)
+        const latest = sessionsRef.current.find((session) => session.id === sessionId)
+        if (latest && shouldAutoRefreshSessionTitle(latest.title, allowPlaceholder)) {
+          await applyFallbackTitle(fallbackTitle)
+        }
         titleGenerationRetryAfterBySession.current.set(sessionId, {
           key: generationKey,
           retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
@@ -2385,8 +2404,8 @@ export function AppShell() {
       </aside>
 
       {/* 右：主区（顶部工具条 + 内容） */}
-      <div className="flex min-h-0">
-        <div className="grid min-w-0 flex-1 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)]">
+      <div className="flex min-h-0 min-w-0 overflow-hidden">
+        <div className="grid min-w-0 flex-1 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)] overflow-hidden">
           <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
             <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
               <div className="oo-titlebar-control-spacer shrink-0" />
@@ -2433,7 +2452,7 @@ export function AppShell() {
             </div>
           </header>
 
-          <main className="oo-content-surface min-h-0">
+          <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">
             <React.Suspense fallback={<RouteLoadingFallback />}>
               {route === "connections" ? (
                 <div className="h-full min-h-0 p-0">

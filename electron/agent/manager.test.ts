@@ -1,8 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentManager, isUserVisibleSession } from "./manager.ts"
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe("AgentManager", () => {
   it("hides OpenCode subagent sessions from the user task list", () => {
@@ -57,5 +61,37 @@ describe("AgentManager", () => {
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("uses a generated session title without local length scoring or rewrite", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: '{"title":"PostHog 近 3 天注册来源分析报告"}',
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/lumo-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      text: "你 PostHog 看一下近三天的数据，帮我看一下他们注册主要是来自于哪里？",
+    })
+
+    expect(title).toEqual({ generated: true, title: "PostHog 近 3 天注册来源分析报告" })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

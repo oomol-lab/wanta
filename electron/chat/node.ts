@@ -391,6 +391,29 @@ async function artifactManifestEntry(
   }
 }
 
+function artifactPackVisibleCount(primaryItems: LocalArtifactEntry[], supportingItems: LocalArtifactEntry[]): number {
+  const supportingVisibleCount = supportingItems.filter((item) => item.role !== "metadata").length
+  return primaryItems.length + supportingVisibleCount
+}
+
+function normalizeArtifactManifestEntries(
+  primaryItems: LocalArtifactEntry[],
+  supportingItems: LocalArtifactEntry[],
+): { primaryItems: LocalArtifactEntry[]; supportingItems: LocalArtifactEntry[] } {
+  if (primaryItems.length > 0) {
+    return { primaryItems, supportingItems }
+  }
+  const visibleSupportingItems = supportingItems.filter((item) => item.role !== "metadata")
+  if (visibleSupportingItems.length !== 1) {
+    return { primaryItems, supportingItems }
+  }
+  const promoted = { ...visibleSupportingItems[0], role: "primary" as const, order: 1 }
+  return {
+    primaryItems: [promoted],
+    supportingItems: supportingItems.filter((item) => item.path !== promoted.path),
+  }
+}
+
 async function readArtifactPack(rootDir: string): Promise<LocalArtifactPack | null> {
   const root = await localArtifactItem(rootDir)
   if (!root || root.kind !== "directory") {
@@ -428,7 +451,8 @@ async function readArtifactPack(rootDir: string): Promise<LocalArtifactPack | nu
     ...secondaryFromItems,
     ...resolvedSupporting.filter((item): item is LocalArtifactEntry => Boolean(item)),
   ].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, undefined, { numeric: true }))
-  if (primaryItems.length === 0 && supportingItems.length === 0) {
+  const normalized = normalizeArtifactManifestEntries(primaryItems, supportingItems)
+  if (normalized.primaryItems.length === 0 && normalized.supportingItems.length === 0) {
     return null
   }
   return {
@@ -437,9 +461,9 @@ async function readArtifactPack(rootDir: string): Promise<LocalArtifactPack | nu
     kind: normalizeArtifactPackKind(manifest.kind),
     display: normalizeArtifactDisplayMode(manifest.display),
     ...(optionalString(manifest.summary) ? { summary: optionalString(manifest.summary) } : {}),
-    items: primaryItems,
-    supporting: supportingItems,
-    totalItems: primaryItems.length,
+    items: normalized.primaryItems,
+    supporting: normalized.supportingItems,
+    totalItems: artifactPackVisibleCount(normalized.primaryItems, normalized.supportingItems),
     truncated: false,
   }
 }
@@ -828,13 +852,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
     const item = await localArtifactItem(req.path)
     if (!item || item.kind !== "file") {
-      return { kind: "unsupported", mime: "application/octet-stream" }
+      return { kind: "unsupported", mime: "application/octet-stream", reason: "missing" }
     }
 
     const size = item.size ?? 0
     if (item.mime.toLowerCase().startsWith("image/")) {
       if (size > attachmentPreviewMaxBytes) {
-        return { kind: "unsupported", mime: item.mime, size }
+        return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
       }
       try {
         const bytes = await readFile(item.path)
@@ -846,13 +870,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
       } catch (error) {
         console.error("[lumo] getLocalArtifactPreview image failed", { path: req.path, error: errorMessage(error) })
-        return { kind: "unsupported", mime: item.mime, size }
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
       }
     }
 
     if (item.mime.toLowerCase().startsWith("audio/") || item.mime.toLowerCase().startsWith("video/")) {
       if (size > attachmentPreviewMaxBytes) {
-        return { kind: "unsupported", mime: item.mime, size }
+        return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
       }
       try {
         const bytes = await readFile(item.path)
@@ -864,18 +888,18 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
       } catch (error) {
         console.error("[lumo] getLocalArtifactPreview media failed", { path: req.path, error: errorMessage(error) })
-        return { kind: "unsupported", mime: item.mime, size }
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
       }
     }
 
     if (!isTextArtifactMime(item.mime)) {
-      return { kind: "unsupported", mime: item.mime, size }
+      return { kind: "unsupported", mime: item.mime, size, reason: "unsupported_type" }
     }
 
     try {
       const preview = await readTextPreview(item.path, size)
       if (!preview) {
-        return { kind: "unsupported", mime: item.mime, size }
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
       }
       return {
         kind: "text",
@@ -886,7 +910,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     } catch (error) {
       console.error("[lumo] getLocalArtifactPreview text failed", { path: req.path, error: errorMessage(error) })
-      return { kind: "unsupported", mime: item.mime, size }
+      return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
     }
   }
 

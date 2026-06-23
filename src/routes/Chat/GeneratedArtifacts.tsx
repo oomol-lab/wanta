@@ -5,6 +5,7 @@ import type {
   LocalArtifactPreviewResult,
   ResolveLocalArtifactsResult,
 } from "../../../electron/chat/common.ts"
+import type { ResolvedArtifactPayload } from "./artifact-filter.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
@@ -17,6 +18,7 @@ import {
   FileJson,
   FileText,
   FolderOpen,
+  Globe,
   Image,
   Info,
   Music,
@@ -27,6 +29,12 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { parseCsvPreview } from "./artifact-csv-preview.ts"
+import {
+  dedupeArtifactPayloadsAcrossSources,
+  intermediateCodeExtensions,
+  mergeArtifactGroups,
+} from "./artifact-filter.ts"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import {
   CodeBlock,
@@ -48,49 +56,6 @@ import { cn } from "@/lib/utils"
 const previewLimit = 4
 const artifactResolveCacheLimit = 24
 const artifactPreviewCacheLimit = 48
-const intermediateCodeExtensions = new Set([
-  ".bash",
-  ".c",
-  ".cc",
-  ".cjs",
-  ".cpp",
-  ".cs",
-  ".css",
-  ".cxx",
-  ".dart",
-  ".fish",
-  ".go",
-  ".h",
-  ".hpp",
-  ".html",
-  ".htm",
-  ".java",
-  ".js",
-  ".jsx",
-  ".kt",
-  ".kts",
-  ".less",
-  ".lua",
-  ".mjs",
-  ".php",
-  ".pl",
-  ".py",
-  ".r",
-  ".rb",
-  ".rs",
-  ".sass",
-  ".scala",
-  ".scss",
-  ".sh",
-  ".svelte",
-  ".swift",
-  ".ts",
-  ".tsx",
-  ".vue",
-  ".zsh",
-])
-const codeRequestPattern =
-  /\b(api|app|cli|code|component|css|html|javascript|js|node|program|python|react|script|typescript|ts|website)\b|代码|脚本|程序|网页|网站|应用|组件|前端|后端|接口|库|插件|扩展|源码|项目/i
 
 export interface ResolvedArtifactGroup {
   messageId: string
@@ -120,6 +85,7 @@ interface ArtifactsPanelProps {
 type ArtifactPreviewMode = "preview" | "source" | "info"
 type ArtifactDisplayKind =
   | "markdown"
+  | "web_page"
   | "image"
   | "video"
   | "audio"
@@ -135,11 +101,6 @@ interface ArtifactPanelEntry {
   messageId: string
   group: LocalArtifactGroup
   item: LocalArtifactItem
-  pack?: LocalArtifactPack
-}
-
-interface ResolvedArtifactPayload {
-  group: LocalArtifactGroup
   pack?: LocalArtifactPack
 }
 
@@ -197,7 +158,7 @@ function rememberArtifactPreview(
 }
 
 function fallbackArtifactPreview(item: LocalArtifactItem): LocalArtifactPreviewResult {
-  return { kind: "unsupported", mime: item.mime, size: item.size }
+  return { kind: "unsupported", mime: item.mime, size: item.size, reason: "read_failed" }
 }
 
 function cachedArtifactPreviewResult(
@@ -318,9 +279,15 @@ function isTextArtifact(item: LocalArtifactItem | undefined): boolean {
   return Boolean(item?.mime.toLowerCase().startsWith("text/") || item?.mime === "application/json")
 }
 
-function artifactDisplayKind(item: LocalArtifactItem | undefined): ArtifactDisplayKind {
+function artifactDisplayKind(
+  item: LocalArtifactItem | undefined,
+  pack?: LocalArtifactPack | null,
+): ArtifactDisplayKind {
   if (!item) {
     return "file"
+  }
+  if (isHtmlArtifact(item) && pack?.kind === "web_page") {
+    return "web_page"
   }
   if (isMarkdownArtifact(item)) {
     return "markdown"
@@ -350,10 +317,16 @@ function artifactDisplayKind(item: LocalArtifactItem | undefined): ArtifactDispl
   return "file"
 }
 
-function artifactKindLabel(t: TranslateFn, item: LocalArtifactItem | undefined): string {
-  switch (artifactDisplayKind(item)) {
+function artifactKindLabel(
+  t: TranslateFn,
+  item: LocalArtifactItem | undefined,
+  pack?: LocalArtifactPack | null,
+): string {
+  switch (artifactDisplayKind(item, pack)) {
     case "markdown":
       return t("artifacts.kindMarkdown")
+    case "web_page":
+      return t("artifacts.kindWebPage")
     case "image":
       return t("artifacts.kindImage")
     case "video":
@@ -375,8 +348,8 @@ function artifactKindLabel(t: TranslateFn, item: LocalArtifactItem | undefined):
   }
 }
 
-function artifactMetaLabel(t: TranslateFn, item: LocalArtifactItem): string {
-  return [artifactKindLabel(t, item), fileSizeLabel(item.size)].filter(Boolean).join(" · ")
+function artifactMetaLabel(t: TranslateFn, item: LocalArtifactItem, pack?: LocalArtifactPack | null): string {
+  return [artifactKindLabel(t, item, pack), fileSizeLabel(item.size)].filter(Boolean).join(" · ")
 }
 
 function artifactSummary(t: TranslateFn, group: LocalArtifactGroup): string {
@@ -388,14 +361,24 @@ function artifactSummary(t: TranslateFn, group: LocalArtifactGroup): string {
   return t("artifacts.count", { count })
 }
 
-function ArtifactIcon({ item, className }: { item: LocalArtifactItem; className?: string }) {
+function ArtifactIcon({
+  item,
+  className,
+  pack,
+}: {
+  item: LocalArtifactItem
+  className?: string
+  pack?: LocalArtifactPack | null
+}) {
   const iconClassName = cn("size-4 shrink-0", className)
   if (item.kind === "directory") {
     return <FolderOpen className={iconClassName} />
   }
-  switch (artifactDisplayKind(item)) {
+  switch (artifactDisplayKind(item, pack)) {
     case "markdown":
       return <FileText className={iconClassName} />
+    case "web_page":
+      return <Globe className={iconClassName} />
     case "image":
       return <Image className={iconClassName} />
     case "video":
@@ -445,12 +428,9 @@ function previewLanguage(item: LocalArtifactItem): string {
   }
 }
 
-function artifactGroupPaths(group: LocalArtifactGroup): string[] {
-  return [group.root?.path, ...group.items.map((item) => item.path)].filter((item): item is string => Boolean(item))
-}
-
 function artifactPackGroup(pack: LocalArtifactPack): LocalArtifactGroup {
-  const items = pack.items.length > 0 ? pack.items : pack.supporting
+  const visibleSupporting = pack.supporting.filter((item) => item.role !== "metadata")
+  const items = pack.items.length > 0 ? pack.items : visibleSupporting
   return {
     root: pack.root,
     items,
@@ -464,94 +444,6 @@ function resolveResultPayloads(result: ResolveLocalArtifactsResult): ResolvedArt
     return [{ group: artifactPackGroup(result.pack), pack: result.pack }]
   }
   return result.groups.map((group) => ({ group }))
-}
-
-function sourceRequestsCode(source: GeneratedArtifactSource): boolean {
-  return codeRequestPattern.test(source.requestText)
-}
-
-function isIntermediateCodeArtifact(item: LocalArtifactItem, source: GeneratedArtifactSource): boolean {
-  return !sourceRequestsCode(source) && intermediateCodeExtensions.has(fileExtension(item.name))
-}
-
-function isDisplayableArtifactGroup(group: LocalArtifactGroup): boolean {
-  return group.items.length > 0
-}
-
-function filterArtifactPack(
-  pack: LocalArtifactPack | undefined,
-  allowedPaths: Set<string>,
-): LocalArtifactPack | undefined {
-  if (!pack) {
-    return undefined
-  }
-  const items = pack.items.filter((item) => allowedPaths.has(item.path))
-  const supporting = pack.supporting.filter((item) => allowedPaths.has(item.path))
-  if (items.length === 0 && supporting.length === 0) {
-    return undefined
-  }
-  return {
-    ...pack,
-    items,
-    supporting,
-    totalItems: items.length + supporting.length,
-  }
-}
-
-function filterArtifactPayloads(
-  payloads: ResolvedArtifactPayload[],
-  source: GeneratedArtifactSource,
-): ResolvedArtifactPayload[] {
-  const sourcePaths = new Set(source.sourcePaths)
-  return payloads.flatMap((payload) => {
-    const { group, pack } = payload
-    const rootExcluded = Boolean(group.root && sourcePaths.has(group.root.path))
-    const items = group.items.filter((item) => !sourcePaths.has(item.path) && !isIntermediateCodeArtifact(item, source))
-    const allowedPaths = new Set(items.map((item) => item.path))
-    const filteredPack = filterArtifactPack(pack, allowedPaths)
-    if (items.length === 0) {
-      return []
-    }
-    if (rootExcluded) {
-      return [
-        {
-          group: { items, totalItems: items.length, truncated: false },
-          ...(filteredPack ? { pack: filteredPack } : {}),
-        },
-      ]
-    }
-    return [
-      {
-        group: { ...group, items, totalItems: group.root?.kind === "directory" ? items.length : group.totalItems },
-        ...(filteredPack ? { pack: filteredPack } : {}),
-      },
-    ]
-  })
-}
-
-function mergeArtifactGroups(
-  payloads: ResolvedArtifactPayload[][],
-  source: GeneratedArtifactSource,
-): ResolvedArtifactPayload[] {
-  const merged: ResolvedArtifactPayload[] = []
-  const seenPaths = new Set<string>()
-  for (const payloadList of payloads) {
-    for (const payload of filterArtifactPayloads(payloadList, source)) {
-      const { group } = payload
-      if (!isDisplayableArtifactGroup(group)) {
-        continue
-      }
-      const paths = artifactGroupPaths(group)
-      if (paths.length > 0 && paths.every((item) => seenPaths.has(item))) {
-        continue
-      }
-      merged.push(payload)
-      for (const item of paths) {
-        seenPaths.add(item)
-      }
-    }
-  }
-  return merged
 }
 
 function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
@@ -634,17 +526,17 @@ function GeneratedArtifactsGroup({
     >
       <div className="flex min-w-0 items-center gap-2">
         <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-          <ArtifactIcon item={primaryItem} />
+          <ArtifactIcon item={primaryItem} pack={pack} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="oo-text-label truncate">{pack?.title ?? readableArtifactTitle(primaryItem)}</div>
           <div className="oo-text-caption-compact truncate text-muted-foreground">
-            {artifactMetaLabel(t, primaryItem)}
+            {artifactMetaLabel(t, primaryItem, pack)}
             {group.items.length > 1 ? ` · ${artifactSummary(t, group)}` : ""}
           </div>
         </div>
         <Badge variant="outline" className="oo-text-micro rounded-md px-1.5 py-0">
-          {artifactKindLabel(t, primaryItem)}
+          {artifactKindLabel(t, primaryItem, pack)}
         </Badge>
       </div>
 
@@ -655,7 +547,7 @@ function GeneratedArtifactsGroup({
               key={item.path}
               className="oo-border-divider oo-text-caption-compact flex h-7 max-w-40 min-w-0 items-center gap-1.5 rounded-md border bg-background/70 px-2"
             >
-              <ArtifactIcon item={item} className="size-3.5 text-muted-foreground" />
+              <ArtifactIcon item={item} className="size-3.5 text-muted-foreground" pack={pack} />
               <span className="min-w-0 truncate">{item.name}</span>
             </span>
           ))}
@@ -715,10 +607,11 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
     void Promise.all(sourceRequests)
       .then((resultGroups) => {
         if (!cancelled) {
-          setGroups(resultGroups.flat())
+          setGroups(dedupeArtifactPayloadsAcrossSources(resultGroups.flat()))
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        console.warn("[lumo] failed to resolve generated artifacts", { error })
         if (!cancelled) {
           setGroups([])
         }
@@ -785,7 +678,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
   const selectedItem = selectedEntry?.item ?? null
-  const selectedPack = selectedEntry?.pack ?? selection?.pack ?? null
+  const selectedPack = selectedEntry ? (selectedEntry.pack ?? null) : (selection?.pack ?? null)
   const showImageGallery =
     selectedPack?.display === "gallery"
       ? entries.length > 0
@@ -885,11 +778,11 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
                         onClick={() => setSelectedPath(entry.item.path)}
                         onDoubleClick={() => openPath(entry.item.path)}
                       >
-                        <ArtifactIcon item={entry.item} className="text-muted-foreground" />
+                        <ArtifactIcon item={entry.item} className="text-muted-foreground" pack={entry.pack} />
                         <span className="min-w-0 flex-1">
                           <span className="oo-text-label block truncate">{readableArtifactTitle(entry.item)}</span>
                           <span className="oo-text-caption-compact block truncate text-muted-foreground">
-                            {artifactMetaLabel(t, entry.item)}
+                            {artifactMetaLabel(t, entry.item, entry.pack)}
                           </span>
                         </span>
                       </button>
@@ -903,6 +796,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
               <ArtifactPreview
                 item={selectedItem}
                 group={selectedEntry?.group ?? null}
+                pack={selectedPack}
                 previewCache={previewCache}
                 onOpen={() => openPath(selectedItem?.path)}
               />
@@ -1138,11 +1032,13 @@ function ImageGalleryPreview({
 function ArtifactPreview({
   group,
   item,
+  pack,
   previewCache,
   onOpen,
 }: {
   group: LocalArtifactGroup | null
   item: LocalArtifactItem | null
+  pack?: LocalArtifactPack | null
   previewCache: LocalArtifactPreviewCache
   onOpen: () => void
 }) {
@@ -1165,11 +1061,13 @@ function ArtifactPreview({
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <ArtifactIcon item={item} />
+              <ArtifactIcon item={item} pack={pack} />
             </div>
             <div className="min-w-0">
               <div className="oo-text-title truncate">{readableArtifactTitle(item)}</div>
-              <div className="oo-text-caption-compact truncate text-muted-foreground">{artifactMetaLabel(t, item)}</div>
+              <div className="oo-text-caption-compact truncate text-muted-foreground">
+                {artifactMetaLabel(t, item, pack)}
+              </div>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
@@ -1214,7 +1112,7 @@ function ArtifactPreview({
         ) : mode === "source" && canShowSource ? (
           <ArtifactSourcePreview item={item} preview={preview} />
         ) : (
-          <ArtifactConsumablePreview item={item} preview={preview} onOpen={onOpen} />
+          <ArtifactConsumablePreview item={item} pack={pack} preview={preview} onOpen={onOpen} />
         )}
       </div>
     </section>
@@ -1288,14 +1186,116 @@ function ArtifactSourcePreview({
   )
 }
 
+function localArtifactPreviewUnavailableDescription(
+  t: TranslateFn,
+  item: LocalArtifactItem,
+  preview: LocalArtifactPreviewResult | null,
+): string {
+  switch (preview?.reason) {
+    case "missing":
+      return t("artifacts.previewMissing")
+    case "read_failed":
+      return t("artifacts.previewReadFailed")
+    case "too_large":
+      return t("artifacts.previewTooLarge")
+    case "unsupported_type":
+      return t("artifacts.previewUnsupported", { type: preview.mime || item.mime })
+    default:
+      return t("artifacts.previewUnavailableDescription", { type: preview?.mime ?? item.mime })
+  }
+}
+
+function ArtifactUnavailablePreview({
+  description,
+  item,
+  onOpen,
+  pack,
+  preview,
+}: {
+  description?: string
+  item: LocalArtifactItem
+  onOpen: () => void
+  pack?: LocalArtifactPack | null
+  preview: LocalArtifactPreviewResult | null
+}) {
+  const t = useT()
+
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center px-6 py-12 text-center">
+      <div className="mb-3 flex size-12 items-center justify-center rounded-xl border border-border bg-muted/40 text-muted-foreground">
+        <ArtifactIcon item={item} className="size-5" pack={pack} />
+      </div>
+      <div className="oo-text-title text-foreground">{t("artifacts.previewUnavailable")}</div>
+      <p className="oo-text-caption mt-1 max-w-72 text-muted-foreground">
+        {description ?? localArtifactPreviewUnavailableDescription(t, item, preview)}
+      </p>
+      <Button type="button" variant="outline" size="sm" className="mt-4 h-8 gap-1 px-3" onClick={onOpen}>
+        <ExternalLink className="size-3.5" />
+        {t("artifacts.open")}
+      </Button>
+    </div>
+  )
+}
+
+function ArtifactCsvPreview({ item, preview }: { item: LocalArtifactItem; preview: LocalArtifactPreviewResult }) {
+  const t = useT()
+  const parsed = React.useMemo(() => parseCsvPreview(preview.text ?? ""), [preview.text])
+  const [head = [], ...body] = parsed.rows
+  const columnCount = Math.max(1, ...parsed.rows.map((row) => row.length))
+  const columns = Array.from({ length: columnCount }, (_, index) => index)
+
+  if (parsed.rows.length === 0) {
+    return <ArtifactSourcePreview item={item} preview={preview} />
+  }
+
+  return (
+    <div className="min-h-full bg-background p-3">
+      <div className="oo-border-divider overflow-auto rounded-md border">
+        <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+          {head.length > 0 ? (
+            <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
+              <tr>
+                {columns.map((index) => (
+                  <th
+                    key={index}
+                    className="oo-border-divider border-b px-3 py-2 align-top font-medium whitespace-nowrap"
+                  >
+                    {head[index] || "-"}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          ) : null}
+          <tbody>
+            {body.map((row, rowIndex) => (
+              <tr key={rowIndex} className="odd:bg-background even:bg-muted/25">
+                {columns.map((columnIndex) => (
+                  <td key={columnIndex} className="oo-border-divider max-w-72 border-b px-3 py-2 align-top break-words">
+                    {row[columnIndex] || ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {preview.truncated || parsed.truncated ? (
+        <p className="oo-text-caption mt-2 text-muted-foreground">{t("artifacts.previewTruncated")}</p>
+      ) : null}
+    </div>
+  )
+}
+
 function ArtifactConsumablePreview({
   item,
   preview,
   onOpen,
+  pack,
 }: {
   item: LocalArtifactItem
   preview: LocalArtifactPreviewResult | null
   onOpen: () => void
+  pack?: LocalArtifactPack | null
 }) {
   const t = useT()
 
@@ -1346,28 +1346,29 @@ function ArtifactConsumablePreview({
   }
 
   if (preview?.kind === "text" && isHtmlArtifact(item)) {
+    if (preview.truncated) {
+      return (
+        <ArtifactUnavailablePreview
+          description={t("artifacts.htmlPreviewTruncated")}
+          item={item}
+          pack={pack}
+          preview={preview}
+          onOpen={onOpen}
+        />
+      )
+    }
     return <ArtifactHtmlPreview preview={preview} />
+  }
+
+  if (preview?.kind === "text" && isCsvArtifact(item)) {
+    return <ArtifactCsvPreview item={item} preview={preview} />
   }
 
   if (preview?.kind === "text") {
     return <ArtifactSourcePreview item={item} preview={preview} />
   }
 
-  return (
-    <div className="flex min-h-full flex-col items-center justify-center px-6 py-12 text-center">
-      <div className="mb-3 flex size-12 items-center justify-center rounded-xl border border-border bg-muted/40 text-muted-foreground">
-        <ArtifactIcon item={item} className="size-5" />
-      </div>
-      <div className="oo-text-title text-foreground">{t("artifacts.previewUnavailable")}</div>
-      <p className="oo-text-caption mt-1 max-w-60 text-muted-foreground">
-        {t("artifacts.previewUnavailableDescription", { type: preview?.mime ?? item.mime })}
-      </p>
-      <Button type="button" variant="outline" size="sm" className="mt-4 h-8 gap-1 px-3" onClick={onOpen}>
-        <ExternalLink className="size-3.5" />
-        {t("artifacts.open")}
-      </Button>
-    </div>
-  )
+  return <ArtifactUnavailablePreview item={item} pack={pack} preview={preview} onOpen={onOpen} />
 }
 
 function ArtifactHtmlPreview({ preview }: { preview: LocalArtifactPreviewResult }) {

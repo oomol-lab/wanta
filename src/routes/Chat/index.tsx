@@ -1128,7 +1128,7 @@ export const ChatArea = React.memo(function ChatArea({
   )
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
       <div className="flex min-w-0 flex-1 flex-col pb-4">
         <div className="flex min-h-0 flex-1 overflow-hidden">{content}</div>
 

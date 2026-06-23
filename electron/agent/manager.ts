@@ -12,11 +12,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
-import {
-  buildFallbackSessionTitle,
-  isGeneratedSessionTitleAcceptable,
-  sanitizeGeneratedSessionTitle,
-} from "../session/title.ts"
+import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
 import { buildOoEnv } from "./oo.ts"
@@ -79,14 +75,10 @@ export interface GeneratedSessionTitle {
 }
 
 const sessionTitleSystemPrompt = [
-  "Generate a short chat title as a task label.",
+  "Generate a concise chat title as a task label.",
   'Return JSON only, exactly like {"title":"Gmail 三日报告"}.',
   "Keep the user's language when possible.",
-  "Length rules:",
-  "- Chinese/Japanese/Korean or mixed CJK+English: at most 8 CJK characters and at most 2 Latin words.",
-  "- English or other Latin-script languages: 2-4 words.",
-  "- Other languages: 2-5 words or at most 32 characters.",
-  "Quality rules:",
+  "Aim for a short phrase, usually 2-8 words.",
   "- Preserve complete brand, product, app, domain, and file names. Never cut Gmail to Gma or truncate any word.",
   "- Prefer the core action and object; remove polite wording such as help me, 请, 帮我, 麻烦.",
   "- No URLs, no ellipses, no markdown, no explanations, no trailing punctuation.",
@@ -255,17 +247,9 @@ export class AgentManager {
     }
 
     try {
-      const first = await this.requestSessionTitle(titleSource)
-      const firstTitle = sanitizeGeneratedSessionTitle(first, input)
-      if (!firstTitle.usedFallback && isGeneratedSessionTitleAcceptable(firstTitle.title)) {
-        return { generated: true, title: firstTitle.title }
-      }
-
-      const retry = await this.requestSessionTitle(titleSource, firstTitle.title)
-      const retryTitle = sanitizeGeneratedSessionTitle(retry, input)
-      return !retryTitle.usedFallback && isGeneratedSessionTitleAcceptable(retryTitle.title)
-        ? { generated: true, title: retryTitle.title }
-        : { generated: false, title: fallback }
+      const rawTitle = await this.requestSessionTitle(titleSource)
+      const title = sanitizeGeneratedSessionTitle(rawTitle, input)
+      return title.usedFallback ? { generated: false, title: fallback } : { generated: true, title: title.title }
     } catch (error) {
       console.warn("[lumo] failed to generate session title, using fallback:", error)
       return { generated: false, title: fallback }
@@ -541,11 +525,13 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
     "- For edits to an existing local project, modify the requested project files in place; use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
     "- Treat that directory as one user-facing artifact pack. Create a machine-readable manifest named .lumo-artifact.json in the artifact directory when you create any deliverable files.",
     "- The manifest must be valid JSON with: version: 1, title, kind, display, optional summary, items, and optional supporting. Choose kind from image_set, document, spreadsheet, presentation, web_page, code_project, archive, mixed. Choose display from gallery, document, table, project, file_list, single.",
-    "- Manifest item paths must be relative paths inside the artifact directory. Mark each item with role primary, supporting, summary, or metadata. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
+    "- Manifest item paths must be relative paths inside the artifact directory. Mark each main user-facing deliverable with role primary. Use summary only for a separate short summary file, never for the main report itself. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
+    "- Treat HTML reports, images, PDFs, charts, spreadsheets, presentations, archives, and documents as user-facing deliverables. For a single HTML report, use kind web_page or document, display single or document, and include the HTML file as a primary item.",
     "- For image sets, put the primary images in display order, use stable padded names such as 001.jpg and 002.jpg, set kind to image_set, set display to gallery, and include only user-facing images as primary items.",
     "- Do not reuse output folders from earlier turns or other chats.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
-    "- When you finish, report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
+    "- When you finish, summarize the deliverable contents and report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
+    "- Do not open generated files with system commands unless the user explicitly asks you to open them externally; the app is responsible for surfacing artifacts in the UI.",
   ].join("\n")
 }
 

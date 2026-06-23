@@ -3,16 +3,17 @@ import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
 import type { TranslateFn } from "@/i18n/i18n"
 
-import { Circle, FileSearch, FileText, Package, Plug, SlidersHorizontal } from "lucide-react"
+import { Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
-export type SlashCommandAction = "billing" | "connections" | "insert" | "skills"
+export const creatorSkillId = "oo-create-skill"
+
+export type SlashCommandAction = "billing" | "connections" | "creator-skill" | "skills"
 
 export interface SlashCommandPaletteItem extends ComposerPaletteItem {
   action: SlashCommandAction
   kind: "slash"
-  prompt?: string
 }
 
 export interface ConnectionPaletteItem extends ComposerPaletteItem {
@@ -31,6 +32,11 @@ export interface SkillPaletteItem extends ComposerPaletteItem {
 }
 
 export type ChatComposerPaletteItem = ConnectionPaletteItem | SkillPaletteItem | SlashCommandPaletteItem
+
+export interface CreatorSkillPaletteCopy {
+  description: string
+  title: string
+}
 
 function normalizedSearchText(value: string): string {
   return value.trim().toLowerCase()
@@ -60,22 +66,46 @@ function skillKindMeta(group: ManagedSkillGroup): string {
   return ""
 }
 
-export function buildSkillPaletteItems(groups: ManagedSkillGroup[], fallbackDescription: string): SkillPaletteItem[] {
-  return groups
+function buildCreatorSkillPaletteItem(copy: CreatorSkillPaletteCopy): SkillPaletteItem {
+  return {
+    description: copy.description,
+    descriptionText: copy.description,
+    icon: React.createElement(Package, { className: "size-4" }),
+    id: `skill:${creatorSkillId}`,
+    kind: "skill",
+    meta: "built-in",
+    skillId: creatorSkillId,
+    skillName: copy.title,
+    title: copy.title,
+  }
+}
+
+export function buildSkillPaletteItems(
+  groups: ManagedSkillGroup[],
+  fallbackDescription: string,
+  creatorSkillCopy: CreatorSkillPaletteCopy,
+): SkillPaletteItem[] {
+  const creatorSkillItem = buildCreatorSkillPaletteItem(creatorSkillCopy)
+  const inventoryItems = groups
     .filter((group) => installedSkillHostCount(group) > 0)
+    .filter((group) => group.id !== creatorSkillId)
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
-    .map((group) => ({
-      description: group.description || fallbackDescription,
-      descriptionText: group.description || fallbackDescription,
-      icon: React.createElement(Package, { className: "size-4" }),
-      id: `skill:${group.id}`,
-      kind: "skill",
-      meta: skillKindMeta(group),
-      skillId: group.id,
-      skillName: group.name || group.id,
-      title: group.name || group.id,
-    }))
+    .map(
+      (group): SkillPaletteItem => ({
+        description: group.description || fallbackDescription,
+        descriptionText: group.description || fallbackDescription,
+        icon: React.createElement(Package, { className: "size-4" }),
+        id: `skill:${group.id}`,
+        kind: "skill",
+        meta: skillKindMeta(group),
+        skillId: group.id,
+        skillName: group.name || group.id,
+        title: group.name || group.id,
+      }),
+    )
+
+  return [creatorSkillItem, ...inventoryItems]
 }
 
 export function buildConnectionPaletteItems(
@@ -113,6 +143,15 @@ export function slashCommandItems({
 }): SlashCommandPaletteItem[] {
   return [
     {
+      action: "creator-skill",
+      description: t("chat.commandCreatorSkillDescription"),
+      icon: React.createElement(Package, { className: "size-4" }),
+      id: "creator-skill",
+      kind: "slash",
+      meta: "skill",
+      title: t("chat.commandCreatorSkill"),
+    },
+    {
       action: "skills",
       description: t("chat.commandSkillsDescription"),
       icon: React.createElement(Package, { className: "size-4" }),
@@ -139,36 +178,6 @@ export function slashCommandItems({
       kind: "slash",
       meta: "ui",
       title: t("chat.commandBilling"),
-    },
-    {
-      action: "insert",
-      description: t("chat.commandReviewDescription"),
-      icon: React.createElement(FileSearch, { className: "size-4" }),
-      id: "review",
-      kind: "slash",
-      meta: "prompt",
-      prompt: t("chat.commandReviewPrompt"),
-      title: t("chat.commandReview"),
-    },
-    {
-      action: "insert",
-      description: t("chat.commandSummarizeDescription"),
-      icon: React.createElement(FileText, { className: "size-4" }),
-      id: "summarize",
-      kind: "slash",
-      meta: "prompt",
-      prompt: t("chat.commandSummarizePrompt"),
-      title: t("chat.commandSummarize"),
-    },
-    {
-      action: "insert",
-      description: t("chat.commandStatusDescription"),
-      icon: React.createElement(Circle, { className: "size-4" }),
-      id: "status",
-      kind: "slash",
-      meta: "prompt",
-      prompt: t("chat.commandStatusPrompt"),
-      title: t("chat.commandStatus"),
     },
   ]
 }

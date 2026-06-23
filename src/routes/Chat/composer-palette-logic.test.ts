@@ -16,7 +16,7 @@ describe("composer palette logic", () => {
   it("opens root subpalettes only for slash skills and connections items", () => {
     expect(shouldOpenRootPaletteItem("slash", "root", "skills")).toBe(true)
     expect(shouldOpenRootPaletteItem("slash", "root", "connections")).toBe(true)
-    expect(shouldOpenRootPaletteItem("slash", "root", "insert")).toBe(false)
+    expect(shouldOpenRootPaletteItem("slash", "root", "creator-skill")).toBe(false)
     expect(shouldOpenRootPaletteItem("skill", "skills", "skills")).toBe(false)
   })
 

@@ -541,11 +541,13 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
     "- For edits to an existing local project, modify the requested project files in place; use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
     "- Treat that directory as one user-facing artifact pack. Create a machine-readable manifest named .lumo-artifact.json in the artifact directory when you create any deliverable files.",
     "- The manifest must be valid JSON with: version: 1, title, kind, display, optional summary, items, and optional supporting. Choose kind from image_set, document, spreadsheet, presentation, web_page, code_project, archive, mixed. Choose display from gallery, document, table, project, file_list, single.",
-    "- Manifest item paths must be relative paths inside the artifact directory. Mark each item with role primary, supporting, summary, or metadata. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
+    "- Manifest item paths must be relative paths inside the artifact directory. Mark each main user-facing deliverable with role primary. Use summary only for a separate short summary file, never for the main report itself. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
+    "- Treat HTML reports, images, PDFs, charts, spreadsheets, presentations, archives, and documents as user-facing deliverables. For a single HTML report, use kind web_page or document, display single or document, and include the HTML file as a primary item.",
     "- For image sets, put the primary images in display order, use stable padded names such as 001.jpg and 002.jpg, set kind to image_set, set display to gallery, and include only user-facing images as primary items.",
     "- Do not reuse output folders from earlier turns or other chats.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
-    "- When you finish, report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
+    "- When you finish, summarize the deliverable contents and report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
+    "- Do not open generated files with system commands unless the user explicitly asks you to open them externally; the app is responsible for surfacing artifacts in the UI.",
   ].join("\n")
 }
 

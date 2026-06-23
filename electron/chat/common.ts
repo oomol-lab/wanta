@@ -206,6 +206,7 @@ export interface AttachmentPreviewResult {
 }
 
 export type LocalArtifactPreviewKind = "image" | "media" | "text" | "unsupported"
+export type LocalArtifactPreviewUnavailableReason = "missing" | "read_failed" | "too_large" | "unsupported_type"
 
 export interface LocalArtifactPreviewRequest {
   path: string
@@ -216,6 +217,7 @@ export interface LocalArtifactPreviewResult {
   mime: string
   size?: number
   dataUrl?: string
+  reason?: LocalArtifactPreviewUnavailableReason
   text?: string
   truncated?: boolean
 }

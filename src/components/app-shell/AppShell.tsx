@@ -1414,8 +1414,8 @@ export function AppShell() {
       if (Date.now() - pendingRetryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
         if (!cancelled && pendingRetry.current?.service === pendingRetryWatch.service) {
           pendingRetry.current = null
-          setPendingRetryWatch(null)
         }
+        setPendingRetryWatch(null)
         return
       }
       await connections.refresh({ forceRefresh: true })

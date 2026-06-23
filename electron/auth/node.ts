@@ -7,8 +7,8 @@ import { app, dialog, shell } from "electron"
 import { apiBaseUrl } from "../domain.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
+  browserLoginUrl,
   extractOomolTokenFromCookies,
-  hubSigninUrl,
   normalizeLoginProfile,
   parseSigninCallback,
 } from "./browser-login.ts"
@@ -108,7 +108,7 @@ export class AuthManager {
     const pending = this.createPending()
     this.pending = pending
     try {
-      await shell.openExternal(hubSigninUrl(this.deps.protocolScheme))
+      await shell.openExternal(browserLoginUrl(this.deps.protocolScheme))
     } catch (error) {
       this.rejectPending(error instanceof Error ? error : new Error(String(error)))
       throw error

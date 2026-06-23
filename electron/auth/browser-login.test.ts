@@ -2,15 +2,15 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import { ooEndpoint } from "../domain.ts"
 import {
+  browserLoginUrl,
   extractOomolTokenFromCookies,
-  hubSigninUrl,
   normalizeLoginProfile,
   parseSigninCallback,
 } from "./browser-login.ts"
 
-test("hubSigninUrl carries the deep-link protocol back to the hub", () => {
-  assert.equal(hubSigninUrl("wanta"), `https://hub.${ooEndpoint}/signin-app?protocol=wanta`)
-  assert.equal(hubSigninUrl("wanta-local"), `https://hub.${ooEndpoint}/signin-app?protocol=wanta-local`)
+test("browserLoginUrl carries the deep-link protocol back to the console launcher", () => {
+  assert.equal(browserLoginUrl("wanta"), `https://console.${ooEndpoint}/launcher?protocol=wanta`)
+  assert.equal(browserLoginUrl("wanta-local"), `https://console.${ooEndpoint}/launcher?protocol=wanta-local`)
 })
 
 test("parseSigninCallback accepts <scheme>://signin?authID=", () => {

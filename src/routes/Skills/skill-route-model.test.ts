@@ -85,8 +85,8 @@ function publicPackage(name: string): PublicSkillPackage {
 
 function managedSkillGroup(name: string, packageName: string): ManagedSkillGroup {
   const host = {
-    agentId: "lumo",
-    agentName: "Lumo",
+    agentId: "wanta",
+    agentName: "Wanta",
     kind: "registry" as const,
     packageName,
     scope: "runtime" as const,

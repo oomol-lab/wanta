@@ -131,14 +131,14 @@ export const skillsMessages = {
     "skills.installedDescription": "已安装在本机 Skill 路径中",
     "skills.installedManage": "管理",
     "skills.installedSuggestedActionTitle": "建议操作",
-    "skills.installedSuggestedUpdateDescription": "更新到最新版本 {{latest}}，让 Lumo 使用当前发布版本。",
+    "skills.installedSuggestedUpdateDescription": "更新到最新版本 {{latest}}，让 Wanta 使用当前发布版本。",
     "skills.installedLocationsAction": "查看安装位置",
     "skills.installedLocationsHelper": "这里显示已发现的安装位置。",
     "skills.installedLocationsTitle": "安装位置",
     "skills.localChangeActionTitle": "本地有修改",
-    "skills.localChangeLocalDescription": "Lumo 会继续使用本地副本。可以发布改动，或查看本地文件。",
-    "skills.localChangeRegistryDescription": "Lumo 会继续使用本地副本。可以恢复市场版本，或查看本地文件。",
-    "skills.localChangeSourceMissingDescription": "Lumo 仍会使用当前副本。可以恢复市场版本，或查看本地文件。",
+    "skills.localChangeLocalDescription": "Wanta 会继续使用本地副本。可以发布改动，或查看本地文件。",
+    "skills.localChangeRegistryDescription": "Wanta 会继续使用本地副本。可以恢复市场版本，或查看本地文件。",
+    "skills.localChangeSourceMissingDescription": "Wanta 仍会使用当前副本。可以恢复市场版本，或查看本地文件。",
     "skills.localChangeSkipDescription": "也可以暂不处理，继续使用当前本地副本。",
     "skills.openLocalFiles": "查看本地文件",
     "skills.restoreRegistryVersion": "恢复市场版本",
@@ -186,7 +186,7 @@ export const skillsMessages = {
     "skills.removeDone": "已卸载 {{name}}。",
     "skills.removeFailed": "卸载失败：{{error}}",
     "skills.removeConfirmTitle": "卸载这个 Skill？",
-    "skills.removeConfirmDescription": "卸载后，{{name}} 将不能在 Lumo 对话中使用。需要时可从技能市场重新安装。",
+    "skills.removeConfirmDescription": "卸载后，{{name}} 将不能在 Wanta 对话中使用。需要时可从技能市场重新安装。",
     "skills.deleteConfirmUnavailable": "没有可删除的技能。",
     "skills.deleteConfirmCancel": "取消",
     "skills.removeConfirmAction": "移除",
@@ -199,7 +199,7 @@ export const skillsMessages = {
     "skills.groupStatus.modifiedDescription":
       "已安装内容和记录的来源版本不一致。可以继续使用；如果这是你想保留的改动，可以选择发布到技能市场，或查看安装位置确认改动。",
     "skills.groupStatus.notInstalled": "未安装",
-    "skills.groupStatus.notInstalledDescription": "当前没有安装到 Lumo。",
+    "skills.groupStatus.notInstalledDescription": "当前没有安装到 Wanta。",
     "skills.groupStatus.sourceMissing": "来源缺失",
     "skills.groupStatus.sourceMissingDescription":
       "找不到这个 Skill 对应的来源目录。可以继续使用当前副本；如果需要恢复来源，请从技能市场重新安装或查看安装位置。",
@@ -361,17 +361,17 @@ export const skillsMessages = {
     "skills.installedManage": "Manage",
     "skills.installedSuggestedActionTitle": "Suggested action",
     "skills.installedSuggestedUpdateDescription":
-      "Update to the latest version {{latest}} so Lumo uses the current release.",
+      "Update to the latest version {{latest}} so Wanta uses the current release.",
     "skills.installedLocationsAction": "View install locations",
     "skills.installedLocationsHelper": "Discovered install locations are shown here.",
     "skills.installedLocationsTitle": "Installed locations",
     "skills.localChangeActionTitle": "Modified locally",
     "skills.localChangeLocalDescription":
-      "Lumo will keep using the local copy. Publish the change, or view the local files.",
+      "Wanta will keep using the local copy. Publish the change, or view the local files.",
     "skills.localChangeRegistryDescription":
-      "Lumo will keep using the local copy. Restore the market version, or view the local files.",
+      "Wanta will keep using the local copy. Restore the market version, or view the local files.",
     "skills.localChangeSourceMissingDescription":
-      "Lumo will keep using the current copy. Restore the market version, or view the local files.",
+      "Wanta will keep using the current copy. Restore the market version, or view the local files.",
     "skills.localChangeSkipDescription": "You can also leave it as is and keep using the current local copy.",
     "skills.openLocalFiles": "View local files",
     "skills.restoreRegistryVersion": "Restore market version",
@@ -420,7 +420,7 @@ export const skillsMessages = {
     "skills.removeFailed": "Uninstall failed: {{error}}",
     "skills.removeConfirmTitle": "Uninstall this Skill?",
     "skills.removeConfirmDescription":
-      "{{name}} will no longer be available in Lumo conversations. You can reinstall it from the Skill Market when needed.",
+      "{{name}} will no longer be available in Wanta conversations. You can reinstall it from the Skill Market when needed.",
     "skills.deleteConfirmUnavailable": "No deletable Skill.",
     "skills.deleteConfirmCancel": "Cancel",
     "skills.removeConfirmAction": "Remove",
@@ -433,7 +433,7 @@ export const skillsMessages = {
     "skills.groupStatus.modifiedDescription":
       "The installed content differs from its recorded source version. You can keep using it; publish the change if you want to keep it, or inspect the install location.",
     "skills.groupStatus.notInstalled": "Not installed",
-    "skills.groupStatus.notInstalledDescription": "This Skill is not installed in Lumo.",
+    "skills.groupStatus.notInstalledDescription": "This Skill is not installed in Wanta.",
     "skills.groupStatus.sourceMissing": "Source missing",
     "skills.groupStatus.sourceMissingDescription":
       "The source directory for this Skill cannot be found. You can keep using the current copy; reinstall from the Skill Market or inspect the install location if you need to restore the source.",

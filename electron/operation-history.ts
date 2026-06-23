@@ -46,7 +46,7 @@ export async function recordOperationHistory(params: OperationHistoryCreateParam
       await writeHistoryFile(targetPath, [record, ...records].slice(0, maxRecords))
     })
     .catch((error: unknown) => {
-      console.warn("[lumo] failed to record operation", error)
+      console.warn("[wanta] failed to record operation", error)
     })
 
   await writeQueue

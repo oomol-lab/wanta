@@ -52,7 +52,7 @@ jobs:
         run: npm test
         env:
           # 安装步骤用 ELECTRON_SKIP_BINARY_DOWNLOAD=1 跳过下载 Electron 二进制，
-          # 因此 node_modules/electron/path.txt 不存在。现状 Lumo 的测试全是纯函数
+          # 因此 node_modules/electron/path.txt 不存在。现状 Wanta 的测试全是纯函数
           # 单测（断言只碰 domain/config/store 等模块，无任何 electron 导入），不触发
           # 该路径解析。但只要将来有人新增一个传递性 import 了 electron 的被测模块，
           # 在纯 Node 下 `import "electron"` 会触发 stub 解析二进制路径，path.txt

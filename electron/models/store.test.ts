@@ -9,7 +9,7 @@ import { defaultModelChoice, ModelsStore, sanitizeBaseUrl } from "./store.ts"
 const providerBaseUrls = externalModelProviderBaseUrls
 
 test("ModelsStore returns default catalog on missing file", async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
   const store = new ModelsStore(dir)
   const catalog = await store.catalog()
   assert.deepEqual(catalog.selected, defaultModelChoice())
@@ -22,7 +22,7 @@ test("ModelsStore returns default catalog on missing file", async () => {
 })
 
 test("ModelsStore exposes provider default URLs and model options", async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
   const store = new ModelsStore(dir)
   const catalog = await store.catalog()
   const providers = new Map(catalog.providers.map((provider) => [provider.id, provider]))
@@ -144,7 +144,7 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
 })
 
 test("ModelsStore persists custom models but public catalog redacts apiKey", async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
   const store = new ModelsStore(dir)
   await store.write({
     selected: { kind: "custom", id: "m1" },
@@ -176,7 +176,7 @@ test("ModelsStore persists custom models but public catalog redacts apiKey", asy
 })
 
 test("ModelsStore exposes custom model image support", async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "lumo-models-"))
+  const dir = mkdtempSync(path.join(tmpdir(), "wanta-models-"))
   const store = new ModelsStore(dir)
   await store.write({
     selected: { kind: "custom", id: "m1" },

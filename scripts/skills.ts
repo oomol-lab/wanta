@@ -1,6 +1,6 @@
 // 静态内置 oo 自带 skill：构建期用 oo 二进制把 oo bundled skill 导出到 resources/skills/（gitignore），
 // 供 dev 与打包共用。运行时由 electron/agent/workspace.ts 拷进 OpenCode workspace 的 .opencode/skill/，
-// 使 Lumo 自己的 agent 直接读到这 4 个 skill——不再像旧 oo-cli 那样把 skill 释放到其他 AI agent 家目录。
+// 使 Wanta 自己的 agent 直接读到这 4 个 skill——不再像旧 oo-cli 那样把 skill 释放到其他 AI agent 家目录。
 //
 // 与二进制下载同源：先经 downloadOoBinary() 确保当前平台 oo 就绪，再以 `oo skills install --out-dir` 导出。
 // `--out-dir` 只写指定目录；仍隔离 OO_CONFIG/DATA/LOG 到临时目录并禁用 sync，避免污染开发机家目录。
@@ -33,7 +33,7 @@ interface SkillsInstallExport {
  */
 export async function exportBundledSkills(outDir: string = bundledSkillsDir): Promise<string> {
   const ooBin = await downloadOoBinary()
-  const storeDir = path.join(os.tmpdir(), "lumo-oo-skill-export-store")
+  const storeDir = path.join(os.tmpdir(), "wanta-oo-skill-export-store")
 
   await rm(outDir, { force: true, recursive: true })
   await mkdir(outDir, { recursive: true })

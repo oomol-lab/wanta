@@ -8,6 +8,7 @@ import type {
   OrganizationUserSummary,
 } from "../../../electron/organizations/common.ts"
 
+import { branding } from "../../../electron/branding.ts"
 import { parseProviderGrants } from "./organization-provider-access.ts"
 
 export type OrganizationRole = "creator" | "member"
@@ -67,7 +68,8 @@ export const minimumMemberSearchLength = 2
 
 const organizationNamePattern = /^[A-Za-z0-9._-]+$/
 const organizationPageSnapshotTtlMs = 30_000
-const selectedOrganizationStorageKeyPrefix = "lumo:organization-management:selected-organization:"
+const selectedOrganizationStorageKeyPrefix = `${branding.storageKeyPrefix}:organization-management:selected-organization:`
+const legacySelectedOrganizationStorageKeyPrefix = "lumo:organization-management:selected-organization:"
 
 export const initialProviderAccessForm: ProviderAccessForm = {
   allProviders: false,
@@ -119,9 +121,24 @@ function selectedOrganizationStorageKey(accountId: string): string {
   return `${selectedOrganizationStorageKeyPrefix}${accountId}`
 }
 
+function legacySelectedOrganizationStorageKey(accountId: string): string {
+  return `${legacySelectedOrganizationStorageKeyPrefix}${accountId}`
+}
+
 export function readSelectedOrganizationId(accountId: string): string | null {
   try {
-    return window.localStorage.getItem(selectedOrganizationStorageKey(accountId))
+    const key = selectedOrganizationStorageKey(accountId)
+    const current = window.localStorage.getItem(key)
+    if (current !== null) {
+      return current
+    }
+    const legacyKey = legacySelectedOrganizationStorageKey(accountId)
+    const legacy = window.localStorage.getItem(legacyKey)
+    if (legacy !== null) {
+      window.localStorage.setItem(key, legacy)
+      window.localStorage.removeItem(legacyKey)
+    }
+    return legacy
   } catch {
     return null
   }

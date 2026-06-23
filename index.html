@@ -8,11 +8,11 @@
     <script>
       // Resolve theme before first paint so the window shows the correct background the moment it
       // appears, avoiding a white/wrong-color flash while React/Tailwind are still loading. Reads the
-      // same persisted key as ThemeProvider (%LUMO_THEME_KEY% is injected from branding at build time
+      // same persisted key as ThemeProvider (%WANTA_THEME_KEY% is injected from branding at build time
       // per R1), falling back to the system theme. Any failure is ignored (worst case: light background).
       ;(function () {
         try {
-          var pref = localStorage.getItem("%LUMO_THEME_KEY%")
+          var pref = localStorage.getItem("%WANTA_THEME_KEY%")
           var dark =
             pref === "dark" ||
             ((pref === "system" || !pref) && window.matchMedia("(prefers-color-scheme: dark)").matches)
@@ -38,23 +38,23 @@
       }
       /* React clears #root on mount, removing the boot placeholder below (it only covers the gap
          before the JS bundle loads). */
-      #lumo-boot {
+      #wanta-boot {
         position: fixed;
         inset: 0;
         display: grid;
         place-items: center;
       }
-      #lumo-boot::after {
+      #wanta-boot::after {
         content: "";
         width: 22px;
         height: 22px;
         border-radius: 9999px;
         border: 2px solid color-mix(in oklch, currentColor 18%, transparent);
         border-top-color: currentColor;
-        animation: lumo-boot-spin 0.7s linear infinite;
+        animation: wanta-boot-spin 0.7s linear infinite;
         opacity: 0.55;
       }
-      @keyframes lumo-boot-spin {
+      @keyframes wanta-boot-spin {
         to {
           transform: rotate(360deg);
         }
@@ -63,7 +63,7 @@
   </head>
   <body>
     <div id="root">
-      <div id="lumo-boot" aria-hidden="true"></div>
+      <div id="wanta-boot" aria-hidden="true"></div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -144,7 +144,7 @@ export async function listMyPublishedSkillPackages(
         try {
           packageInfo = await readRegistrySkillPackageInfo(publishedPackage.name, maintainer)
         } catch (error) {
-          console.warn("[lumo] failed to read my published skill package info:", error)
+          console.warn("[wanta] failed to read my published skill package info:", error)
           packageInfo = undefined
         }
         return mergeMyPublishedPackage(publishedPackage, packageInfo)

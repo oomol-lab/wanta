@@ -15,7 +15,7 @@ import {
 import { defaultRegistrySkillSetVersion } from "./default-registry-skills.ts"
 
 test("DefaultSkillInstallStore round-trips records atomically", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lumo-default-skills-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-default-skills-"))
   const store = new DefaultSkillInstallStore(dir)
   const now = "2026-06-21T00:00:00.000Z"
 
@@ -66,7 +66,7 @@ test("upsertDefaultSkillInstallRecord replaces matching package and skill", () =
 })
 
 test("readDefaultSkillInstallStore ignores unsupported records", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lumo-default-skills-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-default-skills-"))
   const file = path.join(dir, "default-install.json")
   await writeFile(
     file,
@@ -100,7 +100,7 @@ test("readDefaultSkillInstallStore ignores unsupported records", async () => {
 })
 
 test("readDefaultSkillInstallStore returns empty store for missing file", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "lumo-default-skills-"))
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-default-skills-"))
 
   assert.deepEqual(await readDefaultSkillInstallStore(path.join(dir, "missing.json")), emptyDefaultSkillInstallStore())
 })

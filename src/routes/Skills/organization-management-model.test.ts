@@ -15,6 +15,7 @@ import {
   organizationNameValidation,
   organizationRole,
   providerOptionsWithSelected,
+  readSelectedOrganizationId,
 } from "./organization-management-model.ts"
 
 test("organizationNameValidation accepts the product naming rules", () => {
@@ -89,6 +90,44 @@ test("providerOptionsWithSelected keeps selected unknown providers visible", () 
     { label: "Slack", service: "slack" },
   ])
 })
+
+test("readSelectedOrganizationId migrates legacy Lumo storage key", () => {
+  const localStorage = new MemoryStorage()
+  const previousWindow = globalThis.window
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage },
+  })
+
+  try {
+    localStorage.setItem("lumo:organization-management:selected-organization:account-a", "org-a")
+
+    assert.equal(readSelectedOrganizationId("account-a"), "org-a")
+    assert.equal(localStorage.getItem("wanta:organization-management:selected-organization:account-a"), "org-a")
+    assert.equal(localStorage.getItem("lumo:organization-management:selected-organization:account-a"), null)
+  } finally {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: previousWindow,
+    })
+  }
+})
+
+class MemoryStorage {
+  private values = new Map<string, string>()
+
+  public getItem(key: string): string | null {
+    return this.values.get(key) ?? null
+  }
+
+  public removeItem(key: string): void {
+    this.values.delete(key)
+  }
+
+  public setItem(key: string, value: string): void {
+    this.values.set(key, value)
+  }
+}
 
 function organization(id: string, creatorUserId = "creator"): Organization {
   return {

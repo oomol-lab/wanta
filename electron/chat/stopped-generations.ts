@@ -163,7 +163,7 @@ export function applyStoppedGenerations(
   return changed ? nextMessages : messages
 }
 
-/** 用户主动停止记录：OpenCode 历史里可能仍是 tool error，Lumo 用此 overlay 还原“已停止”语义。 */
+/** 用户主动停止记录：OpenCode 历史里可能仍是 tool error，Wanta 用此 overlay 还原“已停止”语义。 */
 export class StoppedGenerationStore {
   private readonly file: string
 

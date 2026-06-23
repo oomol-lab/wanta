@@ -34,11 +34,11 @@ describe("resolveUserFacingError", () => {
   })
 
   it("maps OAuth polling outcomes without exposing English hook text", () => {
-    expect(resolveUserFacingError("LUMO_OAUTH_PENDING", { area: "connections" })).toMatchObject({
+    expect(resolveUserFacingError("WANTA_OAUTH_PENDING", { area: "connections" })).toMatchObject({
       kind: "timeout",
       titleKey: "error.connections.oauthPending.title",
     })
-    expect(resolveUserFacingError("LUMO_OAUTH_CANCELLED", { area: "connections" })).toMatchObject({
+    expect(resolveUserFacingError("WANTA_OAUTH_CANCELLED", { area: "connections" })).toMatchObject({
       kind: "cancelled",
       severity: "info",
     })

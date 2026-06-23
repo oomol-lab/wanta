@@ -1,4 +1,4 @@
-export const APP_LOCALE_CHANNEL = "lumo:app-locale"
+export const APP_LOCALE_CHANNEL = "wanta:app-locale"
 
 export type AppLocale = "zh-CN" | "en"
 

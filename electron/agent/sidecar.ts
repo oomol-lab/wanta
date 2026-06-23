@@ -13,7 +13,7 @@ export interface SidecarOptions {
   workspaceDir: string
   /** 经 OPENCODE_CONFIG_CONTENT 内联注入的 OpenCode 配置。 */
   config: Config
-  /** 额外注入到 opencode 进程的环境变量（OO_ 系列 / LUMO_ 系列 / PATH 等）。 */
+  /** 额外注入到 opencode 进程的环境变量（OO_ 系列 / WANTA_ 系列 / PATH 等）。 */
   env: Record<string, string>
   /** 隔离目录根：OPENCODE_CONFIG_DIR / XDG_CONFIG_HOME / XDG_DATA_HOME 指向其下，避免读全局 ~/.config/opencode。 */
   isolationDir: string

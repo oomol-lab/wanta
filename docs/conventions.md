@@ -4,7 +4,7 @@
 
 ## 1. 设计编号体系（注释中反复出现，沿自原始计划）
 
-- **R1** 品牌单一来源：`electron/branding.ts` + electron-builder `productName`。`OO_` env 前缀、`x-oomol-*` 头是外部协议契约，不随品牌改。
+- **R1** 品牌单一来源：`electron/branding.ts`。`electron-builder.ts` 必须从该模块派生 appId / productName / protocol。`OO_` env 前缀、`x-oomol-*` 头是外部协议契约，不随品牌改。
 - **R2** endpoint 单一来源：`electron/domain.ts` 派生一切域名，禁止散落硬编码（现为构建期常量，动态切换已移除）。
 - **R3** oo 只经环境变量控制：`electron/agent/oo.ts` 的 `buildOoEnv` 是全集。
 - **R4** 动态系统提示：稳定人格放 agent.prompt（prompt 缓存友好），每轮已授权 Link provider 存在性提示（来源 `/v1/apps`）经 `body.system` 注入末尾（实测追加非覆盖）；默认不列具体 provider 名，避免可用性上下文变成工具诱导。
@@ -36,7 +36,7 @@
 - 注释：中文。代码标识符 / 系统提示词 / 日志文本：英文。
 - 所有 Git 操作中的人类可读文本必须用英文，包括但不限于 commit message、branch name、PR title、PR description、PR review/comment、tag/release note；不要为 Codex/agent 提交使用中文 Git 文案。
 - 文档（docs/ 与根指南）：按主题组织，**不写 commit hash、不逐 commit 追加记录**（git log 才是历史的权威来源）；不硬编码根指南的文件名（它以两个互为 symlink 的名字存在）。
-- 主进程业务日志统一 `console.*("[lumo] ...")` 前缀。既存例外（历史遗留，新代码勿仿）：`electron/protocol.ts` 用 `[protocol]` 前缀、`electron/preload.ts` 的 contextBridge 兜底 `console.error(error)` 无前缀。
+- 主进程业务日志统一 `console.*("[wanta] ...")` 前缀。既存例外（历史遗留，新代码勿仿）：`electron/protocol.ts` 用 `[protocol]` 前缀、`electron/preload.ts` 的 contextBridge 兜底 `console.error(error)` 无前缀。
 - **deep-link 日志必须脱敏**（query 含可兑换凭证的 authID）：只记 scheme/host/path（见 `main.ts` 的 `redactDeepLink`）。
 
 ## 5. 安全基线（新代码不得弱化）
@@ -80,4 +80,4 @@
 
 - 每个改动的 DoD 必须真实运行验证（日志/截图证据），不能臆测；每完成一个阶段先 commit。
 - UI/运行态改动光过编译不够：`npm run dev` 实机验证（需登录 + agent sidecar）。
-- 改 vite 构建配置必须保持不变式：build 产物默认 oomol.com、不受 `.env.local` 影响、只有显式 `LUMO_ENDPOINT` 能覆盖（验证方法：带 `.env.local=oomol.dev` 跑 build 后 grep 产物）。
+- 改 vite 构建配置必须保持不变式：build 产物默认 oomol.com、不受 `.env.local` 影响、只有显式 `WANTA_ENDPOINT` 能覆盖（验证方法：带 `.env.local=oomol.dev` 跑 build 后 grep 产物）。

@@ -81,7 +81,7 @@ function imageFileName(value: string | null | undefined): string {
 
 function localImagePathFromSrc(src: string | undefined): string | null {
   const value = src?.trim()
-  if (!value || /^(?:https?:|data:|blob:|lumo:|lumo-local:)/i.test(value)) {
+  if (!value || /^(?:https?:|data:|blob:|wanta:|wanta-local:)/i.test(value)) {
     return null
   }
   if (value.startsWith("file://")) {

@@ -10,10 +10,11 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { branding } from "../branding.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
-import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, WANTA_AGENT_NAME, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
 import { buildOoEnv } from "./oo.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
@@ -164,7 +165,7 @@ export class AgentManager {
     const ooDir = path.dirname(ooBinPath)
     const env: Record<string, string> = {
       ...ooEnv,
-      // LUMO_OO_BIN 已给绝对路径；同时前置注入 PATH 作兜底。
+      // WANTA_OO_BIN 已给绝对路径；同时前置注入 PATH 作兜底。
       PATH: `${ooDir}${path.delimiter}${process.env.PATH ?? ""}`,
     }
 
@@ -206,7 +207,7 @@ export class AgentManager {
       }
     } catch (error) {
       if (!this.eventLoopStopped) {
-        console.error("[lumo] opencode event stream ended:", error)
+        console.error("[wanta] opencode event stream ended:", error)
       }
     }
   }
@@ -251,7 +252,7 @@ export class AgentManager {
       const title = sanitizeGeneratedSessionTitle(rawTitle, input)
       return title.usedFallback ? { generated: false, title: fallback } : { generated: true, title: title.title }
     } catch (error) {
-      console.warn("[lumo] failed to generate session title, using fallback:", error)
+      console.warn("[wanta] failed to generate session title, using fallback:", error)
       return { generated: false, title: fallback }
     }
   }
@@ -326,7 +327,7 @@ export class AgentManager {
     }
     const abortPrompt = (): void => {
       void this.abort(sessionId).catch((error) => {
-        console.warn("[lumo] abort prompt after signal failed:", error)
+        console.warn("[wanta] abort prompt after signal failed:", error)
       })
     }
     options.signal?.addEventListener("abort", abortPrompt, { once: true })
@@ -338,7 +339,7 @@ export class AgentManager {
         path: { id: sessionId },
         signal: options.signal,
         body: {
-          agent: LUMO_AGENT_NAME,
+          agent: WANTA_AGENT_NAME,
           model: this.resolveModel(options.model),
           ...(tail ? { system: tail } : {}),
           parts: buildPromptParts(text, options.attachments),
@@ -416,13 +417,13 @@ export class AgentManager {
   public async sendMessage(text: string, sessionId?: string, system?: string): Promise<SendMessageResult> {
     let id = sessionId
     if (!id) {
-      id = (await this.createSession("Lumo")).id
+      id = (await this.createSession(branding.appName)).id
     }
     const prompted = await this.client.session.prompt({
       path: { id },
       body: {
-        agent: LUMO_AGENT_NAME,
-        model: { providerID: LUMO_PROVIDER_ID, modelID: LUMO_MODEL_ID },
+        agent: WANTA_AGENT_NAME,
+        model: { providerID: WANTA_PROVIDER_ID, modelID: WANTA_MODEL_ID },
         ...(system ? { system } : {}),
         parts: [{ type: "text", text }],
       },
@@ -523,7 +524,7 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
     `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
     "- Do not create files just because this artifact directory is provided.",
     "- For edits to an existing local project, modify the requested project files in place; use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
-    "- Treat that directory as one user-facing artifact pack. Create a machine-readable manifest named .lumo-artifact.json in the artifact directory when you create any deliverable files.",
+    "- Treat that directory as one user-facing artifact pack. Create a machine-readable manifest named .wanta-artifact.json in the artifact directory when you create any deliverable files.",
     "- The manifest must be valid JSON with: version: 1, title, kind, display, optional summary, items, and optional supporting. Choose kind from image_set, document, spreadsheet, presentation, web_page, code_project, archive, mixed. Choose display from gallery, document, table, project, file_list, single.",
     "- Manifest item paths must be relative paths inside the artifact directory. Mark each main user-facing deliverable with role primary. Use summary only for a separate short summary file, never for the main report itself. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
     "- Treat HTML reports, images, PDFs, charts, spreadsheets, presentations, archives, and documents as user-facing deliverables. For a single HTML report, use kind web_page or document, display single or document, and include the HTML file as a primary item.",

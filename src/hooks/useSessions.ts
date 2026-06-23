@@ -55,7 +55,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       setSessions(nextSessions)
       setError(null)
     } catch (error) {
-      console.error("[lumo] list sessions failed", error)
+      console.error("[wanta] list sessions failed", error)
       if (requestId === requestSequenceRef.current && enabledRef.current) {
         setError(resolveUserFacingError(error, { area: "session" }))
       }

@@ -49,7 +49,7 @@ import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-gene
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 const artifactTextPreviewMaxBytes = 512 * 1024
-const artifactManifestFileName = ".lumo-artifact.json"
+const artifactManifestFileName = ".wanta-artifact.json"
 const userStopAbortWindowMs = 30_000
 const defaultMaxDirectoryItems = 80
 
@@ -563,7 +563,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
             void this.rememberArtifactRoot(translated.data.sessionId, translated.data.messageId, artifactRoot).catch(
               (error: unknown) => {
-                console.warn("[lumo] failed to record artifact root", error)
+                console.warn("[wanta] failed to record artifact root", error)
               },
             )
           }
@@ -844,7 +844,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const bytes = await readFile(req.path)
       return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}` }
     } catch (error) {
-      console.error("[lumo] getAttachmentPreview failed", { path: req.path, error: errorMessage(error) })
+      console.error("[wanta] getAttachmentPreview failed", { path: req.path, error: errorMessage(error) })
       return { dataUrl: null }
     }
   }
@@ -869,7 +869,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
         }
       } catch (error) {
-        console.error("[lumo] getLocalArtifactPreview image failed", { path: req.path, error: errorMessage(error) })
+        console.error("[wanta] getLocalArtifactPreview image failed", { path: req.path, error: errorMessage(error) })
         return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
       }
     }
@@ -887,7 +887,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
         }
       } catch (error) {
-        console.error("[lumo] getLocalArtifactPreview media failed", { path: req.path, error: errorMessage(error) })
+        console.error("[wanta] getLocalArtifactPreview media failed", { path: req.path, error: errorMessage(error) })
         return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
       }
     }
@@ -909,7 +909,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         truncated: preview.truncated,
       }
     } catch (error) {
-      console.error("[lumo] getLocalArtifactPreview text failed", { path: req.path, error: errorMessage(error) })
+      console.error("[wanta] getLocalArtifactPreview text failed", { path: req.path, error: errorMessage(error) })
       return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
     }
   }
@@ -987,11 +987,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.userStoppedSessions.delete(sessionId)
         throw error
       }
-      console.warn("[lumo] pending generation abort failed:", error)
+      console.warn("[wanta] pending generation abort failed:", error)
     }
     if (messageId) {
       await this.rememberStoppedGeneration(sessionId, messageId, partIds).catch((error: unknown) => {
-        console.warn("[lumo] failed to record stopped generation", error)
+        console.warn("[wanta] failed to record stopped generation", error)
       })
     }
     this.clearSessionGeneration(sessionId, generation?.id)

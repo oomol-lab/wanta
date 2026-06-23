@@ -41,14 +41,14 @@
 ## 5. 移除动态 endpoint 切换
 
 - **背景**：阶段 5 实现了运行时切换 oomol.com/oomol.dev，但业务上不存在切换需求，且引入大量竞态处理代码；另有硬约束：**对外分发产物 grep 不到 `oomol.dev`**（防泄漏内部开发域名）。
-- **决策**：endpoint 改为 vite `define` 编译期常量 `__OO_ENDPOINT__`，`electron/domain.ts` 折叠为单常量 + 模板字符串派生全部 base URL；App 层不可见不可切换。`resolveOoEndpoint` 优先级：显式 `LUMO_ENDPOINT` 环境变量（**任何模式都生效，含 build**）> 仅 dev/serve 读 `.env(.local)`（**build 刻意不读文件**——被忽略的只是 `.env` 文件，不是环境变量）> 缺省 `oomol.com`。测试同步从 `node --test` 迁到 vitest（原生套用 vite define，免运行时注入 hack）。
+- **决策**：endpoint 改为 vite `define` 编译期常量 `__OO_ENDPOINT__`，`electron/domain.ts` 折叠为单常量 + 模板字符串派生全部 base URL；App 层不可见不可切换。`resolveOoEndpoint` 优先级：显式 `WANTA_ENDPOINT` 环境变量（**任何模式都生效，含 build**）> 仅 dev/serve 读 `.env(.local)`（**build 刻意不读文件**——被忽略的只是 `.env` 文件，不是环境变量）> 缺省 `oomol.com`。测试同步从 `node --test` 迁到 vitest（原生套用 vite define，免运行时注入 hack）。
 - **理由 / 教训**：第二轮改 loadEnv 时曾引入回归——本机 `.env.local=oomol.dev` 跑 build 会把 dev 域名打进产物（对抗审查抓到），最终修复是"build 不读文件"这一更根本的不变式，而非 CI grep 守卫。
 - **后果**：删除约 15 个文件中的切换抽象（`setEndpoint` / `reconfigure` / `supportedEndpoints` 等）；`auth/store.ts` 加 `migrateLegacyAccounts()` 丢弃与当前构建 endpoint 不符的历史账号；`oomol.dev` 字面量在**代码与配置**中仅允许出现在不进包的三处（vite.config.ts 注释、.env.example、store.test.ts）；文档（docs/ 与根指南）不在此限，若加 grep 守卫应排除文档。
 
 ## 6. oo CLI 调用失败修复：node_modules 二进制 → `.oo-bin/` 自管理
 
 - **背景（根因）**：agent 调连接器工具报 `spawn .../oo EACCES`。上游 `@oomol-lab/oo-cli-*` 平台包 tarball 内 `bin/oo` 本身就是 0644（发布时没带 +x）；dev 下 `which oo` 命中 `node_modules/.bin` 的 wrapper，wrapper spawn 无执行位的二进制 → EACCES。生产一直正常是因为 `prepare-binaries.ts` 复制时 chmod 0755——纯 dev 问题。
-- **决策**：移除 `@oomol-lab/oo-cli` npm 依赖；`scripts/oo-cli.ts` 为单一来源（`OO_CLI_VERSION = "1.2.2"`、平台/libc 映射、自写 ustar 提取器替代系统 tar、npm packument `dist.integrity` sha512 校验、原子落位 + `chmod 0o755`），postinstall（`scripts/download-oo.ts`，best-effort）下载到 gitignore 的 `.oo-bin/`，dev 与打包共用。dev 解析顺序：`LUMO_OO_BIN` 覆盖 > `.oo-bin/oo`，删除 `which oo`。opencode 来源同步改为 `node_modules/opencode-ai/bin/opencode.exe`（修复既存的 Windows 包名错误：上游叫 `opencode-windows-x64` 而非 `win32`）。
+- **决策**：移除 `@oomol-lab/oo-cli` npm 依赖；`scripts/oo-cli.ts` 为单一来源（`OO_CLI_VERSION = "1.2.3"`、平台/libc 映射、自写 ustar 提取器替代系统 tar、npm packument `dist.integrity` sha512 校验、原子落位 + `chmod 0o755`），postinstall（`scripts/download-oo.ts`，best-effort）下载到 gitignore 的 `.oo-bin/`，dev 与打包共用。dev 解析顺序：`WANTA_OO_BIN` 覆盖 > `.oo-bin/oo`，删除 `which oo`。opencode 来源同步改为 `node_modules/opencode-ai/bin/opencode.exe`（修复既存的 Windows 包名错误：上游叫 `opencode-windows-x64` 而非 `win32`）。
 - **理由（被否方案）**：主进程加 `existsSync` 预检被用户否决——**主进程禁用同步 fs（阻塞渲染）**，改为 `predev` 守卫 `scripts/check-oo.ts`（独立 CLI 脚本用 sync fs 无妨）。这条已成项目铁律。
 - **后果**：升级 oo 只改 `OO_CLI_VERSION` 一处；缺 `.oo-bin/oo` 时 App 照常启动（错误只在首次工具调用时以 JSON 返回给模型），这正是 predev 守卫存在的原因。
 
@@ -72,7 +72,7 @@
 ## 9. 放开 tools 权限
 
 - **背景**：早期 agent 定位"非编码连接器助手"，内置工具全封禁。后果：答不了"我电脑上有哪些文件"，也无法写脚本组合多个 action 的 JSON 结果。
-- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② `LUMO_PERMISSION = { edit: "allow", bash: "allow", webfetch: "allow", external_directory: "allow" }` 同时下发 agent 级与根级；③ 系统提示词整段重写为双能力（connector 三工具 + 本地工具）——只放开工具不改提示词，模型仍会自我拒绝。
+- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② `WANTA_PERMISSION = { edit: "allow", bash: "allow", webfetch: "allow", external_directory: "allow" }` 同时下发 agent 级与根级；③ 系统提示词整段重写为双能力（connector 三工具 + 本地工具）——只放开工具不改提示词，模型仍会自我拒绝。
 - **理由（关键约束）**：permission 取值 `ask | allow | deny`，但 `event-translator.ts` 未处理 `permission.updated` 事件（无确认 UI），设 `ask` 会让会话静默挂死 → 只能 allow/deny 二选一。`external_directory: "allow"` 让 read/glob/list 越出私有 scratch cwd 访问真实文件系统（bash 本就不受限）；**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），用提示词引导绝对路径/`~` 代替。
 - **后果**：当前安全姿态是**模型拥有无确认的任意 shell / 文件读写 / 网络访问**，这是已知且接受的取舍。若将来要"危险操作前确认"，需监听 `permission.updated` 并做确认弹窗（明确列为可选后续工作，未做）。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器三工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。前端无需改动（工具渲染有 default 分支）。
 

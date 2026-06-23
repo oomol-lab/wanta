@@ -28,8 +28,8 @@ describe("extractLocalPathCandidates", () => {
   })
 
   it("extracts plain Windows paths with spaces", () => {
-    expect(extractLocalPathCandidates("Result: C:\\Program Files\\Lumo\\out file.png is ready")).toEqual([
-      "C:\\Program Files\\Lumo\\out file.png",
+    expect(extractLocalPathCandidates("Result: C:\\Program Files\\Wanta\\out file.png is ready")).toEqual([
+      "C:\\Program Files\\Wanta\\out file.png",
     ])
   })
 
@@ -81,7 +81,7 @@ describe("isBroadLocalArtifactPath", () => {
 
   it("allows specific output descendants", () => {
     expect(isBroadLocalArtifactPath("/Users/wushuang/Desktop/out.png", "/Users/wushuang")).toBe(false)
-    expect(isBroadLocalArtifactPath("/tmp/lumo-artifacts/out.png", "/Users/wushuang")).toBe(false)
+    expect(isBroadLocalArtifactPath("/tmp/wanta-artifacts/out.png", "/Users/wushuang")).toBe(false)
   })
 })
 

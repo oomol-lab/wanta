@@ -21,6 +21,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "electron", "scripts", "vite.config.ts"],
+  "include": ["src", "electron", "scripts", "vite.config.ts", "electron-builder.ts"],
   "exclude": ["dist", "dist-electron", "node_modules", "release", ".electron-dist"]
 }

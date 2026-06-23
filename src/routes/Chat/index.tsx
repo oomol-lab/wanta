@@ -472,7 +472,7 @@ function MessageFeedbackAction({
 
 function AssistantMessageActions({ text, cancelled }: { text: string; cancelled: boolean }) {
   const t = useT()
-  // TODO(lumo-feedback-api): 接入反馈 API 后，将这里的本地状态同步为服务端的消息反馈结果。
+  // TODO(wanta-feedback-api): 接入反馈 API 后，将这里的本地状态同步为服务端的消息反馈结果。
   const [activeRating, setActiveRating] = React.useState<MessageRating | null>(null)
 
   if (!text && !cancelled) {

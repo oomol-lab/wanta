@@ -25,7 +25,7 @@ interface UserProfileResponse {
   username?: unknown
 }
 
-/** 登录成功后的账号画像（仅取 lumo 需要的最小集）。 */
+/** 登录成功后的账号画像（仅取 wanta 需要的最小集）。 */
 export interface BrowserLoginProfile {
   id: string
   name: string

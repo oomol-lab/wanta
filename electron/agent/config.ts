@@ -8,14 +8,14 @@ import {
   resolveBuiltinModel,
 } from "../models/builtin.ts"
 import { customModelDisplayName } from "../models/store.ts"
-import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
+import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 
 type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string]
 
 // OpenCode 内部标识（产品内部约定，可随品牌改，但 OO_/connector 协议契约不改）。
-export const LUMO_AGENT_NAME = "lumo"
-export const LUMO_PROVIDER_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.providerID
-export const LUMO_MODEL_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.modelID
+export const WANTA_AGENT_NAME = "wanta"
+export const WANTA_PROVIDER_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.providerID
+export const WANTA_MODEL_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.modelID
 
 export interface OpencodeCustomModel {
   id: string
@@ -31,7 +31,7 @@ export interface OpencodeCustomModel {
 // 连接器工具并存。permission 全 allow——本应用未接入 OpenCode 的权限询问 UI，"ask" 会让会话
 // 挂起（无人应答），故只能 allow 或 deny；external_directory: allow 让 read/glob/list 等文件
 // 工具能访问 workspace cwd（App 私有 scratch 目录）之外的真实文件系统，bash 本就不受此限。
-const LUMO_PERMISSION = {
+const WANTA_PERMISSION = {
   edit: "allow",
   bash: "allow",
   webfetch: "allow",
@@ -48,26 +48,26 @@ export interface OpencodeConfigOptions {
 export function buildOpencodeConfig({ authToken, customModels = [] }: OpencodeConfigOptions): Config {
   return {
     $schema: "https://opencode.ai/config.json",
-    model: `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`,
+    model: `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`,
     provider: {
       ...builtinProviderConfigs(authToken),
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),
     },
     agent: {
-      [LUMO_AGENT_NAME]: {
+      [WANTA_AGENT_NAME]: {
         description: "OOMOL connector + local coding assistant",
         mode: "primary",
-        prompt: LUMO_SYSTEM_PROMPT,
+        prompt: WANTA_SYSTEM_PROMPT,
         // 不再下发 tools 禁用表：所有内置工具默认启用。
-        permission: LUMO_PERMISSION,
+        permission: WANTA_PERMISSION,
       },
     },
-    permission: LUMO_PERMISSION,
+    permission: WANTA_PERMISSION,
   }
 }
 
 export function customProviderId(id: string): string {
-  return `lumo-custom-${id}`
+  return `wanta-custom-${id}`
 }
 
 function builtinProviderConfigs(authToken: string): NonNullable<Config["provider"]> {

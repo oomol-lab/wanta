@@ -15,7 +15,7 @@
 // 体积口径，跨平台保持一致：
 //   - 下载体积 = installer/zip 文件的 `stat.size`（表观字节）。
 //   - 展开体积 = 解包 app payload 目录下文件 `stat.size` 的递归求和（表观字节）。
-//                macOS 是 `mac-<arch>/Lumo.app`；Windows 是 `win-unpacked`
+//                macOS 是 `mac-<arch>/Wanta.app`；Windows 是 `win-unpacked`
 //                （非 x64 架构为 `win-<arch>-unpacked`）。该口径与用户安装后在
 //                磁盘上看到的体积（Finder 显示简介 / 资源管理器属性）一致，且
 //                避免在签名 runner 上跑 NSIS 安装器或用 `hdiutil` 挂载 DMG。
@@ -139,9 +139,9 @@ export async function collectMacMetadata({
   arch,
   releaseDir,
 }: CollectMetadataOptions): Promise<ReleaseSizeMetadata> {
-  const dmgPath = path.join(releaseDir, `Lumo-${version}.dmg`)
-  const zipPath = path.join(releaseDir, `Lumo-${version}.zip`)
-  const appPath = path.join(releaseDir, macUnpackedDirName(arch), "Lumo.app")
+  const dmgPath = path.join(releaseDir, `Wanta-${version}.dmg`)
+  const zipPath = path.join(releaseDir, `Wanta-${version}.zip`)
+  const appPath = path.join(releaseDir, macUnpackedDirName(arch), "Wanta.app")
 
   const [dmgBytes, zipBytes, appBytes] = await Promise.all([
     fileSize(dmgPath),
@@ -184,7 +184,7 @@ export async function collectWinMetadata({
   arch,
   releaseDir,
 }: CollectMetadataOptions): Promise<ReleaseSizeMetadata> {
-  const exePath = path.join(releaseDir, `Lumo-${version}-Setup.exe`)
+  const exePath = path.join(releaseDir, `Wanta-${version}-Setup.exe`)
   const unpackedPath = path.join(releaseDir, winUnpackedDirName(arch))
 
   const [exeBytes, unpackedBytes] = await Promise.all([fileSize(exePath), sumFileBytesRecursive(unpackedPath)])

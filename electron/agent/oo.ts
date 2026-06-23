@@ -31,7 +31,7 @@ export interface OoEnvOptions {
   organizationScopePath?: string
   /** oo-cli 私有目录根（App userData 下）。 */
   storeDir: string
-  /** oo 二进制绝对路径（注入 LUMO_OO_BIN，供自定义工具直接调用，比 PATH 更稳）。 */
+  /** oo 二进制绝对路径（注入 WANTA_OO_BIN，供自定义工具直接调用，比 PATH 更稳）。 */
   ooBinPath?: string
 }
 
@@ -55,18 +55,18 @@ export function buildOoEnv({
     OO_TELEMETRY_DISABLED: "1",
     OO_LOG_LEVEL: "warn",
     // 供自定义工具读取（authUrl / 连接器派生，集中在 domain.ts）。
-    LUMO_ENDPOINT: ooEndpoint,
-    LUMO_CONSOLE_URL: consoleBaseUrl,
-    LUMO_CONNECTOR_URL: connectorBaseUrl,
+    WANTA_ENDPOINT: ooEndpoint,
+    WANTA_CONSOLE_URL: consoleBaseUrl,
+    WANTA_CONNECTOR_URL: connectorBaseUrl,
   }
   if (ooBinPath) {
-    env.LUMO_OO_BIN = ooBinPath
+    env.WANTA_OO_BIN = ooBinPath
   }
   if (organizationScopePath) {
-    env.LUMO_ORGANIZATION_SCOPE_PATH = organizationScopePath
+    env.WANTA_ORGANIZATION_SCOPE_PATH = organizationScopePath
   }
   if (organizationName) {
-    env.LUMO_ORGANIZATION_NAME = organizationName
+    env.WANTA_ORGANIZATION_NAME = organizationName
   }
   return env
 }

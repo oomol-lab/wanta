@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { metadataFileName } from "./constants.ts"
-import { scanInstalledSkills, scanLumoInstalledSkills } from "./scan.ts"
+import { scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
 
 test("scanInstalledSkills reads managed skill frontmatter metadata from SKILL.md", async () => {
   const homeEnvVar = "OO_DESKTOP_TEST_AGENT_HOME"
@@ -222,8 +222,8 @@ test("scanInstalledSkills ignores backup skill directories", async () => {
   }
 })
 
-test("scanLumoInstalledSkills reads shared Agent Skills and prefers app cache as source", async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), "lumo-shared-skills-"))
+test("scanWantaInstalledSkills reads shared Agent Skills and prefers app cache as source", async () => {
+  const rootPath = await mkdtemp(path.join(os.tmpdir(), "wanta-shared-skills-"))
   const sharedSkillRoot = path.join(rootPath, ".agents", "skills")
   const cacheSkillStoreRoot = path.join(rootPath, "cache", "skills")
   const sharedManagedPath = path.join(sharedSkillRoot, "managed")
@@ -265,11 +265,11 @@ test("scanLumoInstalledSkills reads shared Agent Skills and prefers app cache as
       ),
     ])
 
-    const skills = await scanLumoInstalledSkills({ cacheSkillStoreRoot, sharedSkillRoot })
+    const skills = await scanWantaInstalledSkills({ cacheSkillStoreRoot, sharedSkillRoot })
     const managed = skills.find((skill) => skill.name === "managed")
     const uncached = skills.find((skill) => skill.name === "uncached")
 
-    assert.equal(managed?.agent.id, "lumo")
+    assert.equal(managed?.agent.id, "wanta")
     assert.equal(managed?.path, sharedManagedPath)
     assert.equal(managed?.sourcePath, cachedManagedPath)
     assert.equal(uncached?.path, sharedUncachedPath)

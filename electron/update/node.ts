@@ -13,7 +13,7 @@ import { resolveUpdateChannel, updaterChannelName } from "./channel.ts"
 import { UpdateService as UpdateServiceName } from "./common.ts"
 
 // 结构移植自 oo-desktop electron/update/node.ts（状态机 / in-flight 去重 / 404 容忍重试），
-// 裁去 telemetry 与 apply-outcome 跟踪（Lumo 无 telemetry 基建），加渠道管理。
+// 裁去 telemetry 与 apply-outcome 跟踪（Wanta 无 telemetry 基建），加渠道管理。
 // 渠道经 setFeedURL 的 GenericServerOptions.channel 传入——刻意不用 autoUpdater.channel
 // setter：该 setter 会静默把 allowDowngrade 置 true（electron-updater AppUpdater 源码），
 // 与"beta 切回 stable 默认等下一个正式版、绝不自动降级"的策略冲突。
@@ -225,13 +225,13 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
       const message = cause instanceof Error ? cause.message : String(cause)
       if (isMissingAssetError(cause)) {
         // 上传/CDN 竞态或渠道 yml 暂缺：按"暂无更新"处理并限次重试，不打扰用户。
-        console.warn("[lumo] update check skipped, asset missing (404):", message)
+        console.warn("[wanta] update check skipped, asset missing (404):", message)
         this.patchStatus({ status: "not-available" })
         this.scheduleMissingAssetRetry()
         return this.state
       }
       // 检查失败不向调用方抛：状态里已带错误，渲染层据此显示。
-      console.warn("[lumo] update check failed:", message)
+      console.warn("[wanta] update check failed:", message)
       this.patchStatus({ status: "error", error: message })
       return this.state
     }
@@ -308,7 +308,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
   private handleDownloadFailure(cause: unknown): void {
     const message = cause instanceof Error ? cause.message : String(cause)
     if (isMissingAssetError(cause)) {
-      console.warn("[lumo] update download skipped, asset missing (404):", message)
+      console.warn("[wanta] update download skipped, asset missing (404):", message)
       this.patchStatus({ status: "not-available" })
       this.scheduleMissingAssetRetry()
       return

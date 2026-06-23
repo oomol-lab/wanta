@@ -101,7 +101,7 @@ export function resolveUserFacingError(
   const normalized = diagnostics.toLowerCase()
   const status = readStatusCode(diagnostics)
 
-  if (normalized === "lumo_oauth_pending") {
+  if (normalized === "wanta_oauth_pending") {
     return buildError(
       area,
       "timeout",
@@ -112,7 +112,7 @@ export function resolveUserFacingError(
     )
   }
 
-  if (normalized === "lumo_oauth_cancelled") {
+  if (normalized === "wanta_oauth_cancelled") {
     return buildError(
       area,
       "cancelled",

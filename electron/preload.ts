@@ -25,7 +25,7 @@ export interface SaveClipboardAttachmentInput {
   bytes: ArrayBuffer
 }
 
-export interface LumoBridge {
+export interface WantaBridge {
   appCommit: string
   getPathForFile(file: File): string
   onAppCommand(callback: (command: AppCommand) => void): () => void
@@ -38,14 +38,14 @@ export interface LumoBridge {
 
 declare global {
   var electron: typeof electronAPI
-  // 全局 bridge 名与 branding.windowBridge 一致（值固定为 "lumo"）。
-  var lumo: LumoBridge
+  // 全局 bridge 名与 branding.windowBridge 一致（值固定为 "wanta"）。
+  var wanta: WantaBridge
 }
 
 // @oomol/connection 的 RPC 桥接，仅此一行即可让 renderer 的 ElectronClientAdapter 找到通道。
 setupConnectionPreload()
 
-const lumo: LumoBridge = {
+const wanta: WantaBridge = {
   appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   onAppCommand: (callback: (command: AppCommand) => void) => {
@@ -59,9 +59,9 @@ const lumo: LumoBridge = {
   },
   platform: process.platform,
   saveClipboardAttachment: (input: SaveClipboardAttachmentInput) =>
-    electronAPI.ipcRenderer.invoke("lumo:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
+    electronAPI.ipcRenderer.invoke("wanta:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
   selectAttachmentPaths: (kind: "file" | "directory") =>
-    electronAPI.ipcRenderer.invoke("lumo:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
+    electronAPI.ipcRenderer.invoke("wanta:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
   setAppLocale: (locale: AppLocale) => ipcRenderer.send(APP_LOCALE_CHANNEL, locale),
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
 }
@@ -69,11 +69,11 @@ const lumo: LumoBridge = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld("electron", electronAPI)
-    contextBridge.exposeInMainWorld(branding.windowBridge, lumo)
+    contextBridge.exposeInMainWorld(branding.windowBridge, wanta)
   } catch (error) {
     console.error(error)
   }
 } else {
   window.electron = electronAPI
-  window.lumo = lumo
+  window.wanta = wanta
 }

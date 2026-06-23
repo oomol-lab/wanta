@@ -12,7 +12,7 @@ describe("resolveConnectionError", () => {
   })
 
   it("keeps OAuth polling messages specific instead of replacing them with generic action copy", () => {
-    expect(resolveConnectionError("LUMO_OAUTH_PENDING", "connect")).toMatchObject({
+    expect(resolveConnectionError("WANTA_OAUTH_PENDING", "connect")).toMatchObject({
       kind: "timeout",
       titleKey: "error.connections.oauthPending.title",
     })

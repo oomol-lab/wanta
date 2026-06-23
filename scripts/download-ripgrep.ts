@@ -8,13 +8,13 @@ await main()
 
 async function main(): Promise<void> {
   try {
-    if (process.env.OO_SKIP_BINARY_DOWNLOAD === "1" || process.env.LUMO_SKIP_RIPGREP_DOWNLOAD === "1") {
+    if (process.env.OO_SKIP_BINARY_DOWNLOAD === "1" || process.env.WANTA_SKIP_RIPGREP_DOWNLOAD === "1") {
       console.log("Skip downloading ripgrep binary.")
       return
     }
     const dest = await downloadRipgrepBinary()
-    console.log(`[lumo] ripgrep ${RIPGREP_VERSION} ready at ${dest}`)
+    console.log(`[wanta] ripgrep ${RIPGREP_VERSION} ready at ${dest}`)
   } catch (error) {
-    console.warn("[lumo] download-ripgrep postinstall failed (non-fatal):", error)
+    console.warn("[wanta] download-ripgrep postinstall failed (non-fatal):", error)
   }
 }

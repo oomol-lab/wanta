@@ -20,7 +20,7 @@ function createBridgeAgent(): {
 } {
   let listener: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
   const abort = vi.fn(async () => undefined)
-  const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "lumo-test-artifacts"))
+  const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const promptStreaming = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
@@ -222,7 +222,7 @@ test("stopGeneration cancels a submitted turn before prompt streaming starts", a
   assert.equal(events.at(-1)?.event, "generationStopped")
   assert.equal(service.hasActiveGeneration(), false)
 
-  resolveArtifactDir?.(path.join(os.tmpdir(), "lumo-test-artifacts"))
+  resolveArtifactDir?.(path.join(os.tmpdir(), "wanta-test-artifacts"))
   await sendPromise
   await Promise.resolve()
 
@@ -263,7 +263,7 @@ test("buildContextMentionsSystem returns undefined without selected context", ()
 })
 
 test("resolveLocalArtifacts resolves an explicit artifact root without scanning unrelated text paths", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifacts-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifacts-"))
   const artifactRoot = path.join(root, "turn")
   const staleRoot = path.join(root, "stale")
   await mkdir(artifactRoot, { recursive: true })
@@ -286,7 +286,7 @@ test("resolveLocalArtifacts resolves an explicit artifact root without scanning 
 })
 
 test("resolveLocalArtifacts reads artifact pack manifests", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifacts-manifest-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifacts-manifest-"))
   const artifactRoot = path.join(root, "turn")
   const filesDir = path.join(artifactRoot, "files")
   const supportDir = path.join(artifactRoot, "support")
@@ -297,7 +297,7 @@ test("resolveLocalArtifacts reads artifact pack manifests", async () => {
   await writeFile(path.join(supportDir, "download-summary.md"), "# Summary")
   await writeFile(path.join(root, "outside.jpg"), "outside")
   await writeFile(
-    path.join(artifactRoot, ".lumo-artifact.json"),
+    path.join(artifactRoot, ".wanta-artifact.json"),
     JSON.stringify({
       version: 1,
       title: "1688 images",
@@ -340,7 +340,7 @@ test("resolveLocalArtifacts ignores broad directories extracted from assistant t
 })
 
 test("getLocalArtifactPreview returns text for code artifacts", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifact-preview-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-preview-"))
   const filePath = path.join(root, "script.py")
   await writeFile(filePath, "print('hello')\n")
 
@@ -354,7 +354,7 @@ test("getLocalArtifactPreview returns text for code artifacts", async () => {
 })
 
 test("getLocalArtifactPreview rejects binary-looking text files", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-artifact-preview-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-preview-"))
   const filePath = path.join(root, "output.txt")
   await writeFile(filePath, Buffer.from([0, 1, 2, 3]))
 

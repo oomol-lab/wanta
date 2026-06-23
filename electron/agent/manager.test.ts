@@ -17,7 +17,7 @@ describe("AgentManager", () => {
   })
 
   it("frames connected providers as authorization awareness only", async () => {
-    const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
         authToken: "test",
@@ -42,7 +42,7 @@ describe("AgentManager", () => {
   })
 
   it("keeps artifact directories inside the artifacts root", async () => {
-    const rootDir = await mkdtemp(path.join(tmpdir(), "lumo-agent-"))
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {
       const manager = new AgentManager({
         authToken: "test",
@@ -84,7 +84,7 @@ describe("AgentManager", () => {
       authToken: "test",
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
-      rootDir: "/tmp/lumo-agent",
+      rootDir: "/tmp/wanta-agent",
     })
 
     const title = await manager.generateSessionTitle({

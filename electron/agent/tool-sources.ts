@@ -1,7 +1,7 @@
 // 自定义工具（R5）的源码，以字符串内嵌：运行时由 workspace.ts 写入
 // <workspace>/.opencode/tools/，供 OpenCode sidecar 加载（OpenCode 自带
 // @opencode-ai/plugin，无需在 workspace 旁安装）。工具通过 execFile 调用内置
-// oo（路径由 LUMO_OO_BIN 注入），将连接器发现/调用/授权信号都走"工具结果"。
+// oo（路径由 WANTA_OO_BIN 注入），将连接器发现/调用/授权信号都走"工具结果"。
 //
 // 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与 ${}，
 // 故无转义陷阱。这些代码运行在 OpenCode 的 Bun 运行时，不参与本项目 tsc/oxlint。
@@ -11,7 +11,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
-const OO_BIN = process.env.LUMO_OO_BIN || "oo"
+const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 
 export default tool({
   description:
@@ -40,7 +40,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
-const OO_BIN = process.env.LUMO_OO_BIN || "oo"
+const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 
 export default tool({
   description:
@@ -69,10 +69,10 @@ import { readFileSync } from "node:fs"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
-const OO_BIN = process.env.LUMO_OO_BIN || "oo"
+const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 
 function currentOrganizationName() {
-  const scopePath = process.env.LUMO_ORGANIZATION_SCOPE_PATH || ""
+  const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
   if (scopePath) {
     try {
       const parsed = JSON.parse(readFileSync(scopePath, "utf8"))
@@ -83,7 +83,7 @@ function currentOrganizationName() {
       // 启动期或文件损坏时回退到进程启动时的组织名。
     }
   }
-  return process.env.LUMO_ORGANIZATION_NAME || ""
+  return process.env.WANTA_ORGANIZATION_NAME || ""
 }
 
 function appendIdentityArgs(argv) {
@@ -130,7 +130,14 @@ export default tool({
       const match = stderr.match(/errorCode:\s*([^\s)）]+)/)
       const code = match ? match[1] : null
       if (code && AUTH_BLOCKING.has(code)) {
-        const base = process.env.LUMO_CONSOLE_URL || "https://console.oomol.com"
+        const base = process.env.WANTA_CONSOLE_URL
+        if (!base) {
+          return JSON.stringify({
+            status: "error",
+            errorCode: "config_missing",
+            message: "WANTA_CONSOLE_URL is not configured",
+          })
+        }
         return JSON.stringify({
           status: "authorization_required",
           service: args.service,

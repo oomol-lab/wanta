@@ -1,10 +1,10 @@
 // postinstall：dev 环境下载官方 Electron 到 .electron-dist，并在 macOS 改写
 // Info.plist（Bundle ID / 名称 / dev URL scheme），让本地 dev 版能独立接住
-// deep-link 回调（dev scheme = lumo-local）。
+// deep-link 回调（dev scheme = wanta-local）。
 //
 // 说明：dev 实际启动用的是 electron 包自身 postinstall 下载到
 // node_modules/electron/dist 的副本；.electron-dist 这份**专供 macOS dev
-// deep-link scheme 注册**（com.oomol.lumo-local）。因此本脚本对 stage-0 的
+// deep-link scheme 注册**（com.oomol.wanta-local）。因此本脚本对 stage-0 的
 // `dev` 启动不是必需，全程 best-effort：任何失败都只告警、不阻断 npm install。
 //
 // extract 用 @electron-internal/extract-zip（本项目约定不直接依赖 extract-zip）。
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     }
 
     if (await isElectronDistUpToDate()) {
-      console.log(`[lumo] .electron-dist already at v${electronVersion}, skip download.`)
+      console.log(`[wanta] .electron-dist already at v${electronVersion}, skip download.`)
       await writeElectronPackagePath()
       if (process.platform === "darwin") {
         await modifyPlist()
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
       await modifyPlist()
     }
   } catch (error) {
-    console.warn("[lumo] download-electron postinstall failed (non-fatal):", error)
+    console.warn("[wanta] download-electron postinstall failed (non-fatal):", error)
   }
 }
 
@@ -142,7 +142,7 @@ async function modifyPlist(): Promise<void> {
   try {
     await registerMacAppBundle()
   } catch (error) {
-    console.warn("[lumo] mac URL scheme registration failed (non-fatal):", error)
+    console.warn("[wanta] mac URL scheme registration failed (non-fatal):", error)
   }
 }
 

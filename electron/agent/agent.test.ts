@@ -6,22 +6,22 @@ import { test } from "vitest"
 import { branding } from "../branding.ts"
 import { ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
-import { buildOpencodeConfig, customProviderId, LUMO_AGENT_NAME, LUMO_MODEL_ID, LUMO_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, WANTA_AGENT_NAME, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager } from "./manager.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
-import { LUMO_SYSTEM_PROMPT } from "./system-prompt.ts"
+import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 test("buildOpencodeConfig wires the default GPT 5.5 OpenAI Responses model", () => {
   const config = buildOpencodeConfig({ authToken: "api-test" })
-  assert.equal(config.model, `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`)
+  assert.equal(config.model, `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`)
   assert.equal(config.model, "openai/gpt-5.5")
-  const provider = config.provider?.[LUMO_PROVIDER_ID]
+  const provider = config.provider?.[WANTA_PROVIDER_ID]
   assert.ok(provider)
   assert.equal(provider.npm, undefined)
   assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
   assert.equal(provider.options?.apiKey, "api-test")
-  const model = provider.models?.[LUMO_MODEL_ID]
+  const model = provider.models?.[WANTA_MODEL_ID]
   assert.ok(model)
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
@@ -92,7 +92,7 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
       },
     ],
   })
-  assert.equal(config.model, `${LUMO_PROVIDER_ID}/${LUMO_MODEL_ID}`)
+  assert.equal(config.model, `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`)
   const provider = config.provider?.[customProviderId("custom-1")]
   assert.ok(provider)
   assert.equal(provider.npm, "@ai-sdk/openai-compatible")
@@ -125,9 +125,9 @@ test("buildOpencodeConfig marks custom providers as image-capable only when requ
   assert.deepEqual(model?.modalities, { input: ["text", "image"], output: ["text"] })
 })
 
-test("lumo agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {
+test("wanta agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {
   const config = buildOpencodeConfig({ authToken: "k" })
-  const agent = config.agent?.[LUMO_AGENT_NAME]
+  const agent = config.agent?.[WANTA_AGENT_NAME]
   assert.ok(agent)
   assert.ok(typeof agent.prompt === "string" && agent.prompt.length > 0)
   // 不再下发 tools 禁用表：所有内置工具（bash/edit/write/read/webfetch/…）默认启用。
@@ -143,19 +143,19 @@ test("lumo agent enables built-in coding/shell tools alongside connector tools, 
 })
 
 test("system prompt treats Link as a contextual capability, not the default path", () => {
-  assert.match(LUMO_SYSTEM_PROMPT, /work agent/)
-  assert.match(LUMO_SYSTEM_PROMPT, /Start from the result the user needs/)
-  assert.match(LUMO_SYSTEM_PROMPT, /Tools are means to finish work, not features to showcase/)
+  assert.match(WANTA_SYSTEM_PROMPT, /work agent/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Start from the result the user needs/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Tools are means to finish work, not features to showcase/)
   assert.match(
-    LUMO_SYSTEM_PROMPT,
+    WANTA_SYSTEM_PROMPT,
     /Use Link tools only when the task requires private\/account-specific data or actions inside a SaaS account/,
   )
-  assert.match(LUMO_SYSTEM_PROMPT, /Authorized providers.*are context only/s)
-  assert.match(LUMO_SYSTEM_PROMPT, /concrete URL.*local web tools/s)
-  assert.match(LUMO_SYSTEM_PROMPT, /Locate and read the relevant context before editing/)
-  assert.match(LUMO_SYSTEM_PROMPT, /Use focused validation when feasible/)
-  assert.match(LUMO_SYSTEM_PROMPT, new RegExp(`${branding.organizationName} connectors`))
-  assert.match(LUMO_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
+  assert.match(WANTA_SYSTEM_PROMPT, /Authorized providers.*are context only/s)
+  assert.match(WANTA_SYSTEM_PROMPT, /concrete URL.*local web tools/s)
+  assert.match(WANTA_SYSTEM_PROMPT, /Locate and read the relevant context before editing/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Use focused validation when feasible/)
+  assert.match(WANTA_SYSTEM_PROMPT, new RegExp(`${branding.organizationName} connectors`))
+  assert.match(WANTA_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
@@ -175,10 +175,10 @@ test("buildOoEnv injects the required OO_* control vars (R3)", () => {
   assert.ok(env.OO_CONFIG_DIR.endsWith("/store/config"))
   assert.ok(env.OO_DATA_DIR.endsWith("/store/data"))
   assert.ok(env.OO_LOG_DIR.endsWith("/store/log"))
-  assert.equal(env.LUMO_CONSOLE_URL, `https://console.${ooEndpoint}`)
-  assert.equal(env.LUMO_OO_BIN, "/usr/bin/oo")
-  assert.equal(env.LUMO_ORGANIZATION_NAME, "acme-corp")
-  assert.equal(env.LUMO_ORGANIZATION_SCOPE_PATH, "/tmp/scope.json")
+  assert.equal(env.WANTA_CONSOLE_URL, `https://console.${ooEndpoint}`)
+  assert.equal(env.WANTA_OO_BIN, "/usr/bin/oo")
+  assert.equal(env.WANTA_ORGANIZATION_NAME, "acme-corp")
+  assert.equal(env.WANTA_ORGANIZATION_SCOPE_PATH, "/tmp/scope.json")
 })
 
 test("parseConnectorErrorCode extracts code in both en and zh (full-width parens) locales", () => {
@@ -208,7 +208,7 @@ test("agent tool sources are present and shaped", () => {
 })
 
 test("createArtifactDir creates an isolated per-session turn directory", async () => {
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), "lumo-agent-artifacts-"))
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "wanta-agent-artifacts-"))
   const manager = new AgentManager({
     authToken: "api-test",
     opencodeBinPath: "/bin/opencode",

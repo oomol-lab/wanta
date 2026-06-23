@@ -10,7 +10,7 @@ import { ModelsStore } from "./store.ts"
 const providerBaseUrls = externalModelProviderBaseUrls
 
 test("ModelsServiceImpl preserves custom model image support on update", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "lumo-models-service-"))
+  const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
   const service = new ModelsServiceImpl({ store: new ModelsStore(dir) })
 
   const created = await service.saveCustomModel({
@@ -36,7 +36,7 @@ test("ModelsServiceImpl preserves custom model image support on update", async (
 })
 
 test("ModelsServiceImpl defaults known provider image support but honors user choices", async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "lumo-models-service-"))
+  const dir = await mkdtemp(path.join(tmpdir(), "wanta-models-service-"))
   const service = new ModelsServiceImpl({ store: new ModelsStore(dir) })
 
   const qwen = await service.saveCustomModel({

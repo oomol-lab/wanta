@@ -213,7 +213,7 @@ function unwrapApiData<T>(payload: unknown): T {
 
 function logSettledFailure(label: string, result: PromiseSettledResult<unknown>): void {
   if (result.status === "rejected") {
-    console.warn("[lumo] billing overview request failed", { label, error: errorMessage(result.reason) })
+    console.warn("[wanta] billing overview request failed", { label, error: errorMessage(result.reason) })
   }
 }
 
@@ -246,7 +246,7 @@ async function getAllCreditUsages(): Promise<CreditUsages> {
   const seenTokens = new Set<string>()
   while (nextToken && pageCount < billingCreditUsagesMaxPages) {
     if (seenTokens.has(nextToken)) {
-      console.warn("[lumo] stopped billing balance pagination after repeated token")
+      console.warn("[wanta] stopped billing balance pagination after repeated token")
       break
     }
     seenTokens.add(nextToken)
@@ -304,7 +304,7 @@ async function getAllBillingLogsInRange(range: BillingLogRange): Promise<Billing
       return true
     })
     if (freshItems.length === 0) {
-      console.warn("[lumo] stopped billing log pagination after repeated page", { page })
+      console.warn("[wanta] stopped billing log pagination after repeated page", { page })
       break
     }
     items.push(...freshItems)

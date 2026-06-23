@@ -22,7 +22,7 @@ test("clipboardAttachmentFileName sanitizes path-like clipboard names", () => {
 })
 
 test("saveClipboardAttachment writes bytes under the app attachment directory", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-clipboard-attachment-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-clipboard-attachment-"))
   try {
     const bytes = new Uint8Array([1, 2, 3]).buffer
     const attachment = await saveClipboardAttachment(root, { name: "pasted-image", mime: "image/png", bytes })
@@ -39,7 +39,7 @@ test("saveClipboardAttachment writes bytes under the app attachment directory", 
 })
 
 test("saveClipboardAttachment rejects empty data", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "lumo-clipboard-attachment-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-clipboard-attachment-"))
   try {
     await assert.rejects(
       saveClipboardAttachment(root, { name: "empty.png", mime: "image/png", bytes: new ArrayBuffer(0) }),

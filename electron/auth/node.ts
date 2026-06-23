@@ -18,7 +18,7 @@ import { removeAccount, selectAccount, upsertAccount } from "./store.ts"
 
 export interface AuthManagerDeps {
   store: AuthStore
-  /** deep-link 协议（生产 lumo / dev lumo-local，见 branding）。 */
+  /** deep-link 协议（生产 wanta / dev wanta-local，见 branding）。 */
   protocolScheme: string
   /** 凭证变化（登录 / 登出）后由 main 重新装配 agent + connector。 */
   applyAccount: (account: AuthRuntimeAccount | null) => Promise<void>
@@ -83,7 +83,7 @@ export class AuthManager {
 
   public getAuthState(): Promise<AuthState> {
     void this.refreshActiveAccountProfile().catch((error: unknown) => {
-      console.warn("[lumo] failed to refresh account profile:", error)
+      console.warn("[wanta] failed to refresh account profile:", error)
     })
     return this.currentState()
   }
@@ -123,7 +123,7 @@ export class AuthManager {
       await this.deps.applyAccount(null)
     }
     await clearOomolSessionCookies().catch((error: unknown) => {
-      console.warn("[lumo] failed to clear session cookies:", error)
+      console.warn("[wanta] failed to clear session cookies:", error)
     })
     const state = await this.currentState()
     this.stateChanged.emit(state)
@@ -152,7 +152,7 @@ export class AuthManager {
       }
     } catch (error) {
       const wrapped = error instanceof Error ? error : new Error(String(error))
-      console.error("[lumo] browser sign-in failed:", wrapped)
+      console.error("[wanta] browser sign-in failed:", wrapped)
       if (this.pending === pendingAtStart) {
         this.rejectPending(wrapped)
       }
@@ -193,7 +193,7 @@ export class AuthManager {
     this.stateChanged.emit(state)
     await this.emitState(state)
     void this.deps.applyAccount(account).catch((error: unknown) => {
-      console.error("[lumo] failed to start agent after sign-in:", error)
+      console.error("[wanta] failed to start agent after sign-in:", error)
     })
     return state
   }

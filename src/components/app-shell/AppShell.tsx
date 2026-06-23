@@ -1329,6 +1329,7 @@ export function AppShell() {
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
   const artifactsPanelPendingWidth = React.useRef<number | null>(null)
+  const artifactsPanelLayoutWidth = React.useRef<number | null>(null)
   const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelContentRef = React.useRef<HTMLDivElement | null>(null)
@@ -1549,16 +1550,29 @@ export function AppShell() {
     }
 
     const updateArtifactsPanelBounds = (): void => {
-      const maxWidth = artifactsPanelMaxWidth(element.clientWidth, sidebarWidth, sidebarCollapsed)
+      const appWidth = element.clientWidth
+      const previousAppWidth = artifactsPanelLayoutWidth.current
+      artifactsPanelLayoutWidth.current = appWidth
+      const maxWidth = artifactsPanelMaxWidth(appWidth, sidebarWidth, sidebarCollapsed)
+      const expandedBy = previousAppWidth === null ? 0 : Math.max(0, appWidth - previousAppWidth)
+      const shouldGrowPanel =
+        expandedBy > 0 &&
+        route === "chat" &&
+        artifactsPanelOpen &&
+        artifactSelection !== null &&
+        !isArtifactsPanelResizing
+
       setArtifactsPanelMaxWidthState(maxWidth)
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthForLayout(width, maxWidth))
+      setArtifactsPanelWidth((width) =>
+        clampArtifactsPanelWidthForLayout(width + (shouldGrowPanel ? expandedBy : 0), maxWidth),
+      )
     }
 
     updateArtifactsPanelBounds()
     const observer = new ResizeObserver(updateArtifactsPanelBounds)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [sidebarCollapsed, sidebarWidth])
+  }, [artifactSelection, artifactsPanelOpen, isArtifactsPanelResizing, route, sidebarCollapsed, sidebarWidth])
 
   React.useEffect(() => {
     try {

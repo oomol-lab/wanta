@@ -1,11 +1,14 @@
+import { branding } from "./electron/branding.ts"
+
 // @see - https://www.electron.build/configuration/configuration
 // 阶段 0：未签名本地包。图标 / extraResources（oo + opencode 二进制）/ 签名公证
-// 在后续阶段补齐；品牌标识与 electron/branding.ts 保持一致（R1）。
-{
-  $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  appId: "com.oomol.wanta",
+// 在后续阶段补齐；品牌标识从 electron/branding.ts 派生（R1）。
+export default {
+  $schema:
+    "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  appId: branding.appId,
   asar: true,
-  productName: "Wanta",
+  productName: branding.appName,
   directories: {
     buildResources: "resources",
     output: "release/${version}",
@@ -21,8 +24,8 @@
   generateUpdatesFilesForAllChannels: true,
   protocols: [
     {
-      name: "wanta",
-      schemes: ["wanta"],
+      name: branding.protocolScheme,
+      schemes: [branding.protocolScheme],
     },
   ],
   files: ["dist", "dist-electron", "!**/*.{map,d.ts}"],
@@ -53,7 +56,7 @@
     icon: "branding/icon.icns",
     electronLanguages: ["en", "zh_CN"],
     extendInfo: {
-      NSMicrophoneUsageDescription: "Wanta uses the microphone to record voice messages for chat input.",
+      NSMicrophoneUsageDescription: `${branding.appName} uses the microphone to record voice messages for chat input.`,
     },
     entitlements: "electron/entitlements.mac.plist",
     entitlementsInherit: "electron/entitlements.mac.plist",

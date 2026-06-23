@@ -11,11 +11,11 @@ export const branding = {
   appName: "Wanta",
   /** OOMOL 组织/服务品牌名（如内置模型 provider、官方技能维护者）。 */
   organizationName: "OOMOL",
-  /** 生产包 appId（须与 electron-builder.json5 的 appId 一致）。 */
+  /** 生产包 appId（electron-builder.ts 从这里派生）。 */
   appId: "com.oomol.wanta",
   /** 本地开发版 Electron 的 bundle id（download-electron 改写 .electron-dist 的 plist）。 */
   devBundleId: "com.oomol.wanta-local",
-  /** 生产 deep-link scheme（须与 electron-builder.json5 的 protocols 一致）。 */
+  /** 生产 deep-link scheme（electron-builder.ts 从这里派生）。 */
   protocolScheme: "wanta",
   /** 本地开发 deep-link scheme。 */
   devProtocolScheme: "wanta-local",

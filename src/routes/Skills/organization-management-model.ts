@@ -8,6 +8,7 @@ import type {
   OrganizationUserSummary,
 } from "../../../electron/organizations/common.ts"
 
+import { branding } from "../../../electron/branding.ts"
 import { parseProviderGrants } from "./organization-provider-access.ts"
 
 export type OrganizationRole = "creator" | "member"
@@ -67,7 +68,7 @@ export const minimumMemberSearchLength = 2
 
 const organizationNamePattern = /^[A-Za-z0-9._-]+$/
 const organizationPageSnapshotTtlMs = 30_000
-const selectedOrganizationStorageKeyPrefix = "wanta:organization-management:selected-organization:"
+const selectedOrganizationStorageKeyPrefix = `${branding.storageKeyPrefix}:organization-management:selected-organization:`
 
 export const initialProviderAccessForm: ProviderAccessForm = {
   allProviders: false,

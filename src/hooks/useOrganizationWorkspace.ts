@@ -3,6 +3,7 @@ import type { Organization, OrganizationOverview, OrganizationRole } from "../..
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
+import { branding } from "../../electron/branding.ts"
 import { onOrganizationChanged } from "../lib/organization-change-bus.ts"
 import { getOrganizationOverview } from "../lib/organizations-client.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
@@ -41,7 +42,8 @@ interface WorkspaceOverviewInFlightEntry {
   promise: Promise<OrganizationOverview>
 }
 
-const selectedWorkspaceStorageKeyPrefix = "wanta:active-workspace:"
+const selectedWorkspaceStorageKeyPrefix = `${branding.storageKeyPrefix}:active-workspace:`
+const legacySelectedWorkspaceStorageKeyPrefix = "lumo:active-workspace:"
 const workspaceOverviewCacheMs = 30_000
 let workspaceOverviewCache: WorkspaceOverviewCacheEntry | null = null
 let workspaceOverviewInFlight: WorkspaceOverviewInFlightEntry | null = null
@@ -50,18 +52,30 @@ function selectedWorkspaceStorageKey(accountId: string): string {
   return `${selectedWorkspaceStorageKeyPrefix}${accountId}`
 }
 
+function legacySelectedWorkspaceStorageKey(accountId: string): string {
+  return `${legacySelectedWorkspaceStorageKeyPrefix}${accountId}`
+}
+
 function readStoredOrganizationId(accountId: string | undefined): string | null {
   if (!accountId) {
     return null
   }
   try {
-    const raw = window.localStorage.getItem(selectedWorkspaceStorageKey(accountId))
+    const key = selectedWorkspaceStorageKey(accountId)
+    const legacyKey = legacySelectedWorkspaceStorageKey(accountId)
+    const currentRaw = window.localStorage.getItem(key)
+    const legacyRaw = currentRaw === null ? window.localStorage.getItem(legacyKey) : null
+    const raw = currentRaw ?? legacyRaw
     if (!raw) {
       return null
     }
     const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== "object" || !("type" in parsed)) {
       return null
+    }
+    if (legacyRaw !== null && (parsed.type === "organization" || parsed.type === "personal")) {
+      window.localStorage.setItem(key, raw)
+      window.localStorage.removeItem(legacyKey)
     }
     if (parsed.type !== "organization" || !("organizationId" in parsed)) {
       return null

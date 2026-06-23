@@ -22,6 +22,7 @@ interface ChatErrorNoticeProps {
 }
 
 const paymentRecoveryPendingKey = "wanta-payment-recovery-pending"
+const legacyPaymentRecoveryPendingKey = "lumo-payment-recovery-pending"
 const paymentRecoveryPendingTtlMs = 24 * 60 * 60 * 1000
 const copyFeedbackMs = 1_500
 const CreditPurchaseModal = React.lazy(() =>
@@ -42,6 +43,7 @@ function markPaymentRecoveryPending(): void {
 function clearPaymentRecoveryPending(): void {
   try {
     localStorage.removeItem(paymentRecoveryPendingKey)
+    localStorage.removeItem(legacyPaymentRecoveryPendingKey)
   } catch {
     // 忽略存储不可用。
   }
@@ -49,19 +51,53 @@ function clearPaymentRecoveryPending(): void {
 
 function hasPaymentRecoveryPending(): boolean {
   try {
-    const raw = localStorage.getItem(paymentRecoveryPendingKey)
+    const currentRaw = localStorage.getItem(paymentRecoveryPendingKey)
+    const legacyRaw = currentRaw === null ? localStorage.getItem(legacyPaymentRecoveryPendingKey) : null
+    const raw = currentRaw ?? legacyRaw
     if (!raw) {
       return false
     }
     const parsed = JSON.parse(raw) as { expiresAt?: unknown }
     const expiresAt = typeof parsed.expiresAt === "number" ? parsed.expiresAt : 0
     if (Date.now() <= expiresAt) {
+      if (legacyRaw !== null) {
+        localStorage.setItem(paymentRecoveryPendingKey, raw)
+        localStorage.removeItem(legacyPaymentRecoveryPendingKey)
+      }
       return true
     }
-    localStorage.removeItem(paymentRecoveryPendingKey)
+    clearPaymentRecoveryPending()
     return false
   } catch {
     return false
+  }
+}
+
+function autoPromptStorageKey(autoOpenKey: string): string {
+  return `wanta-payment-dialog-opened:${autoOpenKey}`
+}
+
+function legacyAutoPromptStorageKey(autoOpenKey: string): string {
+  return `lumo-payment-dialog-opened:${autoOpenKey}`
+}
+
+function markAutoPromptOpened(autoOpenKey: string): boolean {
+  const key = autoPromptStorageKey(autoOpenKey)
+  const legacyKey = legacyAutoPromptStorageKey(autoOpenKey)
+  try {
+    if (sessionStorage.getItem(key)) {
+      return false
+    }
+    if (sessionStorage.getItem(legacyKey)) {
+      sessionStorage.setItem(key, "1")
+      sessionStorage.removeItem(legacyKey)
+      return false
+    }
+    sessionStorage.setItem(key, "1")
+    return true
+  } catch {
+    // 忽略 sessionStorage 不可用；这种情况下仍自动打开一次。
+    return true
   }
 }
 
@@ -161,17 +197,15 @@ export function ChatErrorNotice({
   }, [isPaymentRequired, refreshBalance])
 
   React.useEffect(() => {
-    if (!canAutoPromptPayment({ autoOpenKey, balanceChecked, hasCredits, isPaymentRequired, recovered })) {
+    const promptKey = autoOpenKey
+    if (
+      !promptKey ||
+      !canAutoPromptPayment({ autoOpenKey: promptKey, balanceChecked, hasCredits, isPaymentRequired, recovered })
+    ) {
       return
     }
-    const storageKey = `wanta-payment-dialog-opened:${autoOpenKey}`
-    try {
-      if (sessionStorage.getItem(storageKey)) {
-        return
-      }
-      sessionStorage.setItem(storageKey, "1")
-    } catch {
-      // 忽略 sessionStorage 不可用；这种情况下仍自动打开一次。
+    if (!markAutoPromptOpened(promptKey)) {
+      return
     }
     if (hasPaymentRecoveryPending()) {
       return

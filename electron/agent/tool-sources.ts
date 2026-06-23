@@ -130,7 +130,14 @@ export default tool({
       const match = stderr.match(/errorCode:\s*([^\s)）]+)/)
       const code = match ? match[1] : null
       if (code && AUTH_BLOCKING.has(code)) {
-        const base = process.env.WANTA_CONSOLE_URL || "https://console.oomol.com"
+        const base = process.env.WANTA_CONSOLE_URL
+        if (!base) {
+          return JSON.stringify({
+            status: "error",
+            errorCode: "config_missing",
+            message: "WANTA_CONSOLE_URL is not configured",
+          })
+        }
         return JSON.stringify({
           status: "authorization_required",
           service: args.service,

@@ -48,7 +48,7 @@
 ## 6. oo CLI 调用失败修复：node_modules 二进制 → `.oo-bin/` 自管理
 
 - **背景（根因）**：agent 调连接器工具报 `spawn .../oo EACCES`。上游 `@oomol-lab/oo-cli-*` 平台包 tarball 内 `bin/oo` 本身就是 0644（发布时没带 +x）；dev 下 `which oo` 命中 `node_modules/.bin` 的 wrapper，wrapper spawn 无执行位的二进制 → EACCES。生产一直正常是因为 `prepare-binaries.ts` 复制时 chmod 0755——纯 dev 问题。
-- **决策**：移除 `@oomol-lab/oo-cli` npm 依赖；`scripts/oo-cli.ts` 为单一来源（`OO_CLI_VERSION = "1.2.2"`、平台/libc 映射、自写 ustar 提取器替代系统 tar、npm packument `dist.integrity` sha512 校验、原子落位 + `chmod 0o755`），postinstall（`scripts/download-oo.ts`，best-effort）下载到 gitignore 的 `.oo-bin/`，dev 与打包共用。dev 解析顺序：`WANTA_OO_BIN` 覆盖 > `.oo-bin/oo`，删除 `which oo`。opencode 来源同步改为 `node_modules/opencode-ai/bin/opencode.exe`（修复既存的 Windows 包名错误：上游叫 `opencode-windows-x64` 而非 `win32`）。
+- **决策**：移除 `@oomol-lab/oo-cli` npm 依赖；`scripts/oo-cli.ts` 为单一来源（`OO_CLI_VERSION = "1.2.3"`、平台/libc 映射、自写 ustar 提取器替代系统 tar、npm packument `dist.integrity` sha512 校验、原子落位 + `chmod 0o755`），postinstall（`scripts/download-oo.ts`，best-effort）下载到 gitignore 的 `.oo-bin/`，dev 与打包共用。dev 解析顺序：`WANTA_OO_BIN` 覆盖 > `.oo-bin/oo`，删除 `which oo`。opencode 来源同步改为 `node_modules/opencode-ai/bin/opencode.exe`（修复既存的 Windows 包名错误：上游叫 `opencode-windows-x64` 而非 `win32`）。
 - **理由（被否方案）**：主进程加 `existsSync` 预检被用户否决——**主进程禁用同步 fs（阻塞渲染）**，改为 `predev` 守卫 `scripts/check-oo.ts`（独立 CLI 脚本用 sync fs 无妨）。这条已成项目铁律。
 - **后果**：升级 oo 只改 `OO_CLI_VERSION` 一处；缺 `.oo-bin/oo` 时 App 照常启动（错误只在首次工具调用时以 JSON 返回给模型），这正是 predev 守卫存在的原因。
 

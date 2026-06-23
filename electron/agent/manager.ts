@@ -10,6 +10,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { branding } from "../branding.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
@@ -416,7 +417,7 @@ export class AgentManager {
   public async sendMessage(text: string, sessionId?: string, system?: string): Promise<SendMessageResult> {
     let id = sessionId
     if (!id) {
-      id = (await this.createSession("Wanta")).id
+      id = (await this.createSession(branding.appName)).id
     }
     const prompted = await this.client.session.prompt({
       path: { id },

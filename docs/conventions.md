@@ -4,7 +4,7 @@
 
 ## 1. 设计编号体系（注释中反复出现，沿自原始计划）
 
-- **R1** 品牌单一来源：`electron/branding.ts` + electron-builder `productName`。`OO_` env 前缀、`x-oomol-*` 头是外部协议契约，不随品牌改。
+- **R1** 品牌单一来源：`electron/branding.ts`。`electron-builder.ts` 必须从该模块派生 appId / productName / protocol。`OO_` env 前缀、`x-oomol-*` 头是外部协议契约，不随品牌改。
 - **R2** endpoint 单一来源：`electron/domain.ts` 派生一切域名，禁止散落硬编码（现为构建期常量，动态切换已移除）。
 - **R3** oo 只经环境变量控制：`electron/agent/oo.ts` 的 `buildOoEnv` 是全集。
 - **R4** 动态系统提示：稳定人格放 agent.prompt（prompt 缓存友好），每轮已授权 Link provider 存在性提示（来源 `/v1/apps`）经 `body.system` 注入末尾（实测追加非覆盖）；默认不列具体 provider 名，避免可用性上下文变成工具诱导。

@@ -515,7 +515,7 @@ export function ModelPicker({
     : null
 
   return (
-    <div ref={rootRef} className="min-w-0">
+    <div ref={rootRef} className="max-w-full min-w-0 shrink">
       <Button
         ref={triggerRef}
         type="button"
@@ -526,7 +526,7 @@ export function ModelPicker({
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled}
-        className="h-8 max-w-[min(14rem,100%)] min-w-0 shrink rounded-full px-2"
+        className="h-8 max-w-full min-w-0 shrink rounded-full px-2"
         onClick={() => setOpen((value) => !value)}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
@@ -535,9 +535,9 @@ export function ModelPicker({
           }
         }}
       >
-        <Brain className="size-4" />
-        <span className="min-w-0 truncate">{selected.label}</span>
-        <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+        <Brain className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-left">{selected.label}</span>
+        <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-180")} />
       </Button>
       {menu}
     </div>

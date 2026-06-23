@@ -124,6 +124,8 @@ const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
 const TURN_RETRY_OPTIONS_LIMIT = 48
 const SESSION_TITLE_RETRY_DELAY_MS = 20_000
+const AUTH_RETRY_POLL_INTERVAL_MS = 2_000
+const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 
@@ -1325,6 +1327,7 @@ export function AppShell() {
     contextMentions?: ChatContextMention[]
     model?: ModelChoice
   } | null>(null)
+  const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{ service: string; startedAt: number } | null>(null)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
@@ -1402,6 +1405,33 @@ export function AppShell() {
 
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
   React.useEffect(() => {
+    if (!pendingRetryWatch) {
+      return
+    }
+
+    let cancelled = false
+    const refreshUntilConnected = async (): Promise<void> => {
+      if (Date.now() - pendingRetryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
+        if (!cancelled && pendingRetry.current?.service === pendingRetryWatch.service) {
+          pendingRetry.current = null
+        }
+        setPendingRetryWatch(null)
+        return
+      }
+      await connections.refresh({ forceRefresh: true })
+    }
+
+    void refreshUntilConnected()
+    const id = window.setInterval(() => {
+      void refreshUntilConnected()
+    }, AUTH_RETRY_POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [connections.refresh, pendingRetryWatch])
+
+  React.useEffect(() => {
     const pending = pendingRetry.current
     if (!pending) {
       return
@@ -1411,6 +1441,7 @@ export function AppShell() {
     )
     if (connected) {
       pendingRetry.current = null
+      setPendingRetryWatch(null)
       setSelectedService(null)
       setRoute("chat")
       void send(pending.sessionId, pending.text, pending.attachments, {
@@ -2049,9 +2080,11 @@ export function AppShell() {
           contextMentions: storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeSessionId),
           model: storedOptions?.model ?? lastModelBySession.current.get(activeSessionId),
         }
+        setPendingRetryWatch({ service: auth.service, startedAt: Date.now() })
+        void connections.refresh({ forceRefresh: true })
       }
     },
-    [activeSessionId],
+    [activeSessionId, connections.refresh],
   )
   const handleToggleSidebar = React.useCallback((): void => {
     setSidebarCollapsed((collapsed) => {

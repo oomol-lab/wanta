@@ -30,9 +30,6 @@ export const insightBaseUrl = `https://insight.${ooEndpoint}`
 /** 账号 API 基址，如 `https://api.oomol.com`（登录换 token / api-key / profile）。 */
 export const apiBaseUrl = `https://api.${ooEndpoint}`
 
-/** Hub 基址，如 `https://hub.oomol.com`（浏览器登录页所在域）。 */
-export const hubBaseUrl = `https://hub.${ooEndpoint}`
-
 /** 技能 registry 基址，如 `https://registry.oomol.com`。 */
 export const registryBaseUrl = `https://registry.${ooEndpoint}`
 

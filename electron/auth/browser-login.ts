@@ -1,11 +1,11 @@
 // 浏览器登录流的纯函数部分（无网络/Electron 依赖，便于单测）。
-// 流程与 oo-desktop 完全一致，仅 deep-link 协议不同（branding.protocolScheme）：
-//   1. 系统浏览器打开 https://hub.<endpoint>/signin-app?protocol=<scheme>
+// 流程：
+//   1. 系统浏览器打开 https://console.<endpoint>/launcher?protocol=<scheme>
 //   2. 网页登录完成后跳回 <scheme>://signin?authID=<id>
 //   3. POST api.<endpoint>/v1/auth/auth_id 用 authID 换 Set-Cookie 中的 oomol-token（会话 token，全应用唯一凭证）
 //   4. 用该 token 取 /v1/users/profile（账号画像）。**不再换取长期 api-key**：网关层统一接受 cookie/token/api-key 鉴权。
 
-import { hubBaseUrl } from "../domain.ts"
+import { consoleBaseUrl } from "../domain.ts"
 
 /** deep-link 回调的 host 段：<scheme>://signin?authID=...。 */
 const signinAction = "signin"
@@ -49,9 +49,9 @@ function normalizeAvatarUrl(value: unknown): string | undefined {
   }
 }
 
-/** 浏览器登录入口 URL：hub 登录页经 ?protocol= 得知回跳的自定义协议。 */
-export function hubSigninUrl(protocolScheme: string): string {
-  const url = new URL(`${hubBaseUrl}/signin-app`)
+/** 浏览器登录入口 URL：console launcher 经 ?protocol= 得知回跳的自定义协议。 */
+export function browserLoginUrl(protocolScheme: string): string {
+  const url = new URL(`${consoleBaseUrl}/launcher`)
   url.searchParams.set("protocol", protocolScheme)
   return url.toString()
 }

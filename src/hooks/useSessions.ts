@@ -2,6 +2,7 @@ import type {
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
   SessionInfo,
+  SessionScope,
 } from "../../electron/session/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
@@ -24,13 +25,17 @@ export interface UseSessions {
   refresh: () => Promise<void>
 }
 
-export function useSessions({ enabled = true }: { enabled?: boolean } = {}): UseSessions {
+export function useSessions({
+  enabled = true,
+  scope = { type: "personal" },
+}: { enabled?: boolean; scope?: SessionScope } = {}): UseSessions {
   const sessionService = useSessionService()
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
   const [loaded, setLoaded] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
+  const scopeKey = scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
 
   React.useEffect(() => {
     enabledRef.current = enabled
@@ -38,6 +43,13 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       requestSequenceRef.current += 1
     }
   }, [enabled])
+
+  React.useEffect(() => {
+    requestSequenceRef.current += 1
+    setSessions([])
+    setLoaded(false)
+    setError(null)
+  }, [scopeKey])
 
   const refresh = React.useCallback(async () => {
     const requestId = ++requestSequenceRef.current
@@ -48,7 +60,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       return
     }
     try {
-      const nextSessions = await sessionService.invoke("list")
+      const nextSessions = await sessionService.invoke("list", { scope })
       if (requestId !== requestSequenceRef.current || !enabledRef.current) {
         return
       }
@@ -64,7 +76,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
         setLoaded(true)
       }
     }
-  }, [enabled, sessionService])
+  }, [enabled, scope, sessionService])
 
   React.useEffect(() => {
     if (!enabled) {
@@ -74,28 +86,26 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       return
     }
     void refresh()
-    return sessionService.serverEvents.on("sessionsChanged", (event) => {
+    return sessionService.serverEvents.on("sessionsChanged", () => {
       if (!enabledRef.current) {
         return
       }
-      setSessions(event.sessions)
-      setLoaded(true)
-      setError(null)
+      void refresh()
     })
   }, [enabled, sessionService, refresh])
 
   const create = React.useCallback(
     async (title?: string) => {
-      const info = await sessionService.invoke("create", title)
+      const info = await sessionService.invoke("create", { scope, title })
       await refresh()
       return info
     },
-    [sessionService, refresh],
+    [scope, sessionService, refresh],
   )
 
   const listArchived = React.useCallback(async () => {
-    return sessionService.invoke("listArchived")
-  }, [sessionService])
+    return sessionService.invoke("listArchived", { scope })
+  }, [scope, sessionService])
 
   const generateTitle = React.useCallback(
     async (req: GenerateSessionTitleRequest) => {

@@ -8,7 +8,7 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { SessionInfo, SessionScope } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
@@ -224,6 +224,25 @@ function accountInitial(name?: string): string {
 
 function workspaceSelectionKey(workspace: WorkspaceSelection): string {
   return workspace.type === "organization" ? `organization:${workspace.organizationId}` : "personal"
+}
+
+function sessionScopeFromWorkspace(workspace: WorkspaceSelection): SessionScope | null {
+  if (workspace.type === "personal") {
+    return { type: "personal" }
+  }
+  const organizationId = workspace.organizationId.trim()
+  const organizationName = workspace.organization?.name.trim()
+  if (!organizationId || !organizationName) {
+    return null
+  }
+  return { type: "organization", organizationId, organizationName }
+}
+
+function sessionScopeKey(scope: SessionScope | null): string {
+  if (!scope) {
+    return "workspace-loading"
+  }
+  return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
 }
 
 function WorkspaceAvatar({
@@ -1276,6 +1295,11 @@ export function AppShell() {
   const auth = useAuth()
   const [ready, setReady] = React.useState(false)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
+  const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
+  const sessionScope = React.useMemo(
+    () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
+    [organizationWorkspace.activeWorkspace],
+  )
   const {
     sessions,
     loaded: sessionsLoaded,
@@ -1289,7 +1313,7 @@ export function AppShell() {
     unarchive,
     remove: removeSession,
     refresh: refreshSessions,
-  } = useSessions({ enabled: ready })
+  } = useSessions({ enabled: ready && sessionScope !== null, scope: sessionScope ?? { type: "personal" } })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
@@ -1315,7 +1339,6 @@ export function AppShell() {
     activeSessionId,
     route === "chat" ? activeSessionId : null,
   )
-  const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
@@ -1403,6 +1426,26 @@ export function AppShell() {
     }
   }, [sessions, sessionsLoaded, activeSessionId, isDraftSession])
 
+  React.useEffect(() => {
+    if (!sessionsLoaded || !activeSessionId) {
+      return
+    }
+    if (sessions.some((session) => session.id === activeSessionId)) {
+      return
+    }
+    setActiveSessionId(null)
+    setIsDraftSession(false)
+    setPendingChatTransition(null)
+    setQueuedMessagesBySession((current) => {
+      if (!Object.hasOwn(current, activeSessionId)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[activeSessionId]
+      return next
+    })
+  }, [activeSessionId, sessions, sessionsLoaded])
+
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
   React.useEffect(() => {
     if (!pendingRetryWatch) {
@@ -1453,7 +1496,7 @@ export function AppShell() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(sessions), [sessions])
-  const activeComposerDraftKey = activeSessionId ?? NEW_SESSION_COMPOSER_DRAFT_KEY
+  const activeComposerDraftKey = activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}`
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
@@ -1972,7 +2015,7 @@ export function AppShell() {
       contextMentions: ChatContextMention[] = [],
       model?: ModelChoice,
     ): Promise<boolean> => {
-      const draftKey = activeSessionId ?? NEW_SESSION_COMPOSER_DRAFT_KEY
+      const draftKey = activeSessionId ?? activeComposerDraftKey
       if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
         const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, contextMentions, model)
         setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
@@ -1985,7 +2028,7 @@ export function AppShell() {
       }
       return accepted
     },
-    [activeSessionId, clearComposerDraft, isSessionRunning, sendNow],
+    [activeComposerDraftKey, activeSessionId, clearComposerDraft, isSessionRunning, sendNow],
   )
 
   React.useEffect(() => {

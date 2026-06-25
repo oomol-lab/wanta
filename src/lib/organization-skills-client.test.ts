@@ -53,6 +53,11 @@ test("normalizeResolvedOrganizationSkills drops incomplete entries", () => {
         archive_url: "https://example.com/skill.tgz",
         checksum: "sha256:abc",
         config_id: "config-1",
+        manifest: {
+          entry: "SKILL.md",
+          files: [{ checksum: "sha256:file", path: "SKILL.md" }, { checksum: 123 }, { path: "assets/logo.png" }],
+          format: "oomol-skill-archive",
+        },
         package_name: "@acme/skills",
         skill_name: "alpha",
         version: "1.0.0",
@@ -64,6 +69,11 @@ test("normalizeResolvedOrganizationSkills drops incomplete entries", () => {
   assert.equal(resolved.skills.length, 1)
   assert.equal(resolved.skills[0]?.archiveUrl, "https://example.com/skill.tgz")
   assert.equal(resolved.skills[0]?.configId, "config-1")
+  assert.deepEqual(resolved.skills[0]?.manifest, {
+    entry: "SKILL.md",
+    files: [{ checksum: "sha256:file", path: "SKILL.md" }, { path: "assets/logo.png" }],
+    format: "oomol-skill-archive",
+  })
 })
 
 test("organizationSkillMentionId uses the stable organization prefix", () => {

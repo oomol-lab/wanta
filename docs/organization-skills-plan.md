@@ -16,7 +16,7 @@
 
 ## 2. Console 参考结论
 
-`/Users/wushuang/code/console.oomol.com` 中的 Skill 菜单主要是“我发布的 Skill”管理和分享，不是完整的组织级 Skill 配置。
+Console 的 Skill 菜单主要是“我发布的 Skill”管理和分享，不是完整的组织级 Skill 配置。
 
 可直接参考的部分：
 
@@ -206,14 +206,24 @@ Host: org-control.<endpoint>
       "skillName": "gmail-report",
       "version": "1.2.3",
       "archiveUrl": "https://package-assets.oomol.com/packages/@oomol/gmail-skills/1.2.3/files/package/skills/gmail-report.tgz",
-      "checksum": "sha256:..."
+      "checksum": "sha256:...",
+      "manifest": {
+        "format": "oomol-skill-archive",
+        "entry": "SKILL.md",
+        "files": [
+          { "path": "SKILL.md", "checksum": "sha256:..." },
+          { "path": "assets/logo.png", "checksum": "sha256:..." }
+        ]
+      }
     }
   ],
   "updatedAt": "2026-06-25T00:00:00.000Z"
 }
 ```
 
-如果 registry 暂时没有单 Skill 归档，短期可返回 `assetBaseUrl` + `skillPath`，由 Wanta 下载目录内容。但长期更推荐归档，避免客户端猜目录结构和遗漏 `references/` / `assets/` / 脚本。
+`resolved` endpoint 应是运行时解析的权威入口：后端在这里完成 package 权限校验、版本解析、artifact 地址生成和 checksum/manifest 生成。Wanta 只按响应下载单个 Skill artifact，并用 `checksum` 与 `manifest.files` 校验完整性后再释放到 runtime。
+
+如果 registry 短期还没有单 Skill 归档，可以临时返回 `assetBaseUrl` + `skillPath` 作为目录 fallback，但仍必须同时返回 manifest 与每个文件 checksum。客户端不能只靠目录路径推断结构，否则容易遗漏 `references/`、`assets/`、脚本或后续新增资源。
 
 ## 5. Wanta 前端接入
 
@@ -386,9 +396,10 @@ userData/agent/workspace/.opencode/skill/{skillName}/
 
 如果组织 id 已选中但 organization name 尚未解析：
 
-- 连接器请求保持 pending。
+- 连接器请求必须保持 pending，并清空当前连接器 summary；不能沿用上一个组织或个人 workspace 的 `x-oo-organization-name`。
 - 组织 Skill 配置可按 org id 读取。
-- Agent connector 工具暂不切组织名，避免 header 传空。
+- `chatService.setAgentOrganization` 应先清空主进程 agent 组织名，Agent connector tool 在新 organization name 可用并完成连接器 scope 刷新前暂停组织连接器调用。
+- organization name 可用后，先用新 organization name 刷新连接器 summary，再恢复 Agent connector tool 与 UI 操作，确保所有 connector/tool 请求都使用新的组织上下文。
 
 ## 8. 权限与安全
 

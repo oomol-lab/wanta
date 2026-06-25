@@ -30,8 +30,10 @@ function normalizeScope(value: unknown): SessionScope | undefined {
   if (source.type !== "organization") {
     return undefined
   }
-  const organizationId = "organizationId" in source ? source.organizationId?.trim() : undefined
-  const organizationName = "organizationName" in source ? source.organizationName?.trim() : undefined
+  const rawOrganizationId = "organizationId" in source ? source.organizationId : undefined
+  const rawOrganizationName = "organizationName" in source ? source.organizationName : undefined
+  const organizationId = typeof rawOrganizationId === "string" ? rawOrganizationId.trim() : undefined
+  const organizationName = typeof rawOrganizationName === "string" ? rawOrganizationName.trim() : undefined
   if (!organizationId || !organizationName) {
     return undefined
   }

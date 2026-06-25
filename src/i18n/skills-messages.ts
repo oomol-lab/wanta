@@ -134,8 +134,9 @@ export const skillsMessages = {
     "skills.organizationAddSearchEmpty": "没有匹配的 Skill 包。",
     "skills.organizationAddRowAction": "添加",
     "skills.organizationAddValidation": "请输入 package 和 skill 名称。",
-    "skills.organizationPackageSkillCount": "{count} Skills",
+    "skills.organizationPackageSkillCount": "{{count}} Skills",
     "skills.organizationPrivate": "私有",
+    "skills.organizationSelectSkill": "选择 Skill",
     "skills.organizationSkillName": "Skill 名称",
     "skills.organizationEmpty": "暂无组织 Skill",
     "skills.organizationEmptyDescription":
@@ -407,8 +408,9 @@ export const skillsMessages = {
     "skills.organizationAddSearchEmpty": "No matching Skill packages.",
     "skills.organizationAddRowAction": "Add",
     "skills.organizationAddValidation": "Enter both package and Skill name.",
-    "skills.organizationPackageSkillCount": "{count} Skills",
+    "skills.organizationPackageSkillCount": "{{count}} Skills",
     "skills.organizationPrivate": "Private",
+    "skills.organizationSelectSkill": "Select Skill",
     "skills.organizationSkillName": "Skill name",
     "skills.organizationEmpty": "No organization Skills yet",
     "skills.organizationEmptyDescription":

@@ -1,7 +1,7 @@
 import type { SessionMetadata } from "./metadata-store.ts"
 
 import assert from "node:assert/strict"
-import { mkdtemp, readdir } from "node:fs/promises"
+import { mkdtemp, readdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
@@ -34,5 +34,30 @@ test("SessionMetadataStore supports concurrent writes", async () => {
   assert.deepEqual(
     (await readdir(dir)).filter((file) => file.includes(".tmp-")),
     [],
+  )
+})
+
+test("SessionMetadataStore ignores corrupted organization scope fields", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-session-metadata-"))
+  await writeFile(
+    path.join(dir, "session-metadata.json"),
+    JSON.stringify({
+      version: 2,
+      sessions: {
+        valid: { pinnedAt: 1_000, scope: { type: "personal" } },
+        corrupted: { archivedAt: 2_000, scope: { organizationId: 123, organizationName: {}, type: "organization" } },
+      },
+    }),
+    "utf-8",
+  )
+
+  const store = new SessionMetadataStore(dir)
+
+  assert.deepEqual(
+    await store.read(),
+    new Map<string, SessionMetadata>([
+      ["valid", { pinnedAt: 1_000, scope: { type: "personal" } }],
+      ["corrupted", { archivedAt: 2_000 }],
+    ]),
   )
 })

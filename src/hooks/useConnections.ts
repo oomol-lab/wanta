@@ -77,11 +77,7 @@ export interface UseConnections {
   updateAlias: (appId: string, alias: string) => Promise<boolean>
 }
 
-/**
- * workspace 由 useOrganizationWorkspace 提供（个人 / 组织）。null 表示组织已选但名称尚未就绪，
- * 此时沿用上一个已知 workspace（与旧主进程 setWorkspace 跳过 null 的行为一致）。workspace 变化时
- * 重拉摘要，并经 setAgentOrganization IPC 同步 agent 的组织作用域（agent 仍由主进程持有）。
- */
+/** workspace 由 useOrganizationWorkspace 提供。null 表示组织已选但名称尚未就绪，此时暂停连接器请求。 */
 export function useConnections(workspace: ConnectionWorkspace | null): UseConnections {
   const chatService = useChatService()
   const [summary, setSummary] = React.useState<ConnectionSummary | null>(null)
@@ -90,16 +86,20 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const [actionError, setActionError] = React.useState<UserFacingError | null>(null)
   const [summaryError, setSummaryError] = React.useState<UserFacingError | null>(null)
   const pollAbort = React.useRef<AbortController | null>(null)
-  // 始终持有"有效 workspace"（最近一个非 null），供各连接器请求附带组织头。
-  const effectiveWorkspace = React.useRef<ConnectionWorkspace>(workspace ?? personalWorkspace)
-  if (workspace) {
-    effectiveWorkspace.current = workspace
-  }
+  const effectiveWorkspace = React.useRef<ConnectionWorkspace | null>(workspace ?? personalWorkspace)
+  effectiveWorkspace.current = workspace
 
   const refresh = React.useCallback(async (request?: ConnectionSummaryRequest): Promise<ConnectionSummary | null> => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      setSummary(null)
+      setBusy(null)
+      setSummaryError(null)
+      return null
+    }
     setBusy((current) => current ?? "refresh")
     try {
-      const next = await getConnectionSummary(effectiveWorkspace.current, request)
+      const next = await getConnectionSummary(currentWorkspace, request)
       setSummary(next)
       setSummaryError(null)
       return next
@@ -115,6 +115,18 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const appliedWorkspaceKey = React.useRef<string | null>(null)
   React.useEffect(() => {
     if (!workspace) {
+      if (appliedWorkspaceKey.current === "pending") {
+        return
+      }
+      appliedWorkspaceKey.current = "pending"
+      pollAbort.current?.abort()
+      pollAbort.current = null
+      setPolling(null)
+      setBusy(null)
+      setActionError(null)
+      setSummaryError(null)
+      setSummary(null)
+      void chatService.invoke("setAgentOrganization", { organizationName: undefined }).catch(() => undefined)
       return
     }
     const key = workspaceKey(workspace)
@@ -129,7 +141,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     void refresh({ forceRefresh: true })
   }, [chatService, refresh, workspace])
 
-  // 无组织 workspace（纯个人，永不为 null）场景下的首帧拉取。
+  // 首帧按当前 workspace 拉取；workspace 为 null 时 refresh 会进入暂停态。
   const didInitialRefresh = React.useRef(false)
   React.useEffect(() => {
     if (didInitialRefresh.current) {
@@ -144,19 +156,24 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const connect = React.useCallback(
     async (input: ConnectionConnectInput): Promise<boolean> => {
       const operation = "appId" in input && input.appId ? "reconnect" : "connect"
+      const currentWorkspace = effectiveWorkspace.current
+      if (!currentWorkspace) {
+        setActionError(resolveConnectionError("Workspace is still loading.", operation))
+        return false
+      }
       setActionError(null)
       setBusy("connect")
       try {
         if (input.authType !== "oauth2") {
-          await connectProvider(input, effectiveWorkspace.current)
-          setSummary(await getConnectionSummary(effectiveWorkspace.current, { forceRefresh: true }))
+          await connectProvider(input, currentWorkspace)
+          setSummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
           return true
         }
 
         // oauth2：渲染层取授权 URL → 交主进程用系统浏览器打开 → 轮询直到连上。
-        const { authorizationUrl } = await startOAuthConnect(input, effectiveWorkspace.current)
+        const { authorizationUrl } = await startOAuthConnect(input, currentWorkspace)
         await chatService.invoke("openExternalUrl", { url: authorizationUrl })
-        setSummary(await getConnectionSummary(effectiveWorkspace.current, { forceRefresh: true }))
+        setSummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
 
         pollAbort.current?.abort()
         const abort = new AbortController()
@@ -167,7 +184,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         const startedAt = Date.now()
         while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
           await wait(POLL_INTERVAL_MS, abort.signal)
-          const next = await getConnectionSummary(effectiveWorkspace.current, { forceRefresh: true })
+          const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
           setSummary(next)
           if (isOAuthConnected(next, input.service)) {
             return true
@@ -193,11 +210,16 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   )
 
   const disconnect = React.useCallback(async (svc: string): Promise<boolean> => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      setActionError(resolveConnectionError("Workspace is still loading.", "disconnect"))
+      return false
+    }
     setActionError(null)
     setBusy("disconnect")
     try {
-      await disconnectProviderRequest(svc, effectiveWorkspace.current)
-      setSummary(await getConnectionSummary(effectiveWorkspace.current, { forceRefresh: true }))
+      await disconnectProviderRequest(svc, currentWorkspace)
+      setSummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
       return true
     } catch (err) {
       setActionError(resolveConnectionError(err, "disconnect"))
@@ -208,11 +230,16 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   }, [])
 
   const disconnectAccount = React.useCallback(async (appId: string): Promise<boolean> => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      setActionError(resolveConnectionError("Workspace is still loading.", "disconnect"))
+      return false
+    }
     setActionError(null)
     setBusy("disconnect")
     try {
-      await disconnectAccountRequest(appId, effectiveWorkspace.current)
-      setSummary(await getConnectionSummary(effectiveWorkspace.current, { forceRefresh: true }))
+      await disconnectAccountRequest(appId, currentWorkspace)
+      setSummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
       return true
     } catch (err) {
       setActionError(resolveConnectionError(err, "disconnect"))
@@ -223,10 +250,15 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   }, [])
 
   const setDefaultAccount = React.useCallback(async (svc: string, appId: string): Promise<boolean> => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      setActionError(resolveConnectionError("Workspace is still loading.", "set_default"))
+      return false
+    }
     setActionError(null)
     try {
-      await setDefaultAccountRequest(svc, appId, effectiveWorkspace.current)
-      setSummary(await getConnectionSummary(effectiveWorkspace.current, { forceRefresh: true }))
+      await setDefaultAccountRequest(svc, appId, currentWorkspace)
+      setSummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
       return true
     } catch (err) {
       setActionError(resolveConnectionError(err, "set_default"))
@@ -235,10 +267,15 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   }, [])
 
   const updateAlias = React.useCallback(async (appId: string, alias: string): Promise<boolean> => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      setActionError(resolveConnectionError("Workspace is still loading.", "update_alias"))
+      return false
+    }
     setActionError(null)
     try {
-      await updateAliasRequest(appId, alias, effectiveWorkspace.current)
-      setSummary(await getConnectionSummary(effectiveWorkspace.current, { forceRefresh: true }))
+      await updateAliasRequest(appId, alias, currentWorkspace)
+      setSummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
       return true
     } catch (err) {
       setActionError(resolveConnectionError(err, "update_alias"))
@@ -254,14 +291,20 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   }, [])
   const clearActionError = React.useCallback(() => setActionError(null), [])
 
-  const getProviderDetail = React.useCallback(
-    (svc: string) => getConnectionProviderDetail(svc, effectiveWorkspace.current),
-    [],
-  )
-  const getExecutionLogs = React.useCallback(
-    (request: ConnectionExecutionLogRequest) => getConnectionExecutionLogs(request, effectiveWorkspace.current),
-    [],
-  )
+  const getProviderDetail = React.useCallback((svc: string) => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      return Promise.reject(new Error("Workspace is still loading."))
+    }
+    return getConnectionProviderDetail(svc, currentWorkspace)
+  }, [])
+  const getExecutionLogs = React.useCallback((request: ConnectionExecutionLogRequest) => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      return Promise.reject(new Error("Workspace is still loading."))
+    }
+    return getConnectionExecutionLogs(request, currentWorkspace)
+  }, [])
   const openExternal = React.useCallback((url: string) => chatService.invoke("openExternalUrl", { url }), [chatService])
 
   return {

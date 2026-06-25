@@ -86,13 +86,15 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const [hasLoaded, setHasLoaded] = React.useState(false)
   const requestIdRef = React.useRef(0)
+  const latestOrganizationIdRef = React.useRef<string | null>(organizationId)
 
   React.useEffect(() => {
+    latestOrganizationIdRef.current = organizationId
     requestIdRef.current += 1
+    setSkills([])
     setError(null)
     setHasLoaded(false)
     if (!organizationId || !remoteApiEnabled) {
-      setSkills([])
       setLoading(false)
       setHasLoaded(Boolean(organizationId && !remoteApiEnabled))
     }
@@ -158,12 +160,18 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
     void refresh().catch(() => undefined)
   }, [refresh])
 
-  const reloadAfterMutation = React.useCallback(async (): Promise<void> => {
-    if (organizationSkillCache?.organizationId === organizationId) {
-      organizationSkillCache = null
-    }
-    await refresh({ forceRefresh: true })
-  }, [organizationId, refresh])
+  const reloadAfterMutation = React.useCallback(
+    async (targetOrganizationId: string): Promise<void> => {
+      if (latestOrganizationIdRef.current !== targetOrganizationId) {
+        return
+      }
+      if (organizationSkillCache?.organizationId === targetOrganizationId) {
+        organizationSkillCache = null
+      }
+      await refresh({ forceRefresh: true })
+    },
+    [refresh],
+  )
 
   const addSkill = React.useCallback(
     async (input: AddOrganizationSkillInput): Promise<void> => {
@@ -173,8 +181,9 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       if (!remoteApiEnabled) {
         throw new Error("Organization Skill API is not enabled.")
       }
-      await addOrganizationSkill(organizationId, input)
-      await reloadAfterMutation()
+      const targetOrganizationId = organizationId
+      await addOrganizationSkill(targetOrganizationId, input)
+      await reloadAfterMutation(targetOrganizationId)
     },
     [organizationId, reloadAfterMutation, remoteApiEnabled],
   )
@@ -187,8 +196,9 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       if (!remoteApiEnabled) {
         throw new Error("Organization Skill API is not enabled.")
       }
-      await updateOrganizationSkill(organizationId, configId, input)
-      await reloadAfterMutation()
+      const targetOrganizationId = organizationId
+      await updateOrganizationSkill(targetOrganizationId, configId, input)
+      await reloadAfterMutation(targetOrganizationId)
     },
     [organizationId, reloadAfterMutation, remoteApiEnabled],
   )
@@ -201,8 +211,9 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       if (!remoteApiEnabled) {
         throw new Error("Organization Skill API is not enabled.")
       }
-      await removeOrganizationSkill(organizationId, configId)
-      await reloadAfterMutation()
+      const targetOrganizationId = organizationId
+      await removeOrganizationSkill(targetOrganizationId, configId)
+      await reloadAfterMutation(targetOrganizationId)
     },
     [organizationId, reloadAfterMutation, remoteApiEnabled],
   )
@@ -215,8 +226,14 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       if (!remoteApiEnabled) {
         throw new Error("Organization Skill API is not enabled.")
       }
-      const config = await reorderOrganizationSkills(organizationId, items)
-      organizationSkillCache = { fetchedAt: Date.now(), organizationId, skills: config.skills }
+      const targetOrganizationId = organizationId
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
+      const config = await reorderOrganizationSkills(targetOrganizationId, items)
+      if (requestIdRef.current !== requestId || latestOrganizationIdRef.current !== targetOrganizationId) {
+        return
+      }
+      organizationSkillCache = { fetchedAt: Date.now(), organizationId: targetOrganizationId, skills: config.skills }
       setSkills(config.skills)
       setError(null)
       setHasLoaded(true)

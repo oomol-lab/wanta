@@ -88,11 +88,9 @@ export function buildSkillPaletteItems(
   organizationSkills: ChatOrganizationSkillContext[] = [],
 ): SkillPaletteItem[] {
   const creatorSkillItem = buildCreatorSkillPaletteItem(creatorSkillCopy)
-  const organizationSkillNames = new Set(
-    organizationSkills.map((skill) => skill.name.trim().toLowerCase()).filter(Boolean),
-  )
-  const organizationItems = organizationSkills
-    .filter((skill) => skill.id.trim() && skill.name.trim())
+  const validatedOrganizationSkills = organizationSkills.filter((skill) => skill.id.trim() && skill.name.trim())
+  const organizationSkillNames = new Set(validatedOrganizationSkills.map((skill) => skill.name.trim().toLowerCase()))
+  const organizationItems = validatedOrganizationSkills
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
     .map(

@@ -1,7 +1,7 @@
 import type { PublicSkillPackage } from "../../electron/skills/common.ts"
 
 import { orgControlBaseUrl, packageAssetsBaseUrl, searchBaseUrl } from "@/lib/domain"
-import { oomolFetch, oomolFetchJson } from "@/lib/oomol-http"
+import { OomolAuthRequiredError, OomolHttpError, oomolFetch, oomolFetchJson } from "@/lib/oomol-http"
 
 export type OrganizationSkillVersionPolicy = "latest" | "pinned"
 export type OrganizationSkillVisibility = "private" | "public" | "unknown"
@@ -48,11 +48,23 @@ export interface ReorderOrganizationSkillInput {
   order: number
 }
 
+export interface ResolvedOrganizationSkillManifestFile {
+  checksum?: string
+  path: string
+}
+
+export interface ResolvedOrganizationSkillManifest {
+  entry?: string
+  files: ResolvedOrganizationSkillManifestFile[]
+  format?: string
+}
+
 export interface ResolvedOrganizationSkill {
   archiveUrl?: string
   assetBaseUrl?: string
   checksum?: string
   configId: string
+  manifest?: ResolvedOrganizationSkillManifest
   packageName: string
   skillName: string
   skillPath?: string
@@ -290,6 +302,7 @@ export function normalizeResolvedOrganizationSkills(value: unknown): ResolvedOrg
         if (!configId || !packageName || !skillName || !version) {
           return undefined
         }
+        const manifest = normalizeResolvedManifest(item?.["manifest"])
         return {
           ...(asString(item?.["archiveUrl"] ?? item?.["archive_url"])
             ? { archiveUrl: asString(item?.["archiveUrl"] ?? item?.["archive_url"]) }
@@ -299,6 +312,7 @@ export function normalizeResolvedOrganizationSkills(value: unknown): ResolvedOrg
             : {}),
           ...(asString(item?.["checksum"]) ? { checksum: asString(item?.["checksum"]) } : {}),
           configId,
+          ...(manifest ? { manifest } : {}),
           packageName,
           skillName,
           ...(asString(item?.["skillPath"] ?? item?.["skill_path"])
@@ -309,6 +323,35 @@ export function normalizeResolvedOrganizationSkills(value: unknown): ResolvedOrg
       })
       .filter((item): item is ResolvedOrganizationSkill => Boolean(item)),
     updatedAt: asString(payload?.["updatedAt"] ?? payload?.["updated_at"]) ?? new Date().toISOString(),
+  }
+}
+
+function normalizeResolvedManifest(value: unknown): ResolvedOrganizationSkillManifest | undefined {
+  const manifest = asPlainObject(value)
+  if (!manifest) {
+    return undefined
+  }
+  const rawFiles = Array.isArray(manifest["files"]) ? manifest["files"] : []
+  const files = rawFiles
+    .map((entry): ResolvedOrganizationSkillManifestFile | undefined => {
+      const item = asPlainObject(entry)
+      const path = asString(item?.["path"])
+      if (!path) {
+        return undefined
+      }
+      return {
+        ...(asString(item?.["checksum"]) ? { checksum: asString(item?.["checksum"]) } : {}),
+        path,
+      }
+    })
+    .filter((item): item is ResolvedOrganizationSkillManifestFile => Boolean(item))
+  if (files.length === 0) {
+    return undefined
+  }
+  return {
+    ...(asString(manifest["entry"]) ? { entry: asString(manifest["entry"]) } : {}),
+    files,
+    ...(asString(manifest["format"]) ? { format: asString(manifest["format"]) } : {}),
   }
 }
 
@@ -382,15 +425,18 @@ function normalizeMySkillPackage(raw: MySkillPackageRawItem): PublicSkillPackage
 
 export async function readSkillMarkdown(packageName: string, version: string, skillName: string): Promise<string> {
   const url = new URL(
-    `/packages/${packageName}/${version}/files/package/skills/${encodeURIComponent(skillName)}/SKILL.md`,
+    `/packages/${encodePath(packageName)}/${encodePath(version)}/files/package/skills/${encodePath(skillName)}/SKILL.md`,
     packageAssetsBaseUrl,
   )
   const response = await oomolFetch(url, {
     headers: { Accept: "text/plain, */*" },
     timeoutMs: organizationSkillRequestTimeoutMs,
   })
+  if (response.status === 401) {
+    throw new OomolAuthRequiredError()
+  }
   if (!response.ok) {
-    throw new Error(`Skill Markdown request failed with status ${response.status}.`)
+    throw new OomolHttpError(`Skill Markdown request failed with status ${response.status}.`, response.status)
   }
   return response.text()
 }

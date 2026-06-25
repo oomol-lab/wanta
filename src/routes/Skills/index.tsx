@@ -312,6 +312,10 @@ export function SkillsRoute({
     }
   }, [activeTab, workspace.activeWorkspace.type])
 
+  React.useEffect(() => {
+    setOrganizationAddOpen(false)
+  }, [organizationSkills.organizationId])
+
   const selectSkill = React.useCallback((skillId: SkillSelectionKey) => {
     setSelectedSkillId(skillId)
     setNarrowPane("detail")
@@ -969,19 +973,19 @@ function OrganizationSkillAddDialog({
     sourceUnavailable,
   ])
 
-  const handleAdd = async (pkg: PublicSkillPackage): Promise<void> => {
-    const skill = getPublicPackagePrimarySkill(pkg)
-    if (!skill) {
+  const handleAdd = async (pkg: PublicSkillPackage, skillName: string): Promise<void> => {
+    const normalizedSkillName = skillName.trim()
+    if (!normalizedSkillName) {
       setError(t("skills.discoverInstallNoSkill"))
       return
     }
-    const nextSavingKey = `${pkg.id}:${skill.name}`
+    const nextSavingKey = `${pkg.id}:${normalizedSkillName}`
     setSavingKey(nextSavingKey)
     setError(null)
     try {
       await organizationSkills.addSkill({
         packageName: pkg.name,
-        skillName: skill.name,
+        skillName: normalizedSkillName,
         version: pkg.version,
         versionPolicy: "pinned",
       })
@@ -1050,7 +1054,7 @@ function OrganizationSkillAddDialog({
                   key={pkg.id}
                   pkg={pkg}
                   savingKey={savingKey}
-                  onAdd={() => void handleAdd(pkg)}
+                  onAdd={(skillName) => void handleAdd(pkg, skillName)}
                 />
               ))}
               {canLoadMore ? (
@@ -1101,16 +1105,21 @@ function OrganizationSkillPackageRow({
   pkg,
   savingKey,
 }: {
-  onAdd: () => void
+  onAdd: (skillName: string) => void
   pkg: PublicSkillPackage
   savingKey: string | null
 }) {
   const { t } = useAppI18n()
   const primarySkill = getPublicPackagePrimarySkill(pkg)
-  const isSaving = Boolean(primarySkill && savingKey === `${pkg.id}:${primarySkill.name}`)
+  const hasMultipleSkills = pkg.skills.length > 1
+  const [selectedSkillName, setSelectedSkillName] = React.useState(() =>
+    hasMultipleSkills ? "" : (primarySkill?.name ?? ""),
+  )
+  const canAdd = Boolean(selectedSkillName.trim())
+  const isSaving = Boolean(canAdd && savingKey === `${pkg.id}:${selectedSkillName.trim()}`)
 
   return (
-    <div className="oo-border-divider grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 border-b px-3 py-2.5 last:border-b-0">
+    <div className="oo-border-divider grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-3 border-b px-3 py-2.5 last:border-b-0">
       <SkillIconFrame icon={pkg.icon} />
       <div className="grid min-w-0 gap-1">
         <div className="flex min-w-0 items-center gap-2">
@@ -1126,7 +1135,27 @@ function OrganizationSkillPackageRow({
       <Badge className="shrink-0" variant="outline">
         {t("skills.organizationPackageSkillCount", { count: pkg.skills.length })}
       </Badge>
-      <Button type="button" variant="outline" size="sm" disabled={!primarySkill || isSaving} onClick={onAdd}>
+      {hasMultipleSkills ? (
+        <select
+          className="h-8 min-w-32 rounded-md border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={selectedSkillName}
+          onChange={(event) => setSelectedSkillName(event.currentTarget.value)}
+        >
+          <option value="">{t("skills.organizationSelectSkill")}</option>
+          {pkg.skills.map((skill) => (
+            <option key={skill.name} value={skill.name}>
+              {skill.title || skill.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={!canAdd || isSaving}
+        onClick={() => onAdd(selectedSkillName)}
+      >
         {isSaving ? <AppIcons.status.loading className="animate-spin" /> : null}
         {isSaving ? t("skills.organizationAdding") : t("skills.organizationAddRowAction")}
       </Button>

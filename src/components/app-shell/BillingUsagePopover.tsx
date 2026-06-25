@@ -29,6 +29,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
   const t = useT()
   const { login } = useAuth()
   const rootRef = React.useRef<HTMLDivElement | null>(null)
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const [open, setOpen] = React.useState(false)
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
@@ -41,6 +42,12 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
   const handleSignIn = React.useCallback(() => {
     void login().then(() => refresh({ force: true }))
   }, [login, refresh])
+  const closeAndRestoreFocus = React.useCallback((): void => {
+    setOpen(false)
+    window.requestAnimationFrame(() => {
+      triggerRef.current?.focus()
+    })
+  }, [])
 
   const summaries = React.useMemo(
     () => buildCategorySummaries(data?.spend, data?.metering),
@@ -76,11 +83,11 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
       if (target instanceof Node && rootRef.current?.contains(target)) {
         return
       }
-      setOpen(false)
+      closeAndRestoreFocus()
     }
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
-        setOpen(false)
+        closeAndRestoreFocus()
       }
     }
     document.addEventListener("pointerdown", handlePointerDown)
@@ -89,11 +96,12 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
       document.removeEventListener("pointerdown", handlePointerDown)
       document.removeEventListener("keydown", handleKeyDown)
     }
-  }, [open])
+  }, [closeAndRestoreFocus, open])
 
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         title={t("billing.popover.tooltip")}
         aria-label={t("billing.popover.tooltip")}
@@ -124,7 +132,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
               type="button"
               aria-label={t("billing.popover.close")}
               className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={() => setOpen(false)}
+              onClick={closeAndRestoreFocus}
             >
               <XIcon className="size-4" />
             </button>
@@ -202,7 +210,7 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
               type="button"
               className="w-full min-w-0"
               onClick={() => {
-                setOpen(false)
+                closeAndRestoreFocus()
                 onViewDetails()
               }}
             >

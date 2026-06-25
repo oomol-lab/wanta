@@ -172,6 +172,10 @@ export function ChatComposer({
     if (!attachmentMenuOpen) {
       return
     }
+    if (composerDisabled) {
+      setAttachmentMenuOpen(false)
+      return
+    }
     const handlePointerDown = (event: PointerEvent): void => {
       const target = event.target
       if (target instanceof Node && attachmentMenuRef.current?.contains(target)) {
@@ -190,7 +194,7 @@ export function ChatComposer({
       document.removeEventListener("pointerdown", handlePointerDown)
       document.removeEventListener("keydown", handleKeyDown)
     }
-  }, [attachmentMenuOpen])
+  }, [attachmentMenuOpen, composerDisabled])
 
   React.useLayoutEffect(() => {
     const textarea = textareaRef.current
@@ -368,7 +372,11 @@ export function ChatComposer({
             {attachmentMenuOpen ? (
               <div className="absolute bottom-full left-0 z-50 mb-2 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
                 <AttachmentMenuButton
+                  disabled={composerDisabled}
                   onClick={() => {
+                    if (composerDisabled) {
+                      return
+                    }
                     setAttachmentMenuOpen(false)
                     void composerAttachments.selectAttachments("file")
                   }}
@@ -377,7 +385,11 @@ export function ChatComposer({
                   {t("chat.attachFileAction")}
                 </AttachmentMenuButton>
                 <AttachmentMenuButton
+                  disabled={composerDisabled}
                   onClick={() => {
+                    if (composerDisabled) {
+                      return
+                    }
                     setAttachmentMenuOpen(false)
                     void composerAttachments.selectAttachments("directory")
                   }}
@@ -458,11 +470,20 @@ export function ChatComposer({
   )
 }
 
-function AttachmentMenuButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function AttachmentMenuButton({
+  children,
+  disabled = false,
+  onClick,
+}: {
+  children: React.ReactNode
+  disabled?: boolean
+  onClick: () => void
+}) {
   return (
     <button
       type="button"
-      className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+      disabled={disabled}
+      className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
       onClick={onClick}
     >
       {children}

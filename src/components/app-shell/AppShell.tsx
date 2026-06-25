@@ -1418,7 +1418,7 @@ export function AppShell() {
     unarchive,
     remove: removeSession,
     refresh: refreshSessions,
-  } = useSessions({ enabled: ready && sessionScope !== null, scope: sessionScope ?? { type: "personal" } })
+  } = useSessions({ enabled: ready && sessionScope !== null, scope: sessionScope ?? undefined })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
@@ -1453,6 +1453,7 @@ export function AppShell() {
     text: string
     attachments: ChatAttachment[]
     contextMentions?: ChatContextMention[]
+    organizationSkills?: ChatOrganizationSkillContext[]
     model?: ModelChoice
   } | null>(null)
   const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{ service: string; startedAt: number } | null>(null)
@@ -1594,6 +1595,7 @@ export function AppShell() {
       setRoute("chat")
       void send(pending.sessionId, pending.text, pending.attachments, {
         contextMentions: pending.contextMentions ?? [],
+        organizationSkills: pending.organizationSkills ?? [],
         model: pending.model,
       })
     }
@@ -2094,6 +2096,7 @@ export function AppShell() {
           chatTurnInputKey({ text, attachments }),
           {
             contextMentions,
+            organizationSkills: organizationSkills.chatContextSkills,
             model,
           },
         )
@@ -2239,13 +2242,14 @@ export function AppShell() {
           text: source.text,
           attachments: source.attachments,
           contextMentions: storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeSessionId),
+          organizationSkills: storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills,
           model: storedOptions?.model ?? lastModelBySession.current.get(activeSessionId),
         }
         setPendingRetryWatch({ service: auth.service, startedAt: Date.now() })
         void connections.refresh({ forceRefresh: true })
       }
     },
-    [activeSessionId, connections.refresh],
+    [activeSessionId, connections.refresh, organizationSkills.chatContextSkills],
   )
   const handleToggleSidebar = React.useCallback((): void => {
     setSidebarCollapsed((collapsed) => {

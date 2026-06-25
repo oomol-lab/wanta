@@ -7,7 +7,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuth } from "@/hooks/useAuth"
 import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
-import { useT } from "@/i18n/i18n"
+import { useT } from "@/i18n"
 import { I18nProvider } from "@/i18n/I18nProvider"
 import { LoginRoute } from "@/routes/Login"
 
@@ -47,6 +47,7 @@ function AuthGate() {
 
 function AppShellFallback() {
   const t = useT()
+
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 bg-background text-foreground">
       <p className="text-sm text-muted-foreground">{t("app.loadFailed")}</p>

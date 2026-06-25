@@ -51,12 +51,18 @@ describe("composer palette items", () => {
   })
 
   it("pins Creator Skill first in skill items and deduplicates inventory entries", () => {
-    const items = buildSkillPaletteItems([runtimeSkillGroup("zeta"), runtimeSkillGroup(creatorSkillId)], "Fallback", {
-      description: translations["chat.commandCreatorSkillDescription"] ?? "",
-      title: translations["chat.commandCreatorSkill"] ?? "",
-    })
+    const items = buildSkillPaletteItems(
+      [runtimeSkillGroup("zeta"), runtimeSkillGroup(creatorSkillId), runtimeSkillGroup("org-skill")],
+      "Fallback",
+      {
+        description: translations["chat.commandCreatorSkillDescription"] ?? "",
+        title: translations["chat.commandCreatorSkill"] ?? "",
+      },
+      [{ id: "organization:org-skill", name: "org-skill", packageName: "@acme/skills" }],
+    )
 
-    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "zeta"])
+    expect(items.map((item) => item.skillId)).toEqual([creatorSkillId, "organization:org-skill", "zeta"])
     expect(items[0]?.title).toBe("Creator Skill")
+    expect(items[1]?.meta).toBe("organization")
   })
 })

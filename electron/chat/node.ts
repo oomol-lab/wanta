@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   ChatService,
   ChatContextMention,
+  ChatOrganizationSkillContext,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
   LocalArtifactDisplayMode,
@@ -133,6 +134,38 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
     )
   }
   return lines.join("\n")
+}
+
+export function buildOrganizationSkillsSystem(skills: ChatOrganizationSkillContext[] | undefined): string | undefined {
+  const enabledSkills = (skills ?? []).filter((skill) => skill.id.trim() && skill.name.trim())
+  if (enabledSkills.length === 0) {
+    return undefined
+  }
+
+  const lines = [
+    "Organization-configured skills for the active workspace:",
+    "- Treat these skills as workspace guidance, not mandatory tool calls.",
+    "- Use them only when they are relevant to the user's actual task.",
+    "- If the user selected a different explicit context for this turn, prefer the explicit user selection.",
+  ]
+  for (const skill of enabledSkills) {
+    const details = [
+      `id: ${quoted(skill.id)}`,
+      skill.packageName ? `package: ${quoted(skill.packageName)}` : "",
+      skill.version ? `version: ${quoted(skill.version)}` : "",
+      skill.description ? `description: ${quoted(skill.description)}` : "",
+    ].filter(Boolean)
+    lines.push(`- ${quoted(skill.name)}; ${details.join("; ")}`)
+  }
+  return lines.join("\n")
+}
+
+function mergeSystemPrompts(...parts: Array<string | undefined>): string | undefined {
+  const merged = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n")
+  return merged || undefined
 }
 
 interface ChatServiceDeps {
@@ -762,7 +795,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         artifactDir,
         model: req.model,
         signal: generation.controller.signal,
-        system: buildContextMentionsSystem(req.contextMentions),
+        system: mergeSystemPrompts(
+          buildOrganizationSkillsSystem(req.organizationSkills),
+          buildContextMentionsSystem(req.contextMentions),
+        ),
       })
       .catch((error: unknown) => {
         this.removePendingArtifactDir(req.sessionId, artifactDir)

@@ -5,6 +5,7 @@
 // 注入点见 vite.config.ts（dev/构建）与 vitest.config.ts（测试），均经 loadEnv 读取。
 
 declare const __OO_ENDPOINT__: string
+declare const __PACKAGE_ASSETS_BASE_URL__: string
 
 /** 当前 endpoint 主域（如 `oomol.com`）。oo-cli 的 OO_ENDPOINT / WANTA_ENDPOINT 用此裸值。 */
 export const ooEndpoint: string = __OO_ENDPOINT__
@@ -35,6 +36,9 @@ export const registryBaseUrl = `https://registry.${ooEndpoint}`
 
 /** 技能搜索基址，如 `https://search.oomol.com`。 */
 export const searchBaseUrl = `https://search.${ooEndpoint}`
+
+/** 技能资源文件基址，由构建期常量注入，避免运行时代码分支硬编码环境域名。 */
+export const packageAssetsBaseUrl: string = __PACKAGE_ASSETS_BASE_URL__
 
 /** 自动更新静态分发基址，如 `https://static.oomol.com`（路径段见 branding.updateFeedPath）。 */
 export const staticBaseUrl = `https://static.${ooEndpoint}`

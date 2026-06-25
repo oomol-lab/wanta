@@ -12,6 +12,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "")
   const ooEndpoint = env.WANTA_ENDPOINT?.trim() || "oomol.com"
+  const packageAssetsBaseUrl = env.WANTA_PACKAGE_ASSETS_BASE_URL?.trim() || `https://package-assets.${ooEndpoint}`
   return {
     resolve: {
       alias: {
@@ -20,6 +21,7 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       __OO_ENDPOINT__: JSON.stringify(ooEndpoint),
+      __PACKAGE_ASSETS_BASE_URL__: JSON.stringify(packageAssetsBaseUrl),
     },
     test: {
       include: ["electron/**/*.test.ts", "src/**/*.test.ts", "scripts/**/*.test.ts"],

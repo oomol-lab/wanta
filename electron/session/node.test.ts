@@ -130,6 +130,83 @@ test("list hides archived sessions and keeps pinned sessions active", async () =
   )
 })
 
+test("list filters sessions by requested scope", async () => {
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "personal",
+        title: "Personal",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+      {
+        id: "aaa",
+        title: "AAA",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+      {
+        id: "netless",
+        title: "Netless",
+        createdAt: 3_000,
+        updatedAt: 3_000,
+      },
+    ]),
+    {
+      metadataStore: metadataStore(
+        new Map([
+          ["aaa", { scope: { type: "organization", organizationId: "aaa-id", organizationName: "aaa" } }],
+          ["netless", { scope: { type: "organization", organizationId: "netless-id", organizationName: "netless" } }],
+        ]),
+      ),
+    },
+  )
+
+  assert.deepEqual(
+    (await service.list({ scope: { type: "personal" } })).map((session) => session.id),
+    ["personal"],
+  )
+  assert.deepEqual(
+    (
+      await service.list({
+        scope: { type: "organization", organizationId: "aaa-id", organizationName: "aaa" },
+      })
+    ).map((session) => session.id),
+    ["aaa"],
+  )
+})
+
+test("create persists the requested session scope", async () => {
+  const persistedMetadata = metadataStore()
+  const service = new SessionServiceImpl(
+    {
+      createSession: async (title?: string) => ({
+        id: "created",
+        title: title ?? "Untitled",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      }),
+      listSessions: async () => [
+        {
+          id: "created",
+          title: "Scoped",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+        },
+      ],
+    } as unknown as AgentManager,
+    {
+      metadataStore: persistedMetadata,
+    },
+  )
+
+  const scope = { type: "organization" as const, organizationId: "aaa-id", organizationName: "aaa" }
+  const created = await service.create({ scope, title: "Scoped" })
+
+  assert.deepEqual(created.scope, scope)
+  assert.deepEqual(await persistedMetadata.read(), new Map([["created", { scope }]]))
+})
+
 test("archive clears pinned state", async () => {
   const service = new SessionServiceImpl(
     agentWithSessions([

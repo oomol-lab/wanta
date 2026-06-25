@@ -229,7 +229,7 @@ test("stopGeneration cancels a submitted turn before prompt streaming starts", a
   assert.equal(bridge.promptStreaming.mock.calls.length, 0)
 })
 
-test("sendMessage passes selected context mentions as per-turn system prompt", async () => {
+test("sendMessage passes selected context mentions and organization skills as per-turn system prompt", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
 
@@ -244,12 +244,24 @@ test("sendMessage passes selected context mentions as per-turn system prompt", a
         service: "gmail",
       },
     ],
+    organizationSkills: [
+      {
+        description: "Summarize inbound sales mail consistently",
+        id: "organization:org-skill-1",
+        name: "Sales Mail Summary",
+        packageName: "@acme/sales-skills",
+        version: "1.2.3",
+      },
+    ],
     sessionId: "session-1",
     text: "summarize new leads",
   })
 
   assert.equal(bridge.promptStreaming.mock.calls.length, 1)
   const options = bridge.promptStreaming.mock.calls[0]?.[2] as { system?: string } | undefined
+  assert.match(options?.system ?? "", /Organization-configured skills/)
+  assert.match(options?.system ?? "", /Sales Mail Summary/)
+  assert.match(options?.system ?? "", /@acme\/sales-skills/)
   assert.match(options?.system ?? "", /User-selected context for this turn/)
   assert.match(options?.system ?? "", /ecommerce-image-studio/)
   assert.match(options?.system ?? "", /gmail/)

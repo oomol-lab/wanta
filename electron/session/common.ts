@@ -7,12 +7,26 @@ export interface SessionInfo {
   title: string
   createdAt: number
   updatedAt: number
+  scope?: SessionScope
   pinnedAt?: number
   archivedAt?: number
 }
 
+export type SessionScope =
+  | { type: "personal" }
+  | { organizationId: string; organizationName: string; type: "organization" }
+
+export interface SessionScopeRequest {
+  scope?: SessionScope
+}
+
 export interface SessionsChangedEvent {
   sessions: SessionInfo[]
+}
+
+export interface CreateSessionRequest {
+  scope?: SessionScope
+  title?: string
 }
 
 export interface GenerateSessionTitleRequest {
@@ -31,9 +45,9 @@ export const SessionService = serviceName("session-service") as ServiceName<{
     sessionsChanged: SessionsChangedEvent
   }
   ClientInvokes: {
-    list(): Promise<SessionInfo[]>
-    listArchived(): Promise<SessionInfo[]>
-    create(title?: string): Promise<SessionInfo>
+    list(req?: SessionScopeRequest): Promise<SessionInfo[]>
+    listArchived(req?: SessionScopeRequest): Promise<SessionInfo[]>
+    create(req?: CreateSessionRequest): Promise<SessionInfo>
     generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult>
     rename(req: { id: string; title: string }): Promise<void>
     pin(req: { id: string; pinned: boolean }): Promise<void>

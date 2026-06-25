@@ -3,14 +3,18 @@ import type {
   DiscoverSkillFilter,
   InstalledSkillFilter,
   ManagedSkillGroupById,
+  PublicPackageCatalogState,
   SkillDocumentViewMode,
   SkillPageTab,
   SkillSelectionKey,
   SkillVersionCheckByKey,
 } from "./skill-route-model.ts"
 import type { ObjectStatusTone } from "@/components/ObjectRow"
+import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
+import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import type { TranslateFn as TFunction } from "@/i18n"
 
+import { LockKeyholeIcon, PackageOpenIcon, ShieldCheckIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import {
@@ -69,6 +73,7 @@ import { SkillIcon } from "@/components/SkillIcon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -186,7 +191,13 @@ function useDesktopDetailHeadingFocus<T extends HTMLElement>(dependency: string)
   return headingRef
 }
 
-export function SkillsRoute() {
+export function SkillsRoute({
+  organizationSkills,
+  workspace,
+}: {
+  organizationSkills: UseOrganizationSkills
+  workspace: UseOrganizationWorkspace
+}) {
   const { locale, t } = useAppI18n()
   const skillService = useSkillService()
   const authResource = useAuthStateResource()
@@ -208,6 +219,8 @@ export function SkillsRoute() {
   const [activeTab, setActiveTab] = React.useState<SkillPageTab>("discover")
   const [selectedSkillId, setSelectedSkillId] = React.useState<SkillSelectionKey | null>(null)
   const [query, setQuery] = React.useState("")
+  const [organizationQuery, setOrganizationQuery] = React.useState("")
+  const [organizationAddOpen, setOrganizationAddOpen] = React.useState(false)
   const [discoveryFilter, setDiscoveryFilter] = React.useState<DiscoverSkillFilter>("all")
   const [installedFilter, setInstalledFilter] = React.useState<InstalledSkillFilter>("all")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
@@ -259,6 +272,17 @@ export function SkillsRoute() {
   }, [inventory?.groups, query])
 
   const installedGroups = React.useMemo(() => searchedGroups.filter(isInstalledSkillGroup), [searchedGroups])
+  const filteredOrganizationSkills = React.useMemo(() => {
+    const normalizedQuery = organizationQuery.trim().toLowerCase()
+    if (!normalizedQuery) {
+      return organizationSkills.skills
+    }
+    return organizationSkills.skills.filter((skill) =>
+      [skill.displayName, skill.skillName, skill.packageName, skill.description ?? "", skill.version]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+    )
+  }, [organizationQuery, organizationSkills.skills])
   const filteredInstalledGroups = React.useMemo(() => {
     return installedGroups.filter((group) => {
       return matchesInstalledSkillFilter(group, installedFilter, getSkillVersionCheck(versionCheckByKey, group))
@@ -281,6 +305,16 @@ export function SkillsRoute() {
       setCliUpdateError(null)
     }
   }, [versionResource.data?.cli?.status])
+
+  React.useEffect(() => {
+    if (activeTab === "organization" && workspace.activeWorkspace.type !== "organization") {
+      setActiveTab("discover")
+    }
+  }, [activeTab, workspace.activeWorkspace.type])
+
+  React.useEffect(() => {
+    setOrganizationAddOpen(false)
+  }, [organizationSkills.organizationId])
 
   const selectSkill = React.useCallback((skillId: SkillSelectionKey) => {
     setSelectedSkillId(skillId)
@@ -571,13 +605,24 @@ export function SkillsRoute() {
           discoveryQuery={discoveryQuery}
           installedFilter={installedFilter}
           installedQuery={query}
+          organizationQuery={organizationQuery}
+          organizationTabAvailable={workspace.activeWorkspace.type === "organization"}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
           onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
+          onOrganizationQueryChange={setOrganizationQuery}
           onTabChange={setActiveTab}
         />
-        {activeTab === "discover" ? (
+        {activeTab === "organization" ? (
+          <OrganizationSkillsPane
+            organizationSkills={organizationSkills}
+            query={organizationQuery}
+            skills={filteredOrganizationSkills}
+            workspace={workspace}
+            onAdd={() => setOrganizationAddOpen(true)}
+          />
+        ) : activeTab === "discover" ? (
           <DiscoverSkillsPane
             error={activePackageCatalog.error}
             filter={discoveryFilter}
@@ -633,7 +678,488 @@ export function SkillsRoute() {
           />
         )}
       </section>
+      <OrganizationSkillAddDialog
+        isSignedIn={authResource.data?.status === "authenticated"}
+        myPublishedPackageCatalog={myPublishedPackageCatalog}
+        open={organizationAddOpen}
+        organizationSkills={organizationSkills}
+        publicPackageCatalog={publicPackageCatalog}
+        onClose={() => setOrganizationAddOpen(false)}
+        onLoadMyPublishedPackages={loadMyPublishedSkillPackages}
+        onLoadPublicPackages={loadPublicSkillPackages}
+      />
     </>
+  )
+}
+
+interface OrganizationSkillsPaneProps {
+  onAdd: () => void
+  organizationSkills: UseOrganizationSkills
+  query: string
+  skills: UseOrganizationSkills["skills"]
+  workspace: UseOrganizationWorkspace
+}
+
+function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, workspace }: OrganizationSkillsPaneProps) {
+  const { t } = useAppI18n()
+  const activeOrganization =
+    workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organization : null
+  const isCreator = workspace.activeWorkspace.type === "organization" && workspace.activeWorkspace.role === "creator"
+  const showHeaderAddAction = skills.length > 0 || Boolean(query.trim())
+  const [busySkillId, setBusySkillId] = React.useState<string | null>(null)
+
+  if (workspace.activeWorkspace.type !== "organization") {
+    return (
+      <div className="min-h-0 overflow-auto px-3 py-3">
+        <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.organizationPersonalEmpty")}</div>
+      </div>
+    )
+  }
+
+  if (!isCreator) {
+    return (
+      <OrganizationSkillEmptyState
+        description={t("skills.organizationCreatorOnlyDescription")}
+        icon="locked"
+        title={t("skills.organizationCreatorOnlyTitle")}
+      />
+    )
+  }
+
+  const handleToggle = async (skill: UseOrganizationSkills["skills"][number]): Promise<void> => {
+    if (!organizationSkills.canManage || busySkillId) {
+      return
+    }
+    setBusySkillId(skill.id)
+    try {
+      await organizationSkills.updateSkill(skill.id, { enabled: !skill.enabled })
+      toast.success(skill.enabled ? t("skills.organizationSkillDisabled") : t("skills.organizationSkillEnabled"))
+    } catch (cause) {
+      toast.error(skillErrorMessage(cause, t))
+    } finally {
+      setBusySkillId(null)
+    }
+  }
+
+  const handleRemove = async (skill: UseOrganizationSkills["skills"][number]): Promise<void> => {
+    if (!organizationSkills.canManage || busySkillId) {
+      return
+    }
+    const confirmed = window.confirm(t("skills.organizationRemoveConfirm", { name: skill.displayName }))
+    if (!confirmed) {
+      return
+    }
+    setBusySkillId(skill.id)
+    try {
+      await organizationSkills.removeSkill(skill.id)
+      toast.success(t("skills.organizationSkillRemoved"))
+    } catch (cause) {
+      toast.error(skillErrorMessage(cause, t))
+    } finally {
+      setBusySkillId(null)
+    }
+  }
+
+  return (
+    <div className="min-h-0 overflow-auto px-3 py-3">
+      <div className="grid gap-4 pr-1">
+        <div className="flex min-w-0 items-start justify-between gap-4 border-b pb-4">
+          <div className="grid min-w-0 gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="oo-text-title min-w-0 truncate">
+                {activeOrganization?.name ?? t("organizations.workspace")}
+              </div>
+              <Badge variant="secondary">{t("organizations.roleCreator")}</Badge>
+            </div>
+            <p className="oo-text-body max-w-3xl text-muted-foreground">{t("skills.organizationDescriptionManage")}</p>
+            <div className="oo-text-caption-compact flex min-w-0 items-center gap-1.5 text-muted-foreground">
+              <ShieldCheckIcon className="size-3.5 shrink-0" />
+              <span className="min-w-0">{t("skills.organizationCreatorOnlyNotice")}</span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {organizationSkills.canManage && showHeaderAddAction ? (
+              <Button type="button" variant="default" size="sm" onClick={onAdd}>
+                <AppIcons.action.installPackage />
+                {t("skills.organizationAdd")}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {organizationSkills.error ? (
+          <div className="flex min-w-0 items-start gap-2">
+            <ErrorNotice error={organizationSkills.error} compact className="min-w-0 flex-1" />
+          </div>
+        ) : null}
+
+        {organizationSkills.loading && !organizationSkills.hasLoaded ? (
+          <PublicSkillGridSkeleton />
+        ) : skills.length === 0 ? (
+          <OrganizationSkillEmptyState
+            action={
+              organizationSkills.canManage && !query.trim()
+                ? {
+                    label: t("skills.organizationAdd"),
+                    onClick: onAdd,
+                  }
+                : undefined
+            }
+            description={
+              query.trim() ? t("skills.organizationSearchEmptyDescription") : t("skills.organizationEmptyDescription")
+            }
+            icon="empty"
+            title={query.trim() ? t("skills.organizationSearchEmpty") : t("skills.organizationEmpty")}
+          />
+        ) : (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+            {skills.map((skill) => {
+              const busy = busySkillId === skill.id
+              return (
+                <div
+                  key={skill.id}
+                  className="grid min-h-44 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-md border bg-card text-card-foreground"
+                >
+                  <div className="grid min-w-0 gap-2 p-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <SkillIconFrame icon={skill.icon} />
+                      <div className="grid min-w-0 gap-1">
+                        <div className="oo-text-label min-w-0 truncate">{skill.displayName}</div>
+                        <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={skill.packageName}>
+                          {skill.packageName}
+                        </div>
+                      </div>
+                    </div>
+                    {skill.description ? (
+                      <p className="oo-text-caption line-clamp-2 text-foreground/75">{skill.description}</p>
+                    ) : null}
+                    <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={skill.skillName}>
+                      {skill.skillName} · {skill.version}
+                    </div>
+                  </div>
+                  <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
+                    <div className="flex min-w-0 items-center gap-1">
+                      <Badge variant={skill.enabled ? "secondary" : "outline"}>
+                        {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
+                      </Badge>
+                      <Badge variant="outline">{skill.versionPolicy}</Badge>
+                    </div>
+                    {organizationSkills.canManage ? (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void handleToggle(skill)}
+                        >
+                          {busy ? <AppIcons.status.loading className="animate-spin" /> : null}
+                          {skill.enabled ? t("skills.organizationDisable") : t("skills.organizationEnable")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void handleRemove(skill)}
+                        >
+                          {t("skills.organizationRemove")}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OrganizationSkillEmptyState({
+  action,
+  description,
+  icon,
+  title,
+}: {
+  action?: { label: string; onClick: () => void }
+  description: string
+  icon: "empty" | "locked"
+  title: string
+}) {
+  const Icon = icon === "locked" ? LockKeyholeIcon : PackageOpenIcon
+
+  return (
+    <div className="grid min-h-[20rem] place-items-center rounded-md border border-dashed bg-muted/20 px-6 py-12">
+      <div className="grid max-w-md justify-items-center gap-3 text-center">
+        <div className="grid size-14 place-items-center rounded-lg border bg-background text-muted-foreground shadow-sm">
+          <Icon className="size-6" />
+        </div>
+        <div className="grid gap-1">
+          <div className="oo-text-title text-foreground">{title}</div>
+          <p className="oo-text-body text-muted-foreground">{description}</p>
+        </div>
+        {action ? (
+          <Button type="button" size="sm" onClick={action.onClick}>
+            <AppIcons.action.installPackage />
+            {action.label}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function OrganizationSkillAddDialog({
+  isSignedIn,
+  myPublishedPackageCatalog,
+  onClose,
+  onLoadMyPublishedPackages,
+  onLoadPublicPackages,
+  open,
+  organizationSkills,
+  publicPackageCatalog,
+}: {
+  isSignedIn: boolean
+  myPublishedPackageCatalog: PublicPackageCatalogState
+  onClose: () => void
+  onLoadMyPublishedPackages: (options?: { forceRefresh?: boolean; next?: string | null }) => Promise<void>
+  onLoadPublicPackages: (options?: { forceRefresh?: boolean; next?: string | null }) => Promise<void>
+  open: boolean
+  organizationSkills: UseOrganizationSkills
+  publicPackageCatalog: PublicPackageCatalogState
+}) {
+  const { t } = useAppI18n()
+  const [activeSource, setActiveSource] = React.useState<DiscoverSkillFilter>("all")
+  const [query, setQuery] = React.useState("")
+  const [savingKey, setSavingKey] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
+    setActiveSource("all")
+    setQuery("")
+    setError(null)
+    setSavingKey(null)
+  }, [open])
+
+  const activeCatalog = activeSource === "mine" ? myPublishedPackageCatalog : publicPackageCatalog
+  const sourceUnavailable = activeSource === "mine" && !isSignedIn
+  const packages = React.useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return activeCatalog.items.filter((pkg) => matchesPublicPackageQuery(pkg, normalizedQuery))
+  }, [activeCatalog.items, query])
+  const isLoading = activeCatalog.status === "loading" || activeCatalog.status === "refreshing"
+  const isLoadingMore = activeCatalog.status === "loading-more"
+  const canLoadMore = Boolean(activeCatalog.next) && !isLoading && !isLoadingMore && packages.length > 0
+
+  React.useEffect(() => {
+    if (!open || sourceUnavailable || activeCatalog.items.length > 0 || activeCatalog.status !== "idle") {
+      return
+    }
+
+    void (activeSource === "mine" ? onLoadMyPublishedPackages() : onLoadPublicPackages()).catch(() => undefined)
+  }, [
+    activeCatalog.items.length,
+    activeCatalog.status,
+    activeSource,
+    onLoadMyPublishedPackages,
+    onLoadPublicPackages,
+    open,
+    sourceUnavailable,
+  ])
+
+  const handleAdd = async (pkg: PublicSkillPackage, skillName: string): Promise<void> => {
+    const normalizedSkillName = skillName.trim()
+    if (!normalizedSkillName) {
+      setError(t("skills.discoverInstallNoSkill"))
+      return
+    }
+    const nextSavingKey = `${pkg.id}:${normalizedSkillName}`
+    setSavingKey(nextSavingKey)
+    setError(null)
+    try {
+      await organizationSkills.addSkill({
+        packageName: pkg.name,
+        skillName: normalizedSkillName,
+        version: pkg.version,
+        versionPolicy: "pinned",
+      })
+      toast.success(t("skills.organizationSkillAdded"))
+      onClose()
+    } catch (cause) {
+      setError(skillErrorMessage(cause, t))
+    } finally {
+      setSavingKey(null)
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      title={t("skills.organizationAddPackageTitle")}
+      description={t("skills.organizationAddPackageDescription")}
+      className="max-w-[min(52rem,calc(100vw-2rem))]"
+      onClose={onClose}
+    >
+      <div className="grid gap-3">
+        <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            value={activeSource}
+            onValueChange={(value) => {
+              if (value === "all" || value === "mine") {
+                setActiveSource(value)
+                setError(null)
+              }
+            }}
+          >
+            <ToggleGroupItem value="all" className={skillDocumentToggleItemClassName}>
+              {t("skills.organizationAddSourcePublic")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="mine" className={skillDocumentToggleItemClassName}>
+              {t("skills.organizationAddSourceMine")}
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <SearchField
+            placeholder={t("skills.organizationAddSearch")}
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+
+        {error ? <SkillErrorNotice error={error} /> : null}
+        {activeCatalog.error ? <SkillErrorNotice error={activeCatalog.error} /> : null}
+
+        <div className="min-h-0 overflow-hidden rounded-md border">
+          {sourceUnavailable ? (
+            <div className="oo-text-body oo-text-muted px-4 py-8 text-center">{t("skills.discoverMineSignedOut")}</div>
+          ) : isLoading && activeCatalog.items.length === 0 ? (
+            <OrganizationSkillPackageListSkeleton />
+          ) : packages.length === 0 ? (
+            <div className="oo-text-body oo-text-muted px-4 py-8 text-center">
+              {query.trim() ? t("skills.organizationAddSearchEmpty") : t("skills.organizationAddEmpty")}
+            </div>
+          ) : (
+            <div className="max-h-[28rem] overflow-y-auto">
+              {packages.map((pkg) => (
+                <OrganizationSkillPackageRow
+                  key={pkg.id}
+                  pkg={pkg}
+                  savingKey={savingKey}
+                  onAdd={(skillName) => void handleAdd(pkg, skillName)}
+                />
+              ))}
+              {canLoadMore ? (
+                <div className="oo-border-divider flex justify-center border-t px-3 py-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isLoadingMore}
+                    onClick={() =>
+                      void (activeSource === "mine"
+                        ? onLoadMyPublishedPackages({ next: activeCatalog.next })
+                        : onLoadPublicPackages({ next: activeCatalog.next }))
+                    }
+                  >
+                    {isLoadingMore ? <AppIcons.status.loading className="animate-spin" /> : null}
+                    {isLoadingMore ? t("skills.discoverLoadingMore") : t("skills.discoverLoadMore")}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
+function OrganizationSkillPackageListSkeleton() {
+  return (
+    <div className="divide-y">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div key={index} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5">
+          <Skeleton className="size-10 rounded-md" />
+          <div className="grid min-w-0 gap-2">
+            <SkeletonText className="h-4 w-40" />
+            <SkeletonText className="h-3 w-56" />
+          </div>
+          <Skeleton className="h-8 w-16 rounded-md" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OrganizationSkillPackageRow({
+  onAdd,
+  pkg,
+  savingKey,
+}: {
+  onAdd: (skillName: string) => void
+  pkg: PublicSkillPackage
+  savingKey: string | null
+}) {
+  const { t } = useAppI18n()
+  const primarySkill = getPublicPackagePrimarySkill(pkg)
+  const hasMultipleSkills = pkg.skills.length > 1
+  const [selectedSkillName, setSelectedSkillName] = React.useState(() =>
+    hasMultipleSkills ? "" : (primarySkill?.name ?? ""),
+  )
+  const canAdd = Boolean(selectedSkillName.trim())
+  const isSaving = Boolean(canAdd && savingKey === `${pkg.id}:${selectedSkillName.trim()}`)
+
+  return (
+    <div className="oo-border-divider grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-3 border-b px-3 py-2.5 last:border-b-0">
+      <SkillIconFrame icon={pkg.icon} />
+      <div className="grid min-w-0 gap-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="oo-text-label min-w-0 truncate">{pkg.displayName}</div>
+          <Badge className="shrink-0" variant={pkg.visibility === "public" ? "success" : "secondary"}>
+            {pkg.visibility === "public" ? t("skills.organizationAddSourcePublic") : t("skills.organizationPrivate")}
+          </Badge>
+        </div>
+        <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={`${pkg.name}@${pkg.version}`}>
+          {pkg.name}@{pkg.version}
+        </div>
+      </div>
+      <Badge className="shrink-0" variant="outline">
+        {t("skills.organizationPackageSkillCount", { count: pkg.skills.length })}
+      </Badge>
+      {hasMultipleSkills ? (
+        <select
+          className="h-8 min-w-32 rounded-md border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={selectedSkillName}
+          onChange={(event) => setSelectedSkillName(event.currentTarget.value)}
+        >
+          <option value="">{t("skills.organizationSelectSkill")}</option>
+          {pkg.skills.map((skill) => (
+            <option key={skill.name} value={skill.name}>
+              {skill.title || skill.name}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={!canAdd || isSaving}
+        onClick={() => onAdd(selectedSkillName)}
+      >
+        {isSaving ? <AppIcons.status.loading className="animate-spin" /> : null}
+        {isSaving ? t("skills.organizationAdding") : t("skills.organizationAddRowAction")}
+      </Button>
+    </div>
   )
 }
 
@@ -716,10 +1242,13 @@ interface SkillPageHeaderProps {
   discoveryQuery: string
   installedFilter: InstalledSkillFilter
   installedQuery: string
+  organizationQuery: string
+  organizationTabAvailable: boolean
   onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
   onInstalledFilterChange: (filter: InstalledSkillFilter) => void
   onInstalledQueryChange: (value: string) => void
+  onOrganizationQueryChange: (value: string) => void
   onTabChange: (tab: SkillPageTab) => void
 }
 
@@ -729,16 +1258,24 @@ function SkillPageHeader({
   discoveryQuery,
   installedFilter,
   installedQuery,
+  organizationQuery,
+  organizationTabAvailable,
   onDiscoveryFilterChange,
   onDiscoveryQueryChange,
   onInstalledFilterChange,
   onInstalledQueryChange,
+  onOrganizationQueryChange,
   onTabChange,
 }: SkillPageHeaderProps) {
   const { t } = useAppI18n()
   const isDiscoverTab = activeTab === "discover"
-  const searchValue = isDiscoverTab ? discoveryQuery : installedQuery
-  const searchPlaceholder = isDiscoverTab ? "skills.discoverSearch" : "skills.installedSearch"
+  const isOrganizationTab = activeTab === "organization"
+  const searchValue = isOrganizationTab ? organizationQuery : isDiscoverTab ? discoveryQuery : installedQuery
+  const searchPlaceholder = isOrganizationTab
+    ? "skills.organizationSearch"
+    : isDiscoverTab
+      ? "skills.discoverSearch"
+      : "skills.installedSearch"
   const filterValue = isDiscoverTab ? discoveryFilter : installedFilter
   const filterOptions = isDiscoverTab
     ? [
@@ -753,51 +1290,85 @@ function SkillPageHeader({
 
   return (
     <header className="oo-border-divider flex min-h-12 items-center gap-2 border-b px-3 py-2">
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        className="shrink-0"
-        value={activeTab}
-        onValueChange={(value) => {
-          if (value === "discover" || value === "installed") {
-            onTabChange(value)
-          }
-        }}
-      >
-        <ToggleGroupItem value="discover">{t("skills.tab.discover")}</ToggleGroupItem>
-        <ToggleGroupItem value="installed">{t("skills.tab.installed")}</ToggleGroupItem>
-      </ToggleGroup>
+      <SkillTabList
+        activeTab={activeTab}
+        organizationTabAvailable={organizationTabAvailable}
+        onTabChange={onTabChange}
+      />
       <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
         <SearchField
           placeholder={t(searchPlaceholder)}
           value={searchValue}
           onChange={(event) => {
             const value = event.currentTarget.value
-            if (isDiscoverTab) {
+            if (isOrganizationTab) {
+              onOrganizationQueryChange(value)
+            } else if (isDiscoverTab) {
               onDiscoveryQueryChange(value)
             } else {
               onInstalledQueryChange(value)
             }
           }}
         />
-        <SkillFilterDropdown
-          ariaLabel={t("skills.filter")}
-          options={filterOptions}
-          value={filterValue}
-          onValueChange={(value) => {
-            if (isDiscoverTab && isDiscoverSkillFilter(value)) {
-              onDiscoveryFilterChange(value)
-              return
-            }
+        {isOrganizationTab ? null : (
+          <SkillFilterDropdown
+            ariaLabel={t("skills.filter")}
+            options={filterOptions}
+            value={filterValue}
+            onValueChange={(value) => {
+              if (isDiscoverTab && isDiscoverSkillFilter(value)) {
+                onDiscoveryFilterChange(value)
+                return
+              }
 
-            if (!isDiscoverTab && isInstalledSkillFilter(value)) {
-              onInstalledFilterChange(value)
-            }
-          }}
-        />
+              if (!isDiscoverTab && isInstalledSkillFilter(value)) {
+                onInstalledFilterChange(value)
+              }
+            }}
+          />
+        )}
       </div>
     </header>
+  )
+}
+
+function SkillTabList({
+  activeTab,
+  organizationTabAvailable,
+  onTabChange,
+}: {
+  activeTab: SkillPageTab
+  organizationTabAvailable: boolean
+  onTabChange: (tab: SkillPageTab) => void
+}) {
+  const { t } = useAppI18n()
+  const tabs: Array<{ label: string; value: SkillPageTab }> = [
+    ...(organizationTabAvailable
+      ? [{ label: t("skills.tab.organization"), value: "organization" as SkillPageTab }]
+      : []),
+    { label: t("skills.tab.discover"), value: "discover" },
+    { label: t("skills.tab.installed"), value: "installed" },
+  ]
+
+  return (
+    <ToggleGroup
+      type="single"
+      variant="outline"
+      size="sm"
+      className="shrink-0"
+      value={activeTab}
+      onValueChange={(value) => {
+        if (value === "organization" || value === "discover" || value === "installed") {
+          onTabChange(value)
+        }
+      }}
+    >
+      {tabs.map((tab) => (
+        <ToggleGroupItem key={tab.value} value={tab.value} className={skillDocumentToggleItemClassName}>
+          {tab.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   )
 }
 
@@ -1318,7 +1889,7 @@ function SkillManagementSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/15 [-webkit-app-region:no-drag]"
+      className="fixed inset-0 z-[120] bg-black/15 [-webkit-app-region:no-drag]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
@@ -1478,7 +2049,7 @@ function PublicSkillPackageSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/15"
+      className="fixed inset-0 z-[120] bg-black/15"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {

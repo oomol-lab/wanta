@@ -69,6 +69,14 @@ function resolveOoEndpoint(command: string, mode: string): string {
   return "oomol.com"
 }
 
+function resolvePackageAssetsBaseUrl(ooEndpoint: string): string {
+  const explicit = process.env.WANTA_PACKAGE_ASSETS_BASE_URL?.trim()
+  if (explicit) {
+    return explicit
+  }
+  return `https://package-assets.${ooEndpoint}`
+}
+
 function shouldAutoStartElectron(command: string, mode: string): boolean {
   if (command === "build") {
     return true
@@ -89,11 +97,13 @@ function skipElectronStartup(): void {
 export default defineConfig(({ command, mode }) => {
   // 全局唯一 endpoint，常量替换注入（App 层不可见、不可切换，见 electron/domain.ts）。
   const ooEndpoint = resolveOoEndpoint(command, mode)
+  const packageAssetsBaseUrl = resolvePackageAssetsBaseUrl(ooEndpoint)
   const autoStartElectron = shouldAutoStartElectron(command, mode)
   const buildDefines = {
     __APP_COMMIT__: JSON.stringify(appCommit),
     __APP_VERSION__: JSON.stringify(appVersion),
     __OO_ENDPOINT__: JSON.stringify(ooEndpoint),
+    __PACKAGE_ASSETS_BASE_URL__: JSON.stringify(packageAssetsBaseUrl),
   }
 
   return {

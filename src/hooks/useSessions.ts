@@ -2,12 +2,15 @@ import type {
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
   SessionInfo,
+  SessionScope,
 } from "../../electron/session/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
 import { useSessionService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
+
+const personalSessionScope: SessionScope = { type: "personal" }
 
 export interface UseSessions {
   sessions: SessionInfo[]
@@ -24,13 +27,23 @@ export interface UseSessions {
   refresh: () => Promise<void>
 }
 
-export function useSessions({ enabled = true }: { enabled?: boolean } = {}): UseSessions {
+export function useSessions({ enabled = true, scope }: { enabled?: boolean; scope?: SessionScope } = {}): UseSessions {
   const sessionService = useSessionService()
+  const scopeType = scope?.type ?? "personal"
+  const organizationId = scope?.type === "organization" ? scope.organizationId : ""
+  const organizationName = scope?.type === "organization" ? scope.organizationName : ""
+  const requestScope = React.useMemo<SessionScope>(() => {
+    if (scopeType === "organization") {
+      return { type: "organization", organizationId, organizationName }
+    }
+    return personalSessionScope
+  }, [organizationId, organizationName, scopeType])
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
   const [loaded, setLoaded] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
+  const scopeKey = requestScope.type === "organization" ? `organization:${requestScope.organizationId}` : "personal"
 
   React.useEffect(() => {
     enabledRef.current = enabled
@@ -38,6 +51,13 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       requestSequenceRef.current += 1
     }
   }, [enabled])
+
+  React.useEffect(() => {
+    requestSequenceRef.current += 1
+    setSessions([])
+    setLoaded(false)
+    setError(null)
+  }, [scopeKey])
 
   const refresh = React.useCallback(async () => {
     const requestId = ++requestSequenceRef.current
@@ -48,7 +68,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       return
     }
     try {
-      const nextSessions = await sessionService.invoke("list")
+      const nextSessions = await sessionService.invoke("list", { scope: requestScope })
       if (requestId !== requestSequenceRef.current || !enabledRef.current) {
         return
       }
@@ -64,7 +84,7 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
         setLoaded(true)
       }
     }
-  }, [enabled, sessionService])
+  }, [enabled, requestScope, sessionService])
 
   React.useEffect(() => {
     if (!enabled) {
@@ -74,28 +94,26 @@ export function useSessions({ enabled = true }: { enabled?: boolean } = {}): Use
       return
     }
     void refresh()
-    return sessionService.serverEvents.on("sessionsChanged", (event) => {
+    return sessionService.serverEvents.on("sessionsChanged", () => {
       if (!enabledRef.current) {
         return
       }
-      setSessions(event.sessions)
-      setLoaded(true)
-      setError(null)
+      void refresh()
     })
   }, [enabled, sessionService, refresh])
 
   const create = React.useCallback(
     async (title?: string) => {
-      const info = await sessionService.invoke("create", title)
+      const info = await sessionService.invoke("create", { scope: requestScope, title })
       await refresh()
       return info
     },
-    [sessionService, refresh],
+    [requestScope, sessionService, refresh],
   )
 
   const listArchived = React.useCallback(async () => {
-    return sessionService.invoke("listArchived")
-  }, [sessionService])
+    return sessionService.invoke("listArchived", { scope: requestScope })
+  }, [requestScope, sessionService])
 
   const generateTitle = React.useCallback(
     async (req: GenerateSessionTitleRequest) => {

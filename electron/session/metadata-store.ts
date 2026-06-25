@@ -1,8 +1,11 @@
+import type { SessionScope } from "./common.ts"
+
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 export interface SessionMetadata {
+  scope?: SessionScope
   pinnedAt?: number
   archivedAt?: number
 }
@@ -14,6 +17,27 @@ export interface PersistedSessionMetadata {
 
 function validTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
+}
+
+function normalizeScope(value: unknown): SessionScope | undefined {
+  if (!value || typeof value !== "object" || !("type" in value)) {
+    return undefined
+  }
+  const source = value as Partial<SessionScope>
+  if (source.type === "personal") {
+    return { type: "personal" }
+  }
+  if (source.type !== "organization") {
+    return undefined
+  }
+  const rawOrganizationId = "organizationId" in source ? source.organizationId : undefined
+  const rawOrganizationName = "organizationName" in source ? source.organizationName : undefined
+  const organizationId = typeof rawOrganizationId === "string" ? rawOrganizationId.trim() : undefined
+  const organizationName = typeof rawOrganizationName === "string" ? rawOrganizationName.trim() : undefined
+  if (!organizationId || !organizationName) {
+    return undefined
+  }
+  return { type: "organization", organizationId, organizationName }
 }
 
 function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
@@ -29,13 +53,17 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     }
     const source = entry as SessionMetadata
     const next: SessionMetadata = {}
+    const scope = normalizeScope(source.scope)
+    if (scope) {
+      next.scope = scope
+    }
     if (validTimestamp(source.pinnedAt)) {
       next.pinnedAt = source.pinnedAt
     }
     if (validTimestamp(source.archivedAt)) {
       next.archivedAt = source.archivedAt
     }
-    if (next.pinnedAt || next.archivedAt) {
+    if (next.scope || next.pinnedAt || next.archivedAt) {
       metadata.set(id, next)
     }
   }
@@ -49,17 +77,21 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
       continue
     }
     const next: SessionMetadata = {}
+    const scope = normalizeScope(entry.scope)
+    if (scope) {
+      next.scope = scope
+    }
     if (validTimestamp(entry.pinnedAt)) {
       next.pinnedAt = entry.pinnedAt
     }
     if (validTimestamp(entry.archivedAt)) {
       next.archivedAt = entry.archivedAt
     }
-    if (next.pinnedAt || next.archivedAt) {
+    if (next.scope || next.pinnedAt || next.archivedAt) {
       sessions[id] = next
     }
   }
-  return { version: 1, sessions }
+  return { version: 2, sessions }
 }
 
 /** 会话展示元数据：置顶和归档属于 Wanta 侧边栏状态，不修改 OpenCode 会话本体。 */

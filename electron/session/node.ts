@@ -1,6 +1,14 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
-import type { GenerateSessionTitleRequest, GenerateSessionTitleResult, SessionInfo, SessionService } from "./common.ts"
+import type {
+  CreateSessionRequest,
+  GenerateSessionTitleRequest,
+  GenerateSessionTitleResult,
+  SessionInfo,
+  SessionScope,
+  SessionScopeRequest,
+  SessionService,
+} from "./common.ts"
 import type { SessionMetadata, SessionMetadataStore } from "./metadata-store.ts"
 import type { IConnectionService } from "@oomol/connection"
 
@@ -10,6 +18,43 @@ import { SessionService as SessionServiceName } from "./common.ts"
 interface SessionServiceDeps {
   activityStore?: SessionActivityStore
   metadataStore?: SessionMetadataStore
+}
+
+const personalSessionScope: SessionScope = { type: "personal" }
+
+function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
+  if (scope?.type === "organization") {
+    const organizationId = scope.organizationId.trim()
+    const organizationName = scope.organizationName.trim()
+    if (!organizationId || !organizationName) {
+      return personalSessionScope
+    }
+    return {
+      type: "organization",
+      organizationId,
+      organizationName,
+    }
+  }
+  return personalSessionScope
+}
+
+function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedScope: SessionScope): boolean {
+  const normalizedSessionScope = normalizeSessionScope(sessionScope)
+  if (requestedScope.type === "personal") {
+    return normalizedSessionScope.type === "personal"
+  }
+  return (
+    normalizedSessionScope.type === "organization" &&
+    normalizedSessionScope.organizationId === requestedScope.organizationId
+  )
+}
+
+function createRequestTitle(req?: CreateSessionRequest | string): string | undefined {
+  return typeof req === "string" ? req : req?.title
+}
+
+function createRequestScope(req?: CreateSessionRequest | string): SessionScope {
+  return normalizeSessionScope(typeof req === "string" ? undefined : req?.scope)
 }
 
 export class SessionServiceImpl
@@ -44,31 +89,35 @@ export class SessionServiceImpl
     }
   }
 
-  public async list(): Promise<SessionInfo[]> {
+  public async list(req: SessionScopeRequest = {}): Promise<SessionInfo[]> {
     if (!this.agent) {
       return []
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
-    return this.mergeLocalState(await this.agent.listSessions(), "active")
+    return this.mergeLocalState(await this.agent.listSessions(), "active", normalizeSessionScope(req.scope))
   }
 
-  public async listArchived(): Promise<SessionInfo[]> {
+  public async listArchived(req: SessionScopeRequest = {}): Promise<SessionInfo[]> {
     if (!this.agent) {
       return []
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
-    return this.mergeLocalState(await this.agent.listSessions(), "archived")
+    return this.mergeLocalState(await this.agent.listSessions(), "archived", normalizeSessionScope(req.scope))
   }
 
-  public async create(title?: string): Promise<SessionInfo> {
+  public async create(req?: CreateSessionRequest | string): Promise<SessionInfo> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    const info = await this.agent.createSession(title)
+    const scope = createRequestScope(req)
+    const info = await this.agent.createSession(createRequestTitle(req))
+    await this.ensureMetadataLoaded()
+    this.setMetadataEntry(info.id, { ...this.sessionMetadata.get(info.id), scope })
+    await this.persistMetadata()
     void this.broadcastChanged().catch(() => undefined)
-    return info
+    return { ...info, scope }
   }
 
   public async generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult> {
@@ -220,25 +269,31 @@ export class SessionServiceImpl
   }
 
   private setMetadataEntry(id: string, metadata: SessionMetadata): void {
-    if (metadata.pinnedAt || metadata.archivedAt) {
+    if (metadata.scope || metadata.pinnedAt || metadata.archivedAt) {
       this.sessionMetadata.set(id, metadata)
     } else {
       this.sessionMetadata.delete(id)
     }
   }
 
-  private mergeLocalState(sessions: SessionInfo[], visibility: "active" | "archived"): SessionInfo[] {
+  private mergeLocalState(
+    sessions: SessionInfo[],
+    visibility: "active" | "archived",
+    requestedScope: SessionScope,
+  ): SessionInfo[] {
     return sessions
       .map((session) => {
         const usedAt = this.sessionActivityAt.get(session.id)
         const metadata = this.sessionMetadata.get(session.id)
         return {
           ...session,
+          scope: normalizeSessionScope(metadata?.scope),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
           ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
         }
       })
+      .filter((session) => sessionScopeMatches(session.scope, requestedScope))
       .filter((session) => (visibility === "archived" ? Boolean(session.archivedAt) : !session.archivedAt))
       .map((session) => {
         if (session.archivedAt && session.pinnedAt) {

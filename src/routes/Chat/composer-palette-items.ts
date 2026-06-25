@@ -1,3 +1,4 @@
+import type { ChatOrganizationSkillContext } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
@@ -84,11 +85,31 @@ export function buildSkillPaletteItems(
   groups: ManagedSkillGroup[],
   fallbackDescription: string,
   creatorSkillCopy: CreatorSkillPaletteCopy,
+  organizationSkills: ChatOrganizationSkillContext[] = [],
 ): SkillPaletteItem[] {
   const creatorSkillItem = buildCreatorSkillPaletteItem(creatorSkillCopy)
+  const validatedOrganizationSkills = organizationSkills.filter((skill) => skill.id.trim() && skill.name.trim())
+  const organizationSkillNames = new Set(validatedOrganizationSkills.map((skill) => skill.name.trim().toLowerCase()))
+  const organizationItems = validatedOrganizationSkills
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map(
+      (skill): SkillPaletteItem => ({
+        description: skill.description || fallbackDescription,
+        descriptionText: skill.description || fallbackDescription,
+        icon: React.createElement(Package, { className: "size-4" }),
+        id: `skill:${skill.id}`,
+        kind: "skill",
+        meta: "organization",
+        skillId: skill.id,
+        skillName: skill.name,
+        title: skill.name,
+      }),
+    )
   const inventoryItems = groups
     .filter((group) => installedSkillHostCount(group) > 0)
     .filter((group) => group.id !== creatorSkillId)
+    .filter((group) => !organizationSkillNames.has((group.name || group.id).trim().toLowerCase()))
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
     .map(
@@ -105,7 +126,7 @@ export function buildSkillPaletteItems(
       }),
     )
 
-  return [creatorSkillItem, ...inventoryItems]
+  return [creatorSkillItem, ...organizationItems, ...inventoryItems]
 }
 
 export function buildConnectionPaletteItems(

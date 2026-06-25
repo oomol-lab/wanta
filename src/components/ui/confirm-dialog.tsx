@@ -22,7 +22,7 @@ function ConfirmDialogOverlay({ className, ...props }: React.ComponentProps<type
     <AlertDialogPrimitive.Overlay
       data-slot="confirm-dialog-overlay"
       className={cn(
-        "oo-modal-backdrop fixed inset-0 z-50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+        "oo-modal-backdrop fixed inset-0 z-[120] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
         className,
       )}
       {...props}
@@ -37,7 +37,7 @@ function ConfirmDialogContent({ className, ...props }: React.ComponentProps<type
       <AlertDialogPrimitive.Content
         data-slot="confirm-dialog-content"
         className={cn(
-          "oo-modal-surface fixed top-1/2 left-1/2 z-50 grid w-[min(calc(100vw-2rem),28rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-4 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          "oo-modal-surface fixed top-1/2 left-1/2 z-[121] grid w-[min(calc(100vw-2rem),28rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-4 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           className,
         )}
         {...props}

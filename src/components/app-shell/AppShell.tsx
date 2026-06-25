@@ -4,6 +4,7 @@ import type {
   AuthorizationInfo,
   ChatAttachment,
   ChatContextMention,
+  ChatOrganizationSkillContext,
   ChatMessage,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -63,20 +64,13 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
+import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import {
   organizationAvatarStyle,
   organizationInitials,
@@ -135,6 +129,7 @@ function RouteLoadingFallback({ className }: { className?: string }) {
 
 interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
+  organizationSkills?: ChatOrganizationSkillContext[]
   model?: ModelChoice
 }
 
@@ -298,7 +293,6 @@ function WorkspaceAvatar({
 function WorkspaceMenuContent({
   accountAvatarUrl,
   accountName,
-  align = "start",
   loading,
   onManageOrganizations,
   onRefresh,
@@ -308,12 +302,10 @@ function WorkspaceMenuContent({
   getOrganizationRole,
   hasLoaded,
   organizations,
-  side = "bottom",
   workspace,
 }: {
   accountAvatarUrl?: string
   accountName?: string
-  align?: "center" | "end" | "start"
   error: UseOrganizationWorkspace["error"]
   getOrganizationRole: UseOrganizationWorkspace["getOrganizationRole"]
   hasLoaded: boolean
@@ -323,7 +315,6 @@ function WorkspaceMenuContent({
   onSelectOrganization: (organizationId: string) => void
   onSelectPersonal: () => void
   organizations: UseOrganizationWorkspace["organizations"]
-  side?: "bottom" | "left" | "right" | "top"
   workspace: WorkspaceSelection
 }) {
   const t = useT()
@@ -334,14 +325,15 @@ function WorkspaceMenuContent({
   const showBlockingError = Boolean(error && !hasLoaded)
   const showRefreshWarning = Boolean(error && hasLoaded)
   const workspaceItemClassName =
-    "my-1 grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_3.5rem] items-center gap-2 rounded-md py-2 data-[active=true]:bg-accent data-[active=true]:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+    "my-1 grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_3.5rem] items-center gap-2 rounded-md py-2 text-left outline-none data-[active=true]:bg-accent data-[active=true]:text-accent-foreground focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground"
 
   return (
-    <DropdownMenuContent align={align} side={side} sideOffset={8} className="w-72">
-      <DropdownMenuLabel>{t("organizations.workspaceGroup")}</DropdownMenuLabel>
-      <DropdownMenuItem
+    <div className="absolute bottom-full left-3 z-[90] mb-2 w-72 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+      <div className="px-2 py-1.5 text-sm font-medium">{t("organizations.workspaceGroup")}</div>
+      <button
+        type="button"
         className={workspaceItemClassName}
-        onSelect={onSelectPersonal}
+        onClick={onSelectPersonal}
         data-active={activeKey === "personal"}
       >
         <WorkspaceAvatar
@@ -354,12 +346,12 @@ function WorkspaceMenuContent({
           <span className="oo-text-caption-compact truncate text-muted-foreground">{personalDescription}</span>
         </span>
         <span aria-hidden="true" />
-      </DropdownMenuItem>
+      </button>
       {loading ? (
-        <DropdownMenuItem disabled>
+        <div className="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-muted-foreground">
           <LoaderCircle className="size-4 animate-spin" />
           {t("organizations.loading")}
-        </DropdownMenuItem>
+        </div>
       ) : null}
       {showBlockingError && error ? (
         <div className="px-2 py-1.5">
@@ -376,10 +368,11 @@ function WorkspaceMenuContent({
         const selected = activeKey === `organization:${organization.id}`
         const role = getOrganizationRole(organization)
         return (
-          <DropdownMenuItem
+          <button
             key={organization.id}
+            type="button"
             className={workspaceItemClassName}
-            onSelect={() => onSelectOrganization(organization.id)}
+            onClick={() => onSelectOrganization(organization.id)}
             data-active={selected}
           >
             <WorkspaceAvatar
@@ -389,24 +382,32 @@ function WorkspaceMenuContent({
             <Badge variant="outline" className="flex w-full justify-end text-right font-normal">
               {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
             </Badge>
-          </DropdownMenuItem>
+          </button>
         )
       })}
       {!loading && organizations.length === 0 && !showBlockingError ? (
         <div className="oo-text-caption oo-text-muted px-2 py-1.5">{t("organizations.emptyOrganizations")}</div>
       ) : null}
-      <DropdownMenuSeparator />
+      <div className="-mx-1 my-1 h-px bg-border" />
       {error ? (
-        <DropdownMenuItem onSelect={onRefresh}>
+        <button
+          type="button"
+          className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+          onClick={onRefresh}
+        >
           <RefreshCw className="size-4" />
           {t("organizations.retry")}
-        </DropdownMenuItem>
+        </button>
       ) : null}
-      <DropdownMenuItem onSelect={onManageOrganizations}>
+      <button
+        type="button"
+        className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+        onClick={onManageOrganizations}
+      >
         <Building2 className="size-4" />
         {t("organizations.manageOrganizations")}
-      </DropdownMenuItem>
-    </DropdownMenuContent>
+      </button>
+    </div>
   )
 }
 
@@ -643,7 +644,7 @@ function RenameSessionDialog({
       aria-modal="true"
       aria-labelledby="rename-session-title"
       aria-describedby="rename-session-description"
-      className="oo-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-5"
+      className="oo-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center p-5"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose()
@@ -914,7 +915,7 @@ function SessionSearchOverlay({
       role="dialog"
       aria-modal="true"
       aria-label={t("sidebar.search")}
-      className="oo-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-5"
+      className="oo-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center p-5"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose()
@@ -1092,6 +1093,9 @@ function SidebarFooterControls({
   workspace: UseOrganizationWorkspace
 }) {
   const t = useT()
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = React.useState(false)
+  const [accountMenuOpen, setAccountMenuOpen] = React.useState(false)
   const trimmedAccountName = accountName?.trim()
   const displayName = trimmedAccountName || t("settings.account")
   const personalWorkspaceLabel = trimmedAccountName || t("organizations.personal")
@@ -1100,95 +1104,195 @@ function SidebarFooterControls({
       ? (workspace.activeWorkspace.organization?.name ?? t("organizations.workspace"))
       : personalWorkspaceLabel
 
+  React.useEffect(() => {
+    if (!workspaceMenuOpen && !accountMenuOpen) {
+      return
+    }
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Node && rootRef.current?.contains(target)) {
+        return
+      }
+      setWorkspaceMenuOpen(false)
+      setAccountMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setWorkspaceMenuOpen(false)
+        setAccountMenuOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [accountMenuOpen, workspaceMenuOpen])
+
+  const closeMenus = React.useCallback(() => {
+    setWorkspaceMenuOpen(false)
+    setAccountMenuOpen(false)
+  }, [])
+
   return (
-    <div className="oo-sidebar-account -mx-3 flex h-12 shrink-0 items-center gap-1 px-3 [-webkit-app-region:no-drag]">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left"
-            aria-label={t("organizations.workspaceSwitcher")}
-            title={activeWorkspaceLabel}
-          >
-            <WorkspaceAvatar
-              accountAvatarUrl={avatarUrl}
-              accountName={displayName}
-              className="size-7"
-              workspace={workspace.activeWorkspace}
-            />
-            <div className="oo-sidebar-nav-label min-w-0 flex-1">
-              <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
-                {activeWorkspaceLabel}
-              </div>
-            </div>
-            <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
+    <div
+      ref={rootRef}
+      className="oo-sidebar-account relative -mx-3 flex h-12 shrink-0 items-center gap-1 px-3 [-webkit-app-region:no-drag]"
+    >
+      <button
+        type="button"
+        className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left"
+        aria-label={t("organizations.workspaceSwitcher")}
+        aria-expanded={workspaceMenuOpen}
+        title={activeWorkspaceLabel}
+        onClick={() => {
+          setWorkspaceMenuOpen((open) => !open)
+          setAccountMenuOpen(false)
+        }}
+      >
+        <WorkspaceAvatar
+          accountAvatarUrl={avatarUrl}
+          accountName={displayName}
+          className="size-7"
+          workspace={workspace.activeWorkspace}
+        />
+        <div className="oo-sidebar-nav-label min-w-0 flex-1">
+          <div className="oo-text-body truncate text-sidebar-foreground" title={activeWorkspaceLabel}>
+            {activeWorkspaceLabel}
+          </div>
+        </div>
+        <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
+      </button>
+      {workspaceMenuOpen ? (
         <WorkspaceMenuContent
           accountAvatarUrl={avatarUrl}
           accountName={trimmedAccountName}
-          align="start"
           error={workspace.error}
           getOrganizationRole={workspace.getOrganizationRole}
           hasLoaded={workspace.hasLoaded}
           loading={workspace.loading}
           organizations={workspace.organizations}
-          side="top"
           workspace={workspace.activeWorkspace}
-          onManageOrganizations={() => onNavigate("organizations")}
+          onManageOrganizations={() => {
+            closeMenus()
+            onNavigate("organizations")
+          }}
           onRefresh={() => void workspace.refresh({ forceRefresh: true })}
-          onSelectOrganization={workspace.selectOrganization}
-          onSelectPersonal={workspace.selectPersonal}
+          onSelectOrganization={(organizationId) => {
+            closeMenus()
+            workspace.selectOrganization(organizationId)
+          }}
+          onSelectPersonal={() => {
+            closeMenus()
+            workspace.selectPersonal()
+          }}
         />
-      </DropdownMenu>
+      ) : null}
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "oo-sidebar-nav-item flex size-10 shrink-0 items-center justify-center rounded-md",
-              (activeRoute === "settings" || activeRoute === "archived") &&
-                "bg-sidebar-accent text-sidebar-accent-foreground",
-            )}
-            aria-label={t("sidebar.accountMenu")}
-            title={t("settings.title")}
-          >
-            <Settings className="size-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="top" align="end" sideOffset={8} className="w-56">
-          <DropdownMenuLabel>
+      <button
+        type="button"
+        className={cn(
+          "oo-sidebar-nav-item flex size-10 shrink-0 items-center justify-center rounded-md",
+          (activeRoute === "settings" || activeRoute === "archived") &&
+            "bg-sidebar-accent text-sidebar-accent-foreground",
+        )}
+        aria-label={t("sidebar.accountMenu")}
+        aria-expanded={accountMenuOpen}
+        title={t("settings.title")}
+        onClick={() => {
+          setAccountMenuOpen((open) => !open)
+          setWorkspaceMenuOpen(false)
+        }}
+      >
+        <Settings className="size-4" />
+      </button>
+      {accountMenuOpen ? (
+        <div className="absolute right-3 bottom-full z-[90] mb-2 w-56 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+          <div className="px-2 py-1.5 text-sm font-medium">
             <div className="flex min-w-0 items-center gap-2">
               <AccountAvatar name={displayName} avatarUrl={avatarUrl} />
               <span className="truncate">{displayName}</span>
             </div>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => onNavigate("connections")}>
+          </div>
+          <div className="-mx-1 my-1 h-px bg-border" />
+          <SidebarMenuButton
+            onClick={() => {
+              closeMenus()
+              onNavigate("connections")
+            }}
+          >
             <Plug className="size-4" />
             {t("connections.title")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onNavigate("skills")}>
+          </SidebarMenuButton>
+          <SidebarMenuButton
+            onClick={() => {
+              closeMenus()
+              onNavigate("skills")
+            }}
+          >
             <Package className="size-4" />
             {t("skills.title")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onNavigate("archived")}>
+          </SidebarMenuButton>
+          <SidebarMenuButton
+            onClick={() => {
+              closeMenus()
+              onNavigate("archived")
+            }}
+          >
             <Archive className="size-4" />
             {t("archived.navTitle")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onNavigate("settings")}>
+          </SidebarMenuButton>
+          <SidebarMenuButton
+            onClick={() => {
+              closeMenus()
+              onNavigate("settings")
+            }}
+          >
             <Settings className="size-4" />
             {t("settings.title")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" disabled={loggingOut} onSelect={onLogout}>
+          </SidebarMenuButton>
+          <div className="-mx-1 my-1 h-px bg-border" />
+          <SidebarMenuButton
+            disabled={loggingOut}
+            destructive
+            onClick={() => {
+              closeMenus()
+              onLogout()
+            }}
+          >
             <LogOut className="size-4" />
             {t("settings.logout")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </SidebarMenuButton>
+        </div>
+      ) : null}
     </div>
+  )
+}
+
+function SidebarMenuButton({
+  children,
+  destructive = false,
+  disabled = false,
+  onClick,
+}: {
+  children: React.ReactNode
+  destructive?: boolean
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50",
+        destructive && "text-destructive hover:bg-destructive/10 focus:bg-destructive/10",
+      )}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -1296,6 +1400,7 @@ export function AppShell() {
   const [ready, setReady] = React.useState(false)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
+  const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace)
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -1993,7 +2098,11 @@ export function AppShell() {
           },
         )
         try {
-          await send(sessionId, text, attachments, { contextMentions, model })
+          await send(sessionId, text, attachments, {
+            contextMentions,
+            model,
+            organizationSkills: organizationSkills.chatContextSkills,
+          })
         } catch (error) {
           if (bridgeEmptySend) {
             setPendingChatTransition(null)
@@ -2005,7 +2114,16 @@ export function AppShell() {
         sendInFlightRef.current = false
       }
     },
-    [activeSession, activeSessionId, create, messages, messagesLoaded, refreshGeneratedTitle, send],
+    [
+      activeSession,
+      activeSessionId,
+      create,
+      messages,
+      messagesLoaded,
+      organizationSkills.chatContextSkills,
+      refreshGeneratedTitle,
+      send,
+    ],
   )
 
   const handleSend = React.useCallback(
@@ -2323,7 +2441,7 @@ export function AppShell() {
       style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
     >
       {/* 左：会话导航栏 */}
-      <aside className="oo-sidebar oo-border-divider relative z-20 flex min-h-0 flex-col border-r">
+      <aside className="oo-sidebar oo-border-divider relative z-[80] flex min-h-0 flex-col overflow-visible border-r">
         <header
           data-slot="sidebar-chrome-header"
           className="oo-sidebar-chrome-header relative flex h-[var(--app-titlebar-height)] items-center justify-between gap-3 [-webkit-app-region:drag]"
@@ -2535,7 +2653,7 @@ export function AppShell() {
                   <ConnectionsPanel connections={connections} selectedService={selectedService} />
                 </div>
               ) : route === "skills" ? (
-                <SkillsRoute />
+                <SkillsRoute organizationSkills={organizationSkills} workspace={organizationWorkspace} />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute workspace={organizationWorkspace} />
               ) : (
@@ -2554,6 +2672,7 @@ export function AppShell() {
                     initialComposerState={initialComposerState}
                     initialSendPending={initialSendPending}
                     composerFocusRequest={composerFocusRequest}
+                    organizationSkills={organizationSkills.chatContextSkills}
                     providers={activeProviders}
                     queuedMessages={activeQueuedMessages}
                     placeholder={

@@ -5,6 +5,7 @@ import type {
   ChatContextMention,
   ChatMessage,
   ChatMessagePart,
+  ChatOrganizationSkillContext,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
@@ -85,6 +86,7 @@ interface ChatAreaProps {
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
   placeholder: string
+  organizationSkills?: ChatOrganizationSkillContext[]
   onSend: (
     text: string,
     attachments: ChatAttachment[],
@@ -1039,6 +1041,7 @@ export const ChatArea = React.memo(function ChatArea({
   providers,
   queuedMessages,
   placeholder,
+  organizationSkills,
   onComposerStateChange,
   onSend,
   onStop,
@@ -1071,6 +1074,7 @@ export const ChatArea = React.memo(function ChatArea({
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}
       placeholder={placeholder}
+      organizationSkills={organizationSkills}
       providers={providers}
       queuedMessages={queuedMessages}
       status={status}

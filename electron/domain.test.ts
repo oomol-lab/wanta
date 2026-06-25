@@ -8,6 +8,7 @@ import {
   llmBaseUrl,
   ooEndpoint,
   orgControlBaseUrl,
+  packageAssetsBaseUrl,
   staticBaseUrl,
 } from "./domain.ts"
 
@@ -23,5 +24,9 @@ test("all base URLs derive from the single injected endpoint", () => {
   assert.equal(consoleBaseUrl, `https://console.${ooEndpoint}`)
   assert.equal(consoleServerBaseUrl, `https://console-server.${ooEndpoint}`)
   assert.equal(apiBaseUrl, `https://api.${ooEndpoint}`)
+  assert.equal(
+    packageAssetsBaseUrl,
+    ooEndpoint === "oomol.dev" ? "https://package-assets-dev.oomol.com" : `https://package-assets.${ooEndpoint}`,
+  )
   assert.equal(staticBaseUrl, `https://static.${ooEndpoint}`)
 })

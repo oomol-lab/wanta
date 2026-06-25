@@ -36,6 +36,10 @@ export const registryBaseUrl = `https://registry.${ooEndpoint}`
 /** 技能搜索基址，如 `https://search.oomol.com`。 */
 export const searchBaseUrl = `https://search.${ooEndpoint}`
 
+/** 技能资源文件基址；dev endpoint 的资源桶沿用现有 Console 约定。 */
+export const packageAssetsBaseUrl =
+  ooEndpoint === "oomol.dev" ? "https://package-assets-dev.oomol.com" : `https://package-assets.${ooEndpoint}`
+
 /** 自动更新静态分发基址，如 `https://static.oomol.com`（路径段见 branding.updateFeedPath）。 */
 export const staticBaseUrl = `https://static.${ooEndpoint}`
 

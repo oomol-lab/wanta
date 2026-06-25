@@ -164,7 +164,16 @@ export interface SendMessageRequest {
   text: string
   attachments?: ChatAttachment[]
   contextMentions?: ChatContextMention[]
+  organizationSkills?: ChatOrganizationSkillContext[]
   model?: ModelChoice
+}
+
+export interface ChatOrganizationSkillContext {
+  description?: string
+  id: string
+  name: string
+  packageName?: string
+  version?: string
 }
 
 export type ChatContextMention =

@@ -2,10 +2,8 @@ import { ArrowRightIcon, GaugeIcon, LogInIcon, RefreshCwIcon, WalletCardsIcon, X
 import * as React from "react"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
@@ -30,6 +28,7 @@ interface BillingUsagePopoverProps {
 export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsagePopoverProps) {
   const t = useT()
   const { login } = useAuth()
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
   const [open, setOpen] = React.useState(false)
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
@@ -68,128 +67,152 @@ export function BillingUsagePopover({ cacheScope, onViewDetails }: BillingUsageP
   // 仅在真正拿到余额（无错误）且为 0 时才提示耗尽；会话过期/读取失败一律不显示破坏性"余额耗尽"。
   const hasNoCredits = Boolean(data && currentCredit <= 0 && !error)
 
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Node && rootRef.current?.contains(target)) {
+        return
+      }
+      setOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [open])
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              title={t("billing.popover.tooltip")}
-              aria-label={t("billing.popover.tooltip")}
-              className={cn(
-                "oo-toolbar-button relative flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
-                open && "bg-accent text-foreground",
-              )}
-            >
-              <GaugeIcon className="size-4" />
-              {hasNoCredits ? (
-                <span className="absolute top-1 right-1 size-1.5 rounded-full bg-destructive" aria-hidden="true" />
-              ) : null}
-            </button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("billing.popover.tooltip")}</TooltipContent>
-      </Tooltip>
-      <PopoverContent align="end" sideOffset={8} className="w-[23rem] overflow-hidden p-0">
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <div className="oo-text-title flex items-center gap-2 text-foreground">
-            <WalletCardsIcon className="size-4" />
-            <span>{t("billing.popover.title")}</span>
-          </div>
-          <PopoverClose asChild>
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        title={t("billing.popover.tooltip")}
+        aria-label={t("billing.popover.tooltip")}
+        aria-expanded={open}
+        className={cn(
+          "oo-toolbar-button relative flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
+          open && "bg-accent text-foreground",
+        )}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <GaugeIcon className="size-4" />
+        {hasNoCredits ? (
+          <span className="absolute top-1 right-1 size-1.5 rounded-full bg-destructive" aria-hidden="true" />
+        ) : null}
+      </button>
+      {open ? (
+        <div
+          role="dialog"
+          aria-label={t("billing.popover.title")}
+          className="absolute top-full right-0 z-50 mt-2 w-[23rem] overflow-hidden rounded-md border bg-popover p-0 text-popover-foreground shadow-md"
+        >
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="oo-text-title flex items-center gap-2 text-foreground">
+              <WalletCardsIcon className="size-4" />
+              <span>{t("billing.popover.title")}</span>
+            </div>
             <button
               type="button"
               aria-label={t("billing.popover.close")}
               className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => setOpen(false)}
             >
               <XIcon className="size-4" />
             </button>
-          </PopoverClose>
-        </div>
+          </div>
 
-        <div className="grid gap-4 px-4 pb-4">
-          {loading && !data ? (
-            <BillingUsageSkeleton />
-          ) : error ? (
-            <ErrorNotice
-              error={error}
-              compact
-              showDiagnosticsCopy={false}
-              action={
-                isSessionExpired
-                  ? {
-                      icon: <LogInIcon className="size-4" />,
-                      label: t("billing.signInAgain"),
-                      onClick: handleSignIn,
-                    }
-                  : {
-                      icon: <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />,
-                      label: t("billing.popover.retry"),
-                      onClick: () => void refresh({ force: true }),
-                    }
-              }
-            />
-          ) : (
-            <>
-              <section className="grid gap-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
-                    <div className="oo-text-metric-large mt-1 text-foreground">{formatCredit(currentCredit)}</div>
-                  </div>
-                  <div className="oo-text-body pt-5 text-right text-muted-foreground">
-                    {averageDailySpend > 0
-                      ? t("billing.popover.coverageDays", { days: coverageDays })
-                      : t("billing.coverageStable")}
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <Progress value={availableShare} className="h-1.5 bg-muted" />
-                  <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
-                    <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
-                    <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
-                  </div>
-                </div>
-              </section>
-
-              <section className="grid grid-cols-2 gap-3">
-                <UsageMiniMetric label={t("billing.chatSpend")} value={formatCredit(chatSpend)} />
-                <UsageMiniMetric label={t("billing.callCount")} value={Intl.NumberFormat().format(totalEvents)} />
-              </section>
-
-              <section className="rounded-lg border border-border p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="oo-text-label text-foreground">{t("billing.balanceLotsTitle")}</div>
-                    <div className="oo-text-caption-compact mt-1 text-muted-foreground">
-                      {t("billing.popover.creditSources", { count: sourceCount })}
+          <div className="grid gap-4 px-4 pb-4">
+            {loading && !data ? (
+              <BillingUsageSkeleton />
+            ) : error ? (
+              <ErrorNotice
+                error={error}
+                compact
+                showDiagnosticsCopy={false}
+                action={
+                  isSessionExpired
+                    ? {
+                        icon: <LogInIcon className="size-4" />,
+                        label: t("billing.signInAgain"),
+                        onClick: handleSignIn,
+                      }
+                    : {
+                        icon: <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />,
+                        label: t("billing.popover.retry"),
+                        onClick: () => void refresh({ force: true }),
+                      }
+                }
+              />
+            ) : (
+              <>
+                <section className="grid gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="oo-text-label text-muted-foreground">{t("billing.availableCredits")}</div>
+                      <div className="oo-text-metric-large mt-1 text-foreground">{formatCredit(currentCredit)}</div>
+                    </div>
+                    <div className="oo-text-body pt-5 text-right text-muted-foreground">
+                      {averageDailySpend > 0
+                        ? t("billing.popover.coverageDays", { days: coverageDays })
+                        : t("billing.coverageStable")}
                     </div>
                   </div>
-                  <div className="oo-text-title text-right text-foreground">
-                    {t("billing.popover.availableSources", { count: availableSourceCount })}
+                  <div className="grid gap-2">
+                    <Progress value={availableShare} className="h-1.5 bg-muted" />
+                    <div className="oo-text-caption-compact flex items-center justify-between gap-3 text-muted-foreground">
+                      <span>{t("billing.popover.periodSpend", { amount: formatCredit(totalSpend) })}</span>
+                      <span>{t("billing.averageDaily", { amount: formatCredit(averageDailySpend) })}</span>
+                    </div>
                   </div>
-                </div>
-              </section>
-            </>
-          )}
-        </div>
+                </section>
 
-        <div className="border-t border-border bg-muted/40 px-4 py-3">
-          <Button
-            type="button"
-            className="w-full min-w-0"
-            onClick={() => {
-              setOpen(false)
-              onViewDetails()
-            }}
-          >
-            {t(hasNoCredits ? "billing.purchaseCredits" : "billing.popover.viewDetails")}
-            <ArrowRightIcon className="size-4" />
-          </Button>
+                <section className="grid grid-cols-2 gap-3">
+                  <UsageMiniMetric label={t("billing.chatSpend")} value={formatCredit(chatSpend)} />
+                  <UsageMiniMetric label={t("billing.callCount")} value={Intl.NumberFormat().format(totalEvents)} />
+                </section>
+
+                <section className="rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="oo-text-label text-foreground">{t("billing.balanceLotsTitle")}</div>
+                      <div className="oo-text-caption-compact mt-1 text-muted-foreground">
+                        {t("billing.popover.creditSources", { count: sourceCount })}
+                      </div>
+                    </div>
+                    <div className="oo-text-title text-right text-foreground">
+                      {t("billing.popover.availableSources", { count: availableSourceCount })}
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+
+          <div className="border-t border-border bg-muted/40 px-4 py-3">
+            <Button
+              type="button"
+              className="w-full min-w-0"
+              onClick={() => {
+                setOpen(false)
+                onViewDetails()
+              }}
+            >
+              {t(hasNoCredits ? "billing.purchaseCredits" : "billing.popover.viewDetails")}
+              <ArrowRightIcon className="size-4" />
+            </Button>
+          </div>
         </div>
-      </PopoverContent>
-    </Popover>
+      ) : null}
+    </div>
   )
 }
 

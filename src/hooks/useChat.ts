@@ -4,6 +4,7 @@ import type {
   ChatContextMention,
   ChatMessage,
   ChatMessagePart,
+  ChatOrganizationSkillContext,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
   ToolCallResultEvent,
@@ -66,7 +67,11 @@ export interface UseChat {
     sessionId: string,
     text: string,
     attachments?: ChatAttachment[],
-    options?: { contextMentions?: ChatContextMention[]; model?: ModelChoice },
+    options?: {
+      contextMentions?: ChatContextMention[]
+      model?: ModelChoice
+      organizationSkills?: ChatOrganizationSkillContext[]
+    },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
 }
@@ -534,7 +539,11 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       sessionId: string,
       text: string,
       attachments: ChatAttachment[] = [],
-      options: { contextMentions?: ChatContextMention[]; model?: ModelChoice } = {},
+      options: {
+        contextMentions?: ChatContextMention[]
+        model?: ModelChoice
+        organizationSkills?: ChatOrganizationSkillContext[]
+      } = {},
     ) => {
       setGlobalError(null)
       clearSessionError(sessionId)
@@ -550,6 +559,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           attachments: agentAttachments(attachments),
           contextMentions: options.contextMentions,
           model: options.model,
+          organizationSkills: options.organizationSkills,
         })
       } catch (err) {
         setStatus(sessionId, "error")

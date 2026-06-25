@@ -1,4 +1,4 @@
-import type { ChatAttachment, ChatContextMention } from "../../../electron/chat/common.ts"
+import type { ChatAttachment, ChatContextMention, ChatOrganizationSkillContext } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ComposerState } from "./composer-state.ts"
@@ -32,7 +32,6 @@ import {
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -44,6 +43,7 @@ interface ChatComposerProps {
   initialComposerState?: ComposerState
   initialSendPending: boolean
   placeholder: string
+  organizationSkills?: ChatOrganizationSkillContext[]
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
   status: ChatStatus
@@ -91,6 +91,7 @@ export function ChatComposer({
   initialComposerState: initialComposerStateProp,
   initialSendPending,
   placeholder,
+  organizationSkills = [],
   providers,
   queuedMessages,
   status,
@@ -104,11 +105,13 @@ export function ChatComposer({
   const t = useT()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
+  const attachmentMenuRef = React.useRef<HTMLDivElement | null>(null)
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
   )
   const [inputError, setInputError] = React.useState<string | null>(null)
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const appendVoiceTranscription = React.useCallback((text: string) => {
     dispatchComposer({ type: "insert-transcription", text })
@@ -137,11 +140,16 @@ export function ChatComposer({
   )
   const skillItems = React.useMemo(
     () =>
-      buildSkillPaletteItems(skillInventory.data?.groups ?? [], t("chat.skillFallbackDescription"), {
-        description: t("chat.commandCreatorSkillDescription"),
-        title: t("chat.commandCreatorSkill"),
-      }),
-    [skillInventory.data?.groups, t],
+      buildSkillPaletteItems(
+        skillInventory.data?.groups ?? [],
+        t("chat.skillFallbackDescription"),
+        {
+          description: t("chat.commandCreatorSkillDescription"),
+          title: t("chat.commandCreatorSkill"),
+        },
+        organizationSkills,
+      ),
+    [organizationSkills, skillInventory.data?.groups, t],
   )
   const connectionItems = React.useMemo(
     () => buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service })),
@@ -159,6 +167,30 @@ export function ChatComposer({
   React.useEffect(() => {
     onComposerStateChange?.(composer)
   }, [composer, onComposerStateChange])
+
+  React.useEffect(() => {
+    if (!attachmentMenuOpen) {
+      return
+    }
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Node && attachmentMenuRef.current?.contains(target)) {
+        return
+      }
+      setAttachmentMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setAttachmentMenuOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [attachmentMenuOpen])
 
   React.useLayoutEffect(() => {
     const textarea = textareaRef.current
@@ -319,31 +351,43 @@ export function ChatComposer({
             className="hidden"
             onChange={composerAttachments.handleFileInputChange}
           />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                title={t("chat.attachFile")}
-                aria-label={t("chat.attachFile")}
-                disabled={composerDisabled}
-                className="size-8 rounded-full"
-              >
-                <Plus className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-40">
-              <DropdownMenuItem onSelect={() => void composerAttachments.selectAttachments("file")}>
-                <FileIcon className="size-4" />
-                {t("chat.attachFileAction")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => void composerAttachments.selectAttachments("directory")}>
-                <Folder className="size-4" />
-                {t("chat.attachFolderAction")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div ref={attachmentMenuRef} className="relative">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title={t("chat.attachFile")}
+              aria-label={t("chat.attachFile")}
+              aria-expanded={attachmentMenuOpen}
+              disabled={composerDisabled}
+              className="size-8 rounded-full"
+              onClick={() => setAttachmentMenuOpen((open) => !open)}
+            >
+              <Plus className="size-4" />
+            </Button>
+            {attachmentMenuOpen ? (
+              <div className="absolute bottom-full left-0 z-50 mb-2 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                <AttachmentMenuButton
+                  onClick={() => {
+                    setAttachmentMenuOpen(false)
+                    void composerAttachments.selectAttachments("file")
+                  }}
+                >
+                  <FileIcon className="size-4" />
+                  {t("chat.attachFileAction")}
+                </AttachmentMenuButton>
+                <AttachmentMenuButton
+                  onClick={() => {
+                    setAttachmentMenuOpen(false)
+                    void composerAttachments.selectAttachments("directory")
+                  }}
+                >
+                  <Folder className="size-4" />
+                  {t("chat.attachFolderAction")}
+                </AttachmentMenuButton>
+              </div>
+            ) : null}
+          </div>
         </PromptInputTools>
         <ComposerTrailingControls
           canSubmit={canSubmit}
@@ -411,5 +455,17 @@ export function ChatComposer({
       </div>
       {modelDialog}
     </>
+  )
+}
+
+function AttachmentMenuButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+      onClick={onClick}
+    >
+      {children}
+    </button>
   )
 }

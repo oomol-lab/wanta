@@ -5,6 +5,8 @@ export interface Organization {
   name: string
   avatar: string
   creator_user_id: string
+  role?: OrganizationRole
+  writable?: boolean
 }
 
 export interface OrganizationMember {

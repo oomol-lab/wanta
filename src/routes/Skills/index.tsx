@@ -704,7 +704,8 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
   const { t } = useAppI18n()
   const activeOrganization =
     workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organization : null
-  const isCreator = workspace.activeWorkspace.type === "organization" && workspace.activeWorkspace.role === "creator"
+  const canManage = workspace.activeWorkspace.type === "organization" && workspace.activeWorkspace.canManage
+  const activeRole = workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.role : null
   const showHeaderAddAction = skills.length > 0 || Boolean(query.trim())
   const [busySkillId, setBusySkillId] = React.useState<string | null>(null)
 
@@ -716,12 +717,12 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
     )
   }
 
-  if (!isCreator) {
+  if (!canManage) {
     return (
       <OrganizationSkillEmptyState
-        description={t("skills.organizationCreatorOnlyDescription")}
+        description={t("skills.organizationReadOnlyDescription")}
         icon="locked"
-        title={t("skills.organizationCreatorOnlyTitle")}
+        title={t("skills.organizationReadOnlyTitle")}
       />
     )
   }
@@ -769,12 +770,16 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
               <div className="oo-text-title min-w-0 truncate">
                 {activeOrganization?.name ?? t("organizations.workspace")}
               </div>
-              <Badge variant="secondary">{t("organizations.roleCreator")}</Badge>
+              {activeRole ? (
+                <Badge variant="secondary">
+                  {activeRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                </Badge>
+              ) : null}
             </div>
             <p className="oo-text-body max-w-3xl text-muted-foreground">{t("skills.organizationDescriptionManage")}</p>
             <div className="oo-text-caption-compact flex min-w-0 items-center gap-1.5 text-muted-foreground">
               <ShieldCheckIcon className="size-3.5 shrink-0" />
-              <span className="min-w-0">{t("skills.organizationCreatorOnlyNotice")}</span>
+              <span className="min-w-0">{t("skills.organizationManageNotice")}</span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">

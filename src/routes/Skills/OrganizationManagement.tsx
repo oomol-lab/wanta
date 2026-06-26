@@ -11,7 +11,6 @@ import type {
   LoadState,
   MemberSearchState,
   MemberView,
-  OrganizationRole,
   ProviderAccessForm,
   ProviderGrantView,
 } from "./organization-management-model.ts"
@@ -44,6 +43,7 @@ import {
   maxOrganizationAvatarLength,
   maxOrganizationNameLength,
   minimumMemberSearchLength,
+  organizationCanManage,
   organizationManagementSnapshotsByAccountId,
   organizationNameValidation,
   organizationRole,
@@ -171,11 +171,10 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
   const selectedOrganization = React.useMemo(() => {
     return selectedOrganizationId ? (organizations.find((item) => item.id === selectedOrganizationId) ?? null) : null
   }, [organizations, selectedOrganizationId])
-  const selectedRole = React.useMemo(
-    () => organizationRole(overviewState.data, selectedOrganization),
+  const canManage = React.useMemo(
+    () => organizationCanManage(overviewState.data, selectedOrganization),
     [overviewState.data, selectedOrganization],
   )
-  const canManage = selectedRole === "creator"
   const memberViews = React.useMemo(
     () => buildMemberViews(membersState.data, summariesState.data),
     [membersState.data, summariesState.data],
@@ -270,7 +269,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
   )
 
   const loadSelectedDetails = React.useCallback(
-    async (organization: Organization, role: OrganizationRole | null, _options: { forceRefresh?: boolean } = {}) => {
+    async (organization: Organization, canManageDetails: boolean, _options: { forceRefresh?: boolean } = {}) => {
       const requestId = detailsRequestId.current + 1
       const preserveCurrentData = detailsOrganizationIdRef.current === organization.id
       detailsRequestId.current = requestId
@@ -278,24 +277,20 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
       setMembersState((current) => loadingState(preserveCurrentData ? current : loadState([])))
       setSummariesState((current) => loadingState(preserveCurrentData ? current : loadState({})))
       setProviderOptionsState(
-        role === "creator" ? (current) => loadingState(preserveCurrentData ? current : loadState([])) : loadState([]),
+        canManageDetails ? (current) => loadingState(preserveCurrentData ? current : loadState([])) : loadState([]),
       )
       setAppAccessState(
-        role === "creator"
-          ? (current) => loadingState(preserveCurrentData ? current : loadState(null))
-          : loadState(null),
+        canManageDetails ? (current) => loadingState(preserveCurrentData ? current : loadState(null)) : loadState(null),
       )
 
       try {
         const membersRequest = settle(listOrganizationMembers(organization.id))
-        const providerOptionsRequest =
-          role === "creator"
-            ? settle(listOrganizationProviderOptions(organization.name))
-            : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: [] })
-        const appAccessRequest =
-          role === "creator"
-            ? settle(getOrganizationAppAccess(organization.id))
-            : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
+        const providerOptionsRequest = canManageDetails
+          ? settle(listOrganizationProviderOptions(organization.name))
+          : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: [] })
+        const appAccessRequest = canManageDetails
+          ? settle(getOrganizationAppAccess(organization.id))
+          : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
 
         const membersResult = await membersRequest
         if (detailsRequestId.current !== requestId) {
@@ -328,7 +323,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
           }),
         ]
 
-        if (role !== "creator") {
+        if (!canManageDetails) {
           setProviderOptionsState(loadState([]))
           setAppAccessState(loadState(null))
         } else {
@@ -366,7 +361,7 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
         }
         setMembersState((current) => (current.status === "loading" ? errorState(current, error) : current))
         setSummariesState((current) => (current.status === "loading" ? errorState(current, error) : current))
-        if (role === "creator") {
+        if (canManageDetails) {
           setProviderOptionsState((current) => (current.status === "loading" ? errorState(current, error) : current))
           setAppAccessState((current) => (current.status === "loading" ? errorState(current, error) : current))
         }
@@ -499,8 +494,8 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
     }
 
     skipInitialDetailsLoadRef.current = false
-    void loadSelectedDetails(selectedOrganization, selectedRole)
-  }, [loadSelectedDetails, selectedOrganization?.id, selectedOrganization?.name, selectedRole])
+    void loadSelectedDetails(selectedOrganization, canManage)
+  }, [canManage, loadSelectedDetails, selectedOrganization?.id, selectedOrganization?.name])
 
   React.useEffect(() => {
     const query = memberInput.trim()
@@ -588,9 +583,9 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
 
   const reloadMembersAndAccess = React.useCallback(async () => {
     if (selectedOrganization) {
-      await loadSelectedDetails(selectedOrganization, selectedRole, { forceRefresh: true })
+      await loadSelectedDetails(selectedOrganization, canManage, { forceRefresh: true })
     }
-  }, [loadSelectedDetails, selectedOrganization, selectedRole])
+  }, [canManage, loadSelectedDetails, selectedOrganization])
 
   const handleSelectPersonalWorkspace = React.useCallback(() => {
     setSelectedOrganizationId(null)

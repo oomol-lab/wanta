@@ -9,6 +9,7 @@ import type {
 } from "../../../electron/organizations/common.ts"
 
 import { branding } from "../../../electron/branding.ts"
+export { organizationCanManage, organizationRole } from "../../lib/organization-permissions.ts"
 import { parseProviderGrants } from "./organization-provider-access.ts"
 
 export type OrganizationRole = "creator" | "member"
@@ -198,22 +199,6 @@ export function organizationNameValidation(name: string): "empty" | "invalid" | 
 
 export function allOrganizations(overview: OrganizationOverview | null): Organization[] {
   return overview ? uniqueOrganizations([...overview.created, ...overview.joined]) : []
-}
-
-export function organizationRole(
-  overview: OrganizationOverview | null,
-  organization: Organization | null,
-): OrganizationRole | null {
-  if (!overview || !organization) {
-    return null
-  }
-  if (
-    organization.creator_user_id === overview.accountId ||
-    overview.created.some((item) => item.id === organization.id)
-  ) {
-    return "creator"
-  }
-  return "member"
 }
 
 export function buildMemberViews(

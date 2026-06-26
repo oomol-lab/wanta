@@ -118,6 +118,9 @@ export const skillsMessages = {
     "skills.organizationDescriptionManage":
       "这些 Skill 会作为当前组织工作区的默认指导，帮助 Agent 更准确地使用组织连接器。",
     "skills.organizationDescriptionReadOnly": "这些 Skill 由组织创建者管理，会作为当前组织工作区的默认指导。",
+    "skills.organizationManageNotice": "只有具备组织管理权限的用户可以查看和管理这些配置。",
+    "skills.organizationReadOnlyTitle": "组织 Skill 只读",
+    "skills.organizationReadOnlyDescription": "当前账号没有这个组织的管理权限，因此无法查看或修改组织级 Skill 配置。",
     "skills.organizationCreatorOnlyNotice": "只有组织创建者可以查看和管理这些配置。",
     "skills.organizationCreatorOnlyTitle": "仅组织创建者可查看",
     "skills.organizationCreatorOnlyDescription":
@@ -390,6 +393,11 @@ export const skillsMessages = {
       "These Skills are default guidance for the current organization workspace and help the Agent use organization connections more accurately.",
     "skills.organizationDescriptionReadOnly":
       "These Skills are managed by organization creators and used as default guidance for this workspace.",
+    "skills.organizationManageNotice":
+      "Only users with organization management permission can view and manage these settings.",
+    "skills.organizationReadOnlyTitle": "Organization Skills are read-only",
+    "skills.organizationReadOnlyDescription":
+      "This account does not have management permission for this organization, so organization Skill settings cannot be viewed or changed.",
     "skills.organizationCreatorOnlyNotice": "Only organization creators can view and manage these settings.",
     "skills.organizationCreatorOnlyTitle": "Only organization creators can view this",
     "skills.organizationCreatorOnlyDescription":

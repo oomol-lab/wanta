@@ -14,13 +14,13 @@ export function ProviderIcon({
     size === "lg"
       ? { width: "2.25rem", height: "2.25rem" }
       : size === "showcase"
-        ? { width: "1.75rem", height: "1.75rem" }
+        ? { width: "1.5rem", height: "1.5rem" }
         : size === "compact"
           ? { width: "1rem", height: "1rem" }
           : undefined
   const imageDim =
     size === "showcase"
-      ? { width: "1.25rem", height: "1.25rem" }
+      ? { width: "1.0625rem", height: "1.0625rem" }
       : size === "compact"
         ? { width: "0.75rem", height: "0.75rem" }
         : undefined

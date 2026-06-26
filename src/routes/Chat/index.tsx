@@ -26,6 +26,7 @@ import {
   ChevronRight,
   ChevronUp,
   CopyIcon,
+  PlugZap,
   ThumbsDown,
   ThumbsUp,
 } from "lucide-react"
@@ -1090,11 +1091,18 @@ function EmptyStateActions({
       <div className="grid min-w-0 justify-start gap-1.5 overflow-hidden">
         <button
           type="button"
-          className="group flex min-h-9 min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="group flex min-h-9 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           aria-label={t("chat.emptyConnectorsAria")}
           onClick={onOpenConnections}
         >
-          <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
+          <span
+            className="inline-flex size-7 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
+            aria-hidden="true"
+          >
+            <PlugZap className="size-4.5" />
+          </span>
+          <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyConnectorsAction")}</span>
+          <span className="flex min-w-0 shrink-0 items-center gap-1" aria-hidden="true">
             {showcaseProviders.map((provider) => (
               <ProviderIcon
                 key={provider.service}
@@ -1104,21 +1112,20 @@ function EmptyStateActions({
               />
             ))}
           </span>
-          <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyConnectorsAction")}</span>
           <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
         </button>
 
         <button
           type="button"
-          className="group flex min-h-9 min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="group flex min-h-9 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           aria-label={t("chat.emptyOrganizationsAria")}
           onClick={onOpenOrganizations}
         >
           <span
-            className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm border bg-background text-muted-foreground group-hover:text-foreground"
+            className="inline-flex size-7 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
             aria-hidden="true"
           >
-            <Building2 className="size-5.5" />
+            <Building2 className="size-4.5" />
           </span>
           <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyOrganizationsAction")}</span>
           <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />

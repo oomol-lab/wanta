@@ -38,7 +38,7 @@ export const BUILTIN_MODEL_IDS = [
 
 export type BuiltinModelId = (typeof BUILTIN_MODEL_IDS)[number]
 
-export const DEFAULT_BUILTIN_MODEL_ID: BuiltinModelId = "gpt-5.5"
+export const DEFAULT_BUILTIN_MODEL_ID: BuiltinModelId = "oopilot"
 
 export const BUILTIN_PROVIDER_DEFINITIONS: BuiltinProviderDefinition[] = [
   {

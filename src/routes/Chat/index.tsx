@@ -162,7 +162,7 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = 
 }
 
 function normalizeProviderLookupText(value: string): string {
-  return value.toLocaleLowerCase().replace(/[\s_-]+/g, "")
+  return value.toLowerCase().replace(/[\s_-]+/g, "")
 }
 
 function connectorShowcaseProviders(providers: ConnectionProvider[]): ConnectionProvider[] {

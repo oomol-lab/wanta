@@ -74,9 +74,10 @@ test("organizationRole prefers the role returned by the organization schema", ()
 })
 
 test("organizationCanManage prefers writable and falls back to role", () => {
+  const created = organization("legacy-created", "other")
   const overview = organizationOverview({
     accountId: "account-a",
-    created: [],
+    created: [created],
     joined: [
       {
         ...organization("writable-member", "other"),
@@ -92,12 +93,16 @@ test("organizationCanManage prefers writable and falls back to role", () => {
         ...organization("schema-creator", "other"),
         role: "creator",
       },
+      organization("legacy-owned", "account-a"),
+      created,
     ],
   })
 
   assert.equal(organizationCanManage(overview, overview.joined[0] ?? null), true)
   assert.equal(organizationCanManage(overview, overview.joined[1] ?? null), false)
   assert.equal(organizationCanManage(overview, overview.joined[2] ?? null), true)
+  assert.equal(organizationCanManage(overview, overview.joined[3] ?? null), true)
+  assert.equal(organizationCanManage(overview, overview.joined[4] ?? null), true)
 })
 
 test("buildMemberViews and buildGrantViews decorate users and provider labels", () => {

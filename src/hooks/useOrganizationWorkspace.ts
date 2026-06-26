@@ -5,6 +5,7 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 import * as React from "react"
 import { branding } from "../../electron/branding.ts"
 import { onOrganizationChanged } from "../lib/organization-change-bus.ts"
+import { organizationCanManage, organizationRole } from "../lib/organization-permissions.ts"
 import { getOrganizationOverview } from "../lib/organizations-client.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
@@ -121,32 +122,6 @@ function uniqueOrganizations(overview: OrganizationOverview | null): Organizatio
     seen.add(organization.id)
     return true
   })
-}
-
-function organizationRole(
-  overview: OrganizationOverview | null,
-  organization: Organization | null,
-): OrganizationRole | null {
-  if (!overview || !organization) {
-    return null
-  }
-  if (organization.role === "creator" || organization.role === "member") {
-    return organization.role
-  }
-  return organization.creator_user_id === overview.accountId ||
-    overview.created.some((created) => created.id === organization.id)
-    ? "creator"
-    : "member"
-}
-
-function organizationCanManage(overview: OrganizationOverview | null, organization: Organization | null): boolean {
-  if (!overview || !organization) {
-    return false
-  }
-  if (typeof organization.writable === "boolean") {
-    return organization.writable
-  }
-  return organizationRole(overview, organization) === "creator"
 }
 
 function workspaceError(cause: unknown, hasLoaded: boolean): UserFacingError {

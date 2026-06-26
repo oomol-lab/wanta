@@ -7,16 +7,23 @@ export function ProviderIcon({
 }: {
   iconUrl?: string
   displayName: string
-  size?: "compact" | "default" | "lg"
+  size?: "compact" | "default" | "lg" | "showcase"
 }) {
   const [failed, setFailed] = React.useState(false)
   const dim =
     size === "lg"
       ? { width: "2.25rem", height: "2.25rem" }
+      : size === "showcase"
+        ? { width: "1.75rem", height: "1.75rem" }
+        : size === "compact"
+          ? { width: "1rem", height: "1rem" }
+          : undefined
+  const imageDim =
+    size === "showcase"
+      ? { width: "1.25rem", height: "1.25rem" }
       : size === "compact"
-        ? { width: "1rem", height: "1rem" }
+        ? { width: "0.75rem", height: "0.75rem" }
         : undefined
-  const imageDim = size === "compact" ? { width: "0.75rem", height: "0.75rem" } : undefined
   const className = size === "compact" ? "oo-entity-icon oo-entity-icon-compact" : "oo-entity-icon"
   if (iconUrl && !failed) {
     return (

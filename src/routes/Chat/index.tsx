@@ -19,7 +19,16 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { ChatStatus } from "ai"
 import type { StickToBottomContext } from "use-stick-to-bottom"
 
-import { CheckIcon, ChevronDown, ChevronRight, ChevronUp, CopyIcon, ThumbsDown, ThumbsUp } from "lucide-react"
+import {
+  Building2,
+  CheckIcon,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  CopyIcon,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react"
 import * as React from "react"
 import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
@@ -64,6 +73,7 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
+import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 const GeneratedArtifacts = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
@@ -100,11 +110,20 @@ interface ChatAreaProps {
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onOpenConnections?: () => void
+  onOpenOrganizations?: () => void
   onViewBilling?: () => void
 }
 
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
+const CONNECTOR_SHOWCASE_PROVIDERS = [
+  { names: ["gmail"], label: "Gmail" },
+  { names: ["slack"], label: "Slack" },
+  { names: ["notion"], label: "Notion" },
+  { names: ["github"], label: "GitHub" },
+  { names: ["google drive", "googledrive", "google_drive", "gdrive", "drive"], label: "Google Drive" },
+] as const
 
 type TurnProcessStatus =
   | "running"
@@ -139,6 +158,36 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = 
     return "stopped"
   }
   return "completed"
+}
+
+function normalizeProviderLookupText(value: string): string {
+  return value.toLocaleLowerCase().replace(/[\s_-]+/g, "")
+}
+
+function connectorShowcaseProviders(providers: ConnectionProvider[]): ConnectionProvider[] {
+  return CONNECTOR_SHOWCASE_PROVIDERS.map((target) => {
+    const provider = providers.find((item) => {
+      const service = normalizeProviderLookupText(item.service)
+      const displayName = normalizeProviderLookupText(item.displayName)
+      return target.names.some((name) => {
+        const normalizedName = normalizeProviderLookupText(name)
+        return service === normalizedName || displayName === normalizedName
+      })
+    })
+    return (
+      provider ?? {
+        actionKind: "unavailable",
+        appCount: 0,
+        apps: [],
+        authTypes: [],
+        canDisconnect: false,
+        categoryLabels: [],
+        displayName: target.label,
+        service: normalizeProviderLookupText(target.label),
+        status: "available",
+      }
+    )
+  })
 }
 
 function formatProcessDuration(
@@ -1024,6 +1073,61 @@ const ChatTimeline = React.memo(function ChatTimeline({
   )
 })
 
+function EmptyStateActions({
+  providers,
+  onOpenConnections,
+  onOpenOrganizations,
+}: {
+  providers: ConnectionProvider[]
+  onOpenConnections?: () => void
+  onOpenOrganizations?: () => void
+}) {
+  const t = useT()
+  const showcaseProviders = React.useMemo(() => connectorShowcaseProviders(providers), [providers])
+
+  return (
+    <div className="w-full pl-2 text-muted-foreground">
+      <div className="grid min-w-0 justify-start gap-1.5 overflow-hidden">
+        <button
+          type="button"
+          className="group flex min-h-9 min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          aria-label={t("chat.emptyConnectorsAria")}
+          onClick={onOpenConnections}
+        >
+          <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
+            {showcaseProviders.map((provider) => (
+              <ProviderIcon
+                key={provider.service}
+                iconUrl={provider.iconUrl}
+                displayName={provider.displayName}
+                size="showcase"
+              />
+            ))}
+          </span>
+          <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyConnectorsAction")}</span>
+          <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
+        </button>
+
+        <button
+          type="button"
+          className="group flex min-h-9 min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          aria-label={t("chat.emptyOrganizationsAria")}
+          onClick={onOpenOrganizations}
+        >
+          <span
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-sm border bg-background text-muted-foreground group-hover:text-foreground"
+            aria-hidden="true"
+          >
+            <Building2 className="size-5.5" />
+          </span>
+          <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyOrganizationsAction")}</span>
+          <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export const ChatArea = React.memo(function ChatArea({
   billingCacheScope,
   composerDraftKey,
@@ -1050,6 +1154,8 @@ export const ChatArea = React.memo(function ChatArea({
   onArtifactsReset,
   onArtifactsOpen,
   onArtifactsAvailable,
+  onOpenConnections,
+  onOpenOrganizations,
   onViewBilling,
 }: ChatAreaProps) {
   const t = useT()
@@ -1106,14 +1212,21 @@ export const ChatArea = React.memo(function ChatArea({
     <div className="grid min-h-full w-full place-items-center px-4 py-6 sm:px-5 lg:px-8">
       <div
         className={cn(
-          "flex w-full -translate-y-[6vh] flex-col gap-10 transition-transform duration-300 ease-out",
+          "flex w-full -translate-y-[6vh] flex-col gap-8 transition-transform duration-300 ease-out",
           CHAT_CONTENT_MAX_WIDTH_CLASS,
         )}
       >
         <div className="px-4 pb-1 text-center">
           <h2 className="oo-text-empty-title mx-auto max-w-2xl">{t("chat.emptyTitle")}</h2>
         </div>
-        {composer}
+        <div className="flex flex-col gap-3">
+          {composer}
+          <EmptyStateActions
+            providers={providers}
+            onOpenConnections={onOpenConnections}
+            onOpenOrganizations={onOpenOrganizations}
+          />
+        </div>
       </div>
     </div>
   ) : (

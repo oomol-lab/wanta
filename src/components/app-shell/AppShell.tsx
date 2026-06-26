@@ -2698,6 +2698,8 @@ export function AppShell() {
                     onArtifactsReset={handleArtifactsReset}
                     onArtifactsOpen={handleArtifactsOpen}
                     onArtifactsAvailable={handleArtifactsAvailable}
+                    onOpenConnections={() => setRoute("connections")}
+                    onOpenOrganizations={() => setRoute("organizations")}
                     onViewBilling={handleViewBilling}
                   />
                 </div>

@@ -98,6 +98,7 @@
     0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
     0 8px 18px color-mix(in oklab, var(--foreground) 4%, transparent);
   --oo-search-surface: oklch(0.983 0.003 288);
+  --oo-search-surface-emphasis: color-mix(in oklab, var(--foreground) 6%, var(--oo-search-surface));
   --oo-font-caption: 0.75rem;
   --oo-line-caption: 1.25rem;
   --oo-line-caption-compact: 1rem;
@@ -839,6 +840,14 @@
     border-color: transparent !important;
     background: var(--oo-search-surface) !important;
     box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 14%, transparent) !important;
+  }
+
+  .oo-search-surface-emphasis {
+    background: var(--oo-search-surface-emphasis) !important;
+  }
+
+  .oo-search-surface-emphasis:focus-visible {
+    background: var(--oo-search-surface-emphasis) !important;
   }
 
   .oo-modal-backdrop {

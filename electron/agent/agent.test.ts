@@ -12,13 +12,13 @@ import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorEr
 import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
-test("buildOpencodeConfig wires the default GPT 5.5 OpenAI Responses model", () => {
+test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => {
   const config = buildOpencodeConfig({ authToken: "api-test" })
   assert.equal(config.model, `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`)
-  assert.equal(config.model, "openai/gpt-5.5")
+  assert.equal(config.model, "oomol/oopilot")
   const provider = config.provider?.[WANTA_PROVIDER_ID]
   assert.ok(provider)
-  assert.equal(provider.npm, undefined)
+  assert.equal(provider.npm, "@ai-sdk/openai-compatible")
   assert.equal(provider.options?.baseURL, `https://llm.${ooEndpoint}/v1`)
   assert.equal(provider.options?.apiKey, "api-test")
   const model = provider.models?.[WANTA_MODEL_ID]

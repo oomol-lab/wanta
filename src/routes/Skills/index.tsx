@@ -1034,6 +1034,7 @@ function OrganizationSkillAddDialog({
             </ToggleGroupItem>
           </ToggleGroup>
           <SearchField
+            inputClassName="oo-search-surface-emphasis h-[var(--oo-control-height-compact)]"
             placeholder={t("skills.organizationAddSearch")}
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}

@@ -57,12 +57,12 @@ test("built-in provider runtime kinds match OpenCode provider configuration", ()
   }
 })
 
-test("default built-in model is GPT 5.5 on the OpenAI Responses runtime", () => {
+test("default built-in model is Auto on the OOMOL compatible runtime", () => {
   const model = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID)
 
-  assert.equal(DEFAULT_BUILTIN_MODEL_ID, "gpt-5.5")
-  assert.equal(model.displayName, "GPT 5.5")
-  assert.deepEqual(model.runtime, { providerID: "openai", modelID: "gpt-5.5" })
+  assert.equal(DEFAULT_BUILTIN_MODEL_ID, "oopilot")
+  assert.equal(model.displayName, "Auto")
+  assert.deepEqual(model.runtime, { providerID: "oomol", modelID: "oopilot" })
 })
 
 test("Auto built-in model remains on the OOMOL compatible runtime", () => {

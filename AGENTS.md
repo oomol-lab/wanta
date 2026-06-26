@@ -108,7 +108,7 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 - 入口：主进程 `electron/main.ts`，preload `electron/preload.ts`，渲染 `src/main.tsx`；
   无路由库，`src/components/app-shell/AppShell.tsx` 内部 state 切换 `"chat" | "settings"`。
 - LLM：OOMOL LLM 网关 `llm.<endpoint>/v1`，内置模型清单见 `electron/models/builtin.ts`；
-  默认模型是 `openai/gpt-5.5`，Auto 选项是 `oomol/oopilot`，agent 名 `wanta`
+  默认模型是 Auto（`oomol/oopilot`），GPT 5.5 选项是 `openai/gpt-5.5`，agent 名 `wanta`
   （`electron/agent/config.ts`）。网关 `/v1/models` **不会列出** `oopilot`
   （网关侧别名），勿据此"纠正"Auto 模型名。
 - 登录：浏览器登录 + deep-link（生产 `wanta://signin`，dev `wanta-local://signin`）。

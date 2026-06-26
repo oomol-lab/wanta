@@ -12,12 +12,19 @@ export { organizationAvatarStyle, organizationInitials, organizationAvatarPalett
 
 export type WorkspaceSelection =
   | { type: "personal" }
-  | { organization: Organization | null; organizationId: string; role: OrganizationRole | null; type: "organization" }
+  | {
+      canManage: boolean
+      organization: Organization | null
+      organizationId: string
+      role: OrganizationRole | null
+      type: "organization"
+    }
 
 export interface UseOrganizationWorkspace {
   activeWorkspace: WorkspaceSelection
   connectionWorkspace: ConnectionWorkspace | null
   error: UserFacingError | null
+  getOrganizationCanManage: (organization: Organization) => boolean
   getOrganizationRole: (organization: Organization) => OrganizationRole
   hasLoaded: boolean
   loading: boolean
@@ -123,10 +130,23 @@ function organizationRole(
   if (!overview || !organization) {
     return null
   }
+  if (organization.role === "creator" || organization.role === "member") {
+    return organization.role
+  }
   return organization.creator_user_id === overview.accountId ||
     overview.created.some((created) => created.id === organization.id)
     ? "creator"
     : "member"
+}
+
+function organizationCanManage(overview: OrganizationOverview | null, organization: Organization | null): boolean {
+  if (!overview || !organization) {
+    return false
+  }
+  if (typeof organization.writable === "boolean") {
+    return organization.writable
+  }
+  return organizationRole(overview, organization) === "creator"
 }
 
 function workspaceError(cause: unknown, hasLoaded: boolean): UserFacingError {
@@ -261,6 +281,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       organizationId: selectedOrganizationId,
       organization: selectedOrganization,
       role: organizationRole(overview, selectedOrganization),
+      canManage: organizationCanManage(overview, selectedOrganization),
     }
   }, [overview, selectedOrganization, selectedOrganizationId])
   const connectionWorkspace = React.useMemo<ConnectionWorkspace | null>(() => {
@@ -287,11 +308,16 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     (organization: Organization): OrganizationRole => organizationRole(overview, organization) ?? "member",
     [overview],
   )
+  const getOrganizationCanManage = React.useCallback(
+    (organization: Organization): boolean => organizationCanManage(overview, organization),
+    [overview],
+  )
 
   return {
     activeWorkspace,
     connectionWorkspace,
     error,
+    getOrganizationCanManage,
     getOrganizationRole,
     hasLoaded: overview !== null,
     loading,

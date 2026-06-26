@@ -12,6 +12,7 @@ import {
   buildGrantViews,
   buildMemberViews,
   maxOrganizationNameLength,
+  organizationCanManage,
   organizationNameValidation,
   organizationRole,
   providerOptionsWithSelected,
@@ -50,6 +51,53 @@ test("organizationRole prefers creator ownership from account and created list",
   assert.equal(organizationRole(overview, owned), "creator")
   assert.equal(organizationRole(overview, created), "creator")
   assert.equal(organizationRole(overview, joined), "member")
+})
+
+test("organizationRole prefers the role returned by the organization schema", () => {
+  const overview = organizationOverview({
+    accountId: "account-a",
+    created: [],
+    joined: [
+      {
+        ...organization("managed", "other"),
+        role: "creator",
+      },
+      {
+        ...organization("owned", "account-a"),
+        role: "member",
+      },
+    ],
+  })
+
+  assert.equal(organizationRole(overview, overview.joined[0] ?? null), "creator")
+  assert.equal(organizationRole(overview, overview.joined[1] ?? null), "member")
+})
+
+test("organizationCanManage prefers writable and falls back to role", () => {
+  const overview = organizationOverview({
+    accountId: "account-a",
+    created: [],
+    joined: [
+      {
+        ...organization("writable-member", "other"),
+        role: "member",
+        writable: true,
+      },
+      {
+        ...organization("readonly-creator", "account-a"),
+        role: "creator",
+        writable: false,
+      },
+      {
+        ...organization("schema-creator", "other"),
+        role: "creator",
+      },
+    ],
+  })
+
+  assert.equal(organizationCanManage(overview, overview.joined[0] ?? null), true)
+  assert.equal(organizationCanManage(overview, overview.joined[1] ?? null), false)
+  assert.equal(organizationCanManage(overview, overview.joined[2] ?? null), true)
 })
 
 test("buildMemberViews and buildGrantViews decorate users and provider labels", () => {

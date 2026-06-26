@@ -704,7 +704,7 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
   const { t } = useAppI18n()
   const activeOrganization =
     workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organization : null
-  const isCreator = workspace.activeWorkspace.type === "organization" && workspace.activeWorkspace.role === "creator"
+  const canManage = workspace.activeWorkspace.type === "organization" && workspace.activeWorkspace.canManage
   const showHeaderAddAction = skills.length > 0 || Boolean(query.trim())
   const [busySkillId, setBusySkillId] = React.useState<string | null>(null)
 
@@ -716,7 +716,7 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
     )
   }
 
-  if (!isCreator) {
+  if (!canManage) {
     return (
       <OrganizationSkillEmptyState
         description={t("skills.organizationCreatorOnlyDescription")}

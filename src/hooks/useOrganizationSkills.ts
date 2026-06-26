@@ -80,7 +80,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
   const organizationId = workspace.type === "organization" ? workspace.organizationId : null
   const organizationName = workspace.type === "organization" ? (workspace.organization?.name ?? null) : null
   const remoteApiEnabled = organizationSkillsApiEnabled()
-  const canManage = workspace.type === "organization" && workspace.role === "creator"
+  const canManage = workspace.type === "organization" && workspace.canManage
   const [skills, setSkills] = React.useState<OrganizationSkillConfigItem[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)

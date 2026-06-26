@@ -71,6 +71,8 @@ function normalizeOrganization(value: unknown): Organization | undefined {
   const id = asString(value["id"])
   const name = asString(value["name"])
   const creatorUserId = asString(value["creator_user_id"])
+  const role = value["role"]
+  const writable = value["writable"]
   if (!id || !name || !creatorUserId) {
     return undefined
   }
@@ -79,6 +81,8 @@ function normalizeOrganization(value: unknown): Organization | undefined {
     name,
     avatar: asString(value["avatar"]) ?? "",
     creator_user_id: creatorUserId,
+    ...(role === "creator" || role === "member" ? { role } : {}),
+    ...(typeof writable === "boolean" ? { writable } : {}),
   }
 }
 

@@ -299,6 +299,7 @@ function WorkspaceMenuContent({
   onSelectOrganization,
   onSelectPersonal,
   error,
+  getOrganizationCanManage,
   getOrganizationRole,
   hasLoaded,
   organizations,
@@ -307,6 +308,7 @@ function WorkspaceMenuContent({
   accountAvatarUrl?: string
   accountName?: string
   error: UseOrganizationWorkspace["error"]
+  getOrganizationCanManage: UseOrganizationWorkspace["getOrganizationCanManage"]
   getOrganizationRole: UseOrganizationWorkspace["getOrganizationRole"]
   hasLoaded: boolean
   loading: boolean
@@ -367,6 +369,7 @@ function WorkspaceMenuContent({
       {organizations.map((organization) => {
         const selected = activeKey === `organization:${organization.id}`
         const role = getOrganizationRole(organization)
+        const canManage = getOrganizationCanManage(organization)
         return (
           <button
             key={organization.id}
@@ -376,7 +379,7 @@ function WorkspaceMenuContent({
             data-active={selected}
           >
             <WorkspaceAvatar
-              workspace={{ type: "organization", organization, organizationId: organization.id, role }}
+              workspace={{ type: "organization", canManage, organization, organizationId: organization.id, role }}
             />
             <span className="min-w-0 flex-1 truncate">{organization.name}</span>
             <Badge variant="outline" className="flex w-full justify-end text-right font-normal">
@@ -1169,6 +1172,7 @@ function SidebarFooterControls({
           accountAvatarUrl={avatarUrl}
           accountName={trimmedAccountName}
           error={workspace.error}
+          getOrganizationCanManage={workspace.getOrganizationCanManage}
           getOrganizationRole={workspace.getOrganizationRole}
           hasLoaded={workspace.hasLoaded}
           loading={workspace.loading}

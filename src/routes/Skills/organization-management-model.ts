@@ -207,6 +207,9 @@ export function organizationRole(
   if (!overview || !organization) {
     return null
   }
+  if (organization.role === "creator" || organization.role === "member") {
+    return organization.role
+  }
   if (
     organization.creator_user_id === overview.accountId ||
     overview.created.some((item) => item.id === organization.id)
@@ -214,6 +217,19 @@ export function organizationRole(
     return "creator"
   }
   return "member"
+}
+
+export function organizationCanManage(
+  overview: OrganizationOverview | null,
+  organization: Organization | null,
+): boolean {
+  if (!overview || !organization) {
+    return false
+  }
+  if (typeof organization.writable === "boolean") {
+    return organization.writable
+  }
+  return organizationRole(overview, organization) === "creator"
 }
 
 export function buildMemberViews(

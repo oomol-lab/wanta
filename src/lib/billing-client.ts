@@ -24,6 +24,7 @@ import { authRequiredMessage, oomolFetchJson } from "@/lib/oomol-http"
 const billingPath = "/billing"
 const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
+const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingLogsMaxRangeDays = 30
 const billingLogsMaxPagesPerRange = 100
 const billingCreditUsagesMaxPages = 100
@@ -130,19 +131,118 @@ function readCreditUsages(payload: unknown): CreditUsages {
 
 export function readBillingLogs(payload: unknown): BillingLogItem[] {
   const source = unwrapApiData<unknown>(payload)
+  const items = findBillingLogArray(source)
+  return items.flatMap((item) => {
+    const log = normalizeBillingLogItem(item)
+    return log ? [log] : []
+  })
+}
+
+function findBillingLogArray(source: unknown): unknown[] {
   if (Array.isArray(source)) {
-    return source.filter(isBillingLogItem)
+    return source
   }
   if (!source || typeof source !== "object") {
     return []
   }
   const record = source as Record<string, unknown>
-  const items = [record["items"], record["logs"], record["records"]].find(Array.isArray)
-  return Array.isArray(items) ? items.filter(isBillingLogItem) : []
+  const directItems = [
+    record["items"],
+    record["logs"],
+    record["records"],
+    record["list"],
+    record["rows"],
+    record["results"],
+  ].find(Array.isArray)
+  if (Array.isArray(directItems)) {
+    return directItems
+  }
+  const nestedSource = [record["data"], record["result"], record["payload"]].find(
+    (value) => value && typeof value === "object",
+  )
+  return nestedSource && nestedSource !== source ? findBillingLogArray(nestedSource) : []
 }
 
-function isBillingLogItem(item: unknown): item is BillingLogItem {
-  return Boolean(item && typeof item === "object")
+function normalizeBillingLogItem(item: unknown): BillingLogItem | null {
+  if (!item || typeof item !== "object") {
+    return null
+  }
+  const record = item as Record<string, unknown>
+  const createdAt = readTimestampField(record, ["createdAt", "created_at", "time", "timestamp", "eventTime", "date"])
+  if (createdAt === null) {
+    return null
+  }
+  const source = readStringField(record, ["source", "service", "serviceName", "sourceName"]) ?? ""
+  const subject = readStringField(record, ["subject", "model", "action", "name", "description"]) ?? ""
+  const sourceType = readStringField(record, ["sourceType", "source_type", "type", "category"]) ?? ""
+  const traceID = readStringField(record, ["traceID", "traceId", "trace_id", "requestID", "requestId"]) ?? ""
+  return {
+    createdAt,
+    debitCredit: readNumberStringField(record, [
+      "debitCredit",
+      "debit_credit",
+      "totalCredit",
+      "total_credit",
+      "credit",
+      "amount",
+      "cost",
+      "usage",
+    ]),
+    eventID: readStringField(record, ["eventID", "eventId", "event_id", "id"]) ?? "",
+    payload:
+      record["payload"] && typeof record["payload"] === "object" ? (record["payload"] as Record<string, unknown>) : {},
+    serviceScope: readStringField(record, ["serviceScope", "service_scope", "scope"]) ?? "",
+    source,
+    sourceType,
+    subject,
+    traceID,
+    userID: readStringField(record, ["userID", "userId", "user_id"]) ?? "",
+  }
+}
+
+function readStringField(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "string" && value.trim()) {
+      return value
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value)
+    }
+  }
+  return null
+}
+
+function readNumberStringField(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
+    if (Number.isFinite(amount)) {
+      return String(amount)
+    }
+  }
+  return "0"
+}
+
+function readTimestampField(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return value > 0 && value < 10_000_000_000 ? value * 1000 : value
+    }
+    if (typeof value !== "string" || !value.trim()) {
+      continue
+    }
+    const numeric = Number(value)
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric < 10_000_000_000 ? numeric * 1000 : numeric
+    }
+    const parsed = Date.parse(value)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return null
 }
 
 export function ensureHttpUrl(rawUrl: string): string {
@@ -215,6 +315,39 @@ function logSettledFailure(label: string, result: PromiseSettledResult<unknown>)
   if (result.status === "rejected") {
     console.warn("[wanta] billing overview request failed", { label, error: errorMessage(result.reason) })
   }
+}
+
+function settleWithSoftTimeout<T>(
+  label: string,
+  promise: Promise<T>,
+  timeoutMs = billingOptionalRequestSoftTimeoutMs,
+): Promise<PromiseSettledResult<T>> {
+  return new Promise((resolve) => {
+    let completed = false
+    const timer = setTimeout(() => {
+      if (!completed) {
+        completed = true
+        resolve({ status: "rejected", reason: new Error(`${label} request timed out.`) })
+      }
+    }, timeoutMs)
+
+    void promise.then(
+      (value) => {
+        if (!completed) {
+          completed = true
+          clearTimeout(timer)
+          resolve({ status: "fulfilled", value })
+        }
+      },
+      (reason: unknown) => {
+        if (!completed) {
+          completed = true
+          clearTimeout(timer)
+          resolve({ status: "rejected", reason })
+        }
+      },
+    )
+  })
 }
 
 function billingLogKey(item: BillingLogItem): string {
@@ -356,13 +489,22 @@ export async function getBillingSummary(days: number): Promise<BillingSummaryRes
 }
 
 export async function getBillingOverview(days: number): Promise<BillingOverviewResult> {
-  const [balance, spend, metering, logs, subscription, schedules] = await Promise.allSettled([
-    getAllCreditUsages(),
-    getCreditSpendStats(days),
-    getCreditMeteringStats(days),
-    getBillingLogs(days),
-    getSubscriptionStatus(),
-    getSubscriptionSchedules(),
+  const balancePromise = getAllCreditUsages()
+  const spendPromise = getCreditSpendStats(days)
+  const meteringPromise = getCreditMeteringStats(days)
+  const logsPromise = getBillingLogs(days)
+  const subscriptionPromise = getSubscriptionStatus()
+  const schedulesPromise = getSubscriptionSchedules()
+
+  void logsPromise.catch(() => undefined)
+  void subscriptionPromise.catch(() => undefined)
+  void schedulesPromise.catch(() => undefined)
+
+  const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
+  const [logs, subscription, schedules] = await Promise.all([
+    settleWithSoftTimeout("logs", logsPromise),
+    settleWithSoftTimeout("subscription", subscriptionPromise),
+    settleWithSoftTimeout("schedules", schedulesPromise),
   ])
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)

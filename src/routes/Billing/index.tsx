@@ -1,4 +1,4 @@
-import type { BillingLogItem, BillingPeriodDays, CreditItem } from "../../../electron/chat/common.ts"
+import type { BillingLogItem, BillingPeriodDays, BillingSpendStats, CreditItem } from "../../../electron/chat/common.ts"
 import type { CategorySummary, UsageCategory } from "./usage.ts"
 
 import {
@@ -16,12 +16,15 @@ import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
 import {
   buildCategorySummaries,
   buildDailySpendBuckets,
+  billingCredit,
+  billingEventCount,
   categoryOrder,
   formatCredit,
   formatDate,
   formatDateTime,
   formatPercent,
   getSummary,
+  normalizeTimestamp,
   statsTotalCredit,
   statsTotalEvents,
   toNumber,
@@ -45,6 +48,16 @@ interface BillingRouteProps {
 }
 
 const periods: BillingPeriodDays[] = [7, 30, 90]
+
+interface RecentRecord {
+  amount: number
+  category: UsageCategory
+  createdAt: number
+  eventCount?: number
+  id: string
+  source: string
+  subject: string
+}
 
 export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
   const t = useT()
@@ -86,9 +99,9 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
     ...dailyBuckets.map((bucket) => bucket.credit),
     hasEstimatedTrend ? averageDailySpend * 2 : 0,
   )
-  const recentLogs = React.useMemo(
-    () => [...(data?.logs ?? [])].sort((left, right) => right.createdAt - left.createdAt).slice(0, 20),
-    [data?.logs],
+  const recentRecords = React.useMemo(
+    () => buildRecentRecords(data?.logs ?? [], data?.spend?.items ?? []),
+    [data?.logs, data?.spend?.items],
   )
 
   return (
@@ -139,7 +152,6 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
           totalEvents={totalEvents}
           totalSpend={totalSpend}
           availableShare={availableShare}
-          onPurchase={() => setPurchaseOpen(true)}
         />
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
@@ -172,7 +184,7 @@ export function BillingRoute({ cacheScope, onBack }: BillingRouteProps) {
           meta={t("billing.recordsMeta", { days: period })}
           bodyClassName="p-0"
         >
-          {loading && !data ? <LoadingRows count={5} /> : <RecentRecords logs={recentLogs} />}
+          {loading && !data ? <LoadingRows count={5} /> : <RecentRecords records={recentRecords} />}
         </BillingPanel>
       </PageRouteShell>
       <CreditPurchaseModal
@@ -227,7 +239,6 @@ function BalanceOverview({
   coverageDays,
   currentCredit,
   loading,
-  onPurchase,
   totalEvents,
   totalSpend,
 }: {
@@ -237,7 +248,6 @@ function BalanceOverview({
   coverageDays: number
   currentCredit: number
   loading: boolean
-  onPurchase: () => void
   totalEvents: number
   totalSpend: number
 }) {
@@ -256,10 +266,6 @@ function BalanceOverview({
                 {loading ? "..." : formatCredit(currentCredit)}
               </div>
             </div>
-            <Button type="button" size="sm" onClick={onPurchase}>
-              <CreditCardIcon className="size-4" />
-              {t("billing.purchaseCredits")}
-            </Button>
           </div>
 
           <div className="grid gap-2">
@@ -457,38 +463,70 @@ function TrendChart({
   )
 }
 
-function RecentRecords({ logs }: { logs: BillingLogItem[] }) {
+function RecentRecords({ records }: { records: RecentRecord[] }) {
   const t = useT()
-  if (logs.length === 0) {
+  if (records.length === 0) {
     return <div className="oo-text-body py-8 text-center text-muted-foreground">{t("billing.emptyRecords")}</div>
   }
   return (
     <div className="grid gap-0">
-      {logs.map((log, index) => {
-        const category = usageCategory(log.source, log.subject)
+      {records.map((record) => {
         return (
           <div
-            key={`${log.eventID}-${log.traceID}-${log.createdAt}-${index}`}
+            key={record.id}
             className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 max-[760px]:grid-cols-[auto_minmax(0,1fr)]"
           >
-            <Badge className="justify-self-start" variant={category === "other" ? "outline" : "secondary"}>
-              {t(`billing.category.${category}`)}
+            <Badge className="justify-self-start" variant={record.category === "other" ? "outline" : "secondary"}>
+              {t(`billing.category.${record.category}`)}
             </Badge>
             <div className="min-w-0">
-              <div className="oo-text-title truncate text-foreground">{log.subject || log.source}</div>
-              <div className="oo-text-caption truncate">{sourceLabel(log.source, t)}</div>
+              <div className="oo-text-title truncate text-foreground">{record.subject || record.source}</div>
+              <div className="oo-text-caption truncate">
+                {record.eventCount === undefined
+                  ? sourceLabel(record.source, t)
+                  : `${sourceLabel(record.source, t)} · ${t("billing.categoryCalls", {
+                      count: Intl.NumberFormat().format(record.eventCount),
+                    })}`}
+              </div>
             </div>
             <div className="min-w-28 text-right max-[760px]:col-span-2 max-[760px]:justify-self-start max-[760px]:text-left">
-              <div className="oo-text-title text-foreground tabular-nums">
-                {formatCredit(toNumber(log.debitCredit))}
-              </div>
-              <div className="oo-text-caption tabular-nums">{formatDateTime(log.createdAt)}</div>
+              <div className="oo-text-title text-foreground tabular-nums">{formatCredit(record.amount)}</div>
+              <div className="oo-text-caption tabular-nums">{formatDateTime(record.createdAt)}</div>
             </div>
           </div>
         )
       })}
     </div>
   )
+}
+
+function buildRecentRecords(logs: BillingLogItem[], spendItems: BillingSpendStats["items"]): RecentRecord[] {
+  if (logs.length > 0) {
+    return logs
+      .map((log, index) => ({
+        amount: toNumber(log.debitCredit),
+        category: usageCategory(log.source, log.subject),
+        createdAt: log.createdAt,
+        id: log.eventID || log.traceID || `${log.source}:${log.subject}:${log.createdAt}:${index}`,
+        source: log.source,
+        subject: log.subject,
+      }))
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, 20)
+  }
+  return spendItems
+    .map((item, index) => ({
+      amount: billingCredit(item),
+      category: usageCategory(item.source, item.subject),
+      createdAt: normalizeTimestamp(item.time),
+      eventCount: billingEventCount(item),
+      id: `${item.source}:${item.subject}:${item.time}:${index}`,
+      source: item.source,
+      subject: item.subject,
+    }))
+    .filter((record) => Number.isFinite(record.createdAt) && (record.amount > 0 || (record.eventCount ?? 0) > 0))
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, 20)
 }
 
 function categoryIcon(category: UsageCategory): React.ReactNode {

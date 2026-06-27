@@ -13,6 +13,7 @@ import {
 import { OomolHttpError } from "./oomol-http.ts"
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -197,6 +198,41 @@ describe("billing-client", () => {
     expect(logPages).toEqual(["1", "2"])
   })
 
+  it("returns core billing data when optional detail requests stall", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({
+          data: {
+            deficit: "0",
+            items: [{ currentCredit: "8", originalCredit: "10" }],
+            total: { currentCredit: "8", originalCredit: "10" },
+          },
+        })
+      }
+      if (url.pathname === "/v1/stats/billing") {
+        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "2" } } })
+      }
+      if (url.pathname === "/v1/stats/metering") {
+        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 4, totalCredit: "0" } } })
+      }
+      return new Promise<Response>(() => undefined)
+    })
+
+    const overviewPromise = getBillingOverview(30)
+
+    await vi.advanceTimersByTimeAsync(3_000)
+    const overview = await overviewPromise
+
+    expect(overview.balance?.total.currentCredit).toBe("8")
+    expect(overview.spend?.total.totalCredit).toBe("2")
+    expect(overview.metering?.total.eventCount).toBe(4)
+    expect(overview.logs).toEqual([])
+    expect(overview.subscription).toBeNull()
+    expect(overview.schedules).toEqual([])
+  })
+
   it("billingLogRanges splits long record queries into backend-safe windows", () => {
     const dayMs = 24 * 60 * 60 * 1000
     const endTime = Date.UTC(2026, 5, 15)
@@ -229,5 +265,38 @@ describe("billing-client", () => {
     expect(readBillingLogs([log])).toEqual([log])
     expect(readBillingLogs({ records: [log] })).toEqual([log])
     expect(readBillingLogs({ items: [null, log] })).toEqual([log])
+
+    expect(
+      readBillingLogs({
+        data: {
+          list: [
+            {
+              amount: "0.25",
+              eventId: "event-2",
+              service: "SERVICE_LLM",
+              model: "oopilot",
+              service_scope: "general",
+              source_type: "quota",
+              timestamp: "2026-06-15T00:00:00.000Z",
+              traceId: "trace-2",
+              userId: "user-1",
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      {
+        createdAt: Date.UTC(2026, 5, 15),
+        debitCredit: "0.25",
+        eventID: "event-2",
+        payload: {},
+        serviceScope: "general",
+        source: "SERVICE_LLM",
+        sourceType: "quota",
+        subject: "oopilot",
+        traceID: "trace-2",
+        userID: "user-1",
+      },
+    ])
   })
 })

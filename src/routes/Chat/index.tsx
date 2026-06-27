@@ -556,6 +556,9 @@ function ConnectionSuggestionAction({
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
+  if (provider?.status === "connected" && provider.appStatus === "active") {
+    return null
+  }
   const displayName = provider?.displayName ?? authorization.displayName
   return (
     <div className="not-prose mt-3 flex flex-wrap items-center gap-2">

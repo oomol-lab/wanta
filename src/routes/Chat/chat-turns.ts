@@ -169,13 +169,40 @@ export function assistantErrorParts(message: ChatMessage): ChatMessagePart[] {
   return message.parts.filter((part) => part.kind === "error")
 }
 
+function normalizeService(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
+  const services = new Set<string>()
+  for (const part of tools) {
+    if (part.tool !== "call_action" || part.status !== "completed" || typeof part.input?.service !== "string") {
+      continue
+    }
+    try {
+      const parsed = JSON.parse(part.output ?? "{}") as { status?: unknown }
+      if (parsed.status === "error" || parsed.status === "authorization_required") {
+        continue
+      }
+      services.add(normalizeService(part.input.service))
+    } catch {
+      // Unknown output shape is not enough evidence that authorization is valid.
+    }
+  }
+  return services
+}
+
 function suggestedAuthorizationFromTools(tools: ChatMessagePart[]): AuthorizationInfo | undefined {
+  const successfulServices = successfulCallActionServices(tools)
   for (const part of tools) {
     if (part.tool !== "search_actions" || part.status !== "completed") {
       continue
     }
     const authorization = parseSearchAuthorizationSignal(part.output, part.input)
     if (authorization) {
+      if (successfulServices.has(normalizeService(authorization.service))) {
+        continue
+      }
       return authorization
     }
   }

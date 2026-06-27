@@ -605,7 +605,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         skillId: normalizedSkillId,
       })
       sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId, {
-        includeCanonicalStore: true,
         packageName: options.packageName,
       })
     }

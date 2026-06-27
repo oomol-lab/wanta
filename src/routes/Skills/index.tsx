@@ -22,7 +22,6 @@ import {
   formatPublicPackageUpdateTime,
   getGroupRowPackageLine,
   getGroupStatus,
-  getInstalledSkillHosts,
   getLocalSkillPublishPath,
   getPublicPackageInstallState,
   getPublicPackageMaintainerLine,
@@ -32,6 +31,7 @@ import {
   getPublicSkillInstallActionLabel,
   getPublicSkillInstallKey,
   getPublicSkillInstallStateLabel,
+  getRuntimeHosts,
   getSkillDocumentRootPath,
   getSkillKindLabel,
   getSkillRowStatusBadgeClassName,
@@ -297,7 +297,7 @@ export function SkillsRoute({
     })
   }, [installedFilter, installedGroups, versionCheckByKey])
   const selectedSkill = searchedGroups.find((group) => group.id === selectedSkillId) || searchedGroups[0]
-  const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getInstalledSkillHosts(selectedSkill)) : null
+  const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getRuntimeHosts(selectedSkill)) : null
   const selectedVersionCheck = getSkillVersionCheck(versionCheckByKey, selectedSkill)
   React.useEffect(() => {
     if (requestedVersionCheckRef.current) {
@@ -1811,7 +1811,7 @@ function InstalledSkillCard({
   versionCheck,
 }: InstalledSkillCardProps) {
   const { t } = useAppI18n()
-  const status = getGroupStatus(group, t, getInstalledSkillHosts(group))
+  const status = getGroupStatus(group, t, getRuntimeHosts(group))
   const hasUpdate = hasSkillUpdateAvailable(versionCheck)
   const canUpdate = hasUpdate && shouldUpdatePublishedSkill(group)
   const isPublishable = isPublishableLocalSkill(group)
@@ -2291,7 +2291,7 @@ function SkillPeek({
 }: SkillPeekProps) {
   const { t } = useAppI18n()
   const skillService = useSkillService()
-  const installedHosts = getInstalledSkillHosts(selectedSkill)
+  const runtimeHosts = getRuntimeHosts(selectedSkill)
   const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
@@ -2300,7 +2300,7 @@ function SkillPeek({
   const localPublishPath = getLocalSkillPublishPath(selectedSkill)
   const canPublishLocalSkill = Boolean(localPublishPath)
   const isPublishingSkill = publishingSkillId === selectedSkill.id
-  const attentionHosts = installedHosts.filter(
+  const attentionHosts = runtimeHosts.filter(
     (host) => host.controlState === "modified" || host.controlState === "source-missing",
   )
   const hostAttentionCount = attentionHosts.length
@@ -2518,6 +2518,7 @@ function SkillPeek({
               {isRemovingSkill ? t("skills.removing") : t("skills.removeConfirmAction")}
             </Button>
           </div>
+          <SkillErrorNotice error={planError} />
         </CardContent>
       </InspectorCard>
 
@@ -2608,8 +2609,6 @@ function SkillPeek({
           </div>
         </InspectorInsetCard>
       ) : null}
-
-      <SkillErrorNotice error={planError} />
     </div>
   )
 }

@@ -168,9 +168,9 @@
   --oo-path-tooltip-surface: oklch(1 0 0);
   --oo-path-tooltip-foreground: var(--foreground);
   --oo-feedback-active-foreground: oklch(0.43 0.008 265);
-  --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
+  --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, var(--background));
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
-  --oo-warning-surface: color-mix(in oklab, var(--warning) 12%, transparent);
+  --oo-warning-surface: color-mix(in oklab, var(--warning) 12%, var(--background));
   --oo-warning-border: color-mix(in oklab, var(--warning) 32%, transparent);
   --oo-warning-foreground: var(--warning);
   --oo-info-surface: color-mix(in oklab, var(--info) 12%, var(--background));
@@ -273,9 +273,9 @@
   --oo-path-tooltip-surface: oklch(0.145 0.004 286);
   --oo-path-tooltip-foreground: var(--foreground);
   --oo-feedback-active-foreground: oklch(0.64 0.006 286);
-  --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, transparent);
+  --oo-danger-surface: color-mix(in oklab, var(--destructive) 12%, var(--background));
   --oo-danger-border: color-mix(in oklab, var(--destructive) 30%, transparent);
-  --oo-warning-surface: color-mix(in oklab, var(--warning) 14%, transparent);
+  --oo-warning-surface: color-mix(in oklab, var(--warning) 14%, var(--background));
   --oo-warning-border: color-mix(in oklab, var(--warning) 34%, transparent);
   --oo-warning-foreground: var(--warning);
   --oo-info-surface: color-mix(in oklab, var(--info) 18%, var(--background));

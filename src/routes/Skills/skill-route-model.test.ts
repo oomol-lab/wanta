@@ -3,7 +3,9 @@ import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/sk
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
+  getGroupStatus,
   getPublicPackageInstallState,
+  getRuntimeHosts,
   initialPublicPackageCatalogState,
   isEmojiIcon,
   publicPackageCatalogReducer,
@@ -70,6 +72,27 @@ test("getPublicPackageInstallState distinguishes installed, conflict, and instal
   )
 })
 
+test("runtime status ignores modified external hosts", () => {
+  const group = managedSkillGroup("demo", "@alice/demo")
+  const externalHost = {
+    agentId: "claude-code",
+    agentName: "Claude Code",
+    controlState: "modified" as const,
+    kind: "registry" as const,
+    packageName: "@alice/demo",
+    scope: "external" as const,
+    status: "installed" as const,
+  }
+  const mixedGroup: ManagedSkillGroup = {
+    ...group,
+    externalHosts: [externalHost],
+    hosts: [...group.hosts, externalHost],
+  }
+
+  assert.equal(getGroupStatus(mixedGroup, t, getRuntimeHosts(mixedGroup)).tone, "ready")
+  assert.equal(getGroupStatus(mixedGroup, t).tone, "attention")
+})
+
 function publicPackage(name: string): PublicSkillPackage {
   return {
     displayName: name,
@@ -102,4 +125,8 @@ function managedSkillGroup(name: string, packageName: string): ManagedSkillGroup
     packageName,
     runtimeHosts: [host],
   }
+}
+
+function t(key: string, vars?: Record<string, string | number>): string {
+  return vars ? `${key}:${JSON.stringify(vars)}` : key
 }

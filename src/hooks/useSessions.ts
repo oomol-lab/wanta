@@ -12,6 +12,22 @@ import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 const personalSessionScope: SessionScope = { type: "personal" }
 
+export function mergeSessionsWithLocalCreated(
+  remoteSessions: SessionInfo[],
+  localCreatedSessions: Iterable<SessionInfo>,
+): SessionInfo[] {
+  const seen = new Set(remoteSessions.map((session) => session.id))
+  const merged = [...remoteSessions]
+  for (const session of localCreatedSessions) {
+    if (seen.has(session.id)) {
+      continue
+    }
+    seen.add(session.id)
+    merged.push(session)
+  }
+  return merged.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
 export interface UseSessions {
   sessions: SessionInfo[]
   loaded: boolean
@@ -43,17 +59,20 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
+  const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
   const scopeKey = requestScope.type === "organization" ? `organization:${requestScope.organizationId}` : "personal"
 
   React.useEffect(() => {
     enabledRef.current = enabled
     if (!enabled) {
       requestSequenceRef.current += 1
+      localCreatedSessionsRef.current.clear()
     }
   }, [enabled])
 
   React.useEffect(() => {
     requestSequenceRef.current += 1
+    localCreatedSessionsRef.current.clear()
     setSessions([])
     setLoaded(false)
     setError(null)
@@ -72,7 +91,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       if (requestId !== requestSequenceRef.current || !enabledRef.current) {
         return
       }
-      setSessions(nextSessions)
+      for (const session of nextSessions) {
+        localCreatedSessionsRef.current.delete(session.id)
+      }
+      setSessions(mergeSessionsWithLocalCreated(nextSessions, localCreatedSessionsRef.current.values()))
       setError(null)
     } catch (error) {
       console.error("[wanta] list sessions failed", error)
@@ -105,6 +127,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const create = React.useCallback(
     async (title?: string) => {
       const info = await sessionService.invoke("create", { scope: requestScope, title })
+      localCreatedSessionsRef.current.set(info.id, info)
+      setSessions((current) => mergeSessionsWithLocalCreated(current, [info]))
       await refresh()
       return info
     },
@@ -139,6 +163,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const archive = React.useCallback(
     async (id: string) => {
       await sessionService.invoke("archive", id)
+      localCreatedSessionsRef.current.delete(id)
     },
     [sessionService],
   )
@@ -153,6 +178,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const remove = React.useCallback(
     async (id: string) => {
       await sessionService.invoke("remove", id)
+      localCreatedSessionsRef.current.delete(id)
     },
     [sessionService],
   )

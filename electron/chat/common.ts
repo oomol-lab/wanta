@@ -10,7 +10,10 @@ export type ToolStatus = "pending" | "running" | "completed" | "error"
 export interface AuthorizationInfo {
   service: string
   displayName: string
-  authUrl: string
+  action?: string
+  /** Legacy/debug fallback only. Wanta routes authorization through the in-app Connections panel. */
+  authUrl?: string
+  errorCode?: string
   /** 上游 connector 的真实错误报文（如 ES 的 security_exception）。授权提示旁透出，避免用户只看到“去授权”却不知原因。 */
   message?: string
 }

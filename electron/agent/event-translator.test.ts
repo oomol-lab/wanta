@@ -292,8 +292,9 @@ test("call_action completed with auth output → toolCallResult with authorizati
   const output = JSON.stringify({
     status: "authorization_required",
     service: "slack",
+    action: "send_message",
     displayName: "slack",
-    authUrl: "https://console.oomol.com/app-connections?provider=slack",
+    errorCode: "connection_required",
   })
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -312,6 +313,11 @@ test("call_action completed with auth output → toolCallResult with authorizati
   assert.equal(out.length, 1)
   assert.equal(out[0].event, "toolCallResult")
   assert.equal((out[0].data as { authorization?: { service: string } }).authorization?.service, "slack")
+  assert.equal((out[0].data as { authorization?: { action: string } }).authorization?.action, "send_message")
+  assert.equal(
+    (out[0].data as { authorization?: { errorCode: string } }).authorization?.errorCode,
+    "connection_required",
+  )
 })
 
 test("message.part.removed → messagePartRemoved", () => {
@@ -359,10 +365,24 @@ test("session.error skips message aborts", () => {
 })
 
 test("parseAuthorization accepts auth json, rejects plain results", () => {
-  assert.equal(
-    parseAuthorization(JSON.stringify({ status: "authorization_required", service: "gmail", authUrl: "https://x" }))
-      ?.service,
-    "gmail",
+  assert.deepEqual(
+    parseAuthorization(
+      JSON.stringify({
+        status: "authorization_required",
+        service: "gmail",
+        action: "list",
+        displayName: "Gmail",
+        errorCode: "connection_required",
+      }),
+    ),
+    {
+      service: "gmail",
+      action: "list",
+      displayName: "Gmail",
+      errorCode: "connection_required",
+      message: undefined,
+      authUrl: undefined,
+    },
   )
   assert.equal(parseAuthorization(JSON.stringify({ data: { ok: true } })), null)
   assert.equal(parseAuthorization("not json"), null)

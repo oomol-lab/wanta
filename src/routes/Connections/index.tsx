@@ -356,11 +356,23 @@ function matchesProviderFilter(provider: ConnectionProviderSummary, filter: Conn
 }
 
 interface ConnectionsPanelProps {
+  authIntent?: ConnectionAuthIntent | null
   connections: UseConnections
   selectedService?: string | null
 }
 
-export function ConnectionsPanel({ connections, selectedService }: ConnectionsPanelProps) {
+export interface ConnectionAuthIntent {
+  action?: string
+  createdAt: number
+  displayName?: string
+  errorCode?: string
+  id: string
+  message?: string
+  service: string
+  source: "chat"
+}
+
+export function ConnectionsPanel({ authIntent, connections, selectedService }: ConnectionsPanelProps) {
   const t = useT()
   const {
     actionError,
@@ -455,15 +467,17 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
     }, detailPaneAnimationMs)
   }, [clearDetailCloseTimer, selectedProviderService])
 
+  const requestedService = authIntent?.service ?? selectedService
+
   React.useEffect(() => {
-    if (!selectedService) {
+    if (!requestedService) {
       return
     }
 
     setQuery("")
     setActiveFilter({ kind: "all" })
-    selectProvider(selectedService)
-  }, [selectProvider, selectedService])
+    selectProvider(requestedService)
+  }, [requestedService, selectProvider])
 
   React.useEffect(() => clearDetailCloseTimer, [clearDetailCloseTimer])
 
@@ -620,6 +634,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
               </Button>
             </div>
             <ProviderDetail
+              authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
               detail={detailService === selectedProvider.service ? detail : null}
               errorNotice={detailErrorNotice}
@@ -646,6 +661,7 @@ export function ConnectionsPanel({ connections, selectedService }: ConnectionsPa
             )}
           >
             <ProviderDetail
+              authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
               detail={detailService === selectedProvider.service ? detail : null}
               errorNotice={detailErrorNotice}
@@ -1038,6 +1054,7 @@ function EmptyList({ summary, hasQuery }: { summary: ConnectionSummary | null; h
 }
 
 function ProviderDetail({
+  authIntent,
   busy,
   detail,
   errorNotice,
@@ -1051,6 +1068,7 @@ function ProviderDetail({
   provider,
   summary,
 }: {
+  authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
   connections: UseConnections
   detail: ConnectionProviderDetail | null
@@ -1113,7 +1131,9 @@ function ProviderDetail({
         {errorNotice ? (
           <ErrorNotice error={errorNotice.error} compact showDiagnosticsCopy={errorNotice.showDiagnosticsCopy} />
         ) : null}
+        {authIntent ? <ConnectionAuthIntentNotice authIntent={authIntent} provider={provider} /> : null}
         <ConnectionPanel
+          authIntent={authIntent}
           busy={busy}
           canSetDefault={summary?.workspace.type !== "organization"}
           connections={connections}
@@ -1158,7 +1178,34 @@ function ProviderDetail({
   )
 }
 
+function ConnectionAuthIntentNotice({
+  authIntent,
+  provider,
+}: {
+  authIntent: ConnectionAuthIntent
+  provider: ConnectionProviderSummary
+}) {
+  const t = useT()
+  return (
+    <div className="grid gap-1 rounded-md border border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-3 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <AlertCircle className="size-4 shrink-0 text-[var(--oo-warning-foreground)]" />
+        <span className="oo-text-title min-w-0 truncate">
+          {t("connections.chatAuthRequestTitle", { name: provider.displayName })}
+        </span>
+      </div>
+      <div className="oo-text-caption text-muted-foreground">
+        {authIntent.action
+          ? t("connections.chatAuthRequestActionDescription", { action: authIntent.action })
+          : t("connections.chatAuthRequestDescription")}
+      </div>
+      {authIntent.errorCode ? <div className="oo-text-micro text-muted-foreground">{authIntent.errorCode}</div> : null}
+    </div>
+  )
+}
+
 function ConnectionPanel({
+  authIntent,
   busy,
   canSetDefault,
   connections,
@@ -1171,6 +1218,7 @@ function ConnectionPanel({
   polling,
   provider,
 }: {
+  authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
   canSetDefault: boolean
   connections: UseConnections
@@ -1247,7 +1295,11 @@ function ConnectionPanel({
               ) : (
                 <Plug className="size-4" />
               )}
-              {provider.apps.length > 0 ? t("connections.addConnection") : t("connections.connectProvider")}
+              {authIntent
+                ? t("connections.connectAndContinue")
+                : provider.apps.length > 0
+                  ? t("connections.addConnection")
+                  : t("connections.connectProvider")}
             </Button>
           )}
         </div>

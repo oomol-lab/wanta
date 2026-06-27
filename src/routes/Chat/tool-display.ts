@@ -17,15 +17,13 @@ function parseAuthorization(output: string | undefined): AuthorizationInfo | nul
   }
   try {
     const parsed = JSON.parse(output) as Record<string, unknown>
-    if (
-      parsed.status === "authorization_required" &&
-      typeof parsed.service === "string" &&
-      typeof parsed.authUrl === "string"
-    ) {
+    if (parsed.status === "authorization_required" && typeof parsed.service === "string") {
       return {
         service: parsed.service,
         displayName: typeof parsed.displayName === "string" ? parsed.displayName : parsed.service,
-        authUrl: parsed.authUrl,
+        action: typeof parsed.action === "string" ? parsed.action : undefined,
+        authUrl: typeof parsed.authUrl === "string" ? parsed.authUrl : undefined,
+        errorCode: typeof parsed.errorCode === "string" ? parsed.errorCode : undefined,
         message: typeof parsed.message === "string" ? parsed.message : undefined,
       }
     }

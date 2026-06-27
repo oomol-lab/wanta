@@ -54,7 +54,7 @@ export function buildOoEnv({
     OO_NO_SELF_UPDATE: "1",
     OO_TELEMETRY_DISABLED: "1",
     OO_LOG_LEVEL: "warn",
-    // 供自定义工具读取（authUrl / 连接器派生，集中在 domain.ts）。
+    // 供自定义工具读取（连接器 endpoint 派生，集中在 domain.ts）。
     WANTA_ENDPOINT: ooEndpoint,
     WANTA_CONSOLE_URL: consoleBaseUrl,
     WANTA_CONNECTOR_URL: connectorBaseUrl,

@@ -202,20 +202,13 @@ export function ToolActivityStep({
   const auth = parseToolAuthorization(part)
   const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
-  const defaultOpen = Boolean(auth)
-  const [open, setOpen] = React.useState(defaultOpen)
+  const [open, setOpen] = React.useState(false)
   const statusText = toolPartStatusLabel(t, part)
   const active = isActiveToolPart(part)
   const showShimmer = active || shimmer
   const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
-
-  React.useEffect(() => {
-    if (defaultOpen) {
-      setOpen(true)
-    }
-  }, [defaultOpen])
 
   const row = (
     <div className="group/tool-step flex min-h-6 min-w-0 flex-1 items-center gap-2">
@@ -276,7 +269,7 @@ export function ToolActivityStep({
       <span>{t("chat.authNeeded", { name: auth.displayName })}</span>
       <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
         <Plug className="size-3.5" />
-        {t("chat.authorize")}
+        {t("chat.authorizeConnection")}
       </Button>
     </div>
   ) : null

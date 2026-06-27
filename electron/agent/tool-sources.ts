@@ -104,7 +104,7 @@ const AUTH_BLOCKING = new Set([
 
 export default tool({
   description:
-    "Execute one selected OOMOL Link action. Use this only for a selected action that matches the user's task; do not probe unrelated services or actions. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. If the service is not authorized this returns a JSON object with status 'authorization_required' and an authUrl; when you see that, stop trying this provider/action, tell the user it needs authorization, and surface the authUrl. Do NOT retry this provider/action or fabricate a result.",
+    "Execute one selected OOMOL Link action. Use this only for a selected action that matches the user's task; do not probe unrelated services or actions. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. If the service is not authorized this returns a JSON object with status 'authorization_required' plus service/action/errorCode; when you see that, stop trying this provider/action and tell the user Wanta needs that connection authorized. Do NOT retry this provider/action or fabricate a result.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),
@@ -130,19 +130,11 @@ export default tool({
       const match = stderr.match(/errorCode:\s*([^\s)）]+)/)
       const code = match ? match[1] : null
       if (code && AUTH_BLOCKING.has(code)) {
-        const base = process.env.WANTA_CONSOLE_URL
-        if (!base) {
-          return JSON.stringify({
-            status: "error",
-            errorCode: "config_missing",
-            message: "WANTA_CONSOLE_URL is not configured",
-          })
-        }
         return JSON.stringify({
           status: "authorization_required",
           service: args.service,
+          action: args.action,
           displayName: args.service,
-          authUrl: base + "/app-connections?provider=" + encodeURIComponent(args.service),
           errorCode: code,
           message: stderr.trim(),
         })

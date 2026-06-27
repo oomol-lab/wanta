@@ -87,6 +87,17 @@ import { visibleUserText } from "@/routes/Chat/message-text"
 
 type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 
+interface ConnectionAuthIntent {
+  action?: string
+  createdAt: number
+  displayName?: string
+  errorCode?: string
+  id: string
+  message?: string
+  service: string
+  source: "chat"
+}
+
 const ArtifactsPanel = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.ArtifactsPanel })),
 )
@@ -1450,6 +1461,7 @@ export function AppShell() {
   )
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
+  const [connectionAuthIntent, setConnectionAuthIntent] = React.useState<ConnectionAuthIntent | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
   const pendingRetry = React.useRef<{
     sessionId: string
@@ -1568,6 +1580,7 @@ export function AppShell() {
         if (!cancelled && pendingRetry.current?.service === pendingRetryWatch.service) {
           pendingRetry.current = null
         }
+        setConnectionAuthIntent((intent) => (intent?.service === pendingRetryWatch.service ? null : intent))
         setPendingRetryWatch(null)
         return
       }
@@ -1596,6 +1609,7 @@ export function AppShell() {
       pendingRetry.current = null
       setPendingRetryWatch(null)
       setSelectedService(null)
+      setConnectionAuthIntent(null)
       setRoute("chat")
       void send(pending.sessionId, pending.text, pending.attachments, {
         contextMentions: pending.contextMentions ?? [],
@@ -1883,6 +1897,12 @@ export function AppShell() {
     setRoute("chat")
     setSearchOpen(false)
     setComposerFocusRequest((request) => request + 1)
+  }, [])
+
+  const handleOpenConnections = React.useCallback((): void => {
+    setConnectionAuthIntent(null)
+    setSelectedService(null)
+    setRoute("connections")
   }, [])
 
   const handleNewSession = React.useCallback((): void => {
@@ -2237,6 +2257,17 @@ export function AppShell() {
       // R5 闭环：打开连接页并定位该 provider；记录原 action，待用户完成授权后自动重试。
       setRoute("connections")
       setSelectedService(auth.service)
+      const createdAt = Date.now()
+      setConnectionAuthIntent({
+        action: auth.action,
+        createdAt,
+        displayName: auth.displayName,
+        errorCode: auth.errorCode,
+        id: `${auth.service}:${auth.action ?? ""}:${createdAt}`,
+        message: auth.message,
+        service: auth.service,
+        source: "chat",
+      })
       if (activeSessionId && source && (source.text || source.attachments.length > 0)) {
         const retryKey = chatTurnInputKey(source)
         const storedOptions = turnRetryOptionsBySession.current.get(activeSessionId)?.get(retryKey)
@@ -2484,7 +2515,7 @@ export function AppShell() {
             </button>
             <button
               type="button"
-              onClick={() => setRoute("connections")}
+              onClick={handleOpenConnections}
               className={cn(
                 "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
                 route === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -2658,7 +2689,11 @@ export function AppShell() {
             <React.Suspense fallback={<RouteLoadingFallback />}>
               {route === "connections" ? (
                 <div className="h-full min-h-0 p-0">
-                  <ConnectionsPanel connections={connections} selectedService={selectedService} />
+                  <ConnectionsPanel
+                    authIntent={connectionAuthIntent}
+                    connections={connections}
+                    selectedService={selectedService}
+                  />
                 </div>
               ) : route === "skills" ? (
                 <SkillsRoute organizationSkills={organizationSkills} workspace={organizationWorkspace} />
@@ -2698,7 +2733,7 @@ export function AppShell() {
                     onArtifactsReset={handleArtifactsReset}
                     onArtifactsOpen={handleArtifactsOpen}
                     onArtifactsAvailable={handleArtifactsAvailable}
-                    onOpenConnections={() => setRoute("connections")}
+                    onOpenConnections={handleOpenConnections}
                     onOpenOrganizations={() => setRoute("organizations")}
                     onViewBilling={handleViewBilling}
                   />

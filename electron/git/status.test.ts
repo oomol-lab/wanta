@@ -97,7 +97,9 @@ test("readGitRepositoryState composes repository state from git commands", async
 })
 
 test("readGitRepositoryState reports unavailable when status subcommands fail", async () => {
+  const calls: string[][] = []
   const state = await readGitRepositoryState("project", "/repo", async (args) => {
+    calls.push(args)
     const command = args.slice(2).join(" ")
     if (command === "rev-parse --show-toplevel") {
       return { stdout: "/repo\n", stderr: "" }
@@ -121,4 +123,7 @@ test("readGitRepositoryState reports unavailable when status subcommands fail", 
     error: "unknown",
     message: "fatal: bad revision",
   })
+  const commands = calls.map((args) => args.slice(2).join(" "))
+  assert.equal(commands[0], "rev-parse --show-toplevel")
+  assert.ok(commands.slice(1).includes("status --porcelain=v1 --branch"))
 })

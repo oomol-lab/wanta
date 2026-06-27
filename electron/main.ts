@@ -25,6 +25,7 @@ import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
 import { ArtifactRootStore } from "./chat/artifact-roots.ts"
 import { mimeFromPath } from "./chat/artifacts.ts"
+import { AuthorizationOverlayStore } from "./chat/authorization.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
@@ -116,11 +117,13 @@ const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
 const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
 const artifactRootStore = new ArtifactRootStore(app.getPath("userData"))
+const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
 // 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
   artifactRootStore,
+  authorizationOverlayStore,
   stoppedGenerationStore,
   onSetAgentOrganization: handleAgentOrganizationChanged,
 })

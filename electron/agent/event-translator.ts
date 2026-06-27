@@ -15,6 +15,8 @@ import type {
   ToolStatus,
 } from "../chat/common.ts"
 
+import { parseAuthorizationSignal } from "../chat/authorization-signal.ts"
+
 // OpenCode SSE 事件经此翻译为 ChatService ServerEvents。无状态：每个 OpenCode 事件
 // 直接映射为 0..n 个 {event, data}，node.ts 据此 this.send(event, data)。
 
@@ -58,23 +60,12 @@ function isMessageAbortedError(error: unknown): boolean {
 
 /** 若工具输出是 call_action 的结构化授权信号，解析出授权信息。 */
 export function parseAuthorization(output: string | undefined): AuthorizationInfo | null {
-  if (!output) {
-    return null
-  }
-  try {
-    const parsed = JSON.parse(output) as Record<string, unknown>
-    if (parsed.status === "authorization_required" && typeof parsed.service === "string") {
-      return {
-        service: parsed.service,
-        displayName: typeof parsed.displayName === "string" ? parsed.displayName : parsed.service,
-        action: typeof parsed.action === "string" ? parsed.action : undefined,
-        authUrl: typeof parsed.authUrl === "string" ? parsed.authUrl : undefined,
-        errorCode: typeof parsed.errorCode === "string" ? parsed.errorCode : undefined,
-        message: typeof parsed.message === "string" ? parsed.message : undefined,
-      }
-    }
-  } catch {
-    // 非 JSON 或非授权信号：忽略。
+  return parseAuthorizationSignal(output)
+}
+
+function parseToolAuthorization(tool: string, output: string | undefined): AuthorizationInfo | null {
+  if (tool === "call_action") {
+    return parseAuthorizationSignal(output)
   }
   return null
 }
@@ -317,7 +308,7 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       return [{ event: "toolCallStarted", data: { ...base, ...context, status: state.status } }]
     }
     if (state.status === "completed") {
-      const auth = part.tool === "call_action" ? parseAuthorization(state.output) : null
+      const auth = parseToolAuthorization(part.tool, state.output)
       return [
         {
           event: "toolCallResult",
@@ -414,8 +405,8 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
         timing: state.time ? { start: state.time.start, end: state.time.end } : undefined,
         attachmentsCount: Array.isArray(state.attachments) ? state.attachments.length : undefined,
       }
-      if (part.tool === "call_action" && state.status === "completed") {
-        const auth = parseAuthorization(state.output)
+      if (state.status === "completed") {
+        const auth = parseToolAuthorization(part.tool, state.output)
         if (auth) {
           tool.authorization = auth
         }

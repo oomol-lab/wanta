@@ -1,10 +1,12 @@
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentManager } from "../agent/manager.ts"
 import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
+import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
+  AuthorizationInfo,
   ChatMessage,
   ChatService,
   ChatContextMention,
@@ -44,6 +46,7 @@ import {
   mimeFromPath,
   normalizeLocalPathCandidate,
 } from "./artifacts.ts"
+import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./authorization.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import { normalizeChatError } from "./error.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
@@ -170,6 +173,7 @@ function mergeSystemPrompts(...parts: Array<string | undefined>): string | undef
 
 interface ChatServiceDeps {
   artifactRootStore?: ArtifactRootStore
+  authorizationOverlayStore?: AuthorizationOverlayStore
   stoppedGenerationStore?: StoppedGenerationStore
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => void
@@ -517,6 +521,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private artifactRoots: ArtifactRoots = new Map()
   private artifactRootsLoaded = false
   private artifactRootsLoadPromise: Promise<void> | null = null
+  private authorizationOverlays: AuthorizationOverlays = new Map()
+  private authorizationOverlaysLoaded = false
+  private authorizationOverlaysLoadPromise: Promise<void> | null = null
   private stoppedGenerations: StoppedGenerations = new Map()
   private stoppedGenerationsLoaded = false
   private stoppedGenerationsLoadPromise: Promise<void> | null = null
@@ -541,6 +548,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.artifactRoots.clear()
     this.artifactRootsLoaded = false
     this.artifactRootsLoadPromise = null
+    this.authorizationOverlays.clear()
+    this.authorizationOverlaysLoaded = false
+    this.authorizationOverlaysLoadPromise = null
     this.stoppedGenerations.clear()
     this.stoppedGenerationsLoaded = false
     this.stoppedGenerationsLoadPromise = null
@@ -612,6 +622,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           partIds?.delete(translated.data.partId)
           if (partIds?.size === 0) {
             this.activeToolParts.delete(translated.data.sessionId)
+          }
+          if (translated.data.authorization) {
+            void this.rememberAuthorizationOverlay(
+              translated.data.sessionId,
+              translated.data.messageId,
+              translated.data.partId,
+              translated.data.authorization,
+            ).catch((error: unknown) => {
+              console.warn("[wanta] failed to record authorization overlay", error)
+            })
           }
         }
         if (translated.event === "agentError" && translated.data.sessionId) {
@@ -851,12 +871,40 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.artifactRootsLoadPromise
   }
 
+  private async ensureAuthorizationOverlaysLoaded(): Promise<void> {
+    if (this.authorizationOverlaysLoaded) {
+      return
+    }
+    if (this.authorizationOverlaysLoadPromise) {
+      return this.authorizationOverlaysLoadPromise
+    }
+    this.authorizationOverlaysLoadPromise = (async () => {
+      this.authorizationOverlays = (await this.deps.authorizationOverlayStore?.read()) ?? new Map()
+      this.authorizationOverlaysLoaded = true
+      this.authorizationOverlaysLoadPromise = null
+    })()
+    return this.authorizationOverlaysLoadPromise
+  }
+
   private async rememberArtifactRoot(sessionId: string, messageId: string, artifactRoot: string): Promise<void> {
     await this.ensureArtifactRootsLoaded()
     if (!recordArtifactRoot(this.artifactRoots, sessionId, messageId, artifactRoot)) {
       return
     }
     await this.deps.artifactRootStore?.write(this.artifactRoots)
+  }
+
+  private async rememberAuthorizationOverlay(
+    sessionId: string,
+    messageId: string,
+    partId: string,
+    authorization: AuthorizationInfo,
+  ): Promise<void> {
+    await this.ensureAuthorizationOverlaysLoaded()
+    if (!recordAuthorizationOverlay(this.authorizationOverlays, sessionId, messageId, partId, authorization)) {
+      return
+    }
+    await this.deps.authorizationOverlayStore?.write(this.authorizationOverlays)
   }
 
   private async rememberStoppedGeneration(sessionId: string, messageId: string, partIds: string[]): Promise<void> {
@@ -1043,9 +1091,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     const messages = await this.agent.getMessages(sessionId)
     await this.ensureArtifactRootsLoaded()
+    await this.ensureAuthorizationOverlaysLoaded()
     await this.ensureStoppedGenerationsLoaded()
     return applyStoppedGenerations(
-      applyArtifactRoots(messages, this.artifactRoots.get(sessionId)),
+      applyAuthorizationOverlays(
+        applyArtifactRoots(messages, this.artifactRoots.get(sessionId)),
+        this.authorizationOverlays.get(sessionId),
+      ),
       this.stoppedGenerations.get(sessionId),
     )
   }

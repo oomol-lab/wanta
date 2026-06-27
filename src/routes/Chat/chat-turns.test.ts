@@ -143,6 +143,59 @@ describe("summarizeTurnProcess", () => {
     expect(process.startedAt).toBe(1000)
   })
 
+  it("suggests connecting a single unauthenticated provider from search results", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "有没有 Supabase 的连接可以用")]),
+      message("a1", "assistant", [
+        tool("tool-1", {
+          tool: "search_actions",
+          output: JSON.stringify([
+            { service: "supabase", name: "list_projects", authenticated: false },
+            { service: "supabase", name: "run_read_only_query", authenticated: false },
+          ]),
+        }),
+      ]),
+      message("a2", "assistant", [text("a2-text", "有 Supabase 的连接器可用。")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.hasAuthorization).toBe(false)
+    expect(process.suggestedAuthorization).toMatchObject({
+      service: "supabase",
+      displayName: "Supabase",
+      errorCode: "connection_required",
+    })
+  })
+
+  it("suggests the requested provider when search results include other unauthenticated providers", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "有没有 Supabase 的连接可以用")]),
+      message("a1", "assistant", [
+        tool("tool-1", {
+          tool: "search_actions",
+          input: { keywords: "supabase", query: "Supabase database connection" },
+          output: JSON.stringify([
+            { service: "supabase", name: "list_projects", authenticated: false },
+            { service: "supabase", name: "run_read_only_query", authenticated: false },
+            { service: "neon", name: "get_database", authenticated: false },
+          ]),
+        }),
+      ]),
+      message("a2", "assistant", [text("a2-text", "有 Supabase 的连接器可用。")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.suggestedAuthorization).toMatchObject({
+      service: "supabase",
+      displayName: "Supabase",
+      errorCode: "connection_required",
+    })
+  })
+
   it("uses activity without message id for the current turn", () => {
     const turn = groupChatTurns([message("u1", "user", [text("u1-text", "hello")]), message("a1", "assistant")])[0]
 

@@ -156,6 +156,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Use focused validation when feasible/)
   assert.match(WANTA_SYSTEM_PROMPT, new RegExp(`${branding.organizationName} connectors`))
   assert.match(WANTA_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
+  assert.match(WANTA_SYSTEM_PROMPT, /inline Connect button/)
+  assert.match(WANTA_SYSTEM_PROMPT, /avoid writing manual navigation paths/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {

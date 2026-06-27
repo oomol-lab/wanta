@@ -71,6 +71,7 @@ import {
 } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -545,6 +546,28 @@ function AssistantMessageActions({ text, cancelled }: { text: string; cancelled:
   )
 }
 
+function ConnectionSuggestionAction({
+  authorization,
+  provider,
+  onAuthorize,
+}: {
+  authorization: AuthorizationInfo
+  provider?: ConnectionProvider
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
+  const t = useT()
+  const displayName = provider?.displayName ?? authorization.displayName
+  return (
+    <div className="not-prose mt-3 flex flex-wrap items-center gap-2">
+      <span className="oo-text-caption text-muted-foreground">{t("chat.authNeeded", { name: displayName })}</span>
+      <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5" onClick={() => onAuthorize(authorization)}>
+        <PlugZap className="size-3.5" />
+        {t("chat.authorizeConnection")}
+      </Button>
+    </div>
+  )
+}
+
 function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): string {
   switch (activity?.phase) {
     case "retrying":
@@ -642,6 +665,7 @@ function MessageBubble({
   assistantActionsText,
   providerByService,
   onAuthorize,
+  suggestedAuthorization,
 }: {
   billingCacheScope: string
   message: ChatMessage
@@ -650,6 +674,7 @@ function MessageBubble({
   assistantActionsText: string | null
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  suggestedAuthorization?: AuthorizationInfo
 }) {
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
@@ -735,6 +760,13 @@ function MessageBubble({
             onViewBilling={onViewBilling}
           />
         ))}
+        {suggestedAuthorization ? (
+          <ConnectionSuggestionAction
+            authorization={suggestedAuthorization}
+            provider={providerByService.get(normalizeServiceSlug(suggestedAuthorization.service))}
+            onAuthorize={onAuthorize}
+          />
+        ) : null}
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
@@ -751,6 +783,7 @@ function AssistantTimelineMessage({
   assistantCancelled,
   providerByService,
   onAuthorize,
+  suggestedAuthorization,
   onViewBilling,
 }: {
   blocks: AssistantTimelineBlock[]
@@ -760,6 +793,7 @@ function AssistantTimelineMessage({
   assistantCancelled: boolean
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
+  suggestedAuthorization?: AuthorizationInfo
   onViewBilling?: () => void
 }) {
   const renderBlocks = blocks.map((item) => item.block)
@@ -783,6 +817,13 @@ function AssistantTimelineMessage({
             onViewBilling={onViewBilling}
           />
         ))}
+        {suggestedAuthorization ? (
+          <ConnectionSuggestionAction
+            authorization={suggestedAuthorization}
+            provider={providerByService.get(normalizeServiceSlug(suggestedAuthorization.service))}
+            onAuthorize={onAuthorize}
+          />
+        ) : null}
       </MessageContent>
       {assistantActionsText || assistantCancelled ? (
         <AssistantMessageActions text={assistantActionsText ?? ""} cancelled={assistantCancelled} />
@@ -876,6 +917,8 @@ const ChatTurnView = React.memo(function ChatTurnView({
   const responseActionsText =
     lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseRenderBlocks) || null
   const processActionsText = responseRenderBlocks.length > 0 ? null : assistantActionsText
+  const responseSuggestedAuthorization = responseRenderBlocks.length > 0 ? process.suggestedAuthorization : undefined
+  const processSuggestedAuthorization = responseRenderBlocks.length > 0 ? undefined : process.suggestedAuthorization
   const retrySource = React.useMemo(() => retrySourceFromTurn(turn), [turn])
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo) => {
@@ -910,6 +953,13 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}
               />
+              {processSuggestedAuthorization ? (
+                <ConnectionSuggestionAction
+                  authorization={processSuggestedAuthorization}
+                  provider={providerByService.get(normalizeServiceSlug(processSuggestedAuthorization.service))}
+                  onAuthorize={handleAuthorize}
+                />
+              ) : null}
             </MessageContent>
             {processActionsText || (assistantCancelled && responseRenderBlocks.length === 0) ? (
               <AssistantMessageActions text={processActionsText ?? ""} cancelled={assistantCancelled} />
@@ -924,6 +974,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               assistantCancelled={assistantCancelled}
               providerByService={providerByService}
               onAuthorize={handleAuthorize}
+              suggestedAuthorization={responseSuggestedAuthorization}
               onViewBilling={onViewBilling}
             />
           ) : null}
@@ -941,6 +992,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               providerByService={providerByService}
               onAuthorize={handleAuthorize}
+              suggestedAuthorization={message.id === lastAssistant?.id ? process.suggestedAuthorization : undefined}
             />
           ))}
         </>

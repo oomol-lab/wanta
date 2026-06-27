@@ -29,6 +29,7 @@ import { AuthorizationOverlayStore } from "./chat/authorization.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
+import { GitServiceImpl } from "./git/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
@@ -155,6 +156,7 @@ const settingsService = new SettingsServiceImpl({
 const updateService = new UpdateServiceImpl({
   store: settingsStore,
 })
+const gitService = new GitServiceImpl()
 
 chatService.sessionActivity.on(({ sessionId, usedAt }) => {
   void sessionService.recordUseAndEmit(sessionId, usedAt).catch(() => undefined)
@@ -175,6 +177,7 @@ server.registerService(modelsService)
 server.registerService(settingsService)
 server.registerService(authService)
 server.registerService(updateService)
+server.registerService(gitService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandler()
 registerAppLocaleHandler()

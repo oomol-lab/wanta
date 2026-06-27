@@ -173,6 +173,12 @@ export interface SendMessageRequest {
 }
 
 export interface ChatProjectContext {
+  git?: {
+    repositoryRoot: string
+    currentBranch?: string
+    detachedHead?: string
+    dirty?: boolean
+  }
   id: string
   name: string
   path: string

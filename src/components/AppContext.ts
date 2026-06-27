@@ -1,5 +1,6 @@
 import type { AuthService } from "../../electron/auth/common.ts"
 import type { ChatService } from "../../electron/chat/common.ts"
+import type { GitService } from "../../electron/git/common.ts"
 import type { ModelsService } from "../../electron/models/common.ts"
 import type { SessionService } from "../../electron/session/common.ts"
 import type { SettingsService } from "../../electron/settings/common.ts"
@@ -11,6 +12,7 @@ import * as React from "react"
 
 export interface AppContextValue {
   chatService: ConnectionClientService<ChatService>
+  gitService: ConnectionClientService<GitService>
   sessionService: ConnectionClientService<SessionService>
   skillService: ConnectionClientService<SkillService>
   modelsService: ConnectionClientService<ModelsService>
@@ -35,6 +37,10 @@ export function useChatService(): ConnectionClientService<ChatService> {
 
 export function useSessionService(): ConnectionClientService<SessionService> {
   return useAppContext().sessionService
+}
+
+export function useGitService(): ConnectionClientService<GitService> {
+  return useAppContext().gitService
 }
 
 export function useSkillService(): ConnectionClientService<SkillService> {

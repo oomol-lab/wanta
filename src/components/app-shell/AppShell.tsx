@@ -9,6 +9,7 @@ import type {
   ChatMessage,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { GitRepositoryState } from "../../../electron/git/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
@@ -62,6 +63,7 @@ import {
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
+import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
@@ -81,6 +83,7 @@ import {
   organizationInitials,
   useOrganizationWorkspace,
 } from "@/hooks/useOrganizationWorkspace"
+import { useProjectGit } from "@/hooks/useProjectGit"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
@@ -139,6 +142,7 @@ const AUTH_RETRY_POLL_INTERVAL_MS = 2_000
 const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
+const NO_DRAFT_PROJECT_ID = "__no_project__"
 
 function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
@@ -267,7 +271,10 @@ function sessionScopeKey(scope: SessionScope | null): string {
   return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
 }
 
-function projectContextFromProject(project: SessionProject | undefined): ChatProjectContext | undefined {
+function projectContextFromProject(
+  project: SessionProject | undefined,
+  gitState?: GitRepositoryState | null,
+): ChatProjectContext | undefined {
   if (!project) {
     return undefined
   }
@@ -275,7 +282,40 @@ function projectContextFromProject(project: SessionProject | undefined): ChatPro
     id: project.id,
     name: project.name,
     path: project.path,
+    ...(gitState?.available && gitState.repositoryRoot
+      ? {
+          git: {
+            repositoryRoot: gitState.repositoryRoot,
+            ...(gitState.currentBranch ? { currentBranch: gitState.currentBranch } : {}),
+            ...(gitState.detachedHead ? { detachedHead: gitState.detachedHead } : {}),
+            dirty: gitState.dirty,
+          },
+        }
+      : {}),
   }
+}
+
+function activeProjectIdForComposer({
+  activeSession,
+  draftProjectId,
+  projects,
+  sidebarSegment,
+}: {
+  activeSession?: SessionInfo
+  draftProjectId: string | null
+  projects: SessionProject[]
+  sidebarSegment: SidebarSegment
+}): string | undefined {
+  if (activeSession?.projectId) {
+    return activeSession.projectId
+  }
+  if (draftProjectId === NO_DRAFT_PROJECT_ID) {
+    return undefined
+  }
+  if (draftProjectId) {
+    return draftProjectId
+  }
+  return sidebarSegment === "projects" ? projects[0]?.id : undefined
 }
 
 function buildProjectSidebarGroups(projects: SessionProject[], sessions: SessionInfo[]): ProjectSidebarGroup[] {
@@ -1186,6 +1226,7 @@ function ProjectSidebarGroupItem({
   const [expanded, setExpanded] = React.useState(true)
   const hasSessions = group.sessions.length > 0
   const toggleLabel = expanded ? t("project.collapse") : t("project.expand")
+  const projectTitle = t("project.newTask")
 
   return (
     <section className="grid gap-1">
@@ -1193,10 +1234,9 @@ function ProjectSidebarGroupItem({
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          title={toggleLabel}
-          aria-label={toggleLabel}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((current) => !current)}
+          title={projectTitle}
+          aria-label={projectTitle}
+          onClick={() => onNewSession(group.project)}
         >
           <Folder className="size-4 shrink-0 text-sidebar-foreground/75" />
           <span className="min-w-0 shrink">
@@ -1204,21 +1244,16 @@ function ProjectSidebarGroupItem({
               {group.project.name}
             </span>
           </span>
-          <span
-            className="flex size-4 shrink-0 items-center justify-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-            aria-hidden="true"
-          >
-            {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </span>
         </button>
         <button
           type="button"
-          title={t("project.newTask")}
-          aria-label={t("project.newTask")}
-          className="hidden size-5 shrink-0 items-center justify-center rounded group-focus-within:flex group-hover:flex hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          onClick={() => onNewSession(group.project)}
+          title={toggleLabel}
+          aria-label={toggleLabel}
+          aria-expanded={expanded}
+          className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          onClick={() => setExpanded((current) => !current)}
         >
-          <SquarePen className="size-3.5" />
+          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         </button>
       </div>
       {expanded ? (
@@ -1635,6 +1670,7 @@ export function AppShell() {
     error: sessionsError,
     create,
     createProject,
+    assignSessionProject,
     generateTitle,
     rename,
     pin,
@@ -1834,11 +1870,18 @@ export function AppShell() {
   }, [connections.summary, send])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const activeProjectId = React.useMemo(
+    () => activeProjectIdForComposer({ activeSession, draftProjectId, projects, sidebarSegment }),
+    [activeSession, draftProjectId, projects, sidebarSegment],
+  )
   const activeProject = React.useMemo(() => {
-    const projectId = activeSession?.projectId ?? draftProjectId
-    return projectId ? projects.find((project) => project.id === projectId) : undefined
-  }, [activeSession?.projectId, draftProjectId, projects])
-  const activeProjectContext = React.useMemo(() => projectContextFromProject(activeProject), [activeProject])
+    return activeProjectId ? projects.find((project) => project.id === activeProjectId) : undefined
+  }, [activeProjectId, projects])
+  const projectGit = useProjectGit(activeProject)
+  const activeProjectContext = React.useMemo(
+    () => projectContextFromProject(activeProject, projectGit.state),
+    [activeProject, projectGit.state],
+  )
   const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(sessions), [sessions])
   const projectPinnedSessions = React.useMemo(
     () =>
@@ -1848,7 +1891,8 @@ export function AppShell() {
     [sessions],
   )
   const projectSidebarGroups = React.useMemo(() => buildProjectSidebarGroups(projects, sessions), [projects, sessions])
-  const activeComposerDraftKey = activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}`
+  const activeComposerDraftKey =
+    activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}:${activeProjectId ?? "none"}`
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
@@ -1868,6 +1912,7 @@ export function AppShell() {
       needsDefaultSessionSelection ||
       Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition))
   const showChatEmptyState = ready && sessionsLoaded && !activeSessionId && !pendingChatTransition
+  const showComposerProjectContext = sidebarSegment === "projects" && activeProject !== undefined
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
@@ -1938,7 +1983,11 @@ export function AppShell() {
   }, [archiveSession, archiveSessionId])
 
   React.useEffect(() => {
-    if (draftProjectId && !projects.some((project) => project.id === draftProjectId)) {
+    if (
+      draftProjectId &&
+      draftProjectId !== NO_DRAFT_PROJECT_ID &&
+      !projects.some((project) => project.id === draftProjectId)
+    ) {
       setDraftProjectId(null)
     }
   }, [draftProjectId, projects])
@@ -2160,24 +2209,52 @@ export function AppShell() {
     setComposerFocusRequest((request) => request + 1)
   }, [])
 
-  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
+  const handleCreateProjectFromFolder = React.useCallback(async (): Promise<SessionProject | null> => {
     const picker = globalThis.wanta?.selectAttachmentPaths
     if (!picker) {
       toast.error(t("project.folderPickerUnavailable"))
-      return
+      return null
     }
     try {
       const [directory] = await picker("directory")
       if (!directory) {
-        return
+        return null
       }
-      const project = await createProject({ name: directory.name, path: directory.path })
-      handleOpenProjectDraft(project)
+      return await createProject({ name: directory.name, path: directory.path })
     } catch (cause) {
       const notice = resolveUserFacingError(cause, { area: "session" })
       toast.error(userFacingErrorDescription(notice, t))
+      return null
     }
-  }, [createProject, handleOpenProjectDraft, t])
+  }, [createProject, t])
+
+  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
+    const project = await handleCreateProjectFromFolder()
+    if (project) {
+      handleOpenProjectDraft(project)
+    }
+  }, [handleCreateProjectFromFolder, handleOpenProjectDraft])
+
+  const handleSelectComposerProject = React.useCallback(
+    async (projectId: string | undefined): Promise<void> => {
+      if (activeSessionId && !isDraftSession) {
+        await assignSessionProject(activeSessionId, projectId)
+        return
+      }
+      setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
+      setIsDraftSession(true)
+      setRoute("chat")
+    },
+    [activeSessionId, assignSessionProject, isDraftSession],
+  )
+
+  const handleCreateComposerProject = React.useCallback(async (): Promise<SessionProject | null> => {
+    const project = await handleCreateProjectFromFolder()
+    if (project) {
+      await handleSelectComposerProject(project.id)
+    }
+    return project
+  }, [handleCreateProjectFromFolder, handleSelectComposerProject])
 
   const handleSelectSession = React.useCallback((session: SessionInfo): void => {
     setActiveSessionId(session.id)
@@ -3048,6 +3125,23 @@ export function AppShell() {
                     organizationSkills={organizationSkills.chatContextSkills}
                     providers={activeProviders}
                     queuedMessages={activeQueuedMessages}
+                    contextBar={
+                      showComposerProjectContext ? (
+                        <ProjectContextBar
+                          activeProject={activeProject}
+                          disabled={!ready || Boolean(activeSessionId && isSessionRunning(activeSessionId))}
+                          gitError={projectGit.error}
+                          gitLoading={projectGit.loading}
+                          gitState={projectGit.state}
+                          projects={projects}
+                          onCheckoutBranch={projectGit.checkoutBranch}
+                          onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
+                          onCreateProjectFromFolder={handleCreateComposerProject}
+                          onRefreshGit={projectGit.refresh}
+                          onSelectProject={handleSelectComposerProject}
+                        />
+                      ) : null
+                    }
                     placeholder={
                       startupError
                         ? t("error.agent.title")

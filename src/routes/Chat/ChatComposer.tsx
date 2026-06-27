@@ -46,6 +46,7 @@ interface ChatComposerProps {
   organizationSkills?: ChatOrganizationSkillContext[]
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
+  contextBar?: React.ReactNode
   status: ChatStatus
   submitDisabled: boolean
   onQueuedMessageRemove: (id: string) => void
@@ -94,6 +95,7 @@ export function ChatComposer({
   organizationSkills = [],
   providers,
   queuedMessages,
+  contextBar,
   status,
   submitDisabled,
   onQueuedMessageRemove,
@@ -462,7 +464,12 @@ export function ChatComposer({
         {queuePanel}
         <div className="relative">
           {palette}
-          {promptInput}
+          <div className="relative z-10">{promptInput}</div>
+          {contextBar ? (
+            <div className="oo-composer-context-tray relative z-0 -mt-4 flex h-11 min-w-0 items-center overflow-hidden rounded-b-[1.375rem] px-4 pt-4 text-[0.8125rem] leading-[1.125rem] text-muted-foreground">
+              {contextBar}
+            </div>
+          ) : null}
         </div>
       </div>
       {modelDialog}

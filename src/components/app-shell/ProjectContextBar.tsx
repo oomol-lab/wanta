@@ -20,7 +20,7 @@ interface ProjectContextBarProps {
   projects: SessionProject[]
   onCheckoutBranch: (branch: string) => Promise<GitRepositoryState | null>
   onCreateAndCheckoutBranch: (branch: string) => Promise<GitRepositoryState | null>
-  onCreateProjectFromFolder: () => Promise<SessionProject | null>
+  onCreateProject: () => void
   onRefreshGit: () => Promise<GitRepositoryState | null>
   onSelectProject: (projectId: string | undefined) => Promise<void>
 }
@@ -109,7 +109,7 @@ export function ProjectContextBar({
   projects,
   onCheckoutBranch,
   onCreateAndCheckoutBranch,
-  onCreateProjectFromFolder,
+  onCreateProject,
   onRefreshGit,
   onSelectProject,
 }: ProjectContextBarProps) {
@@ -199,9 +199,9 @@ export function ProjectContextBar({
     await onSelectProject(projectId)
   }
 
-  const createProject = async (): Promise<void> => {
+  const createProject = (): void => {
     closeMenus()
-    await onCreateProjectFromFolder()
+    onCreateProject()
   }
 
   const checkoutBranch = async (branch: GitBranchInfo): Promise<void> => {

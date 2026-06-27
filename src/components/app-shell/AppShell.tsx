@@ -106,6 +106,7 @@ import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/co
 import { visibleUserText } from "@/routes/Chat/message-text"
 
 type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
+type ProjectSelectionSource = "composer" | "sidebar"
 
 interface ConnectionAuthIntent {
   action?: string
@@ -155,6 +156,17 @@ const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 const NO_DRAFT_PROJECT_ID = "__no_project__"
+
+function releaseTransientFocus(): void {
+  const blurActiveElement = (): void => {
+    const activeElement = document.activeElement
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur()
+    }
+  }
+  blurActiveElement()
+  window.requestAnimationFrame(blurActiveElement)
+}
 
 function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
@@ -2291,32 +2303,6 @@ export function AppShell() {
     setComposerFocusRequest((request) => request + 1)
   }, [])
 
-  const handleCreateProjectFromFolder = React.useCallback(async (): Promise<SessionProject | null> => {
-    const picker = globalThis.wanta?.selectAttachmentPaths
-    if (!picker) {
-      toast.error(t("project.folderPickerUnavailable"))
-      return null
-    }
-    try {
-      const [directory] = await picker("directory")
-      if (!directory) {
-        return null
-      }
-      return await createProject({ name: directory.name, path: directory.path })
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-      return null
-    }
-  }, [createProject, t])
-
-  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
-    const project = await handleCreateProjectFromFolder()
-    if (project) {
-      handleOpenProjectDraft(project)
-    }
-  }, [handleCreateProjectFromFolder, handleOpenProjectDraft])
-
   const handleSelectComposerProject = React.useCallback(
     async (projectId: string | undefined): Promise<void> => {
       if (activeSessionId && !isDraftSession) {
@@ -2336,13 +2322,49 @@ export function AppShell() {
     [activeSessionId, assignSessionProject, isDraftSession, refreshSessions, t],
   )
 
-  const handleCreateComposerProject = React.useCallback(async (): Promise<SessionProject | null> => {
-    const project = await handleCreateProjectFromFolder()
-    if (project) {
-      await handleSelectComposerProject(project.id)
-    }
-    return project
-  }, [handleCreateProjectFromFolder, handleSelectComposerProject])
+  const handleCreatedProject = React.useCallback(
+    async (project: SessionProject, source: ProjectSelectionSource): Promise<void> => {
+      if (source === "composer") {
+        await handleSelectComposerProject(project.id)
+        return
+      }
+      handleOpenProjectDraft(project)
+    },
+    [handleOpenProjectDraft, handleSelectComposerProject],
+  )
+
+  const handleSelectProjectDirectory = React.useCallback(
+    async (source: ProjectSelectionSource): Promise<void> => {
+      releaseTransientFocus()
+      const picker = globalThis.wanta?.selectProjectDirectory
+      if (!picker) {
+        toast.error(t("project.folderPickerUnavailable"))
+        return
+      }
+      try {
+        const directory = await picker()
+        if (!directory) {
+          return
+        }
+        const project = await createProject({ name: directory.name, path: directory.path })
+        await handleCreatedProject(project, source)
+      } catch (cause) {
+        const notice = resolveUserFacingError(cause, { area: "session" })
+        toast.error(userFacingErrorDescription(notice, t))
+      } finally {
+        releaseTransientFocus()
+      }
+    },
+    [createProject, handleCreatedProject, t],
+  )
+
+  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
+    await handleSelectProjectDirectory("sidebar")
+  }, [handleSelectProjectDirectory])
+
+  const handleSelectComposerProjectFolder = React.useCallback(async (): Promise<void> => {
+    await handleSelectProjectDirectory("composer")
+  }, [handleSelectProjectDirectory])
 
   const handleSelectSession = React.useCallback((session: SessionInfo): void => {
     setActiveSessionId(session.id)
@@ -3031,7 +3053,10 @@ export function AppShell() {
                           title={t("project.selectFolder")}
                           aria-label={t("project.selectFolder")}
                           className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
-                          onClick={() => void handleSelectProjectFolder()}
+                          onClick={(event) => {
+                            event.currentTarget.blur()
+                            void handleSelectProjectFolder()
+                          }}
                         >
                           <FolderPlus className="size-3.5" />
                         </button>
@@ -3230,7 +3255,7 @@ export function AppShell() {
                           projects={projects}
                           onCheckoutBranch={projectGit.checkoutBranch}
                           onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
-                          onCreateProjectFromFolder={handleCreateComposerProject}
+                          onCreateProject={() => void handleSelectComposerProjectFolder()}
                           onRefreshGit={projectGit.refresh}
                           onSelectProject={handleSelectComposerProject}
                         />

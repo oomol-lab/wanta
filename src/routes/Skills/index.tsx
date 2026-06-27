@@ -63,6 +63,7 @@ import {
   useSkillVersionReportResource,
 } from "@/components/AppDataHooks"
 import { AppIcons } from "@/components/AppIcons"
+import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { InspectorCard, InspectorInsetCard } from "@/components/InspectorPanel"
 import { ObjectRowSkeletonGroup, SkeletonText } from "@/components/LoadingSkeletons"
@@ -246,7 +247,14 @@ export function SkillsRoute({
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
   const myPublishedPackageRequestIdRef = React.useRef(0)
-  const { openSkillFolder } = useSkillObjectActions()
+  const { isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } = useSkillObjectActions({
+    onDeleted: (nextInventory) => {
+      const nextSelectedSkill = nextInventory.groups.find(isInstalledSkillGroup)
+      setSelectedSkillId(nextSelectedSkill?.id ?? null)
+      setNarrowPane("list")
+      homeSummaryResource.invalidate()
+    },
+  })
 
   React.useEffect(() => {
     if (!selectedSkillId && inventory?.groups[0]) {
@@ -585,9 +593,11 @@ export function SkillsRoute({
     activePackageCatalog.status === "loading" || activePackageCatalog.status === "refreshing"
   const detailContentProps: SkillDetailContentProps = {
     inventoryInitialLoading: inventoryResource.isInitialLoading,
+    isRemovingSkill,
     openSkillFolder,
     publishSkill,
     publishingSkillId,
+    requestRemoveSkill: (skill) => setRemoveTarget({ skill }),
     selectedPlanError: visibleSkillOperationError(planError, selectedSkill?.id),
     selectedSkill,
     selectedStatus,
@@ -687,6 +697,16 @@ export function SkillsRoute({
         onClose={() => setOrganizationAddOpen(false)}
         onLoadMyPublishedPackages={loadMyPublishedSkillPackages}
         onLoadPublicPackages={loadPublicSkillPackages}
+      />
+      <DeleteSkillConfirmDialog
+        isRemoving={isRemovingSkill}
+        target={removeTarget}
+        onConfirm={removeSkill}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setRemoveTarget(null)
+          }
+        }}
       />
     </>
   )
@@ -1194,9 +1214,11 @@ function SkillDetailSkeleton() {
 
 interface SkillDetailContentProps {
   inventoryInitialLoading: boolean
+  isRemovingSkill: boolean
   openSkillFolder: (pathname: string) => void
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
   publishingSkillId: string | null
+  requestRemoveSkill: (skill: ManagedSkillGroup) => void
   selectedPlanError: string | null
   selectedSkill: ManagedSkillGroup | undefined
   selectedStatus: ReturnType<typeof getGroupStatus> | null
@@ -1207,9 +1229,11 @@ interface SkillDetailContentProps {
 
 function SkillDetailContent({
   inventoryInitialLoading,
+  isRemovingSkill,
   openSkillFolder,
   publishSkill,
   publishingSkillId,
+  requestRemoveSkill,
   selectedPlanError,
   selectedSkill,
   selectedStatus,
@@ -1230,6 +1254,8 @@ function SkillDetailContent({
         planError={selectedPlanError}
         publishSkill={publishSkill}
         publishingSkillId={publishingSkillId}
+        isRemovingSkill={isRemovingSkill}
+        requestRemoveSkill={requestRemoveSkill}
         selectedSkill={selectedSkill}
         selectedStatus={selectedStatus}
         selectedVersionCheck={selectedVersionCheck}
@@ -1895,7 +1921,7 @@ function SkillManagementSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[120] bg-black/15 [-webkit-app-region:no-drag]"
+      className="oo-modal-backdrop fixed inset-0 z-[120] [-webkit-app-region:no-drag]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
@@ -2055,7 +2081,7 @@ function PublicSkillPackageSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[120] bg-black/15"
+      className="oo-modal-backdrop fixed inset-0 z-[120]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
@@ -2237,10 +2263,12 @@ function PublicSkillPackageDetail({
 }
 
 interface SkillPeekProps {
+  isRemovingSkill: boolean
   openSkillFolder: (pathname: string) => void
   planError: string | null
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
   publishingSkillId: string | null
+  requestRemoveSkill: (skill: ManagedSkillGroup) => void
   selectedSkill: ManagedSkillGroup
   selectedStatus: ReturnType<typeof getGroupStatus>
   selectedVersionCheck?: SkillVersionReport["skills"][number]
@@ -2249,10 +2277,12 @@ interface SkillPeekProps {
 }
 
 function SkillPeek({
+  isRemovingSkill,
   openSkillFolder,
   planError,
   publishSkill,
   publishingSkillId,
+  requestRemoveSkill,
   selectedSkill,
   selectedStatus,
   selectedVersionCheck,
@@ -2476,6 +2506,17 @@ function SkillPeek({
                     : t("skills.publishToMarket")}
               </Button>
             ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive"
+              disabled={isRemovingSkill}
+              onClick={() => requestRemoveSkill(selectedSkill)}
+            >
+              {isRemovingSkill ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.delete />}
+              {isRemovingSkill ? t("skills.removing") : t("skills.removeConfirmAction")}
+            </Button>
           </div>
         </CardContent>
       </InspectorCard>

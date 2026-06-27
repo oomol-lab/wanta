@@ -6,6 +6,7 @@ import type {
   DeleteSkillRequest,
   ExecuteSkillUpdateRequest,
   InstallRegistrySkillRequest,
+  ManagedSkillGroup,
   OpenSkillPathRequest,
   PublishSkillRequest,
   PublishSkillResult,
@@ -284,13 +285,36 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       throw new Error("Skill deletion requires confirmation.")
     }
 
-    const result = await this.runOoCommand(createDeleteSkillArgs(request), {
-      owner: "skill-service",
-      rejectOnFailure: false,
-    })
-    assertOoSkillOperationResult(result, "skills.uninstall")
-    await this.deleteSharedSkillTarget(request.skillId)
-    await this.rememberDefaultRegistrySkillRemovedByUser(request.skillId)
+    const skillId = normalizeSkillId(request.skillId)
+    const inventory = await this.readSkillInventory({ writeManifest: false })
+    const group = inventory.groups.find((item) => item.id === skillId)
+
+    if (!group) {
+      throw new Error(`Skill not found: ${skillId}`)
+    }
+
+    let registryUninstallError: unknown
+    if (group.kind === "registry" && group.packageName?.trim()) {
+      try {
+        const result = await this.runOoCommand(createDeleteSkillArgs({ skillId }), {
+          owner: "skill-service",
+          rejectOnFailure: false,
+        })
+        assertOoSkillOperationResult(result, "skills.uninstall")
+      } catch (cause) {
+        registryUninstallError = cause
+      }
+    }
+
+    const deletedTargets = await this.deleteInstalledSkillTargets(group)
+    if (deletedTargets === 0 && registryUninstallError) {
+      throw registryUninstallError
+    }
+    if (deletedTargets === 0) {
+      throw new Error(`No installed Skill target found: ${skillId}`)
+    }
+
+    await this.rememberDefaultRegistrySkillRemovedByUser(skillId)
     this.notifyRuntimeSkillsChanged("delete-skill")
 
     return this.readAndPublishSkillInventory()
@@ -591,8 +615,20 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return path.join(this.getSharedAgentSkillRoot(), normalizeSkillId(skillId))
   }
 
-  private async deleteSharedSkillTarget(skillId: string): Promise<void> {
-    await rm(this.resolveSharedSkillTargetPath(skillId), { force: true, recursive: true })
+  private async deleteInstalledSkillTargets(group: ManagedSkillGroup): Promise<number> {
+    const targetPaths = readDeletableSkillTargetPaths(group, this.readDeletableSkillRoots())
+    let deletedTargets = 0
+
+    for (const targetPath of targetPaths) {
+      await rm(targetPath, { force: true, recursive: true })
+      deletedTargets += 1
+    }
+
+    return deletedTargets
+  }
+
+  private readDeletableSkillRoots(): string[] {
+    return [this.getSharedAgentSkillRoot(), ...supportedAgents.map((agent) => resolveAgentSkillRoot(agent))]
   }
 
   private invalidateVersionReport(): void {
@@ -953,6 +989,36 @@ function normalizeSkillId(skillId: string): string {
   }
 
   return normalizedSkillId
+}
+
+function readDeletableSkillTargetPaths(group: ManagedSkillGroup, skillRoots: string[]): string[] {
+  const normalizedSkillId = normalizeSkillId(group.id)
+  const normalizedSkillRoots = skillRoots.map((skillRoot) => path.resolve(skillRoot))
+  const targetPaths = new Set<string>()
+
+  for (const host of group.hosts) {
+    const targetPath = host.path ? path.resolve(host.path) : undefined
+    if (!targetPath || host.status !== "installed") {
+      continue
+    }
+
+    if (path.basename(targetPath) !== normalizedSkillId) {
+      continue
+    }
+
+    if (!normalizedSkillRoots.some((skillRoot) => isPathInside(skillRoot, targetPath))) {
+      continue
+    }
+
+    targetPaths.add(targetPath)
+  }
+
+  return Array.from(targetPaths)
+}
+
+function isPathInside(parentPath: string, childPath: string): boolean {
+  const relativePath = path.relative(parentPath, childPath)
+  return Boolean(relativePath) && !relativePath.startsWith("..") && !path.isAbsolute(relativePath)
 }
 
 async function localPathExists(pathname: string): Promise<boolean> {

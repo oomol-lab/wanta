@@ -32,8 +32,36 @@ type ContextMenuPlacement = {
   width: number
 }
 
+type ProjectMenuEntry = {
+  disambiguator?: string
+  project: SessionProject
+  searchText: string
+}
+
 function normalizedQuery(value: string): string {
   return value.trim().toLocaleLowerCase()
+}
+
+function shortProjectId(projectId: string): string {
+  return projectId.replaceAll("-", "").slice(0, 8)
+}
+
+function buildProjectMenuEntries(projects: SessionProject[]): ProjectMenuEntry[] {
+  const nameCounts = new Map<string, number>()
+  for (const project of projects) {
+    const key = normalizedQuery(project.name)
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
+  }
+
+  return projects.map((project) => {
+    const hasDuplicateName = (nameCounts.get(normalizedQuery(project.name)) ?? 0) > 1
+    const disambiguator = hasDuplicateName ? `#${shortProjectId(project.id)}` : undefined
+    return {
+      disambiguator,
+      project,
+      searchText: normalizedQuery([project.name, disambiguator].filter(Boolean).join(" ")),
+    }
+  })
 }
 
 function dirtyFileCount(state: GitRepositoryState): number {
@@ -123,15 +151,14 @@ export function ProjectContextBar({
   const [projectQuery, setProjectQuery] = React.useState("")
   const [branchQuery, setBranchQuery] = React.useState("")
   const [busyBranch, setBusyBranch] = React.useState<string | null>(null)
+  const projectMenuEntries = React.useMemo(() => buildProjectMenuEntries(projects), [projects])
   const filteredProjects = React.useMemo(() => {
     const query = normalizedQuery(projectQuery)
     if (!query) {
-      return projects
+      return projectMenuEntries
     }
-    return projects.filter(
-      (project) => normalizedQuery(project.name).includes(query) || normalizedQuery(project.path).includes(query),
-    )
-  }, [projectQuery, projects])
+    return projectMenuEntries.filter((entry) => entry.searchText.includes(query))
+  }, [projectMenuEntries, projectQuery])
   const visibleBranches = React.useMemo(() => {
     const query = normalizedQuery(branchQuery)
     const branches = gitState?.available
@@ -461,7 +488,7 @@ function ProjectMenu({
   disabled: boolean
   menuRef: React.RefObject<HTMLDivElement | null>
   placement: ContextMenuPlacement | null
-  projects: SessionProject[]
+  projects: ProjectMenuEntry[]
   query: string
   onCreateProject: () => void
   onQueryChange: (query: string) => void
@@ -485,7 +512,7 @@ function ProjectMenu({
     >
       <MenuSearch label={t("project.searchPlaceholder")} query={query} onQueryChange={onQueryChange} />
       <div className="min-h-0 flex-1 overflow-y-auto p-1">
-        {projects.map((project) => (
+        {projects.map(({ disambiguator, project }) => (
           <button
             key={project.id}
             type="button"
@@ -495,8 +522,10 @@ function ProjectMenu({
           >
             <Folder className="size-4 text-muted-foreground" />
             <span className="grid min-w-0 gap-0.5">
-              <span className="oo-text-value truncate">{project.name}</span>
-              <span className="oo-text-caption-compact truncate text-muted-foreground">{project.path}</span>
+              <span className="oo-text-body min-w-0 truncate">{project.name}</span>
+              {disambiguator ? (
+                <span className="oo-text-caption-compact truncate text-muted-foreground">{disambiguator}</span>
+              ) : null}
             </span>
             {project.id === activeProjectId ? <Check className="size-4" /> : <span aria-hidden="true" />}
           </button>

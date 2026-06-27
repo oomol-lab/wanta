@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ChatOrganizationSkillContext,
+  ChatProjectContext,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
   ToolCallResultEvent,
@@ -71,6 +72,7 @@ export interface UseChat {
       contextMentions?: ChatContextMention[]
       model?: ModelChoice
       organizationSkills?: ChatOrganizationSkillContext[]
+      projectContext?: ChatProjectContext
     },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
@@ -543,6 +545,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         contextMentions?: ChatContextMention[]
         model?: ModelChoice
         organizationSkills?: ChatOrganizationSkillContext[]
+        projectContext?: ChatProjectContext
       } = {},
     ) => {
       setGlobalError(null)
@@ -560,6 +563,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           contextMentions: options.contextMentions,
           model: options.model,
           organizationSkills: options.organizationSkills,
+          projectContext: options.projectContext,
         })
       } catch (err) {
         setStatus(sessionId, "error")

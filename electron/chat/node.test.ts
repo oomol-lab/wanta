@@ -293,7 +293,7 @@ test("stopGeneration cancels a submitted turn before prompt streaming starts", a
   assert.equal(bridge.promptStreaming.mock.calls.length, 0)
 })
 
-test("sendMessage passes selected context mentions and organization skills as per-turn system prompt", async () => {
+test("sendMessage passes selected context, organization skills, and project as per-turn system prompt", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
 
@@ -317,6 +317,11 @@ test("sendMessage passes selected context mentions and organization skills as pe
         version: "1.2.3",
       },
     ],
+    projectContext: {
+      id: "project-1",
+      name: "wanta",
+      path: "/Users/example/code/wanta",
+    },
     sessionId: "session-1",
     text: "summarize new leads",
   })
@@ -331,6 +336,10 @@ test("sendMessage passes selected context mentions and organization skills as pe
   assert.match(options?.system ?? "", /gmail/)
   assert.match(options?.system ?? "", /consider the selected connection first/)
   assert.match(options?.system ?? "", /Do not use it for unrelated local files/)
+  assert.match(options?.system ?? "", /Current local project context/)
+  assert.match(options?.system ?? "", /\/Users\/example\/code\/wanta/)
+  assert.match(options?.system ?? "", /use this project directory as an absolute path/)
+  assert.match(options?.system ?? "", /Do not mention the full project directory/)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {

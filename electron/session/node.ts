@@ -1,23 +1,30 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
 import type {
+  AssignSessionProjectRequest,
+  CreateProjectRequest,
   CreateSessionRequest,
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
   SessionInfo,
+  SessionProject,
   SessionScope,
   SessionScopeRequest,
   SessionService,
 } from "./common.ts"
 import type { SessionMetadata, SessionMetadataStore } from "./metadata-store.ts"
+import type { SessionProjectStore } from "./project-store.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
+import { randomUUID } from "node:crypto"
+import path from "node:path"
 import { SessionService as SessionServiceName } from "./common.ts"
 
 interface SessionServiceDeps {
   activityStore?: SessionActivityStore
   metadataStore?: SessionMetadataStore
+  projectStore?: SessionProjectStore
 }
 
 const personalSessionScope: SessionScope = { type: "personal" }
@@ -57,6 +64,19 @@ function createRequestScope(req?: CreateSessionRequest | string): SessionScope {
   return normalizeSessionScope(typeof req === "string" ? undefined : req?.scope)
 }
 
+function createRequestProjectId(req?: CreateSessionRequest | string): string | undefined {
+  const projectId = typeof req === "string" ? undefined : req?.projectId?.trim()
+  return projectId || undefined
+}
+
+function normalizeProjectPath(projectPath: string): string {
+  return projectPath.trim().replace(/[\\/]+$/, "")
+}
+
+function projectNameFromPath(projectPath: string): string {
+  return path.basename(normalizeProjectPath(projectPath)) || projectPath
+}
+
 export class SessionServiceImpl
   extends ConnectionService<SessionService>
   implements IConnectionService<SessionService>
@@ -69,6 +89,9 @@ export class SessionServiceImpl
   private metadataLoaded = false
   private metadataLoadPromise: Promise<void> | null = null
   private sessionMetadata = new Map<string, SessionMetadata>()
+  private projectsLoaded = false
+  private projectsLoadPromise: Promise<void> | null = null
+  private projects = new Map<string, SessionProject>()
 
   public constructor(agent: AgentManager | null = null, deps: SessionServiceDeps = {}) {
     super(SessionServiceName)
@@ -86,6 +109,9 @@ export class SessionServiceImpl
       this.sessionMetadata.clear()
       this.metadataLoaded = false
       this.metadataLoadPromise = null
+      this.projects.clear()
+      this.projectsLoaded = false
+      this.projectsLoadPromise = null
     }
   }
 
@@ -107,17 +133,118 @@ export class SessionServiceImpl
     return this.mergeLocalState(await this.agent.listSessions(), "archived", normalizeSessionScope(req.scope))
   }
 
+  public async listProjects(req: SessionScopeRequest = {}): Promise<SessionProject[]> {
+    if (!this.agent) {
+      return []
+    }
+    await this.ensureProjectsLoaded()
+    const requestedScope = normalizeSessionScope(req.scope)
+    return [...this.projects.values()]
+      .filter((project) => !project.archivedAt)
+      .filter((project) => sessionScopeMatches(project.scope, requestedScope))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
   public async create(req?: CreateSessionRequest | string): Promise<SessionInfo> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
     const scope = createRequestScope(req)
+    const projectId = createRequestProjectId(req)
     const info = await this.agent.createSession(createRequestTitle(req))
     await this.ensureMetadataLoaded()
-    this.setMetadataEntry(info.id, { ...this.sessionMetadata.get(info.id), scope })
+    await this.ensureProjectsLoaded()
+    const project = projectId ? this.projects.get(projectId) : undefined
+    const scopedProjectId = project && sessionScopeMatches(project.scope, scope) ? project.id : undefined
+    this.setMetadataEntry(info.id, {
+      ...this.sessionMetadata.get(info.id),
+      scope,
+      ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+    })
+    if (scopedProjectId) {
+      this.touchProject(scopedProjectId, info.updatedAt)
+      await this.persistProjects()
+    }
     await this.persistMetadata()
     void this.broadcastChanged().catch(() => undefined)
-    return { ...info, scope }
+    return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
+  }
+
+  public async createProject(req: CreateProjectRequest): Promise<SessionProject> {
+    if (!this.agent) {
+      throw new Error("Agent not configured (sign in first)")
+    }
+    const projectPath = normalizeProjectPath(req.path)
+    if (!projectPath) {
+      throw new Error("Project path is required")
+    }
+    await this.ensureProjectsLoaded()
+    const scope = normalizeSessionScope(req.scope)
+    const existing = [...this.projects.values()].find(
+      (project) => project.path === projectPath && sessionScopeMatches(project.scope, scope),
+    )
+    if (existing) {
+      const next = { ...existing, updatedAt: Date.now() }
+      this.projects.set(existing.id, next)
+      await this.persistProjects()
+      return next
+    }
+    const now = Date.now()
+    const project: SessionProject = {
+      id: randomUUID(),
+      name: req.name?.trim() || projectNameFromPath(projectPath),
+      path: projectPath,
+      createdAt: now,
+      updatedAt: now,
+      scope,
+    }
+    this.projects.set(project.id, project)
+    await this.persistProjects()
+    void this.broadcastChanged().catch(() => undefined)
+    return project
+  }
+
+  public async assignSessionProject(req: AssignSessionProjectRequest): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
+    const current = this.sessionMetadata.get(req.sessionId) ?? {}
+    const projectId = req.projectId?.trim()
+    const next = { ...current }
+    if (projectId && this.projects.has(projectId)) {
+      next.projectId = projectId
+      this.touchProject(projectId)
+      await this.persistProjects()
+    } else {
+      delete next.projectId
+    }
+    this.setMetadataEntry(req.sessionId, next)
+    await this.persistMetadata()
+    void this.broadcastChanged().catch(() => undefined)
+  }
+
+  public async removeProject(id: string): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
+    if (!this.projects.delete(id)) {
+      return
+    }
+    for (const [sessionId, metadata] of this.sessionMetadata.entries()) {
+      if (metadata.projectId !== id) {
+        continue
+      }
+      const next = { ...metadata }
+      delete next.projectId
+      this.setMetadataEntry(sessionId, next)
+    }
+    await this.persistProjects()
+    await this.persistMetadata()
+    void this.broadcastChanged().catch(() => undefined)
   }
 
   public async generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult> {
@@ -217,8 +344,14 @@ export class SessionServiceImpl
     if (!this.markUsed(id, usedAt)) {
       return
     }
+    await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
+    const projectId = this.sessionMetadata.get(id)?.projectId
+    if (projectId && this.touchProject(projectId, usedAt)) {
+      await this.persistProjects()
+    }
     await this.persistActivity()
-    await this.refreshAndEmit()
+    await this.refreshAndEmit().catch(() => undefined)
   }
 
   private async ensureActivityLoaded(): Promise<void> {
@@ -268,8 +401,39 @@ export class SessionServiceImpl
     await this.deps.metadataStore?.write(this.sessionMetadata)
   }
 
+  private async ensureProjectsLoaded(): Promise<void> {
+    if (this.projectsLoaded) {
+      return
+    }
+    if (this.projectsLoadPromise) {
+      return this.projectsLoadPromise
+    }
+    this.projectsLoadPromise = (async () => {
+      const persisted = await this.deps.projectStore?.read()
+      for (const [id, project] of persisted ?? []) {
+        this.projects.set(id, project)
+      }
+      this.projectsLoaded = true
+      this.projectsLoadPromise = null
+    })()
+    return this.projectsLoadPromise
+  }
+
+  private async persistProjects(): Promise<void> {
+    await this.deps.projectStore?.write(this.projects)
+  }
+
+  private touchProject(id: string, updatedAt = Date.now()): boolean {
+    const current = this.projects.get(id)
+    if (!current || updatedAt <= current.updatedAt) {
+      return false
+    }
+    this.projects.set(id, { ...current, updatedAt })
+    return true
+  }
+
   private setMetadataEntry(id: string, metadata: SessionMetadata): void {
-    if (metadata.scope || metadata.pinnedAt || metadata.archivedAt) {
+    if (metadata.scope || metadata.projectId || metadata.pinnedAt || metadata.archivedAt) {
       this.sessionMetadata.set(id, metadata)
     } else {
       this.sessionMetadata.delete(id)
@@ -288,6 +452,7 @@ export class SessionServiceImpl
         return {
           ...session,
           scope: normalizeSessionScope(metadata?.scope),
+          ...(metadata?.projectId ? { projectId: metadata.projectId } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
           ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),

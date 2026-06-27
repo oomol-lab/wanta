@@ -37,6 +37,7 @@ import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstan
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
+import { SessionProjectStore } from "./session/project-store.ts"
 import { SettingsServiceImpl } from "./settings/node.ts"
 import { SettingsStore } from "./settings/store.ts"
 import { SkillServiceImpl } from "./skills/node.ts"
@@ -116,6 +117,7 @@ let pendingSkillRuntimeRefresh: NodeJS.Timeout | undefined
 const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
 const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
+const sessionProjectStore = new SessionProjectStore(app.getPath("userData"))
 const artifactRootStore = new ArtifactRootStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
@@ -130,6 +132,7 @@ const chatService = new ChatServiceImpl(null, {
 const sessionService = new SessionServiceImpl(null, {
   activityStore: sessionActivityStore,
   metadataStore: sessionMetadataStore,
+  projectStore: sessionProjectStore,
 })
 const modelsService = new ModelsServiceImpl({
   store: modelsStore,

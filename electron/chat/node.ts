@@ -11,6 +11,7 @@ import type {
   ChatService,
   ChatContextMention,
   ChatOrganizationSkillContext,
+  ChatProjectContext,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
   LocalArtifactDisplayMode,
@@ -161,6 +162,22 @@ export function buildOrganizationSkillsSystem(skills: ChatOrganizationSkillConte
     lines.push(`- ${quoted(skill.name)}; ${details.join("; ")}`)
   }
   return lines.join("\n")
+}
+
+export function buildProjectContextSystem(project: ChatProjectContext | undefined): string | undefined {
+  const projectPath = project?.path.trim()
+  if (!project || !project.id.trim() || !project.name.trim() || !projectPath) {
+    return undefined
+  }
+  return [
+    "Current local project context:",
+    `- Project name: ${quoted(project.name)}`,
+    `- Project directory: ${quoted(projectPath)}`,
+    "- Treat this directory as the active project when the user's request involves code, files, repository state, local analysis, or file organization.",
+    "- The shell and file tool cwd may still be Wanta's private scratch workspace; use this project directory as an absolute path instead of assuming cwd.",
+    "- Do not mention the full project directory to the user unless they ask for the path or the path is necessary for the task outcome.",
+    "- For edits to existing project files, modify files in place under this directory. Use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
+  ].join("\n")
 }
 
 function mergeSystemPrompts(...parts: Array<string | undefined>): string | undefined {
@@ -819,6 +836,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         system: mergeSystemPrompts(
           buildOrganizationSkillsSystem(req.organizationSkills),
           buildContextMentionsSystem(req.contextMentions),
+          buildProjectContextSystem(req.projectContext),
         ),
       })
       .catch((error: unknown) => {

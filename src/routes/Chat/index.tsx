@@ -92,6 +92,7 @@ interface ChatAreaProps {
   bootstrapping: boolean
   startupError?: UserFacingError | null
   error: string | null
+  emptyTitle?: string
   submitDisabled: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
@@ -1201,6 +1202,7 @@ export const ChatArea = React.memo(function ChatArea({
   bootstrapping,
   startupError,
   error,
+  emptyTitle,
   submitDisabled,
   initialComposerState,
   initialSendPending,
@@ -1274,12 +1276,12 @@ export const ChatArea = React.memo(function ChatArea({
     <div className="grid min-h-full w-full place-items-center px-4 py-6 sm:px-5 lg:px-8">
       <div
         className={cn(
-          "flex w-full -translate-y-[6vh] flex-col gap-8 transition-transform duration-300 ease-out",
+          "flex w-full translate-y-[3vh] flex-col gap-6 transition-transform duration-300 ease-out",
           CHAT_CONTENT_MAX_WIDTH_CLASS,
         )}
       >
         <div className="px-4 pb-1 text-center">
-          <h2 className="oo-text-empty-title mx-auto max-w-2xl">{t("chat.emptyTitle")}</h2>
+          <h2 className="oo-text-empty-title mx-auto max-w-2xl">{emptyTitle ?? t("chat.emptyTitle")}</h2>
         </div>
         <div className="flex flex-col gap-3">
           {composer}

@@ -6,6 +6,7 @@ import path from "node:path"
 
 export interface SessionMetadata {
   scope?: SessionScope
+  projectId?: string
   pinnedAt?: number
   archivedAt?: number
 }
@@ -57,13 +58,16 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (scope) {
       next.scope = scope
     }
+    if (typeof source.projectId === "string" && source.projectId.trim()) {
+      next.projectId = source.projectId.trim()
+    }
     if (validTimestamp(source.pinnedAt)) {
       next.pinnedAt = source.pinnedAt
     }
     if (validTimestamp(source.archivedAt)) {
       next.archivedAt = source.archivedAt
     }
-    if (next.scope || next.pinnedAt || next.archivedAt) {
+    if (next.scope || next.projectId || next.pinnedAt || next.archivedAt) {
       metadata.set(id, next)
     }
   }
@@ -81,17 +85,20 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
     if (scope) {
       next.scope = scope
     }
+    if (typeof entry.projectId === "string" && entry.projectId.trim()) {
+      next.projectId = entry.projectId.trim()
+    }
     if (validTimestamp(entry.pinnedAt)) {
       next.pinnedAt = entry.pinnedAt
     }
     if (validTimestamp(entry.archivedAt)) {
       next.archivedAt = entry.archivedAt
     }
-    if (next.scope || next.pinnedAt || next.archivedAt) {
+    if (next.scope || next.projectId || next.pinnedAt || next.archivedAt) {
       sessions[id] = next
     }
   }
-  return { version: 2, sessions }
+  return { version: 3, sessions }
 }
 
 /** 会话展示元数据：置顶和归档属于 Wanta 侧边栏状态，不修改 OpenCode 会话本体。 */

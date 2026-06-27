@@ -168,7 +168,14 @@ export interface SendMessageRequest {
   attachments?: ChatAttachment[]
   contextMentions?: ChatContextMention[]
   organizationSkills?: ChatOrganizationSkillContext[]
+  projectContext?: ChatProjectContext
   model?: ModelChoice
+}
+
+export interface ChatProjectContext {
+  id: string
+  name: string
+  path: string
 }
 
 export interface ChatOrganizationSkillContext {

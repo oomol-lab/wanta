@@ -164,6 +164,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     async (id: string) => {
       await sessionService.invoke("archive", id)
       localCreatedSessionsRef.current.delete(id)
+      setSessions((current) => current.filter((session) => session.id !== id))
     },
     [sessionService],
   )
@@ -179,6 +180,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     async (id: string) => {
       await sessionService.invoke("remove", id)
       localCreatedSessionsRef.current.delete(id)
+      setSessions((current) => current.filter((session) => session.id !== id))
     },
     [sessionService],
   )

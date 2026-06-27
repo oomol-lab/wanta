@@ -11,7 +11,7 @@ export interface AuthorizationInfo {
   service: string
   displayName: string
   action?: string
-  /** Legacy/debug fallback only. Wanta routes authorization through the in-app Connections panel. */
+  /** 仅作为旧版/调试兜底；Wanta 授权统一走应用内 Connections 面板。 */
   authUrl?: string
   errorCode?: string
   /** 上游 connector 的真实错误报文（如 ES 的 security_exception）。授权提示旁透出，避免用户只看到“去授权”却不知原因。 */

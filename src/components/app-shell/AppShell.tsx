@@ -1580,6 +1580,7 @@ export function AppShell() {
         if (!cancelled && pendingRetry.current?.service === pendingRetryWatch.service) {
           pendingRetry.current = null
         }
+        setConnectionAuthIntent((intent) => (intent?.service === pendingRetryWatch.service ? null : intent))
         setPendingRetryWatch(null)
         return
       }
@@ -1896,6 +1897,12 @@ export function AppShell() {
     setRoute("chat")
     setSearchOpen(false)
     setComposerFocusRequest((request) => request + 1)
+  }, [])
+
+  const handleOpenConnections = React.useCallback((): void => {
+    setConnectionAuthIntent(null)
+    setSelectedService(null)
+    setRoute("connections")
   }, [])
 
   const handleNewSession = React.useCallback((): void => {
@@ -2508,7 +2515,7 @@ export function AppShell() {
             </button>
             <button
               type="button"
-              onClick={() => setRoute("connections")}
+              onClick={handleOpenConnections}
               className={cn(
                 "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
                 route === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
@@ -2726,7 +2733,7 @@ export function AppShell() {
                     onArtifactsReset={handleArtifactsReset}
                     onArtifactsOpen={handleArtifactsOpen}
                     onArtifactsAvailable={handleArtifactsAvailable}
-                    onOpenConnections={() => setRoute("connections")}
+                    onOpenConnections={handleOpenConnections}
                     onOpenOrganizations={() => setRoute("organizations")}
                     onViewBilling={handleViewBilling}
                   />

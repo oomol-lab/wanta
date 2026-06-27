@@ -1,8 +1,9 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type { SessionActivityStore } from "./activity-store.ts"
-import type { SessionInfo } from "./common.ts"
+import type { SessionInfo, SessionProject } from "./common.ts"
 import type { SessionMetadata } from "./metadata-store.ts"
 import type { SessionMetadataStore } from "./metadata-store.ts"
+import type { SessionProjectStore } from "./project-store.ts"
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
@@ -32,6 +33,16 @@ function activityStore(initial = new Map<string, number>()): SessionActivityStor
       activity = new Map(next)
     },
   } as SessionActivityStore
+}
+
+function projectStore(initial = new Map<string, SessionProject>()): SessionProjectStore {
+  let projects = initial
+  return {
+    read: async () => projects,
+    write: async (next) => {
+      projects = new Map(next)
+    },
+  } as SessionProjectStore
 }
 
 test("list merges local activity times and sorts by most recent use", async () => {
@@ -205,6 +216,101 @@ test("create persists the requested session scope", async () => {
 
   assert.deepEqual(created.scope, scope)
   assert.deepEqual(await persistedMetadata.read(), new Map([["created", { scope }]]))
+})
+
+test("createProject reuses an existing project in the same scope", async () => {
+  const persistedProjects = projectStore()
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    projectStore: persistedProjects,
+  })
+
+  const first = await service.createProject({ path: "/Users/example/code/wanta", scope: { type: "personal" } })
+  const second = await service.createProject({ path: "/Users/example/code/wanta/", scope: { type: "personal" } })
+
+  assert.equal(first.id, second.id)
+  assert.deepEqual(
+    (await service.listProjects()).map((project) => ({ id: project.id, name: project.name, path: project.path })),
+    [{ id: first.id, name: "wanta", path: "/Users/example/code/wanta" }],
+  )
+})
+
+test("create persists project assignment when the project matches the session scope", async () => {
+  const persistedMetadata = metadataStore()
+  const project: SessionProject = {
+    id: "project",
+    name: "Wanta",
+    path: "/Users/example/code/wanta",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "personal" },
+  }
+  const service = new SessionServiceImpl(
+    {
+      createSession: async (title?: string) => ({
+        id: "created",
+        title: title ?? "Untitled",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      }),
+      listSessions: async () => [
+        {
+          id: "created",
+          title: "Scoped",
+          createdAt: 2_000,
+          updatedAt: 2_000,
+        },
+      ],
+    } as unknown as AgentManager,
+    {
+      metadataStore: persistedMetadata,
+      projectStore: projectStore(new Map([[project.id, project]])),
+    },
+  )
+
+  const created = await service.create({ projectId: "project", scope: { type: "personal" }, title: "Scoped" })
+
+  assert.equal(created.projectId, "project")
+  assert.deepEqual(
+    await persistedMetadata.read(),
+    new Map([["created", { scope: { type: "personal" }, projectId: "project" }]]),
+  )
+})
+
+test("recordUseAndEmit touches assigned project activity", async () => {
+  const persistedProjects = projectStore(
+    new Map([
+      [
+        "project",
+        {
+          id: "project",
+          name: "Wanta",
+          path: "/Users/example/code/wanta",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          scope: { type: "personal" },
+        },
+      ],
+    ]),
+  )
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "session",
+        title: "Session",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+    {
+      activityStore: activityStore(),
+      metadataStore: metadataStore(new Map([["session", { scope: { type: "personal" }, projectId: "project" }]])),
+      projectStore: persistedProjects,
+    },
+  )
+
+  await service.recordUseAndEmit("session", 5_000)
+
+  assert.equal((await persistedProjects.read()).get("project")?.updatedAt, 5_000)
 })
 
 test("archive clears pinned state", async () => {

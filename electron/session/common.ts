@@ -8,6 +8,7 @@ export interface SessionInfo {
   createdAt: number
   updatedAt: number
   scope?: SessionScope
+  projectId?: string
   pinnedAt?: number
   archivedAt?: number
 }
@@ -20,11 +21,33 @@ export interface SessionScopeRequest {
   scope?: SessionScope
 }
 
+export interface SessionProject {
+  id: string
+  name: string
+  path: string
+  createdAt: number
+  updatedAt: number
+  scope?: SessionScope
+  archivedAt?: number
+}
+
+export interface CreateProjectRequest {
+  name?: string
+  path: string
+  scope?: SessionScope
+}
+
+export interface AssignSessionProjectRequest {
+  projectId?: string
+  sessionId: string
+}
+
 export interface SessionsChangedEvent {
   sessions: SessionInfo[]
 }
 
 export interface CreateSessionRequest {
+  projectId?: string
   scope?: SessionScope
   title?: string
 }
@@ -47,7 +70,11 @@ export const SessionService = serviceName("session-service") as ServiceName<{
   ClientInvokes: {
     list(req?: SessionScopeRequest): Promise<SessionInfo[]>
     listArchived(req?: SessionScopeRequest): Promise<SessionInfo[]>
+    listProjects(req?: SessionScopeRequest): Promise<SessionProject[]>
     create(req?: CreateSessionRequest): Promise<SessionInfo>
+    createProject(req: CreateProjectRequest): Promise<SessionProject>
+    assignSessionProject(req: AssignSessionProjectRequest): Promise<void>
+    removeProject(id: string): Promise<void>
     generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult>
     rename(req: { id: string; title: string }): Promise<void>
     pin(req: { id: string; pinned: boolean }): Promise<void>

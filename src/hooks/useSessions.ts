@@ -1,7 +1,9 @@
 import type {
+  CreateProjectRequest,
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
   SessionInfo,
+  SessionProject,
   SessionScope,
 } from "../../electron/session/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
@@ -30,10 +32,14 @@ export function mergeSessionsWithLocalCreated(
 
 export interface UseSessions {
   sessions: SessionInfo[]
+  projects: SessionProject[]
   loaded: boolean
   error: UserFacingError | null
-  create: (title?: string) => Promise<SessionInfo>
+  create: (title?: string, projectId?: string) => Promise<SessionInfo>
   listArchived: () => Promise<SessionInfo[]>
+  createProject: (req: CreateProjectRequest) => Promise<SessionProject>
+  assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
+  removeProject: (id: string) => Promise<void>
   generateTitle: (req: GenerateSessionTitleRequest) => Promise<GenerateSessionTitleResult>
   rename: (id: string, title: string) => Promise<void>
   pin: (id: string, pinned: boolean) => Promise<void>
@@ -55,6 +61,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     return personalSessionScope
   }, [organizationId, organizationName, scopeType])
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
+  const [projects, setProjects] = React.useState<SessionProject[]>([])
   const [loaded, setLoaded] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
@@ -74,6 +81,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     requestSequenceRef.current += 1
     localCreatedSessionsRef.current.clear()
     setSessions([])
+    setProjects([])
     setLoaded(false)
     setError(null)
   }, [scopeKey])
@@ -88,6 +96,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     }
     try {
       const nextSessions = await sessionService.invoke("list", { scope: requestScope })
+      const nextProjects = await sessionService.invoke("listProjects", { scope: requestScope })
       if (requestId !== requestSequenceRef.current || !enabledRef.current) {
         return
       }
@@ -95,6 +104,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         localCreatedSessionsRef.current.delete(session.id)
       }
       setSessions(mergeSessionsWithLocalCreated(nextSessions, localCreatedSessionsRef.current.values()))
+      setProjects(nextProjects)
       setError(null)
     } catch (error) {
       console.error("[wanta] list sessions failed", error)
@@ -111,6 +121,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   React.useEffect(() => {
     if (!enabled) {
       setSessions([])
+      setProjects([])
       setLoaded(false)
       setError(null)
       return
@@ -125,8 +136,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   }, [enabled, sessionService, refresh])
 
   const create = React.useCallback(
-    async (title?: string) => {
-      const info = await sessionService.invoke("create", { scope: requestScope, title })
+    async (title?: string, projectId?: string) => {
+      const info = await sessionService.invoke("create", { projectId, scope: requestScope, title })
       localCreatedSessionsRef.current.set(info.id, info)
       setSessions((current) => mergeSessionsWithLocalCreated(current, [info]))
       await refresh()
@@ -138,6 +149,31 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const listArchived = React.useCallback(async () => {
     return sessionService.invoke("listArchived", { scope: requestScope })
   }, [requestScope, sessionService])
+
+  const createProject = React.useCallback(
+    async (req: CreateProjectRequest) => {
+      const project = await sessionService.invoke("createProject", { ...req, scope: requestScope })
+      await refresh()
+      return project
+    },
+    [requestScope, sessionService, refresh],
+  )
+
+  const assignSessionProject = React.useCallback(
+    async (sessionId: string, projectId?: string) => {
+      await sessionService.invoke("assignSessionProject", { sessionId, projectId })
+      await refresh()
+    },
+    [sessionService, refresh],
+  )
+
+  const removeProject = React.useCallback(
+    async (id: string) => {
+      await sessionService.invoke("removeProject", id)
+      await refresh()
+    },
+    [sessionService, refresh],
+  )
 
   const generateTitle = React.useCallback(
     async (req: GenerateSessionTitleRequest) => {
@@ -187,10 +223,14 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   return {
     sessions,
+    projects,
     loaded,
     error,
     create,
     listArchived,
+    createProject,
+    assignSessionProject,
+    removeProject,
     generateTitle,
     rename,
     pin,

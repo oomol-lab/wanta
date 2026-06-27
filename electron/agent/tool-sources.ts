@@ -8,14 +8,52 @@
 
 const SEARCH_ACTIONS_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 
+async function currentOrganizationName() {
+  const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
+  if (scopePath) {
+    try {
+      const parsed = JSON.parse(await readFile(scopePath, "utf8"))
+      if (parsed && typeof parsed.organizationName === "string") {
+        return parsed.organizationName
+      }
+    } catch {
+      // 启动期或文件损坏时回退到进程启动时的组织名。
+    }
+  }
+  return process.env.WANTA_ORGANIZATION_NAME || ""
+}
+
+async function normalizeSearchOutput(stdout) {
+  const text = (stdout || "").trim()
+  if (!(await currentOrganizationName()).trim()) {
+    return text || "[]"
+  }
+  try {
+    const parsed = JSON.parse(text || "[]")
+    if (!Array.isArray(parsed)) {
+      return text || "[]"
+    }
+    return JSON.stringify(
+      parsed.map((item) =>
+        item && typeof item === "object"
+          ? { ...item, authenticatedReliable: false, authenticatedScope: "search_default_identity" }
+          : item,
+      ),
+    )
+  } catch {
+    return text || "[]"
+  }
+}
+
 export default tool({
   description:
-    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current user has already connected that service). On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
+    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current user has already connected that service). In an organization workspace, connector search cannot check organization-scoped authorization, so results are marked authenticatedReliable false and call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
     keywords: tool.schema.string().optional().describe("Optional comma-separated keywords to refine the search"),
@@ -25,7 +63,7 @@ export default tool({
     if (args.keywords) argv.push("--keywords", args.keywords)
     try {
       const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
-      return (result.stdout || "").trim() || "[]"
+      return await normalizeSearchOutput(result.stdout)
     } catch (error) {
       const e = error || {}
       const message = String(e.stderr || e.message || "search failed").trim()
@@ -65,17 +103,17 @@ export default tool({
 
 const CALL_ACTION_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 
-function currentOrganizationName() {
+async function currentOrganizationName() {
   const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
   if (scopePath) {
     try {
-      const parsed = JSON.parse(readFileSync(scopePath, "utf8"))
+      const parsed = JSON.parse(await readFile(scopePath, "utf8"))
       if (parsed && typeof parsed.organizationName === "string") {
         return parsed.organizationName
       }
@@ -86,8 +124,8 @@ function currentOrganizationName() {
   return process.env.WANTA_ORGANIZATION_NAME || ""
 }
 
-function appendIdentityArgs(argv) {
-  const organizationName = currentOrganizationName().trim()
+async function appendIdentityArgs(argv) {
+  const organizationName = (await currentOrganizationName()).trim()
   if (organizationName) {
     argv.push("--organization", organizationName)
   }
@@ -128,7 +166,7 @@ export default tool({
       }
     }
     const argv = ["connector", "run", args.service, "--action", args.action, "--data", data, "--json"]
-    appendIdentityArgs(argv)
+    await appendIdentityArgs(argv)
     try {
       const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
       return (result.stdout || "").trim() || "{}"

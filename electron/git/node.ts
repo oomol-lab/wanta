@@ -1,3 +1,4 @@
+import type { SessionProjectStore } from "../session/project-store.ts"
 import type {
   GitCheckoutBranchRequest,
   GitCreateBranchRequest,
@@ -16,6 +17,10 @@ import { classifyGitError, normalizeCheckoutBranchName, readGitRepositoryState }
 
 const execFileAsync = promisify(execFile)
 const gitCommandTimeoutMs = 5_000
+
+interface GitServiceDeps {
+  projectStore?: Pick<SessionProjectStore, "read">
+}
 
 async function runGit(args: string[], options: { timeoutMs?: number } = {}): Promise<GitCommandOutput> {
   try {
@@ -63,6 +68,25 @@ function failedCheckoutState(
   }
 }
 
+function unavailableProjectState(req: GitRepositoryRequest, message: string): GitRepositoryState {
+  return {
+    projectId: req.projectId,
+    projectPath: req.path,
+    available: false,
+    branches: [],
+    dirty: false,
+    stagedCount: 0,
+    unstagedCount: 0,
+    untrackedCount: 0,
+    error: "path_unavailable",
+    message,
+  }
+}
+
+function normalizeProjectPath(projectPath: string): string {
+  return projectPath.trim().replace(/[\\/]+$/, "")
+}
+
 async function stateAfterCheckoutFailure(
   req: GitCheckoutBranchRequest | GitCreateBranchRequest,
   error: GitCommandError,
@@ -80,12 +104,19 @@ async function stateAfterCheckoutFailure(
 }
 
 export class GitServiceImpl extends ConnectionService<GitService> implements IConnectionService<GitService> {
-  public constructor() {
+  private readonly deps: GitServiceDeps
+
+  public constructor(deps: GitServiceDeps = {}) {
     super(GitServiceName)
+    this.deps = deps
   }
 
   public async getRepositoryState(req: GitRepositoryRequest): Promise<GitRepositoryState> {
-    return readGitRepositoryState(req.projectId, req.path, runGit)
+    const checked = await this.registeredProjectRequest(req)
+    if (!checked) {
+      return unavailableProjectState(req, "Project is not registered.")
+    }
+    return readGitRepositoryState(checked.projectId, checked.path, runGit)
   }
 
   public async checkoutBranch(req: GitCheckoutBranchRequest): Promise<GitRepositoryState> {
@@ -93,12 +124,16 @@ export class GitServiceImpl extends ConnectionService<GitService> implements ICo
     if (!branch) {
       throw new Error("Branch name is required.")
     }
-    try {
-      await runGit(["-C", req.path, "checkout", branch], { timeoutMs: gitCommandTimeoutMs })
-    } catch (cause) {
-      return stateAfterCheckoutFailure(req, cause as GitCommandError)
+    const checked = await this.registeredProjectRequest(req)
+    if (!checked) {
+      return unavailableProjectState(req, "Project is not registered.")
     }
-    return readGitRepositoryState(req.projectId, req.path, runGit)
+    try {
+      await runGit(["-C", checked.path, "checkout", branch], { timeoutMs: gitCommandTimeoutMs })
+    } catch (cause) {
+      return stateAfterCheckoutFailure({ ...req, path: checked.path }, cause as GitCommandError)
+    }
+    return readGitRepositoryState(checked.projectId, checked.path, runGit)
   }
 
   public async createAndCheckoutBranch(req: GitCreateBranchRequest): Promise<GitRepositoryState> {
@@ -106,11 +141,29 @@ export class GitServiceImpl extends ConnectionService<GitService> implements ICo
     if (!branch) {
       throw new Error("Branch name is required.")
     }
-    try {
-      await runGit(["-C", req.path, "checkout", "-b", branch], { timeoutMs: gitCommandTimeoutMs })
-    } catch (cause) {
-      return stateAfterCheckoutFailure(req, cause as GitCommandError)
+    const checked = await this.registeredProjectRequest(req)
+    if (!checked) {
+      return unavailableProjectState(req, "Project is not registered.")
     }
-    return readGitRepositoryState(req.projectId, req.path, runGit)
+    try {
+      await runGit(["-C", checked.path, "checkout", "-b", branch], { timeoutMs: gitCommandTimeoutMs })
+    } catch (cause) {
+      return stateAfterCheckoutFailure({ ...req, path: checked.path }, cause as GitCommandError)
+    }
+    return readGitRepositoryState(checked.projectId, checked.path, runGit)
+  }
+
+  private async registeredProjectRequest(req: GitRepositoryRequest): Promise<GitRepositoryRequest | null> {
+    if (!this.deps.projectStore) {
+      return { ...req, path: normalizeProjectPath(req.path) }
+    }
+    const project = (await this.deps.projectStore.read()).get(req.projectId)
+    if (!project || project.archivedAt) {
+      return null
+    }
+    if (normalizeProjectPath(project.path) !== normalizeProjectPath(req.path)) {
+      return null
+    }
+    return { projectId: project.id, path: normalizeProjectPath(project.path) }
   }
 }

@@ -7,7 +7,7 @@ import { branding } from "../branding.ts"
 import { ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_AGENT_NAME, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
-import { AgentManager } from "./manager.ts"
+import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
 import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
@@ -181,6 +181,27 @@ test("buildOoEnv injects the required OO_* control vars (R3)", () => {
   assert.equal(env.WANTA_OO_BIN, "/usr/bin/oo")
   assert.equal(env.WANTA_ORGANIZATION_NAME, "acme-corp")
   assert.equal(env.WANTA_ORGANIZATION_SCOPE_PATH, "/tmp/scope.json")
+})
+
+test("persistOrganizationScopeUpdate restores the previous scope after write failure", async () => {
+  const writes: Array<string | undefined> = []
+  const failure = new Error("write failed")
+
+  await assert.rejects(
+    persistOrganizationScopeUpdate({
+      currentName: undefined,
+      nextName: "acme-corp",
+      writeScope: async (organizationName) => {
+        writes.push(organizationName)
+        if (organizationName === "acme-corp") {
+          throw failure
+        }
+      },
+    }),
+    failure,
+  )
+
+  assert.deepEqual(writes, ["acme-corp", undefined])
 })
 
 test("parseConnectorErrorCode extracts code in both en and zh (full-width parens) locales", () => {

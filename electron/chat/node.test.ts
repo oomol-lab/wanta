@@ -63,6 +63,27 @@ test("isAbortErrorMessage recognizes controlled stop errors only", () => {
   assert.equal(isAbortErrorMessage("Remote service cancelled the request"), false)
 })
 
+test("setAgentOrganization waits for the scope synchronization callback", async () => {
+  let resolveScope: (() => void) | undefined
+  const service = new ChatServiceImpl(null, {
+    onSetAgentOrganization: async () =>
+      new Promise<void>((resolve) => {
+        resolveScope = resolve
+      }),
+  })
+
+  let completed = false
+  const request = service.setAgentOrganization({ organizationName: "acme-corp" }).then(() => {
+    completed = true
+  })
+  await Promise.resolve()
+
+  assert.equal(completed, false)
+  resolveScope?.()
+  await request
+  assert.equal(completed, true)
+})
+
 test("stopGeneration suppresses delayed streaming events until the next send", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

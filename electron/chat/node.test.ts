@@ -1,10 +1,12 @@
 import type { AgentManager } from "../agent/manager.ts"
+import type { ChatMessage } from "./common.ts"
 
 import assert from "node:assert/strict"
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, test, vi } from "vitest"
+import { AuthorizationOverlayStore } from "./authorization.ts"
 import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from "./node.ts"
 
 afterEach(() => {
@@ -197,6 +199,68 @@ test("hasActiveGeneration tracks pending and completed assistant turns", async (
     properties: { sessionID: "session-1" },
   })
   assert.equal(service.hasActiveGeneration(), false)
+})
+
+test("authorization overlays survive service restart", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-auth-overlays-"))
+  const store = new AuthorizationOverlayStore(root)
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent, { authorizationOverlayStore: store })
+  captureServiceEvents(service)
+  service.startEventBridge()
+
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "tool-1",
+        sessionID: "session-1",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "call_action",
+        state: {
+          status: "completed",
+          input: {},
+          output: JSON.stringify({
+            status: "authorization_required",
+            service: "supabase",
+            action: "list_projects",
+            displayName: "Supabase",
+            errorCode: "connection_required",
+          }),
+        },
+      },
+    },
+  })
+
+  await vi.waitFor(async () => {
+    assert.equal((await store.read()).get("session-1")?.get("assistant-1")?.get("tool-1")?.service, "supabase")
+  })
+
+  const restartedBridge = createBridgeAgent()
+  const restoredMessage: ChatMessage = {
+    id: "assistant-1",
+    role: "assistant",
+    createdAt: 1,
+    parts: [
+      {
+        kind: "tool",
+        partId: "tool-1",
+        callId: "call-1",
+        tool: "call_action",
+        status: "completed",
+        input: {},
+      },
+    ],
+  }
+  restartedBridge.agent.getMessages = vi.fn(async () => [restoredMessage]) as AgentManager["getMessages"]
+  const restarted = new ChatServiceImpl(restartedBridge.agent, { authorizationOverlayStore: store })
+
+  const [message] = await restarted.getMessages("session-1")
+
+  assert.equal(message?.parts[0]?.authorization?.service, "supabase")
+  assert.equal(message?.parts[0]?.authorization?.displayName, "Supabase")
 })
 
 test("stopGeneration cancels a submitted turn before prompt streaming starts", async () => {

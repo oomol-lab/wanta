@@ -1,6 +1,7 @@
 import type { AuthorizationInfo, ChatMessagePart } from "../../../electron/chat/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
+import { parseAuthorizationSignal } from "../../../electron/chat/authorization-signal.ts"
 import { compactPathDetail, compactToolDetail } from "./tool-activity.ts"
 
 export type ToolDisplayDetailKind = "code" | "text"
@@ -11,28 +12,6 @@ export interface ToolDisplayLine {
   detailKind?: ToolDisplayDetailKind
 }
 
-function parseAuthorization(output: string | undefined): AuthorizationInfo | null {
-  if (!output) {
-    return null
-  }
-  try {
-    const parsed = JSON.parse(output) as Record<string, unknown>
-    if (parsed.status === "authorization_required" && typeof parsed.service === "string") {
-      return {
-        service: parsed.service,
-        displayName: typeof parsed.displayName === "string" ? parsed.displayName : parsed.service,
-        action: typeof parsed.action === "string" ? parsed.action : undefined,
-        authUrl: typeof parsed.authUrl === "string" ? parsed.authUrl : undefined,
-        errorCode: typeof parsed.errorCode === "string" ? parsed.errorCode : undefined,
-        message: typeof parsed.message === "string" ? parsed.message : undefined,
-      }
-    }
-  } catch {
-    return null
-  }
-  return null
-}
-
 function str(value: unknown): string {
   return typeof value === "string" ? value : ""
 }
@@ -41,7 +20,13 @@ export function parseToolAuthorization(part: ChatMessagePart): AuthorizationInfo
   if (part.authorization) {
     return part.authorization
   }
-  return part.tool === "call_action" && part.status === "completed" ? parseAuthorization(part.output) : null
+  if (part.status !== "completed") {
+    return null
+  }
+  if (part.tool === "call_action") {
+    return parseAuthorizationSignal(part.output)
+  }
+  return null
 }
 
 export function normalizeServiceSlug(value: string): string {

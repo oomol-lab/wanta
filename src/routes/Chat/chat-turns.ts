@@ -1,10 +1,13 @@
 import type {
+  AuthorizationInfo,
   AssistantActivityEvent,
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
 } from "../../../electron/chat/common.ts"
 
+import { parseSearchAuthorizationSignal } from "../../../electron/chat/authorization-signal.ts"
+import { normalizeServiceSlug, parseToolAuthorization } from "./tool-display.ts"
 import { hasBlockingToolError, hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 
 export interface ChatTurn {
@@ -29,6 +32,7 @@ export interface ChatTurnProcess {
   hasBlockingError: boolean
   hasStoppedTool: boolean
   hasAuthorization: boolean
+  suggestedAuthorization?: AuthorizationInfo
   activity: AssistantActivityEvent | null
   startedAt?: number
   endedAt?: number
@@ -165,6 +169,42 @@ export function assistantErrorParts(message: ChatMessage): ChatMessagePart[] {
   return message.parts.filter((part) => part.kind === "error")
 }
 
+function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
+  const services = new Set<string>()
+  for (const part of tools) {
+    if (part.tool !== "call_action" || part.status !== "completed" || typeof part.input?.service !== "string") {
+      continue
+    }
+    try {
+      const parsed = JSON.parse(part.output ?? "{}") as { status?: unknown }
+      if (parsed.status === "error" || parsed.status === "authorization_required") {
+        continue
+      }
+      services.add(normalizeServiceSlug(part.input.service))
+    } catch {
+      // Unknown output shape is not enough evidence that authorization is valid.
+    }
+  }
+  return services
+}
+
+function suggestedAuthorizationFromTools(tools: ChatMessagePart[]): AuthorizationInfo | undefined {
+  const successfulServices = successfulCallActionServices(tools)
+  for (const part of tools) {
+    if (part.tool !== "search_actions" || part.status !== "completed") {
+      continue
+    }
+    const authorization = parseSearchAuthorizationSignal(part.output, part.input)
+    if (authorization) {
+      if (successfulServices.has(normalizeServiceSlug(authorization.service))) {
+        continue
+      }
+      return authorization
+    }
+  }
+  return undefined
+}
+
 export function summarizeTurnProcess(
   turn: ChatTurn,
   activity: AssistantActivityEvent | null,
@@ -199,6 +239,7 @@ export function summarizeTurnProcess(
   const endedAt = timingEnds.length > 0 ? Math.max(...timingEnds) : undefined
 
   const hasToolError = hasBlockingToolError(tools)
+  const hasAuthorization = tools.some((part) => Boolean(parseToolAuthorization(part)))
 
   return {
     tools,
@@ -208,12 +249,8 @@ export function summarizeTurnProcess(
     hasToolError,
     hasBlockingError: errors.length > 0 || (hasToolError && !hasFinalAnswer),
     hasStoppedTool: hasStoppedTool(tools),
-    hasAuthorization: tools.some(
-      (part) =>
-        part.tool === "call_action" &&
-        part.status === "completed" &&
-        Boolean(part.output?.includes("authorization_required")),
-    ),
+    hasAuthorization,
+    ...(hasAuthorization ? {} : { suggestedAuthorization: suggestedAuthorizationFromTools(tools) }),
     activity: activeTurnActivity,
     startedAt,
     endedAt,

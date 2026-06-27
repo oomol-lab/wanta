@@ -156,6 +156,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /Use focused validation when feasible/)
   assert.match(WANTA_SYSTEM_PROMPT, new RegExp(`${branding.organizationName} connectors`))
   assert.match(WANTA_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
+  assert.match(WANTA_SYSTEM_PROMPT, /inline Connect button/)
+  assert.match(WANTA_SYSTEM_PROMPT, /avoid writing manual navigation paths/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
@@ -200,10 +202,15 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("@opencode-ai/plugin"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("private/account-specific SaaS data or actions"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("concrete URLs"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("On success, returns a JSON array"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("On failure, returns a JSON object"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("does not mean you must execute the action"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authorization_required"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("authUrl"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("config_missing"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("/app-connections?provider="))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("do not probe unrelated services or actions"))
 })
 

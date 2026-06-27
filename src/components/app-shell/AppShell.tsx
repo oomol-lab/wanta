@@ -9,10 +9,12 @@ import type {
   ChatMessage,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { GitRepositoryState } from "../../../electron/git/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
+import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
@@ -60,8 +62,20 @@ import {
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
+import {
+  projectSidebarCollapsedStorageKey,
+  pruneCollapsedProjectIds,
+  readStoredCollapsedProjectIds,
+  readStoredSidebarCollapsed,
+  readStoredSidebarSegment,
+  setsEqual,
+  writeStoredCollapsedProjectIds,
+  writeStoredSidebarCollapsed,
+  writeStoredSidebarSegment,
+} from "./sidebar-persistence.ts"
 import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
+import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
 import { BrandIcon } from "@/components/BrandIcon"
@@ -81,6 +95,7 @@ import {
   organizationInitials,
   useOrganizationWorkspace,
 } from "@/hooks/useOrganizationWorkspace"
+import { useProjectGit } from "@/hooks/useProjectGit"
 import { useSessions } from "@/hooks/useSessions"
 import { useI18n, useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
@@ -139,6 +154,7 @@ const AUTH_RETRY_POLL_INTERVAL_MS = 2_000
 const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
+const NO_DRAFT_PROJECT_ID = "__no_project__"
 
 function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
@@ -150,8 +166,6 @@ interface TurnRetryOptions {
   projectContext?: ChatProjectContext
   model?: ModelChoice
 }
-
-type SidebarSegment = "projects" | "tasks"
 
 interface ProjectSidebarGroup {
   hiddenCount: number
@@ -267,7 +281,10 @@ function sessionScopeKey(scope: SessionScope | null): string {
   return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
 }
 
-function projectContextFromProject(project: SessionProject | undefined): ChatProjectContext | undefined {
+function projectContextFromProject(
+  project: SessionProject | undefined,
+  gitState?: GitRepositoryState | null,
+): ChatProjectContext | undefined {
   if (!project) {
     return undefined
   }
@@ -275,7 +292,40 @@ function projectContextFromProject(project: SessionProject | undefined): ChatPro
     id: project.id,
     name: project.name,
     path: project.path,
+    ...(gitState?.available && gitState.repositoryRoot
+      ? {
+          git: {
+            repositoryRoot: gitState.repositoryRoot,
+            ...(gitState.currentBranch ? { currentBranch: gitState.currentBranch } : {}),
+            ...(gitState.detachedHead ? { detachedHead: gitState.detachedHead } : {}),
+            dirty: gitState.dirty,
+          },
+        }
+      : {}),
   }
+}
+
+function activeProjectIdForComposer({
+  activeSession,
+  draftProjectId,
+  projects,
+  sidebarSegment,
+}: {
+  activeSession?: SessionInfo
+  draftProjectId: string | null
+  projects: SessionProject[]
+  sidebarSegment: SidebarSegment
+}): string | undefined {
+  if (activeSession?.projectId) {
+    return activeSession.projectId
+  }
+  if (draftProjectId === NO_DRAFT_PROJECT_ID) {
+    return undefined
+  }
+  if (draftProjectId) {
+    return draftProjectId
+  }
+  return sidebarSegment === "projects" ? projects[0]?.id : undefined
 }
 
 function buildProjectSidebarGroups(projects: SessionProject[], sessions: SessionInfo[]): ProjectSidebarGroup[] {
@@ -1161,61 +1211,63 @@ function SidebarSegmentControl({
 
 function ProjectSidebarGroupItem({
   activeSessionId,
+  expanded,
   group,
   hasUnreadSession,
   isSessionRunning,
   now,
   onArchiveSession,
+  onExpandedChange,
   onNewSession,
   onPinSession,
   onRenameSession,
   onSelectSession,
 }: {
   activeSessionId: string | null
+  expanded: boolean
   group: ProjectSidebarGroup
   hasUnreadSession: (sessionId: string) => boolean
   isSessionRunning: (sessionId: string) => boolean
   now: number
   onArchiveSession: (session: SessionInfo) => void
+  onExpandedChange: (expanded: boolean) => void
   onNewSession: (project: SessionProject) => void
   onPinSession: (session: SessionInfo) => void
   onRenameSession: (session: SessionInfo) => void
   onSelectSession: (session: SessionInfo) => void
 }) {
   const t = useT()
-  const [expanded, setExpanded] = React.useState(true)
   const hasSessions = group.sessions.length > 0
   const toggleLabel = expanded ? t("project.collapse") : t("project.expand")
+  const projectTitle = t("project.newTask")
+  const toggleTitle = `${toggleLabel}: ${group.project.name}`
 
   return (
     <section className="grid gap-1">
       <div className="group oo-sidebar-nav-item oo-text-body flex h-8 items-center rounded-md px-3">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          title={toggleLabel}
-          aria-label={toggleLabel}
+          className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+          title={toggleTitle}
+          aria-label={toggleTitle}
           aria-expanded={expanded}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={() => onExpandedChange(!expanded)}
         >
           <Folder className="size-4 shrink-0 text-sidebar-foreground/75" />
-          <span className="min-w-0 shrink">
-            <span className="oo-sidebar-nav-label block truncate" title={group.project.name}>
-              {group.project.name}
-            </span>
+          <span className="oo-sidebar-nav-label min-w-0 truncate" title={group.project.name}>
+            {group.project.name}
           </span>
-          <span
-            className="flex size-4 shrink-0 items-center justify-center opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
-            aria-hidden="true"
-          >
-            {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          </span>
+          {expanded ? (
+            <ChevronDown className="size-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
+          )}
         </button>
         <button
           type="button"
-          title={t("project.newTask")}
-          aria-label={t("project.newTask")}
-          className="hidden size-5 shrink-0 items-center justify-center rounded group-focus-within:flex group-hover:flex hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          title={projectTitle}
+          aria-label={projectTitle}
+          className="pointer-events-none flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           onClick={() => onNewSession(group.project)}
         >
           <SquarePen className="size-3.5" />
@@ -1635,6 +1687,7 @@ export function AppShell() {
     error: sessionsError,
     create,
     createProject,
+    assignSessionProject,
     generateTitle,
     rename,
     pin,
@@ -1648,10 +1701,14 @@ export function AppShell() {
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
-  const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>("tasks")
+  const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
+    readStoredSidebarSegment(globalThis.localStorage),
+  )
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
   const [queuedMessagesBySession, setQueuedMessagesBySession] = React.useState<ChatQueueMap>({})
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() =>
+    readStoredSidebarCollapsed(globalThis.localStorage),
+  )
   const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
   const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
@@ -1666,6 +1723,10 @@ export function AppShell() {
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
   const [artifactsPanelMaxWidthState, setArtifactsPanelMaxWidthState] = React.useState<number | null>(null)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
+  const [collapsedProjectState, setCollapsedProjectState] = React.useState<{
+    ids: Set<string>
+    storageKey: string | null
+  }>({ ids: new Set(), storageKey: null })
 
   const { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
     activeSessionId,
@@ -1834,11 +1895,18 @@ export function AppShell() {
   }, [connections.summary, send])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const activeProjectId = React.useMemo(
+    () => activeProjectIdForComposer({ activeSession, draftProjectId, projects, sidebarSegment }),
+    [activeSession, draftProjectId, projects, sidebarSegment],
+  )
   const activeProject = React.useMemo(() => {
-    const projectId = activeSession?.projectId ?? draftProjectId
-    return projectId ? projects.find((project) => project.id === projectId) : undefined
-  }, [activeSession?.projectId, draftProjectId, projects])
-  const activeProjectContext = React.useMemo(() => projectContextFromProject(activeProject), [activeProject])
+    return activeProjectId ? projects.find((project) => project.id === activeProjectId) : undefined
+  }, [activeProjectId, projects])
+  const projectGit = useProjectGit(activeProject)
+  const activeProjectContext = React.useMemo(
+    () => projectContextFromProject(activeProject, projectGit.state),
+    [activeProject, projectGit.state],
+  )
   const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(sessions), [sessions])
   const projectPinnedSessions = React.useMemo(
     () =>
@@ -1848,7 +1916,14 @@ export function AppShell() {
     [sessions],
   )
   const projectSidebarGroups = React.useMemo(() => buildProjectSidebarGroups(projects, sessions), [projects, sessions])
-  const activeComposerDraftKey = activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}`
+  const projectCollapsedStorageKey = React.useMemo(
+    () => projectSidebarCollapsedStorageKey(auth.state?.account?.id, sessionScope),
+    [auth.state?.account?.id, sessionScope],
+  )
+  const collapsedProjectIds =
+    collapsedProjectState.storageKey === projectCollapsedStorageKey ? collapsedProjectState.ids : new Set<string>()
+  const activeComposerDraftKey =
+    activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}:${activeProjectId ?? "none"}`
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
@@ -1868,6 +1943,7 @@ export function AppShell() {
       needsDefaultSessionSelection ||
       Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition))
   const showChatEmptyState = ready && sessionsLoaded && !activeSessionId && !pendingChatTransition
+  const showComposerProjectContext = sidebarSegment === "projects"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
@@ -1900,6 +1976,57 @@ export function AppShell() {
     (width: number): number => clampArtifactsPanelWidthForLayout(width, artifactsPanelMaxWidthValue),
     [artifactsPanelMaxWidthValue],
   )
+
+  React.useEffect(() => {
+    writeStoredSidebarSegment(globalThis.localStorage, sidebarSegment)
+  }, [sidebarSegment])
+
+  React.useEffect(() => {
+    setCollapsedProjectState({
+      ids: readStoredCollapsedProjectIds(globalThis.localStorage, projectCollapsedStorageKey),
+      storageKey: projectCollapsedStorageKey,
+    })
+  }, [projectCollapsedStorageKey])
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || collapsedProjectState.storageKey !== projectCollapsedStorageKey) {
+      return
+    }
+    const projectIds = new Set(projects.map((project) => project.id))
+    setCollapsedProjectState((current) => {
+      if (current.storageKey !== projectCollapsedStorageKey) {
+        return current
+      }
+      const nextIds = pruneCollapsedProjectIds(current.ids, projectIds)
+      return nextIds === current.ids ? current : { ...current, ids: nextIds }
+    })
+  }, [collapsedProjectState.storageKey, projectCollapsedStorageKey, projects, sessionsLoaded])
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || collapsedProjectState.storageKey !== projectCollapsedStorageKey) {
+      return
+    }
+    writeStoredCollapsedProjectIds(globalThis.localStorage, projectCollapsedStorageKey, collapsedProjectState.ids)
+  }, [collapsedProjectState, projectCollapsedStorageKey, sessionsLoaded])
+
+  const handleProjectSidebarExpandedChange = React.useCallback(
+    (projectId: string, expanded: boolean): void => {
+      setCollapsedProjectState((current) => {
+        if (current.storageKey !== projectCollapsedStorageKey) {
+          return current
+        }
+        const nextIds = new Set(current.ids)
+        if (expanded) {
+          nextIds.delete(projectId)
+        } else {
+          nextIds.add(projectId)
+        }
+        return setsEqual(current.ids, nextIds) ? current : { ...current, ids: nextIds }
+      })
+    },
+    [projectCollapsedStorageKey],
+  )
+
   const applyArtifactsPanelShellWidth = React.useCallback((width: number): void => {
     const element = artifactsPanelShellRef.current
     if (element) {
@@ -1938,7 +2065,11 @@ export function AppShell() {
   }, [archiveSession, archiveSessionId])
 
   React.useEffect(() => {
-    if (draftProjectId && !projects.some((project) => project.id === draftProjectId)) {
+    if (
+      draftProjectId &&
+      draftProjectId !== NO_DRAFT_PROJECT_ID &&
+      !projects.some((project) => project.id === draftProjectId)
+    ) {
       setDraftProjectId(null)
     }
   }, [draftProjectId, projects])
@@ -2160,24 +2291,58 @@ export function AppShell() {
     setComposerFocusRequest((request) => request + 1)
   }, [])
 
-  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
+  const handleCreateProjectFromFolder = React.useCallback(async (): Promise<SessionProject | null> => {
     const picker = globalThis.wanta?.selectAttachmentPaths
     if (!picker) {
       toast.error(t("project.folderPickerUnavailable"))
-      return
+      return null
     }
     try {
       const [directory] = await picker("directory")
       if (!directory) {
-        return
+        return null
       }
-      const project = await createProject({ name: directory.name, path: directory.path })
-      handleOpenProjectDraft(project)
+      return await createProject({ name: directory.name, path: directory.path })
     } catch (cause) {
       const notice = resolveUserFacingError(cause, { area: "session" })
       toast.error(userFacingErrorDescription(notice, t))
+      return null
     }
-  }, [createProject, handleOpenProjectDraft, t])
+  }, [createProject, t])
+
+  const handleSelectProjectFolder = React.useCallback(async (): Promise<void> => {
+    const project = await handleCreateProjectFromFolder()
+    if (project) {
+      handleOpenProjectDraft(project)
+    }
+  }, [handleCreateProjectFromFolder, handleOpenProjectDraft])
+
+  const handleSelectComposerProject = React.useCallback(
+    async (projectId: string | undefined): Promise<void> => {
+      if (activeSessionId && !isDraftSession) {
+        try {
+          await assignSessionProject(activeSessionId, projectId)
+          await refreshSessions()
+        } catch (cause) {
+          const notice = resolveUserFacingError(cause, { area: "session" })
+          toast.error(userFacingErrorDescription(notice, t))
+        }
+        return
+      }
+      setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
+      setIsDraftSession(true)
+      setRoute("chat")
+    },
+    [activeSessionId, assignSessionProject, isDraftSession, refreshSessions, t],
+  )
+
+  const handleCreateComposerProject = React.useCallback(async (): Promise<SessionProject | null> => {
+    const project = await handleCreateProjectFromFolder()
+    if (project) {
+      await handleSelectComposerProject(project.id)
+    }
+    return project
+  }, [handleCreateProjectFromFolder, handleSelectComposerProject])
 
   const handleSelectSession = React.useCallback((session: SessionInfo): void => {
     setActiveSessionId(session.id)
@@ -2565,10 +2730,12 @@ export function AppShell() {
   )
   const handleToggleSidebar = React.useCallback((): void => {
     setSidebarCollapsed((collapsed) => {
+      const nextCollapsed = !collapsed
       if (collapsed) {
         setIsSidebarRestoring(true)
       }
-      return !collapsed
+      writeStoredSidebarCollapsed(globalThis.localStorage, nextCollapsed)
+      return nextCollapsed
     })
   }, [])
   const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -2857,13 +3024,13 @@ export function AppShell() {
                       </div>
                     ) : null}
                     <div className="grid gap-1">
-                      <div className="flex items-center justify-between px-3 pt-1">
+                      <div className="group flex items-center justify-between px-3 pt-1">
                         <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.projects")}</div>
                         <button
                           type="button"
                           title={t("project.selectFolder")}
                           aria-label={t("project.selectFolder")}
-                          className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
                           onClick={() => void handleSelectProjectFolder()}
                         >
                           <FolderPlus className="size-3.5" />
@@ -2874,9 +3041,13 @@ export function AppShell() {
                           key={group.project.id}
                           group={group}
                           activeSessionId={route === "chat" ? activeSessionId : null}
+                          expanded={!collapsedProjectIds.has(group.project.id)}
                           hasUnreadSession={hasUnreadSession}
                           isSessionRunning={isSessionRunning}
                           now={relativeTimeNow}
+                          onExpandedChange={(expanded) =>
+                            handleProjectSidebarExpandedChange(group.project.id, expanded)
+                          }
                           onNewSession={handleOpenProjectDraft}
                           onSelectSession={handleSelectSession}
                           onRenameSession={(session) => setRenameSessionId(session.id)}
@@ -3048,6 +3219,23 @@ export function AppShell() {
                     organizationSkills={organizationSkills.chatContextSkills}
                     providers={activeProviders}
                     queuedMessages={activeQueuedMessages}
+                    contextBar={
+                      showComposerProjectContext ? (
+                        <ProjectContextBar
+                          activeProject={activeProject}
+                          disabled={!ready || Boolean(activeSessionId && isSessionRunning(activeSessionId))}
+                          gitError={projectGit.error}
+                          gitLoading={projectGit.loading}
+                          gitState={projectGit.state}
+                          projects={projects}
+                          onCheckoutBranch={projectGit.checkoutBranch}
+                          onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
+                          onCreateProjectFromFolder={handleCreateComposerProject}
+                          onRefreshGit={projectGit.refresh}
+                          onSelectProject={handleSelectComposerProject}
+                        />
+                      ) : null
+                    }
                     placeholder={
                       startupError
                         ? t("error.agent.title")

@@ -109,6 +109,16 @@ export const PromptInputToolbar = ({ className, ...props }: PromptInputToolbarPr
   <InputGroupAddon align="block-end" className={cn("justify-between gap-1 px-4 pt-0 pb-2.5", className)} {...props} />
 )
 
+export type PromptInputContextRailProps = Omit<ComponentProps<typeof InputGroupAddon>, "align">
+
+export const PromptInputContextRail = ({ className, ...props }: PromptInputContextRailProps) => (
+  <InputGroupAddon
+    align="block-end"
+    className={cn("min-h-10 justify-start border-t bg-muted/45 px-4 py-2", className)}
+    {...props}
+  />
+)
+
 export type PromptInputToolsProps = HTMLAttributes<HTMLDivElement>
 
 export const PromptInputTools = ({ className, ...props }: PromptInputToolsProps) => (

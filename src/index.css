@@ -55,7 +55,7 @@
   --sidebar-titlebar-left-space: var(--traffic-light-space);
   --sidebar-width: 264px;
   --sidebar-collapsed-width: 79px;
-  --sidebar-item-height: 36px;
+  --sidebar-item-height: 32px;
   --sidebar-item-icon-size: 16px;
   --background: oklch(1 0 0);
   --foreground: oklch(0.241 0.01 249);
@@ -92,7 +92,7 @@
   --scrollbar-size: 9px;
   --scrollbar-inset: 2px;
   --oo-input-surface: oklch(0.991 0.002 289);
-  --oo-prompt-input-surface: oklch(0.976 0.003 288);
+  --oo-prompt-input-surface: var(--background);
   --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 12%, transparent);
   --oo-prompt-input-shadow:
     0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
@@ -132,8 +132,10 @@
   --oo-radius-control: var(--radius-lg);
   --oo-radius-shell: 0.875rem;
   --oo-content-surface: var(--background);
-  --oo-chrome: var(--oo-content-surface);
+  --oo-chrome: transparent;
   --oo-sidebar: oklch(0.983 0.003 288);
+  --oo-sidebar-material: color-mix(in oklab, var(--oo-sidebar) 72%, transparent);
+  --oo-sidebar-material-border: color-mix(in oklab, var(--foreground) 8%, transparent);
   --oo-toolbar: var(--oo-content-surface);
   --sidebar: var(--oo-sidebar);
   --sidebar-foreground: oklch(0.31 0.009 265);
@@ -231,8 +233,10 @@
   --oo-prompt-input-shadow: none;
   --oo-search-surface: oklch(0.213 0.004 265);
   --oo-content-surface: var(--background);
-  --oo-chrome: var(--oo-content-surface);
+  --oo-chrome: transparent;
   --oo-sidebar: oklch(0.213 0.004 265);
+  --oo-sidebar-material: color-mix(in oklab, var(--oo-sidebar) 78%, transparent);
+  --oo-sidebar-material-border: color-mix(in oklab, var(--foreground) 10%, transparent);
   --oo-toolbar: var(--oo-content-surface);
   --sidebar: var(--oo-sidebar);
   --sidebar-foreground: oklch(0.84 0.006 265);
@@ -302,6 +306,8 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+
+    background: transparent;
     margin: 0;
     overflow: hidden;
     font-family: var(--font-sans);
@@ -457,7 +463,8 @@
   }
 
   .oo-sidebar {
-    background: var(--sidebar);
+    border-color: var(--oo-sidebar-material-border);
+    background: var(--oo-sidebar-material);
     overflow: hidden;
     transition:
       opacity 120ms ease-out,
@@ -822,8 +829,18 @@
 
   .oo-prompt-input-surface {
     border-color: var(--oo-prompt-input-border) !important;
-    background: var(--oo-prompt-input-surface);
+    background: var(--oo-prompt-input-surface) !important;
     box-shadow: var(--oo-prompt-input-shadow) !important;
+  }
+
+  .oo-composer-context-tray {
+    --oo-composer-context-tray-surface: color-mix(in oklab, var(--sidebar-accent) 80%, var(--sidebar));
+    background: linear-gradient(
+      to bottom,
+      var(--oo-prompt-input-surface) 0 1rem,
+      var(--oo-composer-context-tray-surface) 1rem
+    );
+    box-shadow: var(--oo-prompt-input-shadow);
   }
 
   .oo-search-surface {

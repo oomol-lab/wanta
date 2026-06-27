@@ -169,7 +169,7 @@ export function buildProjectContextSystem(project: ChatProjectContext | undefine
   if (!project || !project.id.trim() || !project.name.trim() || !projectPath) {
     return undefined
   }
-  return [
+  const lines = [
     "Current local project context:",
     `- Project name: ${quoted(project.name)}`,
     `- Project directory: ${quoted(projectPath)}`,
@@ -177,7 +177,21 @@ export function buildProjectContextSystem(project: ChatProjectContext | undefine
     "- The shell and file tool cwd may still be Wanta's private scratch workspace; use this project directory as an absolute path instead of assuming cwd.",
     "- Do not mention the full project directory to the user unless they ask for the path or the path is necessary for the task outcome.",
     "- For edits to existing project files, modify files in place under this directory. Use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
-  ].join("\n")
+  ]
+  if (project.git?.repositoryRoot) {
+    lines.push(`- Git repository root: ${quoted(project.git.repositoryRoot)}`)
+    if (project.git.currentBranch) {
+      lines.push(`- Current Git branch: ${quoted(project.git.currentBranch)}`)
+    } else if (project.git.detachedHead) {
+      lines.push(`- Git is in detached HEAD at ${quoted(project.git.detachedHead)}`)
+    }
+    if (project.git.dirty) {
+      lines.push(
+        "- The Git worktree has uncommitted changes; inspect status before branch changes or destructive edits.",
+      )
+    }
+  }
+  return lines.join("\n")
 }
 
 function mergeSystemPrompts(...parts: Array<string | undefined>): string | undefined {

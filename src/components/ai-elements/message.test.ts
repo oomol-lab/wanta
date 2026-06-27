@@ -31,6 +31,7 @@ const appContext = {
   authService: mockService,
   chatService: mockService,
   connectionsService: mockService,
+  gitService: mockService,
   modelsService: mockService,
   sessionService: mockService,
   settingsService: mockService,

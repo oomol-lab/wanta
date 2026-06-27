@@ -99,6 +99,7 @@ interface ChatAreaProps {
   providers: ConnectionProvider[]
   queuedMessages: QueuedChatMessage[]
   placeholder: string
+  contextBar?: React.ReactNode
   organizationSkills?: ChatOrganizationSkillContext[]
   onSend: (
     text: string,
@@ -119,6 +120,7 @@ interface ChatAreaProps {
 }
 
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
+const EMPTY_COMPOSER_MAX_WIDTH_CLASS = "min-w-0 max-w-[47.5rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
 const CONNECTOR_SHOWCASE_PROVIDERS = [
   { names: ["gmail"], label: "Gmail" },
@@ -1144,18 +1146,18 @@ function EmptyStateActions({
 
   return (
     <div className="w-full pl-2 text-muted-foreground">
-      <div className="grid min-w-0 justify-start gap-1.5 overflow-hidden">
+      <div className="grid min-w-0 justify-start gap-1 overflow-hidden">
         <button
           type="button"
-          className="group flex min-h-9 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="group flex min-h-8 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           aria-label={t("chat.emptyConnectorsAria")}
           onClick={onOpenConnections}
         >
           <span
-            className="inline-flex size-7 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
+            className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
             aria-hidden="true"
           >
-            <PlugZap className="size-4.5" />
+            <PlugZap className="size-4" />
           </span>
           <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyConnectorsAction")}</span>
           <span className="flex min-w-0 shrink-0 items-center gap-1" aria-hidden="true">
@@ -1173,15 +1175,15 @@ function EmptyStateActions({
 
         <button
           type="button"
-          className="group flex min-h-9 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="group flex min-h-8 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           aria-label={t("chat.emptyOrganizationsAria")}
           onClick={onOpenOrganizations}
         >
           <span
-            className="inline-flex size-7 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
+            className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
             aria-hidden="true"
           >
-            <Building2 className="size-4.5" />
+            <Building2 className="size-4" />
           </span>
           <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyOrganizationsAction")}</span>
           <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
@@ -1209,6 +1211,7 @@ export const ChatArea = React.memo(function ChatArea({
   providers,
   queuedMessages,
   placeholder,
+  contextBar,
   organizationSkills,
   onComposerStateChange,
   onSend,
@@ -1235,6 +1238,7 @@ export const ChatArea = React.memo(function ChatArea({
     }
   }, [isGenerating, onArtifactsReset])
 
+  const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
   const composer = (
     <ChatComposer
       key={composerDraftKey}
@@ -1244,6 +1248,7 @@ export const ChatArea = React.memo(function ChatArea({
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}
       placeholder={placeholder}
+      contextBar={showCenteredEmptyState ? contextBar : undefined}
       organizationSkills={organizationSkills}
       providers={providers}
       queuedMessages={queuedMessages}
@@ -1256,7 +1261,6 @@ export const ChatArea = React.memo(function ChatArea({
       onViewBilling={onViewBilling}
     />
   )
-  const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
 
   const content = startupError ? (
     <div
@@ -1276,8 +1280,8 @@ export const ChatArea = React.memo(function ChatArea({
     <div className="grid min-h-full w-full place-items-center px-4 py-6 sm:px-5 lg:px-8">
       <div
         className={cn(
-          "flex w-full translate-y-[3vh] flex-col gap-6 transition-transform duration-300 ease-out",
-          CHAT_CONTENT_MAX_WIDTH_CLASS,
+          "flex w-full translate-y-[3vh] flex-col gap-5 transition-transform duration-300 ease-out",
+          EMPTY_COMPOSER_MAX_WIDTH_CLASS,
         )}
       >
         <div className="px-4 pb-1 text-center">

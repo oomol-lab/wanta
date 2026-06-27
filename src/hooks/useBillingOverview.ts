@@ -51,6 +51,7 @@ export function useBillingOverview(
   const mounted = React.useRef(true)
 
   React.useEffect(() => {
+    mounted.current = true
     return () => {
       mounted.current = false
     }

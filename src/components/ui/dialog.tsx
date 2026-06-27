@@ -36,7 +36,11 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 function isPortalKeyboardOwner(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
-    Boolean(target.closest('[data-slot="select-content"], [data-slot="dropdown-menu-content"]'))
+    Boolean(
+      target.closest(
+        '[data-slot="select-content"], [data-slot="dropdown-menu-content"], [data-slot="popover-content"]',
+      ),
+    )
   )
 }
 

@@ -3,12 +3,11 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
-import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
+import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { ChatStatus } from "ai"
 
 import { File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
-import { toast } from "sonner"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { buildConnectionPaletteItems, buildSkillPaletteItems, slashCommandItems } from "./composer-palette-items.ts"
 import { composerReducer, initialComposerState } from "./composer-state.ts"
@@ -45,11 +44,14 @@ interface ChatComposerProps {
   placeholder: string
   organizationSkills?: ChatOrganizationSkillContext[]
   providers: ConnectionProvider[]
+  queueHeld: boolean
   queuedMessages: QueuedChatMessage[]
   contextBar?: React.ReactNode
   status: ChatStatus
   submitDisabled: boolean
+  onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
   onQueuedMessageRemove: (id: string) => void
+  onQueuedMessageResume: () => void
   onComposerStateChange?: (state: ComposerState) => void
   onSend: (
     text: string,
@@ -94,11 +96,14 @@ export function ChatComposer({
   placeholder,
   organizationSkills = [],
   providers,
+  queueHeld,
   queuedMessages,
   contextBar,
   status,
   submitDisabled,
+  onQueuedMessageMove,
   onQueuedMessageRemove,
+  onQueuedMessageResume,
   onComposerStateChange,
   onSend,
   onStop,
@@ -261,14 +266,10 @@ export function ChatComposer({
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
-    const queuedWhileGenerating = isGenerating
     const accepted = await onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
       return
-    }
-    if (queuedWhileGenerating) {
-      toast.success(t("chat.queueAdded"))
     }
     composerAttachments.revokeCurrentPreviews()
     dispatchComposer({ type: "reset-after-submit" })
@@ -439,7 +440,15 @@ export function ChatComposer({
       onSave={modelCatalogState.saveModel}
     />
   )
-  const queuePanel = <QueuedMessagePanel messages={queuedMessages} onRemove={onQueuedMessageRemove} />
+  const queuePanel = (
+    <QueuedMessagePanel
+      messages={queuedMessages}
+      queueHeld={queueHeld}
+      onMove={onQueuedMessageMove}
+      onRemove={onQueuedMessageRemove}
+      onResume={onQueuedMessageResume}
+    />
+  )
   const { emptyLabel, headerLabel } = paletteLabels({
     isSkillInventoryLoading: skillInventory.isInitialLoading,
     mode: composerPalette.mode,
@@ -461,10 +470,10 @@ export function ChatComposer({
     <>
       {errorBanner}
       <div className="flex flex-col gap-2">
-        {queuePanel}
         <div className="relative">
           {palette}
-          <div className="relative z-10">{promptInput}</div>
+          <div className="relative z-10">{queuePanel}</div>
+          <div className="relative z-20">{promptInput}</div>
           {contextBar ? (
             <div className="oo-composer-context-tray relative z-0 -mt-4 flex h-12 min-w-0 items-center overflow-hidden rounded-b-[1.375rem] px-4 pt-4 text-[0.8125rem] leading-[1.125rem] text-muted-foreground">
               {contextBar}

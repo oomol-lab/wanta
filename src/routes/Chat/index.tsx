@@ -12,7 +12,7 @@ import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
-import type { QueuedChatMessage } from "@/components/app-shell/chat-queue"
+import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -97,6 +97,7 @@ interface ChatAreaProps {
   initialComposerState?: ComposerState
   initialSendPending: boolean
   providers: ConnectionProvider[]
+  queueHeld: boolean
   queuedMessages: QueuedChatMessage[]
   placeholder: string
   contextBar?: React.ReactNode
@@ -109,7 +110,9 @@ interface ChatAreaProps {
   ) => Promise<boolean>
   onStop: () => void
   onComposerStateChange?: (state: ComposerState) => void
+  onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
   onQueuedMessageRemove: (id: string) => void
+  onQueuedMessageResume: () => void
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
@@ -1209,6 +1212,7 @@ export const ChatArea = React.memo(function ChatArea({
   initialComposerState,
   initialSendPending,
   providers,
+  queueHeld,
   queuedMessages,
   placeholder,
   contextBar,
@@ -1216,7 +1220,9 @@ export const ChatArea = React.memo(function ChatArea({
   onComposerStateChange,
   onSend,
   onStop,
+  onQueuedMessageMove,
   onQueuedMessageRemove,
+  onQueuedMessageResume,
   onAuthorize,
   onArtifactsReset,
   onArtifactsOpen,
@@ -1251,11 +1257,14 @@ export const ChatArea = React.memo(function ChatArea({
       contextBar={showCenteredEmptyState ? contextBar : undefined}
       organizationSkills={organizationSkills}
       providers={providers}
+      queueHeld={queueHeld}
       queuedMessages={queuedMessages}
       status={status}
       submitDisabled={submitDisabled}
       onComposerStateChange={onComposerStateChange}
+      onQueuedMessageMove={onQueuedMessageMove}
       onQueuedMessageRemove={onQueuedMessageRemove}
+      onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
       onStop={onStop}
       onViewBilling={onViewBilling}

@@ -3,7 +3,11 @@ import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/sk
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
+  getInstallableOrganizationSkills,
+  getGroupStatus,
+  getOrganizationSkillRuntimeStatus,
   getPublicPackageInstallState,
+  getRuntimeHosts,
   initialPublicPackageCatalogState,
   isEmojiIcon,
   publicPackageCatalogReducer,
@@ -70,6 +74,107 @@ test("getPublicPackageInstallState distinguishes installed, conflict, and instal
   )
 })
 
+test("runtime status ignores modified external hosts", () => {
+  const group = managedSkillGroup("demo", "@alice/demo")
+  const externalHost = {
+    agentId: "claude-code",
+    agentName: "Claude Code",
+    controlState: "modified" as const,
+    kind: "registry" as const,
+    packageName: "@alice/demo",
+    scope: "external" as const,
+    status: "installed" as const,
+  }
+  const mixedGroup: ManagedSkillGroup = {
+    ...group,
+    externalHosts: [externalHost],
+    hosts: [...group.hosts, externalHost],
+  }
+
+  assert.equal(getGroupStatus(mixedGroup, t, getRuntimeHosts(mixedGroup)).tone, "ready")
+  assert.equal(getGroupStatus(mixedGroup, t).tone, "attention")
+})
+
+test("getOrganizationSkillRuntimeStatus classifies installed and conflict states", () => {
+  const orgSkill = {
+    enabled: true,
+    packageName: "@alice/demo",
+    skillName: "demo",
+    version: "1.0.0",
+  }
+
+  assert.equal(getOrganizationSkillRuntimeStatus(undefined, orgSkill).state, "missing")
+  assert.equal(
+    getOrganizationSkillRuntimeStatus(
+      new Map([["demo", managedSkillGroup("demo", "@alice/demo", { version: "1.0.0" })]]),
+      orgSkill,
+    ).state,
+    "installed-same",
+  )
+  assert.equal(
+    getOrganizationSkillRuntimeStatus(
+      new Map([["demo", managedSkillGroup("demo", "@alice/demo", { version: "1.1.0" })]]),
+      orgSkill,
+    ).state,
+    "installed-version-mismatch",
+  )
+  assert.equal(
+    getOrganizationSkillRuntimeStatus(
+      new Map([["demo", managedSkillGroup("demo", "@alice/demo", { version: "1.1.0" })]]),
+      { ...orgSkill, version: "latest" },
+    ).state,
+    "installed-same",
+  )
+  assert.equal(
+    getOrganizationSkillRuntimeStatus(
+      new Map([["demo", managedSkillGroup("demo", "@other/demo", { version: "1.0.0" })]]),
+      orgSkill,
+    ).state,
+    "same-id-different-package",
+  )
+  assert.equal(
+    getOrganizationSkillRuntimeStatus(
+      new Map([["demo", managedSkillGroup("demo", undefined, { kind: "local" })]]),
+      orgSkill,
+    ).state,
+    "local-conflict",
+  )
+})
+
+test("getInstallableOrganizationSkills only returns runtime-missing skills", () => {
+  const installed = managedSkillGroup("installed", "@alice/installed", { version: "1.0.0" })
+  const externalOnlyHost = {
+    agentId: "claude-code",
+    agentName: "Claude Code",
+    kind: "registry" as const,
+    packageName: "@alice/external",
+    scope: "external" as const,
+    status: "installed" as const,
+    version: "1.0.0",
+  }
+  const externalOnly: ManagedSkillGroup = {
+    ...managedSkillGroup("external", "@alice/external", { version: "1.0.0" }),
+    externalHosts: [externalOnlyHost],
+    hosts: [externalOnlyHost],
+    runtimeHosts: [],
+  }
+  const groupById = new Map([
+    ["installed", installed],
+    ["external", externalOnly],
+  ])
+  const skills = [
+    { enabled: true, packageName: "@alice/installed", skillName: "installed", version: "1.0.0" },
+    { enabled: true, packageName: "@alice/missing", skillName: "missing", version: "1.0.0" },
+    { enabled: true, packageName: "@alice/external", skillName: "external", version: "1.0.0" },
+    { enabled: false, packageName: "@alice/disabled", skillName: "disabled", version: "1.0.0" },
+  ]
+
+  assert.deepEqual(
+    getInstallableOrganizationSkills(groupById, skills).map((skill) => skill.skillName),
+    ["missing", "external"],
+  )
+})
+
 function publicPackage(name: string): PublicSkillPackage {
   return {
     displayName: name,
@@ -83,23 +188,38 @@ function publicPackage(name: string): PublicSkillPackage {
   }
 }
 
-function managedSkillGroup(name: string, packageName: string): ManagedSkillGroup {
+function managedSkillGroup(
+  name: string,
+  packageName: string | undefined,
+  options: {
+    controlState?: "controlled" | "modified" | "source-missing" | "unknown"
+    kind?: "local" | "registry" | "unknown"
+    version?: string
+  } = {},
+): ManagedSkillGroup {
   const host = {
     agentId: "wanta",
     agentName: "Wanta",
-    kind: "registry" as const,
-    packageName,
+    ...(options.controlState ? { controlState: options.controlState } : {}),
+    kind: options.kind ?? ("registry" as const),
+    ...(packageName ? { packageName } : {}),
     scope: "runtime" as const,
     status: "installed" as const,
+    ...(options.version ? { version: options.version } : {}),
   }
 
   return {
     externalHosts: [],
     hosts: [host],
     id: name,
-    kind: "registry",
+    kind: options.kind ?? "registry",
     name,
-    packageName,
+    ...(packageName ? { packageName } : {}),
     runtimeHosts: [host],
+    ...(options.version ? { version: options.version } : {}),
   }
+}
+
+function t(key: string, vars?: Record<string, string | number>): string {
+  return vars ? `${key}:${JSON.stringify(vars)}` : key
 }

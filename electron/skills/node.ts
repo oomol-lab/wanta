@@ -74,6 +74,7 @@ import {
 import { resolveSharedAgentSkillRoot } from "./paths.ts"
 import { assertSafeResetPaths } from "./reset.ts"
 import { wantaRuntimeAgent, scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
+import { resolveUsableRegistrySkillSourcePath } from "./source.ts"
 
 interface SkillVersionAuthSnapshot {
   cacheKey: string
@@ -205,7 +206,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.install")
-    await this.syncCachedSkillToSharedAgentRoot(request.skillId, { force: false })
+    await this.syncCachedSkillToSharedAgentRoot(request.skillId, { force: false, packageName: request.packageName })
     this.notifyRuntimeSkillsChanged("install-registry-skill")
 
     return this.readAndPublishSkillInventory()
@@ -571,7 +572,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       if (group?.kind !== "registry" || !group.packageName?.trim()) {
         return
       }
-      await this.syncCachedSkillToSharedAgentRoot(skillId, { force: true })
+      await this.syncCachedSkillToSharedAgentRoot(skillId, {
+        force: true,
+        packageName: request.packageName?.trim() || group.packageName,
+      })
       return
     }
 
@@ -581,13 +585,30 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       .map((group) => group.id)
 
     for (const registrySkillId of registrySkillIds) {
-      await this.syncCachedSkillToSharedAgentRoot(registrySkillId, { force: true })
+      const packageName = inventory.groups.find((group) => group.id === registrySkillId)?.packageName
+      await this.syncCachedSkillToSharedAgentRoot(registrySkillId, { force: true, packageName })
     }
   }
 
-  private async syncCachedSkillToSharedAgentRoot(skillId: string, options: { force: boolean }): Promise<void> {
+  private async syncCachedSkillToSharedAgentRoot(
+    skillId: string,
+    options: { force: boolean; packageName?: string },
+  ): Promise<void> {
     const normalizedSkillId = normalizeSkillId(skillId)
-    const sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId)
+    let sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId, {
+      packageName: options.packageName,
+    })
+
+    if (!sourcePath && options.packageName) {
+      await this.repairCachedRegistrySkillSource({
+        packageName: options.packageName,
+        skillId: normalizedSkillId,
+      })
+      sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId, {
+        packageName: options.packageName,
+      })
+    }
+
     if (!sourcePath) {
       throw new Error(`Cached Skill source not found: ${normalizedSkillId}`)
     }
@@ -599,16 +620,26 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     await this.refreshManifestRecordsForTargets([targetPath])
   }
 
-  private async resolveCachedSkillSourcePath(skillId: string): Promise<string | undefined> {
+  private async resolveCachedSkillSourcePath(
+    skillId: string,
+    options: { includeCanonicalStore?: boolean; packageName?: string } = {},
+  ): Promise<string | undefined> {
     const normalizedSkillId = normalizeSkillId(skillId)
 
-    for (const sourcePath of readCachedSkillSourceCandidates(this.getWantaSkillStoreRoot(), normalizedSkillId)) {
-      if (await localPathExists(sourcePath)) {
-        return sourcePath
-      }
-    }
+    return resolveUsableRegistrySkillSourcePath({
+      cacheSkillStoreRoot: this.getWantaSkillStoreRoot(),
+      includeCanonicalStore: options.includeCanonicalStore,
+      packageName: options.packageName,
+      skillId: normalizedSkillId,
+    })
+  }
 
-    return undefined
+  private async repairCachedRegistrySkillSource(request: { packageName: string; skillId: string }): Promise<void> {
+    const result = await this.runOoCommand(createInstallRegistrySkillArgs({ ...request, force: true }), {
+      owner: "skill-service",
+      rejectOnFailure: false,
+    })
+    assertOoSkillOperationResult(result, "skills.install")
   }
 
   private resolveSharedSkillTargetPath(skillId: string): string {
@@ -1126,8 +1157,4 @@ async function replaceDirectory(sourcePath: string, targetPath: string): Promise
       await rm(backupPath, { force: true, recursive: true }).catch(() => undefined)
     }
   }
-}
-
-function readCachedSkillSourceCandidates(cacheSkillStoreRoot: string, skillId: string): string[] {
-  return [path.join(cacheSkillStoreRoot, "registry", skillId)]
 }

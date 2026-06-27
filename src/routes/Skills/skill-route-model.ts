@@ -27,6 +27,15 @@ export type PublicSkillInstallState =
 export type PublicPackageCatalogStatus = "idle" | "load-error" | "loading" | "loading-more" | "refreshing"
 export type ManagedSkillGroupById = ReadonlyMap<string, ManagedSkillGroup>
 export type SkillVersionCheckByKey = ReadonlyMap<string, SkillVersionReport["skills"][number]>
+export type OrganizationSkillRuntimeState =
+  | "external-only"
+  | "installed-modified"
+  | "installed-same"
+  | "installed-version-mismatch"
+  | "local-conflict"
+  | "missing"
+  | "same-id-different-package"
+  | "unknown-conflict"
 
 export interface PublicPackageCatalogState {
   error: string | null
@@ -35,6 +44,18 @@ export interface PublicPackageCatalogState {
   requestId: number
   selectedId: string | null
   status: PublicPackageCatalogStatus
+}
+
+export interface OrganizationSkillRuntimeStatusInput {
+  enabled: boolean
+  packageName: string
+  skillName: string
+  version?: string
+}
+
+export interface OrganizationSkillRuntimeStatus {
+  host?: ManagedSkillHostCoverage
+  state: OrganizationSkillRuntimeState
 }
 
 export type PublicPackageCatalogAction =
@@ -338,6 +359,56 @@ export function getPublicPackagePrimarySkill(
   pkg: PublicSkillPackage,
 ): PublicSkillPackage["skills"][number] | undefined {
   return pkg.skills[0]
+}
+
+export function getOrganizationSkillRuntimeStatus(
+  groupById: ManagedSkillGroupById | undefined,
+  skill: OrganizationSkillRuntimeStatusInput,
+): OrganizationSkillRuntimeStatus {
+  const normalizedSkillName = skill.skillName.trim()
+  if (!skill.enabled || !normalizedSkillName) {
+    return { state: "missing" }
+  }
+
+  const group = groupById?.get(normalizedSkillName)
+  const runtimeHosts = group?.runtimeHosts.filter((host) => host.status === "installed") ?? []
+  const runtimeHost = runtimeHosts[0]
+  if (!runtimeHost) {
+    return { state: group?.hosts.some((host) => host.status === "installed") ? "external-only" : "missing" }
+  }
+
+  const hostPackageName = runtimeHost.packageName ?? group?.packageName
+  if (hostPackageName === skill.packageName) {
+    const hostVersion = runtimeHost.version ?? group?.version
+    if (skill.version && skill.version !== "latest" && hostVersion && hostVersion !== skill.version) {
+      return { host: runtimeHost, state: "installed-version-mismatch" }
+    }
+    if (runtimeHost.controlState === "modified") {
+      return { host: runtimeHost, state: "installed-modified" }
+    }
+    return { host: runtimeHost, state: "installed-same" }
+  }
+
+  if (runtimeHost.kind === "local" || group?.kind === "local") {
+    return { host: runtimeHost, state: "local-conflict" }
+  }
+  if (runtimeHost.kind === "unknown" || group?.kind === "unknown" || !hostPackageName) {
+    return { host: runtimeHost, state: "unknown-conflict" }
+  }
+  return { host: runtimeHost, state: "same-id-different-package" }
+}
+
+export function getInstallableOrganizationSkills<T extends OrganizationSkillRuntimeStatusInput>(
+  groupById: ManagedSkillGroupById | undefined,
+  skills: readonly T[],
+): T[] {
+  return skills.filter((skill) => {
+    if (!skill.enabled) {
+      return false
+    }
+    const status = getOrganizationSkillRuntimeStatus(groupById, skill).state
+    return status === "missing" || status === "external-only"
+  })
 }
 
 export function getPublicSkillInstallState(

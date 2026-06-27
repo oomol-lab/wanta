@@ -22,7 +22,7 @@ import {
   formatPublicPackageUpdateTime,
   getGroupRowPackageLine,
   getGroupStatus,
-  getInstalledSkillHosts,
+  getOrganizationSkillRuntimeStatus,
   getLocalSkillPublishPath,
   getPublicPackageInstallState,
   getPublicPackageMaintainerLine,
@@ -32,6 +32,7 @@ import {
   getPublicSkillInstallActionLabel,
   getPublicSkillInstallKey,
   getPublicSkillInstallStateLabel,
+  getRuntimeHosts,
   getSkillDocumentRootPath,
   getSkillKindLabel,
   getSkillRowStatusBadgeClassName,
@@ -193,9 +194,11 @@ function useDesktopDetailHeadingFocus<T extends HTMLElement>(dependency: string)
 }
 
 export function SkillsRoute({
+  focusRequest,
   organizationSkills,
   workspace,
 }: {
+  focusRequest?: { nonce: number; tab: SkillPageTab } | null
   organizationSkills: UseOrganizationSkills
   workspace: UseOrganizationWorkspace
 }) {
@@ -297,7 +300,7 @@ export function SkillsRoute({
     })
   }, [installedFilter, installedGroups, versionCheckByKey])
   const selectedSkill = searchedGroups.find((group) => group.id === selectedSkillId) || searchedGroups[0]
-  const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getInstalledSkillHosts(selectedSkill)) : null
+  const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getRuntimeHosts(selectedSkill)) : null
   const selectedVersionCheck = getSkillVersionCheck(versionCheckByKey, selectedSkill)
   React.useEffect(() => {
     if (requestedVersionCheckRef.current) {
@@ -319,6 +322,16 @@ export function SkillsRoute({
       setActiveTab("discover")
     }
   }, [activeTab, workspace.activeWorkspace.type])
+
+  React.useEffect(() => {
+    if (!focusRequest) {
+      return
+    }
+    if (focusRequest.tab === "organization" && workspace.activeWorkspace.type !== "organization") {
+      return
+    }
+    setActiveTab(focusRequest.tab)
+  }, [focusRequest, workspace.activeWorkspace.type])
 
   React.useEffect(() => {
     setOrganizationAddOpen(false)
@@ -626,6 +639,7 @@ export function SkillsRoute({
         />
         {activeTab === "organization" ? (
           <OrganizationSkillsPane
+            groupById={installedSkillGroupById}
             organizationSkills={organizationSkills}
             query={organizationQuery}
             skills={filteredOrganizationSkills}
@@ -713,6 +727,7 @@ export function SkillsRoute({
 }
 
 interface OrganizationSkillsPaneProps {
+  groupById: ManagedSkillGroupById
   onAdd: () => void
   organizationSkills: UseOrganizationSkills
   query: string
@@ -720,7 +735,36 @@ interface OrganizationSkillsPaneProps {
   workspace: UseOrganizationWorkspace
 }
 
-function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, workspace }: OrganizationSkillsPaneProps) {
+function getOrganizationSkillRuntimeStatusView(
+  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+  t: TFunction,
+): { label: string; tone: ObjectStatusTone } {
+  switch (state) {
+    case "installed-same":
+      return { label: t("skills.organizationRuntimeInstalled"), tone: "ready" }
+    case "installed-modified":
+      return { label: t("skills.organizationRuntimeModified"), tone: "attention" }
+    case "installed-version-mismatch":
+      return { label: t("skills.organizationRuntimeVersionMismatch"), tone: "attention" }
+    case "same-id-different-package":
+      return { label: t("skills.organizationRuntimePackageConflict"), tone: "attention" }
+    case "local-conflict":
+    case "unknown-conflict":
+      return { label: t("skills.organizationRuntimeLocalConflict"), tone: "attention" }
+    case "external-only":
+    case "missing":
+      return { label: t("skills.organizationRuntimeMissing"), tone: "pending" }
+  }
+}
+
+function OrganizationSkillsPane({
+  groupById,
+  onAdd,
+  organizationSkills,
+  query,
+  skills,
+  workspace,
+}: OrganizationSkillsPaneProps) {
   const { t } = useAppI18n()
   const activeOrganization =
     workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organization : null
@@ -734,16 +778,6 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
       <div className="min-h-0 overflow-auto px-3 py-3">
         <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.organizationPersonalEmpty")}</div>
       </div>
-    )
-  }
-
-  if (!canManage) {
-    return (
-      <OrganizationSkillEmptyState
-        description={t("skills.organizationReadOnlyDescription")}
-        icon="locked"
-        title={t("skills.organizationReadOnlyTitle")}
-      />
     )
   }
 
@@ -796,10 +830,18 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
                 </Badge>
               ) : null}
             </div>
-            <p className="oo-text-body max-w-3xl text-muted-foreground">{t("skills.organizationDescriptionManage")}</p>
+            <p className="oo-text-body max-w-3xl text-muted-foreground">
+              {canManage ? t("skills.organizationDescriptionManage") : t("skills.organizationDescriptionReadOnly")}
+            </p>
             <div className="oo-text-caption-compact flex min-w-0 items-center gap-1.5 text-muted-foreground">
-              <ShieldCheckIcon className="size-3.5 shrink-0" />
-              <span className="min-w-0">{t("skills.organizationManageNotice")}</span>
+              {canManage ? (
+                <ShieldCheckIcon className="size-3.5 shrink-0" />
+              ) : (
+                <LockKeyholeIcon className="size-3.5 shrink-0" />
+              )}
+              <span className="min-w-0">
+                {canManage ? t("skills.organizationManageNotice") : t("skills.organizationReadOnlyNotice")}
+              </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -840,6 +882,8 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
           <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
             {skills.map((skill) => {
               const busy = busySkillId === skill.id
+              const runtimeStatus = getOrganizationSkillRuntimeStatus(groupById, skill)
+              const runtimeStatusView = getOrganizationSkillRuntimeStatusView(runtimeStatus.state, t)
               return (
                 <div
                   key={skill.id}
@@ -868,6 +912,18 @@ function OrganizationSkillsPane({ onAdd, organizationSkills, query, skills, work
                         {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
                       </Badge>
                       <Badge variant="outline">{skill.versionPolicy}</Badge>
+                      {skill.enabled ? (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            getSkillRowStatusBadgeClassName(runtimeStatusView.tone),
+                            "max-w-32 justify-center",
+                          )}
+                          title={runtimeStatus.host?.version}
+                        >
+                          {runtimeStatusView.label}
+                        </Badge>
+                      ) : null}
                     </div>
                     {organizationSkills.canManage ? (
                       <div className="flex shrink-0 items-center gap-1">
@@ -1811,7 +1867,7 @@ function InstalledSkillCard({
   versionCheck,
 }: InstalledSkillCardProps) {
   const { t } = useAppI18n()
-  const status = getGroupStatus(group, t, getInstalledSkillHosts(group))
+  const status = getGroupStatus(group, t, getRuntimeHosts(group))
   const hasUpdate = hasSkillUpdateAvailable(versionCheck)
   const canUpdate = hasUpdate && shouldUpdatePublishedSkill(group)
   const isPublishable = isPublishableLocalSkill(group)
@@ -2291,7 +2347,7 @@ function SkillPeek({
 }: SkillPeekProps) {
   const { t } = useAppI18n()
   const skillService = useSkillService()
-  const installedHosts = getInstalledSkillHosts(selectedSkill)
+  const runtimeHosts = getRuntimeHosts(selectedSkill)
   const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
@@ -2300,7 +2356,7 @@ function SkillPeek({
   const localPublishPath = getLocalSkillPublishPath(selectedSkill)
   const canPublishLocalSkill = Boolean(localPublishPath)
   const isPublishingSkill = publishingSkillId === selectedSkill.id
-  const attentionHosts = installedHosts.filter(
+  const attentionHosts = runtimeHosts.filter(
     (host) => host.controlState === "modified" || host.controlState === "source-missing",
   )
   const hostAttentionCount = attentionHosts.length
@@ -2518,6 +2574,7 @@ function SkillPeek({
               {isRemovingSkill ? t("skills.removing") : t("skills.removeConfirmAction")}
             </Button>
           </div>
+          <SkillErrorNotice error={planError} />
         </CardContent>
       </InspectorCard>
 
@@ -2608,8 +2665,6 @@ function SkillPeek({
           </div>
         </InspectorInsetCard>
       ) : null}
-
-      <SkillErrorNotice error={planError} />
     </div>
   )
 }

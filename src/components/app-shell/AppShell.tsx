@@ -1254,7 +1254,7 @@ function ProjectSidebarGroupItem({
           type="button"
           title={projectTitle}
           aria-label={projectTitle}
-          className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
           onClick={() => onNewSession(group.project)}
         >
           <SquarePen className="size-3.5" />
@@ -2242,14 +2242,20 @@ export function AppShell() {
   const handleSelectComposerProject = React.useCallback(
     async (projectId: string | undefined): Promise<void> => {
       if (activeSessionId && !isDraftSession) {
-        await assignSessionProject(activeSessionId, projectId)
+        try {
+          await assignSessionProject(activeSessionId, projectId)
+          await refreshSessions()
+        } catch (cause) {
+          const notice = resolveUserFacingError(cause, { area: "session" })
+          toast.error(userFacingErrorDescription(notice, t))
+        }
         return
       }
       setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
       setIsDraftSession(true)
       setRoute("chat")
     },
-    [activeSessionId, assignSessionProject, isDraftSession],
+    [activeSessionId, assignSessionProject, isDraftSession, refreshSessions, t],
   )
 
   const handleCreateComposerProject = React.useCallback(async (): Promise<SessionProject | null> => {
@@ -2944,7 +2950,7 @@ export function AppShell() {
                           type="button"
                           title={t("project.selectFolder")}
                           aria-label={t("project.selectFolder")}
-                          className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
                           onClick={() => void handleSelectProjectFolder()}
                         >
                           <FolderPlus className="size-3.5" />

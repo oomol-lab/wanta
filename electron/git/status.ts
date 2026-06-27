@@ -47,6 +47,13 @@ function cleanGitMessage(value: string | undefined): string | undefined {
   return message.split("\n").slice(0, 4).join("\n")
 }
 
+function fulfilledGitResult(result: PromiseSettledResult<GitCommandOutput>): GitCommandOutput {
+  if (result.status === "rejected") {
+    throw result.reason
+  }
+  return result.value
+}
+
 export function classifyGitError(error: GitCommandError): { error: GitRepositoryError; message?: string } {
   if (error.timedOut) {
     return { error: "timeout", message: "Git command timed out." }
@@ -162,15 +169,9 @@ export async function readGitRepositoryState(
     return emptyState(projectId, path, classified.error, classified.message)
   }
 
-  const [branchResult, headResult, branchListResult, statusResult] = await Promise.all([
-    runGit(["-C", path, "branch", "--show-current"], { timeoutMs: gitCommandTimeoutMs }).catch(() => ({
-      stdout: "",
-      stderr: "",
-    })),
-    runGit(["-C", path, "rev-parse", "--short", "HEAD"], { timeoutMs: gitCommandTimeoutMs }).catch(() => ({
-      stdout: "",
-      stderr: "",
-    })),
+  const [branchResult, headResult, branchListResult, statusResult] = await Promise.allSettled([
+    runGit(["-C", path, "branch", "--show-current"], { timeoutMs: gitCommandTimeoutMs }),
+    runGit(["-C", path, "rev-parse", "--short", "HEAD"], { timeoutMs: gitCommandTimeoutMs }),
     runGit(
       [
         "-C",
@@ -181,21 +182,32 @@ export async function readGitRepositoryState(
         "refs/remotes",
       ],
       { timeoutMs: gitCommandTimeoutMs },
-    ).catch(() => ({ stdout: "", stderr: "" })),
-    runGit(["-C", path, "status", "--porcelain=v1", "--branch"], { timeoutMs: gitCommandTimeoutMs }).catch(() => ({
-      stdout: "",
-      stderr: "",
-    })),
+    ),
+    runGit(["-C", path, "status", "--porcelain=v1", "--branch"], { timeoutMs: gitCommandTimeoutMs }),
   ])
-  const currentBranch = branchResult.stdout.trim()
-  const detachedHead = currentBranch ? undefined : headResult.stdout.trim()
-  const status = parsePorcelainStatus(statusResult.stdout)
+  const failedResult = [branchResult, headResult, branchListResult, statusResult].find(
+    (result) => result.status === "rejected",
+  )
+  if (failedResult?.status === "rejected") {
+    const classified = classifyGitError(failedResult.reason as GitCommandError)
+    return {
+      ...emptyState(projectId, path, classified.error, classified.message),
+      repositoryRoot,
+    }
+  }
+  const branchOutput = fulfilledGitResult(branchResult)
+  const headOutput = fulfilledGitResult(headResult)
+  const branchListOutput = fulfilledGitResult(branchListResult)
+  const statusOutput = fulfilledGitResult(statusResult)
+  const currentBranch = branchOutput.stdout.trim()
+  const detachedHead = currentBranch ? undefined : headOutput.stdout.trim()
+  const status = parsePorcelainStatus(statusOutput.stdout)
   return {
     projectId,
     projectPath: path,
     available: true,
     repositoryRoot,
-    branches: parseBranchList(branchListResult.stdout, currentBranch),
+    branches: parseBranchList(branchListOutput.stdout, currentBranch),
     ...status,
     ...(currentBranch ? { currentBranch } : {}),
     ...(detachedHead ? { detachedHead } : {}),

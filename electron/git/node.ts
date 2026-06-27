@@ -63,6 +63,22 @@ function failedCheckoutState(
   }
 }
 
+async function stateAfterCheckoutFailure(
+  req: GitCheckoutBranchRequest | GitCreateBranchRequest,
+  error: GitCommandError,
+): Promise<GitRepositoryState> {
+  const classified = classifyGitError(error)
+  const state = await readGitRepositoryState(req.projectId, req.path, runGit)
+  if (!state.available) {
+    return failedCheckoutState(req, error)
+  }
+  return {
+    ...state,
+    error: classified.error,
+    ...(classified.message ? { message: classified.message } : {}),
+  }
+}
+
 export class GitServiceImpl extends ConnectionService<GitService> implements IConnectionService<GitService> {
   public constructor() {
     super(GitServiceName)
@@ -80,7 +96,7 @@ export class GitServiceImpl extends ConnectionService<GitService> implements ICo
     try {
       await runGit(["-C", req.path, "checkout", branch], { timeoutMs: gitCommandTimeoutMs })
     } catch (cause) {
-      return failedCheckoutState(req, cause as GitCommandError)
+      return stateAfterCheckoutFailure(req, cause as GitCommandError)
     }
     return readGitRepositoryState(req.projectId, req.path, runGit)
   }
@@ -93,7 +109,7 @@ export class GitServiceImpl extends ConnectionService<GitService> implements ICo
     try {
       await runGit(["-C", req.path, "checkout", "-b", branch], { timeoutMs: gitCommandTimeoutMs })
     } catch (cause) {
-      return failedCheckoutState(req, cause as GitCommandError)
+      return stateAfterCheckoutFailure(req, cause as GitCommandError)
     }
     return readGitRepositoryState(req.projectId, req.path, runGit)
   }

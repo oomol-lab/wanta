@@ -119,7 +119,7 @@ const messages = {
     "project.chooseProject": "选择项目",
     "project.searchPlaceholder": "搜索项目",
     "project.searchEmpty": "没有匹配的项目",
-    "project.newProject": "New project",
+    "project.newProject": "新建项目",
     "project.noProject": "不使用项目",
     "project.newTask": "新建项目任务",
     "project.expand": "展开项目",

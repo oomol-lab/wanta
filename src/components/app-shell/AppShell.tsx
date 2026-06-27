@@ -12,7 +12,7 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import type { GitRepositoryState } from "../../../electron/git/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
-import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
+import type { ChatQueueMap, QueuedChatMessage, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
@@ -58,6 +58,7 @@ import {
 import {
   appendQueuedMessage,
   consumeNextQueuedMessage,
+  moveQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -1722,6 +1723,7 @@ export function AppShell() {
   )
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
   const [queuedMessagesBySession, setQueuedMessagesBySession] = React.useState<ChatQueueMap>({})
+  const [heldQueuedSessions, setHeldQueuedSessions] = React.useState<Set<string>>(() => new Set())
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() =>
     readStoredSidebarCollapsed(globalThis.localStorage),
   )
@@ -1943,6 +1945,7 @@ export function AppShell() {
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
+  const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
   const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
@@ -2636,6 +2639,16 @@ export function AppShell() {
       }
       const accepted = await sendNow(text, attachments, contextMentions, model)
       if (accepted) {
+        if (activeSessionId) {
+          setHeldQueuedSessions((current) => {
+            if (!current.has(activeSessionId)) {
+              return current
+            }
+            const next = new Set(current)
+            next.delete(activeSessionId)
+            return next
+          })
+        }
         clearComposerDraft(draftKey)
       }
       return accepted
@@ -2644,7 +2657,21 @@ export function AppShell() {
   )
 
   React.useEffect(() => {
-    if (!activeSessionId || !shouldDispatchQueuedMessage(status, initialSendPending)) {
+    setHeldQueuedSessions((current) => {
+      let changed = false
+      const next = new Set(current)
+      for (const sessionId of current) {
+        if ((queuedMessagesBySession[sessionId] ?? []).length === 0) {
+          next.delete(sessionId)
+          changed = true
+        }
+      }
+      return changed ? next : current
+    })
+  }, [queuedMessagesBySession])
+
+  React.useEffect(() => {
+    if (!activeSessionId || !shouldDispatchQueuedMessage(status, initialSendPending, activeQueueHeld)) {
       return
     }
     if (dispatchingQueuedSessionsRef.current.has(activeSessionId)) {
@@ -2677,7 +2704,7 @@ export function AppShell() {
       .finally(() => {
         dispatchingQueuedSessionsRef.current.delete(activeSessionId)
       })
-  }, [activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
+  }, [activeQueueHeld, activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
 
   const handlePinSession = async (session: SessionInfo): Promise<void> => {
     try {
@@ -2846,9 +2873,19 @@ export function AppShell() {
   }, [])
   const handleChatStop = React.useCallback(() => {
     if (activeSessionId) {
+      if ((queuedMessagesBySession[activeSessionId] ?? []).length > 0) {
+        setHeldQueuedSessions((current) => {
+          if (current.has(activeSessionId)) {
+            return current
+          }
+          const next = new Set(current)
+          next.add(activeSessionId)
+          return next
+        })
+      }
       void stop(activeSessionId)
     }
-  }, [activeSessionId, stop])
+  }, [activeSessionId, queuedMessagesBySession, stop])
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {
       switch (command) {
@@ -2887,6 +2924,30 @@ export function AppShell() {
     },
     [activeSessionId],
   )
+  const handleQueuedMessageMove = React.useCallback(
+    (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => {
+      if (!activeSessionId) {
+        return
+      }
+      setQueuedMessagesBySession((current) =>
+        moveQueuedMessage(current, activeSessionId, messageId, targetId, placement),
+      )
+    },
+    [activeSessionId],
+  )
+  const handleQueuedMessageResume = React.useCallback(() => {
+    if (!activeSessionId) {
+      return
+    }
+    setHeldQueuedSessions((current) => {
+      if (!current.has(activeSessionId)) {
+        return current
+      }
+      const next = new Set(current)
+      next.delete(activeSessionId)
+      return next
+    })
+  }, [activeSessionId])
   const handleViewBilling = React.useCallback(() => {
     setRoute("billing")
   }, [])
@@ -3244,6 +3305,7 @@ export function AppShell() {
                     composerFocusRequest={composerFocusRequest}
                     organizationSkills={organizationSkills.chatContextSkills}
                     providers={activeProviders}
+                    queueHeld={activeQueueHeld}
                     queuedMessages={activeQueuedMessages}
                     contextBar={
                       showComposerProjectContext ? (
@@ -3272,7 +3334,9 @@ export function AppShell() {
                     onComposerStateChange={handleComposerStateChange}
                     onSend={handleSend}
                     onStop={handleChatStop}
+                    onQueuedMessageMove={handleQueuedMessageMove}
                     onQueuedMessageRemove={handleQueuedMessageRemove}
+                    onQueuedMessageResume={handleQueuedMessageResume}
                     onAuthorize={handleAuthorize}
                     onArtifactsReset={handleArtifactsReset}
                     onArtifactsOpen={handleArtifactsOpen}

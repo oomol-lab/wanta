@@ -7,6 +7,7 @@ import {
   clearQueuedMessages,
   consumeNextQueuedMessage,
   latestQueuedMessage,
+  moveQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
@@ -79,6 +80,36 @@ describe("chat queue", () => {
     assert.equal(empty["session-1"], undefined)
   })
 
+  test("moves a queued message before the target", () => {
+    const queues = { "session-1": [message("first"), message("second"), message("third")] }
+
+    const result = moveQueuedMessage(queues, "session-1", "third", "first", "before")
+
+    assert.deepEqual(
+      result["session-1"]?.map((item) => item.id),
+      ["third", "first", "second"],
+    )
+  })
+
+  test("moves a queued message after the target", () => {
+    const queues = { "session-1": [message("first"), message("second"), message("third")] }
+
+    const result = moveQueuedMessage(queues, "session-1", "first", "third", "after")
+
+    assert.deepEqual(
+      result["session-1"]?.map((item) => item.id),
+      ["second", "third", "first"],
+    )
+  })
+
+  test("keeps the queue unchanged when move ids are invalid", () => {
+    const queues = { "session-1": [message("first"), message("second")] }
+
+    assert.equal(moveQueuedMessage(queues, "session-1", "missing", "first", "before"), queues)
+    assert.equal(moveQueuedMessage(queues, "session-1", "first", "missing", "before"), queues)
+    assert.equal(moveQueuedMessage(queues, "session-1", "first", "first", "before"), queues)
+  })
+
   test("clears queued messages for one session", () => {
     const queues = {
       "session-1": [message("first")],
@@ -92,10 +123,11 @@ describe("chat queue", () => {
   })
 
   test("dispatches queued messages only after the active turn is ready", () => {
-    assert.equal(shouldDispatchQueuedMessage("ready", false), true)
-    assert.equal(shouldDispatchQueuedMessage("ready", true), false)
-    assert.equal(shouldDispatchQueuedMessage("submitted", false), false)
-    assert.equal(shouldDispatchQueuedMessage("streaming", false), false)
-    assert.equal(shouldDispatchQueuedMessage("error", false), false)
+    assert.equal(shouldDispatchQueuedMessage("ready", false, false), true)
+    assert.equal(shouldDispatchQueuedMessage("ready", true, false), false)
+    assert.equal(shouldDispatchQueuedMessage("ready", false, true), false)
+    assert.equal(shouldDispatchQueuedMessage("submitted", false, false), false)
+    assert.equal(shouldDispatchQueuedMessage("streaming", false, false), false)
+    assert.equal(shouldDispatchQueuedMessage("error", false, false), false)
   })
 })

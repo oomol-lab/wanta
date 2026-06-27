@@ -97,6 +97,10 @@
   --oo-prompt-input-shadow:
     0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
     0 8px 18px color-mix(in oklab, var(--foreground) 4%, transparent);
+  --oo-queue-dock-surface: color-mix(in oklab, var(--muted) 72%, var(--background));
+  --oo-queue-dock-hover: color-mix(in oklab, var(--foreground) 4%, var(--oo-queue-dock-surface));
+  --oo-queue-dock-border: color-mix(in oklab, var(--foreground) 11%, transparent);
+  --oo-queue-dock-shadow: inset 0 0 0 1px color-mix(in oklab, var(--background) 45%, transparent);
   --oo-search-surface: oklch(0.983 0.003 288);
   --oo-search-surface-emphasis: color-mix(in oklab, var(--foreground) 6%, var(--oo-search-surface));
   --oo-font-caption: 0.75rem;
@@ -231,6 +235,10 @@
   --oo-prompt-input-surface: var(--oo-input-surface);
   --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 16%, transparent);
   --oo-prompt-input-shadow: none;
+  --oo-queue-dock-surface: color-mix(in oklab, var(--foreground) 5%, var(--oo-prompt-input-surface));
+  --oo-queue-dock-hover: color-mix(in oklab, var(--foreground) 7%, var(--oo-queue-dock-surface));
+  --oo-queue-dock-border: color-mix(in oklab, var(--foreground) 13%, transparent);
+  --oo-queue-dock-shadow: none;
   --oo-search-surface: oklch(0.213 0.004 265);
   --oo-content-surface: var(--background);
   --oo-chrome: transparent;
@@ -831,6 +839,16 @@
     border-color: var(--oo-prompt-input-border) !important;
     background: var(--oo-prompt-input-surface) !important;
     box-shadow: var(--oo-prompt-input-shadow) !important;
+  }
+
+  .oo-queue-dock {
+    border-color: var(--oo-queue-dock-border);
+    background: var(--oo-queue-dock-surface);
+    box-shadow: var(--oo-queue-dock-shadow);
+  }
+
+  .oo-queue-dock-row:hover {
+    background: var(--oo-queue-dock-hover);
   }
 
   .oo-composer-context-tray {

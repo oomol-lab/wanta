@@ -26,6 +26,7 @@ test("readRegistrySkillSourceCandidates keeps canonical store as an explicit fal
     assert.deepEqual(
       readRegistrySkillSourceCandidates({
         cacheSkillStoreRoot: cacheRoot,
+        env: {},
         homeDirectory: homePath,
         includeCanonicalStore: true,
         platform: "darwin",
@@ -64,6 +65,7 @@ test("resolveUsableRegistrySkillSourcePath prefers Wanta cache over canonical oo
     assert.equal(
       await resolveUsableRegistrySkillSourcePath({
         cacheSkillStoreRoot: cacheRoot,
+        env: {},
         homeDirectory: homePath,
         includeCanonicalStore: true,
         packageName: "@alice/gpt-image-2",
@@ -96,6 +98,7 @@ test("resolveUsableRegistrySkillSourcePath rejects canonical package mismatches"
     assert.equal(
       await resolveUsableRegistrySkillSourcePath({
         cacheSkillStoreRoot: cacheRoot,
+        env: {},
         homeDirectory: homePath,
         includeCanonicalStore: true,
         packageName: "@alice/gpt-image-2",

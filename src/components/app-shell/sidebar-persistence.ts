@@ -1,0 +1,114 @@
+import type { SessionScope } from "../../../electron/session/common.ts"
+
+export type SidebarSegment = "projects" | "tasks"
+
+type LocalStorageLike = Pick<Storage, "getItem" | "removeItem" | "setItem">
+
+const sidebarSegmentStorageKey = "wanta.sidebarSegment"
+const sidebarCollapsedStorageKey = "wanta.sidebarCollapsed"
+const projectCollapsedStoragePrefix = "wanta.projectSidebarCollapsed"
+
+function readItem(storage: LocalStorageLike | null | undefined, key: string): string | null {
+  try {
+    return storage?.getItem(key) ?? null
+  } catch {
+    return null
+  }
+}
+
+function writeItem(storage: LocalStorageLike | null | undefined, key: string, value: string): void {
+  try {
+    storage?.setItem(key, value)
+  } catch {
+    // 本地存储不可用时仅保留本次会话状态。
+  }
+}
+
+function removeItem(storage: LocalStorageLike | null | undefined, key: string): void {
+  try {
+    storage?.removeItem(key)
+  } catch {
+    // 本地存储不可用时无需清理。
+  }
+}
+
+export function readStoredSidebarSegment(storage: LocalStorageLike | null | undefined): SidebarSegment {
+  return readItem(storage, sidebarSegmentStorageKey) === "projects" ? "projects" : "tasks"
+}
+
+export function writeStoredSidebarSegment(storage: LocalStorageLike | null | undefined, segment: SidebarSegment): void {
+  writeItem(storage, sidebarSegmentStorageKey, segment)
+}
+
+export function readStoredSidebarCollapsed(storage: LocalStorageLike | null | undefined): boolean {
+  return readItem(storage, sidebarCollapsedStorageKey) === "1"
+}
+
+export function writeStoredSidebarCollapsed(storage: LocalStorageLike | null | undefined, collapsed: boolean): void {
+  writeItem(storage, sidebarCollapsedStorageKey, collapsed ? "1" : "0")
+}
+
+export function projectSidebarCollapsedStorageKey(
+  accountId: string | undefined,
+  scope: SessionScope | null,
+): string | null {
+  if (!accountId || !scope) {
+    return null
+  }
+  const scopeKey = scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
+  return `${projectCollapsedStoragePrefix}:${accountId}:${scopeKey}`
+}
+
+export function readStoredCollapsedProjectIds(
+  storage: LocalStorageLike | null | undefined,
+  key: string | null,
+): Set<string> {
+  if (!key) {
+    return new Set()
+  }
+  const raw = readItem(storage, key)
+  if (!raw) {
+    return new Set()
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) {
+      return new Set()
+    }
+    return new Set(parsed.filter((value): value is string => typeof value === "string" && value.trim().length > 0))
+  } catch {
+    return new Set()
+  }
+}
+
+export function writeStoredCollapsedProjectIds(
+  storage: LocalStorageLike | null | undefined,
+  key: string | null,
+  collapsedIds: Set<string>,
+): void {
+  if (!key) {
+    return
+  }
+  if (collapsedIds.size === 0) {
+    removeItem(storage, key)
+    return
+  }
+  writeItem(storage, key, JSON.stringify([...collapsedIds].sort()))
+}
+
+export function pruneCollapsedProjectIds(collapsedIds: Set<string>, projectIds: Set<string>): Set<string> {
+  const next = new Set([...collapsedIds].filter((id) => projectIds.has(id)))
+  return setsEqual(collapsedIds, next) ? collapsedIds : next
+}
+
+export function setsEqual(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) {
+    return false
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false
+    }
+  }
+  return true
+}

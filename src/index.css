@@ -829,12 +829,17 @@
 
   .oo-prompt-input-surface {
     border-color: var(--oo-prompt-input-border) !important;
-    background: var(--oo-prompt-input-surface);
+    background: var(--oo-prompt-input-surface) !important;
     box-shadow: var(--oo-prompt-input-shadow) !important;
   }
 
   .oo-composer-context-tray {
-    background: color-mix(in oklab, var(--sidebar-accent) 80%, var(--sidebar));
+    --oo-composer-context-tray-surface: color-mix(in oklab, var(--sidebar-accent) 80%, var(--sidebar));
+    background: linear-gradient(
+      to bottom,
+      var(--oo-prompt-input-surface) 0 1rem,
+      var(--oo-composer-context-tray-surface) 1rem
+    );
     box-shadow: var(--oo-prompt-input-shadow);
   }
 

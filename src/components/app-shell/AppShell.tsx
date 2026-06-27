@@ -14,6 +14,7 @@ import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { ChatQueueMap, QueuedChatMessage } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
+import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
@@ -61,6 +62,17 @@ import {
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
+import {
+  projectSidebarCollapsedStorageKey,
+  pruneCollapsedProjectIds,
+  readStoredCollapsedProjectIds,
+  readStoredSidebarCollapsed,
+  readStoredSidebarSegment,
+  setsEqual,
+  writeStoredCollapsedProjectIds,
+  writeStoredSidebarCollapsed,
+  writeStoredSidebarSegment,
+} from "./sidebar-persistence.ts"
 import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
@@ -154,8 +166,6 @@ interface TurnRetryOptions {
   projectContext?: ChatProjectContext
   model?: ModelChoice
 }
-
-type SidebarSegment = "projects" | "tasks"
 
 interface ProjectSidebarGroup {
   hiddenCount: number
@@ -1201,29 +1211,32 @@ function SidebarSegmentControl({
 
 function ProjectSidebarGroupItem({
   activeSessionId,
+  expanded,
   group,
   hasUnreadSession,
   isSessionRunning,
   now,
   onArchiveSession,
+  onExpandedChange,
   onNewSession,
   onPinSession,
   onRenameSession,
   onSelectSession,
 }: {
   activeSessionId: string | null
+  expanded: boolean
   group: ProjectSidebarGroup
   hasUnreadSession: (sessionId: string) => boolean
   isSessionRunning: (sessionId: string) => boolean
   now: number
   onArchiveSession: (session: SessionInfo) => void
+  onExpandedChange: (expanded: boolean) => void
   onNewSession: (project: SessionProject) => void
   onPinSession: (session: SessionInfo) => void
   onRenameSession: (session: SessionInfo) => void
   onSelectSession: (session: SessionInfo) => void
 }) {
   const t = useT()
-  const [expanded, setExpanded] = React.useState(true)
   const hasSessions = group.sessions.length > 0
   const toggleLabel = expanded ? t("project.collapse") : t("project.expand")
   const projectTitle = t("project.newTask")
@@ -1238,7 +1251,7 @@ function ProjectSidebarGroupItem({
           title={toggleTitle}
           aria-label={toggleTitle}
           aria-expanded={expanded}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={() => onExpandedChange(!expanded)}
         >
           <Folder className="size-4 shrink-0 text-sidebar-foreground/75" />
           <span className="oo-sidebar-nav-label min-w-0 truncate" title={group.project.name}>
@@ -1254,7 +1267,7 @@ function ProjectSidebarGroupItem({
           type="button"
           title={projectTitle}
           aria-label={projectTitle}
-          className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
+          className="pointer-events-none flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           onClick={() => onNewSession(group.project)}
         >
           <SquarePen className="size-3.5" />
@@ -1688,10 +1701,14 @@ export function AppShell() {
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
-  const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>("tasks")
+  const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
+    readStoredSidebarSegment(globalThis.localStorage),
+  )
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
   const [queuedMessagesBySession, setQueuedMessagesBySession] = React.useState<ChatQueueMap>({})
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() =>
+    readStoredSidebarCollapsed(globalThis.localStorage),
+  )
   const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
   const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
@@ -1706,6 +1723,10 @@ export function AppShell() {
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
   const [artifactsPanelMaxWidthState, setArtifactsPanelMaxWidthState] = React.useState<number | null>(null)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
+  const [collapsedProjectState, setCollapsedProjectState] = React.useState<{
+    ids: Set<string>
+    storageKey: string | null
+  }>({ ids: new Set(), storageKey: null })
 
   const { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
     activeSessionId,
@@ -1895,6 +1916,12 @@ export function AppShell() {
     [sessions],
   )
   const projectSidebarGroups = React.useMemo(() => buildProjectSidebarGroups(projects, sessions), [projects, sessions])
+  const projectCollapsedStorageKey = React.useMemo(
+    () => projectSidebarCollapsedStorageKey(auth.state?.account?.id, sessionScope),
+    [auth.state?.account?.id, sessionScope],
+  )
+  const collapsedProjectIds =
+    collapsedProjectState.storageKey === projectCollapsedStorageKey ? collapsedProjectState.ids : new Set<string>()
   const activeComposerDraftKey =
     activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}:${activeProjectId ?? "none"}`
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
@@ -1949,6 +1976,57 @@ export function AppShell() {
     (width: number): number => clampArtifactsPanelWidthForLayout(width, artifactsPanelMaxWidthValue),
     [artifactsPanelMaxWidthValue],
   )
+
+  React.useEffect(() => {
+    writeStoredSidebarSegment(globalThis.localStorage, sidebarSegment)
+  }, [sidebarSegment])
+
+  React.useEffect(() => {
+    setCollapsedProjectState({
+      ids: readStoredCollapsedProjectIds(globalThis.localStorage, projectCollapsedStorageKey),
+      storageKey: projectCollapsedStorageKey,
+    })
+  }, [projectCollapsedStorageKey])
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || collapsedProjectState.storageKey !== projectCollapsedStorageKey) {
+      return
+    }
+    const projectIds = new Set(projects.map((project) => project.id))
+    setCollapsedProjectState((current) => {
+      if (current.storageKey !== projectCollapsedStorageKey) {
+        return current
+      }
+      const nextIds = pruneCollapsedProjectIds(current.ids, projectIds)
+      return nextIds === current.ids ? current : { ...current, ids: nextIds }
+    })
+  }, [collapsedProjectState.storageKey, projectCollapsedStorageKey, projects, sessionsLoaded])
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || collapsedProjectState.storageKey !== projectCollapsedStorageKey) {
+      return
+    }
+    writeStoredCollapsedProjectIds(globalThis.localStorage, projectCollapsedStorageKey, collapsedProjectState.ids)
+  }, [collapsedProjectState, projectCollapsedStorageKey, sessionsLoaded])
+
+  const handleProjectSidebarExpandedChange = React.useCallback(
+    (projectId: string, expanded: boolean): void => {
+      setCollapsedProjectState((current) => {
+        if (current.storageKey !== projectCollapsedStorageKey) {
+          return current
+        }
+        const nextIds = new Set(current.ids)
+        if (expanded) {
+          nextIds.delete(projectId)
+        } else {
+          nextIds.add(projectId)
+        }
+        return setsEqual(current.ids, nextIds) ? current : { ...current, ids: nextIds }
+      })
+    },
+    [projectCollapsedStorageKey],
+  )
+
   const applyArtifactsPanelShellWidth = React.useCallback((width: number): void => {
     const element = artifactsPanelShellRef.current
     if (element) {
@@ -2652,10 +2730,12 @@ export function AppShell() {
   )
   const handleToggleSidebar = React.useCallback((): void => {
     setSidebarCollapsed((collapsed) => {
+      const nextCollapsed = !collapsed
       if (collapsed) {
         setIsSidebarRestoring(true)
       }
-      return !collapsed
+      writeStoredSidebarCollapsed(globalThis.localStorage, nextCollapsed)
+      return nextCollapsed
     })
   }, [])
   const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
@@ -2961,9 +3041,13 @@ export function AppShell() {
                           key={group.project.id}
                           group={group}
                           activeSessionId={route === "chat" ? activeSessionId : null}
+                          expanded={!collapsedProjectIds.has(group.project.id)}
                           hasUnreadSession={hasUnreadSession}
                           isSessionRunning={isSessionRunning}
                           now={relativeTimeNow}
+                          onExpandedChange={(expanded) =>
+                            handleProjectSidebarExpandedChange(group.project.id, expanded)
+                          }
                           onNewSession={handleOpenProjectDraft}
                           onSelectSession={handleSelectSession}
                           onRenameSession={(session) => setRenameSessionId(session.id)}

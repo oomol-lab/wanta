@@ -225,6 +225,32 @@ describe("summarizeTurnProcess", () => {
     expect(process.suggestedAuthorization).toBeUndefined()
   })
 
+  it("normalizes service slugs when suppressing suggestions after successful calls", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "看一下 PostHog 数据")]),
+      message("a1", "assistant", [
+        tool("tool-1", {
+          tool: "search_actions",
+          input: { keywords: "posthog", query: "PostHog query events" },
+          output: JSON.stringify([{ service: "oo-posthog", name: "run_query", authenticated: false }]),
+        }),
+      ]),
+      message("a2", "assistant", [
+        tool("tool-2", {
+          tool: "call_action",
+          input: { service: "posthog", action: "run_query" },
+          output: JSON.stringify({ data: { results: [["console.oomol.com", 21]] } }),
+        }),
+      ]),
+      message("a3", "assistant", [text("a3-text", "PostHog 数据出来了。")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.suggestedAuthorization).toBeUndefined()
+  })
+
   it("uses activity without message id for the current turn", () => {
     const turn = groupChatTurns([message("u1", "user", [text("u1-text", "hello")]), message("a1", "assistant")])[0]
 

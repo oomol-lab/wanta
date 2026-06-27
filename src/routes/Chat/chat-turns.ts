@@ -7,7 +7,7 @@ import type {
 } from "../../../electron/chat/common.ts"
 
 import { parseSearchAuthorizationSignal } from "../../../electron/chat/authorization-signal.ts"
-import { parseToolAuthorization } from "./tool-display.ts"
+import { normalizeServiceSlug, parseToolAuthorization } from "./tool-display.ts"
 import { hasBlockingToolError, hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 
 export interface ChatTurn {
@@ -169,10 +169,6 @@ export function assistantErrorParts(message: ChatMessage): ChatMessagePart[] {
   return message.parts.filter((part) => part.kind === "error")
 }
 
-function normalizeService(value: string): string {
-  return value.trim().toLowerCase()
-}
-
 function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
   const services = new Set<string>()
   for (const part of tools) {
@@ -184,7 +180,7 @@ function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
       if (parsed.status === "error" || parsed.status === "authorization_required") {
         continue
       }
-      services.add(normalizeService(part.input.service))
+      services.add(normalizeServiceSlug(part.input.service))
     } catch {
       // Unknown output shape is not enough evidence that authorization is valid.
     }
@@ -200,7 +196,7 @@ function suggestedAuthorizationFromTools(tools: ChatMessagePart[]): Authorizatio
     }
     const authorization = parseSearchAuthorizationSignal(part.output, part.input)
     if (authorization) {
-      if (successfulServices.has(normalizeService(authorization.service))) {
+      if (successfulServices.has(normalizeServiceSlug(authorization.service))) {
         continue
       }
       return authorization

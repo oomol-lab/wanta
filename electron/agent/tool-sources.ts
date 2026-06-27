@@ -15,7 +15,7 @@ const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 
 export default tool({
   description:
-    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. Returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current user has already connected that service). If the clearly relevant provider is returned with authenticated false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
+    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current user has already connected that service). On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
     keywords: tool.schema.string().optional().describe("Optional comma-separated keywords to refine the search"),
@@ -93,6 +93,14 @@ function appendIdentityArgs(argv) {
   }
 }
 
+function authorizationUrl(service) {
+  const consoleUrl = String(process.env.WANTA_CONSOLE_URL || "").trim()
+  if (!consoleUrl) {
+    return null
+  }
+  return consoleUrl.replace(/\/+$/, "") + "/app-connections?provider=" + encodeURIComponent(service)
+}
+
 // 授权阻断码（上游 connector 透传）。命中即返回结构化 authorization_required。
 const AUTH_BLOCKING = new Set([
   "connection_required",
@@ -104,7 +112,7 @@ const AUTH_BLOCKING = new Set([
 
 export default tool({
   description:
-    "Execute one selected OOMOL Link action. Use this only for a selected action that matches the user's task; do not probe unrelated services or actions. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. If the service is not authorized this returns a JSON object with status 'authorization_required' plus service/action/errorCode; when you see that, stop trying this provider/action. Wanta will render an inline Connect button from the tool result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. Do NOT retry this provider/action or fabricate a result.",
+    "Execute one selected OOMOL Link action. Use this only for a selected action that matches the user's task; do not probe unrelated services or actions. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. If the service is not authorized this returns a JSON object with status 'authorization_required' plus service/action/errorCode/authUrl; when you see that, stop trying this provider/action. If the authorization target cannot be derived, this returns status 'error' plus errorCode 'config_missing'. Wanta will render an inline Connect button from the authorization_required tool result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. Do NOT retry this provider/action or fabricate a result.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),
@@ -130,11 +138,22 @@ export default tool({
       const match = stderr.match(/errorCode:\s*([^\s)）]+)/)
       const code = match ? match[1] : null
       if (code && AUTH_BLOCKING.has(code)) {
+        const authUrl = authorizationUrl(args.service)
+        if (!authUrl) {
+          return JSON.stringify({
+            status: "error",
+            service: args.service,
+            action: args.action,
+            errorCode: "config_missing",
+            message: "WANTA_CONSOLE_URL is required to build the connector authorization URL.",
+          })
+        }
         return JSON.stringify({
           status: "authorization_required",
           service: args.service,
           action: args.action,
           displayName: args.service,
+          authUrl: authUrl,
           errorCode: code,
           message: stderr.trim(),
         })

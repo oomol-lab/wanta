@@ -108,6 +108,15 @@ test("parseSearchAuthorizationSignal prefers the provider named by the search in
   assert.equal(parseSearchAuthorizationSignal(output), null)
 })
 
+test("parseSearchAuthorizationSignal does not match provider names as arbitrary substrings", () => {
+  const output = JSON.stringify([
+    { service: "box", name: "upload_file", authenticated: false },
+    { service: "notion", name: "search_pages", authenticated: false },
+  ])
+
+  assert.equal(parseSearchAuthorizationSignal(output, { query: "search inbox annotations" }), null)
+})
+
 test("applyAuthorizationOverlays restores authorization onto tool parts", () => {
   const records = new Map()
   recordAuthorizationOverlay(records, "session-1", "assistant-1", "tool-1", {

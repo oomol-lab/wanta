@@ -18,8 +18,11 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined
 }
 
-function normalizedSearchText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "")
+function searchTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .filter(Boolean)
 }
 
 function searchContextText(context: SearchAuthorizationContext | undefined): string {
@@ -86,10 +89,14 @@ export function parseSearchAuthorizationSignal(
     if (services.length === 0) {
       return null
     }
-    const contextText = normalizedSearchText(searchContextText(context))
-    const matchedServices = contextText
-      ? services.filter((service) => contextText.includes(normalizedSearchText(service)))
-      : []
+    const contextTokens = new Set(searchTokens(searchContextText(context)))
+    const matchedServices =
+      contextTokens.size > 0
+        ? services.filter((service) => {
+            const serviceTokens = searchTokens(service)
+            return serviceTokens.length > 0 && serviceTokens.every((token) => contextTokens.has(token))
+          })
+        : []
     const service = matchedServices.length === 1 ? matchedServices[0] : services.length === 1 ? services[0] : undefined
     if (!service) {
       return null

@@ -524,6 +524,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private authorizationOverlays: AuthorizationOverlays = new Map()
   private authorizationOverlaysLoaded = false
   private authorizationOverlaysLoadPromise: Promise<void> | null = null
+  private authorizationOverlayWritePromise: Promise<void> = Promise.resolve()
   private stoppedGenerations: StoppedGenerations = new Map()
   private stoppedGenerationsLoaded = false
   private stoppedGenerationsLoadPromise: Promise<void> | null = null
@@ -904,7 +905,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!recordAuthorizationOverlay(this.authorizationOverlays, sessionId, messageId, partId, authorization)) {
       return
     }
-    await this.deps.authorizationOverlayStore?.write(this.authorizationOverlays)
+    const write = this.authorizationOverlayWritePromise
+      .catch(() => undefined)
+      .then(async () => {
+        await this.deps.authorizationOverlayStore?.write(this.authorizationOverlays)
+      })
+    this.authorizationOverlayWritePromise = write.then(
+      () => undefined,
+      () => undefined,
+    )
+    await write
   }
 
   private async rememberStoppedGeneration(sessionId: string, messageId: string, partIds: string[]): Promise<void> {

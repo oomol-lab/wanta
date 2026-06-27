@@ -835,11 +835,8 @@
 
   .oo-composer-context-tray {
     --oo-composer-context-tray-surface: color-mix(in oklab, var(--sidebar-accent) 80%, var(--sidebar));
-    background: linear-gradient(
-      to bottom,
-      var(--oo-prompt-input-surface) 0 1rem,
-      var(--oo-composer-context-tray-surface) 1rem
-    );
+
+    background: var(--oo-composer-context-tray-surface);
     box-shadow: var(--oo-prompt-input-shadow);
   }
 

@@ -278,6 +278,24 @@ function registerAttachmentDialogHandler(): void {
       }
     },
   )
+  ipcMain.handle("wanta:select-project-directory", async (event): Promise<SelectedAttachmentPath | null> => {
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+    const options: Electron.OpenDialogOptions = {
+      properties: ["openDirectory", "createDirectory"],
+    }
+    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options)
+    if (result.canceled || !result.filePaths[0]) {
+      return null
+    }
+    const directoryPath = result.filePaths[0]
+    return {
+      name: path.basename(directoryPath.replace(/[\\/]+$/, "")) || directoryPath,
+      mime: "inode/directory",
+      size: 0,
+      path: directoryPath,
+      kind: "directory",
+    }
+  })
 }
 
 async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachmentPath | null> {

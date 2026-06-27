@@ -19,6 +19,7 @@ import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOr
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
+import type { SkillPageTab } from "@/routes/Skills/skill-route-model"
 import type { ChatStatus } from "ai"
 
 import {
@@ -77,7 +78,8 @@ import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
-import { useChatService } from "@/components/AppContext"
+import { useChatService, useSkillService } from "@/components/AppContext"
+import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
@@ -104,6 +106,7 @@ import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { visibleUserText } from "@/routes/Chat/message-text"
+import { getInstallableOrganizationSkills, getOrganizationSkillRuntimeStatus } from "@/routes/Skills/skill-route-model"
 
 type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 type ProjectSelectionSource = "composer" | "sidebar"
@@ -1687,11 +1690,13 @@ function AppUpdateTitlebarEntry() {
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
+  const skillService = useSkillService()
   const auth = useAuth()
   const [ready, setReady] = React.useState(false)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace)
+  const skillInventory = useSkillInventoryResource()
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -1714,6 +1719,7 @@ export function AppShell() {
     refresh: refreshSessions,
   } = useSessions({ enabled: ready && sessionScope !== null, scope: sessionScope ?? undefined })
   const [route, setRoute] = React.useState<Route>(initialRoute)
+  const [skillsFocusRequest, setSkillsFocusRequest] = React.useState<{ nonce: number; tab: SkillPageTab } | null>(null)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
@@ -1750,6 +1756,9 @@ export function AppShell() {
     route === "chat" ? activeSessionId : null,
   )
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
+  const installedSkillGroupById = React.useMemo(() => {
+    return new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group]))
+  }, [skillInventory.data?.groups])
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   const [connectionAuthIntent, setConnectionAuthIntent] = React.useState<ConnectionAuthIntent | null>(null)
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
@@ -1779,6 +1788,8 @@ export function AppShell() {
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
+  const organizationSkillInstallInFlightRef = React.useRef(false)
+  const shownOrganizationSkillNoticeKeysRef = React.useRef<Set<string>>(new Set())
   const titleGenerationInFlightBySession = React.useRef<Map<string, string>>(new Map())
   const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
   const titleGenerationRetryAfterBySession = React.useRef<Map<string, { key: string; retryAfter: number }>>(new Map())
@@ -1786,6 +1797,115 @@ export function AppShell() {
   React.useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
+
+  const focusOrganizationSkills = React.useCallback(() => {
+    setRoute("skills")
+    setSkillsFocusRequest({ nonce: Date.now(), tab: "organization" })
+  }, [])
+
+  const installOrganizationSkills = React.useCallback(
+    async (skills: Array<{ packageName: string; skillName: string }>): Promise<void> => {
+      if (organizationSkillInstallInFlightRef.current) {
+        return
+      }
+      organizationSkillInstallInFlightRef.current = true
+      try {
+        let nextInventory = skillInventory.data
+        for (const skill of skills) {
+          nextInventory = await skillService.invoke("installRegistrySkill", {
+            packageName: skill.packageName,
+            skillId: skill.skillName,
+          })
+        }
+        if (nextInventory) {
+          skillInventory.setData(nextInventory)
+        } else {
+          await skillInventory.refresh({ forceRefresh: true, silent: true })
+        }
+        toast.success(t("skills.organizationInstallDone"))
+      } catch (cause) {
+        toast.error(
+          t("skills.organizationInstallFailed", {
+            error: userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t),
+          }),
+        )
+        focusOrganizationSkills()
+      } finally {
+        organizationSkillInstallInFlightRef.current = false
+      }
+    },
+    [focusOrganizationSkills, skillInventory, skillService, t],
+  )
+
+  React.useEffect(() => {
+    if (
+      organizationWorkspace.activeWorkspace.type !== "organization" ||
+      !organizationSkills.hasLoaded ||
+      !skillInventory.data
+    ) {
+      return
+    }
+
+    const organizationId = organizationWorkspace.activeWorkspace.organizationId
+    const enabledSkills = organizationSkills.skills.filter((skill) => skill.enabled)
+    if (enabledSkills.length === 0) {
+      return
+    }
+
+    const installableSkills = getInstallableOrganizationSkills(installedSkillGroupById, enabledSkills)
+    const attentionCount = enabledSkills.filter((skill) => {
+      const state = getOrganizationSkillRuntimeStatus(installedSkillGroupById, skill).state
+      return state !== "installed-same" && state !== "missing" && state !== "external-only"
+    }).length
+    if (installableSkills.length === 0 && attentionCount === 0) {
+      return
+    }
+
+    const stateKey = enabledSkills
+      .map((skill) => {
+        const state = getOrganizationSkillRuntimeStatus(installedSkillGroupById, skill).state
+        return [skill.packageName, skill.skillName, skill.version, state].join(":")
+      })
+      .sort()
+      .join("|")
+    const noticeKey = `${organizationId}:${stateKey}`
+    if (shownOrganizationSkillNoticeKeysRef.current.has(noticeKey)) {
+      return
+    }
+    shownOrganizationSkillNoticeKeysRef.current.add(noticeKey)
+
+    const extra = attentionCount > 0 ? t("skills.organizationInstallNoticeExtra", { count: attentionCount }) : ""
+    toast(
+      installableSkills.length > 0
+        ? t("skills.organizationInstallNoticeTitle", { count: installableSkills.length })
+        : t("skills.organizationInstallReviewTitle", { count: attentionCount }),
+      {
+        description:
+          installableSkills.length > 0
+            ? t("skills.organizationInstallNoticeDescription", { extra })
+            : t("skills.organizationInstallReviewDescription"),
+        action:
+          installableSkills.length > 0
+            ? {
+                label: t("skills.organizationInstallNoticeAction"),
+                onClick: () => void installOrganizationSkills(installableSkills),
+              }
+            : {
+                label: t("skills.organizationInstallNoticeReview"),
+                onClick: focusOrganizationSkills,
+              },
+      },
+    )
+  }, [
+    focusOrganizationSkills,
+    installOrganizationSkills,
+    installedSkillGroupById,
+    organizationSkills.hasLoaded,
+    organizationSkills.skills,
+    organizationWorkspace.activeWorkspace,
+    skillInventory.data,
+    t,
+  ])
 
   React.useEffect(() => {
     let cancelled = false
@@ -3293,7 +3413,11 @@ export function AppShell() {
                   />
                 </div>
               ) : route === "skills" ? (
-                <SkillsRoute organizationSkills={organizationSkills} workspace={organizationWorkspace} />
+                <SkillsRoute
+                  focusRequest={skillsFocusRequest}
+                  organizationSkills={organizationSkills}
+                  workspace={organizationWorkspace}
+                />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute workspace={organizationWorkspace} />
               ) : (

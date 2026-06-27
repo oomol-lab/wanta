@@ -57,7 +57,6 @@ import {
 } from "../../../electron/session/title.ts"
 import {
   appendQueuedMessage,
-  consumeNextQueuedMessage,
   moveQueuedMessage,
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
@@ -2521,6 +2520,7 @@ export function AppShell() {
       attachments: ChatAttachment[] = [],
       contextMentions: ChatContextMention[] = [],
       model?: ModelChoice,
+      afterOptimisticSubmit?: () => void,
     ): Promise<boolean> => {
       if (sendInFlightRef.current) {
         return false
@@ -2592,12 +2592,14 @@ export function AppShell() {
           },
         )
         try {
-          await send(sessionId, text, attachments, {
+          const sendPromise = send(sessionId, text, attachments, {
             contextMentions,
             model,
             organizationSkills: organizationSkills.chatContextSkills,
             projectContext: activeProjectContext,
           })
+          afterOptimisticSubmit?.()
+          await sendPromise
         } catch (error) {
           if (bridgeEmptySend) {
             setPendingChatTransition(null)
@@ -2684,21 +2686,29 @@ export function AppShell() {
     if (queue.length === 0) {
       return
     }
-    const consumed = consumeNextQueuedMessage(queuedMessagesBySession, activeSessionId)
-    const { message } = consumed
+    const message = queue[0] ?? null
     if (!message) {
       return
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
-    setQueuedMessagesBySession(consumed.queues)
-    void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model)
+    void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model, () => {
+      setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
+    })
       .then((accepted) => {
         if (!accepted) {
-          setQueuedMessagesBySession((current) => appendQueuedMessage(current, message))
+          setQueuedMessagesBySession((current) =>
+            current[activeSessionId]?.some((item) => item.id === message.id)
+              ? current
+              : appendQueuedMessage(current, message),
+          )
         }
       })
       .catch((cause: unknown) => {
-        setQueuedMessagesBySession((current) => appendQueuedMessage(current, message))
+        setQueuedMessagesBySession((current) =>
+          current[activeSessionId]?.some((item) => item.id === message.id)
+            ? current
+            : appendQueuedMessage(current, message),
+        )
         console.error("[wanta] dispatch queued message failed", cause)
       })
       .finally(() => {

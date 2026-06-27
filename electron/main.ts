@@ -287,8 +287,14 @@ function registerAttachmentDialogHandler(): void {
     if (result.canceled || !result.filePaths[0]) {
       return null
     }
-    const directory = await selectedAttachmentPath(result.filePaths[0])
-    return directory?.kind === "directory" ? directory : null
+    const directoryPath = result.filePaths[0]
+    return {
+      name: path.basename(directoryPath.replace(/[\\/]+$/, "")) || directoryPath,
+      mime: "inode/directory",
+      size: 0,
+      path: directoryPath,
+      kind: "directory",
+    }
   })
 }
 

@@ -1720,7 +1720,7 @@
   .oo-markdown-image-viewer {
     position: fixed;
     inset: 0;
-    z-index: 50;
+    z-index: 120;
     overflow: hidden;
     background: rgb(0 0 0 / 74%);
     -webkit-app-region: no-drag;

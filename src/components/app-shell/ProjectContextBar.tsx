@@ -9,7 +9,6 @@ import { toast } from "sonner"
 import { projectGitView } from "./project-git-view.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { useT } from "@/i18n/i18n"
-import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 interface ProjectContextBarProps {
@@ -59,35 +58,6 @@ function sortBranchesForMenu(branches: GitBranchInfo[]): GitBranchInfo[] {
     }
     return left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: "base" })
   })
-}
-
-function gitUnavailableLabel(kind: "not_repository" | "unavailable", t: ReturnType<typeof useT>): string {
-  if (kind === "not_repository") {
-    return t("git.notRepositoryShort")
-  }
-  return t("git.unknownShort")
-}
-
-function gitUnavailableTitle(view: ReturnType<typeof projectGitView>, t: ReturnType<typeof useT>): string {
-  if (view.kind === "not_repository") {
-    return view.message ?? t("git.notRepository")
-  }
-  if (view.kind !== "unavailable") {
-    return ""
-  }
-  if (view.error) {
-    return userFacingErrorDescription(view.error, t)
-  }
-  switch (view.state?.error) {
-    case "git_unavailable":
-      return t("git.unavailable")
-    case "path_unavailable":
-      return t("git.pathUnavailable")
-    case "timeout":
-      return t("git.timeout")
-    default:
-      return t("git.unknown")
-  }
 }
 
 function useContextMenuPlacement(
@@ -286,13 +256,12 @@ export function ProjectContextBar({
   return (
     <div ref={rootRef} className="flex min-w-0 items-center gap-3 overflow-hidden">
       <div ref={projectAnchorRef} className="relative min-w-0">
-        <ContextChip
+        <ProjectChip
           active={projectOpen}
           disabled={disabled}
-          icon={<Folder className="size-3.5" />}
-          label={activeProject?.name ?? t("project.noProject")}
-          title={activeProject?.path ?? t("project.noProject")}
-          onClick={() => {
+          project={activeProject}
+          onClear={() => void selectProject(undefined)}
+          onOpen={() => {
             setProjectOpen((open) => !open)
             setGitOpen(false)
           }}
@@ -316,7 +285,7 @@ export function ProjectContextBar({
           <ContextChip
             active={gitOpen}
             disabled={disabled}
-            icon={gitLoading ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitBranch className="size-3.5" />}
+            icon={<GitBranch className="size-3.5" />}
             indicator={gitView.state.dirty ? "dirty" : undefined}
             label={gitView.branchLabel}
             title={gitView.state.repositoryRoot ?? gitView.branchLabel}
@@ -349,21 +318,69 @@ export function ProjectContextBar({
           label={t("git.loading")}
           title={t("git.loading")}
         />
-      ) : gitView.kind === "no_project" ? (
-        <ContextChip
-          disabled
-          icon={<GitBranch className="size-3.5" />}
-          label={t("git.selectProject")}
-          title={t("git.selectProjectDescription")}
-        />
-      ) : gitView.kind === "not_repository" || gitView.kind === "unavailable" ? (
-        <ContextChip
-          disabled
-          icon={<GitBranch className="size-3.5" />}
-          label={gitUnavailableLabel(gitView.kind, t)}
-          title={gitUnavailableTitle(gitView, t)}
-        />
       ) : null}
+    </div>
+  )
+}
+
+function ProjectChip({
+  active = false,
+  disabled = false,
+  project,
+  onClear,
+  onOpen,
+}: {
+  active?: boolean
+  disabled?: boolean
+  project?: SessionProject
+  onClear: () => void
+  onOpen: () => void
+}) {
+  const t = useT()
+  if (!project) {
+    return (
+      <ContextChip
+        active={active}
+        disabled={disabled}
+        icon={<Folder className="size-3.5" />}
+        label={t("project.chooseProject")}
+        title={t("project.chooseProject")}
+        onClick={onOpen}
+      />
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        "group relative flex h-8 max-w-52 min-w-0 items-center rounded-md text-[0.8125rem] leading-[1.125rem] font-medium text-muted-foreground outline-none focus-within:bg-accent focus-within:text-foreground hover:bg-accent hover:text-foreground",
+        active && "bg-accent text-foreground",
+        disabled && "pointer-events-none opacity-55",
+      )}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        title={project.path}
+        aria-expanded={active}
+        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 text-left outline-none"
+        onClick={onOpen}
+      >
+        <span className="grid size-3.5 shrink-0 place-items-center opacity-85">
+          <Folder className="size-3.5 transition-opacity group-focus-within:opacity-0 group-hover:opacity-0" />
+        </span>
+        <span className="min-w-0 truncate">{project.name}</span>
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        title={t("project.noProject")}
+        aria-label={t("project.noProject")}
+        className="pointer-events-none absolute left-1.5 grid size-3.5 place-items-center rounded-full bg-muted-foreground text-background opacity-0 transition-opacity outline-none group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-foreground focus-visible:pointer-events-auto focus-visible:opacity-100"
+        onClick={onClear}
+      >
+        <X className="size-2.5" />
+      </button>
     </div>
   )
 }
@@ -392,7 +409,7 @@ function ContextChip({
       title={title}
       aria-expanded={active}
       className={cn(
-        "flex h-7 max-w-52 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground disabled:pointer-events-none disabled:opacity-55",
+        "flex h-8 max-w-52 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-[0.8125rem] leading-[1.125rem] font-medium text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus:bg-accent focus:text-foreground disabled:pointer-events-none disabled:opacity-55",
         active && "bg-accent text-foreground",
       )}
       onClick={onClick}
@@ -604,11 +621,7 @@ function GitMenu({
                   )}
                   onClick={() => void onCheckoutBranch(branch)}
                 >
-                  {busyBranch === branch.name ? (
-                    <LoaderCircle className="size-4 animate-spin" />
-                  ) : (
-                    <GitBranch className={cn("size-4", branch.current ? "text-foreground" : "text-muted-foreground")} />
-                  )}
+                  <GitBranch className={cn("size-4", branch.current ? "text-foreground" : "text-muted-foreground")} />
                   <span className="grid min-w-0 gap-0.5">
                     <span className="oo-text-value truncate">{branch.name}</span>
                     {dirtyLabel ? (
@@ -633,11 +646,7 @@ function GitMenu({
               className="relative flex w-full items-center gap-3 rounded-sm px-2 py-2 text-left text-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:cursor-default disabled:opacity-60"
               onClick={() => void onCreateAndCheckoutBranch(createBranchName)}
             >
-              {busyBranch === createBranchName ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <Plus className="size-4" />
-              )}
+              <Plus className="size-4" />
               {t("git.createAndCheckoutBranch")}
             </button>
           </div>

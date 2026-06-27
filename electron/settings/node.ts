@@ -7,9 +7,10 @@ import { ConnectionService } from "@oomol/connection"
 import { BrowserWindow, nativeTheme } from "electron"
 import {
   buildWindowsTitleBarOverlay,
+  nativeWindowMaterialForPlatform,
   resolveWindowsTitleBarTheme,
   shouldApplyWindowsTitleBarTheme,
-  windowBackgroundColorForTheme,
+  windowBackgroundColorForMaterial,
 } from "../window/title-bar-overlay.ts"
 import { SettingsService as SettingsServiceName } from "./common.ts"
 
@@ -87,9 +88,13 @@ export class SettingsServiceImpl
     }
 
     const overlay = buildWindowsTitleBarOverlay(nextTheme)
-    const backgroundColor = windowBackgroundColorForTheme(nextTheme)
+    const material = nativeWindowMaterialForPlatform(process.platform)
+    const backgroundColor = windowBackgroundColorForMaterial(nextTheme, material)
     for (const window of windows) {
       window.setBackgroundColor(backgroundColor)
+      if (material === "windows-mica") {
+        window.setBackgroundMaterial("mica")
+      }
       window.setTitleBarOverlay(overlay)
     }
     this.lastAppliedWindowsTitleBarTheme = nextTheme

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   buildWindowsTitleBarOverlay,
+  nativeWindowMaterialForPlatform,
   resolveWindowsTitleBarTheme,
   shouldApplyWindowsTitleBarTheme,
+  transparentWindowBackgroundColor,
+  windowBackgroundColorForMaterial,
   windowBackgroundColorForTheme,
   windowsTitleBarOverlayHeight,
 } from "./title-bar-overlay.ts"
@@ -29,6 +32,26 @@ describe("windowBackgroundColorForTheme", () => {
   it("matches the overlay background color", () => {
     expect(windowBackgroundColorForTheme("light")).toBe("#ffffff")
     expect(windowBackgroundColorForTheme("dark")).toBe("#111113")
+  })
+})
+
+describe("nativeWindowMaterialForPlatform", () => {
+  it("uses native materials only where Electron supports them", () => {
+    expect(nativeWindowMaterialForPlatform("darwin")).toBe("macos-vibrancy")
+    expect(nativeWindowMaterialForPlatform("win32")).toBe("windows-mica")
+    expect(nativeWindowMaterialForPlatform("linux")).toBe("none")
+  })
+})
+
+describe("windowBackgroundColorForMaterial", () => {
+  it("keeps Linux and unsupported platforms opaque", () => {
+    expect(windowBackgroundColorForMaterial("light", "none")).toBe("#ffffff")
+    expect(windowBackgroundColorForMaterial("dark", "none")).toBe("#111113")
+  })
+
+  it("uses a transparent window background when native material is active", () => {
+    expect(windowBackgroundColorForMaterial("light", "macos-vibrancy")).toBe(transparentWindowBackgroundColor)
+    expect(windowBackgroundColorForMaterial("dark", "windows-mica")).toBe(transparentWindowBackgroundColor)
   })
 })
 

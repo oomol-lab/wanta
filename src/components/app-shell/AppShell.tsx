@@ -1227,33 +1227,37 @@ function ProjectSidebarGroupItem({
   const hasSessions = group.sessions.length > 0
   const toggleLabel = expanded ? t("project.collapse") : t("project.expand")
   const projectTitle = t("project.newTask")
+  const toggleTitle = `${toggleLabel}: ${group.project.name}`
 
   return (
     <section className="grid gap-1">
       <div className="group oo-sidebar-nav-item oo-text-body flex h-8 items-center rounded-md px-3">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          title={projectTitle}
-          aria-label={projectTitle}
-          onClick={() => onNewSession(group.project)}
+          className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+          title={toggleTitle}
+          aria-label={toggleTitle}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
         >
           <Folder className="size-4 shrink-0 text-sidebar-foreground/75" />
-          <span className="min-w-0 shrink">
-            <span className="oo-sidebar-nav-label block truncate" title={group.project.name}>
-              {group.project.name}
-            </span>
+          <span className="oo-sidebar-nav-label min-w-0 truncate" title={group.project.name}>
+            {group.project.name}
           </span>
+          {expanded ? (
+            <ChevronDown className="size-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
+          )}
         </button>
         <button
           type="button"
-          title={toggleLabel}
-          aria-label={toggleLabel}
-          aria-expanded={expanded}
-          className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          onClick={() => setExpanded((current) => !current)}
+          title={projectTitle}
+          aria-label={projectTitle}
+          className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          onClick={() => onNewSession(group.project)}
         >
-          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          <SquarePen className="size-3.5" />
         </button>
       </div>
       {expanded ? (
@@ -1912,7 +1916,7 @@ export function AppShell() {
       needsDefaultSessionSelection ||
       Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition))
   const showChatEmptyState = ready && sessionsLoaded && !activeSessionId && !pendingChatTransition
-  const showComposerProjectContext = sidebarSegment === "projects" && activeProject !== undefined
+  const showComposerProjectContext = sidebarSegment === "projects"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
@@ -2934,13 +2938,13 @@ export function AppShell() {
                       </div>
                     ) : null}
                     <div className="grid gap-1">
-                      <div className="flex items-center justify-between px-3 pt-1">
+                      <div className="group flex items-center justify-between px-3 pt-1">
                         <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.projects")}</div>
                         <button
                           type="button"
                           title={t("project.selectFolder")}
                           aria-label={t("project.selectFolder")}
-                          className="flex size-6 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                          className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                           onClick={() => void handleSelectProjectFolder()}
                         >
                           <FolderPlus className="size-3.5" />

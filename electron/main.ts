@@ -46,8 +46,9 @@ import { UpdateServiceImpl } from "./update/node.ts"
 import { buildApplicationMenuTemplate } from "./window/application-menu.ts"
 import {
   buildWindowsTitleBarOverlay,
+  nativeWindowMaterialForPlatform,
   resolveWindowsTitleBarTheme,
-  windowBackgroundColorForTheme,
+  windowBackgroundColorForMaterial,
 } from "./window/title-bar-overlay.ts"
 import { createWindowsCloseHandler, revealWindowFromTray } from "./window/windows-tray-close-behavior.ts"
 import { createWindowsTrayLifecycle } from "./window/windows-tray-lifecycle.ts"
@@ -517,7 +518,8 @@ function createMainWindow(): void {
   installPermissionRequestHandler()
   const isMac = process.platform === "darwin"
   const titleBarTheme = resolveWindowsTitleBarTheme(nativeTheme.shouldUseDarkColors)
-  const backgroundColor = windowBackgroundColorForTheme(titleBarTheme)
+  const nativeMaterial = nativeWindowMaterialForPlatform(process.platform)
+  const backgroundColor = windowBackgroundColorForMaterial(titleBarTheme, nativeMaterial)
 
   mainWindow = new BrowserWindow({
     width: 1080,
@@ -528,11 +530,19 @@ function createMainWindow(): void {
     title: branding.appName,
     icon: getBrandingResourcePath("icon.png"),
     backgroundColor,
+    ...(nativeMaterial === "none" ? {} : { transparent: true }),
     titleBarStyle: "hidden",
-    ...(isMac ? { trafficLightPosition: macTrafficLightPosition } : {}),
+    ...(isMac
+      ? {
+          trafficLightPosition: macTrafficLightPosition,
+          vibrancy: "sidebar",
+          visualEffectState: "followWindow",
+        }
+      : {}),
     ...(isMac
       ? {}
       : {
+          ...(nativeMaterial === "windows-mica" ? { backgroundMaterial: "mica" } : {}),
           frame: false,
           titleBarOverlay: buildWindowsTitleBarOverlay(titleBarTheme),
         }),

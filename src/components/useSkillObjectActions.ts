@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { useAppI18n } from "../i18n/index.ts"
 import { resolveUserFacingError, userFacingErrorDescription } from "../lib/user-facing-error.ts"
 import { useSkillService } from "./AppContext.ts"
-import { useSkillInventoryResource, useSkillVersionReportResource } from "./AppDataHooks.ts"
+import { useHomeSummaryResource, useSkillInventoryResource, useSkillVersionReportResource } from "./AppDataHooks.ts"
 
 interface UseSkillObjectActionsOptions {
   onDeleted?: (inventory: SkillInventory) => void
@@ -24,6 +24,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
   const { onDeleted } = options
   const { t } = useAppI18n()
   const skillService = useSkillService()
+  const homeSummaryResource = useHomeSummaryResource()
   const inventoryResource = useSkillInventoryResource()
   const versionResource = useSkillVersionReportResource()
   const [removeTarget, setRemoveTarget] = React.useState<SkillRemoveTarget | null>(null)
@@ -74,6 +75,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       })
       inventoryResource.setData(nextInventory)
       versionResource.invalidate()
+      homeSummaryResource.invalidate()
       await refreshSkillResources()
       if (!nextInventory.groups.some((group) => group.id === target.skill.id)) {
         onDeleted?.(nextInventory)
@@ -86,7 +88,16 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       isRemovingSkillRef.current = false
       setIsRemovingSkill(false)
     }
-  }, [inventoryResource, onDeleted, refreshSkillResources, removeTarget, skillService, t, versionResource])
+  }, [
+    homeSummaryResource,
+    inventoryResource,
+    onDeleted,
+    refreshSkillResources,
+    removeTarget,
+    skillService,
+    t,
+    versionResource,
+  ])
 
   return {
     copySkillPath,

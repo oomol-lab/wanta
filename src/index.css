@@ -875,14 +875,23 @@
   }
 
   .oo-session-search-input {
-    border-color: color-mix(in oklab, var(--input-focus-ring) 36%, var(--border));
+    border-color: var(--input);
     background: var(--oo-search-surface);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--input-focus-ring) 18%, transparent);
     color: var(--foreground);
   }
 
+  .oo-session-search-input:has([data-slot="input-group-control"]:focus-visible) {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 24%, transparent);
+  }
+
+  .oo-session-search-input [data-slot="input-group-control"]:focus-visible {
+    border-color: transparent;
+    box-shadow: none;
+  }
+
   .oo-session-search-result {
-    color: var(--foreground);
+    color: var(--popover-foreground);
     outline: none;
     transition:
       background-color 120ms ease-out,
@@ -893,6 +902,11 @@
   .oo-session-search-result:hover,
   .oo-session-search-result:focus-visible {
     background: var(--oo-row-hover);
+  }
+
+  .oo-session-search-result[aria-selected="true"] {
+    background: var(--selection-soft);
+    box-shadow: inset 0 0 0 1px var(--selection-ring);
   }
 
   .oo-session-search-result:focus-visible {

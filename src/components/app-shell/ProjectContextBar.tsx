@@ -128,9 +128,7 @@ export function ProjectContextBar({
     if (!query) {
       return projects
     }
-    return projects.filter(
-      (project) => normalizedQuery(project.name).includes(query) || normalizedQuery(project.path).includes(query),
-    )
+    return projects.filter((project) => normalizedQuery(project.name).includes(query))
   }, [projectQuery, projects])
   const visibleBranches = React.useMemo(() => {
     const query = normalizedQuery(branchQuery)
@@ -494,10 +492,7 @@ function ProjectMenu({
             onClick={() => void onSelectProject(project.id)}
           >
             <Folder className="size-4 text-muted-foreground" />
-            <span className="grid min-w-0 gap-0.5">
-              <span className="oo-text-value truncate">{project.name}</span>
-              <span className="oo-text-caption-compact truncate text-muted-foreground">{project.path}</span>
-            </span>
+            <span className="oo-text-body min-w-0 truncate">{project.name}</span>
             {project.id === activeProjectId ? <Check className="size-4" /> : <span aria-hidden="true" />}
           </button>
         ))}

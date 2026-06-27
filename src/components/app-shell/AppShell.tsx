@@ -83,7 +83,7 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useAuth } from "@/hooks/useAuth"
@@ -1090,10 +1090,13 @@ function SessionSearchOverlay({
       }}
     >
       <section className="oo-modal-surface w-full max-w-[520px] rounded-lg border p-5">
-        <div className="oo-session-search-input oo-text-title flex h-10 min-w-0 items-center gap-2 rounded-lg border px-3">
-          <Search className="size-4 shrink-0 text-muted-foreground" />
-          <Input
+        <InputGroup className="oo-session-search-input h-10 rounded-lg shadow-none">
+          <InputGroupAddon align="inline-start">
+            <Search className="size-4" aria-hidden="true" />
+          </InputGroupAddon>
+          <InputGroupInput
             ref={inputRef}
+            type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("sidebar.searchPlaceholder")}
@@ -1101,10 +1104,14 @@ function SessionSearchOverlay({
             aria-activedescendant={activeResultId}
             aria-controls="session-search-results"
             aria-expanded="true"
-            className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+            autoCapitalize="none"
+            autoComplete="off"
+            autoCorrect="off"
+            className="oo-text-title h-8 min-w-0"
             role="combobox"
+            spellCheck={false}
           />
-        </div>
+        </InputGroup>
 
         <p className="oo-text-control mt-4 px-3 text-muted-foreground">
           {t("sidebar.searchResults", { count: filteredSessions.length })}
@@ -1133,10 +1140,7 @@ function SessionSearchOverlay({
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => selectSession(session)}
                 title={session.title}
-                className={cn(
-                  "oo-session-search-result oo-text-value flex h-10 min-w-0 items-center rounded-lg px-3 text-left",
-                  index === activeIndex && "bg-accent text-accent-foreground",
-                )}
+                className="oo-session-search-result oo-text-label flex h-9 min-w-0 items-center rounded-md px-3 text-left"
               >
                 <span className="truncate">{session.title}</span>
               </button>
@@ -2971,10 +2975,7 @@ export function AppShell() {
               title={newChatLabel}
               aria-label={newChatLabel}
               aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.newChat)}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                route === "chat" && !activeSessionId && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
+              className="oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2"
             >
               <SquarePen className="size-4 shrink-0" />
               <span className="oo-sidebar-nav-label truncate">{t("sidebar.newSession")}</span>

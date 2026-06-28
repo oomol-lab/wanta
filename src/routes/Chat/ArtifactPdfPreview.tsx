@@ -2,9 +2,11 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from "pdfjs
 
 import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react"
 import * as pdfjs from "pdfjs-dist"
+import { EventBus, LinkTarget, SimpleLinkService } from "pdfjs-dist/web/pdf_viewer.mjs"
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
+import "pdfjs-dist/web/pdf_viewer.css"
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString()
 
@@ -29,6 +31,7 @@ function isCancellation(error: unknown): boolean {
 
 interface RenderedPageMetrics {
   height: number
+  pageNumber: number
   width: number
 }
 
@@ -36,9 +39,12 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRefs = React.useRef<[HTMLCanvasElement | null, HTMLCanvasElement | null]>([null, null])
+  const textLayerRefs = React.useRef<[HTMLDivElement | null, HTMLDivElement | null]>([null, null])
+  const annotationLayerRefs = React.useRef<[HTMLDivElement | null, HTMLDivElement | null]>([null, null])
   const activeBufferRef = React.useRef<0 | 1>(0)
   const documentTaskRef = React.useRef<PDFDocumentLoadingTask | null>(null)
   const renderTaskRef = React.useRef<RenderTask | null>(null)
+  const linkServiceRef = React.useRef<SimpleLinkService | null>(null)
   const renderGenerationRef = React.useRef(0)
   const renderedPageWidthRef = React.useRef<number | null>(null)
   const resizeRenderTimerRef = React.useRef<number | null>(null)
@@ -55,12 +61,15 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
   const [renderedPage, setRenderedPage] = React.useState<RenderedPageMetrics | null>(null)
   const [renderedPageWidth, setRenderedPageWidth] = React.useState<number | null>(null)
   const [pageAspectRatio, setPageAspectRatio] = React.useState(defaultPageAspectRatio)
+  const currentRenderedPage = renderedPage?.pageNumber === pageNumber ? renderedPage : null
   const pageWidth = containerWidth === null ? null : pageWidthForContainer(containerWidth, scale)
   const pageHeight = pageWidth === null ? 0 : Math.round(pageWidth * pageAspectRatio)
   const visualScale =
-    pageWidth !== null && renderedPage !== null && renderedPage.width > 0 ? pageWidth / renderedPage.width : 1
+    pageWidth !== null && currentRenderedPage !== null && currentRenderedPage.width > 0
+      ? pageWidth / currentRenderedPage.width
+      : 1
   const pageReady = pageWidth !== null && renderedPageWidth !== null
-  const loading = !loadFailed && (!document || !renderedPage)
+  const loading = !loadFailed && (!document || !currentRenderedPage)
 
   const clearPendingRenderedWidth = React.useCallback(() => {
     if (resizeRenderTimerRef.current !== null) {
@@ -130,6 +139,7 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
     setActiveBuffer(0)
     activeBufferRef.current = 0
     setDocument(null)
+    linkServiceRef.current = null
     setLoadFailed(false)
     setNumPages(0)
     setPageNumber(1)
@@ -150,6 +160,13 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
           void nextDocument.destroy()
           return
         }
+        const linkService = new SimpleLinkService({
+          eventBus: new EventBus(),
+          externalLinkRel: "noopener noreferrer nofollow",
+          externalLinkTarget: LinkTarget.BLANK,
+        })
+        linkService.setDocument(nextDocument)
+        linkServiceRef.current = linkService
         setDocument(nextDocument)
         setNumPages(nextDocument.numPages)
       })
@@ -176,6 +193,7 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
     renderTaskRef.current?.cancel()
     renderTaskRef.current = null
     let renderTask: RenderTask | null = null
+    let textLayerRender: InstanceType<typeof pdfjs.TextLayer> | null = null
     let cancelled = false
 
     void document
@@ -200,12 +218,17 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
         const viewport = page.getViewport({ scale: (cssWidth / baseViewport.width) * pixelRatio })
         const buffer = activeBufferRef.current === 0 ? 1 : 0
         const canvas = canvasRefs.current[buffer]
+        const textLayer = textLayerRefs.current[buffer]
+        const annotationLayer = annotationLayerRefs.current[buffer]
+        const linkService = linkServiceRef.current
         const context = canvas?.getContext("2d", { alpha: false })
-        if (!canvas || !context) {
+        if (!canvas || !context || !textLayer || !annotationLayer || !linkService) {
           setLoadFailed(true)
           return
         }
 
+        textLayer.replaceChildren()
+        annotationLayer.replaceChildren()
         canvas.width = Math.max(1, Math.round(viewport.width))
         canvas.height = Math.max(1, Math.round(viewport.height))
         canvas.style.width = `${cssWidth}px`
@@ -216,17 +239,65 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
         renderTask = page.render({
           canvas,
           viewport,
+          annotationMode: pdfjs.AnnotationMode.DISABLE,
           background: "#ffffff",
         })
         renderTaskRef.current = renderTask
 
-        return renderTask.promise.then(() => {
+        return renderTask.promise.then(async () => {
+          if (cancelled || renderGenerationRef.current !== generation) {
+            return
+          }
+
+          textLayerRender = new pdfjs.TextLayer({
+            container: textLayer,
+            textContentSource: page.streamTextContent({
+              disableNormalization: true,
+              includeMarkedContent: true,
+            }),
+            viewport,
+          })
+          await textLayerRender.render()
+          if (cancelled || renderGenerationRef.current !== generation) {
+            return
+          }
+
+          const endOfContent = window.document.createElement("div")
+          endOfContent.className = "endOfContent"
+          textLayer.append(endOfContent)
+
+          const annotations = await page.getAnnotations({ intent: "display" })
+          if (cancelled || renderGenerationRef.current !== generation) {
+            return
+          }
+
+          const annotationLayerRender = new pdfjs.AnnotationLayer({
+            accessibilityManager: undefined,
+            annotationCanvasMap: undefined,
+            annotationEditorUIManager: undefined,
+            annotationStorage: document.annotationStorage,
+            commentManager: undefined,
+            div: annotationLayer,
+            linkService,
+            page,
+            structTreeLayer: undefined,
+            viewport,
+          })
+          await annotationLayerRender.render({
+            annotationStorage: document.annotationStorage,
+            annotations,
+            div: annotationLayer,
+            linkService,
+            page,
+            renderForms: true,
+            viewport,
+          })
           if (cancelled || renderGenerationRef.current !== generation) {
             return
           }
           activeBufferRef.current = buffer
           setActiveBuffer(buffer)
-          setRenderedPage({ height: cssHeight, width: cssWidth })
+          setRenderedPage({ height: cssHeight, pageNumber, width: cssWidth })
           setLoadFailed(false)
         })
       })
@@ -238,6 +309,7 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
 
     return () => {
       cancelled = true
+      textLayerRender?.cancel()
       renderTask?.cancel()
     }
   }, [document, pageNumber, renderedPageWidth])
@@ -315,7 +387,9 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
         {pageReady ? (
           <div
             className={
-              renderedPage ? "flex justify-center" : "pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0"
+              currentRenderedPage
+                ? "flex justify-center"
+                : "pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0"
             }
           >
             <div
@@ -328,10 +402,10 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
               <div
                 className="absolute top-0 left-0 will-change-transform"
                 style={{
-                  height: renderedPage?.height ?? pageHeight,
+                  height: currentRenderedPage?.height ?? pageHeight,
                   transform: `scale(${visualScale})`,
                   transformOrigin: "top left",
-                  width: renderedPage?.width ?? renderedPageWidth,
+                  width: currentRenderedPage?.width ?? renderedPageWidth,
                 }}
               >
                 <canvas
@@ -339,14 +413,38 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
                     canvasRefs.current[0] = canvas
                   }}
                   aria-label={name}
-                  className={activeBuffer === 0 && renderedPage ? "block" : "hidden"}
+                  className={activeBuffer === 0 && currentRenderedPage ? "block" : "hidden"}
                 />
                 <canvas
                   ref={(canvas) => {
                     canvasRefs.current[1] = canvas
                   }}
                   aria-label={name}
-                  className={activeBuffer === 1 && renderedPage ? "block" : "hidden"}
+                  className={activeBuffer === 1 && currentRenderedPage ? "block" : "hidden"}
+                />
+                <div
+                  ref={(layer) => {
+                    textLayerRefs.current[0] = layer
+                  }}
+                  className={activeBuffer === 0 && currentRenderedPage ? "textLayer" : "textLayer hidden"}
+                />
+                <div
+                  ref={(layer) => {
+                    textLayerRefs.current[1] = layer
+                  }}
+                  className={activeBuffer === 1 && currentRenderedPage ? "textLayer" : "textLayer hidden"}
+                />
+                <div
+                  ref={(layer) => {
+                    annotationLayerRefs.current[0] = layer
+                  }}
+                  className={activeBuffer === 0 && currentRenderedPage ? "annotationLayer" : "annotationLayer hidden"}
+                />
+                <div
+                  ref={(layer) => {
+                    annotationLayerRefs.current[1] = layer
+                  }}
+                  className={activeBuffer === 1 && currentRenderedPage ? "annotationLayer" : "annotationLayer hidden"}
                 />
               </div>
             </div>

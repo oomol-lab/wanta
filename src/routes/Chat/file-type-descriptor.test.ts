@@ -64,4 +64,17 @@ describe("fileTypeDescriptor", () => {
       tone: "web_page",
     })
   })
+
+  it("keeps directories visually distinct from regular files", () => {
+    expect(
+      fileTypeDescriptor({
+        kind: "directory",
+        mime: "inode/directory",
+        name: "folder",
+      }),
+    ).toMatchObject({
+      iconKey: "directory",
+      tone: "directory",
+    })
+  })
 })

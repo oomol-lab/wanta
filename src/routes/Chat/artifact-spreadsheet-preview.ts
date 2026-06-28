@@ -5,7 +5,7 @@ export function spreadsheetPreviewSheets(preview: LocalArtifactPreviewResult): L
   if (!sheet) {
     return []
   }
-  if (sheet.workbook?.length) {
+  if (sheet.workbook) {
     return sheet.workbook
   }
   return [

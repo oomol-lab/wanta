@@ -285,7 +285,8 @@ function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
 function flattenPanelEntries(groups: ResolvedArtifactGroup[]): ArtifactPanelEntry[] {
   return groups.flatMap(({ messageId, group, pack }, groupIndex) => {
     const items = pack ? packDisplayItems(pack) : group.items
-    return items.map((item) => ({
+    const panelItems = items.length > 0 ? items : group.root ? [group.root] : []
+    return panelItems.map((item) => ({
       key: `${messageId}:${group.root?.path ?? groupIndex}:${item.path}`,
       messageId,
       group,
@@ -322,21 +323,20 @@ function GeneratedArtifactsGroup({
 }) {
   const t = useT()
   const visibleItems = group.items.slice(0, previewLimit)
-  const primaryItem = group.items[0]
   const displayItem = artifactGroupDisplayItem(group, pack)
   const total = itemCount(group)
   const remaining = Math.max(0, total - visibleItems.length)
 
-  if (!primaryItem || !displayItem) {
+  if (!displayItem) {
     return null
   }
 
   return (
     <button
       type="button"
-      title={group.root?.path ?? primaryItem.path}
+      title={group.root?.path ?? displayItem.path}
       className="oo-border-divider flex min-w-0 flex-col gap-2 rounded-lg border bg-background/70 p-2 text-left shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-      onClick={() => onOpen(selectionWithContext(group, messageId, groups, primaryItem.path, pack))}
+      onClick={() => onOpen(selectionWithContext(group, messageId, groups, displayItem.path, pack))}
       onContextMenu={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -349,7 +349,7 @@ function GeneratedArtifactsGroup({
           <div className="oo-text-label truncate">{pack?.title ?? readableArtifactTitle(displayItem)}</div>
           <div className="oo-text-caption-compact truncate text-muted-foreground">
             {artifactMetaLabel(t, displayItem, pack)}
-            {group.items.length > 1 ? ` · ${artifactSummary(t, group)}` : ""}
+            {total > 1 ? ` · ${artifactSummary(t, group)}` : ""}
           </div>
         </div>
         <Badge variant="outline" className="oo-text-micro rounded-md px-1.5 py-0">
@@ -447,7 +447,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
 
   React.useEffect(() => {
     const resolved = groups.at(-1)
-    const selectedPath = resolved?.group.items[0]?.path
+    const selectedPath = resolved ? artifactGroupDisplayItem(resolved.group, resolved.pack)?.path : undefined
     if (resolved && selectedPath) {
       onAvailable(selectionWithContext(resolved.group, resolved.messageId, groups, selectedPath, resolved.pack))
     }
@@ -506,7 +506,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
   }, [selection])
   const entries = React.useMemo(() => flattenPanelEntries(groups), [groups])
   const showArtifactList = entries.length > 1
-  const fallbackPath = selection?.selectedPath ?? selection?.group.items[0]?.path ?? null
+  const fallbackPath = selection?.selectedPath ?? entries[0]?.item.path ?? selection?.group.root?.path ?? null
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
   const [previewMode, setPreviewMode] = React.useState<ArtifactPreviewMode>("preview")
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
@@ -536,7 +536,12 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
 
   React.useEffect(() => {
     setPreviewMode("preview")
-  }, [selectedItem?.path])
+  }, [selection])
+
+  const selectPreviewPath = React.useCallback((path: string): void => {
+    setSelectedPath(path)
+    setPreviewMode("preview")
+  }, [])
 
   return (
     <aside
@@ -619,7 +624,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
               onOpenPath={openPath}
               onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
               onModeChange={setPreviewMode}
-              onSelect={(path) => setSelectedPath(path)}
+              onSelect={selectPreviewPath}
             />
           ) : (
             <>
@@ -630,7 +635,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
                   truncated={groups.some(({ group }) => group.truncated)}
                   onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
                   onOpenPath={openPath}
-                  onSelect={(path) => setSelectedPath(path)}
+                  onSelect={selectPreviewPath}
                 />
               ) : null}
               <ArtifactPreview

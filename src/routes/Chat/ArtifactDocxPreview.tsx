@@ -5,6 +5,7 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const styleContainerRef = React.useRef<HTMLDivElement | null>(null)
+  const renderGenerationRef = React.useRef(0)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -13,6 +14,7 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
     if (!container || !styleContainer) {
       return
     }
+    const generation = ++renderGenerationRef.current
     const controller = new AbortController()
     let cancelled = false
     container.replaceChildren()
@@ -27,7 +29,9 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
       if (cancelled) {
         return
       }
-      await renderAsync(buffer, container, styleContainer, {
+      const nextContainer = document.createElement("div")
+      const nextStyleContainer = document.createElement("div")
+      await renderAsync(buffer, nextContainer, nextStyleContainer, {
         breakPages: true,
         className: "oo-docx-preview-doc",
         ignoreFonts: true,
@@ -39,8 +43,17 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
         renderHeaders: true,
         useBase64URL: true,
       })
+      if (cancelled || renderGenerationRef.current !== generation) {
+        return
+      }
+      container.replaceChildren(...Array.from(nextContainer.childNodes))
+      styleContainer.replaceChildren(...Array.from(nextStyleContainer.childNodes))
     })().catch((cause: unknown) => {
-      if (!cancelled && !(cause instanceof DOMException && cause.name === "AbortError")) {
+      if (
+        !cancelled &&
+        renderGenerationRef.current === generation &&
+        !(cause instanceof DOMException && cause.name === "AbortError")
+      ) {
         setError(cause instanceof Error ? cause.message : String(cause))
       }
     })

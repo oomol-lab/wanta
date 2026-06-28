@@ -42,7 +42,7 @@ import {
   Globe,
 } from "lucide-react"
 import { fileTypeDescriptor } from "./file-type-descriptor.ts"
-import { createIconifySvgIcon } from "@/components/IconifySvg.tsx"
+import { createIconifySvgIcon } from "@/components/IconifySvg"
 import { cn } from "@/lib/utils"
 
 const iconifyFileIcons = {

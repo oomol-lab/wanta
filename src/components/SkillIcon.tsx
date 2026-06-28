@@ -18,7 +18,7 @@ import {
   WandSparklesIcon,
 } from "lucide-react"
 import { AppIcons } from "@/components/AppIcons"
-import { createIconifySvgIcon } from "@/components/IconifySvg.tsx"
+import { createIconifySvgIcon } from "@/components/IconifySvg"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source.ts"
 import { cn } from "@/lib/utils"
 
@@ -49,6 +49,10 @@ const iconifySkillIcons = {
 
 type IconifySkillIconName = keyof typeof iconifySkillIcons
 
+const iconifySkillIconComponents = Object.fromEntries(
+  Object.entries(iconifySkillIcons).map(([key, icon]) => [key, createIconifySvgIcon(icon)]),
+) as Record<IconifySkillIconName, AppIconComponent>
+
 interface SkillIconProps {
   className?: string
   fallback?: AppIconComponent
@@ -75,7 +79,7 @@ function getSkillIcon(icon: string | undefined): AppIconComponent | undefined {
   const iconifyIconName = `${spec.collection}:${spec.name}`
 
   if (iconifyIconName in iconifySkillIcons) {
-    return createIconifySvgIcon(iconifySkillIcons[iconifyIconName as IconifySkillIconName])
+    return iconifySkillIconComponents[iconifyIconName as IconifySkillIconName]
   }
 
   return undefined

@@ -30,6 +30,7 @@ export interface OrganizationSkillChatContext {
 
 export interface UseOrganizationSkills {
   addSkill(input: AddOrganizationSkillInput): Promise<void>
+  apiEnabled: boolean
   canManage: boolean
   chatContextSkills: OrganizationSkillChatContext[]
   error: UserFacingError | null
@@ -82,6 +83,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
   const remoteApiEnabled = organizationSkillsApiEnabled()
   const canManage = workspace.type === "organization" && workspace.canManage
   const [skills, setSkills] = React.useState<OrganizationSkillConfigItem[]>([])
+  const [skillsOrganizationId, setSkillsOrganizationId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const [hasLoaded, setHasLoaded] = React.useState(false)
@@ -92,10 +94,12 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
     latestOrganizationIdRef.current = organizationId
     requestIdRef.current += 1
     setSkills([])
+    setSkillsOrganizationId(null)
     setError(null)
     setHasLoaded(false)
     if (!organizationId || !remoteApiEnabled) {
       setLoading(false)
+      setSkillsOrganizationId(organizationId)
       setHasLoaded(Boolean(organizationId && !remoteApiEnabled))
     }
   }, [organizationId, remoteApiEnabled, workspaceKey])
@@ -104,6 +108,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
     async (options: { forceRefresh?: boolean } = {}): Promise<void> => {
       if (!organizationId || !remoteApiEnabled) {
         setSkills([])
+        setSkillsOrganizationId(organizationId)
         setError(null)
         setHasLoaded(Boolean(organizationId && !remoteApiEnabled))
         setLoading(false)
@@ -117,6 +122,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         now - organizationSkillCache.fetchedAt < organizationSkillCacheMs
       ) {
         setSkills(organizationSkillCache.skills)
+        setSkillsOrganizationId(organizationId)
         setError(null)
         setHasLoaded(true)
         setLoading(false)
@@ -133,6 +139,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         }
         organizationSkillCache = { fetchedAt: Date.now(), organizationId, skills: config.skills }
         setSkills(config.skills)
+        setSkillsOrganizationId(organizationId)
         setError(null)
         setHasLoaded(true)
       } catch (cause) {
@@ -140,9 +147,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
           if (isOrganizationSkillsUnavailable(cause)) {
             organizationSkillCache = { fetchedAt: Date.now(), organizationId, skills: [] }
             setSkills([])
+            setSkillsOrganizationId(organizationId)
             setError(null)
             setHasLoaded(true)
           } else {
+            setSkillsOrganizationId(organizationId)
             setError(organizationSkillError(cause))
             setHasLoaded(false)
           }
@@ -153,7 +162,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         }
       }
     },
-    [organizationId, remoteApiEnabled],
+    [organizationId, remoteApiEnabled, workspaceKey],
   )
 
   React.useEffect(() => {
@@ -212,10 +221,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         throw new Error("Organization Skill API is not enabled.")
       }
       const targetOrganizationId = organizationId
-      await removeOrganizationSkill(targetOrganizationId, configId)
+      const targetSkill = skills.find((skill) => skill.id === configId)
+      await removeOrganizationSkill(targetOrganizationId, targetSkill?.packageName ?? configId)
       await reloadAfterMutation(targetOrganizationId)
     },
-    [organizationId, reloadAfterMutation, remoteApiEnabled],
+    [organizationId, reloadAfterMutation, remoteApiEnabled, skills],
   )
 
   const reorder = React.useCallback(
@@ -235,30 +245,37 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       }
       organizationSkillCache = { fetchedAt: Date.now(), organizationId: targetOrganizationId, skills: config.skills }
       setSkills(config.skills)
+      setSkillsOrganizationId(targetOrganizationId)
       setError(null)
       setHasLoaded(true)
     },
     [organizationId, remoteApiEnabled],
   )
 
+  const skillsBelongToCurrentOrganization = skillsOrganizationId === organizationId
+  const currentSkills = skillsBelongToCurrentOrganization ? skills : []
+  const currentError = skillsBelongToCurrentOrganization ? error : null
+  const currentHasLoaded = skillsBelongToCurrentOrganization ? hasLoaded : false
+  const currentLoading = loading || Boolean(organizationId && remoteApiEnabled && !skillsBelongToCurrentOrganization)
   const chatContextSkills = React.useMemo(
-    () => skills.filter((skill) => skill.enabled).map(toChatContextSkill),
-    [skills],
+    () => currentSkills.filter((skill) => skill.enabled).map(toChatContextSkill),
+    [currentSkills],
   )
 
   return {
     addSkill,
+    apiEnabled: remoteApiEnabled,
     canManage,
     chatContextSkills,
-    error,
-    hasLoaded,
-    loading,
+    error: currentError,
+    hasLoaded: currentHasLoaded,
+    loading: currentLoading,
     organizationId,
     organizationName,
     refresh,
     removeSkill,
     reorder,
-    skills,
+    skills: currentSkills,
     updateSkill,
   }
 }

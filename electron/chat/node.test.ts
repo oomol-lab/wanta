@@ -1,6 +1,7 @@
 import type { AgentManager } from "../agent/manager.ts"
 import type { ChatMessage } from "./common.ts"
 
+import JSZip from "jszip"
 import assert from "node:assert/strict"
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -469,4 +470,28 @@ test("getLocalArtifactPreview rejects binary-looking text files", async () => {
 
   assert.equal(result.kind, "unsupported")
   assert.equal(result.mime, "text/plain")
+})
+
+test("getLocalArtifactPreview returns archive entries for zip files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-preview-zip-"))
+  const filePath = path.join(root, "bundle.zip")
+  const zip = new JSZip()
+  zip.file("report.txt", "hello")
+  zip.folder("assets")?.file("image.txt", "image")
+  await writeFile(filePath, await zip.generateAsync({ type: "nodebuffer" }))
+
+  const service = new ChatServiceImpl(null)
+  const result = await service.getLocalArtifactPreview({ path: filePath })
+
+  assert.equal(result.kind, "archive")
+  assert.equal(result.archive?.format, "zip")
+  assert.equal(result.archive?.totalEntries, 3)
+  assert.deepEqual(
+    result.archive?.entries.map((entry) => [entry.kind, entry.path]),
+    [
+      ["file", "report.txt"],
+      ["directory", "assets/"],
+      ["file", "assets/image.txt"],
+    ],
+  )
 })

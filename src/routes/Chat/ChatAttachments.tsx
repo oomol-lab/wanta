@@ -1,34 +1,25 @@
 import type { ChatAttachment } from "../../../electron/chat/common.ts"
 import type { DraftAttachment } from "./composer-state.ts"
 
-import {
-  File as FileIcon,
-  FileArchive,
-  FileCode,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileVideoCamera,
-  Folder,
-  X,
-} from "lucide-react"
+import { FileImage, X } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import {
   attachmentExtension,
   fileSizeLabel,
-  isDirectoryAttachment,
   isImageAttachment,
   readAttachmentPreviewUrl,
   setAttachmentPreviewUrl,
 } from "./chat-attachment-utils.ts"
+import { FileKindTile } from "./file-type-icons.tsx"
+import { fileVisualKind } from "./file-type-kind.ts"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 function attachmentTypeLabel(t: ReturnType<typeof useT>, attachment: ChatAttachment): string {
-  if (isDirectoryAttachment(attachment)) {
+  if (fileVisualKind(attachment) === "directory") {
     return t("chat.attachmentFolder")
   }
   const extension = attachmentExtension(attachment.name)
@@ -40,7 +31,7 @@ function attachmentTypeLabel(t: ReturnType<typeof useT>, attachment: ChatAttachm
 }
 
 function attachmentSummary(t: ReturnType<typeof useT>, attachment: ChatAttachment): string {
-  if (isDirectoryAttachment(attachment)) {
+  if (fileVisualKind(attachment) === "directory") {
     return attachmentTypeLabel(t, attachment)
   }
   const size = fileSizeLabel(attachment.size)
@@ -48,14 +39,6 @@ function attachmentSummary(t: ReturnType<typeof useT>, attachment: ChatAttachmen
 }
 
 function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) {
-  if (isDirectoryAttachment(attachment)) {
-    return (
-      <span className="oo-attachment-tile-directory flex size-10 shrink-0 items-center justify-center rounded-md">
-        <Folder className="size-5" />
-      </span>
-    )
-  }
-
   if (attachment.previewUrl && isImageAttachment(attachment)) {
     return (
       <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted">
@@ -64,68 +47,7 @@ function AttachmentPreviewTile({ attachment }: { attachment: DraftAttachment }) 
     )
   }
 
-  const mime = attachment.mime.toLowerCase()
-  const extension = attachmentExtension(attachment.name)
-
-  if (mime === "application/pdf" || extension === "pdf") {
-    return (
-      <span className="oo-attachment-tile-pdf flex size-10 shrink-0 items-center justify-center rounded-md text-[9px] font-semibold">
-        PDF
-      </span>
-    )
-  }
-
-  const iconClassName = "size-5"
-  const tileClassName = "flex size-10 shrink-0 items-center justify-center rounded-md"
-
-  if (mime.startsWith("image/")) {
-    return (
-      <span className={cn(tileClassName, "oo-attachment-tile-image")}>
-        <FileImage className={iconClassName} />
-      </span>
-    )
-  }
-  if (mime.startsWith("video/")) {
-    return (
-      <span className={cn(tileClassName, "oo-attachment-tile-video")}>
-        <FileVideoCamera className={iconClassName} />
-      </span>
-    )
-  }
-  if (["zip", "gz", "tgz", "rar", "7z"].includes(extension)) {
-    return (
-      <span className={cn(tileClassName, "oo-attachment-tile-archive")}>
-        <FileArchive className={iconClassName} />
-      </span>
-    )
-  }
-  if (["csv", "tsv", "xls", "xlsx"].includes(extension)) {
-    return (
-      <span className={cn(tileClassName, "oo-attachment-tile-sheet")}>
-        <FileSpreadsheet className={iconClassName} />
-      </span>
-    )
-  }
-  if (["css", "html", "js", "json", "jsx", "md", "py", "ts", "tsx", "xml", "yaml", "yml"].includes(extension)) {
-    return (
-      <span className={cn(tileClassName, "oo-attachment-tile-code")}>
-        <FileCode className={iconClassName} />
-      </span>
-    )
-  }
-  if (mime.startsWith("text/") || ["doc", "docx", "rtf", "txt"].includes(extension)) {
-    return (
-      <span className={cn(tileClassName, "bg-muted text-muted-foreground")}>
-        <FileText className={iconClassName} />
-      </span>
-    )
-  }
-
-  return (
-    <span className={cn(tileClassName, "bg-muted text-muted-foreground")}>
-      <FileIcon className={iconClassName} />
-    </span>
-  )
+  return <FileKindTile source={attachment} />
 }
 
 function AttachmentImageCard({

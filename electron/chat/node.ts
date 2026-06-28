@@ -28,6 +28,7 @@ import type {
   ResolveLocalArtifactsResult,
   SendMessageRequest,
   SetAgentOrganizationRequest,
+  ShowLocalPathInFolderRequest,
 } from "./common.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -39,6 +40,15 @@ import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { ServiceEvent } from "../service-events.ts"
+import {
+  archivePreview,
+  binaryDataPreview,
+  isRtfArtifact,
+  isXlsxArtifact,
+  richPreviewMaxBytes,
+  rtfToPlainText,
+  spreadsheetPreview,
+} from "./artifact-preview.ts"
 import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
 import {
   extractLocalPathCandidates,
@@ -1018,6 +1028,63 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
 
+    if (isXlsxArtifact(item.path, item.mime)) {
+      try {
+        return await spreadsheetPreview(item.path, item.mime, size)
+      } catch (error) {
+        console.error("[wanta] getLocalArtifactPreview spreadsheet failed", {
+          path: req.path,
+          error: errorMessage(error),
+        })
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+      }
+    }
+
+    const archive = await archivePreview(item.path, item.mime, size).catch((error: unknown) => {
+      console.error("[wanta] getLocalArtifactPreview archive failed", { path: req.path, error: errorMessage(error) })
+      return { kind: "unsupported" as const, mime: item.mime, size, reason: "read_failed" as const }
+    })
+    if (archive) {
+      return archive
+    }
+
+    if (isRtfArtifact(item.path, item.mime)) {
+      try {
+        const preview = await readTextPreview(item.path, size)
+        if (!preview) {
+          return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+        }
+        return {
+          kind: "text",
+          mime: item.mime,
+          size,
+          text: rtfToPlainText(preview.text),
+          truncated: preview.truncated,
+        }
+      } catch (error) {
+        console.error("[wanta] getLocalArtifactPreview rtf failed", { path: req.path, error: errorMessage(error) })
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+      }
+    }
+
+    if (size <= richPreviewMaxBytes) {
+      try {
+        const bytes = await readFile(item.path)
+        const richPreview = binaryDataPreview(item.path, item.mime, size, bytes)
+        if (richPreview) {
+          return richPreview
+        }
+      } catch (error) {
+        console.error("[wanta] getLocalArtifactPreview rich file failed", {
+          path: req.path,
+          error: errorMessage(error),
+        })
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+      }
+    } else if (binaryDataPreview(item.path, item.mime, size, Buffer.alloc(0))) {
+      return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
+    }
+
     if (!isTextArtifactMime(item.mime)) {
       return { kind: "unsupported", mime: item.mime, size, reason: "unsupported_type" }
     }
@@ -1085,6 +1152,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     } catch (error) {
       throw new Error(`Failed to open local path: ${errorMessage(error)}`)
     }
+  }
+
+  public async showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void> {
+    const item = await localArtifactItem(req.path)
+    if (!item) {
+      throw new Error("File does not exist.")
+    }
+    shell.showItemInFolder(item.path)
   }
 
   public async openExternalUrl(req: OpenExternalUrlRequest): Promise<void> {

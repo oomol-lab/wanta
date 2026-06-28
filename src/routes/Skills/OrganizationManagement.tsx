@@ -794,16 +794,21 @@ export function OrganizationManagementRoute({
                   activeWorkspace={activeWorkspace}
                   accountAvatarUrl={activeAccount?.avatarUrl}
                   accountName={activeAccount?.name}
-                  organizationSkills={organizationSkills}
                   organizations={organizations}
                   overview={overviewState.data}
                   selectedOrganization={selectedOrganization}
                   selectedOrganizationId={selectedOrganizationId}
                   onCreate={() => setCreateOpen(true)}
-                  onOpenOrganizationSkills={onOpenOrganizationSkills}
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
+                {selectedOrganization && organizationSkills ? (
+                  <OrganizationSkillGuidePanel
+                    organization={selectedOrganization}
+                    organizationSkills={organizationSkills}
+                    onOpenOrganizationSkills={onOpenOrganizationSkills}
+                  />
+                ) : null}
                 <OrganizationDetailPanel
                   appAccessLoading={appAccessState.status === "loading" || providerOptionsState.status === "loading"}
                   busyAction={busyAction}
@@ -883,10 +888,8 @@ function OrganizationSwitcherPanel({
   accountAvatarUrl,
   accountName,
   onCreate,
-  onOpenOrganizationSkills,
   onSelect,
   onSelectPersonal,
-  organizationSkills,
   organizations,
   overview,
   selectedOrganization,
@@ -896,24 +899,20 @@ function OrganizationSwitcherPanel({
   accountAvatarUrl?: string
   accountName?: string
   onCreate: () => void
-  onOpenOrganizationSkills?: () => void
   onSelect: (organizationId: string) => void
   onSelectPersonal: () => void
-  organizationSkills?: UseOrganizationSkills
   organizations: Organization[]
   overview: OrganizationOverview | null
   selectedOrganization: Organization | null
   selectedOrganizationId: string | null
 }) {
   const { t } = useAppI18n()
-  const [skillGuideOpen, setSkillGuideOpen] = React.useState(false)
   const countLabel = t("organizations.organizationCount", { count: organizations.length })
   const selectedRole = selectedOrganization ? organizationRole(overview, selectedOrganization) : null
   const personalSelected = activeWorkspace?.type === "personal"
   const personalLabel = accountName?.trim() || t("organizations.personal")
   const personalDescription =
     personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
-  const showOrganizationSkillGuide = Boolean(!personalSelected && selectedOrganization && organizationSkills)
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
@@ -967,12 +966,6 @@ function OrganizationSwitcherPanel({
                 <Badge variant="secondary" className="shrink-0">
                   {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
                 </Badge>
-              ) : null}
-              {showOrganizationSkillGuide && organizationSkills ? (
-                <OrganizationSkillGuideButton
-                  organizationSkills={organizationSkills}
-                  onClick={() => setSkillGuideOpen(true)}
-                />
               ) : null}
             </div>
           </div>
@@ -1061,57 +1054,104 @@ function OrganizationSwitcherPanel({
           </div>
         </div>
       </div>
-      {showOrganizationSkillGuide && selectedOrganization && organizationSkills ? (
-        <OrganizationSkillGuideSheet
-          open={skillGuideOpen}
-          organization={selectedOrganization}
-          organizationSkills={organizationSkills}
-          onClose={() => setSkillGuideOpen(false)}
-          onOpenOrganizationSkills={
-            onOpenOrganizationSkills
-              ? () => {
-                  setSkillGuideOpen(false)
-                  onOpenOrganizationSkills()
-                }
-              : undefined
-          }
-        />
-      ) : null}
     </section>
   )
 }
 
-function OrganizationSkillGuideButton({
+function organizationSkillGuideStatus(
+  organizationSkills: UseOrganizationSkills,
+  t: ReturnType<typeof useAppI18n>["t"],
+): string {
+  const enabledCount = organizationSkills.skills.filter((skill) => skill.enabled).length
+  if (!organizationSkills.apiEnabled) {
+    return t("organizations.skillGuideUnavailableBadge")
+  }
+  if (organizationSkills.loading && !organizationSkills.hasLoaded) {
+    return t("organizations.skillGuideLoading")
+  }
+  if (organizationSkills.error) {
+    return t("organizations.skillGuideLoadFailed")
+  }
+  return enabledCount > 0
+    ? t("organizations.skillGuideEnabledCount", { count: enabledCount })
+    : t("organizations.skillGuideEmptyBadge")
+}
+
+function organizationSkillGuideActionLabel(
+  organizationSkills: UseOrganizationSkills,
+  t: ReturnType<typeof useAppI18n>["t"],
+): string {
+  if (!organizationSkills.canManage) {
+    return t("organizations.skillGuideView")
+  }
+  return organizationSkills.apiEnabled && organizationSkills.skills.length > 0
+    ? t("organizations.skillGuideManage")
+    : t("organizations.skillGuideConfigure")
+}
+
+function OrganizationSkillGuidePanel({
+  organization,
   organizationSkills,
-  onClick,
+  onOpenOrganizationSkills,
 }: {
+  organization: Organization
   organizationSkills: UseOrganizationSkills
-  onClick: () => void
+  onOpenOrganizationSkills?: () => void
 }) {
   const { t } = useAppI18n()
-  const enabledCount = organizationSkills.skills.filter((skill) => skill.enabled).length
-  const label = !organizationSkills.apiEnabled
-    ? t("organizations.skillGuideUnavailableBadge")
-    : organizationSkills.loading && !organizationSkills.hasLoaded
-      ? t("organizations.skillGuideLoading")
-      : organizationSkills.error
-        ? t("organizations.skillGuideLoadFailed")
-        : enabledCount > 0
-          ? t("organizations.skillGuideEnabledCount", { count: enabledCount })
-          : t("organizations.skillGuideEmptyBadge")
+  const [sheetOpen, setSheetOpen] = React.useState(false)
+  const statusLabel = organizationSkillGuideStatus(organizationSkills, t)
+  const actionLabel = organizationSkillGuideActionLabel(organizationSkills, t)
+  const canOpenSettings = Boolean(
+    onOpenOrganizationSkills && (organizationSkills.apiEnabled || organizationSkills.canManage),
+  )
 
   return (
-    <button
-      type="button"
-      className={cn(
-        "oo-text-caption-compact flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full border px-2 text-muted-foreground",
-        "hover:border-foreground/20 hover:bg-accent hover:text-foreground focus-visible:border-foreground/30 focus-visible:bg-accent focus-visible:text-foreground focus-visible:outline-none",
-      )}
-      onClick={onClick}
-    >
-      <PackageIcon className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate">{label}</span>
-    </button>
+    <>
+      <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+        <div className="flex min-w-0 flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="grid size-10 shrink-0 place-items-center rounded-md border bg-[var(--oo-inspector-surface)] text-muted-foreground">
+              <PackageIcon className="size-5" />
+            </div>
+            <div className="grid min-w-0 gap-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h2 className="oo-text-title min-w-0 truncate text-foreground">{t("organizations.skillGuideTitle")}</h2>
+                <Badge variant="outline" className="max-w-full shrink-0">
+                  <span className="truncate">{statusLabel}</span>
+                </Badge>
+              </div>
+              <p className="oo-text-body max-w-3xl text-muted-foreground">{t("organizations.skillGuideDescription")}</p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 self-end md:self-center">
+            <Button type="button" variant="outline" size="sm" onClick={() => setSheetOpen(true)}>
+              {t("organizations.skillGuideDetails")}
+            </Button>
+            {canOpenSettings ? (
+              <Button type="button" size="sm" onClick={onOpenOrganizationSkills}>
+                {actionLabel}
+                <ArrowRightIcon className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+      <OrganizationSkillGuideSheet
+        open={sheetOpen}
+        organization={organization}
+        organizationSkills={organizationSkills}
+        onClose={() => setSheetOpen(false)}
+        onOpenOrganizationSkills={
+          onOpenOrganizationSkills
+            ? () => {
+                setSheetOpen(false)
+                onOpenOrganizationSkills()
+              }
+            : undefined
+        }
+      />
+    </>
   )
 }
 
@@ -1143,11 +1183,7 @@ function OrganizationSkillGuideSheet({
     [disabledSkills, enabledSkills],
   )
   const hiddenCount = Math.max(0, organizationSkills.skills.length - visibleSkills.length)
-  const actionLabel = organizationSkills.canManage
-    ? organizationSkills.apiEnabled && organizationSkills.skills.length > 0
-      ? t("organizations.skillGuideManage")
-      : t("organizations.skillGuideConfigure")
-    : t("organizations.skillGuideView")
+  const actionLabel = organizationSkillGuideActionLabel(organizationSkills, t)
 
   React.useEffect(() => {
     if (!open) {
@@ -1405,16 +1441,23 @@ function OrganizationManagementSkeleton() {
         </div>
       </section>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <Skeleton className="h-20 rounded-md" />
-        <Skeleton className="h-20 rounded-md" />
-      </div>
+      <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+        <div className="flex min-w-0 items-center gap-3 p-3">
+          <Skeleton className="size-10 shrink-0 rounded-md" />
+          <div className="grid min-w-0 flex-1 gap-2">
+            <Skeleton className="h-5 w-28 rounded-md" />
+            <Skeleton className="h-4 w-96 max-w-full rounded-md" />
+          </div>
+          <Skeleton className="h-[var(--oo-control-height-compact)] w-28 rounded-md" />
+        </div>
+      </section>
 
       <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
         <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
           <div className="grid min-w-0 gap-2">
             <Skeleton className="h-5 w-24 rounded-md" />
             <Skeleton className="h-4 w-72 max-w-full rounded-md" />
+            <Skeleton className="h-4 w-48 max-w-full rounded-md" />
           </div>
           <Skeleton className="h-[var(--oo-control-height)] w-28 rounded-md" />
         </div>
@@ -1490,24 +1533,32 @@ function OrganizationDetailPanel({
     )
   }
 
+  const memberCountLabel = membersLoading ? "..." : String(members.length)
+  const permissionModeLabel = canManage ? t("organizations.canManage") : t("organizations.readOnly")
+
   return (
     <div className="grid min-w-0 gap-3">
-      <div className="grid gap-3 md:grid-cols-2">
-        <MiniStat
-          icon={<UsersIcon className="size-4" />}
-          label={t("organizations.memberCount")}
-          value={membersLoading ? "..." : String(members.length)}
-        />
-        <MiniStat
-          icon={<ShieldCheckIcon className="size-4" />}
-          label={t("organizations.permissionMode")}
-          value={canManage ? t("organizations.canManage") : t("organizations.readOnly")}
-        />
-      </div>
-
       <Panel
         title={t("organizations.membersAndPermissions")}
-        description={t("organizations.membersAndPermissionsDescription")}
+        description={
+          <div className="grid min-w-0 gap-1">
+            <span className="min-w-0 truncate">{t("organizations.membersAndPermissionsDescription")}</span>
+            <span className="oo-text-caption-compact flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <UsersIcon className="size-3.5 shrink-0" />
+                <span className="truncate">
+                  {t("organizations.memberCount")}: {memberCountLabel}
+                </span>
+              </span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ShieldCheckIcon className="size-3.5 shrink-0" />
+                <span className="truncate">
+                  {t("organizations.permissionMode")}: {permissionModeLabel}
+                </span>
+              </span>
+            </span>
+          </div>
+        }
         action={
           canManage ? (
             <Button type="button" size="sm" disabled={busyAction === "add"} onClick={onAddMember}>
@@ -2169,24 +2220,12 @@ function Panel({
       <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
         <div className="min-w-0">
           <h2 className="oo-text-title truncate text-foreground">{title}</h2>
-          {description ? <p className="oo-text-caption mt-0.5 truncate">{description}</p> : null}
+          {description ? <div className="oo-text-caption mt-0.5 min-w-0">{description}</div> : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       {children}
     </section>
-  )
-}
-
-function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="grid min-w-0 gap-1 rounded-md bg-[var(--oo-inspector-surface)] px-3 py-2.5">
-      <div className="oo-text-caption flex min-w-0 items-center gap-1.5">
-        <span className="oo-icon-muted shrink-0">{icon}</span>
-        <span className="truncate">{label}</span>
-      </div>
-      <div className="oo-text-value truncate text-foreground">{value}</div>
-    </div>
   )
 }
 

@@ -213,10 +213,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         throw new Error("Organization Skill API is not enabled.")
       }
       const targetOrganizationId = organizationId
-      await removeOrganizationSkill(targetOrganizationId, configId)
+      const targetSkill = skills.find((skill) => skill.id === configId)
+      await removeOrganizationSkill(targetOrganizationId, targetSkill?.packageName ?? configId)
       await reloadAfterMutation(targetOrganizationId)
     },
-    [organizationId, reloadAfterMutation, remoteApiEnabled],
+    [organizationId, reloadAfterMutation, remoteApiEnabled, skills],
   )
 
   const reorder = React.useCallback(

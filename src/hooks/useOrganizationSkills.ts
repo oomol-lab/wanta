@@ -162,7 +162,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         }
       }
     },
-    [organizationId, remoteApiEnabled],
+    [organizationId, remoteApiEnabled, workspaceKey],
   )
 
   React.useEffect(() => {

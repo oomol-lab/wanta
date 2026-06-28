@@ -76,9 +76,6 @@ export function FileKindTile({
     `oo-attachment-tile-${kind}`,
     className,
   )
-  if (kind === "pdf") {
-    return <span className={cn(tileClassName, "text-[9px] font-semibold")}>PDF</span>
-  }
   return (
     <span className={tileClassName}>
       <FileKindIcon source={source} pack={pack} className={cn("size-5", iconClassName)} />

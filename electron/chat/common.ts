@@ -247,6 +247,14 @@ export interface LocalArtifactSpreadsheetPreview {
   rows: string[][]
   rowCount: number
   sheets: string[]
+  workbook?: LocalArtifactSpreadsheetSheetPreview[]
+}
+
+export interface LocalArtifactSpreadsheetSheetPreview {
+  columnCount: number
+  name: string
+  rows: string[][]
+  rowCount: number
 }
 
 export interface LocalArtifactArchiveEntry {

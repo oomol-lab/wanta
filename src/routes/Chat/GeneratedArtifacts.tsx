@@ -687,8 +687,8 @@ function ArtifactFileTile({
       type="button"
       title={entry.item.path}
       className={cn(
-        "relative flex h-12 min-w-0 items-center gap-1.5 rounded-md border border-border bg-[var(--oo-artifact-preview-canvas)] px-1.5 text-left shadow-sm transition-colors hover:bg-accent/45 hover:text-accent-foreground",
-        selected && "bg-accent/70 shadow-none",
+        "oo-artifact-selectable relative flex h-12 min-w-0 items-center gap-1.5 rounded-md border px-1.5 text-left shadow-sm hover:text-accent-foreground focus-visible:outline-none",
+        selected && "oo-artifact-selected shadow-none",
       )}
       onClick={onClick}
       onContextMenu={(event) => {
@@ -799,9 +799,8 @@ function ImageThumbnail({
       type="button"
       title={item.name}
       className={cn(
-        "relative aspect-square overflow-hidden rounded-md border border-border bg-[var(--oo-artifact-preview-canvas)] text-muted-foreground shadow-sm transition-colors hover:bg-accent/45",
-        selected &&
-          "bg-accent/70 shadow-none after:absolute after:right-1 after:bottom-1 after:left-1 after:h-0.5 after:rounded-full after:bg-primary/70",
+        "oo-artifact-selectable relative aspect-square overflow-hidden rounded-md border text-muted-foreground shadow-sm focus-visible:outline-none",
+        selected && "oo-artifact-selected shadow-none",
       )}
       onClick={onClick}
       onContextMenu={(event) => {

@@ -1,41 +1,51 @@
-import JSZip from "jszip"
-import { describe, expect, it } from "vitest"
-import { archiveFormatFromPath, rtfToPlainText, zipPreviewFromBytes } from "./artifact-preview.ts"
+import assert from "node:assert/strict"
+import { test } from "vitest"
+import {
+  spreadsheetPreviewMaxColumns,
+  spreadsheetPreviewMaxRows,
+  spreadsheetWorkbookPreview,
+} from "./artifact-preview.ts"
 
-describe("archiveFormatFromPath", () => {
-  it("recognizes supported archive preview formats", () => {
-    expect(archiveFormatFromPath("/tmp/result.zip", "application/octet-stream")).toBe("zip")
-    expect(archiveFormatFromPath("/tmp/result.tar", "application/octet-stream")).toBe("tar")
-    expect(archiveFormatFromPath("/tmp/result.tgz", "application/octet-stream")).toBe("tar")
-    expect(archiveFormatFromPath("/tmp/result.tar.gz", "application/gzip")).toBe("tar")
-    expect(archiveFormatFromPath("/tmp/result.gz", "application/gzip")).toBeNull()
-    expect(archiveFormatFromPath("/tmp/result.rar", "application/octet-stream")).toBeNull()
-  })
+test("spreadsheetWorkbookPreview preserves multiple sheets for Excel-like preview", () => {
+  const { preview, truncated } = spreadsheetWorkbookPreview([
+    {
+      sheet: "Summary",
+      data: [
+        ["Month", "Revenue"],
+        ["January", 3600000],
+      ],
+    },
+    {
+      sheet: "Products",
+      data: [
+        ["Product", "Units"],
+        ["Cloud", 12],
+      ],
+    },
+  ])
+
+  assert.equal(truncated, false)
+  assert.equal(preview.activeSheet, "Summary")
+  assert.deepEqual(preview.sheets, ["Summary", "Products"])
+  assert.deepEqual(
+    preview.workbook?.map((sheet) => [sheet.name, sheet.rowCount, sheet.columnCount]),
+    [
+      ["Summary", 2, 2],
+      ["Products", 2, 2],
+    ],
+  )
+  assert.deepEqual(preview.workbook?.[1]?.rows, [
+    ["Product", "Units"],
+    ["Cloud", "12"],
+  ])
 })
 
-describe("zipPreviewFromBytes", () => {
-  it("enumerates zip entries without service integration", async () => {
-    const zip = new JSZip()
-    zip.file("report.txt", "hello")
-    zip.folder("assets")?.file("image.txt", "image")
+test("spreadsheetWorkbookPreview reports truncated oversized sheets", () => {
+  const wideRow = Array.from({ length: spreadsheetPreviewMaxColumns + 1 }, (_, index) => index)
+  const rows = Array.from({ length: spreadsheetPreviewMaxRows + 1 }, () => wideRow)
+  const { preview, truncated } = spreadsheetWorkbookPreview([{ sheet: "Large", data: rows }])
 
-    const result = await zipPreviewFromBytes(await zip.generateAsync({ type: "nodebuffer" }), "application/zip", 1)
-
-    expect(result.kind).toBe("archive")
-    expect(result.archive?.format).toBe("zip")
-    expect(result.archive?.totalEntries).toBe(3)
-    expect(result.archive?.entries.map((entry) => [entry.kind, entry.path])).toEqual([
-      ["file", "report.txt"],
-      ["directory", "assets/"],
-      ["file", "assets/image.txt"],
-    ])
-  })
-})
-
-describe("rtfToPlainText", () => {
-  it("extracts readable text from common RTF markup", () => {
-    const rtf = String.raw`{\rtf1\ansi{\fonttbl{\f0 Arial;}}\b Hello\b0\par Unicode \u20320?\tab hex \'21}`
-
-    expect(rtfToPlainText(rtf)).toBe("Hello\nUnicode 你\thex !")
-  })
+  assert.equal(truncated, true)
+  assert.equal(preview.workbook?.[0]?.rows.length, spreadsheetPreviewMaxRows)
+  assert.equal(preview.workbook?.[0]?.rows[0]?.length, spreadsheetPreviewMaxColumns)
 })

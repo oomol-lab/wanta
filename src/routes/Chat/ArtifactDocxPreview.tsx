@@ -4,16 +4,19 @@ import { useT } from "@/i18n/i18n"
 export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string; name: string }) {
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
+  const styleContainerRef = React.useRef<HTMLDivElement | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const container = containerRef.current
-    if (!container) {
+    const styleContainer = styleContainerRef.current
+    if (!container || !styleContainer) {
       return
     }
     const controller = new AbortController()
     let cancelled = false
     container.replaceChildren()
+    styleContainer.replaceChildren()
     setError(null)
     void (async () => {
       const [{ renderAsync }, response] = await Promise.all([
@@ -24,7 +27,7 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
       if (cancelled) {
         return
       }
-      await renderAsync(buffer, container, container, {
+      await renderAsync(buffer, container, styleContainer, {
         breakPages: true,
         className: "oo-docx-preview-doc",
         ignoreFonts: true,
@@ -45,12 +48,13 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
       cancelled = true
       controller.abort()
       container.replaceChildren()
+      styleContainer.replaceChildren()
     }
   }, [dataUrl])
 
   return (
-    <div className="min-h-full bg-[var(--oo-artifact-preview-canvas)]">
-      <div className="oo-border-divider sticky top-0 z-10 bg-background px-3 py-2">
+    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
+      <div className="oo-border-divider flex h-10 shrink-0 items-center border-b bg-background px-3">
         <div className="oo-text-caption-compact truncate font-medium text-foreground">{name}</div>
       </div>
       {error ? (
@@ -58,7 +62,10 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
           {t("artifacts.previewReadFailed")}
         </div>
       ) : null}
-      <div ref={containerRef} className="oo-docx-preview min-h-full min-w-0 overflow-auto p-4" />
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div ref={containerRef} className="oo-docx-preview min-h-full min-w-fit p-4" />
+      </div>
+      <div ref={styleContainerRef} className="hidden" aria-hidden />
     </div>
   )
 }

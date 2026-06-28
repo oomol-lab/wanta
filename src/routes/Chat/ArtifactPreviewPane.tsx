@@ -43,6 +43,13 @@ const ArtifactDocxPreview = React.lazy(() => import("./ArtifactDocxPreview.tsx")
 
 type ArtifactPreviewMode = "preview" | "source" | "info"
 
+function shouldOpenArtifactContextMenu(target: EventTarget | null): boolean {
+  const element = target instanceof Element ? target : null
+  return !element?.closest(
+    'button, a, input, textarea, select, audio, video, [contenteditable="true"], .react-pdf__Page__textContent',
+  )
+}
+
 function ArtifactIcon({
   className,
   item,
@@ -104,6 +111,9 @@ export function ArtifactPreview({
     <section
       className="flex min-h-0 flex-1 flex-col"
       onContextMenu={(event) => {
+        if (!shouldOpenArtifactContextMenu(event.target)) {
+          return
+        }
         event.preventDefault()
         event.stopPropagation()
         onContextMenu(item, event.clientX, event.clientY)

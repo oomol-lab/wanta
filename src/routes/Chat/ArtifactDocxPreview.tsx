@@ -11,11 +11,15 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
     if (!container) {
       return
     }
+    const controller = new AbortController()
     let cancelled = false
     container.replaceChildren()
     setError(null)
     void (async () => {
-      const [{ renderAsync }, response] = await Promise.all([import("docx-preview"), fetch(dataUrl)])
+      const [{ renderAsync }, response] = await Promise.all([
+        import("docx-preview"),
+        fetch(dataUrl, { signal: controller.signal }),
+      ])
       const buffer = await response.arrayBuffer()
       if (cancelled) {
         return
@@ -33,12 +37,13 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
         useBase64URL: true,
       })
     })().catch((cause: unknown) => {
-      if (!cancelled) {
+      if (!cancelled && !(cause instanceof DOMException && cause.name === "AbortError")) {
         setError(cause instanceof Error ? cause.message : String(cause))
       }
     })
     return () => {
       cancelled = true
+      controller.abort()
       container.replaceChildren()
     }
   }, [dataUrl])

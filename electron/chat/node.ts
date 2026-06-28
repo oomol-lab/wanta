@@ -43,6 +43,7 @@ import { ServiceEvent } from "../service-events.ts"
 import {
   archivePreview,
   binaryDataPreview,
+  isBinaryDataPreviewArtifact,
   isRtfArtifact,
   isXlsxArtifact,
   richPreviewMaxBytes,
@@ -1067,7 +1068,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
 
-    if (size <= richPreviewMaxBytes) {
+    if (isBinaryDataPreviewArtifact(item.path, item.mime) && size <= richPreviewMaxBytes) {
       try {
         const bytes = await readFile(item.path)
         const richPreview = binaryDataPreview(item.path, item.mime, size, bytes)
@@ -1081,7 +1082,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         })
         return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
       }
-    } else if (binaryDataPreview(item.path, item.mime, size, Buffer.alloc(0))) {
+    } else if (isBinaryDataPreviewArtifact(item.path, item.mime)) {
       return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
     }
 
@@ -1155,11 +1156,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void> {
-    const item = await localArtifactItem(req.path)
-    if (!item) {
-      throw new Error("File does not exist.")
-    }
-    shell.showItemInFolder(item.path)
+    shell.showItemInFolder(req.path)
   }
 
   public async openExternalUrl(req: OpenExternalUrlRequest): Promise<void> {

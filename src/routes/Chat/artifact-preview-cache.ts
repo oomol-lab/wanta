@@ -70,9 +70,8 @@ function loadCachedArtifactPreview(
       return result
     })
     .catch(() => {
-      const fallback = fallbackArtifactPreview(item)
-      rememberArtifactPreview(cache, key, { result: fallback })
-      return fallback
+      cache.delete(key)
+      return fallbackArtifactPreview(item)
     })
   rememberArtifactPreview(cache, key, { promise })
   return promise

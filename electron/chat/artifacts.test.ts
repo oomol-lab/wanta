@@ -94,10 +94,12 @@ describe("mimeFromPath", () => {
   })
 
   it("recognizes common document and archive files", () => {
+    expect(mimeFromPath("/tmp/report.doc")).toBe("application/msword")
     expect(mimeFromPath("/tmp/report.docx")).toBe(
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
     expect(mimeFromPath("/tmp/report.rtf")).toBe("application/rtf")
+    expect(mimeFromPath("/tmp/archive.gz")).toBe("application/gzip")
     expect(mimeFromPath("/tmp/archive.tar")).toBe("application/x-tar")
     expect(mimeFromPath("/tmp/archive.tgz")).toBe("application/gzip")
   })

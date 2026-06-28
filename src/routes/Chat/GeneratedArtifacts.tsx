@@ -339,6 +339,11 @@ function GeneratedArtifactsGroup({
             <span
               key={item.path}
               className="oo-border-divider oo-text-caption-compact flex h-7 max-w-40 min-w-0 items-center gap-1.5 rounded-md border bg-background/70 px-2"
+              onContextMenu={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onContextMenu(item, event.clientX, event.clientY)
+              }}
             >
               <ArtifactIcon item={item} className="size-3.5 text-muted-foreground" pack={pack} />
               <span className="min-w-0 truncate">{item.name}</span>

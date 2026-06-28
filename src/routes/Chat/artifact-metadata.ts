@@ -66,7 +66,12 @@ export function isMarkdownArtifact(item: LocalArtifactItem | undefined): boolean
 }
 
 export function isCsvArtifact(item: LocalArtifactItem | undefined): boolean {
-  return Boolean(item && (item.mime === "text/csv" || fileExtension(item.name) === ".csv"))
+  return Boolean(
+    item &&
+    (item.mime === "text/csv" ||
+      item.mime === "text/tab-separated-values" ||
+      [".csv", ".tsv"].includes(fileExtension(item.name))),
+  )
 }
 
 export function isHtmlArtifact(item: LocalArtifactItem | undefined): boolean {

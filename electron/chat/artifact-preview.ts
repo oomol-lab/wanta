@@ -15,8 +15,12 @@ export const archivePreviewMaxEntries = 300
 export const spreadsheetPreviewMaxRows = 200
 export const spreadsheetPreviewMaxColumns = 50
 
+function fileNameFromPath(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() ?? filePath
+}
+
 function extensionFromPath(filePath: string): string {
-  const name = filePath.split(/[\\/]/).pop() ?? filePath
+  const name = fileNameFromPath(filePath)
   const index = name.lastIndexOf(".")
   return index >= 0 ? name.slice(index).toLowerCase() : ""
 }
@@ -63,18 +67,25 @@ export function isRtfArtifact(filePath: string, mime: string): boolean {
 }
 
 export function archiveFormatFromPath(filePath: string, mime: string): "tar" | "zip" | null {
+  const name = fileNameFromPath(filePath).toLowerCase()
   const extension = extensionFromPath(filePath)
   const normalized = mime.toLowerCase()
   if (extension === ".zip" || normalized === "application/zip") {
     return "zip"
   }
   if (
-    [".tar", ".tgz", ".gz"].includes(extension) ||
-    ["application/gzip", "application/x-gtar", "application/x-tar"].includes(normalized)
+    extension === ".tar" ||
+    extension === ".tgz" ||
+    name.endsWith(".tar.gz") ||
+    ["application/x-gtar", "application/x-tar"].includes(normalized)
   ) {
     return "tar"
   }
   return null
+}
+
+export function isBinaryDataPreviewArtifact(filePath: string, mime: string): boolean {
+  return isPdfArtifact(filePath, mime) || isDocxArtifact(filePath, mime)
 }
 
 export function binaryDataPreview(
@@ -132,8 +143,11 @@ export async function spreadsheetPreview(
   }
 }
 
-async function zipPreview(filePath: string, mime: string, size: number): Promise<LocalArtifactPreviewResult> {
-  const bytes = await readFile(filePath)
+export async function zipPreviewFromBytes(
+  bytes: Buffer,
+  mime: string,
+  size: number,
+): Promise<LocalArtifactPreviewResult> {
   const zip = await JSZip.loadAsync(bytes)
   const files = Object.values(zip.files)
   const entries: LocalArtifactArchiveEntry[] = []
@@ -154,6 +168,10 @@ async function zipPreview(filePath: string, mime: string, size: number): Promise
     archive: { entries, format: "zip", totalEntries: files.length },
     truncated: files.length > entries.length,
   }
+}
+
+async function zipPreview(filePath: string, mime: string, size: number): Promise<LocalArtifactPreviewResult> {
+  return zipPreviewFromBytes(await readFile(filePath), mime, size)
 }
 
 function tarEntryKind(type: string): "directory" | "file" {

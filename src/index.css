@@ -204,6 +204,8 @@
   --oo-attachment-sheet-foreground: oklch(0.38 0.12 148);
   --oo-attachment-document-surface: color-mix(in oklab, oklch(0.56 0.14 225) 12%, var(--background));
   --oo-attachment-document-foreground: oklch(0.4 0.12 225);
+  --oo-attachment-presentation-surface: color-mix(in oklab, oklch(0.62 0.17 38) 12%, var(--background));
+  --oo-attachment-presentation-foreground: oklch(0.43 0.14 38);
   --oo-attachment-code-surface: color-mix(in oklab, oklch(0.48 0.16 270) 12%, var(--background));
   --oo-attachment-code-foreground: oklch(0.39 0.13 270);
   --oo-attachment-file-surface: var(--muted);
@@ -323,6 +325,8 @@
   --oo-attachment-sheet-foreground: var(--success);
   --oo-attachment-document-surface: color-mix(in oklab, oklch(0.7 0.13 225) 18%, var(--background));
   --oo-attachment-document-foreground: oklch(0.78 0.11 225);
+  --oo-attachment-presentation-surface: color-mix(in oklab, oklch(0.78 0.14 38) 18%, var(--background));
+  --oo-attachment-presentation-foreground: oklch(0.82 0.12 38);
   --oo-attachment-code-surface: color-mix(in oklab, oklch(0.72 0.13 270) 18%, var(--background));
   --oo-attachment-code-foreground: oklch(0.78 0.11 270);
   --oo-attachment-file-surface: var(--muted);
@@ -1259,6 +1263,11 @@
   .oo-attachment-tile-document {
     background: var(--oo-attachment-document-surface);
     color: var(--oo-attachment-document-foreground);
+  }
+
+  .oo-attachment-tile-presentation {
+    background: var(--oo-attachment-presentation-surface);
+    color: var(--oo-attachment-presentation-foreground);
   }
 
   .oo-attachment-tile-code {

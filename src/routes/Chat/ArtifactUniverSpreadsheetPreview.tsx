@@ -6,27 +6,37 @@ import { LocaleType, LogLevel, Univer } from "@univerjs/core"
 import { FUniver as UniverFacade } from "@univerjs/core/facade"
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core"
 import zhCN from "@univerjs/preset-sheets-core/locales/zh-CN"
+import * as React from "react"
 import "@univerjs/preset-sheets-core/lib/index.css"
 
-import * as React from "react"
 import { workbookSnapshotFromPreview } from "./artifact-univer-snapshot.ts"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-// 只注册 sheets core preset 暴露的插件，避免引入完整 presets 包和额外预览能力。
+type UniverPresetPluginEntry = PluginCtor<Plugin> | [PluginCtor<Plugin>, ConstructorParameters<PluginCtor<Plugin>>[0]]
+type UniverPreset = {
+  locales?: IUniverConfig["locales"]
+  plugins: UniverPresetPluginEntry[]
+}
+
 function createPreviewUniver(
   config: Partial<IUniverConfig>,
-  presets: Array<ReturnType<typeof UniverSheetsCorePreset>>,
+  presets: UniverPreset[],
 ): { univer: Univer; univerAPI: FUniver } {
-  const univer = new Univer({ logLevel: LogLevel.WARN, ...config })
+  const locales: IUniverConfig["locales"] = { ...config.locales }
   const plugins = new Map<string, { options?: unknown; plugin: PluginCtor<Plugin> }>()
 
   presets.forEach((preset) => {
+    if (preset.locales) {
+      Object.assign(locales, preset.locales)
+    }
     preset.plugins.forEach((entry) => {
       const [plugin, options] = Array.isArray(entry) ? [entry[0], entry[1]] : [entry, undefined]
       plugins.set(plugin.pluginName, { options, plugin })
     })
   })
+
+  const univer = new Univer({ logLevel: LogLevel.WARN, ...config, locales })
   plugins.forEach(({ options, plugin }) => {
     univer.registerPlugin(plugin, options)
   })
@@ -69,6 +79,42 @@ type PreviewUniverRuntime = {
   univerAPI: FUniver
 }
 
+function spreadsheetCorePreset(container: HTMLElement): ReturnType<typeof UniverSheetsCorePreset> {
+  return UniverSheetsCorePreset({
+    container,
+    contextMenu: false,
+    disableAutoFocus: true,
+    footer: {
+      menus: false,
+      sheetBar: true,
+      statisticBar: false,
+      zoomSlider: false,
+    },
+    formulaBar: false,
+    header: false,
+    sheets: {
+      disableForceStringAlert: true,
+      disableForceStringMark: true,
+    },
+    toolbar: false,
+  })
+}
+
+function makeWorkbookReadOnly(workbook: ReturnType<FUniver["createWorkbook"]>): void {
+  workbook.setEditable(false)
+}
+
+function replaceWorkbook(runtime: PreviewUniverRuntime, snapshot: Parameters<FUniver["createWorkbook"]>[0]): void {
+  if (runtime.currentWorkbookId) {
+    runtime.univerAPI.disposeUnit(runtime.currentWorkbookId)
+    runtime.currentWorkbookId = null
+  }
+
+  const workbook = runtime.univerAPI.createWorkbook(snapshot)
+  makeWorkbookReadOnly(workbook)
+  runtime.currentWorkbookId = workbook.getId()
+}
+
 export function ArtifactUniverSpreadsheetPreview({
   className,
   preview,
@@ -91,7 +137,7 @@ export function ArtifactUniverSpreadsheetPreview({
     }
   }, [])
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const container = containerRef.current
     if (!container || !snapshot) {
       return
@@ -108,26 +154,7 @@ export function ArtifactUniverSpreadsheetPreview({
           },
           logLevel: LogLevel.SILENT,
         },
-        [
-          UniverSheetsCorePreset({
-            container,
-            contextMenu: false,
-            disableAutoFocus: true,
-            footer: {
-              menus: false,
-              sheetBar: true,
-              statisticBar: false,
-              zoomSlider: false,
-            },
-            formulaBar: false,
-            header: false,
-            sheets: {
-              disableForceStringAlert: true,
-              disableForceStringMark: true,
-            },
-            toolbar: false,
-          }),
-        ],
+        [spreadsheetCorePreset(container)],
       )
       runtime = {
         currentWorkbookId: null,
@@ -136,13 +163,7 @@ export function ArtifactUniverSpreadsheetPreview({
       runtimeRef.current = runtime
     }
 
-    if (runtime.currentWorkbookId) {
-      runtime.univerAPI.disposeUnit(runtime.currentWorkbookId)
-      runtime.currentWorkbookId = null
-    }
-
-    const workbook = runtime.univerAPI.createWorkbook(snapshot)
-    runtime.currentWorkbookId = workbook.getId()
+    replaceWorkbook(runtime, snapshot)
 
     return () => {
       if (runtimeRef.current !== runtime || !runtime.currentWorkbookId) {
@@ -160,7 +181,7 @@ export function ArtifactUniverSpreadsheetPreview({
   return (
     <div className={cn("flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3", className)}>
       <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
-        <div ref={containerRef} className="absolute inset-0 size-full" />
+        <div ref={containerRef} className="absolute inset-0 size-full" aria-readonly="true" />
       </div>
       {preview.truncated ? (
         <p className="oo-text-caption mt-2 shrink-0 text-muted-foreground">{t("artifacts.sheetTruncated")}</p>

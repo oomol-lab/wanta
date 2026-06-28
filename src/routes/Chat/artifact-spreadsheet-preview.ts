@@ -17,7 +17,3 @@ export function spreadsheetPreviewSheets(preview: LocalArtifactPreviewResult): L
     },
   ]
 }
-
-export function spreadsheetVisibleColumnCount(sheet: LocalArtifactSpreadsheetSheetPreview): number {
-  return Math.max(1, Math.min(sheet.columnCount, ...sheet.rows.map((row) => row.length)))
-}

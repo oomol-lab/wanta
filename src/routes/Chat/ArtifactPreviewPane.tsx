@@ -23,8 +23,8 @@ import {
   readableArtifactTitle,
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
-import { spreadsheetPreviewSheets, spreadsheetVisibleColumnCount } from "./artifact-spreadsheet-preview.ts"
 import { FileKindIcon } from "./file-type-icons.tsx"
+import { fileVisualKind } from "./file-type-kind.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -41,11 +41,14 @@ import { cn } from "@/lib/utils"
 
 const ArtifactPdfPreview = React.lazy(() => import("./ArtifactPdfPreview.tsx"))
 const ArtifactDocxPreview = React.lazy(() => import("./ArtifactDocxPreview.tsx"))
-const ArtifactUniverSpreadsheetPreview = React.lazy(() =>
-  import("./ArtifactUniverSpreadsheetPreview.tsx").then((module) => ({
+function loadArtifactUniverSpreadsheetPreview(): Promise<{
+  default: typeof import("./ArtifactUniverSpreadsheetPreview.tsx").ArtifactUniverSpreadsheetPreview
+}> {
+  return import("./ArtifactUniverSpreadsheetPreview.tsx").then((module) => ({
     default: module.ArtifactUniverSpreadsheetPreview,
-  })),
-)
+  }))
+}
+const ArtifactUniverSpreadsheetPreview = React.lazy(loadArtifactUniverSpreadsheetPreview)
 
 export type ArtifactPreviewMode = "preview" | "source" | "info"
 
@@ -128,6 +131,12 @@ export function ArtifactPreview({
       setInternalMode("preview")
     }
   }, [item?.path, onModeChange])
+
+  React.useEffect(() => {
+    if (fileVisualKind(item ?? undefined, pack) === "spreadsheet") {
+      void loadArtifactUniverSpreadsheetPreview()
+    }
+  }, [item, pack])
 
   if (!item) {
     return <ArtifactsEmptyState />
@@ -376,120 +385,16 @@ function ArtifactCsvPreview({ item, preview }: { item: LocalArtifactItem; previe
   )
 }
 
-function spreadsheetColumnLabel(index: number): string {
-  let current = index + 1
-  let label = ""
-  while (current > 0) {
-    current -= 1
-    label = String.fromCharCode(65 + (current % 26)) + label
-    current = Math.floor(current / 26)
-  }
-  return label
-}
-
-function ArtifactSpreadsheetPreview({ preview }: { preview: LocalArtifactPreviewResult }) {
+function ArtifactSpreadsheetLoadingPreview() {
   const t = useT()
-  const sheet = preview.spreadsheet
-  const sheets = React.useMemo(() => spreadsheetPreviewSheets(preview), [preview])
-  const [activeSheetName, setActiveSheetName] = React.useState(sheet?.activeSheet ?? "")
-  const [selectedCell, setSelectedCell] = React.useState<{ column: number; row: number } | null>(null)
-
-  React.useEffect(() => {
-    setActiveSheetName(sheet?.activeSheet ?? sheets[0]?.name ?? "")
-    setSelectedCell(null)
-  }, [sheet?.activeSheet, sheets])
-
-  if (!sheet) {
-    return null
-  }
-  const activeSheet = sheets.find((item) => item.name === activeSheetName) ?? sheets[0]
-  if (!activeSheet) {
-    return null
-  }
-  const visibleColumnCount = spreadsheetVisibleColumnCount(activeSheet)
-  const columns = Array.from({ length: visibleColumnCount }, (_, index) => index)
 
   return (
-    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">
-      <div className="oo-border-divider flex h-9 shrink-0 items-center justify-between gap-3 border-b bg-background px-3">
-        <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">
-          <span className="font-medium text-foreground">{activeSheet.name || t("artifacts.sheetDefaultName")}</span>
-          {sheets.length > 1 ? <span> · {t("artifacts.sheetCount", { count: sheets.length })}</span> : null}
-        </div>
-        <div className="oo-text-caption text-muted-foreground">
-          {t("artifacts.sheetSize", { columns: activeSheet.columnCount, rows: activeSheet.rowCount })}
+    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3">
+      <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
+        <div className="oo-text-body absolute inset-0 flex items-center justify-center px-4 py-8 text-muted-foreground">
+          {t("artifacts.previewLoading")}
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-3">
-        <table className="oo-border-divider min-w-full border-separate border-spacing-0 overflow-hidden rounded-md border bg-background text-left text-sm">
-          <thead className="text-muted-foreground">
-            <tr>
-              <th className="oo-border-divider sticky top-0 left-0 z-30 h-8 w-11 min-w-11 border-r border-b bg-muted" />
-              {columns.map((index) => (
-                <th
-                  key={index}
-                  className="oo-border-divider sticky top-0 z-20 h-8 min-w-28 border-r border-b bg-muted px-2 text-center align-middle font-medium whitespace-nowrap"
-                >
-                  {spreadsheetColumnLabel(index)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {activeSheet.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                <th className="oo-border-divider sticky left-0 z-10 h-8 w-11 min-w-11 border-r border-b bg-muted px-2 text-center align-middle font-normal whitespace-nowrap text-muted-foreground">
-                  {rowIndex + 1}
-                </th>
-                {columns.map((columnIndex) => (
-                  <td
-                    key={columnIndex}
-                    className={cn(
-                      "oo-border-divider h-8 max-w-56 min-w-28 border-r border-b bg-background p-0 align-middle",
-                      selectedCell?.row === rowIndex &&
-                        selectedCell.column === columnIndex &&
-                        "bg-[var(--oo-artifact-selected-surface)]",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      className="block size-full min-h-8 truncate px-2 text-left text-foreground focus-visible:bg-[var(--oo-artifact-selected-surface)] focus-visible:outline-none"
-                      title={row[columnIndex] || ""}
-                      onClick={() => setSelectedCell({ row: rowIndex, column: columnIndex })}
-                    >
-                      {row[columnIndex] || ""}
-                    </button>
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {sheets.length > 1 ? (
-        <div className="oo-border-divider flex h-9 shrink-0 items-end gap-1 overflow-x-auto border-t bg-background px-2">
-          {sheets.map((item) => (
-            <button
-              key={item.name}
-              type="button"
-              className={cn(
-                "oo-text-caption-compact h-8 max-w-36 min-w-20 truncate rounded-t-md border border-b-0 px-3 text-left text-muted-foreground hover:bg-[var(--oo-artifact-item-hover)] hover:text-accent-foreground",
-                item.name === activeSheet.name &&
-                  "border-[var(--oo-artifact-selected-border)] bg-[var(--oo-artifact-selected-surface)] font-medium text-foreground",
-              )}
-              title={item.name}
-              onClick={() => setActiveSheetName(item.name)}
-            >
-              {item.name || t("artifacts.sheetDefaultName")}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {preview.truncated ? (
-        <p className="oo-text-caption oo-border-divider shrink-0 border-t bg-background px-3 py-2 text-muted-foreground">
-          {t("artifacts.sheetTruncated")}
-        </p>
-      ) : null}
     </div>
   )
 }
@@ -629,7 +534,7 @@ export function ArtifactConsumablePreview({
 
   if (preview?.kind === "spreadsheet") {
     return (
-      <React.Suspense fallback={<ArtifactSpreadsheetPreview preview={preview} />}>
+      <React.Suspense fallback={<ArtifactSpreadsheetLoadingPreview />}>
         <ArtifactUniverSpreadsheetPreview preview={preview} />
       </React.Suspense>
     )

@@ -119,7 +119,7 @@ test("normalizeOrganizationSkillPackages expands registry package infos into ski
     config.skills[0]?.icon,
     `${packageAssetsBaseUrl}/packages/@acme/skills/1.2.3/files/package/assets/icon.png`,
   )
-  assert.equal(config.skills[1]?.displayName, "@acme/skills")
+  assert.equal(config.skills[1]?.displayName, "beta")
 })
 
 test("listOrganizationSkills reads registry organization package infos", async () => {

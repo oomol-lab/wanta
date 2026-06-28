@@ -256,7 +256,6 @@ function normalizeOrganizationSkillPackage(value: unknown, packageIndex: number)
   const extra = asPlainObject(raw.extra)
   const version =
     asString(raw.version) ?? asString(raw.packageVersion) ?? asString(extra?.["latestVersion"]) ?? "latest"
-  const packageDisplayName = asString(raw.title) ?? asString(raw.displayName) ?? packageName
   const packageDescription = asString(raw.description)
   const visibility = normalizePackageVisibility(raw)
   const rawSkills = Array.isArray(raw.skills) ? raw.skills : []
@@ -274,7 +273,7 @@ function normalizeOrganizationSkillPackage(value: unknown, packageIndex: number)
         ...((asString(skill?.["description"]) ?? packageDescription)
           ? { description: asString(skill?.["description"]) ?? packageDescription }
           : {}),
-        displayName: asString(skill?.["title"] ?? skill?.["displayName"]) ?? packageDisplayName,
+        displayName: asString(skill?.["title"] ?? skill?.["displayName"]) ?? skillName,
         enabled: true,
         ...(icon ? { icon } : {}),
         id: `${packageName}:${skillName}`,

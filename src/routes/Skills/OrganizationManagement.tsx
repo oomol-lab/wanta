@@ -184,6 +184,8 @@ export function OrganizationManagementRoute({
   const selectedOrganization = React.useMemo(() => {
     return selectedOrganizationId ? (organizations.find((item) => item.id === selectedOrganizationId) ?? null) : null
   }, [organizations, selectedOrganizationId])
+  const selectedOrganizationSkills =
+    selectedOrganization && organizationSkills?.organizationId === selectedOrganization.id ? organizationSkills : null
   const canManage = React.useMemo(
     () => organizationCanManage(overviewState.data, selectedOrganization),
     [overviewState.data, selectedOrganization],
@@ -802,10 +804,10 @@ export function OrganizationManagementRoute({
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
-                {selectedOrganization && organizationSkills ? (
+                {selectedOrganization && selectedOrganizationSkills ? (
                   <OrganizationSkillGuidePanel
                     organization={selectedOrganization}
-                    organizationSkills={organizationSkills}
+                    organizationSkills={selectedOrganizationSkills}
                     onOpenOrganizationSkills={onOpenOrganizationSkills}
                   />
                 ) : null}

@@ -2,6 +2,7 @@ import type {
   LocalArtifactArchiveEntry,
   LocalArtifactPreviewResult,
   LocalArtifactSpreadsheetPreview,
+  LocalArtifactSpreadsheetSheetPreview,
 } from "./common.ts"
 
 import JSZip from "jszip"
@@ -14,6 +15,7 @@ export const spreadsheetPreviewMaxBytes = 8 * 1024 * 1024
 export const archivePreviewMaxEntries = 300
 export const spreadsheetPreviewMaxRows = 200
 export const spreadsheetPreviewMaxColumns = 50
+export const spreadsheetPreviewMaxSheets = 12
 
 function fileNameFromPath(filePath: string): string {
   return filePath.split(/[\\/]/).pop() ?? filePath
@@ -41,6 +43,53 @@ function cellLabel(value: unknown): string {
     return value.toISOString()
   }
   return String(value)
+}
+
+interface ParsedSpreadsheetSheet {
+  data: unknown[][]
+  sheet: string
+}
+
+function spreadsheetSheetPreview(sheet: ParsedSpreadsheetSheet): LocalArtifactSpreadsheetSheetPreview {
+  const rowCount = sheet.data.length
+  const columnCount = Math.max(0, ...sheet.data.map((row) => row.length))
+  return {
+    name: sheet.sheet,
+    columnCount,
+    rows: sheet.data
+      .slice(0, spreadsheetPreviewMaxRows)
+      .map((row) => row.slice(0, spreadsheetPreviewMaxColumns).map(cellLabel)),
+    rowCount,
+  }
+}
+
+export function spreadsheetWorkbookPreview(parsedSheets: ParsedSpreadsheetSheet[]): {
+  preview: LocalArtifactSpreadsheetPreview
+  truncated: boolean
+} {
+  const workbook = parsedSheets.slice(0, spreadsheetPreviewMaxSheets).map(spreadsheetSheetPreview)
+  const first = workbook[0]
+  if (!first) {
+    return {
+      preview: { activeSheet: "", columnCount: 0, rowCount: 0, rows: [], sheets: [], workbook: [] },
+      truncated: false,
+    }
+  }
+  return {
+    preview: {
+      activeSheet: first.name,
+      columnCount: first.columnCount,
+      rows: first.rows,
+      rowCount: first.rowCount,
+      sheets: workbook.map((sheet) => sheet.name),
+      workbook,
+    },
+    truncated:
+      parsedSheets.length > workbook.length ||
+      workbook.some(
+        (sheet) => sheet.rowCount > spreadsheetPreviewMaxRows || sheet.columnCount > spreadsheetPreviewMaxColumns,
+      ),
+  }
 }
 
 export function isPdfArtifact(filePath: string, mime: string): boolean {
@@ -112,34 +161,14 @@ export async function spreadsheetPreview(
     return { kind: "unsupported", mime, size, reason: "too_large" }
   }
   const bytes = await readFile(filePath)
-  const sheets = await readXlsxFile(bufferArrayBuffer(bytes), { trim: false })
-  const first = sheets[0]
-  if (!first) {
-    return {
-      kind: "spreadsheet",
-      mime,
-      size,
-      spreadsheet: { activeSheet: "", columnCount: 0, rowCount: 0, rows: [], sheets: [] },
-    }
-  }
-  const rowCount = first.data.length
-  const columnCount = Math.max(0, ...first.data.map((row) => row.length))
-  const rows = first.data
-    .slice(0, spreadsheetPreviewMaxRows)
-    .map((row) => row.slice(0, spreadsheetPreviewMaxColumns).map(cellLabel))
-  const preview: LocalArtifactSpreadsheetPreview = {
-    activeSheet: first.sheet,
-    columnCount,
-    rows,
-    rowCount,
-    sheets: sheets.map((sheet) => sheet.sheet),
-  }
+  const parsedSheets = await readXlsxFile(bufferArrayBuffer(bytes), { trim: false })
+  const { preview, truncated } = spreadsheetWorkbookPreview(parsedSheets)
   return {
     kind: "spreadsheet",
     mime,
     size,
     spreadsheet: preview,
-    truncated: rowCount > spreadsheetPreviewMaxRows || columnCount > spreadsheetPreviewMaxColumns,
+    truncated,
   }
 }
 

@@ -24,6 +24,7 @@ import {
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { FileKindIcon } from "./file-type-icons.tsx"
+import { fileVisualKind } from "./file-type-kind.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -40,8 +41,16 @@ import { cn } from "@/lib/utils"
 
 const ArtifactPdfPreview = React.lazy(() => import("./ArtifactPdfPreview.tsx"))
 const ArtifactDocxPreview = React.lazy(() => import("./ArtifactDocxPreview.tsx"))
+function loadArtifactUniverSpreadsheetPreview(): Promise<{
+  default: typeof import("./ArtifactUniverSpreadsheetPreview.tsx").ArtifactUniverSpreadsheetPreview
+}> {
+  return import("./ArtifactUniverSpreadsheetPreview.tsx").then((module) => ({
+    default: module.ArtifactUniverSpreadsheetPreview,
+  }))
+}
+const ArtifactUniverSpreadsheetPreview = React.lazy(loadArtifactUniverSpreadsheetPreview)
 
-type ArtifactPreviewMode = "preview" | "source" | "info"
+export type ArtifactPreviewMode = "preview" | "source" | "info"
 
 function shouldOpenArtifactContextMenu(target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null
@@ -82,26 +91,52 @@ export function ArtifactsEmptyState() {
 export function ArtifactPreview({
   group,
   item,
+  mode,
   onContextMenu,
+  onModeChange,
   pack,
   previewCache,
+  showHeader = true,
   onOpen,
 }: {
   group: LocalArtifactGroup | null
   item: LocalArtifactItem | null
+  mode?: ArtifactPreviewMode
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  onModeChange?: (mode: ArtifactPreviewMode) => void
   pack?: LocalArtifactPack | null
   previewCache: LocalArtifactPreviewCache
+  showHeader?: boolean
   onOpen: () => void
 }) {
   const t = useT()
   const { loading, preview } = useLocalArtifactPreview(item, previewCache)
-  const [mode, setMode] = React.useState<ArtifactPreviewMode>("preview")
+  const [internalMode, setInternalMode] = React.useState<ArtifactPreviewMode>("preview")
+  const activeMode = mode ?? internalMode
   const canShowSource = preview?.kind === "text"
+  const setActiveMode = React.useCallback(
+    (nextMode: ArtifactPreviewMode | ((current: ArtifactPreviewMode) => ArtifactPreviewMode)): void => {
+      const resolvedMode = typeof nextMode === "function" ? nextMode(activeMode) : nextMode
+      if (onModeChange) {
+        onModeChange(resolvedMode)
+        return
+      }
+      setInternalMode(resolvedMode)
+    },
+    [activeMode, onModeChange],
+  )
 
   React.useEffect(() => {
-    setMode("preview")
-  }, [item?.path])
+    if (!onModeChange) {
+      setInternalMode("preview")
+    }
+  }, [item?.path, onModeChange])
+
+  React.useEffect(() => {
+    if (fileVisualKind(item ?? undefined, pack) === "spreadsheet") {
+      void loadArtifactUniverSpreadsheetPreview()
+    }
+  }, [item, pack])
 
   if (!item) {
     return <ArtifactsEmptyState />
@@ -119,59 +154,61 @@ export function ArtifactPreview({
         onContextMenu(item, event.clientX, event.clientY)
       }}
     >
-      <div className="oo-border-divider shrink-0 border-b px-3 py-2">
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <ArtifactIcon item={item} pack={pack} />
-            </div>
-            <div className="min-w-0">
-              <div className="oo-text-title truncate">{readableArtifactTitle(item)}</div>
-              <div className="oo-text-caption-compact truncate text-muted-foreground">
-                {artifactMetaLabel(t, item, pack)}
+      {showHeader ? (
+        <div className="oo-border-divider shrink-0 border-b px-3 py-2">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <ArtifactIcon item={item} pack={pack} />
+              </div>
+              <div className="min-w-0">
+                <div className="oo-text-title truncate">{readableArtifactTitle(item)}</div>
+                <div className="oo-text-caption-compact truncate text-muted-foreground">
+                  {artifactMetaLabel(t, item, pack)}
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            {canShowSource ? <CopyContentButton text={preview.text ?? ""} /> : null}
-            {canShowSource ? (
+            <div className="flex shrink-0 items-center gap-0.5">
+              {canShowSource ? <CopyContentButton text={preview.text ?? ""} /> : null}
+              {canShowSource ? (
+                <button
+                  type="button"
+                  title={t("artifacts.sourceTab")}
+                  aria-label={t("artifacts.sourceTab")}
+                  className={cn(
+                    "oo-toolbar-button flex size-7 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
+                    activeMode === "source" && "bg-accent text-foreground",
+                  )}
+                  onClick={() => setActiveMode((current) => (current === "source" ? "preview" : "source"))}
+                >
+                  <Code2 className="size-3.5" />
+                </button>
+              ) : null}
               <button
                 type="button"
-                title={t("artifacts.sourceTab")}
-                aria-label={t("artifacts.sourceTab")}
+                title={t("artifacts.infoTab")}
+                aria-label={t("artifacts.infoTab")}
                 className={cn(
                   "oo-toolbar-button flex size-7 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
-                  mode === "source" && "bg-accent text-foreground",
+                  activeMode === "info" && "bg-accent text-foreground",
                 )}
-                onClick={() => setMode((current) => (current === "source" ? "preview" : "source"))}
+                onClick={() => setActiveMode((current) => (current === "info" ? "preview" : "info"))}
               >
-                <Code2 className="size-3.5" />
+                <Info className="size-3.5" />
               </button>
-            ) : null}
-            <button
-              type="button"
-              title={t("artifacts.infoTab")}
-              aria-label={t("artifacts.infoTab")}
-              className={cn(
-                "oo-toolbar-button flex size-7 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
-                mode === "info" && "bg-accent text-foreground",
-              )}
-              onClick={() => setMode((current) => (current === "info" ? "preview" : "info"))}
-            >
-              <Info className="size-3.5" />
-            </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {loading ? (
+        {activeMode === "info" ? (
+          <ArtifactInfo item={item} group={group} />
+        ) : loading ? (
           <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
             {t("artifacts.previewLoading")}
           </div>
-        ) : mode === "info" ? (
-          <ArtifactInfo item={item} group={group} />
-        ) : mode === "source" && canShowSource ? (
+        ) : activeMode === "source" && canShowSource ? (
           <ArtifactSourcePreview item={item} preview={preview} />
         ) : (
           <ArtifactConsumablePreview item={item} pack={pack} preview={preview} onOpen={onOpen} />
@@ -348,67 +385,16 @@ function ArtifactCsvPreview({ item, preview }: { item: LocalArtifactItem; previe
   )
 }
 
-function spreadsheetColumnLabel(index: number): string {
-  let current = index + 1
-  let label = ""
-  while (current > 0) {
-    current -= 1
-    label = String.fromCharCode(65 + (current % 26)) + label
-    current = Math.floor(current / 26)
-  }
-  return label
-}
-
-function ArtifactSpreadsheetPreview({ preview }: { preview: LocalArtifactPreviewResult }) {
+function ArtifactSpreadsheetLoadingPreview() {
   const t = useT()
-  const sheet = preview.spreadsheet
-  if (!sheet) {
-    return null
-  }
-  const visibleColumnCount = Math.max(1, Math.min(sheet.columnCount, ...sheet.rows.map((row) => row.length)))
-  const columns = Array.from({ length: visibleColumnCount }, (_, index) => index)
 
   return (
-    <div className="min-h-full bg-background p-3">
-      <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">
-          <span className="font-medium text-foreground">{sheet.activeSheet || t("artifacts.sheetDefaultName")}</span>
-          {sheet.sheets.length > 1 ? <span> · {t("artifacts.sheetCount", { count: sheet.sheets.length })}</span> : null}
-        </div>
-        <div className="oo-text-caption text-muted-foreground">
-          {t("artifacts.sheetSize", { columns: sheet.columnCount, rows: sheet.rowCount })}
+    <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3">
+      <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
+        <div className="oo-text-body absolute inset-0 flex items-center justify-center px-4 py-8 text-muted-foreground">
+          {t("artifacts.previewLoading")}
         </div>
       </div>
-      <div className="oo-border-divider overflow-auto rounded-md border">
-        <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
-          <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
-            <tr>
-              {columns.map((index) => (
-                <th
-                  key={index}
-                  className="oo-border-divider border-b px-3 py-2 align-top font-medium whitespace-nowrap"
-                >
-                  {spreadsheetColumnLabel(index)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sheet.rows.map((row, rowIndex) => (
-              <tr key={rowIndex} className="odd:bg-background even:bg-muted/25">
-                {columns.map((columnIndex) => (
-                  <td key={columnIndex} className="oo-border-divider max-w-72 border-b px-3 py-2 align-top break-words">
-                    {row[columnIndex] || ""}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {preview.truncated ? (
-        <p className="oo-text-caption mt-2 text-muted-foreground">{t("artifacts.sheetTruncated")}</p>
-      ) : null}
     </div>
   )
 }
@@ -547,7 +533,11 @@ export function ArtifactConsumablePreview({
   }
 
   if (preview?.kind === "spreadsheet") {
-    return <ArtifactSpreadsheetPreview preview={preview} />
+    return (
+      <React.Suspense fallback={<ArtifactSpreadsheetLoadingPreview />}>
+        <ArtifactUniverSpreadsheetPreview preview={preview} />
+      </React.Suspense>
+    )
   }
 
   if (preview?.kind === "archive") {

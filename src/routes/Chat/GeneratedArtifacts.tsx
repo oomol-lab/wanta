@@ -7,17 +7,18 @@ import type {
 import type { ResolvedArtifactPayload } from "./artifact-filter.ts"
 import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
+import type { ArtifactPreviewMode } from "./ArtifactPreviewPane.tsx"
 
-import { ExternalLink, FolderOpen, Image, Info, PanelRightClose } from "lucide-react"
+import { ExternalLink, Eye, FolderOpen, Image, Info, Maximize2, Minimize2, PanelRightClose } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import { dedupeArtifactPayloadsAcrossSources, mergeArtifactGroups } from "./artifact-filter.ts"
 import {
   artifactKindLabel,
+  artifactGroupDisplayItem,
   artifactMetaLabel,
   artifactSummary,
-  fileSizeLabel,
   isImageArtifact,
   readableArtifactTitle,
 } from "./artifact-metadata.ts"
@@ -59,8 +60,10 @@ interface GeneratedArtifactsProps {
 }
 
 interface ArtifactsPanelProps {
+  maximized: boolean
   selection: ArtifactSelection | null
   onCollapse: () => void
+  onToggleMaximized: () => void
 }
 
 interface ArtifactPanelEntry {
@@ -138,15 +141,19 @@ function useArtifactFileActions(): {
 }
 
 function ArtifactContextMenu({
+  activeInfoPath,
   menu,
   onClose,
   onOpenPath,
   onShowInFolder,
+  onToggleInfo,
 }: {
+  activeInfoPath?: string | null
   menu: ArtifactContextMenuState | null
   onClose: () => void
   onOpenPath: (filePath: string | undefined) => void
   onShowInFolder: (filePath: string | undefined) => void
+  onToggleInfo?: (item: LocalArtifactItem) => void
 }) {
   const t = useT()
 
@@ -177,7 +184,9 @@ function ArtifactContextMenu({
   }
 
   const left = Math.max(8, Math.min(menu.x, window.innerWidth - 220))
-  const top = Math.max(8, Math.min(menu.y, window.innerHeight - 92))
+  const hasInfoAction = Boolean(onToggleInfo)
+  const infoActive = activeInfoPath === menu.item.path
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - (hasInfoAction ? 128 : 92)))
 
   return createPortal(
     <div
@@ -212,6 +221,20 @@ function ArtifactContextMenu({
         <FolderOpen className="size-3.5 shrink-0" />
         <span>{t("artifacts.openInSystemFolder")}</span>
       </button>
+      {onToggleInfo ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+          onClick={() => {
+            onToggleInfo(menu.item)
+            onClose()
+          }}
+        >
+          {infoActive ? <Eye className="size-3.5 shrink-0" /> : <Info className="size-3.5 shrink-0" />}
+          <span>{infoActive ? t("artifacts.previewTab") : t("artifacts.infoTab")}</span>
+        </button>
+      ) : null}
     </div>,
     document.body,
   )
@@ -262,7 +285,8 @@ function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
 function flattenPanelEntries(groups: ResolvedArtifactGroup[]): ArtifactPanelEntry[] {
   return groups.flatMap(({ messageId, group, pack }, groupIndex) => {
     const items = pack ? packDisplayItems(pack) : group.items
-    return items.map((item) => ({
+    const panelItems = items.length > 0 ? items : group.root ? [group.root] : []
+    return panelItems.map((item) => ({
       key: `${messageId}:${group.root?.path ?? groupIndex}:${item.path}`,
       messageId,
       group,
@@ -299,37 +323,37 @@ function GeneratedArtifactsGroup({
 }) {
   const t = useT()
   const visibleItems = group.items.slice(0, previewLimit)
-  const primaryItem = group.items[0]
+  const displayItem = artifactGroupDisplayItem(group, pack)
   const total = itemCount(group)
   const remaining = Math.max(0, total - visibleItems.length)
 
-  if (!primaryItem) {
+  if (!displayItem) {
     return null
   }
 
   return (
     <button
       type="button"
-      title={group.root?.path ?? primaryItem.path}
+      title={group.root?.path ?? displayItem.path}
       className="oo-border-divider flex min-w-0 flex-col gap-2 rounded-lg border bg-background/70 p-2 text-left shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-      onClick={() => onOpen(selectionWithContext(group, messageId, groups, primaryItem.path, pack))}
+      onClick={() => onOpen(selectionWithContext(group, messageId, groups, displayItem.path, pack))}
       onContextMenu={(event) => {
         event.preventDefault()
         event.stopPropagation()
-        onContextMenu(primaryItem, event.clientX, event.clientY)
+        onContextMenu(displayItem, event.clientX, event.clientY)
       }}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <FileKindTile source={primaryItem} pack={pack} className="size-8" iconClassName="size-4" />
+        <FileKindTile source={displayItem} pack={pack} className="size-8" iconClassName="size-4" />
         <div className="min-w-0 flex-1">
-          <div className="oo-text-label truncate">{pack?.title ?? readableArtifactTitle(primaryItem)}</div>
+          <div className="oo-text-label truncate">{pack?.title ?? readableArtifactTitle(displayItem)}</div>
           <div className="oo-text-caption-compact truncate text-muted-foreground">
-            {artifactMetaLabel(t, primaryItem, pack)}
-            {group.items.length > 1 ? ` · ${artifactSummary(t, group)}` : ""}
+            {artifactMetaLabel(t, displayItem, pack)}
+            {total > 1 ? ` · ${artifactSummary(t, group)}` : ""}
           </div>
         </div>
         <Badge variant="outline" className="oo-text-micro rounded-md px-1.5 py-0">
-          {artifactKindLabel(t, primaryItem, pack)}
+          {artifactKindLabel(t, displayItem, pack)}
         </Badge>
       </div>
 
@@ -423,7 +447,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
 
   React.useEffect(() => {
     const resolved = groups.at(-1)
-    const selectedPath = resolved?.group.items[0]?.path
+    const selectedPath = resolved ? artifactGroupDisplayItem(resolved.group, resolved.pack)?.path : undefined
     if (resolved && selectedPath) {
       onAvailable(selectionWithContext(resolved.group, resolved.messageId, groups, selectedPath, resolved.pack))
     }
@@ -461,7 +485,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
   )
 }
 
-export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
+export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaximized }: ArtifactsPanelProps) {
   const t = useT()
   const { openPath, showInFolder } = useArtifactFileActions()
   const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
@@ -482,11 +506,13 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   }, [selection])
   const entries = React.useMemo(() => flattenPanelEntries(groups), [groups])
   const showArtifactList = entries.length > 1
-  const fallbackPath = selection?.selectedPath ?? selection?.group.items[0]?.path ?? null
+  const fallbackPath = selection?.selectedPath ?? entries[0]?.item.path ?? selection?.group.root?.path ?? null
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
+  const [previewMode, setPreviewMode] = React.useState<ArtifactPreviewMode>("preview")
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
   const selectedItem = selectedEntry?.item ?? null
   const selectedPack = selectedEntry ? (selectedEntry.pack ?? null) : (selection?.pack ?? null)
+  const MaximizeIcon = maximized ? Minimize2 : Maximize2
   const showImageGallery =
     selectedPack?.display === "gallery"
       ? entries.length > 0
@@ -508,15 +534,38 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
     })
   }, [entries, selection?.selectedPath])
 
+  React.useEffect(() => {
+    setPreviewMode("preview")
+  }, [selection])
+
+  const selectPreviewPath = React.useCallback((path: string): void => {
+    setSelectedPath(path)
+    setPreviewMode("preview")
+  }, [])
+
   return (
-    <aside className="oo-border-divider flex h-full min-h-0 w-full flex-col border-l bg-background">
+    <aside
+      className={cn(
+        "oo-border-divider flex h-full min-h-0 w-full flex-col border-l bg-background",
+        maximized && "border-l-0",
+      )}
+    >
       <ArtifactContextMenu
+        activeInfoPath={previewMode === "info" ? selectedItem?.path : null}
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
         onOpenPath={openPath}
+        onToggleInfo={(item) => {
+          if (previewMode === "info" && selectedItem?.path === item.path) {
+            setPreviewMode("preview")
+            return
+          }
+          setSelectedPath(item.path)
+          setPreviewMode("info")
+        }}
         onShowInFolder={showInFolder}
       />
-      <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b px-3 [-webkit-app-region:drag]">
+      <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]">
         <div className="oo-text-title min-w-0 truncate">{selectedPack?.title ?? t("artifacts.title")}</div>
         <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
           {selectedItem ? (
@@ -543,6 +592,16 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
           ) : null}
           <button
             type="button"
+            title={maximized ? t("artifacts.restore") : t("artifacts.maximize")}
+            aria-label={maximized ? t("artifacts.restore") : t("artifacts.maximize")}
+            aria-pressed={maximized}
+            className="oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+            onClick={onToggleMaximized}
+          >
+            <MaximizeIcon className="size-4" />
+          </button>
+          <button
+            type="button"
             title={t("artifacts.collapse")}
             aria-label={t("artifacts.collapse")}
             className="oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
@@ -560,54 +619,33 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
               entries={entries}
               group={selectedEntry?.group ?? null}
               previewCache={previewCache}
+              mode={previewMode}
               selectedItem={selectedItem}
               onOpenPath={openPath}
               onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
-              onSelect={(path) => setSelectedPath(path)}
+              onModeChange={setPreviewMode}
+              onSelect={selectPreviewPath}
             />
           ) : (
             <>
               {showArtifactList ? (
-                <section className="oo-border-divider max-h-[32%] shrink-0 overflow-y-auto border-b px-2 py-2">
-                  <div className="grid gap-1">
-                    {entries.map((entry) => (
-                      <button
-                        key={entry.key}
-                        type="button"
-                        title={entry.item.path}
-                        className={cn(
-                          "group relative flex min-h-12 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-                          entry.item.path === selectedItem?.path &&
-                            "bg-accent text-accent-foreground before:absolute before:top-1.5 before:bottom-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
-                        )}
-                        onClick={() => setSelectedPath(entry.item.path)}
-                        onContextMenu={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          setContextMenu({ item: entry.item, x: event.clientX, y: event.clientY })
-                        }}
-                        onDoubleClick={() => openPath(entry.item.path)}
-                      >
-                        <ArtifactIcon item={entry.item} className="text-muted-foreground" pack={entry.pack} />
-                        <span className="min-w-0 flex-1">
-                          <span className="oo-text-label block truncate">{readableArtifactTitle(entry.item)}</span>
-                          <span className="oo-text-caption-compact block truncate text-muted-foreground">
-                            {artifactMetaLabel(t, entry.item, entry.pack)}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  {groups.some(({ group }) => group.truncated) ? (
-                    <p className="oo-text-caption px-2 pt-2 text-muted-foreground">{t("artifacts.truncated")}</p>
-                  ) : null}
-                </section>
+                <ArtifactFileStrip
+                  entries={entries}
+                  selectedItem={selectedItem}
+                  truncated={groups.some(({ group }) => group.truncated)}
+                  onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
+                  onOpenPath={openPath}
+                  onSelect={selectPreviewPath}
+                />
               ) : null}
               <ArtifactPreview
                 item={selectedItem}
                 group={selectedEntry?.group ?? null}
+                mode={previewMode}
+                onModeChange={setPreviewMode}
                 pack={selectedPack}
                 previewCache={previewCache}
+                showHeader={false}
                 onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
                 onOpen={() => openPath(selectedItem?.path)}
               />
@@ -621,10 +659,102 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   )
 }
 
+function ArtifactFileStrip({
+  entries,
+  onContextMenu,
+  selectedItem,
+  truncated,
+  onOpenPath,
+  onSelect,
+}: {
+  entries: ArtifactPanelEntry[]
+  onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  selectedItem: LocalArtifactItem | null
+  truncated: boolean
+  onOpenPath: (path: string | undefined) => void
+  onSelect: (path: string) => void
+}) {
+  const t = useT()
+  const selectedIndex = Math.max(
+    0,
+    entries.findIndex((entry) => entry.item.path === selectedItem?.path),
+  )
+
+  return (
+    <section className="oo-border-divider shrink-0 border-b px-2.5 py-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="oo-text-caption-compact font-medium text-muted-foreground">
+          {t("artifacts.count", { count: entries.length })}
+        </div>
+        <div className="oo-text-caption text-muted-foreground">
+          {selectedIndex + 1}/{entries.length}
+        </div>
+      </div>
+      <div className="mt-1.5 grid max-h-28 grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1.5 overflow-y-auto pr-1">
+        {entries.map((entry) => (
+          <ArtifactFileTile
+            key={entry.key}
+            entry={entry}
+            selected={entry.item.path === selectedItem?.path}
+            onClick={() => onSelect(entry.item.path)}
+            onContextMenu={(x, y) => onContextMenu(entry.item, x, y)}
+            onDoubleClick={() => onOpenPath(entry.item.path)}
+          />
+        ))}
+      </div>
+      {truncated ? <p className="oo-text-caption px-1 pt-2 text-muted-foreground">{t("artifacts.truncated")}</p> : null}
+    </section>
+  )
+}
+
+function ArtifactFileTile({
+  entry,
+  selected,
+  onClick,
+  onContextMenu,
+  onDoubleClick,
+}: {
+  entry: ArtifactPanelEntry
+  selected: boolean
+  onClick: () => void
+  onContextMenu: (x: number, y: number) => void
+  onDoubleClick: () => void
+}) {
+  const t = useT()
+
+  return (
+    <button
+      type="button"
+      title={entry.item.path}
+      className={cn(
+        "oo-artifact-selectable relative flex h-12 min-w-0 items-center gap-1.5 rounded-md border px-1.5 text-left shadow-sm hover:text-accent-foreground focus-visible:outline-none",
+        selected && "oo-artifact-selected shadow-none",
+      )}
+      onClick={onClick}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onContextMenu(event.clientX, event.clientY)
+      }}
+      onDoubleClick={onDoubleClick}
+    >
+      <FileKindTile source={entry.item} pack={entry.pack} className="size-7" iconClassName="size-3.5" />
+      <span className="min-w-0 flex-1">
+        <span className="oo-text-caption-compact block truncate font-medium text-foreground">{entry.item.name}</span>
+        <span className="oo-text-caption-compact block truncate text-muted-foreground">
+          {artifactMetaLabel(t, entry.item, entry.pack)}
+        </span>
+      </span>
+    </button>
+  )
+}
+
 function ImageGalleryPanel({
   entries,
   group,
+  mode,
   onContextMenu,
+  onModeChange,
   previewCache,
   selectedItem,
   onOpenPath,
@@ -632,7 +762,9 @@ function ImageGalleryPanel({
 }: {
   entries: ArtifactPanelEntry[]
   group: LocalArtifactGroup | null
+  mode: ArtifactPreviewMode
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  onModeChange: (mode: ArtifactPreviewMode) => void
   previewCache: LocalArtifactPreviewCache
   selectedItem: LocalArtifactItem | null
   onOpenPath: (path: string | undefined) => void
@@ -646,7 +778,7 @@ function ImageGalleryPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <section className="oo-border-divider shrink-0 border-b px-3 py-2">
+      <section className="oo-border-divider shrink-0 border-b px-2.5 py-1.5">
         <div className="flex items-center justify-between gap-3">
           <div className="oo-text-caption-compact font-medium text-muted-foreground">
             {t("artifacts.imageCount", { count: entries.length })}
@@ -655,7 +787,7 @@ function ImageGalleryPanel({
             {selectedIndex + 1}/{entries.length}
           </div>
         </div>
-        <div className="mt-2 grid max-h-36 grid-cols-[repeat(auto-fill,minmax(58px,1fr))] gap-2 overflow-y-auto pr-1">
+        <div className="mt-1.5 grid max-h-32 grid-cols-[repeat(auto-fill,minmax(50px,1fr))] gap-1.5 overflow-y-auto pr-1">
           {entries.map((entry, index) => (
             <ImageThumbnail
               key={entry.key}
@@ -673,6 +805,8 @@ function ImageGalleryPanel({
       <ImageGalleryPreview
         group={group}
         item={selectedItem}
+        mode={mode}
+        onModeChange={onModeChange}
         previewCache={previewCache}
         onContextMenu={onContextMenu}
         onOpen={() => onOpenPath(selectedItem?.path)}
@@ -705,8 +839,8 @@ function ImageThumbnail({
       type="button"
       title={item.name}
       className={cn(
-        "relative aspect-square overflow-hidden rounded-md border bg-[var(--oo-artifact-preview-canvas)] text-muted-foreground shadow-sm transition-colors hover:border-primary/60",
-        selected ? "border-primary ring-2 ring-primary/20" : "border-border",
+        "oo-artifact-selectable relative aspect-square overflow-hidden rounded-md border text-muted-foreground shadow-sm focus-visible:outline-none",
+        selected && "oo-artifact-selected shadow-none",
       )}
       onClick={onClick}
       onContextMenu={(event) => {
@@ -739,23 +873,28 @@ function ImageThumbnail({
 function ImageGalleryPreview({
   group,
   item,
+  mode,
   onContextMenu,
+  onModeChange,
   previewCache,
   onOpen,
 }: {
   group: LocalArtifactGroup | null
   item: LocalArtifactItem | null
+  mode: ArtifactPreviewMode
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  onModeChange: (mode: ArtifactPreviewMode) => void
   previewCache: LocalArtifactPreviewCache
   onOpen: () => void
 }) {
   const t = useT()
-  const [mode, setMode] = React.useState<"preview" | "info">("preview")
   const { loading, preview } = useLocalArtifactPreview(item, previewCache)
 
   React.useEffect(() => {
-    setMode("preview")
-  }, [item?.path])
+    if (mode === "source") {
+      onModeChange("preview")
+    }
+  }, [mode, onModeChange])
 
   if (!item) {
     return <ArtifactsEmptyState />
@@ -773,24 +912,6 @@ function ImageGalleryPreview({
         onContextMenu(item, event.clientX, event.clientY)
       }}
     >
-      <div className="oo-border-divider flex h-10 shrink-0 items-center justify-between gap-3 border-b px-3">
-        <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">
-          <span className="font-medium text-foreground">{item.name}</span>
-          {fileSizeLabel(item.size) ? <span> · {fileSizeLabel(item.size)}</span> : null}
-        </div>
-        <button
-          type="button"
-          title={t("artifacts.infoTab")}
-          aria-label={t("artifacts.infoTab")}
-          className={cn(
-            "oo-toolbar-button flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
-            mode === "info" && "bg-accent text-foreground",
-          )}
-          onClick={() => setMode((current) => (current === "info" ? "preview" : "info"))}
-        >
-          <Info className="size-3.5" />
-        </button>
-      </div>
       <div className="min-h-0 flex-1 overflow-auto">
         {mode === "info" ? (
           <ArtifactInfo item={item} group={group} />

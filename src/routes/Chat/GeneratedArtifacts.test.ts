@@ -1,10 +1,12 @@
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ResolvedArtifactPayload } from "./artifact-filter.ts"
+import type { TranslateFn } from "@/i18n/i18n"
 
 import { describe, expect, it } from "vitest"
 import { parseCsvPreview } from "./artifact-csv-preview.ts"
 import { dedupeArtifactPayloadsAcrossSources, filterArtifactPayloads } from "./artifact-filter.ts"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
+import { artifactGroupDisplayItem, artifactKindLabel } from "./artifact-metadata.ts"
 
 function artifactItem(name: string, mime: string): LocalArtifactItem {
   return {
@@ -15,6 +17,17 @@ function artifactItem(name: string, mime: string): LocalArtifactItem {
     size: 1,
   }
 }
+
+function artifactFolder(name: string): LocalArtifactItem {
+  return {
+    path: `/tmp/${name}`,
+    name,
+    kind: "directory",
+    mime: "inode/directory",
+  }
+}
+
+const testTranslate: TranslateFn = (key) => (key === "artifacts.kindFolder" ? "Folder" : key)
 
 describe("htmlPreviewSrcDoc", () => {
   it("keeps an existing doctype first when injecting preview head content", () => {
@@ -204,5 +217,84 @@ describe("filterArtifactPayloads", () => {
     ]
 
     expect(dedupeArtifactPayloadsAcrossSources(payloads)).toEqual([payloads[0]])
+  })
+})
+
+describe("artifact group display", () => {
+  it("uses the root folder as the cover for file-list artifact packs", () => {
+    const pdf = artifactItem("sample.pdf", "application/pdf")
+    const spreadsheet = artifactItem("sample.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    const root = artifactFolder("wanta-artifacts")
+    const pack: LocalArtifactPack = {
+      root,
+      title: "Generated documents",
+      kind: "mixed",
+      display: "file_list",
+      items: [
+        { ...pdf, role: "primary", order: 1 },
+        { ...spreadsheet, role: "primary", order: 2 },
+      ],
+      supporting: [],
+      totalItems: 2,
+      truncated: false,
+    }
+
+    const displayItem = artifactGroupDisplayItem(
+      {
+        root,
+        items: [pdf, spreadsheet],
+        totalItems: 2,
+        truncated: false,
+      },
+      pack,
+    )
+
+    expect(displayItem).toBe(root)
+    expect(artifactKindLabel(testTranslate, displayItem, pack)).toBe("Folder")
+  })
+
+  it("keeps single document packs represented by their primary file", () => {
+    const pdf = artifactItem("report.pdf", "application/pdf")
+    const root = artifactFolder("report")
+    const pack: LocalArtifactPack = {
+      root,
+      title: "Report",
+      kind: "document",
+      display: "document",
+      items: [{ ...pdf, role: "primary", order: 1 }],
+      supporting: [],
+      totalItems: 1,
+      truncated: false,
+    }
+
+    expect(
+      artifactGroupDisplayItem(
+        {
+          root,
+          items: [pdf],
+          totalItems: 1,
+          truncated: false,
+        },
+        pack,
+      ),
+    ).toBe(pdf)
+  })
+
+  it("uses the root folder for unmanifested directory groups with multiple files", () => {
+    const pdf = artifactItem("sample.pdf", "application/pdf")
+    const document = artifactItem(
+      "sample.docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    const root = artifactFolder("exports")
+
+    expect(
+      artifactGroupDisplayItem({
+        root,
+        items: [pdf, document],
+        totalItems: 2,
+        truncated: false,
+      }),
+    ).toBe(root)
   })
 })

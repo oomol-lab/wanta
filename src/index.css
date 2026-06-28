@@ -153,6 +153,14 @@
   --oo-surface-raised: oklch(0.956 0.004 287);
   --oo-inspector-surface: oklch(0.983 0.003 288);
   --oo-artifact-preview-canvas: oklch(0.972 0.004 288);
+  --oo-artifact-item-surface: var(--oo-artifact-preview-canvas);
+  --oo-artifact-item-border: var(--border);
+  --oo-artifact-item-hover: color-mix(in oklab, var(--foreground) 4%, var(--oo-artifact-preview-canvas));
+  --oo-artifact-selected-surface: color-mix(in oklab, var(--info) 11%, var(--background));
+  --oo-artifact-selected-border: color-mix(in oklab, var(--info) 34%, var(--border));
+  --oo-artifact-selected-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--info) 18%, transparent),
+    0 1px 2px color-mix(in oklab, var(--foreground) 6%, transparent);
   --oo-attention-summary-surface: oklch(0.956 0.004 287);
   --oo-row-hover: oklch(0.956 0.004 287);
   --oo-row-selected: var(--selection-soft);
@@ -182,8 +190,8 @@
   --oo-success-foreground: var(--success);
   --oo-attachment-directory-surface: color-mix(in oklab, oklch(0.58 0.13 205) 14%, var(--background));
   --oo-attachment-directory-foreground: oklch(0.42 0.12 205);
-  --oo-attachment-pdf-surface: color-mix(in oklab, var(--destructive) 88%, black);
-  --oo-attachment-pdf-foreground: white;
+  --oo-attachment-pdf-surface: color-mix(in oklab, var(--destructive) 12%, var(--background));
+  --oo-attachment-pdf-foreground: oklch(0.5 0.19 24);
   --oo-attachment-image-surface: color-mix(in oklab, var(--info) 12%, var(--background));
   --oo-attachment-image-foreground: oklch(0.42 0.14 255);
   --oo-attachment-video-surface: color-mix(in oklab, oklch(0.55 0.17 305) 12%, var(--background));
@@ -196,6 +204,8 @@
   --oo-attachment-sheet-foreground: oklch(0.38 0.12 148);
   --oo-attachment-document-surface: color-mix(in oklab, oklch(0.56 0.14 225) 12%, var(--background));
   --oo-attachment-document-foreground: oklch(0.4 0.12 225);
+  --oo-attachment-presentation-surface: color-mix(in oklab, oklch(0.62 0.17 38) 12%, var(--background));
+  --oo-attachment-presentation-foreground: oklch(0.43 0.14 38);
   --oo-attachment-code-surface: color-mix(in oklab, oklch(0.48 0.16 270) 12%, var(--background));
   --oo-attachment-code-foreground: oklch(0.39 0.13 270);
   --oo-attachment-file-surface: var(--muted);
@@ -264,6 +274,14 @@
   --oo-surface-raised: oklch(0.252 0.006 272);
   --oo-inspector-surface: oklch(0.252 0.006 272);
   --oo-artifact-preview-canvas: oklch(0.16 0.004 286);
+  --oo-artifact-item-surface: var(--oo-artifact-preview-canvas);
+  --oo-artifact-item-border: var(--border);
+  --oo-artifact-item-hover: color-mix(in oklab, var(--foreground) 7%, var(--oo-artifact-preview-canvas));
+  --oo-artifact-selected-surface: color-mix(in oklab, var(--info) 18%, var(--background));
+  --oo-artifact-selected-border: color-mix(in oklab, var(--info) 38%, var(--border));
+  --oo-artifact-selected-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--info) 22%, transparent),
+    0 1px 2px color-mix(in oklab, var(--background) 60%, transparent);
   --oo-attention-summary-surface: oklch(0.252 0.006 272);
   --oo-row-hover: oklch(0.283 0.007 249);
   --oo-row-selected: var(--selection-soft);
@@ -307,6 +325,8 @@
   --oo-attachment-sheet-foreground: var(--success);
   --oo-attachment-document-surface: color-mix(in oklab, oklch(0.7 0.13 225) 18%, var(--background));
   --oo-attachment-document-foreground: oklch(0.78 0.11 225);
+  --oo-attachment-presentation-surface: color-mix(in oklab, oklch(0.78 0.14 38) 18%, var(--background));
+  --oo-attachment-presentation-foreground: oklch(0.82 0.12 38);
   --oo-attachment-code-surface: color-mix(in oklab, oklch(0.72 0.13 270) 18%, var(--background));
   --oo-attachment-code-foreground: oklch(0.78 0.11 270);
   --oo-attachment-file-surface: var(--muted);
@@ -732,6 +752,11 @@
     padding-left: calc(var(--traffic-light-space) + 1rem);
   }
 
+  .oo-artifacts-titlebar {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+
   :root[data-platform="win32"] .oo-main-titlebar,
   :root[data-platform="linux"] .oo-main-titlebar,
   :root[data-dev-window-controls="windows"] .oo-main-titlebar {
@@ -748,6 +773,11 @@
   :root[data-platform="linux"] .oo-artifacts-titlebar,
   :root[data-dev-window-controls="windows"] .oo-artifacts-titlebar {
     padding-right: calc(var(--window-control-right-space) + 0.75rem);
+  }
+
+  :root[data-platform="darwin"] .oo-artifacts-panel-maximized .oo-artifacts-titlebar,
+  :root[data-dev-window-controls="macos"] .oo-artifacts-panel-maximized .oo-artifacts-titlebar {
+    padding-left: calc(var(--traffic-light-space) + 0.75rem);
   }
 
   .oo-titlebar-collapsed-controls {
@@ -1235,6 +1265,11 @@
     color: var(--oo-attachment-document-foreground);
   }
 
+  .oo-attachment-tile-presentation {
+    background: var(--oo-attachment-presentation-surface);
+    color: var(--oo-attachment-presentation-foreground);
+  }
+
   .oo-attachment-tile-code {
     background: var(--oo-attachment-code-surface);
     color: var(--oo-attachment-code-foreground);
@@ -1247,6 +1282,31 @@
   .oo-attachment-tile-file {
     background: var(--oo-attachment-file-surface);
     color: var(--oo-attachment-file-foreground);
+  }
+
+  .oo-artifact-selectable {
+    border-color: var(--oo-artifact-item-border);
+    background: var(--oo-artifact-item-surface);
+    transition:
+      border-color 120ms ease-out,
+      background-color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .oo-artifact-selectable:hover,
+  .oo-artifact-selectable:focus-visible {
+    background: var(--oo-artifact-item-hover);
+  }
+
+  .oo-artifact-selected {
+    border-color: var(--oo-artifact-selected-border);
+    background: var(--oo-artifact-selected-surface);
+    box-shadow: var(--oo-artifact-selected-shadow);
+  }
+
+  .oo-artifact-selected:hover,
+  .oo-artifact-selected:focus-visible {
+    background: var(--oo-artifact-selected-surface);
   }
 
   .oo-active-accent:active {
@@ -1641,16 +1701,20 @@
   }
 
   .oo-docx-preview .oo-docx-preview-doc-wrapper {
+    width: max-content;
+    min-width: 100%;
+    background: transparent !important;
+    padding: 0 !important;
     overflow: visible;
   }
 
-  .oo-docx-preview .oo-docx-preview-doc {
+  .oo-docx-preview .oo-docx-preview-doc-wrapper > section.oo-docx-preview-doc {
     box-sizing: border-box;
-    max-width: min(100%, 820px);
-    margin-right: auto;
-    margin-left: auto;
-    background: white;
-    box-shadow: 0 10px 30px rgb(15 23 42 / 0.12);
+    margin-right: auto !important;
+    margin-bottom: 1rem !important;
+    margin-left: auto !important;
+    background: white !important;
+    box-shadow: 0 10px 30px rgb(15 23 42 / 0.12) !important;
   }
 
   .oo-markdown blockquote {

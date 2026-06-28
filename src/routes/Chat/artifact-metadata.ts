@@ -10,6 +10,7 @@ export type ArtifactDisplayKind =
   | "video"
   | "audio"
   | "archive"
+  | "directory"
   | "document"
   | "pdf"
   | "table"
@@ -92,6 +93,8 @@ export function artifactDisplayKind(
       return "audio"
     case "code":
       return "code"
+    case "directory":
+      return "directory"
     case "document":
       return "document"
     case "image":
@@ -133,6 +136,8 @@ export function artifactKindLabel(
       return t("artifacts.kindAudio")
     case "archive":
       return t("artifacts.kindArchive")
+    case "directory":
+      return t("artifacts.kindFolder")
     case "document":
       return t("artifacts.kindDocument")
     case "pdf":
@@ -152,6 +157,19 @@ export function artifactKindLabel(
 
 export function artifactMetaLabel(t: TranslateFn, item: LocalArtifactItem, pack?: LocalArtifactPack | null): string {
   return [artifactKindLabel(t, item, pack), fileSizeLabel(item.size)].filter(Boolean).join(" · ")
+}
+
+export function artifactGroupDisplayItem(
+  group: LocalArtifactGroup,
+  pack?: LocalArtifactPack | null,
+): LocalArtifactItem | undefined {
+  if (
+    group.root?.kind === "directory" &&
+    (pack?.display === "file_list" || pack?.display === "project" || (!pack && group.totalItems > 1))
+  ) {
+    return group.root
+  }
+  return group.items[0] ?? group.root
 }
 
 export function artifactSummary(t: TranslateFn, group: LocalArtifactGroup): string {

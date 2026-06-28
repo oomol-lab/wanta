@@ -1,6 +1,5 @@
 import type { AppIconComponent } from "@/components/AppIcons"
 import type { IconifyIcon as IconifyIconData } from "@iconify/types"
-import type { SVGProps } from "react"
 
 import cloudflareIcon from "@iconify-icons/simple-icons/cloudflare"
 import googleBigQueryIcon from "@iconify-icons/simple-icons/googlebigquery"
@@ -19,6 +18,7 @@ import {
   WandSparklesIcon,
 } from "lucide-react"
 import { AppIcons } from "@/components/AppIcons"
+import { createIconifySvgIcon } from "@/components/IconifySvg"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source.ts"
 import { cn } from "@/lib/utils"
 
@@ -49,6 +49,10 @@ const iconifySkillIcons = {
 
 type IconifySkillIconName = keyof typeof iconifySkillIcons
 
+const iconifySkillIconComponents = Object.fromEntries(
+  Object.entries(iconifySkillIcons).map(([key, icon]) => [key, createIconifySvgIcon(icon)]),
+) as Record<IconifySkillIconName, AppIconComponent>
+
 interface SkillIconProps {
   className?: string
   fallback?: AppIconComponent
@@ -75,26 +79,10 @@ function getSkillIcon(icon: string | undefined): AppIconComponent | undefined {
   const iconifyIconName = `${spec.collection}:${spec.name}`
 
   if (iconifyIconName in iconifySkillIcons) {
-    return createIconifySkillIcon(iconifySkillIcons[iconifyIconName as IconifySkillIconName])
+    return iconifySkillIconComponents[iconifyIconName as IconifySkillIconName]
   }
 
   return undefined
-}
-
-function createIconifySkillIcon(icon: IconifyIconData): AppIconComponent {
-  return function IconifySkillIcon({ children: _children, ...props }: SVGProps<SVGSVGElement>) {
-    const width = icon.width ?? 16
-    const height = icon.height ?? width
-    return (
-      <svg
-        {...props}
-        width="1em"
-        height="1em"
-        viewBox={`0 0 ${width} ${height}`}
-        dangerouslySetInnerHTML={{ __html: icon.body }}
-      />
-    )
-  }
 }
 
 function parseIconEsSpec(icon: string | undefined): { collection: string; name: string } | null {

@@ -236,6 +236,11 @@ export async function getConnectionSummary(
   })
 }
 
+export async function isProviderConnectionActive(service: string, workspace: ConnectionWorkspace): Promise<boolean> {
+  const appsResult = await getConnector<RawApp[]>("/v1/apps", workspace, { forceRefresh: true })
+  return appsResult.data.some((app) => app.service === service && app.status === "active")
+}
+
 export async function getConnectionProviderDetail(
   service: string,
   workspace: ConnectionWorkspace,

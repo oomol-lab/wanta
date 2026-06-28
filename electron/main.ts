@@ -157,7 +157,9 @@ const settingsService = new SettingsServiceImpl({
 const updateService = new UpdateServiceImpl({
   store: settingsStore,
 })
-const gitService = new GitServiceImpl()
+const gitService = new GitServiceImpl({
+  projectStore: sessionProjectStore,
+})
 
 chatService.sessionActivity.on(({ sessionId, usedAt }) => {
   void sessionService.recordUseAndEmit(sessionId, usedAt).catch(() => undefined)
@@ -387,11 +389,16 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   })
 }
 
-function handleAgentOrganizationChanged(organizationName: string | undefined): void {
+async function handleAgentOrganizationChanged(organizationName: string | undefined): Promise<void> {
+  const previousOrganizationName = activeAgentOrganizationName
   activeAgentOrganizationName = organizationName
-  void agent?.setOrganizationName(organizationName).catch((error: unknown) => {
+  try {
+    await agent?.setOrganizationName(organizationName)
+  } catch (error: unknown) {
+    activeAgentOrganizationName = previousOrganizationName
     console.error("[wanta] failed to update agent workspace scope:", error)
-  })
+    throw error
+  }
 }
 
 function restartAgentForModelConfig(): void {

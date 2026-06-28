@@ -32,6 +32,14 @@ export interface OomolFetchOptions extends Omit<RequestInit, "credentials"> {
   timeoutMs?: number
 }
 
+function assertNoRendererCredentialHeaders(headers: Headers): void {
+  for (const name of ["authorization", "cookie"]) {
+    if (headers.has(name)) {
+      throw new Error(`oomolFetch must not set ${name} in the renderer; use the httpOnly session cookie.`)
+    }
+  }
+}
+
 /**
  * 底层 fetch：强制 credentials:"include"（带上会话 cookie）+ 默认 Accept: application/json + 超时。
  * 不做状态码判断，由各域客户端按自身语义处理响应。
@@ -40,6 +48,7 @@ export function oomolFetch(input: string | URL, options: OomolFetchOptions = {})
   const { timeoutMs = defaultTimeoutMs, headers, signal, ...init } = options
   // 用 Headers 规范化：调用方可能传 Headers 实例或 tuple 数组，对象展开会丢头（仅对纯对象有效）。
   const mergedHeaders = new Headers(headers)
+  assertNoRendererCredentialHeaders(mergedHeaders)
   if (!mergedHeaders.has("Accept")) {
     mergedHeaders.set("Accept", "application/json")
   }

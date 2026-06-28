@@ -207,7 +207,7 @@ interface ChatServiceDeps {
   authorizationOverlayStore?: AuthorizationOverlayStore
   stoppedGenerationStore?: StoppedGenerationStore
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
-  onSetAgentOrganization?: (organizationName: string | undefined) => void
+  onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
 }
 
 interface SessionGeneration {
@@ -1094,7 +1094,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
     const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
-    this.deps.onSetAgentOrganization?.(organizationName)
+    await this.deps.onSetAgentOrganization?.(organizationName)
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {

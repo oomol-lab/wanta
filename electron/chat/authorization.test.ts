@@ -90,6 +90,23 @@ test("parseSearchAuthorizationSignal rejects ambiguous search results", () => {
   assert.equal(parseSearchAuthorizationSignal(JSON.stringify({ status: "error" })), null)
 })
 
+test("parseSearchAuthorizationSignal ignores search results with unreliable authentication scope", () => {
+  assert.equal(
+    parseSearchAuthorizationSignal(
+      JSON.stringify([
+        {
+          service: "supabase",
+          name: "list_projects",
+          authenticated: false,
+          authenticatedReliable: false,
+          authenticatedScope: "search_default_identity",
+        },
+      ]),
+    ),
+    null,
+  )
+})
+
 test("parseSearchAuthorizationSignal prefers the provider named by the search input", () => {
   const output = JSON.stringify([
     { service: "supabase", name: "list_projects", authenticated: false },

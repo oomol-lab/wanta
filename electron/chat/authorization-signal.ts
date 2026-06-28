@@ -2,6 +2,7 @@ import type { AuthorizationInfo } from "./common.ts"
 
 interface SearchActionResult {
   authenticated?: unknown
+  authenticatedReliable?: unknown
   service?: unknown
 }
 
@@ -69,6 +70,9 @@ export function parseSearchAuthorizationSignal(
   try {
     const parsed = JSON.parse(output) as unknown
     if (!Array.isArray(parsed)) {
+      return null
+    }
+    if ((parsed as SearchActionResult[]).some((item) => item?.authenticatedReliable === false)) {
       return null
     }
     const unauthenticatedServices = new Set<string>()

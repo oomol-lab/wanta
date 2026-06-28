@@ -44,6 +44,25 @@ function normalizeOrganizationName(organizationName: string | undefined): string
   return normalized ? normalized : undefined
 }
 
+export interface OrganizationScopePersistenceOptions {
+  currentName: string | undefined
+  nextName: string | undefined
+  writeScope: (organizationName: string | undefined) => Promise<void>
+}
+
+export async function persistOrganizationScopeUpdate({
+  currentName,
+  nextName,
+  writeScope,
+}: OrganizationScopePersistenceOptions): Promise<void> {
+  try {
+    await writeScope(nextName)
+  } catch (error) {
+    await writeScope(currentName).catch(() => undefined)
+    throw error
+  }
+}
+
 export interface SendMessageResult {
   sessionId: string
   messages: unknown
@@ -111,6 +130,7 @@ export class AgentManager {
   private eventLoopStopped = false
   private organizationName: string | undefined
   private organizationScopePath: string | undefined
+  private organizationUpdateChain: Promise<void> = Promise.resolve()
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
@@ -135,11 +155,21 @@ export class AgentManager {
   /** 更新 Link 工具使用的组织工作区，不重启 sidecar，避免刷新会话列表。 */
   public async setOrganizationName(organizationName?: string): Promise<void> {
     const nextOrganizationName = normalizeOrganizationName(organizationName)
-    if (nextOrganizationName === this.organizationName) {
-      return
+    const update = async (): Promise<void> => {
+      if (nextOrganizationName === this.organizationName) {
+        return
+      }
+      const previousOrganizationName = this.organizationName
+      await persistOrganizationScopeUpdate({
+        currentName: previousOrganizationName,
+        nextName: nextOrganizationName,
+        writeScope: (name) => this.writeOrganizationScope(name),
+      })
+      this.organizationName = nextOrganizationName
     }
-    this.organizationName = nextOrganizationName
-    await this.writeOrganizationScope()
+    const task = this.organizationUpdateChain.then(update, update)
+    this.organizationUpdateChain = task.catch(() => undefined)
+    await task
   }
 
   public async start(): Promise<void> {
@@ -435,16 +465,12 @@ export class AgentManager {
     return { sessionId: id, messages }
   }
 
-  private async writeOrganizationScope(): Promise<void> {
+  private async writeOrganizationScope(organizationName = this.organizationName): Promise<void> {
     if (!this.organizationScopePath) {
       return
     }
     await mkdir(path.dirname(this.organizationScopePath), { recursive: true })
-    await writeFile(
-      this.organizationScopePath,
-      JSON.stringify({ organizationName: this.organizationName ?? "" }),
-      "utf8",
-    )
+    await writeFile(this.organizationScopePath, JSON.stringify({ organizationName: organizationName ?? "" }), "utf8")
   }
 
   public dispose(): void {

@@ -43,10 +43,11 @@ export function composerSubmitState({
   status: ChatStatus
 }): ComposerSubmitState {
   const canStop = status === "submitted" || status === "streaming"
+  const queueSendAvailable = canStop && canSubmit && !initialSendPending
   return {
-    aria: initialSendPending ? "sending" : canStop ? "stop" : "send",
-    disabled: initialSendPending ? true : canStop ? false : !canSubmit,
-    stopsGeneration: canStop && !initialSendPending,
-    visualStatus: isGenerating ? status : undefined,
+    aria: initialSendPending ? "sending" : queueSendAvailable ? "send" : canStop ? "stop" : "send",
+    disabled: initialSendPending ? true : queueSendAvailable ? false : canStop ? false : !canSubmit,
+    stopsGeneration: canStop && !initialSendPending && !queueSendAvailable,
+    visualStatus: isGenerating && !queueSendAvailable ? status : undefined,
   }
 }

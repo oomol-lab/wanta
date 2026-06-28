@@ -30,6 +30,22 @@ describe("composer controls", () => {
     })
   })
 
+  it("shows the send control while streaming when a queued message can be sent", () => {
+    expect(
+      composerSubmitState({
+        canSubmit: true,
+        initialSendPending: false,
+        isGenerating: true,
+        status: "streaming",
+      }),
+    ).toEqual({
+      aria: "send",
+      disabled: false,
+      stopsGeneration: false,
+      visualStatus: undefined,
+    })
+  })
+
   it("keeps submitted submit disabled while the initial send is pending", () => {
     expect(
       composerSubmitState({
@@ -49,7 +65,7 @@ describe("composer controls", () => {
   it("keeps submitted submit clickable as an explicit stop control after send starts", () => {
     expect(
       composerSubmitState({
-        canSubmit: true,
+        canSubmit: false,
         initialSendPending: false,
         isGenerating: true,
         status: "submitted",

@@ -2,6 +2,7 @@ import type { ChatAttachment, ChatContextMention, ChatOrganizationSkillContext }
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ComposerState } from "./composer-state.ts"
+import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { ChatStatus } from "ai"
@@ -9,7 +10,13 @@ import type { ChatStatus } from "ai"
 import { File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
 import { AttachmentList } from "./ChatAttachments.tsx"
-import { buildConnectionPaletteItems, buildSkillPaletteItems, slashCommandItems } from "./composer-palette-items.ts"
+import {
+  buildArtifactPaletteItems,
+  buildConnectionPaletteItems,
+  buildContextPaletteItems,
+  buildSkillPaletteItems,
+  slashCommandItems,
+} from "./composer-palette-items.ts"
 import { composerReducer, initialComposerState } from "./composer-state.ts"
 import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
@@ -38,6 +45,7 @@ import { cn } from "@/lib/utils"
 interface ChatComposerProps {
   error: string | null
   focusRequest: number
+  generatedArtifacts?: ArtifactSelection | null
   hasMessages: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
@@ -65,13 +73,21 @@ interface ChatComposerProps {
 
 function paletteLabels({
   isSkillInventoryLoading,
+  isContextTrigger,
   mode,
   t,
 }: {
   isSkillInventoryLoading: boolean
+  isContextTrigger: boolean
   mode: "connections" | "root" | "skills"
   t: ReturnType<typeof useT>
 }): { emptyLabel: string; headerLabel?: string } {
+  if (isContextTrigger) {
+    return {
+      emptyLabel: t("chat.contextPaletteEmpty"),
+      headerLabel: t("chat.paletteContextHeader"),
+    }
+  }
   if (mode === "connections") {
     return {
       emptyLabel: t("chat.connectionPaletteEmpty"),
@@ -90,6 +106,7 @@ function paletteLabels({
 export function ChatComposer({
   error,
   focusRequest,
+  generatedArtifacts = null,
   hasMessages,
   initialComposerState: initialComposerStateProp,
   initialSendPending,
@@ -161,6 +178,11 @@ export function ChatComposer({
   const connectionItems = React.useMemo(
     () => buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service })),
     [providers, t],
+  )
+  const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
+  const contextItems = React.useMemo(
+    () => buildContextPaletteItems({ artifactItems, connectionItems, t }),
+    [artifactItems, connectionItems, t],
   )
 
   React.useEffect(() => {
@@ -247,13 +269,31 @@ export function ChatComposer({
 
   const composerPalette = useComposerPalette({
     connectionItems,
+    contextItems,
     disabled: composerDisabled,
     dismissedTriggerKey,
     dispatch: dispatchComposer,
     draft,
     draftSelection,
     focusDraftAt,
+    onAddArtifactAttachment: (item) => {
+      composerAttachments.addAttachments([
+        {
+          kind: item.artifact.kind,
+          mime: item.artifact.mime,
+          name: item.artifact.name,
+          path: item.artifact.path,
+          size: item.artifact.size ?? 0,
+        },
+      ])
+    },
     onAddContextMention: addContextMention,
+    onSelectAttachments: (kind) => {
+      if (composerDisabled) {
+        return
+      }
+      void composerAttachments.selectAttachments(kind)
+    },
     onViewBilling,
     skillItems,
     slashItems,
@@ -451,6 +491,7 @@ export function ChatComposer({
   )
   const { emptyLabel, headerLabel } = paletteLabels({
     isSkillInventoryLoading: skillInventory.isInitialLoading,
+    isContextTrigger: composerPalette.activeTrigger?.kind === "context",
     mode: composerPalette.mode,
     t,
   })

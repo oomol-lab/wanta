@@ -20,8 +20,22 @@ describe("detectComposerTrigger", () => {
     })
   })
 
+  it("detects a context trigger after whitespace", () => {
+    expect(detectComposerTrigger("ask @gmail", 10)).toEqual({
+      end: 10,
+      kind: "context",
+      query: "gmail",
+      start: 4,
+    })
+  })
+
   it("does not detect slash inside a filesystem path", () => {
     expect(detectComposerTrigger("open /Users/me/file.ts", 11)).toBeNull()
+  })
+
+  it("does not detect context trigger inside email or ordinary words", () => {
+    expect(detectComposerTrigger("send to a@b.com", 11)).toBeNull()
+    expect(detectComposerTrigger("mention foo@bar", 15)).toBeNull()
   })
 
   it("does not detect when text is selected", () => {

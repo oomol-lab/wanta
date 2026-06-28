@@ -10,7 +10,7 @@ import {
 } from "./chat-attachment-utils.ts"
 import { useT } from "@/i18n/i18n"
 
-interface AttachmentInput {
+export interface ComposerAttachmentInput {
   agentMime?: string
   agentName?: string
   agentPath?: string
@@ -32,6 +32,7 @@ interface UseComposerAttachmentsOptions {
 
 export interface UseComposerAttachments {
   fileInputRef: React.RefObject<HTMLInputElement | null>
+  addAttachments: (items: ComposerAttachmentInput[]) => void
   addFiles: (files: FileList | File[]) => Promise<void>
   handleDragOver: (event: React.DragEvent<HTMLFormElement>) => void
   handleDrop: (event: React.DragEvent<HTMLFormElement>) => void
@@ -99,7 +100,7 @@ async function optimizeImageFileForAgent(
   }
 }
 
-function toDraftAttachment(item: AttachmentInput): DraftAttachment {
+function toDraftAttachment(item: ComposerAttachmentInput): DraftAttachment {
   const attachment: DraftAttachment = {
     ...(item.agentPath
       ? {
@@ -139,7 +140,7 @@ export function useComposerAttachments({
   React.useEffect(() => () => revokeAttachmentPreviewUrls(attachmentsRef.current), [])
 
   const addAttachments = React.useCallback(
-    (items: AttachmentInput[]) => {
+    (items: ComposerAttachmentInput[]) => {
       const next = items.map(toDraftAttachment)
       if (next.length === 0) {
         return
@@ -167,7 +168,7 @@ export function useComposerAttachments({
   const addFiles = React.useCallback(
     async (files: FileList | File[]) => {
       setInputError(null)
-      const next: AttachmentInput[] = []
+      const next: ComposerAttachmentInput[] = []
       for (const file of Array.from(files)) {
         const path = globalThis.wanta?.getPathForFile(file)
         const saver = globalThis.wanta?.saveClipboardAttachment
@@ -318,6 +319,7 @@ export function useComposerAttachments({
 
   return {
     fileInputRef,
+    addAttachments,
     addFiles,
     handleDragOver,
     handleDrop,

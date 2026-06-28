@@ -1,16 +1,24 @@
 import type { ChatOrganizationSkillContext } from "../../../electron/chat/common.ts"
+import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
 import type { TranslateFn } from "@/i18n/i18n"
+import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 
-import { Package, Plug, SlidersHorizontal } from "lucide-react"
+import { File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 export const creatorSkillId = "oo-create-skill"
 
-export type SlashCommandAction = "billing" | "connections" | "creator-skill" | "skills"
+export type SlashCommandAction =
+  | "attach-file"
+  | "attach-folder"
+  | "billing"
+  | "connections"
+  | "creator-skill"
+  | "skills"
 
 export interface SlashCommandPaletteItem extends ComposerPaletteItem {
   action: SlashCommandAction
@@ -32,7 +40,22 @@ export interface SkillPaletteItem extends ComposerPaletteItem {
   skillName: string
 }
 
-export type ChatComposerPaletteItem = ConnectionPaletteItem | SkillPaletteItem | SlashCommandPaletteItem
+export type AttachmentPaletteItem = ComposerPaletteItem & {
+  action: "attach-file" | "attach-folder"
+  kind: "attachment"
+}
+
+export interface ArtifactPaletteItem extends ComposerPaletteItem {
+  artifact: LocalArtifactItem
+  kind: "artifact"
+}
+
+export type ChatComposerPaletteItem =
+  | ArtifactPaletteItem
+  | AttachmentPaletteItem
+  | ConnectionPaletteItem
+  | SkillPaletteItem
+  | SlashCommandPaletteItem
 
 export interface CreatorSkillPaletteCopy {
   description: string
@@ -155,6 +178,111 @@ export function buildConnectionPaletteItems(
     }))
 }
 
+export function buildContextPaletteItems({
+  artifactItems = [],
+  connectionItems,
+  t,
+}: {
+  artifactItems?: ArtifactPaletteItem[]
+  connectionItems: ConnectionPaletteItem[]
+  t: TranslateFn
+}): Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionPaletteItem> {
+  return [
+    {
+      action: "attach-file",
+      description: t("chat.contextAttachFileDescription"),
+      icon: React.createElement(File, { className: "size-4" }),
+      id: "context:attach-file",
+      kind: "attachment",
+      meta: "file",
+      title: t("chat.attachFileAction"),
+    },
+    {
+      action: "attach-folder",
+      description: t("chat.contextAttachFolderDescription"),
+      icon: React.createElement(Folder, { className: "size-4" }),
+      id: "context:attach-folder",
+      kind: "attachment",
+      meta: "folder",
+      title: t("chat.attachFolderAction"),
+    },
+    ...artifactItems,
+    ...connectionItems,
+  ]
+}
+
+function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
+  if (pack.display === "gallery") {
+    return pack.items
+  }
+  const supporting = pack.supporting.filter((item) => item.role !== "metadata")
+  return pack.items.length > 0 ? [...pack.items, ...supporting] : supporting
+}
+
+function artifactSelectionItems(selection: ArtifactSelection | null): LocalArtifactItem[] {
+  if (!selection) {
+    return []
+  }
+  const groups =
+    selection.groups && selection.groups.length > 0
+      ? selection.groups
+      : [
+          {
+            group: selection.group,
+            messageId: selection.messageId,
+            ...(selection.pack ? { pack: selection.pack } : {}),
+          },
+        ]
+  const items = groups.flatMap(({ group, pack }) => (pack ? packDisplayItems(pack) : group.items))
+  const byPath = new Map<string, LocalArtifactItem>()
+  for (const item of items) {
+    if (!byPath.has(item.path)) {
+      byPath.set(item.path, item)
+    }
+  }
+  const uniqueItems = Array.from(byPath.values())
+  const selectedPath = selection.selectedPath
+  return uniqueItems.sort((left, right) => {
+    if (selectedPath) {
+      if (left.path === selectedPath) {
+        return -1
+      }
+      if (right.path === selectedPath) {
+        return 1
+      }
+    }
+    const leftImage = left.mime.toLowerCase().startsWith("image/")
+    const rightImage = right.mime.toLowerCase().startsWith("image/")
+    if (leftImage !== rightImage) {
+      return leftImage ? -1 : 1
+    }
+    return left.name.localeCompare(right.name)
+  })
+}
+
+function artifactKindMeta(item: LocalArtifactItem): string {
+  if (item.kind === "directory") {
+    return "folder"
+  }
+  const [type] = item.mime.split("/")
+  return type || "file"
+}
+
+export function buildArtifactPaletteItems(selection: ArtifactSelection | null, t: TranslateFn): ArtifactPaletteItem[] {
+  return artifactSelectionItems(selection).map((item) => {
+    const isImage = item.mime.toLowerCase().startsWith("image/")
+    return {
+      artifact: item,
+      description: t(isImage ? "chat.contextGeneratedImageDescription" : "chat.contextGeneratedArtifactDescription"),
+      icon: React.createElement(isImage ? FileImage : File, { className: "size-4" }),
+      id: `artifact:${item.path}`,
+      kind: "artifact",
+      meta: artifactKindMeta(item),
+      title: item.name,
+    }
+  })
+}
+
 export function slashCommandItems({
   canViewBilling,
   t,
@@ -189,6 +317,24 @@ export function slashCommandItems({
       kind: "slash",
       meta: "context",
       title: t("chat.commandConnections"),
+    },
+    {
+      action: "attach-file",
+      description: t("chat.commandAttachFileDescription"),
+      icon: React.createElement(File, { className: "size-4" }),
+      id: "attach-file",
+      kind: "slash",
+      meta: "file",
+      title: t("chat.commandAttachFile"),
+    },
+    {
+      action: "attach-folder",
+      description: t("chat.commandAttachFolderDescription"),
+      icon: React.createElement(Folder, { className: "size-4" }),
+      id: "attach-folder",
+      kind: "slash",
+      meta: "folder",
+      title: t("chat.commandAttachFolder"),
     },
     {
       action: "billing",

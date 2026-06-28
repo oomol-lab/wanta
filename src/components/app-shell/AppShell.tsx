@@ -3445,6 +3445,7 @@ export function AppShell() {
                     startupError={startupError}
                     error={error}
                     emptyTitle={chatEmptyTitle}
+                    generatedArtifacts={artifactSelection}
                     submitDisabled={!ready || chatBootstrapping}
                     initialComposerState={initialComposerState}
                     initialSendPending={initialSendPending}

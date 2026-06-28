@@ -120,7 +120,7 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
       lines.push(`- ${quoted(skill.name)}; id: ${quoted(skill.id)}${detail}`)
     }
     lines.push(
-      "If a selected skill is relevant, follow its instructions for this turn and mention that you used it only when useful to the user.",
+      "The user explicitly selected these skills for this turn. If a selected skill matches the task, load and follow it before acting. If it is clearly unrelated, ignore it and proceed normally. Mention that you used it only when useful to the user.",
     )
   }
   if (connections.length > 0) {

@@ -9,7 +9,7 @@ import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { ArtifactPreviewMode } from "./ArtifactPreviewPane.tsx"
 
-import { ExternalLink, FolderOpen, Image, Info, PanelRightClose } from "lucide-react"
+import { ExternalLink, Eye, FolderOpen, Image, Info, Maximize2, Minimize2, PanelRightClose } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
@@ -60,8 +60,10 @@ interface GeneratedArtifactsProps {
 }
 
 interface ArtifactsPanelProps {
+  maximized: boolean
   selection: ArtifactSelection | null
   onCollapse: () => void
+  onToggleMaximized: () => void
 }
 
 interface ArtifactPanelEntry {
@@ -139,15 +141,19 @@ function useArtifactFileActions(): {
 }
 
 function ArtifactContextMenu({
+  activeInfoPath,
   menu,
   onClose,
   onOpenPath,
   onShowInFolder,
+  onToggleInfo,
 }: {
+  activeInfoPath?: string | null
   menu: ArtifactContextMenuState | null
   onClose: () => void
   onOpenPath: (filePath: string | undefined) => void
   onShowInFolder: (filePath: string | undefined) => void
+  onToggleInfo?: (item: LocalArtifactItem) => void
 }) {
   const t = useT()
 
@@ -178,7 +184,9 @@ function ArtifactContextMenu({
   }
 
   const left = Math.max(8, Math.min(menu.x, window.innerWidth - 220))
-  const top = Math.max(8, Math.min(menu.y, window.innerHeight - 92))
+  const hasInfoAction = Boolean(onToggleInfo)
+  const infoActive = activeInfoPath === menu.item.path
+  const top = Math.max(8, Math.min(menu.y, window.innerHeight - (hasInfoAction ? 128 : 92)))
 
   return createPortal(
     <div
@@ -213,6 +221,20 @@ function ArtifactContextMenu({
         <FolderOpen className="size-3.5 shrink-0" />
         <span>{t("artifacts.openInSystemFolder")}</span>
       </button>
+      {onToggleInfo ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
+          onClick={() => {
+            onToggleInfo(menu.item)
+            onClose()
+          }}
+        >
+          {infoActive ? <Eye className="size-3.5 shrink-0" /> : <Info className="size-3.5 shrink-0" />}
+          <span>{infoActive ? t("artifacts.previewTab") : t("artifacts.infoTab")}</span>
+        </button>
+      ) : null}
     </div>,
     document.body,
   )
@@ -463,7 +485,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
   )
 }
 
-export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
+export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaximized }: ArtifactsPanelProps) {
   const t = useT()
   const { openPath, showInFolder } = useArtifactFileActions()
   const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
@@ -490,6 +512,7 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
   const selectedItem = selectedEntry?.item ?? null
   const selectedPack = selectedEntry ? (selectedEntry.pack ?? null) : (selection?.pack ?? null)
+  const MaximizeIcon = maximized ? Minimize2 : Maximize2
   const showImageGallery =
     selectedPack?.display === "gallery"
       ? entries.length > 0
@@ -516,14 +539,28 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
   }, [selectedItem?.path])
 
   return (
-    <aside className="oo-border-divider flex h-full min-h-0 w-full flex-col border-l bg-background">
+    <aside
+      className={cn(
+        "oo-border-divider flex h-full min-h-0 w-full flex-col border-l bg-background",
+        maximized && "border-l-0",
+      )}
+    >
       <ArtifactContextMenu
+        activeInfoPath={previewMode === "info" ? selectedItem?.path : null}
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
         onOpenPath={openPath}
+        onToggleInfo={(item) => {
+          if (previewMode === "info" && selectedItem?.path === item.path) {
+            setPreviewMode("preview")
+            return
+          }
+          setSelectedPath(item.path)
+          setPreviewMode("info")
+        }}
         onShowInFolder={showInFolder}
       />
-      <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b px-3 [-webkit-app-region:drag]">
+      <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]">
         <div className="oo-text-title min-w-0 truncate">{selectedPack?.title ?? t("artifacts.title")}</div>
         <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
           {selectedItem ? (
@@ -546,20 +583,18 @@ export function ArtifactsPanel({ selection, onCollapse }: ArtifactsPanelProps) {
               >
                 <ExternalLink className="size-4" />
               </button>
-              <button
-                type="button"
-                title={t("artifacts.infoTab")}
-                aria-label={t("artifacts.infoTab")}
-                className={cn(
-                  "oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
-                  previewMode === "info" && "bg-accent text-foreground",
-                )}
-                onClick={() => setPreviewMode((current) => (current === "info" ? "preview" : "info"))}
-              >
-                <Info className="size-4" />
-              </button>
             </>
           ) : null}
+          <button
+            type="button"
+            title={maximized ? t("artifacts.restore") : t("artifacts.maximize")}
+            aria-label={maximized ? t("artifacts.restore") : t("artifacts.maximize")}
+            aria-pressed={maximized}
+            className="oo-toolbar-button flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+            onClick={onToggleMaximized}
+          >
+            <MaximizeIcon className="size-4" />
+          </button>
           <button
             type="button"
             title={t("artifacts.collapse")}

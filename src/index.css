@@ -748,6 +748,11 @@
     padding-left: calc(var(--traffic-light-space) + 1rem);
   }
 
+  .oo-artifacts-titlebar {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+
   :root[data-platform="win32"] .oo-main-titlebar,
   :root[data-platform="linux"] .oo-main-titlebar,
   :root[data-dev-window-controls="windows"] .oo-main-titlebar {
@@ -764,6 +769,11 @@
   :root[data-platform="linux"] .oo-artifacts-titlebar,
   :root[data-dev-window-controls="windows"] .oo-artifacts-titlebar {
     padding-right: calc(var(--window-control-right-space) + 0.75rem);
+  }
+
+  :root[data-platform="darwin"] .oo-artifacts-panel-maximized .oo-artifacts-titlebar,
+  :root[data-dev-window-controls="macos"] .oo-artifacts-panel-maximized .oo-artifacts-titlebar {
+    padding-left: calc(var(--traffic-light-space) + 0.75rem);
   }
 
   .oo-titlebar-collapsed-controls {

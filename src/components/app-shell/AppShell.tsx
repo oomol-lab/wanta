@@ -1744,6 +1744,7 @@ export function AppShell() {
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
+  const [artifactsPanelMaximized, setArtifactsPanelMaximized] = React.useState(false)
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
   const [artifactsPanelMaxWidthState, setArtifactsPanelMaxWidthState] = React.useState<number | null>(null)
   const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
@@ -1779,6 +1780,8 @@ export function AppShell() {
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
   const artifactsPanelPendingWidth = React.useRef<number | null>(null)
   const artifactsPanelLayoutWidth = React.useRef<number | null>(null)
+  const artifactsPanelSidebarRestore = React.useRef<boolean | null>(null)
+  const sidebarCollapsedRef = React.useRef(sidebarCollapsed)
   const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelContentRef = React.useRef<HTMLDivElement | null>(null)
@@ -1798,6 +1801,9 @@ export function AppShell() {
   React.useEffect(() => {
     sessionsRef.current = sessions
   }, [sessions])
+  React.useEffect(() => {
+    sidebarCollapsedRef.current = sidebarCollapsed
+  }, [sidebarCollapsed])
 
   const focusOrganizationSkills = React.useCallback(() => {
     setRoute("skills")
@@ -2191,6 +2197,38 @@ export function AppShell() {
       element.style.removeProperty("width")
     }
   }, [])
+  const restoreSidebarAfterArtifactsMaximize = React.useCallback((): void => {
+    const previousCollapsed = artifactsPanelSidebarRestore.current
+    if (previousCollapsed === null) {
+      return
+    }
+    artifactsPanelSidebarRestore.current = null
+    setSidebarCollapsed((current) => {
+      if (current === previousCollapsed) {
+        return current
+      }
+      if (current) {
+        setIsSidebarRestoring(true)
+      }
+      return previousCollapsed
+    })
+  }, [])
+  const setArtifactsPanelMaximizedState = React.useCallback(
+    (maximized: boolean): void => {
+      if (maximized) {
+        if (artifactsPanelSidebarRestore.current === null) {
+          artifactsPanelSidebarRestore.current = sidebarCollapsedRef.current
+        }
+        setSidebarCollapsed(true)
+        setArtifactsPanelMaximized(true)
+        return
+      }
+
+      setArtifactsPanelMaximized(false)
+      restoreSidebarAfterArtifactsMaximize()
+    },
+    [restoreSidebarAfterArtifactsMaximize],
+  )
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
@@ -2223,7 +2261,8 @@ export function AppShell() {
   React.useEffect(() => {
     setArtifactSelection(null)
     setArtifactsPanelOpen(false)
-  }, [activeSessionId])
+    setArtifactsPanelMaximizedState(false)
+  }, [activeSessionId, setArtifactsPanelMaximizedState])
 
   React.useEffect(() => {
     if (pendingChatTransition && status === "error") {
@@ -3001,7 +3040,8 @@ export function AppShell() {
   const handleArtifactsReset = React.useCallback(() => {
     setArtifactSelection(null)
     setArtifactsPanelOpen(false)
-  }, [])
+    setArtifactsPanelMaximizedState(false)
+  }, [setArtifactsPanelMaximizedState])
   const handleArtifactsOpen = React.useCallback((selection: ArtifactSelection) => {
     setArtifactSelection(selection)
     setArtifactsPanelOpen(true)
@@ -3091,6 +3131,7 @@ export function AppShell() {
   }, [])
   const hasArtifactSelection = artifactSelection !== null
   const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasArtifactSelection
+  const artifactsPanelIsMaximized = artifactsPanelVisible && artifactsPanelMaximized
   const visibleArtifactsPanelWidth = clampArtifactsPanelWidthToLayout(artifactsPanelWidth)
   const showArtifactsToggle = route === "chat" && hasArtifactSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
@@ -3098,6 +3139,12 @@ export function AppShell() {
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
   const newChatLabel = labelWithShortcut(t("sidebar.newSession"), newChatShortcut)
+
+  React.useEffect(() => {
+    if (!artifactsPanelVisible && artifactsPanelMaximized) {
+      setArtifactsPanelMaximizedState(false)
+    }
+  }, [artifactsPanelMaximized, artifactsPanelVisible, setArtifactsPanelMaximizedState])
 
   if (route === "settings") {
     return (
@@ -3363,7 +3410,12 @@ export function AppShell() {
 
       {/* 右：主区（顶部工具条 + 内容） */}
       <div className="flex min-h-0 min-w-0 overflow-hidden">
-        <div className="grid min-w-0 flex-1 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)] overflow-hidden">
+        <div
+          className={cn(
+            "grid min-w-0 flex-1 grid-rows-[var(--app-titlebar-height)_minmax(0,1fr)] overflow-hidden",
+            artifactsPanelIsMaximized && "hidden",
+          )}
+        >
           <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
             <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
               <div className="oo-titlebar-control-spacer shrink-0" />
@@ -3501,29 +3553,47 @@ export function AppShell() {
         <div
           ref={artifactsPanelShellRef}
           className={cn(
-            "oo-artifacts-panel-shell relative min-h-0 shrink-0 overflow-hidden",
+            "oo-artifacts-panel-shell relative min-h-0 overflow-hidden",
+            artifactsPanelIsMaximized ? "min-w-0 flex-1 shrink" : "shrink-0",
+            artifactsPanelIsMaximized && "oo-artifacts-panel-maximized",
             isArtifactsPanelResizing ? "transition-none" : "transition-[width,opacity,transform] duration-200 ease-out",
             artifactsPanelVisible ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-3 opacity-0",
           )}
-          style={{ width: artifactsPanelVisible ? `${visibleArtifactsPanelWidth}px` : "0px" }}
+          style={{
+            width: artifactsPanelVisible
+              ? artifactsPanelIsMaximized
+                ? undefined
+                : `${visibleArtifactsPanelWidth}px`
+              : "0px",
+          }}
         >
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={t("aria.resizeArtifactsPanel")}
-            aria-valuemin={ARTIFACTS_PANEL_MIN_WIDTH_PX}
-            aria-valuemax={artifactsPanelMaxWidthState ?? undefined}
-            aria-valuenow={visibleArtifactsPanelWidth}
-            title={t("aria.resizeArtifactsPanel")}
-            tabIndex={artifactsPanelVisible ? 0 : -1}
-            className="oo-artifacts-panel-resize-handle"
-            onPointerDown={handleArtifactsPanelResizeStart}
-            onKeyDown={handleArtifactsPanelResizeKeyDown}
-          />
+          {!artifactsPanelIsMaximized ? (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={t("aria.resizeArtifactsPanel")}
+              aria-valuemin={ARTIFACTS_PANEL_MIN_WIDTH_PX}
+              aria-valuemax={artifactsPanelMaxWidthState ?? undefined}
+              aria-valuenow={visibleArtifactsPanelWidth}
+              title={t("aria.resizeArtifactsPanel")}
+              tabIndex={artifactsPanelVisible ? 0 : -1}
+              className="oo-artifacts-panel-resize-handle"
+              onPointerDown={handleArtifactsPanelResizeStart}
+              onKeyDown={handleArtifactsPanelResizeKeyDown}
+            />
+          ) : null}
           <div ref={artifactsPanelContentRef} className="h-full w-full min-w-0">
             {artifactsPanelVisible ? (
               <React.Suspense fallback={null}>
-                <ArtifactsPanel selection={artifactSelection} onCollapse={() => setArtifactsPanelOpen(false)} />
+                <ArtifactsPanel
+                  maximized={artifactsPanelIsMaximized}
+                  selection={artifactSelection}
+                  onCollapse={() => {
+                    setArtifactsPanelOpen(false)
+                    setArtifactsPanelMaximizedState(false)
+                  }}
+                  onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
+                />
               </React.Suspense>
             ) : null}
           </div>

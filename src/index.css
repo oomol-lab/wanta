@@ -188,12 +188,18 @@
   --oo-attachment-image-foreground: oklch(0.42 0.14 255);
   --oo-attachment-video-surface: color-mix(in oklab, oklch(0.55 0.17 305) 12%, var(--background));
   --oo-attachment-video-foreground: oklch(0.42 0.14 305);
+  --oo-attachment-audio-surface: color-mix(in oklab, oklch(0.6 0.15 330) 12%, var(--background));
+  --oo-attachment-audio-foreground: oklch(0.44 0.13 330);
   --oo-attachment-archive-surface: color-mix(in oklab, var(--warning) 14%, var(--background));
   --oo-attachment-archive-foreground: oklch(0.43 0.12 70);
   --oo-attachment-sheet-surface: color-mix(in oklab, var(--success) 12%, var(--background));
   --oo-attachment-sheet-foreground: oklch(0.38 0.12 148);
+  --oo-attachment-document-surface: color-mix(in oklab, oklch(0.56 0.14 225) 12%, var(--background));
+  --oo-attachment-document-foreground: oklch(0.4 0.12 225);
   --oo-attachment-code-surface: color-mix(in oklab, oklch(0.48 0.16 270) 12%, var(--background));
   --oo-attachment-code-foreground: oklch(0.39 0.13 270);
+  --oo-attachment-file-surface: var(--muted);
+  --oo-attachment-file-foreground: var(--muted-foreground);
   --radius: 0.5rem;
 }
 
@@ -293,12 +299,18 @@
   --oo-attachment-image-foreground: var(--info);
   --oo-attachment-video-surface: color-mix(in oklab, oklch(0.72 0.15 305) 18%, var(--background));
   --oo-attachment-video-foreground: oklch(0.8 0.12 305);
+  --oo-attachment-audio-surface: color-mix(in oklab, oklch(0.72 0.13 330) 18%, var(--background));
+  --oo-attachment-audio-foreground: oklch(0.8 0.11 330);
   --oo-attachment-archive-surface: color-mix(in oklab, var(--warning) 18%, var(--background));
   --oo-attachment-archive-foreground: var(--warning);
   --oo-attachment-sheet-surface: color-mix(in oklab, var(--success) 18%, var(--background));
   --oo-attachment-sheet-foreground: var(--success);
+  --oo-attachment-document-surface: color-mix(in oklab, oklch(0.7 0.13 225) 18%, var(--background));
+  --oo-attachment-document-foreground: oklch(0.78 0.11 225);
   --oo-attachment-code-surface: color-mix(in oklab, oklch(0.72 0.13 270) 18%, var(--background));
   --oo-attachment-code-foreground: oklch(0.78 0.11 270);
+  --oo-attachment-file-surface: var(--muted);
+  --oo-attachment-file-foreground: var(--muted-foreground);
 }
 
 @layer base {
@@ -1198,6 +1210,11 @@
     color: var(--oo-attachment-video-foreground);
   }
 
+  .oo-attachment-tile-audio {
+    background: var(--oo-attachment-audio-surface);
+    color: var(--oo-attachment-audio-foreground);
+  }
+
   .oo-attachment-tile-archive {
     background: var(--oo-attachment-archive-surface);
     color: var(--oo-attachment-archive-foreground);
@@ -1208,9 +1225,28 @@
     color: var(--oo-attachment-sheet-foreground);
   }
 
+  .oo-attachment-tile-spreadsheet {
+    background: var(--oo-attachment-sheet-surface);
+    color: var(--oo-attachment-sheet-foreground);
+  }
+
+  .oo-attachment-tile-document {
+    background: var(--oo-attachment-document-surface);
+    color: var(--oo-attachment-document-foreground);
+  }
+
   .oo-attachment-tile-code {
     background: var(--oo-attachment-code-surface);
     color: var(--oo-attachment-code-foreground);
+  }
+
+  .oo-attachment-tile-json,
+  .oo-attachment-tile-markdown,
+  .oo-attachment-tile-text,
+  .oo-attachment-tile-web_page,
+  .oo-attachment-tile-file {
+    background: var(--oo-attachment-file-surface);
+    color: var(--oo-attachment-file-foreground);
   }
 
   .oo-active-accent:active {
@@ -1598,6 +1634,23 @@
 
   .oo-artifact-code-preview pre {
     min-height: 100%;
+  }
+
+  .oo-docx-preview {
+    color: #111827;
+  }
+
+  .oo-docx-preview .oo-docx-preview-doc-wrapper {
+    overflow: visible;
+  }
+
+  .oo-docx-preview .oo-docx-preview-doc {
+    box-sizing: border-box;
+    max-width: min(100%, 820px);
+    margin-right: auto;
+    margin-left: auto;
+    background: white;
+    box-shadow: 0 10px 30px rgb(15 23 42 / 0.12);
   }
 
   .oo-markdown blockquote {

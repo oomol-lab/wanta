@@ -80,6 +80,12 @@ export function mimeFromPath(filePath: string): string {
       return "text/markdown"
     case "pdf":
       return "application/pdf"
+    case "doc":
+      return "application/msword"
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    case "rtf":
+      return "application/rtf"
     case "aac":
       return "audio/aac"
     case "flac":
@@ -103,6 +109,12 @@ export function mimeFromPath(filePath: string): string {
       return "video/mp4"
     case "txt":
       return "text/plain"
+    case "gz":
+      return "application/gzip"
+    case "tar":
+      return "application/x-tar"
+    case "tgz":
+      return "application/gzip"
     case "xls":
       return "application/vnd.ms-excel"
     case "xlsx":

@@ -1,5 +1,7 @@
 import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import type {
+  ArtifactPaletteItem,
+  AttachmentPaletteItem,
   ChatComposerPaletteItem,
   ConnectionPaletteItem,
   SkillPaletteItem,
@@ -21,13 +23,16 @@ import { detectComposerTrigger } from "./composer-triggers.ts"
 
 interface UseComposerPaletteOptions {
   connectionItems: ConnectionPaletteItem[]
+  contextItems: Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionPaletteItem>
   disabled: boolean
   dismissedTriggerKey: string | null
   dispatch: React.Dispatch<ComposerAction>
   draft: string
   draftSelection: { end: number; start: number }
   focusDraftAt: (index: number) => void
+  onAddArtifactAttachment: (item: ArtifactPaletteItem) => void
   onAddContextMention: (mention: ChatContextMention) => void
+  onSelectAttachments: (kind: "file" | "directory") => void
   onViewBilling?: () => void
   skillItems: SkillPaletteItem[]
   slashItems: SlashCommandPaletteItem[]
@@ -46,13 +51,16 @@ export interface UseComposerPaletteResult {
 
 export function useComposerPalette({
   connectionItems,
+  contextItems,
   disabled,
   dismissedTriggerKey,
   dispatch,
   draft,
   draftSelection,
   focusDraftAt,
+  onAddArtifactAttachment,
   onAddContextMention,
+  onSelectAttachments,
   onViewBilling,
   skillItems,
   slashItems,
@@ -81,7 +89,9 @@ export function useComposerPalette({
       return []
     }
     let sourceItems: ChatComposerPaletteItem[]
-    if (activeTrigger.kind === "skill" || paletteMode === "skills") {
+    if (activeTrigger.kind === "context") {
+      sourceItems = contextItems
+    } else if (activeTrigger.kind === "skill" || paletteMode === "skills") {
       sourceItems = skillItems
     } else if (paletteMode === "connections") {
       sourceItems = connectionItems
@@ -89,7 +99,7 @@ export function useComposerPalette({
       sourceItems = slashItems
     }
     return sourceItems.filter((item) => matchesComposerQuery(item, activeTrigger.query)).slice(0, 8)
-  }, [activeTrigger, connectionItems, paletteMode, skillItems, slashItems])
+  }, [activeTrigger, connectionItems, contextItems, paletteMode, skillItems, slashItems])
   const open = Boolean(activeTrigger)
   const activeItem = items[Math.min(activePaletteIndex, Math.max(0, items.length - 1))]
 
@@ -126,6 +136,12 @@ export function useComposerPalette({
         focusDraftAt(currentTrigger.start)
         return
       }
+      if (item.action === "attach-file" || item.action === "attach-folder") {
+        dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
+        onSelectAttachments(item.action === "attach-file" ? "file" : "directory")
+        focusDraftAt(currentTrigger.start)
+        return
+      }
       if (item.action === "creator-skill") {
         onAddContextMention({
           description: item.description,
@@ -137,7 +153,7 @@ export function useComposerPalette({
         focusDraftAt(currentTrigger.start)
       }
     },
-    [dispatch, focusDraftAt, onAddContextMention, onViewBilling, updatePaletteNavigation],
+    [dispatch, focusDraftAt, onAddContextMention, onSelectAttachments, onViewBilling, updatePaletteNavigation],
   )
 
   const applySkillItem = React.useCallback(
@@ -169,6 +185,24 @@ export function useComposerPalette({
     [dispatch, focusDraftAt, onAddContextMention],
   )
 
+  const applyAttachmentItem = React.useCallback(
+    (item: AttachmentPaletteItem, currentTrigger: ComposerTrigger) => {
+      dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
+      onSelectAttachments(item.action === "attach-file" ? "file" : "directory")
+      focusDraftAt(currentTrigger.start)
+    },
+    [dispatch, focusDraftAt, onSelectAttachments],
+  )
+
+  const applyArtifactItem = React.useCallback(
+    (item: ArtifactPaletteItem, currentTrigger: ComposerTrigger) => {
+      dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
+      onAddArtifactAttachment(item)
+      focusDraftAt(currentTrigger.start)
+    },
+    [dispatch, focusDraftAt, onAddArtifactAttachment],
+  )
+
   const onSelect = React.useCallback(
     (item: ChatComposerPaletteItem | undefined) => {
       if (!item || !activeTrigger) {
@@ -183,11 +217,25 @@ export function useComposerPalette({
         case "connection":
           applyConnectionItem(item, activeTrigger)
           return
+        case "attachment":
+          applyAttachmentItem(item, activeTrigger)
+          return
+        case "artifact":
+          applyArtifactItem(item, activeTrigger)
+          return
         case "skill":
           applySkillItem(item, activeTrigger)
       }
     },
-    [activeTrigger, applyConnectionItem, applySkillItem, applySlashCommand, paletteMode],
+    [
+      activeTrigger,
+      applyArtifactItem,
+      applyAttachmentItem,
+      applyConnectionItem,
+      applySkillItem,
+      applySlashCommand,
+      paletteMode,
+    ],
   )
 
   const handleKeyDown = React.useCallback(

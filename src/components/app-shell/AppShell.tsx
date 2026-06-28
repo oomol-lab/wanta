@@ -1701,6 +1701,7 @@ export function AppShell() {
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
   )
+  const sessionsEnabled = auth.state?.status === "authenticated" && sessionScope !== null
   const {
     sessions,
     projects,
@@ -1717,7 +1718,7 @@ export function AppShell() {
     unarchive,
     remove: removeSession,
     refresh: refreshSessions,
-  } = useSessions({ enabled: ready && sessionScope !== null, scope: sessionScope ?? undefined })
+  } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [skillsFocusRequest, setSkillsFocusRequest] = React.useState<{ nonce: number; tab: SkillPageTab } | null>(null)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
@@ -1938,6 +1939,12 @@ export function AppShell() {
   }, [chatService])
 
   React.useEffect(() => {
+    if (ready && sessionsEnabled) {
+      void refreshSessions()
+    }
+  }, [ready, refreshSessions, sessionsEnabled])
+
+  React.useEffect(() => {
     const id = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
     return () => window.clearInterval(id)
   }, [])
@@ -2074,9 +2081,10 @@ export function AppShell() {
   const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
   const startupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
+  const hasVisibleLoadedSession = Boolean(activeSessionId && messagesLoaded)
   const chatBootstrapping =
     !startupError &&
-    (!ready ||
+    ((!ready && !hasVisibleLoadedSession) ||
       !sessionsLoaded ||
       needsDefaultSessionSelection ||
       Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition))
@@ -3437,6 +3445,7 @@ export function AppShell() {
                     startupError={startupError}
                     error={error}
                     emptyTitle={chatEmptyTitle}
+                    generatedArtifacts={artifactSelection}
                     submitDisabled={!ready || chatBootstrapping}
                     initialComposerState={initialComposerState}
                     initialSendPending={initialSendPending}

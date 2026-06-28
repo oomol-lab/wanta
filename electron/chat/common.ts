@@ -230,8 +230,38 @@ export interface AttachmentPreviewResult {
   dataUrl: string | null
 }
 
-export type LocalArtifactPreviewKind = "image" | "media" | "text" | "unsupported"
+export type LocalArtifactPreviewKind =
+  | "archive"
+  | "document"
+  | "image"
+  | "media"
+  | "pdf"
+  | "spreadsheet"
+  | "text"
+  | "unsupported"
 export type LocalArtifactPreviewUnavailableReason = "missing" | "read_failed" | "too_large" | "unsupported_type"
+
+export interface LocalArtifactSpreadsheetPreview {
+  activeSheet: string
+  columnCount: number
+  rows: string[][]
+  rowCount: number
+  sheets: string[]
+}
+
+export interface LocalArtifactArchiveEntry {
+  compressedSize?: number
+  kind: "directory" | "file"
+  modifiedAt?: number
+  path: string
+  size?: number
+}
+
+export interface LocalArtifactArchivePreview {
+  entries: LocalArtifactArchiveEntry[]
+  format: "tar" | "zip"
+  totalEntries: number
+}
 
 export interface LocalArtifactPreviewRequest {
   path: string
@@ -241,8 +271,11 @@ export interface LocalArtifactPreviewResult {
   kind: LocalArtifactPreviewKind
   mime: string
   size?: number
+  archive?: LocalArtifactArchivePreview
   dataUrl?: string
+  documentFormat?: "docx"
   reason?: LocalArtifactPreviewUnavailableReason
+  spreadsheet?: LocalArtifactSpreadsheetPreview
   text?: string
   truncated?: boolean
 }
@@ -310,6 +343,10 @@ export interface ResolveLocalArtifactsResult {
 }
 
 export interface OpenLocalPathRequest {
+  path: string
+}
+
+export interface ShowLocalPathInFolderRequest {
   path: string
 }
 
@@ -452,6 +489,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
+    showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void>
     /** 用系统浏览器打开一个 http/https URL（额度中心等渲染层已自行解析好 URL 后调用；主进程仅校验+外开）。 */
     openExternalUrl(req: OpenExternalUrlRequest): Promise<void>
     /** 同步 agent 的组织作用域（连接器请求已在渲染层带组织头；agent 仍由主进程持有，需单独告知）。 */

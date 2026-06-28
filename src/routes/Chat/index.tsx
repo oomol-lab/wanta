@@ -93,6 +93,7 @@ interface ChatAreaProps {
   startupError?: UserFacingError | null
   error: string | null
   emptyTitle?: string
+  generatedArtifacts?: ArtifactSelection | null
   submitDisabled: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
@@ -1208,6 +1209,7 @@ export const ChatArea = React.memo(function ChatArea({
   startupError,
   error,
   emptyTitle,
+  generatedArtifacts,
   submitDisabled,
   initialComposerState,
   initialSendPending,
@@ -1250,6 +1252,7 @@ export const ChatArea = React.memo(function ChatArea({
       key={composerDraftKey}
       error={error}
       focusRequest={composerFocusRequest}
+      generatedArtifacts={generatedArtifacts}
       hasMessages={hasMessages}
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}

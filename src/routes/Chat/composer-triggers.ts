@@ -1,4 +1,4 @@
-export type ComposerTriggerKind = "slash" | "skill"
+export type ComposerTriggerKind = "context" | "skill" | "slash"
 
 export interface ComposerTrigger {
   end: number
@@ -12,6 +12,10 @@ function isWhitespace(value: string): boolean {
 }
 
 function isTriggerBoundary(value: string | undefined): boolean {
+  return value === undefined || isWhitespace(value)
+}
+
+function isContextTriggerBoundary(value: string | undefined): boolean {
   return value === undefined || isWhitespace(value)
 }
 
@@ -35,7 +39,7 @@ export function detectComposerTrigger(
   start += 1
 
   const marker = text[start]
-  if (marker !== "/" && marker !== "$") {
+  if (marker !== "/" && marker !== "$" && marker !== "@") {
     return null
   }
 
@@ -51,14 +55,18 @@ export function detectComposerTrigger(
     }
   }
 
+  if (marker === "@" && !isContextTriggerBoundary(start > 0 ? text[start - 1] : undefined)) {
+    return null
+  }
+
   const query = text.slice(start + 1, selectionStart)
-  if (query.includes("/") || query.includes("$")) {
+  if (query.includes("/") || query.includes("$") || query.includes("@")) {
     return null
   }
 
   return {
     end: selectionStart,
-    kind: marker === "/" ? "slash" : "skill",
+    kind: marker === "/" ? "slash" : marker === "$" ? "skill" : "context",
     query,
     start,
   }

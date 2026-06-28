@@ -28,6 +28,7 @@ import type {
   ResolveLocalArtifactsResult,
   SendMessageRequest,
   SetAgentOrganizationRequest,
+  ShowLocalPathInFolderRequest,
 } from "./common.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -39,6 +40,16 @@ import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { ServiceEvent } from "../service-events.ts"
+import {
+  archivePreview,
+  binaryDataPreview,
+  isBinaryDataPreviewArtifact,
+  isRtfArtifact,
+  isXlsxArtifact,
+  richPreviewMaxBytes,
+  rtfToPlainText,
+  spreadsheetPreview,
+} from "./artifact-preview.ts"
 import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
 import {
   extractLocalPathCandidates,
@@ -120,7 +131,7 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
       lines.push(`- ${quoted(skill.name)}; id: ${quoted(skill.id)}${detail}`)
     }
     lines.push(
-      "If a selected skill is relevant, follow its instructions for this turn and mention that you used it only when useful to the user.",
+      "The user explicitly selected these skills for this turn. If a selected skill matches the task, load and follow it before acting. If it is clearly unrelated, ignore it and proceed normally. Mention that you used it only when useful to the user.",
     )
   }
   if (connections.length > 0) {
@@ -1018,6 +1029,63 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
 
+    if (isXlsxArtifact(item.path, item.mime)) {
+      try {
+        return await spreadsheetPreview(item.path, item.mime, size)
+      } catch (error) {
+        console.error("[wanta] getLocalArtifactPreview spreadsheet failed", {
+          path: req.path,
+          error: errorMessage(error),
+        })
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+      }
+    }
+
+    const archive = await archivePreview(item.path, item.mime, size).catch((error: unknown) => {
+      console.error("[wanta] getLocalArtifactPreview archive failed", { path: req.path, error: errorMessage(error) })
+      return { kind: "unsupported" as const, mime: item.mime, size, reason: "read_failed" as const }
+    })
+    if (archive) {
+      return archive
+    }
+
+    if (isRtfArtifact(item.path, item.mime)) {
+      try {
+        const preview = await readTextPreview(item.path, size)
+        if (!preview) {
+          return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+        }
+        return {
+          kind: "text",
+          mime: item.mime,
+          size,
+          text: rtfToPlainText(preview.text),
+          truncated: preview.truncated,
+        }
+      } catch (error) {
+        console.error("[wanta] getLocalArtifactPreview rtf failed", { path: req.path, error: errorMessage(error) })
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+      }
+    }
+
+    if (isBinaryDataPreviewArtifact(item.path, item.mime) && size <= richPreviewMaxBytes) {
+      try {
+        const bytes = await readFile(item.path)
+        const richPreview = binaryDataPreview(item.path, item.mime, size, bytes)
+        if (richPreview) {
+          return richPreview
+        }
+      } catch (error) {
+        console.error("[wanta] getLocalArtifactPreview rich file failed", {
+          path: req.path,
+          error: errorMessage(error),
+        })
+        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
+      }
+    } else if (isBinaryDataPreviewArtifact(item.path, item.mime)) {
+      return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
+    }
+
     if (!isTextArtifactMime(item.mime)) {
       return { kind: "unsupported", mime: item.mime, size, reason: "unsupported_type" }
     }
@@ -1085,6 +1153,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     } catch (error) {
       throw new Error(`Failed to open local path: ${errorMessage(error)}`)
     }
+  }
+
+  public async showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void> {
+    shell.showItemInFolder(req.path)
   }
 
   public async openExternalUrl(req: OpenExternalUrlRequest): Promise<void> {

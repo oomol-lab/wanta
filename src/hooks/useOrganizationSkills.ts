@@ -30,6 +30,7 @@ export interface OrganizationSkillChatContext {
 
 export interface UseOrganizationSkills {
   addSkill(input: AddOrganizationSkillInput): Promise<void>
+  apiEnabled: boolean
   canManage: boolean
   chatContextSkills: OrganizationSkillChatContext[]
   error: UserFacingError | null
@@ -248,6 +249,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
 
   return {
     addSkill,
+    apiEnabled: remoteApiEnabled,
     canManage,
     chatContextSkills,
     error,

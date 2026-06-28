@@ -14,12 +14,15 @@ import type {
   ProviderAccessForm,
   ProviderGrantView,
 } from "./organization-management-model.ts"
+import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 
 import {
+  ArrowRightIcon,
   Building2Icon,
   CheckIcon,
   ChevronsUpDownIcon,
+  PackageIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -27,6 +30,7 @@ import {
   ShieldCheckIcon,
   Trash2Icon,
   UsersIcon,
+  XIcon,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -57,6 +61,7 @@ import {
 } from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import { useAuthStateResource } from "@/components/AppDataHooks"
+import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -112,7 +117,15 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
   )
 }
 
-export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrganizationWorkspace }) {
+export function OrganizationManagementRoute({
+  organizationSkills,
+  workspace,
+  onOpenOrganizationSkills,
+}: {
+  organizationSkills?: UseOrganizationSkills
+  workspace?: UseOrganizationWorkspace
+  onOpenOrganizationSkills?: () => void
+}) {
   const { t } = useAppI18n()
   const authResource = useAuthStateResource()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
@@ -781,11 +794,13 @@ export function OrganizationManagementRoute({ workspace }: { workspace?: UseOrga
                   activeWorkspace={activeWorkspace}
                   accountAvatarUrl={activeAccount?.avatarUrl}
                   accountName={activeAccount?.name}
+                  organizationSkills={organizationSkills}
                   organizations={organizations}
                   overview={overviewState.data}
                   selectedOrganization={selectedOrganization}
                   selectedOrganizationId={selectedOrganizationId}
                   onCreate={() => setCreateOpen(true)}
+                  onOpenOrganizationSkills={onOpenOrganizationSkills}
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
@@ -868,8 +883,10 @@ function OrganizationSwitcherPanel({
   accountAvatarUrl,
   accountName,
   onCreate,
+  onOpenOrganizationSkills,
   onSelect,
   onSelectPersonal,
+  organizationSkills,
   organizations,
   overview,
   selectedOrganization,
@@ -879,20 +896,24 @@ function OrganizationSwitcherPanel({
   accountAvatarUrl?: string
   accountName?: string
   onCreate: () => void
+  onOpenOrganizationSkills?: () => void
   onSelect: (organizationId: string) => void
   onSelectPersonal: () => void
+  organizationSkills?: UseOrganizationSkills
   organizations: Organization[]
   overview: OrganizationOverview | null
   selectedOrganization: Organization | null
   selectedOrganizationId: string | null
 }) {
   const { t } = useAppI18n()
+  const [skillGuideOpen, setSkillGuideOpen] = React.useState(false)
   const countLabel = t("organizations.organizationCount", { count: organizations.length })
   const selectedRole = selectedOrganization ? organizationRole(overview, selectedOrganization) : null
   const personalSelected = activeWorkspace?.type === "personal"
   const personalLabel = accountName?.trim() || t("organizations.personal")
   const personalDescription =
     personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
+  const showOrganizationSkillGuide = Boolean(!personalSelected && selectedOrganization && organizationSkills)
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
@@ -946,6 +967,12 @@ function OrganizationSwitcherPanel({
                 <Badge variant="secondary" className="shrink-0">
                   {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
                 </Badge>
+              ) : null}
+              {showOrganizationSkillGuide && organizationSkills ? (
+                <OrganizationSkillGuideButton
+                  organizationSkills={organizationSkills}
+                  onClick={() => setSkillGuideOpen(true)}
+                />
               ) : null}
             </div>
           </div>
@@ -1034,8 +1061,320 @@ function OrganizationSwitcherPanel({
           </div>
         </div>
       </div>
+      {showOrganizationSkillGuide && selectedOrganization && organizationSkills ? (
+        <OrganizationSkillGuideSheet
+          open={skillGuideOpen}
+          organization={selectedOrganization}
+          organizationSkills={organizationSkills}
+          onClose={() => setSkillGuideOpen(false)}
+          onOpenOrganizationSkills={
+            onOpenOrganizationSkills
+              ? () => {
+                  setSkillGuideOpen(false)
+                  onOpenOrganizationSkills()
+                }
+              : undefined
+          }
+        />
+      ) : null}
     </section>
   )
+}
+
+function OrganizationSkillGuideButton({
+  organizationSkills,
+  onClick,
+}: {
+  organizationSkills: UseOrganizationSkills
+  onClick: () => void
+}) {
+  const { t } = useAppI18n()
+  const enabledCount = organizationSkills.skills.filter((skill) => skill.enabled).length
+  const label = !organizationSkills.apiEnabled
+    ? t("organizations.skillGuideUnavailableBadge")
+    : organizationSkills.loading && !organizationSkills.hasLoaded
+      ? t("organizations.skillGuideLoading")
+      : organizationSkills.error
+        ? t("organizations.skillGuideLoadFailed")
+        : enabledCount > 0
+          ? t("organizations.skillGuideEnabledCount", { count: enabledCount })
+          : t("organizations.skillGuideEmptyBadge")
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "oo-text-caption-compact flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full border px-2 text-muted-foreground",
+        "hover:border-foreground/20 hover:bg-accent hover:text-foreground focus-visible:border-foreground/30 focus-visible:bg-accent focus-visible:text-foreground focus-visible:outline-none",
+      )}
+      onClick={onClick}
+    >
+      <PackageIcon className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
+  )
+}
+
+function OrganizationSkillGuideSheet({
+  open,
+  organization,
+  organizationSkills,
+  onClose,
+  onOpenOrganizationSkills,
+}: {
+  open: boolean
+  organization: Organization
+  organizationSkills: UseOrganizationSkills
+  onClose: () => void
+  onOpenOrganizationSkills?: () => void
+}) {
+  const { t } = useAppI18n()
+  const sheetRef = React.useRef<HTMLElement | null>(null)
+  const enabledSkills = React.useMemo(
+    () => organizationSkills.skills.filter((skill) => skill.enabled),
+    [organizationSkills.skills],
+  )
+  const disabledSkills = React.useMemo(
+    () => organizationSkills.skills.filter((skill) => !skill.enabled),
+    [organizationSkills.skills],
+  )
+  const visibleSkills = React.useMemo(
+    () => [...enabledSkills, ...disabledSkills].slice(0, 6),
+    [disabledSkills, enabledSkills],
+  )
+  const hiddenCount = Math.max(0, organizationSkills.skills.length - visibleSkills.length)
+  const actionLabel = organizationSkills.canManage
+    ? organizationSkills.apiEnabled && organizationSkills.skills.length > 0
+      ? t("organizations.skillGuideManage")
+      : t("organizations.skillGuideConfigure")
+    : t("organizations.skillGuideView")
+
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const frame = window.requestAnimationFrame(() => {
+      sheetRef.current?.focus()
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      previousActiveElement?.focus()
+    }
+  }, [open])
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <div
+      className="oo-modal-backdrop fixed inset-0 z-[120] [-webkit-app-region:no-drag]"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <aside
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("organizations.skillGuideTitle")}
+        tabIndex={-1}
+        className="absolute top-0 right-0 grid h-full w-[min(30rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)_auto] border-l bg-background shadow-xl outline-none"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation()
+            onClose()
+            return
+          }
+          if (event.key !== "Tab") {
+            return
+          }
+
+          const sheet = sheetRef.current
+          if (!sheet) {
+            return
+          }
+
+          const focusableElements = getSheetFocusableElements(sheet)
+          if (focusableElements.length === 0) {
+            event.preventDefault()
+            sheet.focus()
+            return
+          }
+
+          const firstElement = focusableElements[0]
+          const lastElement = focusableElements[focusableElements.length - 1]
+          const activeElement = document.activeElement
+          if (event.shiftKey) {
+            if (activeElement === firstElement || activeElement === sheet || !sheet.contains(activeElement)) {
+              event.preventDefault()
+              lastElement.focus()
+            }
+            return
+          }
+
+          if (activeElement === lastElement || activeElement === sheet || !sheet.contains(activeElement)) {
+            event.preventDefault()
+            firstElement.focus()
+          }
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
+          <div className="grid min-w-0 gap-0.5">
+            <div className="oo-text-label min-w-0 truncate">{t("organizations.skillGuideTitle")}</div>
+            <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">{organization.name}</div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("organizations.skillGuideClose")}
+            onClick={onClose}
+          >
+            <XIcon className="size-4" />
+          </Button>
+        </div>
+
+        <div className="min-h-0 overflow-auto p-3">
+          <div className="grid gap-3">
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="grid size-9 shrink-0 place-items-center rounded-md border bg-background text-muted-foreground">
+                  <PackageIcon className="size-4" />
+                </div>
+                <div className="grid min-w-0 gap-1">
+                  <div className="oo-text-label text-foreground">{t("organizations.skillGuideSummaryTitle")}</div>
+                  <p className="oo-text-caption text-muted-foreground">{t("organizations.skillGuideDescription")}</p>
+                </div>
+              </div>
+            </div>
+
+            {!organizationSkills.apiEnabled ? (
+              <div className="grid min-h-40 place-items-center rounded-md border border-dashed bg-muted/20 p-6 text-center">
+                <div className="grid max-w-sm justify-items-center gap-2">
+                  <div className="grid size-10 place-items-center rounded-md border bg-background text-muted-foreground">
+                    <PackageIcon className="size-5" />
+                  </div>
+                  <div className="oo-text-label text-foreground">{t("organizations.skillGuideUnavailableTitle")}</div>
+                  <p className="oo-text-caption text-muted-foreground">
+                    {t("organizations.skillGuideUnavailableDescription")}
+                  </p>
+                </div>
+              </div>
+            ) : organizationSkills.error ? (
+              <div className="grid gap-2">
+                <ErrorNotice error={organizationSkills.error} compact />
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void organizationSkills.refresh({ forceRefresh: true })}
+                  >
+                    <RefreshCwIcon className="size-3.5" />
+                    {t("organizations.retry")}
+                  </Button>
+                </div>
+              </div>
+            ) : organizationSkills.loading && !organizationSkills.hasLoaded ? (
+              <div className="grid gap-2">
+                <Skeleton className="h-14 rounded-md" />
+                <Skeleton className="h-14 rounded-md" />
+                <Skeleton className="h-14 rounded-md" />
+              </div>
+            ) : organizationSkills.skills.length === 0 ? (
+              <div className="grid min-h-40 place-items-center rounded-md border border-dashed bg-muted/20 p-6 text-center">
+                <div className="grid max-w-sm justify-items-center gap-2">
+                  <div className="grid size-10 place-items-center rounded-md border bg-background text-muted-foreground">
+                    <PackageIcon className="size-5" />
+                  </div>
+                  <div className="oo-text-label text-foreground">
+                    {organizationSkills.canManage
+                      ? t("organizations.skillGuideEmptyCreatorTitle")
+                      : t("organizations.skillGuideEmptyTitle")}
+                  </div>
+                  <p className="oo-text-caption text-muted-foreground">
+                    {organizationSkills.canManage
+                      ? t("organizations.skillGuideEmptyCreatorDescription")
+                      : t("organizations.skillGuideEmptyDescription")}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <div className="oo-text-caption-compact flex min-w-0 items-center justify-between gap-2 text-muted-foreground">
+                  <span>{t("organizations.skillGuideConfigured")}</span>
+                  <span>
+                    {t("organizations.skillGuideCount", {
+                      count: organizationSkills.skills.length,
+                      enabled: enabledSkills.length,
+                    })}
+                  </span>
+                </div>
+                <div className="grid gap-2">
+                  {visibleSkills.map((skill) => (
+                    <div
+                      key={skill.id}
+                      className="grid min-w-0 gap-1 rounded-md border bg-card px-3 py-2 text-card-foreground"
+                    >
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <div className="oo-text-label min-w-0 truncate">{skill.displayName}</div>
+                        <Badge variant={skill.enabled ? "secondary" : "outline"} className="shrink-0">
+                          {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
+                        </Badge>
+                      </div>
+                      <div
+                        className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
+                        title={skill.packageName}
+                      >
+                        {skill.packageName}
+                      </div>
+                      <div
+                        className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
+                        title={skill.skillName}
+                      >
+                        {skill.skillName} · {skill.version}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {hiddenCount > 0 ? (
+                  <div className="oo-text-caption-compact text-muted-foreground">
+                    {t("organizations.skillGuideMore", { count: hiddenCount })}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="oo-border-divider flex items-center justify-end gap-2 border-t p-3">
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          {onOpenOrganizationSkills && (organizationSkills.apiEnabled || organizationSkills.canManage) ? (
+            <Button type="button" onClick={onOpenOrganizationSkills}>
+              {actionLabel}
+              <ArrowRightIcon className="size-3.5" />
+            </Button>
+          ) : null}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function getSheetFocusableElements(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>('a[href], button, textarea, input, select, [tabindex]:not([tabindex="-1"])'),
+  ).filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true")
 }
 
 function OrganizationManagementSkeleton() {

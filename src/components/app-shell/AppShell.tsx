@@ -3419,7 +3419,11 @@ export function AppShell() {
                   workspace={organizationWorkspace}
                 />
               ) : route === "organizations" ? (
-                <OrganizationManagementRoute workspace={organizationWorkspace} />
+                <OrganizationManagementRoute
+                  organizationSkills={organizationSkills}
+                  workspace={organizationWorkspace}
+                  onOpenOrganizationSkills={focusOrganizationSkills}
+                />
               ) : (
                 <div className="h-full min-h-0 overflow-hidden">
                   <ChatArea

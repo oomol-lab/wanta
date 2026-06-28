@@ -23,6 +23,7 @@ import {
   readableArtifactTitle,
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
+import { spreadsheetPreviewSheets, spreadsheetVisibleColumnCount } from "./artifact-spreadsheet-preview.ts"
 import { FileKindIcon } from "./file-type-icons.tsx"
 import {
   CodeBlock,
@@ -40,6 +41,11 @@ import { cn } from "@/lib/utils"
 
 const ArtifactPdfPreview = React.lazy(() => import("./ArtifactPdfPreview.tsx"))
 const ArtifactDocxPreview = React.lazy(() => import("./ArtifactDocxPreview.tsx"))
+const ArtifactUniverSpreadsheetPreview = React.lazy(() =>
+  import("./ArtifactUniverSpreadsheetPreview.tsx").then((module) => ({
+    default: module.ArtifactUniverSpreadsheetPreview,
+  })),
+)
 
 export type ArtifactPreviewMode = "preview" | "source" | "info"
 
@@ -381,24 +387,6 @@ function spreadsheetColumnLabel(index: number): string {
   return label
 }
 
-function spreadsheetPreviewSheets(preview: LocalArtifactPreviewResult) {
-  const sheet = preview.spreadsheet
-  if (!sheet) {
-    return []
-  }
-  if (sheet.workbook?.length) {
-    return sheet.workbook
-  }
-  return [
-    {
-      name: sheet.activeSheet || "",
-      columnCount: sheet.columnCount,
-      rows: sheet.rows,
-      rowCount: sheet.rowCount,
-    },
-  ]
-}
-
 function ArtifactSpreadsheetPreview({ preview }: { preview: LocalArtifactPreviewResult }) {
   const t = useT()
   const sheet = preview.spreadsheet
@@ -418,10 +406,7 @@ function ArtifactSpreadsheetPreview({ preview }: { preview: LocalArtifactPreview
   if (!activeSheet) {
     return null
   }
-  const visibleColumnCount = Math.max(
-    1,
-    Math.min(activeSheet.columnCount, ...activeSheet.rows.map((row) => row.length)),
-  )
+  const visibleColumnCount = spreadsheetVisibleColumnCount(activeSheet)
   const columns = Array.from({ length: visibleColumnCount }, (_, index) => index)
 
   return (
@@ -643,7 +628,11 @@ export function ArtifactConsumablePreview({
   }
 
   if (preview?.kind === "spreadsheet") {
-    return <ArtifactSpreadsheetPreview preview={preview} />
+    return (
+      <React.Suspense fallback={<ArtifactSpreadsheetPreview preview={preview} />}>
+        <ArtifactUniverSpreadsheetPreview preview={preview} />
+      </React.Suspense>
+    )
   }
 
   if (preview?.kind === "archive") {

@@ -79,7 +79,23 @@ function imageFileName(value: string | null | undefined): string {
   }
 }
 
-function localImagePathFromSrc(src: string | undefined): string | null {
+function decodeLocalImagePathSegment(value: string): string {
+  try {
+    const decoded = decodeURIComponent(value)
+    return /[\\/]/.test(decoded) ? value : decoded
+  } catch {
+    return value
+  }
+}
+
+function decodeLocalImagePath(value: string): string {
+  return value
+    .split(/([\\/])/)
+    .map((segment) => (segment === "/" || segment === "\\" ? segment : decodeLocalImagePathSegment(segment)))
+    .join("")
+}
+
+export function localImagePathFromSrc(src: string | undefined): string | null {
   const value = src?.trim()
   if (!value || /^(?:https?:|data:|blob:|wanta:|wanta-local:)/i.test(value)) {
     return null
@@ -94,7 +110,7 @@ function localImagePathFromSrc(src: string | undefined): string | null {
     }
   }
   if (/^(?:~?[\\/]|[A-Za-z]:[\\/])/.test(value)) {
-    return value
+    return decodeLocalImagePath(value)
   }
   return null
 }

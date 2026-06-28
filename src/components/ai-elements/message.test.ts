@@ -7,6 +7,7 @@ import {
   clampImageViewerOffset,
   imageViewerFitScale,
   imageViewerWheelAction,
+  localImagePathFromSrc,
   MarkdownImage,
   panImageViewerState,
   zoomImageViewerState,
@@ -131,6 +132,20 @@ describe("MarkdownTable", () => {
 })
 
 describe("MarkdownImage", () => {
+  it("decodes percent-encoded local paths from markdown image URLs", () => {
+    expect(localImagePathFromSrc("/Users/me/Library/Application%20Support/wanta/agent/artifacts/turn/001.png")).toBe(
+      "/Users/me/Library/Application Support/wanta/agent/artifacts/turn/001.png",
+    )
+  })
+
+  it("keeps malformed percent escapes readable instead of rejecting local paths", () => {
+    expect(localImagePathFromSrc("/tmp/100% legit/image.png")).toBe("/tmp/100% legit/image.png")
+  })
+
+  it("does not decode escaped path separators inside local path segments", () => {
+    expect(localImagePathFromSrc("/tmp/output%23final/a%2Fb.png")).toBe("/tmp/output#final/a%2Fb.png")
+  })
+
   it("renders image previews as clickable buttons with a download action", () => {
     const html = renderToStaticMarkup(
       React.createElement(

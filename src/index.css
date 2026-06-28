@@ -1641,12 +1641,13 @@
   }
 
   .oo-docx-preview .oo-docx-preview-doc-wrapper {
+    width: fit-content;
+    min-width: 100%;
     overflow: visible;
   }
 
   .oo-docx-preview .oo-docx-preview-doc {
     box-sizing: border-box;
-    max-width: min(100%, 820px);
     margin-right: auto;
     margin-left: auto;
     background: white;

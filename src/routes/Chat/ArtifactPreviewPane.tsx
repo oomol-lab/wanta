@@ -41,7 +41,7 @@ import { cn } from "@/lib/utils"
 const ArtifactPdfPreview = React.lazy(() => import("./ArtifactPdfPreview.tsx"))
 const ArtifactDocxPreview = React.lazy(() => import("./ArtifactDocxPreview.tsx"))
 
-type ArtifactPreviewMode = "preview" | "source" | "info"
+export type ArtifactPreviewMode = "preview" | "source" | "info"
 
 function shouldOpenArtifactContextMenu(target: EventTarget | null): boolean {
   const element = target instanceof Element ? target : null
@@ -82,26 +82,46 @@ export function ArtifactsEmptyState() {
 export function ArtifactPreview({
   group,
   item,
+  mode,
   onContextMenu,
+  onModeChange,
   pack,
   previewCache,
+  showHeader = true,
   onOpen,
 }: {
   group: LocalArtifactGroup | null
   item: LocalArtifactItem | null
+  mode?: ArtifactPreviewMode
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  onModeChange?: (mode: ArtifactPreviewMode) => void
   pack?: LocalArtifactPack | null
   previewCache: LocalArtifactPreviewCache
+  showHeader?: boolean
   onOpen: () => void
 }) {
   const t = useT()
   const { loading, preview } = useLocalArtifactPreview(item, previewCache)
-  const [mode, setMode] = React.useState<ArtifactPreviewMode>("preview")
+  const [internalMode, setInternalMode] = React.useState<ArtifactPreviewMode>("preview")
+  const activeMode = mode ?? internalMode
   const canShowSource = preview?.kind === "text"
+  const setActiveMode = React.useCallback(
+    (nextMode: ArtifactPreviewMode | ((current: ArtifactPreviewMode) => ArtifactPreviewMode)): void => {
+      const resolvedMode = typeof nextMode === "function" ? nextMode(activeMode) : nextMode
+      if (onModeChange) {
+        onModeChange(resolvedMode)
+        return
+      }
+      setInternalMode(resolvedMode)
+    },
+    [activeMode, onModeChange],
+  )
 
   React.useEffect(() => {
-    setMode("preview")
-  }, [item?.path])
+    if (!onModeChange) {
+      setInternalMode("preview")
+    }
+  }, [item?.path, onModeChange])
 
   if (!item) {
     return <ArtifactsEmptyState />
@@ -119,59 +139,61 @@ export function ArtifactPreview({
         onContextMenu(item, event.clientX, event.clientY)
       }}
     >
-      <div className="oo-border-divider shrink-0 border-b px-3 py-2">
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <ArtifactIcon item={item} pack={pack} />
-            </div>
-            <div className="min-w-0">
-              <div className="oo-text-title truncate">{readableArtifactTitle(item)}</div>
-              <div className="oo-text-caption-compact truncate text-muted-foreground">
-                {artifactMetaLabel(t, item, pack)}
+      {showHeader ? (
+        <div className="oo-border-divider shrink-0 border-b px-3 py-2">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <ArtifactIcon item={item} pack={pack} />
+              </div>
+              <div className="min-w-0">
+                <div className="oo-text-title truncate">{readableArtifactTitle(item)}</div>
+                <div className="oo-text-caption-compact truncate text-muted-foreground">
+                  {artifactMetaLabel(t, item, pack)}
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-0.5">
-            {canShowSource ? <CopyContentButton text={preview.text ?? ""} /> : null}
-            {canShowSource ? (
+            <div className="flex shrink-0 items-center gap-0.5">
+              {canShowSource ? <CopyContentButton text={preview.text ?? ""} /> : null}
+              {canShowSource ? (
+                <button
+                  type="button"
+                  title={t("artifacts.sourceTab")}
+                  aria-label={t("artifacts.sourceTab")}
+                  className={cn(
+                    "oo-toolbar-button flex size-7 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
+                    activeMode === "source" && "bg-accent text-foreground",
+                  )}
+                  onClick={() => setActiveMode((current) => (current === "source" ? "preview" : "source"))}
+                >
+                  <Code2 className="size-3.5" />
+                </button>
+              ) : null}
               <button
                 type="button"
-                title={t("artifacts.sourceTab")}
-                aria-label={t("artifacts.sourceTab")}
+                title={t("artifacts.infoTab")}
+                aria-label={t("artifacts.infoTab")}
                 className={cn(
                   "oo-toolbar-button flex size-7 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
-                  mode === "source" && "bg-accent text-foreground",
+                  activeMode === "info" && "bg-accent text-foreground",
                 )}
-                onClick={() => setMode((current) => (current === "source" ? "preview" : "source"))}
+                onClick={() => setActiveMode((current) => (current === "info" ? "preview" : "info"))}
               >
-                <Code2 className="size-3.5" />
+                <Info className="size-3.5" />
               </button>
-            ) : null}
-            <button
-              type="button"
-              title={t("artifacts.infoTab")}
-              aria-label={t("artifacts.infoTab")}
-              className={cn(
-                "oo-toolbar-button flex size-7 items-center justify-center rounded-md hover:bg-accent hover:text-foreground",
-                mode === "info" && "bg-accent text-foreground",
-              )}
-              onClick={() => setMode((current) => (current === "info" ? "preview" : "info"))}
-            >
-              <Info className="size-3.5" />
-            </button>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {loading ? (
+        {activeMode === "info" ? (
+          <ArtifactInfo item={item} group={group} />
+        ) : loading ? (
           <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
             {t("artifacts.previewLoading")}
           </div>
-        ) : mode === "info" ? (
-          <ArtifactInfo item={item} group={group} />
-        ) : mode === "source" && canShowSource ? (
+        ) : activeMode === "source" && canShowSource ? (
           <ArtifactSourcePreview item={item} preview={preview} />
         ) : (
           <ArtifactConsumablePreview item={item} pack={pack} preview={preview} onOpen={onOpen} />

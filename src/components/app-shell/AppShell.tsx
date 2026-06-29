@@ -457,7 +457,7 @@ function WorkspaceMenuContent({
   const showBlockingError = Boolean(error && !hasLoaded)
   const showRefreshWarning = Boolean(error && hasLoaded)
   const workspaceItemClassName =
-    "my-1 grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_3.5rem] items-center gap-2 rounded-md py-2 text-left outline-none data-[active=true]:bg-accent data-[active=true]:text-accent-foreground focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground"
+    "my-1 grid w-full min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_4.5rem] items-center gap-2 rounded-md px-2 py-2 text-left outline-none data-[active=true]:bg-accent data-[active=true]:text-accent-foreground focus:bg-accent focus:text-accent-foreground hover:bg-accent hover:text-accent-foreground"
 
   return (
     <div className="absolute bottom-full left-3 z-[90] mb-2 w-72 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
@@ -473,11 +473,10 @@ function WorkspaceMenuContent({
           accountName={accountName}
           workspace={{ type: "personal" }}
         />
-        <span className="grid min-w-0 flex-1 gap-0.5">
-          <span className="truncate">{personalLabel}</span>
-          <span className="oo-text-caption-compact truncate text-muted-foreground">{personalDescription}</span>
-        </span>
-        <span aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{personalLabel}</span>
+        <Badge variant="outline" className="flex w-full justify-end px-0 text-right font-normal">
+          {personalDescription}
+        </Badge>
       </button>
       {loading ? (
         <div className="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-muted-foreground">
@@ -512,7 +511,7 @@ function WorkspaceMenuContent({
               workspace={{ type: "organization", canManage, organization, organizationId: organization.id, role }}
             />
             <span className="min-w-0 flex-1 truncate">{organization.name}</span>
-            <Badge variant="outline" className="flex w-full justify-end text-right font-normal">
+            <Badge variant="outline" className="flex w-full justify-end px-0 text-right font-normal">
               {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
             </Badge>
           </button>

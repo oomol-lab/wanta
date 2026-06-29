@@ -328,6 +328,51 @@ interface ImageViewerProps {
   viewerStateRef: MutableRefObject<ImageViewerState>
 }
 
+export function ImageViewerModal({
+  alt,
+  downloadName,
+  onClose,
+  src,
+  title,
+}: {
+  alt: string
+  downloadName: string
+  onClose: () => void
+  src: string
+  title: string
+}) {
+  const [stageSize, setStageSize] = useState<ImageViewerSize | null>(null)
+  const [imageSize, setImageSize] = useState<ImageViewerSize | null>(null)
+  const [viewerState, setViewerState] = useState<ImageViewerState>({ offset: { x: 0, y: 0 }, scale: 1 })
+  const viewerStateRef = useRef<ImageViewerState>(viewerState)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<ImageViewerDragState | null>(null)
+
+  useEffect(() => {
+    viewerStateRef.current = viewerState
+  }, [viewerState])
+
+  return createPortal(
+    <ImageViewer
+      alt={alt}
+      downloadName={downloadName}
+      imageSize={imageSize}
+      onClose={onClose}
+      setImageSize={setImageSize}
+      setStageSize={setStageSize}
+      setViewerState={setViewerState}
+      src={src}
+      stageRef={stageRef}
+      stageSize={stageSize}
+      title={title}
+      viewerState={viewerState}
+      viewerStateRef={viewerStateRef}
+      dragRef={dragRef}
+    />,
+    document.body,
+  )
+}
+
 function ImageViewer({
   alt,
   downloadName,

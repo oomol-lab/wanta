@@ -78,6 +78,27 @@ async function readRegistrySkillPackageInfo(
   return normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
 }
 
+export async function readPublicSkillPackageByName(packageName: string): Promise<PublicSkillPackage | null> {
+  const normalizedPackageName = packageName.trim()
+  if (!normalizedPackageName) {
+    throw new Error("Skill package name is empty.")
+  }
+
+  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(normalizedPackageName)}/latest`, registryBaseUrl)
+  const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw new Error(`Registry Skill package info request failed with status ${response.status}.`)
+  }
+
+  const packageInfo = normalizeRegistrySkillPackageInfo(await response.text(), {
+    name: "OOMOL",
+  })
+  return packageInfo ?? null
+}
+
 function mergeMyPublishedPackage(
   publishedPackage: PublicSkillPackage,
   packageInfo: PublicSkillPackage | undefined,

@@ -2221,4 +2221,83 @@
     font-weight: 600;
     line-height: 1;
   }
+
+  .oo-turn-diff-view {
+    --diff-background-color: var(--background);
+    --diff-text-color: var(--foreground);
+    --diff-font-family: var(--font-mono);
+    --diff-selection-background-color: var(--text-selection-background);
+    --diff-selection-text-color: var(--text-selection-foreground);
+    --diff-gutter-insert-background-color: color-mix(in oklab, var(--success) 24%, var(--background));
+    --diff-gutter-insert-text-color: color-mix(in oklab, var(--success) 72%, var(--foreground));
+    --diff-gutter-delete-background-color: color-mix(in oklab, var(--destructive) 20%, var(--background));
+    --diff-gutter-delete-text-color: color-mix(in oklab, var(--destructive) 76%, var(--foreground));
+    --diff-code-insert-background-color: color-mix(in oklab, var(--success) 17%, var(--background));
+    --diff-code-insert-text-color: color-mix(in oklab, var(--success) 58%, var(--foreground));
+    --diff-code-delete-background-color: color-mix(in oklab, var(--destructive) 15%, var(--background));
+    --diff-code-delete-text-color: color-mix(in oklab, var(--destructive) 62%, var(--foreground));
+    --diff-code-insert-edit-background-color: color-mix(in oklab, var(--success) 32%, var(--background));
+    --diff-code-delete-edit-background-color: color-mix(in oklab, var(--destructive) 28%, var(--background));
+    --diff-code-selected-background-color: var(--selection-soft);
+    --diff-gutter-selected-background-color: var(--selection-soft);
+    --diff-omit-gutter-line-color: var(--border);
+    min-width: 100%;
+  }
+
+  .oo-turn-diff-view .diff {
+    width: 100%;
+    min-width: 100%;
+    font-size: var(--oo-font-caption);
+  }
+
+  .oo-turn-diff-view-split .diff {
+    table-layout: fixed;
+  }
+
+  .oo-turn-diff-view-unified .diff {
+    table-layout: auto;
+  }
+
+  .oo-turn-diff-view .diff-line {
+    line-height: 1.45;
+  }
+
+  .oo-turn-diff-view .diff-gutter-col {
+    width: 3.25rem;
+  }
+
+  .oo-turn-diff-view .diff-gutter {
+    min-width: 3.25rem;
+    border-right: 1px solid var(--oo-divider);
+    color: var(--muted-foreground);
+  }
+
+  .oo-turn-diff-view .diff-code {
+    padding-right: 1rem;
+    padding-left: 0.75rem;
+    word-break: normal;
+  }
+
+  .oo-turn-diff-view-split .diff-code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .oo-turn-diff-view-unified .diff-code {
+    white-space: pre;
+  }
+
+  .oo-turn-diff-view .diff-code-insert {
+    box-shadow: inset 3px 0 0 color-mix(in oklab, var(--success) 80%, transparent);
+  }
+
+  .oo-turn-diff-view .diff-code-delete {
+    box-shadow: inset 3px 0 0 color-mix(in oklab, var(--destructive) 80%, transparent);
+  }
+
+  .oo-turn-diff-view .diff-decoration-content {
+    padding: 0.375rem 0.75rem;
+    background: var(--muted);
+    color: var(--muted-foreground);
+  }
 }

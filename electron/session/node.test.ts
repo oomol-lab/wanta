@@ -357,3 +357,21 @@ test("remove keeps local state when remote delete fails", async () => {
   assert.deepEqual(await persistedActivity.read(), new Map([["session", 3_000]]))
   assert.deepEqual(await persistedMetadata.read(), new Map([["session", { pinnedAt: 2_000 }]]))
 })
+
+test("remove invokes local cleanup after remote delete succeeds", async () => {
+  const removed: string[] = []
+  const service = new SessionServiceImpl(
+    {
+      deleteSession: async () => undefined,
+    } as unknown as AgentManager,
+    {
+      onSessionRemoved: (sessionId) => {
+        removed.push(sessionId)
+      },
+    },
+  )
+
+  await service.remove("session")
+
+  assert.deepEqual(removed, ["session"])
+})

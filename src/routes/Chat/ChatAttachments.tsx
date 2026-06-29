@@ -13,6 +13,7 @@ import {
 } from "./chat-attachment-utils.ts"
 import { FileKindTile } from "./file-type-icons.tsx"
 import { fileVisualKind } from "./file-type-kind.ts"
+import { ImageViewerModal } from "@/components/ai-elements/message-image"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -57,7 +58,7 @@ function AttachmentImageCard({
   removeLabel,
 }: {
   attachment: DraftAttachment
-  onOpen: (attachment: DraftAttachment) => void
+  onOpen: (attachment: DraftAttachment, previewUrl: string | null) => void
   onRemove?: (id: string) => void
   removeLabel: string
 }) {
@@ -96,7 +97,7 @@ function AttachmentImageCard({
         type="button"
         title={attachment.path}
         className="size-full overflow-hidden rounded-xl border border-border/60 bg-background text-left shadow-xs hover:border-border hover:bg-accent/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-        onClick={() => onOpen(attachment)}
+        onClick={() => onOpen(attachment, previewUrl)}
       >
         {previewUrl ? (
           <img
@@ -126,6 +127,10 @@ function AttachmentImageCard({
   )
 }
 
+function imageDownloadName(attachment: DraftAttachment): string {
+  return attachment.name.trim() || attachment.path.split(/[\\/]/).pop() || "image"
+}
+
 export function AttachmentList({
   attachments,
   className,
@@ -137,10 +142,21 @@ export function AttachmentList({
 }) {
   const t = useT()
   const chatService = useChatService()
+  const [imageViewer, setImageViewer] = React.useState<{
+    attachment: DraftAttachment
+    src: string | null
+  } | null>(null)
 
   const openAttachment = React.useCallback(
-    (attachment: DraftAttachment): void => {
-      void chatService.invoke("openLocalPath", { path: attachment.path }).catch((cause: unknown) => {
+    (attachment: DraftAttachment, previewUrl: string | null = null): void => {
+      if (isImageAttachment(attachment)) {
+        setImageViewer({
+          attachment,
+          src: previewUrl ?? attachment.previewUrl ?? readAttachmentPreviewUrl(attachment.path) ?? null,
+        })
+        return
+      }
+      void chatService.invoke("showLocalPathInFolder", { path: attachment.path }).catch((cause: unknown) => {
         const error = resolveUserFacingError(cause, { area: "artifact" })
         toast.error(userFacingErrorDescription(error, t))
       })
@@ -148,49 +164,98 @@ export function AttachmentList({
     [chatService, t],
   )
 
+  React.useEffect(() => {
+    if (!imageViewer || imageViewer.src) {
+      return
+    }
+    let cancelled = false
+    void chatService
+      .invoke("getAttachmentPreview", {
+        path: imageViewer.attachment.path,
+        mime: imageViewer.attachment.mime,
+      })
+      .then((result) => {
+        if (cancelled) {
+          return
+        }
+        if (!result.dataUrl) {
+          toast.error(t("artifacts.previewReadFailed"))
+          setImageViewer(null)
+          return
+        }
+        setAttachmentPreviewUrl(imageViewer.attachment.path, result.dataUrl)
+        setImageViewer((current) =>
+          current?.attachment.path === imageViewer.attachment.path
+            ? { attachment: current.attachment, src: result.dataUrl as string }
+            : current,
+        )
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          const error = resolveUserFacingError(cause, { area: "artifact" })
+          toast.error(userFacingErrorDescription(error, t))
+          setImageViewer(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chatService, imageViewer, t])
+
   return (
-    <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
-      {attachments.map((attachment) =>
-        isImageAttachment(attachment) ? (
-          <AttachmentImageCard
-            key={attachment.id}
-            attachment={attachment}
-            onOpen={openAttachment}
-            onRemove={onRemove}
-            removeLabel={t("chat.removeAttachment")}
-          />
-        ) : (
-          <div key={attachment.id} className="relative max-w-full min-w-0">
-            <button
-              type="button"
-              title={attachment.path}
-              className={cn(
-                "oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pl-2 text-left shadow-xs hover:border-border hover:bg-accent/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-                onRemove ? "pr-8" : "pr-2",
-              )}
-              onClick={() => openAttachment(attachment)}
-            >
-              <AttachmentPreviewTile attachment={attachment} />
-              <span className="min-w-0 flex-1">
-                <span className="oo-text-label block max-w-56 truncate text-foreground">{attachment.name}</span>
-                <span className="oo-text-caption-compact block truncate font-normal text-muted-foreground">
-                  {attachmentSummary(t, attachment)}
-                </span>
-              </span>
-            </button>
-            {onRemove ? (
+    <>
+      <div className={cn("flex w-full flex-wrap justify-start gap-2", className)}>
+        {attachments.map((attachment) =>
+          isImageAttachment(attachment) ? (
+            <AttachmentImageCard
+              key={attachment.id}
+              attachment={attachment}
+              onOpen={openAttachment}
+              onRemove={onRemove}
+              removeLabel={t("chat.removeAttachment")}
+            />
+          ) : (
+            <div key={attachment.id} className="relative max-w-full min-w-0">
               <button
                 type="button"
-                aria-label={t("chat.removeAttachment")}
-                className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => onRemove(attachment.id)}
+                title={attachment.path}
+                className={cn(
+                  "oo-border-divider flex h-14 max-w-full min-w-0 items-center gap-3 rounded-lg border bg-background/70 py-2 pl-2 text-left shadow-xs hover:border-border hover:bg-accent/60 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+                  onRemove ? "pr-8" : "pr-2",
+                )}
+                onClick={() => openAttachment(attachment)}
               >
-                <X className="size-3.5" />
+                <AttachmentPreviewTile attachment={attachment} />
+                <span className="min-w-0 flex-1">
+                  <span className="oo-text-label block max-w-56 truncate text-foreground">{attachment.name}</span>
+                  <span className="oo-text-caption-compact block truncate font-normal text-muted-foreground">
+                    {attachmentSummary(t, attachment)}
+                  </span>
+                </span>
               </button>
-            ) : null}
-          </div>
-        ),
-      )}
-    </div>
+              {onRemove ? (
+                <button
+                  type="button"
+                  aria-label={t("chat.removeAttachment")}
+                  className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => onRemove(attachment.id)}
+                >
+                  <X className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
+          ),
+        )}
+      </div>
+      {imageViewer?.src ? (
+        <ImageViewerModal
+          alt={imageViewer.attachment.name}
+          downloadName={imageDownloadName(imageViewer.attachment)}
+          onClose={() => setImageViewer(null)}
+          src={imageViewer.src}
+          title={imageViewer.attachment.name || imageDownloadName(imageViewer.attachment)}
+        />
+      ) : null}
+    </>
   )
 }

@@ -1433,6 +1433,7 @@ function OrganizationSkillManageDialog({
   return (
     <Dialog
       open={open}
+      ariaLabel={t("organizations.skillManageTitle")}
       title={
         <div className="flex min-w-0 flex-wrap items-center gap-3">
           <h2 className="oo-text-dialog-title shrink-0 truncate">{t("organizations.skillManageTitle")}</h2>

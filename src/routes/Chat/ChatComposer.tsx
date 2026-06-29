@@ -1,4 +1,9 @@
-import type { ChatAttachment, ChatContextMention, ChatOrganizationSkillContext } from "../../../electron/chat/common.ts"
+import type {
+  ChatAttachment,
+  ChatContextMention,
+  ChatMessage,
+  ChatOrganizationSkillContext,
+} from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ComposerState } from "./composer-state.ts"
@@ -20,6 +25,7 @@ import {
 import { composerReducer, initialComposerState } from "./composer-state.ts"
 import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
+import { buildContextUsageInfo } from "./context-usage.ts"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { AddCustomModelDialog } from "./ModelControls.tsx"
 import { QueuedMessagePanel } from "./QueuedMessagePanel.tsx"
@@ -49,6 +55,7 @@ interface ChatComposerProps {
   hasMessages: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
+  messages: ChatMessage[]
   placeholder: string
   organizationSkills?: ChatOrganizationSkillContext[]
   providers: ConnectionProvider[]
@@ -110,6 +117,7 @@ export function ChatComposer({
   hasMessages,
   initialComposerState: initialComposerStateProp,
   initialSendPending,
+  messages,
   placeholder,
   organizationSkills = [],
   providers,
@@ -341,6 +349,7 @@ export function ChatComposer({
   const submitText = draft
   const canSubmit = !submitBlocked && !composerDisabled && (submitText.trim().length > 0 || attachments.length > 0)
   const hasInputAddons = attachments.length > 0 || contextMentions.length > 0
+  const contextUsage = React.useMemo(() => buildContextUsageInfo(messages, modelCatalog), [messages, modelCatalog])
 
   const promptInput = (
     <PromptInput
@@ -447,6 +456,7 @@ export function ChatComposer({
         <ComposerTrailingControls
           canSubmit={canSubmit}
           composerDisabled={composerDisabled}
+          contextUsage={contextUsage}
           initialSendPending={initialSendPending}
           isGenerating={isGenerating}
           modelCatalog={modelCatalog}

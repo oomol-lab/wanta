@@ -10,6 +10,7 @@ export interface BuiltinModelSummary {
   supportsImages: boolean
   toolCall: boolean
   runtimeKind: "openai-compatible" | "openai-responses"
+  contextWindow?: number
 }
 
 export interface CustomModelOption {

@@ -57,6 +57,10 @@ export interface MessageArtifactsEvent {
   messageId: string
   artifactRoot: string
 }
+export interface TurnOutputUpdatedEvent {
+  sessionId: string
+  messageId: string
+}
 export type AssistantActivityPhase = "thinking" | "finalizing" | "retrying"
 
 export interface AssistantActivityEvent {
@@ -339,6 +343,62 @@ export interface LocalArtifactPack {
   truncated: boolean
 }
 
+export type TurnOutputFileRole = "artifact" | "process" | "project_change"
+export type TurnOutputChangeKind = "added" | "modified" | "deleted"
+export type TurnOutputDiffKind = "text" | "binary" | "missing" | "too_large"
+
+export interface TurnOutputSummary {
+  artifactCount: number
+  processFileCount: number
+  changedFileCount: number
+  additions: number
+  deletions: number
+}
+
+export interface TurnOutputFile {
+  path: string
+  name: string
+  role: TurnOutputFileRole
+  changeKind: TurnOutputChangeKind
+  mime: string
+  additions: number
+  deletions: number
+  binary?: boolean
+  size?: number
+  truncated?: boolean
+}
+
+export interface TurnOutputRecord {
+  sessionId: string
+  messageId: string
+  artifactRoot?: string
+  processRoot?: string
+  projectRoot?: string
+  createdAt: number
+  completedAt?: number
+  files: TurnOutputFile[]
+  summary: TurnOutputSummary
+}
+
+export interface TurnOutputRequest {
+  sessionId: string
+  messageId: string
+}
+
+export interface TurnFileDiffRequest extends TurnOutputRequest {
+  path: string
+}
+
+export interface TurnFileDiffResult {
+  kind: TurnOutputDiffKind
+  path: string
+  mime: string
+  additions: number
+  deletions: number
+  patch?: string
+  truncated?: boolean
+}
+
 export interface ResolveLocalArtifactsRequest {
   text?: string
   artifactRoot?: string
@@ -481,6 +541,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messageReasoningDelta: MessageReasoningDeltaEvent
     messageAttachment: MessageAttachmentEvent
     messageArtifacts: MessageArtifactsEvent
+    turnOutputUpdated: TurnOutputUpdatedEvent
     assistantActivity: AssistantActivityEvent
     toolCallStarted: ToolCallStartedEvent
     toolCallResult: ToolCallResultEvent
@@ -495,6 +556,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
     getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
+    getTurnOutput(req: TurnOutputRequest): Promise<TurnOutputRecord | null>
+    getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
     showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void>

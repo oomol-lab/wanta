@@ -2,12 +2,13 @@ import type { AgentManager } from "../agent/manager.ts"
 import type { ChatMessage } from "./common.ts"
 
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, test, vi } from "vitest"
 import { AuthorizationOverlayStore } from "./authorization.ts"
 import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from "./node.ts"
+import { TurnOutputStore } from "./turn-outputs.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -17,12 +18,14 @@ function createBridgeAgent(): {
   agent: AgentManager
   abort: ReturnType<typeof vi.fn>
   createArtifactDir: ReturnType<typeof vi.fn>
+  createProcessDir: ReturnType<typeof vi.fn>
   emit: (event: { type: string; properties?: Record<string, unknown> }) => void
   promptStreaming: ReturnType<typeof vi.fn>
 } {
   let listener: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
   const abort = vi.fn(async () => undefined)
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
+  const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
   const promptStreaming = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
@@ -34,6 +37,7 @@ function createBridgeAgent(): {
     },
     abort,
     createArtifactDir,
+    createProcessDir,
     promptStreaming,
     getMessages: vi.fn(async () => []),
   } as unknown as AgentManager
@@ -41,6 +45,7 @@ function createBridgeAgent(): {
     agent,
     abort,
     createArtifactDir,
+    createProcessDir,
     emit: (event) => listener?.(event),
     promptStreaming,
   }
@@ -52,6 +57,24 @@ function captureServiceEvents(service: ChatServiceImpl): Array<{ event: string; 
     events.push({ event, data })
   }
   return events
+}
+
+async function waitForInactiveGeneration(service: ChatServiceImpl): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (!service.hasActiveGeneration()) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
+async function waitForEventCount(events: Array<{ event: string; data: unknown }>, count: number): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (events.length >= count) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
 }
 
 test("isAbortErrorMessage recognizes controlled stop errors only", () => {
@@ -135,6 +158,7 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
     type: "session.error",
     properties: { sessionID: "session-1", error: { name: "AbortError" } },
   })
+  await waitForEventCount(events, beforeAbortEventCount + 1)
   assert.equal(events.length, beforeAbortEventCount + 1)
   assert.equal(events.at(-1)?.event, "generationStopped")
   const abortEventCount = events.length
@@ -152,6 +176,74 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
   })
   assert.equal(events.at(-1)?.event, "messageStarted")
+})
+
+test("stopGeneration finalizes process files produced before cancellation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-stop-turn-output-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    const store = new TurnOutputStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { turnOutputStore: store })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "hello" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(processDir, "create.js"), "console.log(1)\n", "utf8")
+
+    await service.stopGeneration("session-1")
+    const record = (await store.read()).get("session-1")?.get("assistant-1")
+
+    assert.equal(record?.summary.processFileCount, 1)
+    assert.equal(record?.files[0]?.name, "create.js")
+    assert.ok(events.some((event) => event.event === "turnOutputUpdated"))
+    assert.equal(events.at(-1)?.event, "generationStopped")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("message completion records intermediate code files left in artifact root", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-intermediate-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    const store = new TurnOutputStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { turnOutputStore: store })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "帮我生成一个 PPT" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(artifactDir, "create_ppt.js"), "console.log(1)\n", "utf8")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForEventCount(events, 3)
+
+    const record = (await store.read()).get("session-1")?.get("assistant-1")
+    assert.equal(record?.summary.processFileCount, 1)
+    assert.equal(record?.files[0]?.name, "create_ppt.js")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
 })
 
 test("agent errors from multiple opencode channels produce one message error per send", async () => {
@@ -219,6 +311,7 @@ test("hasActiveGeneration tracks pending and completed assistant turns", async (
     type: "session.idle",
     properties: { sessionID: "session-1" },
   })
+  await waitForInactiveGeneration(service)
   assert.equal(service.hasActiveGeneration(), false)
 })
 

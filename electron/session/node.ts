@@ -24,6 +24,7 @@ import { SessionService as SessionServiceName } from "./common.ts"
 interface SessionServiceDeps {
   activityStore?: SessionActivityStore
   metadataStore?: SessionMetadataStore
+  onSessionRemoved?: (sessionId: string) => Promise<void> | void
   projectStore?: SessionProjectStore
 }
 
@@ -318,6 +319,7 @@ export class SessionServiceImpl
     await this.agent.deleteSession(id)
     this.sessionActivityAt.delete(id)
     this.sessionMetadata.delete(id)
+    await this.deps.onSessionRemoved?.(id)
     await this.persistActivity()
     await this.persistMetadata()
     void this.broadcastChanged().catch(() => undefined)

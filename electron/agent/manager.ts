@@ -73,6 +73,7 @@ export interface PromptStreamingOptions {
   attachments?: ChatAttachment[]
   model?: ModelChoice
   artifactDir?: string
+  processDir?: string
   signal?: AbortSignal
 }
 
@@ -351,6 +352,7 @@ export class AgentManager {
       await this.buildAuthorizedSystem(options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir),
+      buildProcessSystem(options.processDir),
     )
     if (options.signal?.aborted) {
       return
@@ -432,12 +434,20 @@ export class AgentManager {
   }
 
   public async createArtifactDir(sessionId: string): Promise<string> {
-    const artifactsRoot = path.join(this.options.rootDir, "artifacts")
-    const dir = path.join(artifactsRoot, sanitizeArtifactPathSegment(sessionId), `${Date.now()}-${randomUUID()}`)
-    const resolvedRoot = path.resolve(artifactsRoot)
+    return this.createTurnDir("artifacts", sessionId)
+  }
+
+  public async createProcessDir(sessionId: string): Promise<string> {
+    return this.createTurnDir("process", sessionId)
+  }
+
+  private async createTurnDir(kind: "artifacts" | "process", sessionId: string): Promise<string> {
+    const root = path.join(this.options.rootDir, kind)
+    const dir = path.join(root, sanitizeArtifactPathSegment(sessionId), `${Date.now()}-${randomUUID()}`)
+    const resolvedRoot = path.resolve(root)
     const resolvedDir = path.resolve(dir)
     if (!resolvedDir.startsWith(`${resolvedRoot}${path.sep}`)) {
-      throw new Error("Invalid artifact directory segment.")
+      throw new Error("Invalid turn directory segment.")
     }
     await mkdir(resolvedDir, { recursive: true })
     return resolvedDir
@@ -561,6 +571,20 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
     "- When you finish, summarize the deliverable contents and report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
     "- Do not open generated files with system commands unless the user explicitly asks you to open them externally; the app is responsible for surfacing artifacts in the UI.",
+  ].join("\n")
+}
+
+function buildProcessSystem(processDir: string | undefined): string | undefined {
+  if (!processDir) {
+    return undefined
+  }
+  return [
+    "Intermediate process file contract for this turn:",
+    `- Use this exact directory for temporary scripts, raw service responses, debug logs, scratch data, and other implementation files that help you complete the task but are not the user-facing deliverable: ${processDir}`,
+    "- Do not put final deliverables in this process directory.",
+    "- Do not put process files in the artifact manifest unless the user explicitly asked for source code or scripts as the deliverable.",
+    "- Prefer short, descriptive filenames such as create_presentation.js, transform_data.py, raw-input.json, or render-log.txt.",
+    "- Do not mention process files in the final response unless the user asks for implementation details, debugging details, or source files.",
   ].join("\n")
 }
 

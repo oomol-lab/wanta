@@ -55,3 +55,19 @@ test("ArtifactRootStore round trips persisted artifact roots", async () => {
   const next = await store.read()
   assert.equal(next.get("session-1")?.get("message-1"), "/tmp/artifacts/turn-1")
 })
+
+test("ArtifactRootStore removes records for a deleted session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-roots-"))
+  const store = new ArtifactRootStore(root)
+  const records = new Map([
+    ["session-1", new Map([["message-1", "/tmp/artifacts/turn-1"]])],
+    ["session-2", new Map([["message-2", "/tmp/artifacts/turn-2"]])],
+  ])
+
+  await store.write(records)
+  await store.removeSession("session-1")
+
+  const next = await store.read()
+  assert.equal(next.has("session-1"), false)
+  assert.equal(next.get("session-2")?.get("message-2"), "/tmp/artifacts/turn-2")
+})

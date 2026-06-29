@@ -74,6 +74,10 @@ export function recordArtifactRoot(
   return true
 }
 
+export function removeArtifactRootsForSession(records: ArtifactRoots, sessionId: string): boolean {
+  return records.delete(sessionId)
+}
+
 export function applyArtifactRoots(
   messages: ChatMessage[],
   sessionRecords: Map<string, string> | undefined,
@@ -122,5 +126,13 @@ export class ArtifactRootStore {
       await rm(tmp, { force: true })
       throw error
     }
+  }
+
+  public async removeSession(sessionId: string): Promise<void> {
+    const records = await this.read()
+    if (!removeArtifactRootsForSession(records, sessionId)) {
+      return
+    }
+    await this.write(records)
   }
 }

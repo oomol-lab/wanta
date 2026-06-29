@@ -1,5 +1,7 @@
 import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentManager } from "../agent/manager.ts"
+import type { GitTurnBaseline } from "../git/turn-diff.ts"
+import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
@@ -29,8 +31,18 @@ import type {
   SendMessageRequest,
   SetAgentOrganizationRequest,
   ShowLocalPathInFolderRequest,
+  TurnFileDiffRequest,
+  TurnFileDiffResult,
+  TurnOutputRecord,
+  TurnOutputRequest,
 } from "./common.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
+import type {
+  StoredTurnOutputFile,
+  StoredTurnOutputRecord,
+  TurnOutputRecords,
+  TurnOutputStore,
+} from "./turn-outputs.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -39,6 +51,7 @@ import { open, readdir, readFile, realpath, stat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
+import { buildUnifiedDiff, captureGitTurnBaseline, collectGitTurnDiffs } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
   archivePreview,
@@ -62,12 +75,67 @@ import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./author
 import { ChatService as ChatServiceName } from "./common.ts"
 import { normalizeChatError } from "./error.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
+import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 const artifactTextPreviewMaxBytes = 512 * 1024
 const artifactManifestFileName = ".wanta-artifact.json"
 const userStopAbortWindowMs = 30_000
 const defaultMaxDirectoryItems = 80
+const maxProcessFiles = 200
+const intermediateCodeExtensions = new Set([
+  ".bash",
+  ".c",
+  ".cc",
+  ".cjs",
+  ".cpp",
+  ".cs",
+  ".css",
+  ".cxx",
+  ".dart",
+  ".fish",
+  ".go",
+  ".h",
+  ".hpp",
+  ".html",
+  ".htm",
+  ".java",
+  ".js",
+  ".jsx",
+  ".kt",
+  ".kts",
+  ".less",
+  ".lua",
+  ".mjs",
+  ".php",
+  ".pl",
+  ".py",
+  ".r",
+  ".rb",
+  ".rs",
+  ".sass",
+  ".scala",
+  ".scss",
+  ".sh",
+  ".svelte",
+  ".swift",
+  ".ts",
+  ".tsx",
+  ".vue",
+  ".zsh",
+])
+const codeRequestPattern =
+  /\b(api|app|cli|code|component|css|html|javascript|js|node|program|python|react|script|typescript|ts|website)\b|代码|脚本|程序|网页|网站|应用|组件|前端|后端|接口|库|插件|扩展|源码|项目/i
+
+interface ActiveTurnOutput {
+  artifactRoot: string
+  createdAt: number
+  messageId?: string
+  processRoot: string
+  projectBaseline?: GitTurnBaseline
+  projectRoot?: string
+  requestText: string
+}
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -216,7 +284,9 @@ function mergeSystemPrompts(...parts: Array<string | undefined>): string | undef
 interface ChatServiceDeps {
   artifactRootStore?: ArtifactRootStore
   authorizationOverlayStore?: AuthorizationOverlayStore
+  projectStore?: Pick<SessionProjectStore, "read">
   stoppedGenerationStore?: StoppedGenerationStore
+  turnOutputStore?: TurnOutputStore
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
 }
@@ -289,6 +359,138 @@ async function readTextPreview(filePath: string, size: number): Promise<{ text: 
 
 function localArtifactName(filePath: string): string {
   return path.basename(filePath.replace(/[\\/]+$/, "")) || filePath
+}
+
+function turnOutputFileName(filePath: string): string {
+  return path.basename(filePath.replace(/[\\/]+$/, "")) || filePath
+}
+
+function fileExtension(filePath: string): string {
+  const name = turnOutputFileName(filePath)
+  const index = name.lastIndexOf(".")
+  return index === -1 ? "" : name.slice(index).toLowerCase()
+}
+
+function sourceRequestsCode(requestText: string): boolean {
+  return codeRequestPattern.test(requestText)
+}
+
+function normalizeProjectPath(projectPath: string): string {
+  return projectPath.trim().replace(/[\\/]+$/, "")
+}
+
+function isPathInside(root: string, target: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(target))
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
+}
+
+function summarizeTurnFiles(files: StoredTurnOutputFile[], artifactCount: number): StoredTurnOutputRecord["summary"] {
+  return {
+    artifactCount,
+    processFileCount: files.filter((file) => file.role === "process").length,
+    changedFileCount: files.filter((file) => file.role === "project_change").length,
+    additions: files.reduce((sum, file) => sum + file.additions, 0),
+    deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+  }
+}
+
+async function listProcessFiles(rootDir: string): Promise<string[]> {
+  const root = path.resolve(rootDir)
+  const found: string[] = []
+  async function visit(dir: string): Promise<void> {
+    if (found.length >= maxProcessFiles) {
+      return
+    }
+    let entries
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
+      if (found.length >= maxProcessFiles || entry.name === ".DS_Store") {
+        continue
+      }
+      const absolute = path.join(dir, entry.name)
+      if (!isPathInside(root, absolute)) {
+        continue
+      }
+      if (entry.isDirectory()) {
+        await visit(absolute)
+        continue
+      }
+      if (entry.isFile()) {
+        found.push(path.relative(root, absolute))
+      }
+    }
+  }
+  await visit(root)
+  return found
+}
+
+async function processFileEntry(rootDir: string, relativePath: string): Promise<StoredTurnOutputFile | null> {
+  const absolutePath = path.join(rootDir, relativePath)
+  const item = await localArtifactItem(absolutePath)
+  if (!item || item.kind !== "file") {
+    return null
+  }
+  const preview = await readTextPreview(absolutePath, item.size ?? 0).catch(() => null)
+  const diff = preview
+    ? buildUnifiedDiff(relativePath, "", preview.text, item.mime)
+    : ({
+        kind: item.size && item.size > artifactTextPreviewMaxBytes ? "too_large" : "binary",
+        path: relativePath,
+        mime: item.mime,
+        additions: 0,
+        deletions: 0,
+        ...(item.size && item.size > artifactTextPreviewMaxBytes ? { truncated: true } : {}),
+      } satisfies TurnFileDiffResult)
+  return {
+    path: absolutePath,
+    name: turnOutputFileName(relativePath),
+    role: "process",
+    changeKind: "added",
+    mime: item.mime,
+    additions: diff.additions,
+    deletions: diff.deletions,
+    ...(diff.kind === "binary" ? { binary: true } : {}),
+    ...(item.size !== undefined ? { size: item.size } : {}),
+    ...(diff.truncated ? { truncated: true } : {}),
+    diff: { ...diff, path: absolutePath },
+  }
+}
+
+async function processOutputFiles(processRoot: string): Promise<StoredTurnOutputFile[]> {
+  const entries = await Promise.all(
+    (await listProcessFiles(processRoot)).map((relativePath) => processFileEntry(processRoot, relativePath)),
+  )
+  return entries.filter((entry): entry is StoredTurnOutputFile => Boolean(entry))
+}
+
+function artifactPackVisiblePaths(pack: LocalArtifactPack | null): Set<string> {
+  if (!pack) {
+    return new Set()
+  }
+  return new Set(
+    [...pack.items, ...pack.supporting.filter((item) => item.role !== "metadata")].map((item) => item.path),
+  )
+}
+
+async function intermediateArtifactProcessFiles(
+  artifactRoot: string,
+  requestText: string,
+): Promise<StoredTurnOutputFile[]> {
+  if (sourceRequestsCode(requestText)) {
+    return []
+  }
+  const pack = await readArtifactPack(artifactRoot)
+  const visiblePaths = artifactPackVisiblePaths(pack)
+  const relativePaths = (await listProcessFiles(artifactRoot)).filter((relativePath) => {
+    const absolutePath = path.join(artifactRoot, relativePath)
+    return !visiblePaths.has(absolutePath) && intermediateCodeExtensions.has(fileExtension(relativePath))
+  })
+  const entries = await Promise.all(relativePaths.map((relativePath) => processFileEntry(artifactRoot, relativePath)))
+  return entries.filter((entry): entry is StoredTurnOutputFile => Boolean(entry))
 }
 
 async function localArtifactItem(filePath: string): Promise<LocalArtifactItem | null> {
@@ -556,6 +758,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private emittedMessageErrors = new Map<string, Set<string>>()
   private sessionGenerations = new Map<string, SessionGeneration>()
   private pendingArtifactDirs = new Map<string, string[]>()
+  private pendingProcessDirs = new Map<string, string[]>()
+  private activeTurnOutputs = new Map<string, ActiveTurnOutput>()
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private readonly deps: ChatServiceDeps
@@ -570,6 +774,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private stoppedGenerations: StoppedGenerations = new Map()
   private stoppedGenerationsLoaded = false
   private stoppedGenerationsLoadPromise: Promise<void> | null = null
+  private turnOutputs: TurnOutputRecords = new Map()
+  private turnOutputsLoaded = false
+  private turnOutputsLoadPromise: Promise<void> | null = null
+  private turnOutputWritePromise: Promise<void> = Promise.resolve()
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -586,6 +794,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.abortSessionGenerations()
     this.sessionGenerations.clear()
     this.pendingArtifactDirs.clear()
+    this.pendingProcessDirs.clear()
+    this.activeTurnOutputs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
     this.artifactRoots.clear()
@@ -597,6 +807,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.stoppedGenerations.clear()
     this.stoppedGenerationsLoaded = false
     this.stoppedGenerationsLoadPromise = null
+    this.turnOutputs.clear()
+    this.turnOutputsLoaded = false
+    this.turnOutputsLoadPromise = null
   }
 
   public setAgentStatus(status: AgentRuntimeStatus): void {
@@ -606,7 +819,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public hasActiveGeneration(): boolean {
     return (
-      this.activeAssistantMessages.size > 0 || this.pendingArtifactDirs.size > 0 || this.sessionGenerations.size > 0
+      this.activeAssistantMessages.size > 0 ||
+      this.pendingArtifactDirs.size > 0 ||
+      this.pendingProcessDirs.size > 0 ||
+      this.sessionGenerations.size > 0
     )
   }
 
@@ -624,11 +840,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           translated.data.sessionId &&
           this.consumeUserStopAbort(translated.data.sessionId, translated.data.message)
         ) {
-          this.clearSessionGeneration(translated.data.sessionId)
-          this.activeAssistantMessages.delete(translated.data.sessionId)
-          this.activeToolParts.delete(translated.data.sessionId)
-          this.emitSessionActivity(translated.data.sessionId)
-          void emit("generationStopped", { sessionId: translated.data.sessionId })
+          const sessionId = translated.data.sessionId
+          const messageId = this.activeAssistantMessages.get(sessionId)
+          void this.finalizeTurnOutput(sessionId, messageId)
+            .catch((error: unknown) => {
+              console.warn("[wanta] failed to finalize stopped turn output", error)
+            })
+            .finally(() => {
+              this.clearSessionGeneration(sessionId)
+              this.activeAssistantMessages.delete(sessionId)
+              this.activeToolParts.delete(sessionId)
+              this.emitSessionActivity(sessionId)
+              void emit("generationStopped", { sessionId })
+            })
           continue
         }
         if (this.shouldSuppressUserStoppedEvent(translated)) {
@@ -641,6 +865,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
           this.activeToolParts.set(translated.data.sessionId, new Set())
           const artifactRoot = this.consumePendingArtifactDir(translated.data.sessionId)
+          const processRoot = this.consumePendingProcessDir(translated.data.sessionId)
+          if (artifactRoot && processRoot) {
+            const activeTurn = this.activeTurnOutputs.get(translated.data.sessionId)
+            if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
+              activeTurn.messageId = translated.data.messageId
+            }
+          }
           if (artifactRoot) {
             void emit("messageArtifacts", {
               sessionId: translated.data.sessionId,
@@ -678,21 +909,38 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         }
         if (translated.event === "agentError" && translated.data.sessionId) {
-          const messageId = this.activeAssistantMessages.get(translated.data.sessionId)
-          this.clearSessionGeneration(translated.data.sessionId)
-          this.activeAssistantMessages.delete(translated.data.sessionId)
-          this.activeToolParts.delete(translated.data.sessionId)
-          this.emitSessionActivity(translated.data.sessionId)
-          this.emitMessageError(emit, translated.data.sessionId, translated.data.message, messageId)
+          const sessionId = translated.data.sessionId
+          const messageId = this.activeAssistantMessages.get(sessionId)
+          void this.finalizeTurnOutput(sessionId, messageId)
+            .catch((error: unknown) => {
+              console.warn("[wanta] failed to finalize errored turn output", error)
+            })
+            .finally(() => {
+              this.clearSessionGeneration(sessionId)
+              this.activeAssistantMessages.delete(sessionId)
+              this.activeToolParts.delete(sessionId)
+              this.emitSessionActivity(sessionId)
+              this.emitMessageError(emit, sessionId, translated.data.message, messageId)
+            })
+          continue
+        }
+        if (translated.event === "messageCompleted") {
+          const sessionId = translated.data.sessionId
+          const messageId = this.activeAssistantMessages.get(sessionId)
+          void this.finalizeTurnOutput(sessionId, messageId)
+            .catch((error: unknown) => {
+              console.warn("[wanta] failed to finalize turn output", error)
+            })
+            .finally(() => {
+              this.clearSessionGeneration(sessionId)
+              this.activeAssistantMessages.delete(sessionId)
+              this.activeToolParts.delete(sessionId)
+              this.emitSessionActivity(sessionId)
+              void emit(translated.event, translated.data)
+            })
           continue
         }
         void emit(translated.event, translated.data)
-        if (translated.event === "messageCompleted") {
-          this.clearSessionGeneration(translated.data.sessionId)
-          this.activeAssistantMessages.delete(translated.data.sessionId)
-          this.activeToolParts.delete(translated.data.sessionId)
-          this.emitSessionActivity(translated.data.sessionId)
-        }
       }
     })
   }
@@ -703,6 +951,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.pendingArtifactDirs.set(sessionId, queue)
   }
 
+  private enqueuePendingProcessDir(sessionId: string, processDir: string): void {
+    const queue = this.pendingProcessDirs.get(sessionId) ?? []
+    queue.push(processDir)
+    this.pendingProcessDirs.set(sessionId, queue)
+  }
+
   private consumePendingArtifactDir(sessionId: string): string | undefined {
     const queue = this.pendingArtifactDirs.get(sessionId)
     const artifactDir = queue?.shift()
@@ -710,6 +964,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.pendingArtifactDirs.delete(sessionId)
     }
     return artifactDir
+  }
+
+  private consumePendingProcessDir(sessionId: string): string | undefined {
+    const queue = this.pendingProcessDirs.get(sessionId)
+    const processDir = queue?.shift()
+    if (!queue || queue.length === 0) {
+      this.pendingProcessDirs.delete(sessionId)
+    }
+    return processDir
   }
 
   private removePendingArtifactDir(sessionId: string, artifactDir: string): void {
@@ -723,6 +986,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     this.pendingArtifactDirs.set(sessionId, next)
+  }
+
+  private removePendingProcessDir(sessionId: string, processDir: string): void {
+    const queue = this.pendingProcessDirs.get(sessionId)
+    if (!queue) {
+      return
+    }
+    const next = queue.filter((item) => item !== processDir)
+    if (next.length === 0) {
+      this.pendingProcessDirs.delete(sessionId)
+      return
+    }
+    this.pendingProcessDirs.set(sessionId, next)
   }
 
   private clearMessageErrorSignatures(sessionId: string): void {
@@ -841,8 +1117,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearMessageErrorSignatures(req.sessionId)
     this.emitSessionActivity(req.sessionId)
     let artifactDir: string
+    let processDir: string
     try {
-      artifactDir = await this.agent.createArtifactDir(req.sessionId)
+      ;[artifactDir, processDir] = await Promise.all([
+        this.agent.createArtifactDir(req.sessionId),
+        this.agent.createProcessDir(req.sessionId),
+      ])
     } catch (error) {
       this.clearSessionGeneration(req.sessionId, generation.id)
       throw error
@@ -850,12 +1130,23 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
       return
     }
+    const project = await this.projectBaseline(req.projectContext)
     this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
+    this.enqueuePendingProcessDir(req.sessionId, processDir)
+    this.activeTurnOutputs.set(req.sessionId, {
+      artifactRoot: artifactDir,
+      processRoot: processDir,
+      createdAt: Date.now(),
+      requestText: req.text,
+      ...(project.baseline ? { projectBaseline: project.baseline } : {}),
+      ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
+    })
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
     void this.agent
       .promptStreaming(req.sessionId, req.text, {
         attachments: req.attachments,
         artifactDir,
+        processDir,
         model: req.model,
         signal: generation.controller.signal,
         system: mergeSystemPrompts(
@@ -866,6 +1157,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       })
       .catch((error: unknown) => {
         this.removePendingArtifactDir(req.sessionId, artifactDir)
+        this.removePendingProcessDir(req.sessionId, processDir)
+        this.activeTurnOutputs.delete(req.sessionId)
         if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
           return
         }
@@ -898,6 +1191,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.stoppedGenerationsLoadPromise = null
     })()
     return this.stoppedGenerationsLoadPromise
+  }
+
+  private async ensureTurnOutputsLoaded(): Promise<void> {
+    if (this.turnOutputsLoaded) {
+      return
+    }
+    if (this.turnOutputsLoadPromise) {
+      return this.turnOutputsLoadPromise
+    }
+    this.turnOutputsLoadPromise = (async () => {
+      this.turnOutputs = (await this.deps.turnOutputStore?.read()) ?? new Map()
+      this.turnOutputsLoaded = true
+      this.turnOutputsLoadPromise = null
+    })()
+    return this.turnOutputsLoadPromise
   }
 
   private async ensureArtifactRootsLoaded(): Promise<void> {
@@ -966,6 +1274,109 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     await this.deps.stoppedGenerationStore?.write(this.stoppedGenerations)
+  }
+
+  private async rememberTurnOutput(record: StoredTurnOutputRecord): Promise<void> {
+    await this.ensureTurnOutputsLoaded()
+    recordTurnOutput(this.turnOutputs, record)
+    const write = this.turnOutputWritePromise
+      .catch(() => undefined)
+      .then(async () => {
+        await this.deps.turnOutputStore?.write(this.turnOutputs)
+      })
+    this.turnOutputWritePromise = write.then(
+      () => undefined,
+      () => undefined,
+    )
+    await write
+  }
+
+  private async projectBaseline(project: ChatProjectContext | undefined): Promise<{
+    baseline?: GitTurnBaseline
+    projectRoot?: string
+  }> {
+    const repositoryRoot = project?.git?.repositoryRoot?.trim()
+    if (!project || !repositoryRoot || !this.deps.projectStore) {
+      return {}
+    }
+    const registered = (await this.deps.projectStore.read()).get(project.id)
+    if (
+      !registered ||
+      registered.archivedAt ||
+      normalizeProjectPath(registered.path) !== normalizeProjectPath(project.path)
+    ) {
+      return {}
+    }
+    try {
+      return {
+        baseline: await captureGitTurnBaseline(repositoryRoot),
+        projectRoot: repositoryRoot,
+      }
+    } catch (error) {
+      console.warn("[wanta] failed to capture project baseline", error)
+      return {}
+    }
+  }
+
+  private async finalizeTurnOutput(sessionId: string, messageId: string | undefined): Promise<void> {
+    const active = this.activeTurnOutputs.get(sessionId)
+    this.activeTurnOutputs.delete(sessionId)
+    const resolvedMessageId = messageId ?? active?.messageId
+    if (!active || !resolvedMessageId) {
+      return
+    }
+    const [artifactGroup, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
+      directoryArtifacts(active.artifactRoot, defaultMaxDirectoryItems),
+      processOutputFiles(active.processRoot),
+      intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
+      this.projectOutputFiles(active.projectBaseline, active.projectRoot),
+    ])
+    const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
+    if (files.length === 0 && !artifactGroup?.items.length) {
+      return
+    }
+    const record: StoredTurnOutputRecord = {
+      sessionId,
+      messageId: resolvedMessageId,
+      artifactRoot: active.artifactRoot,
+      processRoot: active.processRoot,
+      ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
+      createdAt: active.createdAt,
+      completedAt: Date.now(),
+      files,
+      summary: summarizeTurnFiles(files, artifactGroup?.items.length ?? 0),
+    }
+    await this.rememberTurnOutput(record)
+    await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch(() => undefined)
+  }
+
+  private async projectOutputFiles(
+    baseline: GitTurnBaseline | undefined,
+    projectRoot: string | undefined,
+  ): Promise<StoredTurnOutputFile[]> {
+    if (!baseline || !projectRoot) {
+      return []
+    }
+    const diffs = await collectGitTurnDiffs(baseline, mimeFromPath).catch((error: unknown) => {
+      console.warn("[wanta] failed to collect project diff", error)
+      return []
+    })
+    return diffs.map((item): StoredTurnOutputFile => {
+      const absolutePath = path.join(projectRoot, item.path)
+      return {
+        path: absolutePath,
+        name: turnOutputFileName(item.path),
+        role: "project_change",
+        changeKind: item.changeKind,
+        mime: item.diff.mime,
+        additions: item.diff.additions,
+        deletions: item.diff.deletions,
+        ...(item.diff.kind === "binary" ? { binary: true } : {}),
+        ...(item.size !== undefined ? { size: item.size } : {}),
+        ...(item.diff.truncated ? { truncated: true } : {}),
+        diff: { ...item.diff, path: absolutePath },
+      }
+    })
   }
 
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
@@ -1108,6 +1519,31 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
+  public async getTurnOutput(req: TurnOutputRequest): Promise<TurnOutputRecord | null> {
+    await this.ensureTurnOutputsLoaded()
+    const record = this.turnOutputs.get(req.sessionId)?.get(req.messageId)
+    return record ? publicTurnOutputRecord(record) : null
+  }
+
+  public async getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult> {
+    await this.ensureTurnOutputsLoaded()
+    const record = this.turnOutputs.get(req.sessionId)?.get(req.messageId)
+    const file = record?.files.find((item) => item.path === req.path)
+    if (!record || !file) {
+      return { kind: "missing", path: req.path, mime: "application/octet-stream", additions: 0, deletions: 0 }
+    }
+    if (file.role === "artifact" && (!record.artifactRoot || !isPathInside(record.artifactRoot, file.path))) {
+      return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
+    }
+    if (file.role === "process" && (!record.processRoot || !isPathInside(record.processRoot, file.path))) {
+      return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
+    }
+    if (file.role === "project_change" && (!record.projectRoot || !isPathInside(record.projectRoot, file.path))) {
+      return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
+    }
+    return file.diff
+  }
+
   public async resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult> {
     const candidates = req.artifactRoot ? [req.artifactRoot] : extractLocalPathCandidates(req.text ?? "")
     const fromText = !req.artifactRoot
@@ -1192,8 +1628,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         console.warn("[wanta] failed to record stopped generation", error)
       })
     }
+    await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
+      console.warn("[wanta] failed to finalize stopped turn output", error)
+    })
     this.clearSessionGeneration(sessionId, generation?.id)
     this.pendingArtifactDirs.delete(sessionId)
+    this.pendingProcessDirs.delete(sessionId)
+    this.activeTurnOutputs.delete(sessionId)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
     await this.send("generationStopped", { sessionId }).catch(() => undefined)

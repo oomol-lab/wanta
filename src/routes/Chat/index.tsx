@@ -16,6 +16,7 @@ import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components
 import type { TranslateFn } from "@/i18n/i18n"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
+import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 import type { ChatStatus } from "ai"
 import type { StickToBottomContext } from "use-stick-to-bottom"
 
@@ -80,8 +81,12 @@ import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 const GeneratedArtifacts = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
 )
+const GeneratedTurnOutputs = React.lazy(() =>
+  import("@/routes/Chat/TurnOutputs").then((module) => ({ default: module.GeneratedTurnOutputs })),
+)
 
 interface ChatAreaProps {
+  activeSessionId: string | null
   billingCacheScope: string
   composerDraftKey: string
   composerFocusRequest: number
@@ -118,6 +123,8 @@ interface ChatAreaProps {
   onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onTurnOutputOpen: (selection: TurnOutputSelection) => void
+  onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onOpenConnections?: () => void
   onOpenOrganizations?: () => void
   onViewBilling?: () => void
@@ -1016,6 +1023,7 @@ function chatTurnHasAssistantMessage(turn: ChatTurn, messageId: string | undefin
 }
 
 interface ChatTimelineProps {
+  activeSessionId: string | null
   billingCacheScope: string
   messages: ChatMessage[]
   status: ChatStatus
@@ -1025,10 +1033,13 @@ interface ChatTimelineProps {
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onTurnOutputOpen: (selection: TurnOutputSelection) => void
+  onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onViewBilling?: () => void
 }
 
 const ChatTimeline = React.memo(function ChatTimeline({
+  activeSessionId,
   billingCacheScope,
   messages,
   status,
@@ -1038,6 +1049,8 @@ const ChatTimeline = React.memo(function ChatTimeline({
   onAuthorize,
   onArtifactsOpen,
   onArtifactsAvailable,
+  onTurnOutputOpen,
+  onTurnOutputAvailable,
   onViewBilling,
 }: ChatTimelineProps) {
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
@@ -1130,6 +1143,15 @@ const ChatTimeline = React.memo(function ChatTimeline({
             />
           </React.Suspense>
         ) : null}
+        <React.Suspense fallback={null}>
+          <GeneratedTurnOutputs
+            sessionId={activeSessionId}
+            messages={messages}
+            isGenerating={isGenerating}
+            onOpen={onTurnOutputOpen}
+            onAvailable={onTurnOutputAvailable}
+          />
+        </React.Suspense>
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
@@ -1198,6 +1220,7 @@ function EmptyStateActions({
 }
 
 export const ChatArea = React.memo(function ChatArea({
+  activeSessionId,
   billingCacheScope,
   composerDraftKey,
   composerFocusRequest,
@@ -1229,6 +1252,8 @@ export const ChatArea = React.memo(function ChatArea({
   onArtifactsReset,
   onArtifactsOpen,
   onArtifactsAvailable,
+  onTurnOutputOpen,
+  onTurnOutputAvailable,
   onOpenConnections,
   onOpenOrganizations,
   onViewBilling,
@@ -1311,6 +1336,7 @@ export const ChatArea = React.memo(function ChatArea({
     </div>
   ) : (
     <ChatTimeline
+      activeSessionId={activeSessionId}
       billingCacheScope={billingCacheScope}
       messages={messages}
       status={status}
@@ -1320,6 +1346,8 @@ export const ChatArea = React.memo(function ChatArea({
       onAuthorize={onAuthorize}
       onArtifactsOpen={onArtifactsOpen}
       onArtifactsAvailable={onArtifactsAvailable}
+      onTurnOutputOpen={onTurnOutputOpen}
+      onTurnOutputAvailable={onTurnOutputAvailable}
       onViewBilling={onViewBilling}
     />
   )

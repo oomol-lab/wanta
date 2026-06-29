@@ -19,6 +19,7 @@ import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOr
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
+import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 import type { SkillPageTab } from "@/routes/Skills/skill-route-model"
 import type { ChatStatus } from "ai"
 
@@ -124,6 +125,9 @@ interface ConnectionAuthIntent {
 
 const ArtifactsPanel = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.ArtifactsPanel })),
+)
+const TurnOutputsPanel = React.lazy(() =>
+  import("@/routes/Chat/TurnOutputs").then((module) => ({ default: module.TurnOutputsPanel })),
 )
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -1742,6 +1746,7 @@ export function AppShell() {
   const [archiveConfirming, setArchiveConfirming] = React.useState(false)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
+  const [turnOutputSelection, setTurnOutputSelection] = React.useState<TurnOutputSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
   const [artifactsPanelMaximized, setArtifactsPanelMaximized] = React.useState(false)
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
@@ -1780,6 +1785,7 @@ export function AppShell() {
   const artifactsPanelPendingWidth = React.useRef<number | null>(null)
   const artifactsPanelLayoutWidth = React.useRef<number | null>(null)
   const artifactsPanelSidebarRestore = React.useRef<boolean | null>(null)
+  const panelSelectionModeRef = React.useRef<"auto" | "manual">("auto")
   const sidebarCollapsedRef = React.useRef(sidebarCollapsed)
   const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
@@ -2259,6 +2265,7 @@ export function AppShell() {
 
   React.useEffect(() => {
     setArtifactSelection(null)
+    setTurnOutputSelection(null)
     setArtifactsPanelOpen(false)
     setArtifactsPanelMaximizedState(false)
   }, [activeSessionId, setArtifactsPanelMaximizedState])
@@ -2307,7 +2314,7 @@ export function AppShell() {
         expandedBy > 0 &&
         route === "chat" &&
         artifactsPanelOpen &&
-        artifactSelection !== null &&
+        (artifactSelection !== null || turnOutputSelection !== null) &&
         !isArtifactsPanelResizing
 
       setArtifactsPanelMaxWidthState(maxWidth)
@@ -2320,7 +2327,15 @@ export function AppShell() {
     const observer = new ResizeObserver(updateArtifactsPanelBounds)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [artifactSelection, artifactsPanelOpen, isArtifactsPanelResizing, route, sidebarCollapsed, sidebarWidth])
+  }, [
+    artifactSelection,
+    artifactsPanelOpen,
+    isArtifactsPanelResizing,
+    route,
+    sidebarCollapsed,
+    sidebarWidth,
+    turnOutputSelection,
+  ])
 
   React.useEffect(() => {
     try {
@@ -3037,17 +3052,47 @@ export function AppShell() {
     })
   }
   const handleArtifactsReset = React.useCallback(() => {
+    panelSelectionModeRef.current = "auto"
     setArtifactSelection(null)
+    setTurnOutputSelection(null)
     setArtifactsPanelOpen(false)
     setArtifactsPanelMaximizedState(false)
   }, [setArtifactsPanelMaximizedState])
   const handleArtifactsOpen = React.useCallback((selection: ArtifactSelection) => {
+    panelSelectionModeRef.current = "manual"
     setArtifactSelection(selection)
+    setTurnOutputSelection(null)
     setArtifactsPanelOpen(true)
   }, [])
   const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
-    setArtifactSelection((current) => (current?.messageId === selection.messageId ? current : selection))
+    if (panelSelectionModeRef.current === "manual") {
+      return
+    }
+    setTurnOutputSelection(null)
+    setArtifactSelection((current) => {
+      return current?.messageId === selection.messageId ? current : selection
+    })
   }, [])
+  const handleTurnOutputOpen = React.useCallback((selection: TurnOutputSelection) => {
+    panelSelectionModeRef.current = "manual"
+    setTurnOutputSelection(selection)
+    setArtifactSelection(null)
+    setArtifactsPanelOpen(true)
+  }, [])
+  const handleTurnOutputAvailable = React.useCallback(
+    (selection: TurnOutputSelection) => {
+      if (panelSelectionModeRef.current === "manual") {
+        return
+      }
+      setTurnOutputSelection((current) => {
+        if (artifactSelection) {
+          return current
+        }
+        return current?.record.messageId === selection.record.messageId ? current : selection
+      })
+    },
+    [artifactSelection],
+  )
   const handleChatStop = React.useCallback(() => {
     if (activeSessionId) {
       if ((queuedMessagesBySession[activeSessionId] ?? []).length > 0) {
@@ -3128,11 +3173,11 @@ export function AppShell() {
   const handleViewBilling = React.useCallback(() => {
     setRoute("billing")
   }, [])
-  const hasArtifactSelection = artifactSelection !== null
-  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasArtifactSelection
+  const hasPanelSelection = artifactSelection !== null || turnOutputSelection !== null
+  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasPanelSelection
   const artifactsPanelIsMaximized = artifactsPanelVisible && artifactsPanelMaximized
   const visibleArtifactsPanelWidth = clampArtifactsPanelWidthToLayout(artifactsPanelWidth)
-  const showArtifactsToggle = route === "chat" && hasArtifactSelection && !artifactsPanelVisible
+  const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
@@ -3486,6 +3531,7 @@ export function AppShell() {
               ) : (
                 <div className="h-full min-h-0 overflow-hidden">
                   <ChatArea
+                    activeSessionId={activeSessionId}
                     billingCacheScope={billingCacheScope}
                     composerDraftKey={activeComposerDraftKey}
                     messages={bridgeInitialSendPending ? [] : messages}
@@ -3539,6 +3585,8 @@ export function AppShell() {
                     onArtifactsReset={handleArtifactsReset}
                     onArtifactsOpen={handleArtifactsOpen}
                     onArtifactsAvailable={handleArtifactsAvailable}
+                    onTurnOutputOpen={handleTurnOutputOpen}
+                    onTurnOutputAvailable={handleTurnOutputAvailable}
                     onOpenConnections={handleOpenConnections}
                     onOpenOrganizations={() => setRoute("organizations")}
                     onViewBilling={handleViewBilling}
@@ -3584,15 +3632,27 @@ export function AppShell() {
           <div ref={artifactsPanelContentRef} className="h-full w-full min-w-0">
             {artifactsPanelVisible ? (
               <React.Suspense fallback={null}>
-                <ArtifactsPanel
-                  maximized={artifactsPanelIsMaximized}
-                  selection={artifactSelection}
-                  onCollapse={() => {
-                    setArtifactsPanelOpen(false)
-                    setArtifactsPanelMaximizedState(false)
-                  }}
-                  onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
-                />
+                {turnOutputSelection ? (
+                  <TurnOutputsPanel
+                    maximized={artifactsPanelIsMaximized}
+                    selection={turnOutputSelection}
+                    onCollapse={() => {
+                      setArtifactsPanelOpen(false)
+                      setArtifactsPanelMaximizedState(false)
+                    }}
+                    onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
+                  />
+                ) : (
+                  <ArtifactsPanel
+                    maximized={artifactsPanelIsMaximized}
+                    selection={artifactSelection}
+                    onCollapse={() => {
+                      setArtifactsPanelOpen(false)
+                      setArtifactsPanelMaximizedState(false)
+                    }}
+                    onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
+                  />
+                )}
               </React.Suspense>
             ) : null}
           </div>

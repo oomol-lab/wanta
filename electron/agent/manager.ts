@@ -1,4 +1,4 @@
-import type { ChatAttachment, ChatMessage, ReasoningLevel } from "../chat/common.ts"
+import type { AgentMode, ChatAttachment, ChatMessage, ReasoningLevel } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
@@ -14,8 +14,9 @@ import { branding } from "../branding.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
-import { buildOpencodeConfig, customProviderId, WANTA_AGENT_NAME, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
+import { normalizeWantaAgentMode } from "./mode.ts"
 import { buildOoEnv } from "./oo.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
@@ -71,6 +72,7 @@ export interface SendMessageResult {
 export interface PromptStreamingOptions {
   system?: string
   attachments?: ChatAttachment[]
+  mode?: AgentMode
   model?: ModelChoice
   reasoningLevel?: ReasoningLevel
   artifactDir?: string
@@ -370,7 +372,7 @@ export class AgentManager {
       }
       const variant = opencodeReasoningVariant(options.reasoningLevel)
       const body: NonNullable<SessionPromptAsyncData["body"]> & { variant?: string } = {
-        agent: WANTA_AGENT_NAME,
+        agent: normalizeWantaAgentMode(options.mode),
         model: this.resolveModel(options.model),
         ...(tail ? { system: tail } : {}),
         ...(variant ? { variant } : {}),
@@ -466,7 +468,7 @@ export class AgentManager {
     const prompted = await this.client.session.prompt({
       path: { id },
       body: {
-        agent: WANTA_AGENT_NAME,
+        agent: normalizeWantaAgentMode(undefined),
         model: { providerID: WANTA_PROVIDER_ID, modelID: WANTA_MODEL_ID },
         ...(system ? { system } : {}),
         parts: [{ type: "text", text }],

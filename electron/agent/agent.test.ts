@@ -6,8 +6,9 @@ import { test } from "vitest"
 import { branding } from "../branding.ts"
 import { ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
-import { buildOpencodeConfig, customProviderId, WANTA_AGENT_NAME, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
+import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
 import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
@@ -137,20 +138,27 @@ test("buildOpencodeConfig marks custom providers as image-capable only when requ
   assert.deepEqual(model?.modalities, { input: ["text", "image"], output: ["text"] })
 })
 
-test("wanta agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {
+test("build and plan agents enable Wanta prompt through OpenCode native modes", () => {
   const config = buildOpencodeConfig({ authToken: "k" })
-  const agent = config.agent?.[WANTA_AGENT_NAME]
-  assert.ok(agent)
-  assert.ok(typeof agent.prompt === "string" && agent.prompt.length > 0)
+  const buildAgent = config.agent?.[WANTA_BUILD_AGENT_NAME]
+  const planAgent = config.agent?.[WANTA_PLAN_AGENT_NAME]
+  assert.ok(buildAgent)
+  assert.ok(planAgent)
+  assert.ok(typeof buildAgent.prompt === "string" && buildAgent.prompt.length > 0)
+  assert.ok(typeof planAgent.prompt === "string" && planAgent.prompt.includes("OpenCode Plan mode"))
+  assert.equal(buildAgent.mode, "primary")
+  assert.equal(planAgent.mode, "primary")
   // 不再下发 tools 禁用表：所有内置工具（bash/edit/write/read/webfetch/…）默认启用。
-  const tools = agent.tools ?? {}
+  const tools = buildAgent.tools ?? {}
   for (const builtin of ["bash", "edit", "write", "read", "webfetch"]) {
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
-  // permission 全 allow（含 external_directory，文件工具可越出 workspace cwd）。
-  assert.equal(agent.permission?.bash, "allow")
-  assert.equal(agent.permission?.edit, "allow")
-  assert.equal(agent.permission?.webfetch, "allow")
+  // Build 保持全 allow；Plan 显式禁止普通编辑，避免根级 allow 覆盖 OpenCode plan 语义。
+  assert.equal(buildAgent.permission?.bash, "allow")
+  assert.equal(buildAgent.permission?.edit, "allow")
+  assert.equal(buildAgent.permission?.webfetch, "allow")
+  assert.equal(planAgent.permission?.bash, "allow")
+  assert.deepEqual(planAgent.permission?.edit, { "*": "deny", ".opencode/plans/*.md": "allow" })
   assert.equal(config.permission?.bash, "allow")
 })
 

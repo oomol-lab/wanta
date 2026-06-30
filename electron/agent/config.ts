@@ -8,14 +8,15 @@ import {
   resolveBuiltinModel,
 } from "../models/builtin.ts"
 import { customModelDisplayName } from "../models/store.ts"
-import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
+import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
+import { WANTA_PLAN_SYSTEM_PROMPT, WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 
 type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string] & {
   variants?: Record<string, { reasoningEffort: string }>
 }
+type OpencodeAgentConfig = NonNullable<NonNullable<Config["agent"]>[string]>
+type OpencodePermissionConfig = NonNullable<OpencodeAgentConfig["permission"]>
 
-// OpenCode 内部标识（产品内部约定，可随品牌改，但 OO_/connector 协议契约不改）。
-export const WANTA_AGENT_NAME = "wanta"
 export const WANTA_PROVIDER_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.providerID
 export const WANTA_MODEL_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.modelID
 
@@ -40,6 +41,17 @@ const WANTA_PERMISSION = {
   external_directory: "allow",
 } as const
 
+// 覆盖 OpenCode 原生 plan agent 时保留其“禁止编辑，只允许写计划文件”的语义。
+const WANTA_PLAN_PERMISSION = {
+  bash: "allow",
+  webfetch: "allow",
+  external_directory: "allow",
+  edit: {
+    "*": "deny",
+    ".opencode/plans/*.md": "allow",
+  },
+} as unknown as OpencodePermissionConfig
+
 const WANTA_REASONING_VARIANTS = {
   low: { reasoningEffort: "low" },
   medium: { reasoningEffort: "medium" },
@@ -63,12 +75,18 @@ export function buildOpencodeConfig({ authToken, customModels = [] }: OpencodeCo
       ...Object.fromEntries(customModels.map((model) => [customProviderId(model.id), customProviderConfig(model)])),
     },
     agent: {
-      [WANTA_AGENT_NAME]: {
+      [WANTA_BUILD_AGENT_NAME]: {
         description: "OOMOL connector + local coding assistant",
         mode: "primary",
         prompt: WANTA_SYSTEM_PROMPT,
         // 不再下发 tools 禁用表：所有内置工具默认启用。
         permission: WANTA_PERMISSION,
+      },
+      [WANTA_PLAN_AGENT_NAME]: {
+        description: "Plan mode. Disallows edit tools and produces an implementation plan.",
+        mode: "primary",
+        prompt: WANTA_PLAN_SYSTEM_PROMPT,
+        permission: WANTA_PLAN_PERMISSION,
       },
     },
     permission: WANTA_PERMISSION,

@@ -1,4 +1,5 @@
 import type {
+  AgentMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
@@ -15,6 +16,7 @@ import type { ChatStatus } from "ai"
 
 import { File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
+import { WANTA_AGENT_MODES, WANTA_DEFAULT_AGENT_MODE } from "../../../electron/agent/mode.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import {
   buildArtifactPaletteItems,
@@ -75,6 +77,7 @@ interface ChatComposerProps {
     contextMentions: ChatContextMention[],
     model?: ModelChoice,
     reasoningLevel?: ReasoningLevel,
+    mode?: AgentMode,
   ) => Promise<boolean>
   onStop: () => void
   onViewBilling?: () => void
@@ -82,6 +85,8 @@ interface ChatComposerProps {
 
 const reasoningLevelStorageKey = "wanta:chat:reasoning-level"
 const reasoningLevels = new Set<ReasoningLevel>(["default", "low", "medium", "high", "max"])
+const agentModeStorageKey = "wanta:chat:agent-mode"
+const agentModes = new Set<AgentMode>(WANTA_AGENT_MODES)
 
 function readStoredReasoningLevel(): ReasoningLevel {
   try {
@@ -95,6 +100,23 @@ function readStoredReasoningLevel(): ReasoningLevel {
 function writeStoredReasoningLevel(level: ReasoningLevel): void {
   try {
     globalThis.localStorage?.setItem(reasoningLevelStorageKey, level)
+  } catch {
+    // localStorage 不可用时保持本次会话内状态即可。
+  }
+}
+
+function readStoredAgentMode(): AgentMode {
+  try {
+    const stored = globalThis.localStorage?.getItem(agentModeStorageKey)
+    return agentModes.has(stored as AgentMode) ? (stored as AgentMode) : WANTA_DEFAULT_AGENT_MODE
+  } catch {
+    return WANTA_DEFAULT_AGENT_MODE
+  }
+}
+
+function writeStoredAgentMode(mode: AgentMode): void {
+  try {
+    globalThis.localStorage?.setItem(agentModeStorageKey, mode)
   } catch {
     // localStorage 不可用时保持本次会话内状态即可。
   }
@@ -166,6 +188,7 @@ export function ChatComposer({
   )
   const [inputError, setInputError] = React.useState<string | null>(null)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false)
+  const [agentMode, setAgentModeState] = React.useState<AgentMode>(readStoredAgentMode)
   const [reasoningLevel, setReasoningLevelState] = React.useState<ReasoningLevel>(readStoredReasoningLevel)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const appendVoiceTranscription = React.useCallback((text: string) => {
@@ -218,6 +241,10 @@ export function ChatComposer({
   const setReasoningLevel = React.useCallback((level: ReasoningLevel): void => {
     setReasoningLevelState(level)
     writeStoredReasoningLevel(level)
+  }, [])
+  const setAgentMode = React.useCallback((mode: AgentMode): void => {
+    setAgentModeState(mode)
+    writeStoredAgentMode(mode)
   }, [])
 
   React.useEffect(() => {
@@ -347,6 +374,7 @@ export function ChatComposer({
       contextMentions,
       modelCatalog?.selected,
       reasoningLevel,
+      agentMode,
     )
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
@@ -493,6 +521,7 @@ export function ChatComposer({
           initialSendPending={initialSendPending}
           isGenerating={isGenerating}
           modelCatalog={modelCatalog}
+          agentMode={agentMode}
           reasoningLevel={reasoningLevel}
           status={status}
           voiceActive={voiceInput.active}
@@ -506,6 +535,7 @@ export function ChatComposer({
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
+          onSelectAgentMode={setAgentMode}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
           onStartVoice={voiceInput.start}

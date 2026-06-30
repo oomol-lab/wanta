@@ -63,6 +63,25 @@ describe("AgentManager", () => {
     }
   })
 
+  it("passes OpenCode build and plan agent names to promptAsync", async () => {
+    const promptAsync = vi.fn(async () => ({ data: true }))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = { client: { session: { promptAsync } } }
+    manager.buildAuthorizedSystem = async () => undefined
+
+    await manager.promptStreaming("session-1", "plan it", { mode: "plan" })
+    await manager.promptStreaming("session-1", "build it")
+
+    const calls = promptAsync.mock.calls as unknown as Array<[parameters: { body: { agent?: string } }]>
+    expect(calls[0]?.[0].body.agent).toBe("plan")
+    expect(calls[1]?.[0].body.agent).toBe("build")
+  })
+
   it("uses a generated session title without local length scoring or rewrite", async () => {
     const fetchMock = vi.fn(async () => {
       return new Response(

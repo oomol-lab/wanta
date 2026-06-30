@@ -1,5 +1,6 @@
 import type {
   AssistantActivityEvent,
+  AgentMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
@@ -71,6 +72,7 @@ export interface UseChat {
     attachments?: ChatAttachment[],
     options?: {
       contextMentions?: ChatContextMention[]
+      mode?: AgentMode
       model?: ModelChoice
       organizationSkills?: ChatOrganizationSkillContext[]
       projectContext?: ChatProjectContext
@@ -545,6 +547,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       attachments: ChatAttachment[] = [],
       options: {
         contextMentions?: ChatContextMention[]
+        mode?: AgentMode
         model?: ModelChoice
         organizationSkills?: ChatOrganizationSkillContext[]
         projectContext?: ChatProjectContext
@@ -564,6 +567,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           text,
           attachments: agentAttachments(attachments),
           contextMentions: options.contextMentions,
+          mode: options.mode,
           model: options.model,
           organizationSkills: options.organizationSkills,
           projectContext: options.projectContext,

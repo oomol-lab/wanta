@@ -1,4 +1,4 @@
-import type { ChatAttachment, ChatContextMention, ReasoningLevel } from "../../../electron/chat/common.ts"
+import type { AgentMode, ChatAttachment, ChatContextMention, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ChatStatus } from "ai"
 
@@ -10,6 +10,7 @@ export interface QueuedChatMessage {
   contextMentions?: ChatContextMention[]
   model?: ModelChoice
   reasoningLevel?: ReasoningLevel
+  mode?: AgentMode
   createdAt: number
 }
 

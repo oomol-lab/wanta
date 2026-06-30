@@ -1,6 +1,7 @@
 import type {
   AuthorizationInfo,
   AssistantActivityEvent,
+  AgentMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
@@ -115,6 +116,7 @@ interface ChatAreaProps {
     contextMentions: ChatContextMention[],
     model?: ModelChoice,
     reasoningLevel?: ReasoningLevel,
+    mode?: AgentMode,
   ) => Promise<boolean>
   onStop: () => void
   onComposerStateChange?: (state: ComposerState) => void

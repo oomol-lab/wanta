@@ -10,12 +10,12 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 
 import {
   Brain,
-  BrainCircuit,
   ChevronDown,
   ExternalLink,
   Hammer,
   ImageIcon,
   ListChecks,
+  SlidersHorizontal,
   Settings2,
   Trash2,
 } from "lucide-react"
@@ -1006,7 +1006,7 @@ export function ReasoningLevelPicker({
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => activateLevel(level)}
               >
-                <BrainCircuit className="size-4 shrink-0 text-muted-foreground" />
+                <SlidersHorizontal className="size-4 shrink-0 text-muted-foreground" />
                 <span className="oo-text-label min-w-0 flex-1 truncate">{label}</span>
               </button>
             )
@@ -1037,7 +1037,7 @@ export function ReasoningLevelPicker({
           }
         }}
       >
-        <BrainCircuit className="size-4 shrink-0" />
+        <SlidersHorizontal className="size-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate text-left">{selectedLabel}</span>
         <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-180")} />
       </Button>

@@ -2,6 +2,7 @@ import type { PublicSkillPackage } from "../../electron/skills/common.ts"
 
 import { orgControlBaseUrl, packageAssetsBaseUrl, registryBaseUrl, searchBaseUrl } from "@/lib/domain"
 import { OomolAuthRequiredError, OomolHttpError, oomolFetch, oomolFetchJson } from "@/lib/oomol-http"
+import { resolvePackageAssetIconSource } from "@/lib/skill-icon-assets.ts"
 
 export type OrganizationSkillVersionPolicy = "latest" | "pinned"
 export type OrganizationSkillVisibility = "private" | "public" | "unknown"
@@ -303,21 +304,7 @@ function normalizePackageVisibility(raw: Pick<OrganizationSkillPackageRawItem, "
 }
 
 function resolveRegistrySkillIcon(icon: string | undefined, packageName: string, version: string): string | undefined {
-  if (!icon) {
-    return undefined
-  }
-  if (icon.startsWith(":") && icon.endsWith(":")) {
-    return icon
-  }
-  if (/^(https?:|data:)/i.test(icon)) {
-    return icon
-  }
-
-  const baseUrl = new URL(`/packages/${packageName}/${version}/files/package/`, packageAssetsBaseUrl)
-  if (icon.startsWith("/")) {
-    return new URL(icon.slice(1), baseUrl).toString()
-  }
-  return new URL(icon, baseUrl).toString()
+  return resolvePackageAssetIconSource(icon, packageName, version)
 }
 
 function createOrganizationSkillItemFromInput(input: AddOrganizationSkillInput): OrganizationSkillConfigItem {

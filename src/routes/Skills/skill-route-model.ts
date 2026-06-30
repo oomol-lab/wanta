@@ -59,7 +59,7 @@ export interface OrganizationSkillRuntimeStatus {
 }
 
 export type PublicPackageCatalogAction =
-  | { append: boolean; requestId: number; type: "load-start" }
+  | { append: boolean; clearItems?: boolean; requestId: number; type: "load-start" }
   | { append: boolean; catalog: PublicSkillPackageCatalog; requestId: number; type: "load-success" }
   | { error: string; requestId: number; type: "load-error" }
   | { id: string | null; type: "select" }
@@ -125,13 +125,18 @@ export function publicPackageCatalogReducer(
   action: PublicPackageCatalogAction,
 ): PublicPackageCatalogState {
   switch (action.type) {
-    case "load-start":
+    case "load-start": {
+      const items = action.clearItems ? [] : state.items
       return {
         ...state,
         error: null,
+        items,
+        next: action.clearItems ? null : state.next,
         requestId: action.requestId,
-        status: action.append ? "loading-more" : state.items.length > 0 ? "refreshing" : "loading",
+        selectedId: action.clearItems ? null : state.selectedId,
+        status: action.append ? "loading-more" : items.length > 0 ? "refreshing" : "loading",
       }
+    }
     case "load-success":
       if (action.requestId !== state.requestId) {
         return state

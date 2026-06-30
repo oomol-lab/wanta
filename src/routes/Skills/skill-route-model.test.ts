@@ -45,6 +45,12 @@ test("publicPackageCatalogReducer ignores stale requests and appends unique pack
     requestId: 2,
     type: "load-success",
   })
+  const cleared = publicPackageCatalogReducer(loaded, {
+    append: false,
+    clearItems: true,
+    requestId: 3,
+    type: "load-start",
+  })
   const appended = publicPackageCatalogReducer(
     { ...loaded, requestId: 3 },
     {
@@ -61,6 +67,9 @@ test("publicPackageCatalogReducer ignores stale requests and appends unique pack
     ["demo", "extra"],
   )
   assert.equal(appended.next, null)
+  assert.deepEqual(cleared.items, [])
+  assert.equal(cleared.next, null)
+  assert.equal(cleared.status, "loading")
 })
 
 test("getPublicPackageInstallState distinguishes installed, conflict, and installable skills", () => {

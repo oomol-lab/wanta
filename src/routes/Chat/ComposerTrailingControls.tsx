@@ -9,7 +9,7 @@ import { createPortal } from "react-dom"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 import { formatTokenCount } from "./context-usage.ts"
-import { AgentModePicker, ModelPicker, ReasoningLevelPicker } from "./ModelControls.tsx"
+import { AgentModePicker, ModelReasoningPicker } from "./ModelControls.tsx"
 import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
@@ -435,17 +435,14 @@ export function ComposerTrailingControls({
             ) : null}
             <ContextUsageIndicator usage={contextUsage} />
             <AgentModePicker disabled={composerDisabled} value={agentMode} onValueChange={onSelectAgentMode} />
-            <ModelPicker
+            <ModelReasoningPicker
               catalog={modelCatalog}
               disabled={composerDisabled}
-              onSelect={onSelectModel}
-              onDelete={onDeleteModel}
-              onAdd={onAddModel}
-            />
-            <ReasoningLevelPicker
-              disabled={composerDisabled}
-              value={reasoningLevel}
-              onValueChange={onSelectReasoningLevel}
+              reasoningLevel={reasoningLevel}
+              onAddModel={onAddModel}
+              onDeleteModel={onDeleteModel}
+              onSelectModel={onSelectModel}
+              onSelectReasoningLevel={onSelectReasoningLevel}
             />
             <Button
               type="button"
@@ -461,7 +458,7 @@ export function ComposerTrailingControls({
             </Button>
             <PromptInputSubmit
               size="icon-sm"
-              className="size-8"
+              className="size-7"
               status={submit.visualStatus}
               disabled={submit.disabled}
               aria-label={

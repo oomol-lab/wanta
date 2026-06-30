@@ -5,17 +5,27 @@ import cloudflareIcon from "@iconify-icons/simple-icons/cloudflare"
 import googleBigQueryIcon from "@iconify-icons/simple-icons/googlebigquery"
 import openAiIcon from "@iconify-icons/simple-icons/openai"
 import tencentQqIcon from "@iconify-icons/simple-icons/tencentqq"
+import wechatIcon from "@iconify-icons/simple-icons/wechat"
+import flameIcon from "@iconify-icons/tabler/flame"
 import photoStarIcon from "@iconify-icons/tabler/photo-star"
 import {
   ArchiveIcon,
+  BoxIcon,
   CaptionsIcon,
   ChartNoAxesCombinedIcon,
   FileSearchIcon,
   FileScanIcon,
+  FolderDownIcon,
   ImageOffIcon,
   ImagePlusIcon,
+  LayoutTemplateIcon,
+  SearchCheckIcon,
+  SendIcon,
+  ShirtIcon,
+  ShoppingBagIcon,
   UploadCloudIcon,
   WandSparklesIcon,
+  WrenchIcon,
 } from "lucide-react"
 import { AppIcons } from "@/components/AppIcons"
 import { createIconifySvgIcon } from "@/components/IconifySvg"
@@ -24,16 +34,24 @@ import { cn } from "@/lib/utils"
 
 const lucideSkillIcons = {
   archive: ArchiveIcon,
+  box: BoxIcon,
   captions: CaptionsIcon,
   "chart-no-axes-combined": ChartNoAxesCombinedIcon,
   "file-search": FileSearchIcon,
   "file-scan": FileScanIcon,
+  "folder-down": FolderDownIcon,
   "image-off": ImageOffIcon,
   "image-plus": ImagePlusIcon,
+  "layout-template": LayoutTemplateIcon,
   search: AppIcons.utility.search,
+  "search-check": SearchCheckIcon,
+  send: SendIcon,
+  shirt: ShirtIcon,
   sparkles: AppIcons.utility.sparkles,
+  "shopping-bag": ShoppingBagIcon,
   "upload-cloud": UploadCloudIcon,
   "wand-sparkles": WandSparklesIcon,
+  wrench: WrenchIcon,
 } satisfies Record<string, AppIconComponent>
 
 type LucideSkillIconName = keyof typeof lucideSkillIcons
@@ -43,6 +61,8 @@ const iconifySkillIcons = {
   "simple-icons:googlebigquery": googleBigQueryIcon,
   "simple-icons:openai": openAiIcon,
   "simple-icons:tencentqq": tencentQqIcon,
+  "simple-icons:wechat": wechatIcon,
+  "tabler:flame": flameIcon,
   "tabler:photo-spark": photoStarIcon,
   "tabler:photo-star": photoStarIcon,
 } satisfies Record<string, IconifyIconData>

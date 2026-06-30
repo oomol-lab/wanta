@@ -122,6 +122,21 @@ test("normalizeOrganizationSkillPackages expands registry package infos into ski
   assert.equal(config.skills[1]?.displayName, "beta")
 })
 
+test("normalizeOrganizationSkillPackages preserves emoji registry icons", () => {
+  const config = normalizeOrganizationSkillPackages({
+    data: [
+      {
+        icon: "🛍️",
+        name: "@acme/ecommerce",
+        packageVersion: "1.0.0",
+        skills: [{ name: "image-studio", title: "Image Studio" }],
+      },
+    ],
+  })
+
+  assert.equal(config.skills[0]?.icon, "🛍️")
+})
+
 test("listOrganizationSkills reads registry organization package infos", async () => {
   const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
     return new Response(JSON.stringify({ data: [{ name: "@acme/skills", skills: [{ name: "alpha" }] }] }), {

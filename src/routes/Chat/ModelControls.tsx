@@ -1004,6 +1004,11 @@ export function ModelReasoningPicker({
   }, [closeMenu, modelSubmenuOpen, open, updateMenuPosition, updateModelMenuPosition])
 
   const handleRootMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Tab") {
+      closeMenu(false)
+      return
+    }
+
     if (rootItems.length === 0) {
       return
     }
@@ -1048,6 +1053,11 @@ export function ModelReasoningPicker({
   }
 
   const handleModelMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Tab") {
+      closeMenu(false)
+      return
+    }
+
     if (modelItems.length === 0) {
       return
     }

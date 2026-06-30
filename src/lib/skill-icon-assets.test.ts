@@ -11,10 +11,9 @@ test("resolvePackageAssetIconSource resolves relative package image paths", () =
 })
 
 test("resolvePackageAssetIconSource preserves absolute URLs, tokens, and emoji", () => {
-  assert.equal(
-    resolvePackageAssetIconSource("https://static.oomol.com/logo/logo.png", "@acme/demo", "1.2.3"),
-    "https://static.oomol.com/logo/logo.png",
-  )
+  const absoluteIconUrl = new URL("/logo/logo.png", packageAssetsBaseUrl).toString()
+
+  assert.equal(resolvePackageAssetIconSource(absoluteIconUrl, "@acme/demo", "1.2.3"), absoluteIconUrl)
   assert.equal(resolvePackageAssetIconSource(":lucide:box", "@acme/demo", "1.2.3"), ":lucide:box")
   assert.equal(resolvePackageAssetIconSource("simple-icons:wechat", "@acme/demo", "1.2.3"), "simple-icons:wechat")
   assert.equal(resolvePackageAssetIconSource("🛍️", "@acme/demo", "1.2.3"), "🛍️")

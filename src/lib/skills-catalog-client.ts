@@ -143,9 +143,13 @@ async function readMyPublishedSkillPackageList(next?: string): Promise<PublicSki
 async function fetchRegistrySkillPackageInfo(
   packageName: string,
   maintainer: PublicSkillPackageMaintainer,
-  options: { returnNullOnNotFound?: boolean } = {},
+  options: { returnNullOnNotFound?: boolean; version?: string } = {},
 ): Promise<PublicSkillPackage | null | undefined> {
-  const url = new URL(`/-/oomol/package-info/${encodeURIComponent(packageName)}/latest`, registryBaseUrl)
+  const version = options.version?.trim() || "latest"
+  const url = new URL(
+    `/-/oomol/package-info/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
+    registryBaseUrl,
+  )
   const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
   if (response.status === 404 && options.returnNullOnNotFound) {
     return null
@@ -160,8 +164,9 @@ async function fetchRegistrySkillPackageInfo(
 async function readRegistrySkillPackageInfo(
   packageName: string,
   maintainer: PublicSkillPackageMaintainer,
+  options: { version?: string } = {},
 ): Promise<PublicSkillPackage | undefined> {
-  return (await fetchRegistrySkillPackageInfo(packageName, maintainer)) ?? undefined
+  return (await fetchRegistrySkillPackageInfo(packageName, maintainer, options)) ?? undefined
 }
 
 export async function readPublicSkillPackageByName(packageName: string): Promise<PublicSkillPackage | null> {
@@ -375,17 +380,21 @@ function mergePublicSkillSearchGroups(groups: PublicSkillSearchGroup[]): PublicS
 async function enrichPublicSkillSearchGroup(group: PublicSkillSearchGroup): Promise<PublicSkillPackage> {
   let packageInfo: PublicSkillPackage | undefined
   try {
-    packageInfo = await readRegistrySkillPackageInfo(group.packageName, group.maintainer)
+    packageInfo = await readRegistrySkillPackageInfo(group.packageName, group.maintainer, { version: group.version })
   } catch (error) {
     console.warn("[wanta] failed to read searched skill package info:", error)
     packageInfo = undefined
   }
 
-  if (!packageInfo) {
+  if (!packageInfo || !publicSkillSearchVersionMatches(packageInfo.version, group.version)) {
     return createPublicSkillSearchFallbackPackage(group)
   }
 
   return prioritizePublicSkillSearchMatches(packageInfo, group.skills)
+}
+
+function publicSkillSearchVersionMatches(packageInfoVersion: string, searchVersion: string): boolean {
+  return searchVersion === "latest" || packageInfoVersion === searchVersion
 }
 
 function createPublicSkillSearchFallbackPackage(group: PublicSkillSearchGroup): PublicSkillPackage {

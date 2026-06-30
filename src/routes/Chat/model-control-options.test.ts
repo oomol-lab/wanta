@@ -2,6 +2,7 @@ import type { ModelCatalog } from "../../../electron/models/common.ts"
 
 import { describe, expect, it } from "vitest"
 import { buildModelMenuItems, combinedModelReasoningLabel, selectedModelSummary } from "./model-control-options.ts"
+import { llmBaseUrl } from "@/lib/domain"
 
 const catalog: ModelCatalog = {
   selected: { kind: "builtin", id: "gpt-5.5" },
@@ -29,7 +30,7 @@ const catalog: ModelCatalog = {
       id: "custom-1",
       providerId: "custom",
       providerName: "Custom",
-      baseUrl: "https://example.test/v1",
+      baseUrl: llmBaseUrl,
       modelName: "custom-model",
       displayName: "Custom Model",
       apiKeyConfigured: true,

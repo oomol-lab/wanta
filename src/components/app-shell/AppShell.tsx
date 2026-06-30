@@ -1272,8 +1272,10 @@ function ProjectSidebarGroupItem({
   const hasSessions = group.sessions.length > 0
   const toggleLabel = expanded ? t("project.collapse") : t("project.expand")
   const projectTitle = t("project.newTask")
-  const toggleTitle = `${toggleLabel}: ${group.project.name}`
   const showCollapsedRunning = !expanded && running
+  const toggleTitle = showCollapsedRunning
+    ? `${toggleLabel}: ${group.project.name} · ${t("aria.sessionRunning")}`
+    : `${toggleLabel}: ${group.project.name}`
 
   return (
     <section className="grid gap-1">

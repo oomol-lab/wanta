@@ -1,5 +1,6 @@
 import type { AppCommand } from "../../../electron/app-command.ts"
 import type {
+  AgentMode,
   AgentRuntimeStatus,
   AuthorizationInfo,
   ChatAttachment,
@@ -7,6 +8,7 @@ import type {
   ChatOrganizationSkillContext,
   ChatProjectContext,
   ChatMessage,
+  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { GitRepositoryState } from "../../../electron/git/common.ts"
@@ -184,6 +186,8 @@ interface TurnRetryOptions {
   organizationSkills?: ChatOrganizationSkillContext[]
   projectContext?: ChatProjectContext
   model?: ModelChoice
+  reasoningLevel?: ReasoningLevel
+  mode?: AgentMode
 }
 
 interface ProjectSidebarGroup {
@@ -617,6 +621,8 @@ function createQueuedChatMessage(
   attachments: ChatAttachment[],
   contextMentions: ChatContextMention[] | undefined,
   model?: ModelChoice,
+  reasoningLevel?: ReasoningLevel,
+  mode?: AgentMode,
 ): QueuedChatMessage {
   return {
     id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -625,6 +631,8 @@ function createQueuedChatMessage(
     attachments,
     ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
     model,
+    reasoningLevel,
+    mode,
     createdAt: Date.now(),
   }
 }
@@ -1777,6 +1785,8 @@ export function AppShell() {
     organizationSkills?: ChatOrganizationSkillContext[]
     projectContext?: ChatProjectContext
     model?: ModelChoice
+    reasoningLevel?: ReasoningLevel
+    mode?: AgentMode
   } | null>(null)
   const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{ service: string; startedAt: number } | null>(null)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
@@ -1791,6 +1801,8 @@ export function AppShell() {
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelContentRef = React.useRef<HTMLDivElement | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
+  const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
+  const lastModeBySession = React.useRef<Map<string, AgentMode | undefined>>(new Map())
   const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
@@ -2045,6 +2057,8 @@ export function AppShell() {
         organizationSkills: pending.organizationSkills ?? [],
         projectContext: pending.projectContext,
         model: pending.model,
+        reasoningLevel: pending.reasoningLevel,
+        mode: pending.mode,
       })
     }
   }, [connections.summary, send])
@@ -2701,6 +2715,8 @@ export function AppShell() {
       attachments: ChatAttachment[] = [],
       contextMentions: ChatContextMention[] = [],
       model?: ModelChoice,
+      reasoningLevel?: ReasoningLevel,
+      mode?: AgentMode,
       afterOptimisticSubmit?: () => void,
     ): Promise<boolean> => {
       if (sendInFlightRef.current) {
@@ -2731,7 +2747,16 @@ export function AppShell() {
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()
         if (bridgeEmptySend) {
-          setPendingChatTransition({ sessionId, text, attachments, contextMentions, model, createdAt })
+          setPendingChatTransition({
+            sessionId,
+            text,
+            attachments,
+            contextMentions,
+            model,
+            reasoningLevel,
+            mode,
+            createdAt,
+          })
         }
         if (!sessionId) {
           let info: SessionInfo
@@ -2760,6 +2785,8 @@ export function AppShell() {
           )
         }
         lastModelBySession.current.set(sessionId, model)
+        lastReasoningLevelBySession.current.set(sessionId, reasoningLevel)
+        lastModeBySession.current.set(sessionId, mode)
         lastContextMentionsBySession.current.set(sessionId, contextMentions)
         rememberTurnRetryOptions(
           turnRetryOptionsBySession.current,
@@ -2770,6 +2797,8 @@ export function AppShell() {
             organizationSkills: organizationSkills.chatContextSkills,
             projectContext: activeProjectContext,
             model,
+            reasoningLevel,
+            mode,
           },
         )
         try {
@@ -2778,6 +2807,8 @@ export function AppShell() {
             model,
             organizationSkills: organizationSkills.chatContextSkills,
             projectContext: activeProjectContext,
+            reasoningLevel,
+            mode,
           })
           afterOptimisticSubmit?.()
           await sendPromise
@@ -2812,15 +2843,25 @@ export function AppShell() {
       attachments: ChatAttachment[] = [],
       contextMentions: ChatContextMention[] = [],
       model?: ModelChoice,
+      reasoningLevel?: ReasoningLevel,
+      mode?: AgentMode,
     ): Promise<boolean> => {
       const draftKey = activeSessionId ?? activeComposerDraftKey
       if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
-        const queuedMessage = createQueuedChatMessage(activeSessionId, text, attachments, contextMentions, model)
+        const queuedMessage = createQueuedChatMessage(
+          activeSessionId,
+          text,
+          attachments,
+          contextMentions,
+          model,
+          reasoningLevel,
+          mode,
+        )
         setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
         clearComposerDraft(draftKey)
         return true
       }
-      const accepted = await sendNow(text, attachments, contextMentions, model)
+      const accepted = await sendNow(text, attachments, contextMentions, model, reasoningLevel, mode)
       if (accepted) {
         if (activeSessionId) {
           setHeldQueuedSessions((current) => {
@@ -2872,9 +2913,17 @@ export function AppShell() {
       return
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
-    void sendNow(message.text, message.attachments, message.contextMentions ?? [], message.model, () => {
-      setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
-    })
+    void sendNow(
+      message.text,
+      message.attachments,
+      message.contextMentions ?? [],
+      message.model,
+      message.reasoningLevel,
+      message.mode,
+      () => {
+        setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
+      },
+    )
       .then((accepted) => {
         if (!accepted) {
           setQueuedMessagesBySession((current) =>
@@ -2965,6 +3014,8 @@ export function AppShell() {
           organizationSkills: storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills,
           projectContext: storedOptions?.projectContext ?? activeProjectContext,
           model: storedOptions?.model ?? lastModelBySession.current.get(activeSessionId),
+          reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeSessionId),
+          mode: storedOptions?.mode ?? lastModeBySession.current.get(activeSessionId),
         }
         setPendingRetryWatch({ service: auth.service, startedAt: Date.now() })
         void connections.refresh({ forceRefresh: true })

@@ -1,4 +1,10 @@
-import type { ChatAttachment, ChatContextMention, ChatMessage } from "../../../electron/chat/common.ts"
+import type {
+  AgentMode,
+  ChatAttachment,
+  ChatContextMention,
+  ChatMessage,
+  ReasoningLevel,
+} from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 
 export interface PendingChatTransition {
@@ -7,6 +13,8 @@ export interface PendingChatTransition {
   attachments: ChatAttachment[]
   contextMentions?: ChatContextMention[]
   model?: ModelChoice
+  reasoningLevel?: ReasoningLevel
+  mode?: AgentMode
   createdAt: number
 }
 

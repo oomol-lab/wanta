@@ -1,3 +1,4 @@
+import type { AgentMode, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ContextUsageInfo } from "./context-usage.ts"
 import type { ChatStatus } from "ai"
@@ -8,7 +9,7 @@ import { createPortal } from "react-dom"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 import { formatTokenCount } from "./context-usage.ts"
-import { ModelPicker } from "./ModelControls.tsx"
+import { AgentModePicker, ModelPicker, ReasoningLevelPicker } from "./ModelControls.tsx"
 import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
@@ -22,6 +23,8 @@ interface ComposerTrailingControlsProps {
   initialSendPending: boolean
   isGenerating: boolean
   modelCatalog: ModelCatalog | null
+  agentMode: AgentMode
+  reasoningLevel: ReasoningLevel
   status: ChatStatus
   voiceActive: boolean
   voiceBars: readonly number[]
@@ -34,7 +37,9 @@ interface ComposerTrailingControlsProps {
   onCancelVoice: () => void
   onDeleteModel: (id: string) => void
   onRetryVoice: () => void
+  onSelectAgentMode: (mode: AgentMode) => void
   onSelectModel: (choice: ModelChoice) => void
+  onSelectReasoningLevel: (level: ReasoningLevel) => void
   onStartVoice: () => void
   onStop: () => void
   onStopVoice: () => void
@@ -319,6 +324,8 @@ export function ComposerTrailingControls({
   initialSendPending,
   isGenerating,
   modelCatalog,
+  agentMode,
+  reasoningLevel,
   status,
   voiceActive,
   voiceBars,
@@ -331,7 +338,9 @@ export function ComposerTrailingControls({
   onCancelVoice,
   onDeleteModel,
   onRetryVoice,
+  onSelectAgentMode,
   onSelectModel,
+  onSelectReasoningLevel,
   onStartVoice,
   onStop,
   onStopVoice,
@@ -425,12 +434,18 @@ export function ComposerTrailingControls({
               </>
             ) : null}
             <ContextUsageIndicator usage={contextUsage} />
+            <AgentModePicker disabled={composerDisabled} value={agentMode} onValueChange={onSelectAgentMode} />
             <ModelPicker
               catalog={modelCatalog}
               disabled={composerDisabled}
               onSelect={onSelectModel}
               onDelete={onDeleteModel}
               onAdd={onAddModel}
+            />
+            <ReasoningLevelPicker
+              disabled={composerDisabled}
+              value={reasoningLevel}
+              onValueChange={onSelectReasoningLevel}
             />
             <Button
               type="button"

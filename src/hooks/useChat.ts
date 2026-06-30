@@ -1,5 +1,6 @@
 import type {
   AssistantActivityEvent,
+  AgentMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
@@ -8,6 +9,7 @@ import type {
   ChatProjectContext,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
+  ReasoningLevel,
   ToolCallResultEvent,
   ToolCallStartedEvent,
 } from "../../electron/chat/common.ts"
@@ -70,9 +72,11 @@ export interface UseChat {
     attachments?: ChatAttachment[],
     options?: {
       contextMentions?: ChatContextMention[]
+      mode?: AgentMode
       model?: ModelChoice
       organizationSkills?: ChatOrganizationSkillContext[]
       projectContext?: ChatProjectContext
+      reasoningLevel?: ReasoningLevel
     },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
@@ -543,9 +547,11 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       attachments: ChatAttachment[] = [],
       options: {
         contextMentions?: ChatContextMention[]
+        mode?: AgentMode
         model?: ModelChoice
         organizationSkills?: ChatOrganizationSkillContext[]
         projectContext?: ChatProjectContext
+        reasoningLevel?: ReasoningLevel
       } = {},
     ) => {
       setGlobalError(null)
@@ -561,9 +567,11 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           text,
           attachments: agentAttachments(attachments),
           contextMentions: options.contextMentions,
+          mode: options.mode,
           model: options.model,
           organizationSkills: options.organizationSkills,
           projectContext: options.projectContext,
+          reasoningLevel: options.reasoningLevel,
         })
       } catch (err) {
         setStatus(sessionId, "error")

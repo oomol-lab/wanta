@@ -1,8 +1,10 @@
 import type {
+  AgentMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
+  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
@@ -14,6 +16,8 @@ import type { ChatStatus } from "ai"
 
 import { File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
+import { WANTA_AGENT_MODES, WANTA_DEFAULT_AGENT_MODE } from "../../../electron/agent/mode.ts"
+import { WANTA_DEFAULT_REASONING_LEVEL, WANTA_REASONING_LEVELS } from "../../../electron/agent/reasoning.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import {
   buildArtifactPaletteItems,
@@ -73,9 +77,50 @@ interface ChatComposerProps {
     attachments: ChatAttachment[],
     contextMentions: ChatContextMention[],
     model?: ModelChoice,
+    reasoningLevel?: ReasoningLevel,
+    mode?: AgentMode,
   ) => Promise<boolean>
   onStop: () => void
   onViewBilling?: () => void
+}
+
+const reasoningLevelStorageKey = "wanta:chat:reasoning-level"
+const reasoningLevels = new Set<ReasoningLevel>(WANTA_REASONING_LEVELS)
+const agentModeStorageKey = "wanta:chat:agent-mode"
+const agentModes = new Set<AgentMode>(WANTA_AGENT_MODES)
+
+function readStoredReasoningLevel(): ReasoningLevel {
+  try {
+    const stored = globalThis.localStorage?.getItem(reasoningLevelStorageKey)
+    return reasoningLevels.has(stored as ReasoningLevel) ? (stored as ReasoningLevel) : WANTA_DEFAULT_REASONING_LEVEL
+  } catch {
+    return WANTA_DEFAULT_REASONING_LEVEL
+  }
+}
+
+function writeStoredReasoningLevel(level: ReasoningLevel): void {
+  try {
+    globalThis.localStorage?.setItem(reasoningLevelStorageKey, level)
+  } catch {
+    // localStorage 不可用时保持本次会话内状态即可。
+  }
+}
+
+function readStoredAgentMode(): AgentMode {
+  try {
+    const stored = globalThis.localStorage?.getItem(agentModeStorageKey)
+    return agentModes.has(stored as AgentMode) ? (stored as AgentMode) : WANTA_DEFAULT_AGENT_MODE
+  } catch {
+    return WANTA_DEFAULT_AGENT_MODE
+  }
+}
+
+function writeStoredAgentMode(mode: AgentMode): void {
+  try {
+    globalThis.localStorage?.setItem(agentModeStorageKey, mode)
+  } catch {
+    // localStorage 不可用时保持本次会话内状态即可。
+  }
 }
 
 function paletteLabels({
@@ -144,6 +189,8 @@ export function ChatComposer({
   )
   const [inputError, setInputError] = React.useState<string | null>(null)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false)
+  const [agentMode, setAgentModeState] = React.useState<AgentMode>(readStoredAgentMode)
+  const [reasoningLevel, setReasoningLevelState] = React.useState<ReasoningLevel>(readStoredReasoningLevel)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const appendVoiceTranscription = React.useCallback((text: string) => {
     dispatchComposer({ type: "insert-transcription", text })
@@ -192,6 +239,14 @@ export function ChatComposer({
     () => buildContextPaletteItems({ artifactItems, connectionItems, t }),
     [artifactItems, connectionItems, t],
   )
+  const setReasoningLevel = React.useCallback((level: ReasoningLevel): void => {
+    setReasoningLevelState(level)
+    writeStoredReasoningLevel(level)
+  }, [])
+  const setAgentMode = React.useCallback((mode: AgentMode): void => {
+    setAgentModeState(mode)
+    writeStoredAgentMode(mode)
+  }, [])
 
   React.useEffect(() => {
     if (focusRequest <= 0) {
@@ -314,7 +369,14 @@ export function ChatComposer({
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
-    const accepted = await onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
+    const accepted = await onSend(
+      text,
+      attachments.map(stripDraftAttachment),
+      contextMentions,
+      modelCatalog?.selected,
+      reasoningLevel,
+      agentMode,
+    )
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
       return
@@ -460,6 +522,8 @@ export function ChatComposer({
           initialSendPending={initialSendPending}
           isGenerating={isGenerating}
           modelCatalog={modelCatalog}
+          agentMode={agentMode}
+          reasoningLevel={reasoningLevel}
           status={status}
           voiceActive={voiceInput.active}
           voiceBars={voiceInput.bars}
@@ -472,6 +536,8 @@ export function ChatComposer({
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
+          onSelectAgentMode={setAgentMode}
+          onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
           onStartVoice={voiceInput.start}
           onStop={onStop}

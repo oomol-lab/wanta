@@ -1,9 +1,9 @@
-import type { ChatAttachment, ChatMessage } from "../chat/common.ts"
+import type { AgentMode, ChatAttachment, ChatMessage, ReasoningLevel } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
 import type { BuildSessionTitleInput } from "../session/title.ts"
-import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk"
+import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 
 import { randomBytes, randomUUID } from "node:crypto"
@@ -14,9 +14,11 @@ import { branding } from "../branding.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
-import { buildOpencodeConfig, customProviderId, WANTA_AGENT_NAME, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage } from "./event-translator.ts"
+import { normalizeWantaAgentMode } from "./mode.ts"
 import { buildOoEnv } from "./oo.ts"
+import { opencodeReasoningVariant } from "./reasoning.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
 
@@ -71,7 +73,9 @@ export interface SendMessageResult {
 export interface PromptStreamingOptions {
   system?: string
   attachments?: ChatAttachment[]
+  mode?: AgentMode
   model?: ModelChoice
+  reasoningLevel?: ReasoningLevel
   artifactDir?: string
   processDir?: string
   signal?: AbortSignal
@@ -367,15 +371,18 @@ export class AgentManager {
       if (options.signal?.aborted) {
         return
       }
+      const variant = this.resolveReasoningVariant(options.model, options.reasoningLevel)
+      const body: NonNullable<SessionPromptAsyncData["body"]> & { variant?: string } = {
+        agent: normalizeWantaAgentMode(options.mode),
+        model: this.resolveModel(options.model),
+        ...(tail ? { system: tail } : {}),
+        ...(variant ? { variant } : {}),
+        parts: buildPromptParts(text, options.attachments),
+      }
       const result = await this.client.session.promptAsync({
         path: { id: sessionId },
         signal: options.signal,
-        body: {
-          agent: WANTA_AGENT_NAME,
-          model: this.resolveModel(options.model),
-          ...(tail ? { system: tail } : {}),
-          parts: buildPromptParts(text, options.attachments),
-        },
+        body,
       })
       if (options.signal?.aborted) {
         return
@@ -462,7 +469,7 @@ export class AgentManager {
     const prompted = await this.client.session.prompt({
       path: { id },
       body: {
-        agent: WANTA_AGENT_NAME,
+        agent: normalizeWantaAgentMode(undefined),
         model: { providerID: WANTA_PROVIDER_ID, modelID: WANTA_MODEL_ID },
         ...(system ? { system } : {}),
         parts: [{ type: "text", text }],
@@ -500,6 +507,19 @@ export class AgentManager {
       throw new Error("Selected custom model is no longer available.")
     }
     return { providerID: customProviderId(model.id), modelID: model.modelName }
+  }
+
+  private resolveReasoningVariant(
+    choice: ModelChoice | undefined,
+    level: ReasoningLevel | undefined,
+  ): string | undefined {
+    const variant = opencodeReasoningVariant(level)
+    if (!variant || (choice && choice.kind === "custom")) {
+      return undefined
+    }
+    const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+    const model = resolveBuiltinModel(modelID)
+    return model.capabilities.reasoningVariants?.includes(variant) ? variant : undefined
   }
 }
 

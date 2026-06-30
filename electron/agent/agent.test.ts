@@ -6,11 +6,20 @@ import { test } from "vitest"
 import { branding } from "../branding.ts"
 import { ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
-import { buildOpencodeConfig, customProviderId, WANTA_AGENT_NAME, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
+import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
+import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
-import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
+import { WANTA_PLAN_SYSTEM_PROMPT, WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
+
+function modelVariantKeys(model: unknown): string[] {
+  return Object.keys(((model as { variants?: Record<string, unknown> }).variants ?? {}) as Record<string, unknown>)
+}
+
+function modelVariantReasoningEffort(model: unknown, variant: string): string | undefined {
+  return (model as { variants?: Record<string, { reasoningEffort?: string }> }).variants?.[variant]?.reasoningEffort
+}
 
 test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => {
   const config = buildOpencodeConfig({ authToken: "api-test" })
@@ -23,6 +32,9 @@ test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => 
   assert.equal(provider.options?.apiKey, "api-test")
   const model = provider.models?.[WANTA_MODEL_ID]
   assert.ok(model)
+  assert.equal(model.reasoning, true)
+  assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
+  assert.equal(modelVariantReasoningEffort(model, "max"), "max")
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -37,6 +49,8 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
   assert.equal(provider.options?.apiKey, "api-test")
   const model = provider.models?.[auto.runtime.modelID]
   assert.ok(model)
+  assert.equal(model.reasoning, true)
+  assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -58,6 +72,9 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
     const model = provider?.models?.[definition.runtime.modelID]
     assert.ok(model, `missing built-in model ${definition.runtime.providerID}/${definition.runtime.modelID}`)
     assert.equal(model.name, definition.displayName)
+    const expectedVariantKeys = [...(definition.capabilities.reasoningVariants ?? [])]
+    assert.equal(model.reasoning, expectedVariantKeys.length > 0 ? true : undefined)
+    assert.deepEqual(modelVariantKeys(model), expectedVariantKeys)
     assert.equal(model.tool_call, definition.capabilities.toolCall)
     assert.equal(model.attachment, definition.capabilities.supportsImages ? true : undefined)
   }
@@ -75,6 +92,8 @@ test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics",
   assert.equal(provider.options?.apiKey, "api-test")
   assert.ok(model)
   assert.equal(model.name, "GPT 5.5")
+  assert.equal(model.reasoning, true)
+  assert.equal(modelVariantReasoningEffort(model, "max"), "xhigh")
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -99,6 +118,8 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
   assert.equal(provider.options?.baseURL, "https://api.deepseek.com/v1")
   assert.equal(provider.options?.apiKey, "sk-custom")
   const model = provider.models?.["deepseek-chat"]
+  assert.equal(model?.reasoning, undefined)
+  assert.deepEqual(modelVariantKeys(model), [])
   assert.equal(model?.tool_call, true)
   assert.equal(model?.attachment, undefined)
   assert.equal(model?.modalities, undefined)
@@ -125,20 +146,47 @@ test("buildOpencodeConfig marks custom providers as image-capable only when requ
   assert.deepEqual(model?.modalities, { input: ["text", "image"], output: ["text"] })
 })
 
-test("wanta agent enables built-in coding/shell tools alongside connector tools, permissions allowed", () => {
+test("build and plan agents enable Wanta prompt through OpenCode native modes", () => {
   const config = buildOpencodeConfig({ authToken: "k" })
-  const agent = config.agent?.[WANTA_AGENT_NAME]
-  assert.ok(agent)
-  assert.ok(typeof agent.prompt === "string" && agent.prompt.length > 0)
+  const buildAgent = config.agent?.[WANTA_BUILD_AGENT_NAME]
+  const planAgent = config.agent?.[WANTA_PLAN_AGENT_NAME]
+  assert.ok(buildAgent)
+  assert.ok(planAgent)
+  assert.equal(buildAgent.prompt, WANTA_SYSTEM_PROMPT)
+  assert.equal(planAgent.prompt, WANTA_PLAN_SYSTEM_PROMPT)
+  assert.equal(buildAgent.mode, "primary")
+  assert.equal(planAgent.mode, "primary")
   // 不再下发 tools 禁用表：所有内置工具（bash/edit/write/read/webfetch/…）默认启用。
-  const tools = agent.tools ?? {}
+  const tools = buildAgent.tools ?? {}
   for (const builtin of ["bash", "edit", "write", "read", "webfetch"]) {
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
-  // permission 全 allow（含 external_directory，文件工具可越出 workspace cwd）。
-  assert.equal(agent.permission?.bash, "allow")
-  assert.equal(agent.permission?.edit, "allow")
-  assert.equal(agent.permission?.webfetch, "allow")
+  // Build 保持全 allow；Plan 显式禁止普通编辑，避免根级 allow 覆盖 OpenCode plan 语义。
+  assert.equal(buildAgent.permission?.bash, "allow")
+  assert.equal(buildAgent.permission?.edit, "allow")
+  assert.equal(buildAgent.permission?.webfetch, "allow")
+  assert.deepEqual(planAgent.permission?.bash, {
+    "*": "deny",
+    "cat *": "allow",
+    "head *": "allow",
+    "tail *": "allow",
+    "sed -n *": "allow",
+    "rg *": "allow",
+    "grep *": "allow",
+    "find *": "allow",
+    "ls *": "allow",
+    pwd: "allow",
+    "git status*": "allow",
+    "git diff*": "allow",
+    "git log*": "allow",
+    "git show*": "allow",
+    "git branch*": "allow",
+    "git rev-parse*": "allow",
+    "git ls-files*": "allow",
+    "git grep*": "allow",
+    "git remote*": "allow",
+  })
+  assert.deepEqual(planAgent.permission?.edit, { "*": "deny", ".opencode/plans/*.md": "allow" })
   assert.equal(config.permission?.bash, "allow")
 })
 

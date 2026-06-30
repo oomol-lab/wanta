@@ -1,3 +1,5 @@
+import type { WantaAgentMode } from "../agent/mode.ts"
+import type { WantaReasoningLevel } from "../agent/reasoning.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { ChatErrorKind } from "./error.ts"
 import type { ServiceName } from "@oomol/connection"
@@ -6,6 +8,8 @@ import { serviceName } from "../branding.ts"
 
 export type ChatRole = "user" | "assistant"
 export type ToolStatus = "pending" | "running" | "completed" | "error"
+export type ReasoningLevel = WantaReasoningLevel
+export type AgentMode = WantaAgentMode
 
 export interface AuthorizationInfo {
   service: string
@@ -185,6 +189,8 @@ export interface SendMessageRequest {
   organizationSkills?: ChatOrganizationSkillContext[]
   projectContext?: ChatProjectContext
   model?: ModelChoice
+  reasoningLevel?: ReasoningLevel
+  mode?: AgentMode
 }
 
 export interface ChatProjectContext {

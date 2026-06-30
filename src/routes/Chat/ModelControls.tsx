@@ -21,6 +21,8 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { WANTA_AGENT_MODES } from "../../../electron/agent/mode.ts"
+import { WANTA_REASONING_LEVELS } from "../../../electron/agent/reasoning.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, resolveBuiltinModel } from "../../../electron/models/builtin.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
@@ -555,8 +557,8 @@ export function ModelPicker({
   )
 }
 
-const reasoningLevelOptions: ReasoningLevel[] = ["default", "low", "medium", "high", "max"]
-const agentModeOptions: AgentMode[] = ["build", "plan"]
+const reasoningLevelOptions: readonly ReasoningLevel[] = WANTA_REASONING_LEVELS
+const agentModeOptions: readonly AgentMode[] = WANTA_AGENT_MODES
 
 function agentModeMenuItemElementId(mode: AgentMode): string {
   return `agent-mode-menu-item-${mode}`

@@ -436,14 +436,22 @@ test("sendMessage passes selected context, organization skills, and project as p
       name: "wanta",
       path: "/Users/example/code/wanta",
     },
+    reasoningLevel: "high",
     mode: "plan",
     sessionId: "session-1",
     text: "summarize new leads",
   })
 
   assert.equal(bridge.promptStreaming.mock.calls.length, 1)
-  const options = bridge.promptStreaming.mock.calls[0]?.[2] as { mode?: string; system?: string } | undefined
+  const options = bridge.promptStreaming.mock.calls[0]?.[2] as
+    | {
+        mode?: string
+        reasoningLevel?: string
+        system?: string
+      }
+    | undefined
   assert.equal(options?.mode, "plan")
+  assert.equal(options?.reasoningLevel, "high")
   assert.match(options?.system ?? "", /Organization-configured skills/)
   assert.match(options?.system ?? "", /Sales Mail Summary/)
   assert.match(options?.system ?? "", /@acme\/sales-skills/)

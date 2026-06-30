@@ -17,6 +17,7 @@ import type { ChatStatus } from "ai"
 import { File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
 import { WANTA_AGENT_MODES, WANTA_DEFAULT_AGENT_MODE } from "../../../electron/agent/mode.ts"
+import { WANTA_DEFAULT_REASONING_LEVEL, WANTA_REASONING_LEVELS } from "../../../electron/agent/reasoning.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import {
   buildArtifactPaletteItems,
@@ -84,16 +85,16 @@ interface ChatComposerProps {
 }
 
 const reasoningLevelStorageKey = "wanta:chat:reasoning-level"
-const reasoningLevels = new Set<ReasoningLevel>(["default", "low", "medium", "high", "max"])
+const reasoningLevels = new Set<ReasoningLevel>(WANTA_REASONING_LEVELS)
 const agentModeStorageKey = "wanta:chat:agent-mode"
 const agentModes = new Set<AgentMode>(WANTA_AGENT_MODES)
 
 function readStoredReasoningLevel(): ReasoningLevel {
   try {
     const stored = globalThis.localStorage?.getItem(reasoningLevelStorageKey)
-    return reasoningLevels.has(stored as ReasoningLevel) ? (stored as ReasoningLevel) : "default"
+    return reasoningLevels.has(stored as ReasoningLevel) ? (stored as ReasoningLevel) : WANTA_DEFAULT_REASONING_LEVEL
   } catch {
-    return "default"
+    return WANTA_DEFAULT_REASONING_LEVEL
   }
 }
 

@@ -1,3 +1,6 @@
+import type { WantaReasoningVariant } from "../agent/reasoning.ts"
+
+import { WANTA_REASONING_VARIANT_LEVELS } from "../agent/reasoning.ts"
 import { branding } from "../branding.ts"
 
 export type BuiltinProviderKind = "openai-compatible" | "openai-responses"
@@ -17,6 +20,7 @@ export interface BuiltinModelRuntime {
 export interface BuiltinModelCapabilities {
   supportsImages: boolean
   toolCall: boolean
+  reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
 export interface BuiltinModelDefinition {
@@ -68,6 +72,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "oopilot",
     },
     capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: true,
       toolCall: true,
     },
@@ -82,6 +87,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "gpt-5.5",
     },
     capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: true,
       toolCall: true,
     },
@@ -96,6 +102,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "deepseek-v4-flash",
     },
     capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: false,
       toolCall: true,
     },
@@ -110,6 +117,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "deepseek-v4-pro",
     },
     capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: false,
       toolCall: true,
     },
@@ -124,6 +132,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "qwen3.7-plus",
     },
     capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: true,
       toolCall: true,
     },
@@ -138,6 +147,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "qwen3.7-max",
     },
     capabilities: {
+      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
       supportsImages: true,
       toolCall: true,
     },

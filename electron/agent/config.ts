@@ -1,3 +1,5 @@
+import type { BuiltinModelDefinition } from "../models/builtin.ts"
+import type { WantaReasoningVariant } from "./reasoning.ts"
 import type { Config } from "@opencode-ai/sdk"
 
 import { llmBaseUrl } from "../domain.ts"
@@ -16,6 +18,7 @@ type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["
 }
 type OpencodeAgentConfig = NonNullable<NonNullable<Config["agent"]>[string]>
 type OpencodePermissionConfig = NonNullable<OpencodeAgentConfig["permission"]>
+type OpencodeReasoningVariantConfig = { reasoningEffort: string }
 
 export const WANTA_PROVIDER_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.providerID
 export const WANTA_MODEL_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.modelID
@@ -41,9 +44,29 @@ const WANTA_PERMISSION = {
   external_directory: "allow",
 } as const
 
-// 覆盖 OpenCode 原生 plan agent 时保留其“禁止编辑，只允许写计划文件”的语义。
+// 覆盖 OpenCode 原生 plan agent 时保留其“只读调查，只允许写计划文件”的语义。
 const WANTA_PLAN_PERMISSION = {
-  bash: "allow",
+  bash: {
+    "*": "deny",
+    "cat *": "allow",
+    "head *": "allow",
+    "tail *": "allow",
+    "sed -n *": "allow",
+    "rg *": "allow",
+    "grep *": "allow",
+    "find *": "allow",
+    "ls *": "allow",
+    pwd: "allow",
+    "git status*": "allow",
+    "git diff*": "allow",
+    "git log*": "allow",
+    "git show*": "allow",
+    "git branch*": "allow",
+    "git rev-parse*": "allow",
+    "git ls-files*": "allow",
+    "git grep*": "allow",
+    "git remote*": "allow",
+  },
   webfetch: "allow",
   external_directory: "allow",
   edit: {
@@ -52,12 +75,19 @@ const WANTA_PLAN_PERMISSION = {
   },
 } as unknown as OpencodePermissionConfig
 
-const WANTA_REASONING_VARIANTS = {
+const OOMOL_REASONING_VARIANTS = {
   low: { reasoningEffort: "low" },
   medium: { reasoningEffort: "medium" },
   high: { reasoningEffort: "high" },
   max: { reasoningEffort: "max" },
-} as const
+} as const satisfies Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>
+
+const OPENAI_REASONING_VARIANTS = {
+  low: { reasoningEffort: "low" },
+  medium: { reasoningEffort: "medium" },
+  high: { reasoningEffort: "high" },
+  max: { reasoningEffort: "xhigh" },
+} as const satisfies Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>
 
 export interface OpencodeConfigOptions {
   /** 网关鉴权凭证：现为会话 token（网关层接受 cookie/token/api-key）。仅入内存 env，不落盘。 */
@@ -114,6 +144,7 @@ function builtinProviderConfigs(authToken: string): NonNullable<Config["provider
             model.runtime.modelID,
             modelCapabilities({
               name: model.displayName,
+              reasoningVariants: builtinReasoningVariants(model),
               supportsImages: model.capabilities.supportsImages,
               toolCall: model.capabilities.toolCall,
             }),
@@ -144,17 +175,23 @@ function customProviderConfig(model: OpencodeCustomModel): NonNullable<Config["p
 
 function modelCapabilities({
   name,
+  reasoningVariants,
   supportsImages,
   toolCall,
 }: {
   name: string
+  reasoningVariants?: Record<string, OpencodeReasoningVariantConfig>
   supportsImages: boolean
   toolCall: boolean
 }): OpencodeModelConfig {
   return {
     name,
-    reasoning: true,
-    variants: WANTA_REASONING_VARIANTS,
+    ...(reasoningVariants
+      ? {
+          reasoning: true,
+          variants: reasoningVariants,
+        }
+      : {}),
     tool_call: toolCall,
     ...(supportsImages
       ? {
@@ -166,4 +203,15 @@ function modelCapabilities({
         }
       : {}),
   }
+}
+
+function builtinReasoningVariants(
+  model: BuiltinModelDefinition,
+): Record<string, OpencodeReasoningVariantConfig> | undefined {
+  const levels = model.capabilities.reasoningVariants
+  if (!levels || levels.length === 0) {
+    return undefined
+  }
+  const variantSet = model.runtime.providerID === "openai" ? OPENAI_REASONING_VARIANTS : OOMOL_REASONING_VARIANTS
+  return Object.fromEntries(levels.map((level) => [level, variantSet[level]]))
 }

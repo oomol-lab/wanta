@@ -18,6 +18,7 @@ import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_I
 import { normalizeMessage } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { buildOoEnv } from "./oo.ts"
+import { opencodeReasoningVariant } from "./reasoning.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
 
@@ -370,7 +371,7 @@ export class AgentManager {
       if (options.signal?.aborted) {
         return
       }
-      const variant = opencodeReasoningVariant(options.reasoningLevel)
+      const variant = this.resolveReasoningVariant(options.model, options.reasoningLevel)
       const body: NonNullable<SessionPromptAsyncData["body"]> & { variant?: string } = {
         agent: normalizeWantaAgentMode(options.mode),
         model: this.resolveModel(options.model),
@@ -507,10 +508,19 @@ export class AgentManager {
     }
     return { providerID: customProviderId(model.id), modelID: model.modelName }
   }
-}
 
-function opencodeReasoningVariant(level: ReasoningLevel | undefined): string | undefined {
-  return level && level !== "default" ? level : undefined
+  private resolveReasoningVariant(
+    choice: ModelChoice | undefined,
+    level: ReasoningLevel | undefined,
+  ): string | undefined {
+    const variant = opencodeReasoningVariant(level)
+    if (!variant || (choice && choice.kind === "custom")) {
+      return undefined
+    }
+    const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
+    const model = resolveBuiltinModel(modelID)
+    return model.capabilities.reasoningVariants?.includes(variant) ? variant : undefined
+  }
 }
 
 function buildPromptParts(

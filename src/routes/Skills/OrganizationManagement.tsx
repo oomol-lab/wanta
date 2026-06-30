@@ -23,6 +23,7 @@ import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill
 import {
   Building2Icon,
   CheckIcon,
+  ChevronDownIcon,
   ChevronsUpDownIcon,
   MoreHorizontalIcon,
   PackageIcon,
@@ -1918,20 +1919,12 @@ function OrganizationSkillManageDialog({
                 ) : null}
                 {activeTab === "recommended" &&
                 organizationSkills.canManage &&
-                recommendedOrganizationSkills.length > 0 ? (
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={Boolean(busyAction)}
-                      onClick={() => onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: false })}
-                    >
-                      {t("organizations.skillManageLinkAll", { count: recommendedOrganizationSkills.length })}
-                    </Button>
+                recommendedOrganizationSkills.length > 1 ? (
+                  <div className="inline-flex max-w-full items-center justify-end">
                     <Button
                       type="button"
                       size="sm"
+                      className="min-w-0 rounded-r-none"
                       disabled={Boolean(busyAction)}
                       onClick={() => onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: true })}
                     >
@@ -1940,9 +1933,33 @@ function OrganizationSkillManageDialog({
                       ) : (
                         <PackageIcon className="size-3.5" />
                       )}
-                      {t("organizations.skillManageAddInstallAll", { count: recommendedOrganizationSkills.length })}
+                      <span className="truncate">
+                        {t("organizations.skillManageAddInstallAll", { count: recommendedOrganizationSkills.length })}
+                      </span>
                     </Button>
-                  </>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
+                          disabled={Boolean(busyAction)}
+                          aria-label={t("organizations.skillManageMoreActions")}
+                        >
+                          <ChevronDownIcon className="size-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            void onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: false })
+                          }
+                        >
+                          {t("organizations.skillManageLinkAll", { count: recommendedOrganizationSkills.length })}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 ) : null}
               </div>
             </div>

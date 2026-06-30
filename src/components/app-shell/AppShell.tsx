@@ -77,7 +77,7 @@ import {
   writeStoredSidebarCollapsed,
   writeStoredSidebarSegment,
 } from "./sidebar-persistence.ts"
-import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
+import { groupSidebarSessions, nextActiveSessionIdAfterArchive, projectHasRunningSession } from "./sidebar-sessions.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
@@ -1246,6 +1246,7 @@ function ProjectSidebarGroupItem({
   hasUnreadSession,
   isSessionRunning,
   now,
+  running,
   onArchiveSession,
   onExpandedChange,
   onNewSession,
@@ -1259,6 +1260,7 @@ function ProjectSidebarGroupItem({
   hasUnreadSession: (sessionId: string) => boolean
   isSessionRunning: (sessionId: string) => boolean
   now: number
+  running: boolean
   onArchiveSession: (session: SessionInfo) => void
   onExpandedChange: (expanded: boolean) => void
   onNewSession: (project: SessionProject) => void
@@ -1271,6 +1273,7 @@ function ProjectSidebarGroupItem({
   const toggleLabel = expanded ? t("project.collapse") : t("project.expand")
   const projectTitle = t("project.newTask")
   const toggleTitle = `${toggleLabel}: ${group.project.name}`
+  const showCollapsedRunning = !expanded && running
 
   return (
     <section className="grid gap-1">
@@ -1287,11 +1290,19 @@ function ProjectSidebarGroupItem({
           <span className="oo-sidebar-nav-label min-w-0 truncate" title={group.project.name}>
             {group.project.name}
           </span>
-          {expanded ? (
-            <ChevronDown className="size-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 opacity-0 group-hover:opacity-100" />
-          )}
+          <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+            {showCollapsedRunning ? (
+              <LoaderCircle
+                className="absolute size-3.5 animate-spin text-sidebar-foreground/70 opacity-100 transition-opacity group-focus-within:opacity-0 group-hover:opacity-0"
+                aria-hidden="true"
+              />
+            ) : null}
+            {expanded ? (
+              <ChevronDown className="absolute size-3.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100" />
+            ) : (
+              <ChevronRight className="absolute size-3.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100" />
+            )}
+          </span>
         </button>
         <button
           type="button"
@@ -3412,6 +3423,7 @@ export function AppShell() {
                           hasUnreadSession={hasUnreadSession}
                           isSessionRunning={isSessionRunning}
                           now={relativeTimeNow}
+                          running={projectHasRunningSession(group.project.id, sessions, isSessionRunning)}
                           onExpandedChange={(expanded) =>
                             handleProjectSidebarExpandedChange(group.project.id, expanded)
                           }

@@ -15,7 +15,9 @@ import { parseProviderGrants } from "./organization-provider-access.ts"
 export type OrganizationRole = "creator" | "member"
 export type BusyAction =
   | "add"
+  | "addSkillBatch"
   | "create"
+  | "installSkillBatch"
   | "saveProviderAccess"
   | `addSkill:${string}`
   | `installSkill:${string}`
@@ -68,6 +70,15 @@ export interface OrganizationManagementSnapshot {
   savedAt: number
   selectedOrganizationId: string | null
   summariesState: LoadState<Record<string, OrganizationUserSummary>>
+}
+
+export interface OrganizationSkillPackageItem {
+  packageName: string
+}
+
+export interface OrganizationSkillBulkPlan<T extends OrganizationSkillPackageItem> {
+  linkable: T[]
+  linked: T[]
 }
 
 export const maxOrganizationNameLength = 100
@@ -181,6 +192,50 @@ export function uniqueOrganizations(organizations: Organization[]): Organization
 
 export function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values))
+}
+
+export function organizationSkillPackageKey(packageName: string): string {
+  return packageName.trim().toLowerCase()
+}
+
+export function createOrganizationSkillPackageSet(
+  skills: readonly OrganizationSkillPackageItem[],
+): ReadonlySet<string> {
+  return new Set(
+    skills
+      .map((skill) => organizationSkillPackageKey(skill.packageName))
+      .filter((packageName) => packageName.length > 0),
+  )
+}
+
+export function organizationSkillPackageLinked(linkedPackageKeys: ReadonlySet<string>, packageName: string): boolean {
+  const key = organizationSkillPackageKey(packageName)
+  return Boolean(key) && linkedPackageKeys.has(key)
+}
+
+export function planOrganizationSkillBulkLinks<T extends OrganizationSkillPackageItem>(
+  items: readonly T[],
+  linkedSkills: readonly OrganizationSkillPackageItem[],
+): OrganizationSkillBulkPlan<T> {
+  const linkedPackageKeys = createOrganizationSkillPackageSet(linkedSkills)
+  const seenPackageKeys = new Set<string>()
+  const linkable: T[] = []
+  const linked: T[] = []
+
+  for (const item of items) {
+    const packageKey = organizationSkillPackageKey(item.packageName)
+    if (!packageKey || seenPackageKeys.has(packageKey)) {
+      continue
+    }
+    seenPackageKeys.add(packageKey)
+    if (linkedPackageKeys.has(packageKey)) {
+      linked.push(item)
+    } else {
+      linkable.push(item)
+    }
+  }
+
+  return { linkable, linked }
 }
 
 export function userFallback(value: string): string {

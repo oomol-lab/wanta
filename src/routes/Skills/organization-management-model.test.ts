@@ -11,10 +11,13 @@ import {
   allOrganizations,
   buildGrantViews,
   buildMemberViews,
+  createOrganizationSkillPackageSet,
   maxOrganizationNameLength,
   organizationCanManage,
   organizationNameValidation,
   organizationRole,
+  organizationSkillPackageLinked,
+  planOrganizationSkillBulkLinks,
   providerOptionsWithSelected,
   readSelectedOrganizationId,
 } from "./organization-management-model.ts"
@@ -142,6 +145,39 @@ test("providerOptionsWithSelected keeps selected unknown providers visible", () 
     { label: "gmail", service: "gmail" },
     { label: "Slack", service: "slack" },
   ])
+})
+
+test("organization skill package set normalizes package names", () => {
+  const packageKeys = createOrganizationSkillPackageSet([
+    { packageName: " oo-gmail " },
+    { packageName: "OO-SLACK" },
+    { packageName: "" },
+  ])
+
+  assert.equal(organizationSkillPackageLinked(packageKeys, "oo-gmail"), true)
+  assert.equal(organizationSkillPackageLinked(packageKeys, "oo-slack"), true)
+  assert.equal(organizationSkillPackageLinked(packageKeys, "oo-notion"), false)
+})
+
+test("planOrganizationSkillBulkLinks deduplicates by package and skips linked packages", () => {
+  const plan = planOrganizationSkillBulkLinks(
+    [
+      { packageName: "oo-gmail", skillName: "gmail" },
+      { packageName: "OO-GMAIL", skillName: "gmail-alt" },
+      { packageName: "oo-slack", skillName: "slack" },
+      { packageName: "oo-notion", skillName: "notion" },
+    ],
+    [{ packageName: " oo-slack " }],
+  )
+
+  assert.deepEqual(
+    plan.linkable.map((item) => item.skillName),
+    ["gmail", "notion"],
+  )
+  assert.deepEqual(
+    plan.linked.map((item) => item.skillName),
+    ["slack"],
+  )
 })
 
 test("readSelectedOrganizationId migrates legacy Lumo storage key", () => {

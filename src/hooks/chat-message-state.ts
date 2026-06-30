@@ -244,7 +244,8 @@ export function hasVisibleMessageDelta(event: MessageDeltaEvent): boolean {
 }
 
 export function setAttachmentPart(msgs: ChatMessage[], event: MessageAttachmentEvent): ChatMessage[] {
-  const ensured = ensureMessage(msgs, event.messageId, "user")
+  const existingRole = msgs.find((message) => message.id === event.messageId)?.role
+  const ensured = ensureMessage(msgs, event.messageId, existingRole ?? "user")
   return ensured.map((message) =>
     message.id === event.messageId
       ? {

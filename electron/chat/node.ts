@@ -761,6 +761,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private pendingProcessDirs = new Map<string, string[]>()
   private activeTurnOutputs = new Map<string, ActiveTurnOutput>()
   private activeAssistantMessages = new Map<string, string>()
+  private activeAssistantMessageGenerations = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
@@ -797,6 +798,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.pendingProcessDirs.clear()
     this.activeTurnOutputs.clear()
     this.activeAssistantMessages.clear()
+    this.activeAssistantMessageGenerations.clear()
     this.activeToolParts.clear()
     this.artifactRoots.clear()
     this.artifactRootsLoaded = false
@@ -826,6 +828,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     )
   }
 
+  private setActiveAssistantMessage(sessionId: string, messageId: string): void {
+    this.activeAssistantMessages.set(sessionId, messageId)
+    const generationId = this.sessionGenerations.get(sessionId)?.id
+    if (generationId) {
+      this.activeAssistantMessageGenerations.set(sessionId, generationId)
+    } else {
+      this.activeAssistantMessageGenerations.delete(sessionId)
+    }
+  }
+
+  private clearActiveAssistantMessage(sessionId: string): void {
+    this.activeAssistantMessages.delete(sessionId)
+    this.activeAssistantMessageGenerations.delete(sessionId)
+  }
+
   /** agent 就绪后调用：订阅 OpenCode SSE，转译为 ServerEvents 广播给渲染层。 */
   public startEventBridge(): void {
     if (!this.agent || this.bridged) {
@@ -835,6 +852,45 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
     this.agent.subscribe((event) => {
       for (const translated of translateOpencodeEvent(event)) {
+        if (translated.event === "unexpectedPermission") {
+          const { sessionId, messageId, message } = translated.data
+          const isCurrentPermissionTurn = (): boolean => {
+            const currentGenerationId = this.sessionGenerations.get(sessionId)?.id
+            const messageGenerationId = this.activeAssistantMessageGenerations.get(sessionId)
+            const sameMessage = this.activeAssistantMessages.get(sessionId) === messageId
+            if (currentGenerationId || messageGenerationId) {
+              return sameMessage && Boolean(currentGenerationId && messageGenerationId === currentGenerationId)
+            }
+            return sameMessage
+          }
+          void (async () => {
+            if (!isCurrentPermissionTurn()) {
+              return
+            }
+            try {
+              await this.agent?.abort(sessionId)
+            } catch (error) {
+              console.warn("[wanta] failed to abort unexpected permission request", error)
+            }
+            if (!isCurrentPermissionTurn()) {
+              return
+            }
+            await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
+              console.warn("[wanta] failed to finalize permission-blocked turn output", error)
+            })
+            if (!isCurrentPermissionTurn()) {
+              return
+            }
+            this.clearSessionGeneration(sessionId, this.activeAssistantMessageGenerations.get(sessionId))
+            this.clearActiveAssistantMessage(sessionId)
+            this.activeToolParts.delete(sessionId)
+            this.emitSessionActivity(sessionId)
+            this.emitMessageError(emit, sessionId, message, messageId)
+          })().catch((error: unknown) => {
+            console.warn("[wanta] failed to handle unexpected permission request", error)
+          })
+          continue
+        }
         if (
           translated.event === "agentError" &&
           translated.data.sessionId &&
@@ -848,7 +904,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
             .finally(() => {
               this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
+              this.clearActiveAssistantMessage(sessionId)
               this.activeToolParts.delete(sessionId)
               this.emitSessionActivity(sessionId)
               void emit("generationStopped", { sessionId })
@@ -862,7 +918,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.emitSessionActivity(translated.data.sessionId)
         }
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
-          this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+          this.setActiveAssistantMessage(translated.data.sessionId, translated.data.messageId)
           this.activeToolParts.set(translated.data.sessionId, new Set())
           const artifactRoot = this.consumePendingArtifactDir(translated.data.sessionId)
           const processRoot = this.consumePendingProcessDir(translated.data.sessionId)
@@ -886,7 +942,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         }
         if (translated.event === "toolCallStarted") {
-          this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
+          this.setActiveAssistantMessage(translated.data.sessionId, translated.data.messageId)
           const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
           partIds.add(translated.data.partId)
           this.activeToolParts.set(translated.data.sessionId, partIds)
@@ -917,7 +973,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
             .finally(() => {
               this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
+              this.clearActiveAssistantMessage(sessionId)
               this.activeToolParts.delete(sessionId)
               this.emitSessionActivity(sessionId)
               this.emitMessageError(emit, sessionId, translated.data.message, messageId)
@@ -933,7 +989,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
             .finally(() => {
               this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
+              this.clearActiveAssistantMessage(sessionId)
               this.activeToolParts.delete(sessionId)
               this.emitSessionActivity(sessionId)
               void emit(translated.event, translated.data)
@@ -1166,7 +1222,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         const messageId = this.activeAssistantMessages.get(req.sessionId)
         this.clearSessionGeneration(req.sessionId, generation.id)
-        this.activeAssistantMessages.delete(req.sessionId)
+        this.clearActiveAssistantMessage(req.sessionId)
         this.emitMessageError(
           this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
           req.sessionId,
@@ -1637,7 +1693,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.pendingArtifactDirs.delete(sessionId)
     this.pendingProcessDirs.delete(sessionId)
     this.activeTurnOutputs.delete(sessionId)
-    this.activeAssistantMessages.delete(sessionId)
+    this.clearActiveAssistantMessage(sessionId)
     this.activeToolParts.delete(sessionId)
     await this.send("generationStopped", { sessionId }).catch(() => undefined)
   }

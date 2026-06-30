@@ -325,6 +325,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         metadata: e.metadata,
         timing: e.timing,
         attachmentsCount: e.attachmentsCount,
+        attachments: e.attachments,
         authorization: e.authorization,
         ...(cancelled ? { cancelled: true } : {}),
       })

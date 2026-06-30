@@ -178,6 +178,130 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   assert.equal(events.at(-1)?.event, "messageStarted")
 })
 
+test("unexpected OpenCode permission request is aborted and surfaced as a message error", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "permission.updated",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      messageID: "assistant-1",
+      title: "Run bash",
+      type: "tool",
+    },
+  })
+  await waitForEventCount(events, 2)
+
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  const messageError = events.find((event) => event.event === "messageError") as
+    | { data: { message?: string; messageId?: string } }
+    | undefined
+  assert.equal(messageError?.data.messageId, "assistant-1")
+  assert.match(messageError?.data.message ?? "", /does not support ask permissions/)
+})
+
+test("stale OpenCode permission request does not abort a newer generation before its message starts", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "session-1", text: "first" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  await service.sendMessage({ sessionId: "session-1", text: "second" })
+
+  bridge.emit({
+    type: "permission.updated",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      messageID: "assistant-1",
+      title: "Run bash",
+      type: "tool",
+    },
+  })
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(bridge.abort.mock.calls.length, 0)
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(
+    events.some((event) => event.event === "messageError"),
+    false,
+  )
+
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
+  })
+  assert.deepEqual(events.at(-1)?.data, { sessionId: "session-1", messageId: "assistant-2", role: "assistant" })
+})
+
+test("unexpected OpenCode permission request does not clear a newer generation", async () => {
+  const bridge = createBridgeAgent()
+  let resolveAbort: (() => void) | undefined
+  bridge.abort.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveAbort = resolve
+      }),
+  )
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "session-1", text: "first" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "permission.updated",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      messageID: "assistant-1",
+      title: "Run bash",
+      type: "tool",
+    },
+  })
+  await vi.waitFor(() => {
+    assert.equal(bridge.abort.mock.calls.length, 1)
+  })
+
+  await service.sendMessage({ sessionId: "session-1", text: "second" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
+  })
+  resolveAbort?.()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(
+    events.some((event) => event.event === "messageError"),
+    false,
+  )
+  assert.equal(events.at(-1)?.event, "messageStarted")
+  assert.deepEqual(
+    events.filter((event) => event.event === "messageStarted").map((event) => event.data),
+    [
+      { sessionId: "session-1", messageId: "assistant-1", role: "assistant" },
+      { sessionId: "session-1", messageId: "assistant-2", role: "assistant" },
+    ],
+  )
+})
+
 test("stopGeneration finalizes process files produced before cancellation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-stop-turn-output-"))
   try {

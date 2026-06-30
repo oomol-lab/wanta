@@ -75,7 +75,13 @@ function connectionWorkspaceKey(workspace: ConnectionWorkspace): string {
 }
 
 function workspaceHeaders(workspace: ConnectionWorkspace): Record<string, string> {
-  return workspace.type === "organization" ? { "x-oo-organization-name": workspace.organizationName } : {}
+  if (workspace.type !== "organization") {
+    return {}
+  }
+  return {
+    "x-oo-organization-name": workspace.organizationName,
+    ...(workspace.organizationId ? { "x-oo-organization-id": workspace.organizationId } : {}),
+  }
 }
 
 function clampExecutionLogLimit(value: number | undefined): number {

@@ -29,11 +29,16 @@ describe("connections-client", () => {
     const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ data: [] }))
     vi.stubGlobal("fetch", fetchMock)
 
-    await isProviderConnectionActive("gmail", { type: "organization", organizationName: "acme-corp" })
+    await isProviderConnectionActive("gmail", {
+      type: "organization",
+      organizationId: "org-acme",
+      organizationName: "acme-corp",
+    })
 
     const [, init] = fetchMock.mock.calls[0] ?? []
     const headers = new Headers(init?.headers)
     expect(headers.get("x-oo-organization-name")).toBe("acme-corp")
+    expect(headers.get("x-oo-organization-id")).toBe("org-acme")
   })
 
   it("keys cached organization reads by organization id when available", async () => {

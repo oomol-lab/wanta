@@ -16,6 +16,62 @@ describe("AgentManager", () => {
     expect(isUserVisibleSession({ id: "child", parent_id: "root", title: "Child" })).toBe(false)
   })
 
+  it("reads visible sessions across cursor pages", async () => {
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          data: [
+            { id: "newer", title: "Newer", time: { created: 10, updated: 20 } },
+            { id: "child", parentID: "newer", title: "Child", time: { created: 11, updated: 21 } },
+          ],
+          cursor: { next: "page-2" },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: "older", title: "Older", time: { created: 1, updated: 2 } }],
+          cursor: {},
+        },
+      })
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown; started: boolean; workspaceDir: string }).sidecar = {
+      client: { v2: { session: { list } } },
+    }
+    ;(manager as unknown as { started: boolean; workspaceDir: string }).started = true
+    ;(manager as unknown as { workspaceDir: string }).workspaceDir = "/tmp/wanta-agent/workspace"
+
+    await expect(manager.listSessions()).resolves.toEqual([
+      { id: "newer", title: "Newer", createdAt: 10, updatedAt: 20 },
+      { id: "older", title: "Older", createdAt: 1, updatedAt: 2 },
+    ])
+    expect(list).toHaveBeenNthCalledWith(1, { directory: "/tmp/wanta-agent/workspace", order: "desc", limit: 200 })
+    expect(list).toHaveBeenNthCalledWith(2, { directory: "/tmp/wanta-agent/workspace", cursor: "page-2", limit: 200 })
+  })
+
+  it("aborts the backend session in the active workspace", async () => {
+    const abort = vi.fn(async () => ({ data: true }))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown; workspaceDir: string }).sidecar = {
+      client: { session: { abort } },
+    }
+    ;(manager as unknown as { workspaceDir: string }).workspaceDir = "/tmp/wanta-agent/workspace"
+
+    await manager.abort("session-1")
+
+    expect(abort).toHaveBeenCalledWith({ sessionID: "session-1", directory: "/tmp/wanta-agent/workspace" })
+  })
+
   it("frames connected providers as authorization awareness only", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {

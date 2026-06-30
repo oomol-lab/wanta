@@ -14,34 +14,25 @@ export function appendWantaPromptContext(text: string, context: string | undefin
 
 export function stripWantaPromptContext(text: string): string {
   let remaining = text
-  let cleaned = ""
-  while (remaining.length > 0) {
-    const tagStart = remaining.indexOf(wantaPromptContextTag)
+  while (remaining.trimEnd().endsWith(wantaPromptContextEnd)) {
+    const trimmedEnd = remaining.trimEnd()
+    const tagStart = trimmedEnd.lastIndexOf(wantaPromptContextTag)
     if (tagStart === -1) {
-      cleaned += remaining
       break
     }
-    const tagEnd = remaining.indexOf(">", tagStart)
+    const tagEnd = trimmedEnd.indexOf(">", tagStart)
     if (tagEnd === -1) {
-      cleaned += remaining.slice(0, tagStart).trimEnd()
       break
     }
-    const openingTag = remaining.slice(tagStart, tagEnd + 1)
+    const openingTag = trimmedEnd.slice(tagStart, tagEnd + 1)
     if (!openingTag.includes(wantaPromptContextVisibility)) {
-      cleaned += remaining.slice(0, tagEnd + 1)
-      remaining = remaining.slice(tagEnd + 1)
-      continue
-    }
-    cleaned += remaining.slice(0, tagStart).trimEnd()
-    const blockEnd = remaining.indexOf(wantaPromptContextEnd, tagEnd + 1)
-    if (blockEnd === -1) {
       break
     }
-    const afterStart = blockEnd + wantaPromptContextEnd.length
-    const beforeNext = cleaned.trimEnd()
-    const after = remaining.slice(afterStart).trimStart()
-    cleaned = beforeNext
-    remaining = after ? (beforeNext ? `\n\n${after}` : after) : ""
+    const blockEnd = trimmedEnd.indexOf(wantaPromptContextEnd, tagEnd + 1)
+    if (blockEnd === -1 || blockEnd + wantaPromptContextEnd.length !== trimmedEnd.length) {
+      break
+    }
+    remaining = trimmedEnd.slice(0, tagStart).trimEnd()
   }
-  return cleaned
+  return remaining
 }

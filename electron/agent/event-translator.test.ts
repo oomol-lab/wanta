@@ -468,6 +468,26 @@ test("normalizeMessage marks directory attachments from inode mime", () => {
   ])
 })
 
+test("normalizeMessage decodes file URL attachment paths", () => {
+  const message = normalizeMessage({
+    id: "m1",
+    type: "user",
+    time: { created: 1 },
+    text: "",
+    files: [
+      {
+        uri: "file:///Users/me/project%20files/report.txt",
+        name: "report.txt",
+        mime: "text/plain",
+      },
+    ],
+  })
+
+  const part = message?.parts[0]
+  assert.ok(part && part.kind === "attachment")
+  assert.equal(part.attachment?.path, "/Users/me/project files/report.txt")
+})
+
 test("normalizeMessage strips hidden turn context from V2 user history", () => {
   const message = normalizeMessage({
     id: "u1",
@@ -527,6 +547,27 @@ test("normalizeMessage ignores non-chat V2 message history entries", () => {
   })
 
   assert.equal(message, null)
+})
+
+test("normalizeMessage ignores V2 history entries with no visible parts", () => {
+  const user = normalizeMessage({
+    id: "u1",
+    type: "user",
+    time: { created: 1 },
+    text: "",
+    files: [],
+  })
+  const assistant = normalizeMessage({
+    id: "a1",
+    type: "assistant",
+    time: { created: 2 },
+    agent: "build",
+    model: { id: "oopilot", providerID: "oomol" },
+    content: [],
+  })
+
+  assert.equal(user, null)
+  assert.equal(assistant, null)
 })
 
 test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in order", () => {

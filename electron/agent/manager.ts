@@ -113,6 +113,7 @@ const sessionTitleSystemPrompt = [
   'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
 ].join("\n")
 const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
+const sessionListPageSize = 200
 const sessionMessagesPageSize = 200
 const sessionMessagesMaxPages = 20
 const v2PromptExecutionUnavailableMessage =
@@ -379,11 +380,23 @@ export class AgentManager {
     if (!this.started) {
       return []
     }
-    const result = await this.client.v2.session.list({ directory: this.workspaceDir, order: "desc", limit: 200 })
-    if (result.error) {
-      throw new Error(`v2.session.list failed: ${JSON.stringify(result.error)}`)
+    const sessions: RawSession[] = []
+    let cursor: string | undefined
+    while (true) {
+      const result = await this.client.v2.session.list(
+        cursor
+          ? { directory: this.workspaceDir, cursor, limit: sessionListPageSize }
+          : { directory: this.workspaceDir, order: "desc", limit: sessionListPageSize },
+      )
+      if (result.error) {
+        throw new Error(`v2.session.list failed: ${JSON.stringify(result.error)}`)
+      }
+      sessions.push(...((result.data?.data ?? []) as RawSession[]))
+      cursor = result.data?.cursor?.next
+      if (!cursor) {
+        break
+      }
     }
-    const sessions = (result.data?.data ?? []) as RawSession[]
     return sessions
       .filter(isUserVisibleSession)
       .map(toSessionInfo)
@@ -588,9 +601,13 @@ export class AgentManager {
   }
 
   public async abort(sessionId: string): Promise<void> {
-    void sessionId
-    // OpenCode V2 stable session API 当前未暴露 abort 端点。
-    // ChatService 会本地停止订阅并标记未完成工具。
+    const result = await this.client.session.abort({
+      sessionID: sessionId,
+      ...(this.workspaceDir ? { directory: this.workspaceDir } : {}),
+    })
+    if (result.error) {
+      throw new Error(`session.abort failed: ${JSON.stringify(result.error)}`)
+    }
   }
 
   public async createArtifactDir(sessionId: string): Promise<string> {

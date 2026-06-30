@@ -14,7 +14,7 @@ test("stripWantaPromptContext tolerates missing leading newlines", () => {
   assert.equal(stripWantaPromptContext(text), "你好")
 })
 
-test("stripWantaPromptContext preserves visible text after the hidden block", () => {
+test("stripWantaPromptContext preserves non-trailing hidden blocks", () => {
   const text = [
     "before",
     '<wanta_turn_context visibility="hidden_from_ui">',
@@ -23,5 +23,11 @@ test("stripWantaPromptContext preserves visible text after the hidden block", ()
     "after",
   ].join("\n")
 
-  assert.equal(stripWantaPromptContext(text), "before\n\nafter")
+  assert.equal(stripWantaPromptContext(text), text)
+})
+
+test("stripWantaPromptContext strips trailing hidden blocks with trailing whitespace", () => {
+  const text = `${appendWantaPromptContext("before", "first")}\n\n`
+
+  assert.equal(stripWantaPromptContext(text), "before")
 })

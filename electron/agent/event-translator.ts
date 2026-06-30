@@ -23,6 +23,7 @@ import type {
   ToolTextContent,
 } from "@opencode-ai/sdk/v2/client"
 
+import { fileURLToPath } from "node:url"
 import { parseAuthorizationSignal } from "../chat/authorization-signal.ts"
 import { stripWantaPromptContext } from "./prompt-context.ts"
 
@@ -665,7 +666,7 @@ function attachmentPath(part: OpencodePart): string {
   }
   if (part.url?.startsWith("file://")) {
     try {
-      return decodeURIComponent(new URL(part.url).pathname)
+      return fileURLToPath(part.url)
     } catch {
       return part.url
     }
@@ -802,7 +803,7 @@ export function normalizeMessage(message: SessionMessage): ChatMessage | null {
         parts.push(part)
       }
     }
-    return { id: message.id, role: "user", parts, createdAt: message.time.created ?? 0 }
+    return parts.length > 0 ? { id: message.id, role: "user", parts, createdAt: message.time.created ?? 0 } : null
   }
   if (message.type !== "assistant") {
     return null
@@ -825,6 +826,9 @@ export function normalizeMessage(message: SessionMessage): ChatMessage | null {
     parts.push(error)
   }
   const tokenUsage = messageTokenUsage(message)
+  if (parts.length === 0) {
+    return null
+  }
   return {
     id: message.id,
     role: "assistant",
@@ -860,7 +864,7 @@ function attachmentUriPath(uri: string | undefined): string {
   }
   if (uri.startsWith("file://")) {
     try {
-      return decodeURIComponent(new URL(uri).pathname)
+      return fileURLToPath(uri)
     } catch {
       return uri
     }

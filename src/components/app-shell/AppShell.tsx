@@ -304,6 +304,10 @@ function sessionScopeKey(scope: SessionScope | null): string {
   return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
 }
 
+function sessionMatchesSidebarSegment(session: SessionInfo, sidebarSegment: SidebarSegment): boolean {
+  return sidebarSegment === "projects" ? Boolean(session.projectId) : !session.projectId
+}
+
 function projectContextFromProject(
   project: SessionProject | undefined,
   gitState?: GitRepositoryState | null,
@@ -2008,12 +2012,15 @@ export function AppShell() {
     }
   }, [ready])
 
+  const hasSessionInCurrentSegment = React.useMemo(
+    () => sessions.some((session) => sessionMatchesSidebarSegment(session, sidebarSegment)),
+    [sessions, sidebarSegment],
+  )
+
   // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
   React.useLayoutEffect(() => {
     if (sessionsLoaded && !isDraftSession && !activeSessionId) {
-      const defaultSession = sessions.find((session) =>
-        sidebarSegment === "projects" ? Boolean(session.projectId) : !session.projectId,
-      )
+      const defaultSession = sessions.find((session) => sessionMatchesSidebarSegment(session, sidebarSegment))
       if (defaultSession) {
         setActiveSessionId(defaultSession.id)
       }
@@ -2048,7 +2055,7 @@ export function AppShell() {
     if (!active) {
       return
     }
-    const activeMatchesSegment = sidebarSegment === "projects" ? Boolean(active.projectId) : !active.projectId
+    const activeMatchesSegment = sessionMatchesSidebarSegment(active, sidebarSegment)
     if (activeMatchesSegment) {
       return
     }
@@ -2056,7 +2063,7 @@ export function AppShell() {
       if (session.archivedAt) {
         return false
       }
-      return sidebarSegment === "projects" ? Boolean(session.projectId) : !session.projectId
+      return sessionMatchesSidebarSegment(session, sidebarSegment)
     })
     setActiveSessionId(nextSession?.id ?? null)
     setIsDraftSession(false)
@@ -2158,7 +2165,8 @@ export function AppShell() {
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
-  const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
+  const needsDefaultSessionSelection =
+    sessionsLoaded && !isDraftSession && !activeSessionId && hasSessionInCurrentSegment
   const startupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
   const hasVisibleLoadedSession = Boolean(activeSessionId && messagesLoaded)

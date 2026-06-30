@@ -15,17 +15,11 @@ import type {
   ToolCallStartedEvent,
   ToolStatus,
 } from "../chat/common.ts"
-import type {
-  PromptFileAttachment,
-  SessionMessage,
-  SessionMessageAssistantTool,
-  ToolFileContent,
-  ToolTextContent,
-} from "@opencode-ai/sdk/v2/client"
 
-import { fileURLToPath } from "node:url"
 import { parseAuthorizationSignal } from "../chat/authorization-signal.ts"
-import { stripWantaPromptContext } from "./prompt-context.ts"
+
+// OpenCode SSE 事件经此翻译为 ChatService ServerEvents。无状态：每个 OpenCode 事件
+// 直接映射为 0..n 个 {event, data}，node.ts 据此 this.send(event, data)。
 
 export type ChatEmit =
   | { event: "messageStarted"; data: MessageStartedEvent }
@@ -41,14 +35,11 @@ export type ChatEmit =
 
 interface OpencodeEvent {
   type: string
-  data?: Record<string, unknown>
   properties?: Record<string, unknown>
 }
 
 interface OpencodeError {
   name?: string
-  type?: string
-  message?: string
   data?: {
     message?: string
     statusCode?: number
@@ -56,69 +47,12 @@ interface OpencodeError {
   }
 }
 
-interface ToolCallSnapshot {
-  input: Record<string, unknown>
-  metadata?: Record<string, unknown>
-  tool: string
-}
-
-interface PendingToolInput {
-  raw: string
-  tool: string
-}
-
-const toolPartPrefix = "tool-"
-const activeToolCalls = new Map<string, ToolCallSnapshot>()
-const pendingToolInputs = new Map<string, PendingToolInput>()
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
-
-function eventPayload(event: OpencodeEvent): Record<string, unknown> {
-  if (isRecord(event.data)) {
-    return event.data
-  }
-  if (isRecord(event.properties)) {
-    return event.properties
-  }
-  return {}
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined
-}
-
-function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
-}
-
-function parseJsonObject(value: string | undefined): Record<string, unknown> | null {
-  if (!value) {
-    return null
-  }
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return isRecord(parsed) ? parsed : null
-  } catch {
-    return null
-  }
-}
-
-function visibleText(text: string): string {
-  return stripWantaPromptContext(text)
-}
-
-function toolKey(sessionId: string, messageId: string, callId: string): string {
-  return `${sessionId}\0${messageId}\0${callId}`
-}
-
-function toolPartId(callId: string): string {
-  return `${toolPartPrefix}${callId}`
-}
-
 function isOpencodeError(value: unknown): value is OpencodeError {
-  return isRecord(value) && (typeof value.name === "string" || typeof value.type === "string" || "data" in value)
+  if (!value || typeof value !== "object") {
+    return false
+  }
+  const error = value as OpencodeError
+  return typeof error.name === "string" || Boolean(error.data && typeof error.data === "object")
 }
 
 function isMessageAbortedError(error: unknown): boolean {
@@ -141,33 +75,34 @@ function errorMessage(error: unknown): string {
   if (!isOpencodeError(error)) {
     return "Agent error"
   }
-  return error.message ?? error.data?.message ?? error.name ?? error.type ?? "Agent error"
+  return error.data?.message ?? error.name ?? "Agent error"
 }
 
 function messageErrorPart(error: unknown): ChatMessagePart | undefined {
   if (!isOpencodeError(error) || isMessageAbortedError(error)) {
     return undefined
   }
-  const name = error.name ?? error.type ?? "unknown"
+  const message = errorMessage(error)
   return {
     kind: "error",
-    partId: `message-error-${name}`,
-    errorText: errorMessage(error),
+    partId: `message-error-${error.name ?? "unknown"}`,
+    errorText: message,
   }
 }
 
 export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
-  const props = eventPayload(event)
+  const props = event.properties ?? {}
   switch (event.type) {
     case "message.updated": {
       const info = props.info as { id?: string; sessionID?: string; role?: ChatRole; error?: unknown } | undefined
-      const sessionId = asString(props.sessionID) ?? info?.sessionID
-      if (!info?.id || !sessionId || !info.role) {
+      if (!info?.id || !info.sessionID || !info.role) {
         return []
       }
-      const emits: ChatEmit[] = [{ event: "messageStarted", data: { sessionId, messageId: info.id, role: info.role } }]
+      const emits: ChatEmit[] = [
+        { event: "messageStarted", data: { sessionId: info.sessionID, messageId: info.id, role: info.role } },
+      ]
       if (info.role === "assistant" && isOpencodeError(info.error) && !isMessageAbortedError(info.error)) {
-        emits.push({ event: "agentError", data: { sessionId, message: errorMessage(info.error) } })
+        emits.push({ event: "agentError", data: { sessionId: info.sessionID, message: errorMessage(info.error) } })
       }
       return emits
     }
@@ -176,323 +111,58 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
       if (!part) {
         return []
       }
-      return translatePart(part, asString(props.delta))
+      return translatePart(part, typeof props.delta === "string" ? props.delta : undefined)
     }
     case "message.part.removed": {
-      const sessionId = asString(props.sessionID)
-      const messageId = asString(props.messageID)
-      const partId = asString(props.partID)
-      if (!sessionId || !messageId || !partId) {
+      const p = props as { sessionID?: string; messageID?: string; partID?: string }
+      if (!p.sessionID || !p.messageID || !p.partID) {
         return []
       }
-      return [{ event: "messagePartRemoved", data: { sessionId, messageId, partId } }]
-    }
-    case "session.next.step.started": {
-      const sessionId = asString(props.sessionID)
-      const messageId = asString(props.assistantMessageID)
-      if (!sessionId || !messageId) {
-        return []
-      }
-      return [
-        { event: "messageStarted", data: { sessionId, messageId, role: "assistant" } },
-        { event: "assistantActivity", data: { sessionId, messageId, phase: "thinking" } },
-      ]
-    }
-    case "session.next.step.ended": {
-      const sessionId = asString(props.sessionID)
-      const messageId = asString(props.assistantMessageID)
-      if (!sessionId || !messageId) {
-        return []
-      }
-      return [{ event: "assistantActivity", data: { sessionId, messageId, phase: "finalizing" } }]
-    }
-    case "session.next.step.failed": {
-      const sessionId = asString(props.sessionID)
-      const messageId = asString(props.assistantMessageID)
-      return [
-        ...(sessionId && messageId
-          ? ([{ event: "messageStarted", data: { sessionId, messageId, role: "assistant" } }] as ChatEmit[])
-          : []),
-        { event: "agentError", data: { sessionId, message: errorMessage(props.error) } },
-      ]
-    }
-    case "session.next.text.delta": {
-      const data = textDeltaData(props, false)
-      return data ? [{ event: "messageDelta", data }] : []
-    }
-    case "session.next.text.ended": {
-      const data = textDeltaData(props, true)
-      return data ? [{ event: "messageDelta", data }] : []
-    }
-    case "session.next.reasoning.delta": {
-      const data = reasoningDeltaData(props, false)
-      return data ? [{ event: "messageReasoningDelta", data }] : []
-    }
-    case "session.next.reasoning.ended": {
-      const data = reasoningDeltaData(props, true)
-      return data ? [{ event: "messageReasoningDelta", data }] : []
-    }
-    case "session.next.tool.input.started":
-      return translateToolInputStarted(props)
-    case "session.next.tool.input.delta":
-      return translateToolInputDelta(props)
-    case "session.next.tool.input.ended":
-      return translateToolInputEnded(props)
-    case "session.next.tool.called":
-      return translateToolCalled(props)
-    case "session.next.tool.progress":
-      return translateToolProgress(props)
-    case "session.next.tool.success":
-      return translateToolSuccess(props)
-    case "session.next.tool.failed":
-      return translateToolFailed(props)
-    case "session.next.retried": {
-      const sessionId = asString(props.sessionID)
-      if (!sessionId) {
-        return []
-      }
-      const error = props.error as { message?: string } | undefined
       return [
         {
-          event: "assistantActivity",
-          data: {
-            sessionId,
-            phase: "retrying",
-            message: error?.message,
-            attempt: asNumber(props.attempt),
-          },
+          event: "messagePartRemoved",
+          data: { sessionId: p.sessionID, messageId: p.messageID, partId: p.partID },
         },
       ]
     }
     case "session.status": {
-      const sessionId = asString(props.sessionID)
-      const status = props.status as { type?: string; attempt?: number; message?: string; next?: number } | undefined
-      if (!sessionId || status?.type !== "retry") {
+      const p = props as {
+        sessionID?: string
+        status?: { type?: string; attempt?: number; message?: string; next?: number }
+      }
+      if (!p.sessionID || p.status?.type !== "retry") {
         return []
       }
       return [
         {
           event: "assistantActivity",
           data: {
-            sessionId,
+            sessionId: p.sessionID,
             phase: "retrying",
-            message: status.message,
-            attempt: status.attempt,
-            nextRetryAt: status.next,
+            message: p.status.message,
+            attempt: p.status.attempt,
+            nextRetryAt: p.status.next,
           },
         },
       ]
     }
     case "session.idle": {
-      const sessionId = asString(props.sessionID)
-      if (!sessionId) {
+      const sessionID = (props as { sessionID?: string }).sessionID
+      if (!sessionID) {
         return []
       }
-      return [{ event: "messageCompleted", data: { sessionId } }]
+      return [{ event: "messageCompleted", data: { sessionId: sessionID } }]
     }
     case "session.error": {
-      if (isMessageAbortedError(props.error)) {
+      const p = props as { sessionID?: string; error?: unknown }
+      if (isMessageAbortedError(p.error)) {
         return []
       }
-      return [
-        { event: "agentError", data: { sessionId: asString(props.sessionID), message: errorMessage(props.error) } },
-      ]
+      return [{ event: "agentError", data: { sessionId: p.sessionID, message: errorMessage(p.error) } }]
     }
     default:
       return []
   }
-}
-
-function textDeltaData(props: Record<string, unknown>, ended: boolean): MessageDeltaEvent | null {
-  const sessionId = asString(props.sessionID)
-  const messageId = asString(props.assistantMessageID)
-  const partId = asString(props.textID)
-  if (!sessionId || !messageId || !partId) {
-    return null
-  }
-  if (ended) {
-    return { sessionId, messageId, partId, text: visibleText(asString(props.text) ?? "") }
-  }
-  return { sessionId, messageId, partId, text: "", delta: visibleText(asString(props.delta) ?? "") }
-}
-
-function reasoningDeltaData(props: Record<string, unknown>, ended: boolean): MessageReasoningDeltaEvent | null {
-  const sessionId = asString(props.sessionID)
-  const messageId = asString(props.assistantMessageID)
-  const partId = asString(props.reasoningID)
-  if (!sessionId || !messageId || !partId) {
-    return null
-  }
-  if (ended) {
-    return { sessionId, messageId, partId, text: asString(props.text) ?? "" }
-  }
-  return { sessionId, messageId, partId, text: "", delta: asString(props.delta) ?? "" }
-}
-
-function baseToolEvent(props: Record<string, unknown>) {
-  const sessionId = asString(props.sessionID)
-  const messageId = asString(props.assistantMessageID)
-  const callId = asString(props.callID)
-  if (!sessionId || !messageId || !callId) {
-    return null
-  }
-  return { sessionId, messageId, callId, partId: toolPartId(callId) }
-}
-
-function translateToolInputStarted(props: Record<string, unknown>): ChatEmit[] {
-  const base = baseToolEvent(props)
-  const tool = asString(props.name)
-  if (!base || !tool) {
-    return []
-  }
-  pendingToolInputs.set(toolKey(base.sessionId, base.messageId, base.callId), { raw: "", tool })
-  return [{ event: "toolCallStarted", data: { ...base, tool, input: {}, status: "pending" } }]
-}
-
-function translateToolInputDelta(props: Record<string, unknown>): ChatEmit[] {
-  const base = baseToolEvent(props)
-  if (!base) {
-    return []
-  }
-  const key = toolKey(base.sessionId, base.messageId, base.callId)
-  const current = pendingToolInputs.get(key)
-  if (!current) {
-    return []
-  }
-  const next = { ...current, raw: current.raw + (asString(props.delta) ?? "") }
-  pendingToolInputs.set(key, next)
-  return [
-    {
-      event: "toolCallStarted",
-      data: { ...base, tool: next.tool, input: parseJsonObject(next.raw) ?? {}, status: "pending" },
-    },
-  ]
-}
-
-function translateToolInputEnded(props: Record<string, unknown>): ChatEmit[] {
-  const base = baseToolEvent(props)
-  if (!base) {
-    return []
-  }
-  const key = toolKey(base.sessionId, base.messageId, base.callId)
-  const current = pendingToolInputs.get(key)
-  if (!current) {
-    return []
-  }
-  const raw = asString(props.text) ?? current.raw
-  pendingToolInputs.set(key, { ...current, raw })
-  return [
-    {
-      event: "toolCallStarted",
-      data: { ...base, tool: current.tool, input: parseJsonObject(raw) ?? {}, status: "pending" },
-    },
-  ]
-}
-
-function translateToolCalled(props: Record<string, unknown>): ChatEmit[] {
-  const base = baseToolEvent(props)
-  const tool = asString(props.tool)
-  if (!base || !tool) {
-    return []
-  }
-  const input = isRecord(props.input) ? props.input : {}
-  const metadata = providerMetadata(props.provider)
-  activeToolCalls.set(toolKey(base.sessionId, base.messageId, base.callId), { input, metadata, tool })
-  pendingToolInputs.delete(toolKey(base.sessionId, base.messageId, base.callId))
-  return [
-    {
-      event: "toolCallStarted",
-      data: {
-        ...base,
-        tool,
-        status: "running",
-        ...toolContext({
-          status: "running",
-          input,
-          metadata,
-          time: { start: asNumber(props.timestamp) ?? Date.now() },
-        }),
-      },
-    },
-  ]
-}
-
-function translateToolProgress(props: Record<string, unknown>): ChatEmit[] {
-  const base = baseToolEvent(props)
-  if (!base) {
-    return []
-  }
-  const snapshot = activeToolCalls.get(toolKey(base.sessionId, base.messageId, base.callId))
-  if (!snapshot) {
-    return []
-  }
-  return [
-    {
-      event: "toolCallStarted",
-      data: {
-        ...base,
-        tool: snapshot.tool,
-        input: snapshot.input,
-        status: "running",
-        ...(snapshot.metadata ? { metadata: snapshot.metadata } : {}),
-      },
-    },
-  ]
-}
-
-function translateToolSuccess(props: Record<string, unknown>): ChatEmit[] {
-  const base = baseToolEvent(props)
-  if (!base) {
-    return []
-  }
-  const key = toolKey(base.sessionId, base.messageId, base.callId)
-  const snapshot = activeToolCalls.get(key)
-  activeToolCalls.delete(key)
-  pendingToolInputs.delete(key)
-  const tool = snapshot?.tool ?? "tool"
-  const output = toolOutput(props.content, props.result, props.structured)
-  const auth = parseToolAuthorization(tool, output)
-  return [
-    {
-      event: "toolCallResult",
-      data: {
-        ...base,
-        tool,
-        input: snapshot?.input ?? {},
-        status: "completed",
-        output,
-        ...(snapshot?.metadata ? { metadata: snapshot.metadata } : {}),
-        ...(toolAttachmentsCount(props.content, props.outputPaths)
-          ? { attachmentsCount: toolAttachmentsCount(props.content, props.outputPaths) }
-          : {}),
-        ...(auth ? { authorization: auth } : {}),
-      },
-    },
-  ]
-}
-
-function translateToolFailed(props: Record<string, unknown>): ChatEmit[] {
-  const base = baseToolEvent(props)
-  if (!base) {
-    return []
-  }
-  const key = toolKey(base.sessionId, base.messageId, base.callId)
-  const snapshot = activeToolCalls.get(key)
-  activeToolCalls.delete(key)
-  pendingToolInputs.delete(key)
-  return [
-    {
-      event: "toolCallResult",
-      data: {
-        ...base,
-        tool: snapshot?.tool ?? "tool",
-        input: snapshot?.input ?? {},
-        status: "error",
-        error: errorMessage(props.error),
-        ...(snapshot?.metadata ? { metadata: snapshot.metadata } : {}),
-      },
-    },
-  ]
 }
 
 interface OpencodePart {
@@ -547,7 +217,10 @@ function toolContext(state: NonNullable<OpencodePart["state"]>) {
 function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
   if (part.type === "step-start") {
     return [
-      { event: "assistantActivity", data: { sessionId: part.sessionID, messageId: part.messageID, phase: "thinking" } },
+      {
+        event: "assistantActivity",
+        data: { sessionId: part.sessionID, messageId: part.messageID, phase: "thinking" },
+      },
     ]
   }
   if (part.type === "step-finish") {
@@ -573,35 +246,32 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
     ]
   }
   if (part.type === "text") {
-    const rawText = part.text ?? ""
-    const text = visibleText(rawText)
-    const cleanedDelta = delta === undefined ? undefined : visibleText(delta)
+    const data: MessageDeltaEvent = {
+      sessionId: part.sessionID,
+      messageId: part.messageID,
+      partId: part.id,
+      text: part.text ?? "",
+      ...(delta === undefined ? {} : { delta }),
+    }
     return [
       {
         event: "messageDelta",
-        data: {
-          sessionId: part.sessionID,
-          messageId: part.messageID,
-          partId: part.id,
-          text,
-          ...(cleanedDelta === undefined || cleanedDelta.length === 0 || text !== rawText
-            ? {}
-            : { delta: cleanedDelta }),
-        },
+        data,
       },
     ]
   }
   if (part.type === "reasoning") {
+    const data: MessageReasoningDeltaEvent = {
+      sessionId: part.sessionID,
+      messageId: part.messageID,
+      partId: part.id,
+      text: part.text ?? "",
+      ...(delta === undefined ? {} : { delta }),
+    }
     return [
       {
         event: "messageReasoningDelta",
-        data: {
-          sessionId: part.sessionID,
-          messageId: part.messageID,
-          partId: part.id,
-          text: part.text ?? "",
-          ...(delta === undefined ? {} : { delta }),
-        },
+        data,
       },
     ]
   }
@@ -666,7 +336,7 @@ function attachmentPath(part: OpencodePart): string {
   }
   if (part.url?.startsWith("file://")) {
     try {
-      return fileURLToPath(part.url)
+      return decodeURIComponent(new URL(part.url).pathname)
     } catch {
       return part.url
     }
@@ -699,12 +369,8 @@ function numberOrZero(value: unknown): number {
 }
 
 function messageTokenUsage(info: unknown): ChatTokenUsage | undefined {
-  const message = info as { role?: ChatRole; tokens?: unknown; type?: string } | undefined
-  if (
-    (message?.role !== "assistant" && message?.type !== "assistant") ||
-    !message.tokens ||
-    typeof message.tokens !== "object"
-  ) {
+  const message = info as { role?: ChatRole; tokens?: unknown } | undefined
+  if (message?.role !== "assistant" || !message.tokens || typeof message.tokens !== "object") {
     return undefined
   }
   const tokens = message.tokens as {
@@ -724,7 +390,8 @@ function messageTokenUsage(info: unknown): ChatTokenUsage | undefined {
   }
 }
 
-export function normalizeSyncMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
+/** 把 OpenCode 的 message {info, parts} 规范化为 ChatMessage（切换会话加载历史用）。 */
+export function normalizeMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
   const info = message.info as
     | { id?: string; role?: ChatRole; time?: { created?: number }; error?: unknown }
     | undefined
@@ -735,7 +402,7 @@ export function normalizeSyncMessage(message: { info?: unknown; parts?: unknown 
   const parts: ChatMessagePart[] = []
   for (const part of rawParts) {
     if (part.type === "text") {
-      const text = visibleText(part.text ?? "")
+      const text = part.text ?? ""
       if (text.length > 0) {
         parts.push({ kind: "text", partId: part.id, text })
       }
@@ -788,193 +455,4 @@ export function normalizeSyncMessage(message: { info?: unknown; parts?: unknown 
     createdAt: info.time?.created ?? 0,
     ...(tokenUsage ? { tokenUsage } : {}),
   }
-}
-
-export function normalizeMessage(message: SessionMessage): ChatMessage | null {
-  if (message.type === "user") {
-    const parts: ChatMessagePart[] = []
-    const text = visibleText(message.text)
-    if (text) {
-      parts.push({ kind: "text", partId: `${message.id}-text`, text })
-    }
-    for (const [index, file] of (message.files ?? []).entries()) {
-      const part = promptFilePart(file, `${message.id}-file-${index}`)
-      if (part.attachment) {
-        parts.push(part)
-      }
-    }
-    return parts.length > 0 ? { id: message.id, role: "user", parts, createdAt: message.time.created ?? 0 } : null
-  }
-  if (message.type !== "assistant") {
-    return null
-  }
-  const parts: ChatMessagePart[] = []
-  for (const part of message.content) {
-    if (part.type === "text" && part.text) {
-      const text = visibleText(part.text)
-      if (text) {
-        parts.push({ kind: "text", partId: part.id, text })
-      }
-    } else if (part.type === "reasoning" && part.text) {
-      parts.push({ kind: "reasoning", partId: part.id, text: part.text })
-    } else if (part.type === "tool") {
-      parts.push(projectedToolPart(part))
-    }
-  }
-  const error = messageErrorPart(message.error)
-  if (error) {
-    parts.push(error)
-  }
-  const tokenUsage = messageTokenUsage(message)
-  if (parts.length === 0) {
-    return null
-  }
-  return {
-    id: message.id,
-    role: "assistant",
-    parts,
-    createdAt: message.time.created ?? 0,
-    ...(tokenUsage ? { tokenUsage } : {}),
-  }
-}
-
-function promptFilePart(file: PromptFileAttachment, partId: string): ChatMessagePart {
-  const path = attachmentUriPath(file.uri)
-  if (!path) {
-    return { kind: "attachment", partId }
-  }
-  const mime = file.mime || "application/octet-stream"
-  return {
-    kind: "attachment",
-    partId,
-    attachment: {
-      id: partId,
-      name: file.name ?? path.split(/[\\/]/).pop() ?? "attachment",
-      mime,
-      size: 0,
-      path,
-      kind: mime === "inode/directory" ? "directory" : "file",
-    },
-  }
-}
-
-function attachmentUriPath(uri: string | undefined): string {
-  if (!uri) {
-    return ""
-  }
-  if (uri.startsWith("file://")) {
-    try {
-      return fileURLToPath(uri)
-    } catch {
-      return uri
-    }
-  }
-  return uri
-}
-
-function projectedToolPart(part: SessionMessageAssistantTool): ChatMessagePart {
-  const state = part.state
-  const output =
-    state.status === "completed" || state.status === "error"
-      ? toolOutput(state.content, state.result, state.structured)
-      : undefined
-  const tool: ChatMessagePart = {
-    kind: "tool",
-    partId: toolPartId(part.id),
-    callId: part.id,
-    tool: part.name,
-    status: state.status,
-    input: toolInput(state),
-    output,
-    error: state.status === "error" ? state.error.message : undefined,
-    title: toolTitle(state),
-    metadata: projectedToolMetadata(part),
-    timing: { start: part.time.ran ?? part.time.created, end: part.time.completed },
-    attachmentsCount: projectedToolAttachmentsCount(part),
-  }
-  if (state.status === "completed") {
-    const auth = parseToolAuthorization(part.name, output)
-    if (auth) {
-      tool.authorization = auth
-    }
-  }
-  return tool
-}
-
-function toolInput(state: SessionMessageAssistantTool["state"]): Record<string, unknown> {
-  if (state.status === "pending") {
-    return parseJsonObject(state.input) ?? {}
-  }
-  return state.input
-}
-
-function toolTitle(state: SessionMessageAssistantTool["state"]): string | undefined {
-  const input = toolInput(state)
-  return typeof input.description === "string" ? input.description : undefined
-}
-
-function providerMetadata(provider: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(provider)) {
-    return undefined
-  }
-  const metadata = provider.metadata
-  return isRecord(metadata) ? { provider: metadata } : undefined
-}
-
-function projectedToolMetadata(part: SessionMessageAssistantTool): Record<string, unknown> | undefined {
-  const metadata: Record<string, unknown> = {}
-  if (part.provider?.metadata) {
-    metadata.provider = part.provider.metadata
-  }
-  if ("structured" in part.state && Object.keys(part.state.structured).length > 0) {
-    metadata.structured = part.state.structured
-  }
-  return Object.keys(metadata).length > 0 ? metadata : undefined
-}
-
-function projectedToolAttachmentsCount(part: SessionMessageAssistantTool): number | undefined {
-  if (part.state.status === "pending" || part.state.status === "running") {
-    return undefined
-  }
-  const attachments = part.state.status === "completed" ? (part.state.attachments?.length ?? 0) : 0
-  return toolAttachmentsCount(
-    part.state.content,
-    part.state.status === "completed" ? part.state.outputPaths : undefined,
-    attachments,
-  )
-}
-
-function toolAttachmentsCount(content: unknown, outputPaths: unknown, base = 0): number | undefined {
-  const files = Array.isArray(content) ? content.filter((item) => isRecord(item) && item.type === "file").length : 0
-  const paths = Array.isArray(outputPaths) ? outputPaths.length : 0
-  const count = base + files + paths
-  return count > 0 ? count : undefined
-}
-
-function toolOutput(content: unknown, result: unknown, structured: unknown): string | undefined {
-  const text = toolTextContent(content)
-  if (text) {
-    return text
-  }
-  if (result !== undefined) {
-    return stringifyResult(result)
-  }
-  if (isRecord(structured) && Object.keys(structured).length > 0) {
-    return stringifyResult(structured)
-  }
-  return undefined
-}
-
-function toolTextContent(content: unknown): string | undefined {
-  if (!Array.isArray(content)) {
-    return undefined
-  }
-  const texts = (content as Array<ToolTextContent | ToolFileContent>)
-    .filter((item): item is ToolTextContent => item.type === "text" && item.text.length > 0)
-    .map((item) => item.text)
-  return texts.length > 0 ? texts.join("\n") : undefined
-}
-
-function stringifyResult(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value)
 }

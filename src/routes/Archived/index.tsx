@@ -46,7 +46,7 @@ import { cn } from "@/lib/utils"
 interface ArchivedRouteProps {
   listArchived: () => Promise<SessionInfo[]>
   onBack: () => void
-  onOpenSession: (session: SessionInfo) => void
+  onOpenSession: (sessionId: string) => void
   refreshSessions: () => Promise<void>
   removeSession: (id: string) => Promise<void>
   ready: boolean
@@ -151,7 +151,7 @@ export function ArchivedRoute({
   const handleOpen = async (session: SessionInfo): Promise<void> => {
     const restored = await runSessionAction(session.id, () => unarchiveSession(session.id))
     if (restored) {
-      onOpenSession(session)
+      onOpenSession(session.id)
     }
   }
 

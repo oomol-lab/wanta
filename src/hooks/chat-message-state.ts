@@ -361,9 +361,6 @@ export function agentAttachments(attachments: ChatAttachment[]): ChatAttachment[
 }
 
 export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
-  if (fetched.length === 0 && current.length > 0) {
-    return current
-  }
   const currentErrorPartsById = new Map(
     current.map((message) => [
       message.id,

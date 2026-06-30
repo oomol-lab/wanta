@@ -80,7 +80,6 @@ describe("applyOomolCors", () => {
       responseHeaders: {},
     })
     expect(result.responseHeaders["Access-Control-Allow-Headers"]?.[0]).toContain("x-oo-organization-name")
-    expect(result.responseHeaders["Access-Control-Allow-Headers"]?.[0]).toContain("x-oo-organization-id")
   })
 
   it("strips any server-sent CORS headers to avoid duplicate-header CORS failures", () => {

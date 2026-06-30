@@ -263,9 +263,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     if (!selectedOrganizationId) {
       return { type: "personal" }
     }
-    return selectedOrganization?.name
-      ? { type: "organization", organizationId: selectedOrganizationId, organizationName: selectedOrganization.name }
-      : null
+    return selectedOrganization?.name ? { type: "organization", organizationName: selectedOrganization.name } : null
   }, [selectedOrganization?.name, selectedOrganizationId])
 
   const selectPersonal = React.useCallback(() => {

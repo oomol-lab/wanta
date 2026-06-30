@@ -13,10 +13,10 @@ import { ooEndpoint } from "../domain.ts"
 // 这是渲染层迁移唯一需要的新主进程代码，纯头部改写、无 token 逻辑、无同步 fs（守 R1）。
 
 const allowMethods = "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-// 渲染层各域用到的非简单请求头：连接器的 x-oo-organization-* / 条件请求头、语音的 x-api-request-id、
+// 渲染层各域用到的非简单请求头：连接器的 x-oo-organization-name / 条件请求头、语音的 x-api-request-id、
 // JSON POST 的 content-type 等。预检若带 Access-Control-Request-Headers 则优先回显之。
 const defaultAllowHeaders =
-  "authorization,content-type,accept,if-none-match,if-modified-since,x-oo-organization-name,x-oo-organization-id,x-api-request-id"
+  "authorization,content-type,accept,if-none-match,if-modified-since,x-oo-organization-name,x-api-request-id"
 const maxAgeSeconds = "600"
 
 export interface OomolCorsOverrideInput {

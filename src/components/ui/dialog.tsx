@@ -10,8 +10,10 @@ export interface DialogProps {
   description?: React.ReactNode
   children: React.ReactNode
   footer?: React.ReactNode
+  ariaLabel?: string
   closeLabel?: string
   className?: string
+  titleId?: string
 }
 
 function getFocusableElements(container: HTMLElement): HTMLElement[] {
@@ -45,9 +47,22 @@ function isPortalKeyboardOwner(target: EventTarget | null): boolean {
 }
 
 /** 轻量模态：portal + 遮罩 + Esc 关闭 + 焦点循环 / 恢复。无 Radix 依赖。 */
-export function Dialog({ open, onClose, title, description, children, footer, closeLabel, className }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  ariaLabel,
+  closeLabel,
+  className,
+  titleId: titleIdProp,
+}: DialogProps) {
   const panelRef = React.useRef<HTMLDivElement>(null)
   const onCloseRef = React.useRef(onClose)
+  const generatedTitleId = React.useId()
+  const titleId = titleIdProp ?? generatedTitleId
 
   React.useEffect(() => {
     onCloseRef.current = onClose
@@ -137,6 +152,8 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabel ? undefined : titleId}
         className={cn(
           "oo-modal-surface flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg border text-popover-foreground outline-none",
           className,
@@ -144,7 +161,13 @@ export function Dialog({ open, onClose, title, description, children, footer, cl
       >
         <div className="oo-border-divider flex items-start justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
-            <h2 className="oo-text-dialog-title truncate">{title}</h2>
+            {typeof title === "string" ? (
+              <h2 id={titleId} className="oo-text-dialog-title truncate">
+                {title}
+              </h2>
+            ) : (
+              <div id={titleId}>{title}</div>
+            )}
             {description && <p className="oo-text-caption mt-0.5">{description}</p>}
           </div>
           <button

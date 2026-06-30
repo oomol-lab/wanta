@@ -1,4 +1,6 @@
+import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup, PublicSkillPackage, SkillVersionReport } from "../../../electron/skills/common.ts"
+import type { ProviderSkillRecommendation } from "./provider-skill-recommendations.ts"
 import type {
   DiscoverSkillFilter,
   InstalledSkillFilter,
@@ -17,6 +19,11 @@ import type { TranslateFn as TFunction } from "@/i18n"
 import { LockKeyholeIcon, PackageOpenIcon, ShieldCheckIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { useProviderSkillPackageLookup } from "./provider-skill-package-lookup.ts"
+import {
+  buildProviderSkillRecommendations,
+  getInstallableProviderSkillRecommendations,
+} from "./provider-skill-recommendations.ts"
 import {
   canInstallPublicSkill,
   formatPublicPackageUpdateTime,
@@ -84,6 +91,7 @@ import { useAppI18n } from "@/i18n"
 import { listMyPublishedSkillPackages, listPublicSkillPackages } from "@/lib/skills-catalog-client"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
+import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 function SkillErrorNotice({ className, error }: { className?: string; error: string | null | undefined }) {
   if (!error) {
@@ -126,6 +134,7 @@ const skillUpdateActionBadgeClassName = cn(
 )
 const skillDocumentToggleItemClassName =
   "data-[state=off]:bg-muted/60 data-[state=off]:text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground"
+const providerSkillRecommendationPreviewLimit = 3
 
 function SkillUpdateBadge({ label }: { label: string }) {
   return (
@@ -194,10 +203,12 @@ function useDesktopDetailHeadingFocus<T extends HTMLElement>(dependency: string)
 }
 
 export function SkillsRoute({
+  connectedProviders,
   focusRequest,
   organizationSkills,
   workspace,
 }: {
+  connectedProviders: ConnectionProvider[]
   focusRequest?: { nonce: number; tab: SkillPageTab } | null
   organizationSkills: UseOrganizationSkills
   workspace: UseOrganizationWorkspace
@@ -212,6 +223,20 @@ export function SkillsRoute({
   const installedSkillGroupById = React.useMemo<ManagedSkillGroupById>(() => {
     return new Map((inventory?.groups ?? []).map((group) => [group.id, group]))
   }, [inventory?.groups])
+  const providerSkillPackageLookup = useProviderSkillPackageLookup(connectedProviders)
+  const providerSkillRecommendations = React.useMemo(
+    () =>
+      buildProviderSkillRecommendations({
+        groupById: installedSkillGroupById,
+        packagesByService: providerSkillPackageLookup.packagesByService,
+        providers: connectedProviders,
+      }),
+    [connectedProviders, installedSkillGroupById, providerSkillPackageLookup.packagesByService],
+  )
+  const installableProviderSkillRecommendations = React.useMemo(
+    () => getInstallableProviderSkillRecommendations(providerSkillRecommendations),
+    [providerSkillRecommendations],
+  )
   const versionCheckByKey = React.useMemo<SkillVersionCheckByKey>(() => {
     return new Map(
       (versionResource.data?.skills ?? []).map((check) => [
@@ -242,6 +267,7 @@ export function SkillsRoute({
   const [publishingSkillId, setPublishingSkillId] = React.useState<string | null>(null)
   const [updatingRegistrySkillId, setUpdatingRegistrySkillId] = React.useState<string | null>(null)
   const [isExecutingCliUpdate, setIsExecutingCliUpdate] = React.useState(false)
+  const [isInstallingProviderRecommendations, setIsInstallingProviderRecommendations] = React.useState(false)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const publishSkillInFlightRef = React.useRef(false)
   const updateRegistryInFlightRef = React.useRef(false)
@@ -489,6 +515,49 @@ export function SkillsRoute({
     [homeSummaryResource, inventoryResource, skillService, t, versionResource],
   )
 
+  const installProviderSkillRecommendations = React.useCallback(
+    async (recommendations: readonly ProviderSkillRecommendation[]) => {
+      const installableRecommendations = getInstallableProviderSkillRecommendations(recommendations)
+      if (installRegistryInFlightRef.current || installableRecommendations.length === 0) {
+        return
+      }
+
+      installRegistryInFlightRef.current = true
+      setIsInstallingProviderRecommendations(true)
+
+      try {
+        let nextInventory = inventoryResource.data
+        let installedCount = 0
+        for (const recommendation of installableRecommendations) {
+          setInstallingRegistryResultId(getPublicSkillInstallKey(recommendation.package, recommendation.skillId))
+          nextInventory = await skillService.invoke("installRegistrySkill", {
+            packageName: recommendation.packageName,
+            skillId: recommendation.skillId,
+          })
+          installedCount += 1
+          inventoryResource.setData(nextInventory)
+        }
+        if (nextInventory) {
+          inventoryResource.setData(nextInventory)
+        } else {
+          await inventoryResource.refresh({ forceRefresh: true, silent: true })
+        }
+        homeSummaryResource.invalidate()
+        versionResource.invalidate()
+        toast.success(t("skills.providerRecommendationsInstallDone", { count: installedCount }))
+      } catch (cause) {
+        homeSummaryResource.invalidate()
+        versionResource.invalidate()
+        toast.error(t("skills.providerRecommendationsInstallFailed", { error: skillErrorMessage(cause, t) }))
+      } finally {
+        installRegistryInFlightRef.current = false
+        setInstallingRegistryResultId(null)
+        setIsInstallingProviderRecommendations(false)
+      }
+    },
+    [homeSummaryResource, inventoryResource, skillService, t, versionResource],
+  )
+
   const updateRegistrySkill = React.useCallback(
     async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
       if (updateRegistryInFlightRef.current) {
@@ -640,11 +709,22 @@ export function SkillsRoute({
         {activeTab === "organization" ? (
           <OrganizationSkillsPane
             groupById={installedSkillGroupById}
+            installingProviderRecommendationKey={installingRegistryResultId}
+            isInstallingProviderRecommendations={isInstallingProviderRecommendations}
             organizationSkills={organizationSkills}
+            providerRecommendationError={providerSkillPackageLookup.error}
+            providerRecommendations={installableProviderSkillRecommendations}
+            providerRecommendationsLoading={providerSkillPackageLookup.isLoading}
             query={organizationQuery}
             skills={filteredOrganizationSkills}
             workspace={workspace}
             onAdd={() => setOrganizationAddOpen(true)}
+            onInstallProviderRecommendation={(recommendation) =>
+              void installPublicSkill(recommendation.package, recommendation.skillId)
+            }
+            onInstallProviderRecommendations={(recommendations) =>
+              void installProviderSkillRecommendations(recommendations)
+            }
           />
         ) : activeTab === "discover" ? (
           <DiscoverSkillsPane
@@ -658,6 +738,7 @@ export function SkillsRoute({
             locale={locale}
             next={activePackageCatalog.next}
             packages={filteredPublicPackages}
+            providerRecommendations={installableProviderSkillRecommendations}
             selectedPackage={selectedPublicPackage}
             onClosePackage={() => activePackageDispatcher({ id: null, type: "select" })}
             onInstall={installPublicSkill}
@@ -667,6 +748,9 @@ export function SkillsRoute({
                 : loadPublicSkillPackages({ next: activePackageCatalog.next }))
             }
             onOpenManagedSkill={openManagedPublicSkill}
+            onOpenOrganizationRecommendations={
+              workspace.activeWorkspace.type === "organization" ? () => setActiveTab("organization") : undefined
+            }
             onRetry={() => {
               if (discoveryFilter === "mine") {
                 if (authResource.data?.status === "authenticated") {
@@ -728,8 +812,15 @@ export function SkillsRoute({
 
 interface OrganizationSkillsPaneProps {
   groupById: ManagedSkillGroupById
+  installingProviderRecommendationKey: string | null
+  isInstallingProviderRecommendations: boolean
   onAdd: () => void
+  onInstallProviderRecommendation: (recommendation: ProviderSkillRecommendation) => void
+  onInstallProviderRecommendations: (recommendations: readonly ProviderSkillRecommendation[]) => void
   organizationSkills: UseOrganizationSkills
+  providerRecommendationError: string | null
+  providerRecommendations: ProviderSkillRecommendation[]
+  providerRecommendationsLoading: boolean
   query: string
   skills: UseOrganizationSkills["skills"]
   workspace: UseOrganizationWorkspace
@@ -759,8 +850,15 @@ function getOrganizationSkillRuntimeStatusView(
 
 function OrganizationSkillsPane({
   groupById,
+  installingProviderRecommendationKey,
+  isInstallingProviderRecommendations,
   onAdd,
+  onInstallProviderRecommendation,
+  onInstallProviderRecommendations,
   organizationSkills,
+  providerRecommendationError,
+  providerRecommendations,
+  providerRecommendationsLoading,
   query,
   skills,
   workspace,
@@ -845,6 +943,16 @@ function OrganizationSkillsPane({
           </div>
         ) : null}
 
+        <ProviderSkillRecommendationsPanel
+          error={providerRecommendationError}
+          installingKey={installingProviderRecommendationKey}
+          isInstallingAll={isInstallingProviderRecommendations}
+          isLoading={providerRecommendationsLoading}
+          recommendations={providerRecommendations}
+          onInstall={onInstallProviderRecommendation}
+          onInstallAll={onInstallProviderRecommendations}
+        />
+
         {organizationSkills.loading && !organizationSkills.hasLoaded ? (
           <PublicSkillGridSkeleton />
         ) : skills.length === 0 ? (
@@ -881,6 +989,257 @@ function OrganizationSkillsPane({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+interface ProviderSkillRecommendationsPanelProps {
+  error: string | null
+  installingKey: string | null
+  isInstallingAll: boolean
+  isLoading: boolean
+  onInstall: (recommendation: ProviderSkillRecommendation) => void
+  onInstallAll: (recommendations: readonly ProviderSkillRecommendation[]) => void
+  recommendations: ProviderSkillRecommendation[]
+}
+
+function ProviderSkillRecommendationsPanel({
+  error,
+  installingKey,
+  isInstallingAll,
+  isLoading,
+  onInstall,
+  onInstallAll,
+  recommendations,
+}: ProviderSkillRecommendationsPanelProps) {
+  const { t } = useAppI18n()
+  const [allOpen, setAllOpen] = React.useState(false)
+  const previewRecommendations = recommendations.slice(0, providerSkillRecommendationPreviewLimit)
+  const hiddenRecommendationCount = Math.max(0, recommendations.length - previewRecommendations.length)
+
+  if (!isLoading && !error && recommendations.length === 0) {
+    return null
+  }
+
+  return (
+    <>
+      <Card className="grid gap-2 rounded-md border bg-card px-3 py-2.5 shadow-none">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="grid min-w-0 gap-1">
+            <CardTitle className="oo-text-label min-w-0 truncate">
+              {t("skills.providerRecommendationsTitle")}
+              {recommendations.length > 0 ? (
+                <span className="font-normal text-muted-foreground">
+                  {" · "}
+                  {t("skills.providerRecommendationsCount", { count: recommendations.length })}
+                </span>
+              ) : null}
+            </CardTitle>
+            <CardDescription className="oo-text-caption-compact">
+              {t("skills.providerRecommendationsDescription")}
+            </CardDescription>
+          </div>
+          {recommendations.length > 1 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={isInstallingAll}
+              onClick={() => onInstallAll(recommendations)}
+            >
+              {isInstallingAll ? (
+                <AppIcons.status.loading className="animate-spin" />
+              ) : (
+                <AppIcons.action.installPackage />
+              )}
+              {isInstallingAll
+                ? t("skills.providerRecommendationsInstallingAll")
+                : t("skills.providerRecommendationsInstallAllCount", { count: recommendations.length })}
+            </Button>
+          ) : null}
+        </div>
+        {error ? <SkillErrorNotice error={error} /> : null}
+        {isLoading && recommendations.length === 0 ? (
+          <ProviderSkillRecommendationSkeleton />
+        ) : recommendations.length > 0 ? (
+          <div className="grid gap-2">
+            <ProviderSkillRecommendationList
+              installingKey={installingKey}
+              isInstallingAll={isInstallingAll}
+              recommendations={previewRecommendations}
+              onInstall={onInstall}
+            />
+            {hiddenRecommendationCount > 0 ? (
+              <div className="flex min-w-0 items-center justify-between gap-3 px-1">
+                <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">
+                  {t("skills.providerRecommendationsMore", { count: hiddenRecommendationCount })}
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAllOpen(true)}>
+                  {t("skills.providerRecommendationsViewAll", { count: recommendations.length })}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </Card>
+      <ProviderSkillRecommendationsDialog
+        installingKey={installingKey}
+        isInstallingAll={isInstallingAll}
+        open={allOpen}
+        recommendations={recommendations}
+        onClose={() => setAllOpen(false)}
+        onInstall={onInstall}
+        onInstallAll={onInstallAll}
+      />
+    </>
+  )
+}
+
+function ProviderSkillRecommendationSkeleton() {
+  return (
+    <div className="grid gap-2">
+      {Array.from({ length: 2 }).map((_, index) => (
+        <div
+          key={index}
+          className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-md border px-3 py-2"
+        >
+          <Skeleton className="size-8 rounded-md" />
+          <div className="grid min-w-0 gap-1.5">
+            <SkeletonText className="h-4 w-32" />
+            <SkeletonText className="h-3 w-48" />
+          </div>
+          <Skeleton className="h-8 w-16 rounded-md" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ProviderSkillRecommendationsDialog({
+  installingKey,
+  isInstallingAll,
+  onClose,
+  onInstall,
+  onInstallAll,
+  open,
+  recommendations,
+}: {
+  installingKey: string | null
+  isInstallingAll: boolean
+  onClose: () => void
+  onInstall: (recommendation: ProviderSkillRecommendation) => void
+  onInstallAll: (recommendations: readonly ProviderSkillRecommendation[]) => void
+  open: boolean
+  recommendations: ProviderSkillRecommendation[]
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <Dialog
+      open={open}
+      title={t("skills.providerRecommendationsDialogTitle")}
+      description={t("skills.providerRecommendationsDialogDescription", { count: recommendations.length })}
+      className="max-w-[min(48rem,calc(100vw-2rem))]"
+      closeLabel={t("skills.providerRecommendationsClose")}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("skills.providerRecommendationsClose")}
+          </Button>
+          <Button
+            type="button"
+            disabled={isInstallingAll || recommendations.length === 0}
+            onClick={() => onInstallAll(recommendations)}
+          >
+            {isInstallingAll ? (
+              <AppIcons.status.loading className="animate-spin" />
+            ) : (
+              <AppIcons.action.installPackage />
+            )}
+            {isInstallingAll
+              ? t("skills.providerRecommendationsInstallingAll")
+              : t("skills.providerRecommendationsInstallAllCount", { count: recommendations.length })}
+          </Button>
+        </>
+      }
+      onClose={onClose}
+    >
+      <ProviderSkillRecommendationList
+        installingKey={installingKey}
+        isInstallingAll={isInstallingAll}
+        recommendations={recommendations}
+        onInstall={onInstall}
+      />
+    </Dialog>
+  )
+}
+
+function ProviderSkillRecommendationList({
+  installingKey,
+  isInstallingAll,
+  onInstall,
+  recommendations,
+}: {
+  installingKey: string | null
+  isInstallingAll: boolean
+  onInstall: (recommendation: ProviderSkillRecommendation) => void
+  recommendations: readonly ProviderSkillRecommendation[]
+}) {
+  return (
+    <div className="grid gap-2">
+      {recommendations.map((recommendation) => (
+        <ProviderSkillRecommendationRow
+          key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
+          installingKey={installingKey}
+          isInstallingAll={isInstallingAll}
+          recommendation={recommendation}
+          onInstall={onInstall}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProviderSkillRecommendationRow({
+  installingKey,
+  isInstallingAll,
+  onInstall,
+  recommendation,
+}: {
+  installingKey: string | null
+  isInstallingAll: boolean
+  onInstall: (recommendation: ProviderSkillRecommendation) => void
+  recommendation: ProviderSkillRecommendation
+}) {
+  const { t } = useAppI18n()
+  const isInstalling = installingKey === getPublicSkillInstallKey(recommendation.package, recommendation.skillId)
+  const packageLine = `${recommendation.packageName} · ${recommendation.skillId}`
+
+  return (
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md border bg-background px-3 py-2">
+      <ProviderIcon displayName={recommendation.providerDisplayName} iconUrl={recommendation.providerIconUrl} />
+      <div className="grid min-w-0 gap-1">
+        <div className="oo-text-label min-w-0 truncate">{recommendation.package.displayName}</div>
+        <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={packageLine}>
+          {recommendation.providerDisplayName} · {packageLine}
+        </div>
+      </div>
+      <Badge className="shrink-0" variant="outline">
+        {getPublicSkillInstallStateLabel(recommendation.installState, t)}
+      </Badge>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={isInstalling || isInstallingAll}
+        onClick={() => onInstall(recommendation)}
+      >
+        {isInstalling ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
+        {isInstalling
+          ? t("skills.registryInstalling")
+          : getPublicSkillInstallActionLabel(recommendation.installState, t)}
+      </Button>
     </div>
   )
 }
@@ -1395,11 +1754,11 @@ function SkillTabList({
 }) {
   const { t } = useAppI18n()
   const tabs: Array<{ label: string; value: SkillPageTab }> = [
+    { label: t("skills.tab.discover"), value: "discover" },
+    { label: t("skills.tab.installed"), value: "installed" },
     ...(organizationTabAvailable
       ? [{ label: t("skills.tab.organization"), value: "organization" as SkillPageTab }]
       : []),
-    { label: t("skills.tab.discover"), value: "discover" },
-    { label: t("skills.tab.installed"), value: "installed" },
   ]
 
   return (
@@ -1484,10 +1843,48 @@ interface DiscoverSkillsPaneProps {
   onInstall: (pkg: PublicSkillPackage, skillName?: string) => void
   onLoadMore: () => void
   onOpenManagedSkill: (skillName: string) => void
+  onOpenOrganizationRecommendations?: () => void
   onRetry: () => void
   onSelectPackage: (pkg: PublicSkillPackage) => void
   packages: PublicSkillPackage[]
+  providerRecommendations: ProviderSkillRecommendation[]
   selectedPackage: PublicSkillPackage | undefined
+}
+
+function ProviderSkillRecommendationNotice({
+  count,
+  onOpenOrganizationRecommendations,
+}: {
+  count: number
+  onOpenOrganizationRecommendations: () => void
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
+      <div className="grid min-w-0 gap-0.5">
+        <div className="oo-text-label min-w-0 truncate">
+          {t("skills.providerRecommendationsTitle")}
+          <span className="font-normal text-muted-foreground">
+            {" · "}
+            {t("skills.providerRecommendationsCount", { count })}
+          </span>
+        </div>
+        <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">
+          {t("skills.providerRecommendationsMarketHint")}
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="shrink-0"
+        onClick={onOpenOrganizationRecommendations}
+      >
+        {t("skills.providerRecommendationsOpenOrganization")}
+      </Button>
+    </div>
+  )
 }
 
 function DiscoverSkillsPane({
@@ -1504,9 +1901,11 @@ function DiscoverSkillsPane({
   onInstall,
   onLoadMore,
   onOpenManagedSkill,
+  onOpenOrganizationRecommendations,
   onRetry,
   onSelectPackage,
   packages,
+  providerRecommendations,
   selectedPackage,
 }: DiscoverSkillsPaneProps) {
   const { t } = useAppI18n()
@@ -1534,6 +1933,12 @@ function DiscoverSkillsPane({
   return (
     <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
       <div className="grid gap-3 pr-1">
+        {onOpenOrganizationRecommendations && providerRecommendations.length > 0 ? (
+          <ProviderSkillRecommendationNotice
+            count={providerRecommendations.length}
+            onOpenOrganizationRecommendations={onOpenOrganizationRecommendations}
+          />
+        ) : null}
         {error ? (
           <div className="flex min-w-0 items-start gap-2">
             <SkillErrorNotice className="min-w-0 flex-1" error={error} />

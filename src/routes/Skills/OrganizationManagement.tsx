@@ -1,3 +1,4 @@
+import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type {
   Organization,
   OrganizationAppAccess,
@@ -6,6 +7,7 @@ import type {
   OrganizationProviderOption,
   OrganizationUserSummary,
 } from "../../../electron/organizations/common.ts"
+import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type {
   BusyAction,
   LoadState,
@@ -16,12 +18,13 @@ import type {
 } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations"
 
 import {
-  ArrowRightIcon,
   Building2Icon,
   CheckIcon,
   ChevronsUpDownIcon,
+  MoreHorizontalIcon,
   PackageIcon,
   PencilIcon,
   PlusIcon,
@@ -30,7 +33,6 @@ import {
   ShieldCheckIcon,
   Trash2Icon,
   UsersIcon,
-  XIcon,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -60,8 +62,10 @@ import {
   writeSelectedOrganizationId,
 } from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
-import { useAuthStateResource } from "@/components/AppDataHooks"
+import { useSkillService } from "@/components/AppContext"
+import { useAuthStateResource, useHomeSummaryResource, useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { SkillIcon } from "@/components/SkillIcon"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -90,6 +94,7 @@ import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { organizationAvatarStyle, organizationInitials } from "@/hooks/useOrganizationWorkspace"
 import { useAppI18n } from "@/i18n"
@@ -107,8 +112,12 @@ import {
   updateOrganizationAppAccess,
 } from "@/lib/organizations-client"
 import { cn } from "@/lib/utils"
+import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
+import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
+import { getOrganizationSkillRuntimeStatus, getSkillRowStatusBadgeClassName } from "@/routes/Skills/skill-route-model"
 
 type AsyncResult<T> = { ok: true; value: T } | { error: unknown; ok: false }
+type OrganizationSkillManageTab = "configured" | "recommended"
 
 function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
   return promise.then(
@@ -118,16 +127,21 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
 }
 
 export function OrganizationManagementRoute({
+  connectedProviders = [],
   organizationSkills,
   workspace,
   onOpenOrganizationSkills,
 }: {
+  connectedProviders?: ConnectionProvider[]
   organizationSkills?: UseOrganizationSkills
   workspace?: UseOrganizationWorkspace
   onOpenOrganizationSkills?: () => void
 }) {
   const { t } = useAppI18n()
+  const skillService = useSkillService()
   const authResource = useAuthStateResource()
+  const skillInventory = useSkillInventoryResource()
+  const homeSummaryResource = useHomeSummaryResource()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id
   const activeWorkspace = workspace?.activeWorkspace
@@ -186,6 +200,20 @@ export function OrganizationManagementRoute({
   }, [organizations, selectedOrganizationId])
   const selectedOrganizationSkills =
     selectedOrganization && organizationSkills?.organizationId === selectedOrganization.id ? organizationSkills : null
+  const skillGroupById = React.useMemo(
+    () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
+    [skillInventory.data?.groups],
+  )
+  const providerPackagesByService = useProviderSkillPackageLookup(connectedProviders).packagesByService
+  const providerSkillRecommendations = React.useMemo(
+    () =>
+      buildProviderSkillRecommendations({
+        groupById: skillGroupById,
+        packagesByService: providerPackagesByService,
+        providers: connectedProviders,
+      }),
+    [connectedProviders, providerPackagesByService, skillGroupById],
+  )
   const canManage = React.useMemo(
     () => organizationCanManage(overviewState.data, selectedOrganization),
     [overviewState.data, selectedOrganization],
@@ -774,6 +802,58 @@ export function OrganizationManagementRoute({
     [canManage, providerAccessError, selectedOrganization, t],
   )
 
+  const installRuntimeSkill = React.useCallback(
+    async (skill: { packageName: string; skillName: string }) => {
+      setBusyAction(`installSkill:${skill.packageName}:${skill.skillName}`)
+      try {
+        const nextInventory = await skillService.invoke("installRegistrySkill", {
+          packageName: skill.packageName,
+          skillId: skill.skillName,
+        })
+        skillInventory.setData(nextInventory)
+        homeSummaryResource.invalidate()
+        toast.success(t("skills.registryInstallDone", { name: skill.skillName }))
+      } catch (error) {
+        toast.error(t("skills.registryInstallFailed", { error: errorMessage(error) }))
+      } finally {
+        setBusyAction(null)
+      }
+    },
+    [homeSummaryResource, skillInventory, skillService, t],
+  )
+
+  const addOrganizationSkillFromRecommendation = React.useCallback(
+    async (recommendation: ProviderSkillRecommendation, options: { installRuntime: boolean }) => {
+      if (!selectedOrganizationSkills?.canManage) {
+        return
+      }
+
+      setBusyAction(`addSkill:${recommendation.packageName}:${recommendation.skillId}`)
+      try {
+        await selectedOrganizationSkills.addSkill({
+          packageName: recommendation.packageName,
+          skillName: recommendation.skillId,
+          version: recommendation.package.version,
+          versionPolicy: "pinned",
+        })
+        if (options.installRuntime) {
+          const nextInventory = await skillService.invoke("installRegistrySkill", {
+            packageName: recommendation.packageName,
+            skillId: recommendation.skillId,
+          })
+          skillInventory.setData(nextInventory)
+          homeSummaryResource.invalidate()
+        }
+        toast.success(t("organizations.skillManageAddSuccess"))
+      } catch (error) {
+        toast.error(errorMessage(error))
+      } finally {
+        setBusyAction(null)
+      }
+    },
+    [homeSummaryResource, selectedOrganizationSkills, skillInventory, skillService, t],
+  )
+
   return (
     <>
       <div className="h-full min-h-0 overflow-auto px-3 py-3">
@@ -806,8 +886,12 @@ export function OrganizationManagementRoute({
                 />
                 {selectedOrganization && selectedOrganizationSkills ? (
                   <OrganizationSkillGuidePanel
-                    organization={selectedOrganization}
+                    busyAction={busyAction}
+                    groupById={skillGroupById}
                     organizationSkills={selectedOrganizationSkills}
+                    providerRecommendations={providerSkillRecommendations}
+                    onAddRecommendation={addOrganizationSkillFromRecommendation}
+                    onInstallRuntimeSkill={installRuntimeSkill}
                     onOpenOrganizationSkills={onOpenOrganizationSkills}
                   />
                 ) : null}
@@ -1092,21 +1176,30 @@ function organizationSkillGuideActionLabel(
 }
 
 function OrganizationSkillGuidePanel({
-  organization,
+  busyAction,
+  groupById,
   organizationSkills,
+  providerRecommendations,
+  onAddRecommendation,
+  onInstallRuntimeSkill,
   onOpenOrganizationSkills,
 }: {
-  organization: Organization
+  busyAction: BusyAction | null
+  groupById: ReadonlyMap<string, ManagedSkillGroup>
   organizationSkills: UseOrganizationSkills
+  providerRecommendations: ProviderSkillRecommendation[]
+  onAddRecommendation: (
+    recommendation: ProviderSkillRecommendation,
+    options: { installRuntime: boolean },
+  ) => Promise<void>
+  onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onOpenOrganizationSkills?: () => void
 }) {
   const { t } = useAppI18n()
-  const [sheetOpen, setSheetOpen] = React.useState(false)
+  const [manageOpen, setManageOpen] = React.useState(false)
   const statusLabel = organizationSkillGuideStatus(organizationSkills, t)
   const actionLabel = organizationSkillGuideActionLabel(organizationSkills, t)
-  const canOpenSettings = Boolean(
-    onOpenOrganizationSkills && (organizationSkills.apiEnabled || organizationSkills.canManage),
-  )
+  const canOpenSettings = organizationSkills.apiEnabled || organizationSkills.canManage
 
   return (
     <>
@@ -1127,292 +1220,462 @@ function OrganizationSkillGuidePanel({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 self-end md:self-center">
-            <Button type="button" variant="outline" size="sm" onClick={() => setSheetOpen(true)}>
-              {t("organizations.skillGuideDetails")}
-            </Button>
             {canOpenSettings ? (
-              <Button type="button" size="sm" onClick={onOpenOrganizationSkills}>
+              <Button type="button" size="sm" onClick={() => setManageOpen(true)}>
                 {actionLabel}
-                <ArrowRightIcon className="size-3.5" />
               </Button>
             ) : null}
           </div>
         </div>
       </section>
-      <OrganizationSkillGuideSheet
-        open={sheetOpen}
-        organization={organization}
+      <OrganizationSkillManageDialog
+        busyAction={busyAction}
+        groupById={groupById}
+        open={manageOpen}
         organizationSkills={organizationSkills}
-        onClose={() => setSheetOpen(false)}
-        onOpenOrganizationSkills={
-          onOpenOrganizationSkills
-            ? () => {
-                setSheetOpen(false)
-                onOpenOrganizationSkills()
-              }
-            : undefined
-        }
+        providerRecommendations={providerRecommendations}
+        onAddRecommendation={onAddRecommendation}
+        onClose={() => setManageOpen(false)}
+        onInstallRuntimeSkill={onInstallRuntimeSkill}
+        onOpenAdvanced={onOpenOrganizationSkills}
       />
     </>
   )
 }
 
-function OrganizationSkillGuideSheet({
-  open,
-  organization,
-  organizationSkills,
+function organizationRuntimeStatusLabel(
+  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+  t: ReturnType<typeof useAppI18n>["t"],
+): string {
+  switch (state) {
+    case "installed-same":
+      return t("skills.organizationRuntimeInstalled")
+    case "installed-modified":
+      return t("skills.organizationRuntimeModified")
+    case "installed-version-mismatch":
+      return t("skills.organizationRuntimeVersionMismatch")
+    case "same-id-different-package":
+      return t("skills.organizationRuntimePackageConflict")
+    case "local-conflict":
+    case "unknown-conflict":
+      return t("skills.organizationRuntimeLocalConflict")
+    case "external-only":
+    case "missing":
+      return t("skills.organizationRuntimeMissing")
+  }
+}
+
+function organizationRuntimeStatusTone(
+  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+): "attention" | "pending" | "ready" {
+  return state === "installed-same"
+    ? "ready"
+    : state === "missing" || state === "external-only"
+      ? "pending"
+      : "attention"
+}
+
+function OrganizationSkillManageDialog({
+  busyAction,
+  groupById,
+  onAddRecommendation,
   onClose,
-  onOpenOrganizationSkills,
+  onInstallRuntimeSkill,
+  onOpenAdvanced,
+  open,
+  organizationSkills,
+  providerRecommendations,
 }: {
-  open: boolean
-  organization: Organization
-  organizationSkills: UseOrganizationSkills
+  busyAction: BusyAction | null
+  groupById: ReadonlyMap<string, ManagedSkillGroup>
+  onAddRecommendation: (
+    recommendation: ProviderSkillRecommendation,
+    options: { installRuntime: boolean },
+  ) => Promise<void>
   onClose: () => void
-  onOpenOrganizationSkills?: () => void
+  onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
+  onOpenAdvanced?: () => void
+  open: boolean
+  organizationSkills: UseOrganizationSkills
+  providerRecommendations: ProviderSkillRecommendation[]
 }) {
   const { t } = useAppI18n()
-  const sheetRef = React.useRef<HTMLElement | null>(null)
-  const enabledSkills = React.useMemo(
-    () => organizationSkills.skills.filter((skill) => skill.enabled),
+  const [busyConfigId, setBusyConfigId] = React.useState<string | null>(null)
+  const [activeTab, setActiveTab] = React.useState<OrganizationSkillManageTab>("configured")
+  const configuredSkillKeys = React.useMemo(
+    () => new Set(organizationSkills.skills.map((skill) => `${skill.packageName}:${skill.skillName}`)),
     [organizationSkills.skills],
   )
-  const disabledSkills = React.useMemo(
-    () => organizationSkills.skills.filter((skill) => !skill.enabled),
-    [organizationSkills.skills],
+  const recommendedOrganizationSkills = React.useMemo(
+    () =>
+      providerRecommendations.filter(
+        (recommendation) => !configuredSkillKeys.has(`${recommendation.packageName}:${recommendation.skillId}`),
+      ),
+    [configuredSkillKeys, providerRecommendations],
   )
-  const visibleSkills = React.useMemo(
-    () => [...enabledSkills, ...disabledSkills].slice(0, 6),
-    [disabledSkills, enabledSkills],
-  )
-  const hiddenCount = Math.max(0, organizationSkills.skills.length - visibleSkills.length)
-  const actionLabel = organizationSkillGuideActionLabel(organizationSkills, t)
 
   React.useEffect(() => {
     if (!open) {
       return
     }
+    setActiveTab(recommendedOrganizationSkills.length > 0 ? "recommended" : "configured")
+  }, [open, recommendedOrganizationSkills.length])
 
-    const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const frame = window.requestAnimationFrame(() => {
-      sheetRef.current?.focus()
-    })
-
-    return () => {
-      window.cancelAnimationFrame(frame)
-      previousActiveElement?.focus()
+  const updateOrganizationSkill = async (
+    skill: UseOrganizationSkills["skills"][number],
+    input: { enabled: boolean },
+  ): Promise<void> => {
+    if (!organizationSkills.canManage || busyConfigId) {
+      return
     }
-  }, [open])
+    setBusyConfigId(skill.id)
+    try {
+      await organizationSkills.updateSkill(skill.id, input)
+      toast.success(input.enabled ? t("skills.organizationSkillEnabled") : t("skills.organizationSkillDisabled"))
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setBusyConfigId(null)
+    }
+  }
 
-  if (!open) {
-    return null
+  const removeOrganizationSkill = async (skill: UseOrganizationSkills["skills"][number]): Promise<void> => {
+    if (!organizationSkills.canManage || busyConfigId) {
+      return
+    }
+    const confirmed = window.confirm(t("skills.organizationRemoveConfirm", { name: skill.displayName }))
+    if (!confirmed) {
+      return
+    }
+    setBusyConfigId(skill.id)
+    try {
+      await organizationSkills.removeSkill(skill.id)
+      toast.success(t("skills.organizationSkillRemoved"))
+    } catch (error) {
+      toast.error(errorMessage(error))
+    } finally {
+      setBusyConfigId(null)
+    }
   }
 
   return (
-    <div
-      className="oo-modal-backdrop fixed inset-0 z-[120] [-webkit-app-region:no-drag]"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose()
-        }
-      }}
-    >
-      <aside
-        ref={sheetRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("organizations.skillGuideTitle")}
-        tabIndex={-1}
-        className="absolute top-0 right-0 grid h-full w-[min(30rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)_auto] border-l bg-background shadow-xl outline-none"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.stopPropagation()
-            onClose()
-            return
-          }
-          if (event.key !== "Tab") {
-            return
-          }
-
-          const sheet = sheetRef.current
-          if (!sheet) {
-            return
-          }
-
-          const focusableElements = getSheetFocusableElements(sheet)
-          if (focusableElements.length === 0) {
-            event.preventDefault()
-            sheet.focus()
-            return
-          }
-
-          const firstElement = focusableElements[0]
-          const lastElement = focusableElements[focusableElements.length - 1]
-          const activeElement = document.activeElement
-          if (event.shiftKey) {
-            if (activeElement === firstElement || activeElement === sheet || !sheet.contains(activeElement)) {
-              event.preventDefault()
-              lastElement.focus()
-            }
-            return
-          }
-
-          if (activeElement === lastElement || activeElement === sheet || !sheet.contains(activeElement)) {
-            event.preventDefault()
-            firstElement.focus()
-          }
-        }}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
-          <div className="grid min-w-0 gap-0.5">
-            <div className="oo-text-label min-w-0 truncate">{t("organizations.skillGuideTitle")}</div>
-            <div className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">{organization.name}</div>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t("organizations.skillGuideClose")}
-            onClick={onClose}
+    <Dialog
+      open={open}
+      ariaLabel={t("organizations.skillManageTitle")}
+      title={
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <h2 className="oo-text-dialog-title shrink-0 truncate">{t("organizations.skillManageTitle")}</h2>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={activeTab}
+            aria-label={t("organizations.skillManageTitle")}
+            onValueChange={(value) => {
+              if (value === "configured" || value === "recommended") {
+                setActiveTab(value)
+              }
+            }}
           >
-            <XIcon className="size-4" />
-          </Button>
+            <ToggleGroupItem value="configured">
+              <span>{t("organizations.skillManageConfigured")}</span>
+              <span className="oo-text-caption-compact text-muted-foreground">{organizationSkills.skills.length}</span>
+            </ToggleGroupItem>
+            <ToggleGroupItem value="recommended">
+              <span>{t("organizations.skillManageRecommended")}</span>
+              {recommendedOrganizationSkills.length > 0 ? (
+                <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+              ) : null}
+              <span className="oo-text-caption-compact text-muted-foreground">
+                {recommendedOrganizationSkills.length}
+              </span>
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
-
-        <div className="min-h-0 overflow-auto p-3">
-          <div className="grid gap-3">
-            <div className="rounded-md border bg-muted/20 p-3">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="grid size-9 shrink-0 place-items-center rounded-md border bg-background text-muted-foreground">
-                  <PackageIcon className="size-4" />
-                </div>
-                <div className="grid min-w-0 gap-1">
-                  <div className="oo-text-label text-foreground">{t("organizations.skillGuideSummaryTitle")}</div>
-                  <p className="oo-text-caption text-muted-foreground">{t("organizations.skillGuideDescription")}</p>
-                </div>
-              </div>
+      }
+      className="max-w-[min(56rem,calc(100vw-2rem))]"
+      closeLabel={t("common.cancel")}
+      footer={
+        <>
+          {onOpenAdvanced ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                onClose()
+                onOpenAdvanced()
+              }}
+            >
+              {t("organizations.skillManageOpenAdvanced")}
+            </Button>
+          ) : null}
+          <Button type="button" onClick={onClose}>
+            {t("organizations.skillManageDone")}
+          </Button>
+        </>
+      }
+      onClose={onClose}
+    >
+      <div className="grid gap-4">
+        {!organizationSkills.apiEnabled ? (
+          <OrganizationSkillDialogEmpty
+            title={t("organizations.skillGuideUnavailableTitle")}
+            description={t("organizations.skillGuideUnavailableDescription")}
+          />
+        ) : organizationSkills.error ? (
+          <div className="grid gap-2">
+            <ErrorNotice error={organizationSkills.error} compact />
+            <div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void organizationSkills.refresh({ forceRefresh: true })}
+              >
+                <RefreshCwIcon className="size-3.5" />
+                {t("organizations.retry")}
+              </Button>
             </div>
-
-            {!organizationSkills.apiEnabled ? (
-              <div className="grid min-h-40 place-items-center rounded-md border border-dashed bg-muted/20 p-6 text-center">
-                <div className="grid max-w-sm justify-items-center gap-2">
-                  <div className="grid size-10 place-items-center rounded-md border bg-background text-muted-foreground">
-                    <PackageIcon className="size-5" />
-                  </div>
-                  <div className="oo-text-label text-foreground">{t("organizations.skillGuideUnavailableTitle")}</div>
-                  <p className="oo-text-caption text-muted-foreground">
-                    {t("organizations.skillGuideUnavailableDescription")}
-                  </p>
-                </div>
-              </div>
-            ) : organizationSkills.error ? (
-              <div className="grid gap-2">
-                <ErrorNotice error={organizationSkills.error} compact />
-                <div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void organizationSkills.refresh({ forceRefresh: true })}
-                  >
-                    <RefreshCwIcon className="size-3.5" />
-                    {t("organizations.retry")}
-                  </Button>
-                </div>
-              </div>
-            ) : organizationSkills.loading && !organizationSkills.hasLoaded ? (
-              <div className="grid gap-2">
-                <Skeleton className="h-14 rounded-md" />
-                <Skeleton className="h-14 rounded-md" />
-                <Skeleton className="h-14 rounded-md" />
-              </div>
-            ) : organizationSkills.skills.length === 0 ? (
-              <div className="grid min-h-40 place-items-center rounded-md border border-dashed bg-muted/20 p-6 text-center">
-                <div className="grid max-w-sm justify-items-center gap-2">
-                  <div className="grid size-10 place-items-center rounded-md border bg-background text-muted-foreground">
-                    <PackageIcon className="size-5" />
-                  </div>
-                  <div className="oo-text-label text-foreground">
-                    {organizationSkills.canManage
+          </div>
+        ) : organizationSkills.loading && !organizationSkills.hasLoaded ? (
+          <div className="grid gap-2">
+            <Skeleton className="h-16 rounded-md" />
+            <Skeleton className="h-16 rounded-md" />
+            <Skeleton className="h-16 rounded-md" />
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {activeTab === "configured" ? (
+              organizationSkills.skills.length === 0 ? (
+                <OrganizationSkillDialogEmpty
+                  title={
+                    organizationSkills.canManage
                       ? t("organizations.skillGuideEmptyCreatorTitle")
-                      : t("organizations.skillGuideEmptyTitle")}
-                  </div>
-                  <p className="oo-text-caption text-muted-foreground">
-                    {organizationSkills.canManage
+                      : t("organizations.skillGuideEmptyTitle")
+                  }
+                  description={
+                    organizationSkills.canManage
                       ? t("organizations.skillGuideEmptyCreatorDescription")
-                      : t("organizations.skillGuideEmptyDescription")}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-2">
-                <div className="oo-text-caption-compact flex min-w-0 items-center justify-between gap-2 text-muted-foreground">
-                  <span>{t("organizations.skillGuideConfigured")}</span>
-                  <span>
-                    {t("organizations.skillGuideCount", {
-                      count: organizationSkills.skills.length,
-                      enabled: enabledSkills.length,
-                    })}
-                  </span>
-                </div>
-                <div className="grid gap-2">
-                  {visibleSkills.map((skill) => (
-                    <div
+                      : t("organizations.skillGuideEmptyDescription")
+                  }
+                />
+              ) : (
+                <div className="overflow-hidden rounded-md border bg-background">
+                  {organizationSkills.skills.map((skill) => (
+                    <OrganizationSkillManageRow
                       key={skill.id}
-                      className="grid min-w-0 gap-1 rounded-md border bg-card px-3 py-2 text-card-foreground"
-                    >
-                      <div className="flex min-w-0 items-center justify-between gap-2">
-                        <div className="oo-text-label min-w-0 truncate">{skill.displayName}</div>
-                        <Badge variant={skill.enabled ? "secondary" : "outline"} className="shrink-0">
-                          {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
-                        </Badge>
-                      </div>
-                      <div
-                        className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
-                        title={skill.packageName}
-                      >
-                        {skill.packageName}
-                      </div>
-                      <div
-                        className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
-                        title={skill.skillName}
-                      >
-                        {skill.skillName} · {skill.version}
-                      </div>
-                    </div>
+                      busy={busyConfigId === skill.id}
+                      canManage={organizationSkills.canManage}
+                      groupById={groupById}
+                      installBusy={busyAction === `installSkill:${skill.packageName}:${skill.skillName}`}
+                      skill={skill}
+                      onInstallRuntime={() =>
+                        onInstallRuntimeSkill({ packageName: skill.packageName, skillName: skill.skillName })
+                      }
+                      onRemove={() => void removeOrganizationSkill(skill)}
+                      onToggleEnabled={() => void updateOrganizationSkill(skill, { enabled: !skill.enabled })}
+                    />
                   ))}
                 </div>
-                {hiddenCount > 0 ? (
-                  <div className="oo-text-caption-compact text-muted-foreground">
-                    {t("organizations.skillGuideMore", { count: hiddenCount })}
-                  </div>
-                ) : null}
+              )
+            ) : recommendedOrganizationSkills.length === 0 ? (
+              <div className="oo-text-caption rounded-md border border-dashed bg-muted/20 px-3 py-4 text-muted-foreground">
+                {t("organizations.skillManageRecommendedEmpty")}
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-md border bg-background">
+                {recommendedOrganizationSkills.map((recommendation) => {
+                  const busyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
+                  return (
+                    <OrganizationSkillRecommendationRow
+                      key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
+                      busy={busyAction === busyKey}
+                      canManage={organizationSkills.canManage}
+                      recommendation={recommendation}
+                      onAdd={() => onAddRecommendation(recommendation, { installRuntime: false })}
+                      onAddAndInstall={() => onAddRecommendation(recommendation, { installRuntime: true })}
+                    />
+                  )
+                })}
               </div>
             )}
           </div>
-        </div>
+        )}
+      </div>
+    </Dialog>
+  )
+}
 
-        <div className="oo-border-divider flex items-center justify-end gap-2 border-t p-3">
-          <Button type="button" variant="outline" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          {onOpenOrganizationSkills && (organizationSkills.apiEnabled || organizationSkills.canManage) ? (
-            <Button type="button" onClick={onOpenOrganizationSkills}>
-              {actionLabel}
-              <ArrowRightIcon className="size-3.5" />
-            </Button>
-          ) : null}
+function OrganizationSkillDialogEmpty({ description, title }: { description: string; title: string }) {
+  return (
+    <div className="grid min-h-36 place-items-center rounded-md border border-dashed bg-muted/20 px-4 py-8 text-center">
+      <div className="grid max-w-md justify-items-center gap-2">
+        <div className="grid size-10 place-items-center rounded-md border bg-background text-muted-foreground">
+          <PackageIcon className="size-5" />
         </div>
-      </aside>
+        <div className="oo-text-label text-foreground">{title}</div>
+        <p className="oo-text-caption text-muted-foreground">{description}</p>
+      </div>
     </div>
   )
 }
 
-function getSheetFocusableElements(root: HTMLElement): HTMLElement[] {
-  return Array.from(
-    root.querySelectorAll<HTMLElement>('a[href], button, textarea, input, select, [tabindex]:not([tabindex="-1"])'),
-  ).filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true")
+function OrganizationSkillIconFrame({ icon }: { icon?: string }) {
+  return (
+    <span className="grid size-9 shrink-0 place-items-center rounded-md border bg-background">
+      <SkillIcon icon={icon} className="size-5" />
+    </span>
+  )
+}
+
+function OrganizationSkillManageRow({
+  busy,
+  canManage,
+  groupById,
+  installBusy,
+  onInstallRuntime,
+  onRemove,
+  onToggleEnabled,
+  skill,
+}: {
+  busy: boolean
+  canManage: boolean
+  groupById: ReadonlyMap<string, ManagedSkillGroup>
+  installBusy: boolean
+  onInstallRuntime: () => void
+  onRemove: () => void
+  onToggleEnabled: () => void
+  skill: UseOrganizationSkills["skills"][number]
+}) {
+  const { t } = useAppI18n()
+  const runtimeStatus = getOrganizationSkillRuntimeStatus(groupById, skill)
+  const runtimeTone = organizationRuntimeStatusTone(runtimeStatus.state)
+  const runtimeInstallable = runtimeStatus.state === "missing" || runtimeStatus.state === "external-only"
+
+  return (
+    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+      <OrganizationSkillIconFrame icon={skill.icon} />
+      <div className="grid min-w-0 gap-0.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="oo-text-label min-w-0 truncate text-foreground">{skill.displayName}</div>
+          <Badge variant={skill.enabled ? "secondary" : "outline"} className="shrink-0">
+            {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
+          </Badge>
+          <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
+            {organizationRuntimeStatusLabel(runtimeStatus.state, t)}
+          </Badge>
+        </div>
+        {skill.description ? (
+          <div className="oo-text-caption line-clamp-1 text-foreground/75">{skill.description}</div>
+        ) : null}
+        <div
+          className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
+          title={`${skill.packageName} · ${skill.skillName} · ${skill.version}`}
+        >
+          {skill.packageName} · {skill.skillName} · {skill.version}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
+        {runtimeInstallable ? (
+          <Button type="button" variant="outline" size="sm" disabled={installBusy} onClick={onInstallRuntime}>
+            {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
+            {installBusy ? t("skills.registryInstalling") : t("organizations.skillManageInstallRuntime")}
+          </Button>
+        ) : null}
+        {canManage ? (
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onToggleEnabled}>
+            {skill.enabled ? t("skills.organizationDisable") : t("skills.organizationEnable")}
+          </Button>
+        ) : null}
+        {canManage ? (
+          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
+            {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <Trash2Icon className="size-3.5" />}
+            {t("skills.organizationRemove")}
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function OrganizationSkillRecommendationRow({
+  busy,
+  canManage,
+  onAdd,
+  onAddAndInstall,
+  recommendation,
+}: {
+  busy: boolean
+  canManage: boolean
+  onAdd: () => Promise<void>
+  onAddAndInstall: () => Promise<void>
+  recommendation: ProviderSkillRecommendation
+}) {
+  const { t } = useAppI18n()
+  const canInstallRuntime =
+    recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+  const skillDescription =
+    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ??
+    recommendation.package.description
+
+  return (
+    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+      <OrganizationSkillIconFrame icon={recommendation.package.icon} />
+      <div className="grid min-w-0 gap-0.5">
+        <div className="oo-text-label min-w-0 truncate text-foreground">{recommendation.package.displayName}</div>
+        {skillDescription ? (
+          <div className="oo-text-caption line-clamp-1 text-foreground/75">{skillDescription}</div>
+        ) : null}
+        <div
+          className="oo-text-caption-compact min-w-0 truncate text-muted-foreground"
+          title={recommendation.packageName}
+        >
+          {recommendation.providerDisplayName} · {recommendation.packageName} · {recommendation.skillId}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
+        {!canManage ? (
+          <Badge variant="outline">{t("organizations.readOnly")}</Badge>
+        ) : canInstallRuntime ? (
+          <div className="inline-flex items-center gap-0">
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-r-none"
+              disabled={busy}
+              onClick={() => void onAddAndInstall()}
+            >
+              {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
+              {t("organizations.skillManageAddAndInstall")}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
+                  disabled={busy}
+                  aria-label={t("organizations.skillManageMoreActions")}
+                >
+                  <MoreHorizontalIcon className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => void onAdd()}>
+                  {t("organizations.skillManageLinkOnly")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : (
+          <Button type="button" size="sm" disabled={busy} onClick={() => void onAdd()}>
+            {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+            {t("organizations.skillManageAddOnly")}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function OrganizationManagementSkeleton() {

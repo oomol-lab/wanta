@@ -164,6 +164,17 @@ export interface ChatMessage {
   parts: ChatMessagePart[]
   createdAt: number
   artifactRoot?: string
+  tokenUsage?: ChatTokenUsage
+}
+
+export interface ChatTokenUsage {
+  input: number
+  output: number
+  reasoning: number
+  cache: {
+    read: number
+    write: number
+  }
 }
 
 export interface SendMessageRequest {

@@ -3518,12 +3518,14 @@ export function AppShell() {
                 </div>
               ) : route === "skills" ? (
                 <SkillsRoute
+                  connectedProviders={activeProviders}
                   focusRequest={skillsFocusRequest}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
                 />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute
+                  connectedProviders={activeProviders}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
                   onOpenOrganizationSkills={focusOrganizationSkills}

@@ -66,16 +66,44 @@ async function readMyPublishedSkillPackageList(next?: string): Promise<PublicSki
   return normalizePublicSkillPackageCatalog(await response.text())
 }
 
-async function readRegistrySkillPackageInfo(
+async function fetchRegistrySkillPackageInfo(
   packageName: string,
   maintainer: PublicSkillPackageMaintainer,
-): Promise<PublicSkillPackage | undefined> {
+  options: { returnNullOnNotFound?: boolean } = {},
+): Promise<PublicSkillPackage | null | undefined> {
   const url = new URL(`/-/oomol/package-info/${encodeURIComponent(packageName)}/latest`, registryBaseUrl)
   const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
+  if (response.status === 404 && options.returnNullOnNotFound) {
+    return null
+  }
   if (!response.ok) {
     throw new Error(`Registry Skill package info request failed with status ${response.status}.`)
   }
   return normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
+}
+
+async function readRegistrySkillPackageInfo(
+  packageName: string,
+  maintainer: PublicSkillPackageMaintainer,
+): Promise<PublicSkillPackage | undefined> {
+  return (await fetchRegistrySkillPackageInfo(packageName, maintainer)) ?? undefined
+}
+
+export async function readPublicSkillPackageByName(packageName: string): Promise<PublicSkillPackage | null> {
+  const normalizedPackageName = packageName.trim()
+  if (!normalizedPackageName) {
+    throw new Error("Skill package name is empty.")
+  }
+
+  return (
+    (await fetchRegistrySkillPackageInfo(
+      normalizedPackageName,
+      {
+        name: "OOMOL",
+      },
+      { returnNullOnNotFound: true },
+    )) ?? null
+  )
 }
 
 function mergeMyPublishedPackage(

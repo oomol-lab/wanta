@@ -1281,6 +1281,7 @@ export const ChatArea = React.memo(function ChatArea({
       hasMessages={hasMessages}
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}
+      messages={messages}
       placeholder={placeholder}
       contextBar={showCenteredEmptyState ? contextBar : undefined}
       organizationSkills={organizationSkills}

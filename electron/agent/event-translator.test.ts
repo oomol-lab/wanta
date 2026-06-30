@@ -443,6 +443,30 @@ test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in 
   assert.equal(msg.parts[2].kind, "tool")
 })
 
+test("normalizeMessage preserves assistant token usage", () => {
+  const msg = normalizeMessage({
+    info: {
+      id: "m1",
+      role: "assistant",
+      time: { created: 123 },
+      tokens: {
+        input: 1200,
+        output: 320,
+        reasoning: 40,
+        cache: { read: 800, write: 50 },
+      },
+    },
+    parts: [{ id: "p1", type: "text", text: "Done" }],
+  })
+
+  assert.deepEqual(msg?.tokenUsage, {
+    input: 1200,
+    output: 320,
+    reasoning: 40,
+    cache: { read: 800, write: 50 },
+  })
+})
+
 test("normalizeMessage appends assistant message-level errors", () => {
   const msg = normalizeMessage({
     info: {

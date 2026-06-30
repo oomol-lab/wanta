@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ChatRole,
+  ChatTokenUsage,
   MessageAttachmentEvent,
   MessageCompletedEvent,
   MessageDeltaEvent,
@@ -363,6 +364,32 @@ function attachmentPart(part: OpencodePart): ChatMessagePart {
   }
 }
 
+function numberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0
+}
+
+function messageTokenUsage(info: unknown): ChatTokenUsage | undefined {
+  const message = info as { role?: ChatRole; tokens?: unknown } | undefined
+  if (message?.role !== "assistant" || !message.tokens || typeof message.tokens !== "object") {
+    return undefined
+  }
+  const tokens = message.tokens as {
+    input?: unknown
+    output?: unknown
+    reasoning?: unknown
+    cache?: { read?: unknown; write?: unknown }
+  }
+  return {
+    input: numberOrZero(tokens.input),
+    output: numberOrZero(tokens.output),
+    reasoning: numberOrZero(tokens.reasoning),
+    cache: {
+      read: numberOrZero(tokens.cache?.read),
+      write: numberOrZero(tokens.cache?.write),
+    },
+  }
+}
+
 /** 把 OpenCode 的 message {info, parts} 规范化为 ChatMessage（切换会话加载历史用）。 */
 export function normalizeMessage(message: { info?: unknown; parts?: unknown }): ChatMessage | null {
   const info = message.info as
@@ -420,5 +447,12 @@ export function normalizeMessage(message: { info?: unknown; parts?: unknown }): 
       parts.push(part)
     }
   }
-  return { id: info.id, role: info.role, parts, createdAt: info.time?.created ?? 0 }
+  const tokenUsage = messageTokenUsage(message.info)
+  return {
+    id: info.id,
+    role: info.role,
+    parts,
+    createdAt: info.time?.created ?? 0,
+    ...(tokenUsage ? { tokenUsage } : {}),
+  }
 }

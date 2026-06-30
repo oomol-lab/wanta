@@ -13,7 +13,14 @@ export { organizationCanManage, organizationRole } from "../../lib/organization-
 import { parseProviderGrants } from "./organization-provider-access.ts"
 
 export type OrganizationRole = "creator" | "member"
-export type BusyAction = "add" | "create" | "saveProviderAccess" | `remove:${string}` | `revokeProviderAccess:${string}`
+export type BusyAction =
+  | "add"
+  | "create"
+  | "saveProviderAccess"
+  | `addSkill:${string}`
+  | `installSkill:${string}`
+  | `remove:${string}`
+  | `revokeProviderAccess:${string}`
 export type LoadStatus = "idle" | "loading" | "ready" | "error"
 export type ProviderAccessMode = "create" | "edit"
 

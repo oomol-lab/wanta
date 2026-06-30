@@ -25,7 +25,11 @@ export interface BuiltinModelDefinition {
   providerName: string
   runtime: BuiltinModelRuntime
   capabilities: BuiltinModelCapabilities
+  contextWindow?: number
 }
+
+// UI 展示用的内置模型上下文窗口；网关别名实际窗口调整时只改这里。
+const defaultContextWindow = 200_000
 
 export const BUILTIN_MODEL_IDS = [
   "oopilot",
@@ -67,6 +71,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: true,
       toolCall: true,
     },
+    contextWindow: defaultContextWindow,
   },
   {
     id: "gpt-5.5",
@@ -80,6 +85,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: true,
       toolCall: true,
     },
+    contextWindow: defaultContextWindow,
   },
   {
     id: "deepseek-v4-flash",
@@ -93,6 +99,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: false,
       toolCall: true,
     },
+    contextWindow: defaultContextWindow,
   },
   {
     id: "deepseek-v4-pro",
@@ -106,6 +113,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: false,
       toolCall: true,
     },
+    contextWindow: defaultContextWindow,
   },
   {
     id: "qwen3.7-plus",
@@ -119,6 +127,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: true,
       toolCall: true,
     },
+    contextWindow: defaultContextWindow,
   },
   {
     id: "qwen3.7-max",
@@ -132,6 +141,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: true,
       toolCall: true,
     },
+    contextWindow: defaultContextWindow,
   },
 ]
 
@@ -144,6 +154,7 @@ export function builtinModelSummaries(): Array<{
   supportsImages: boolean
   toolCall: boolean
   runtimeKind: BuiltinProviderKind
+  contextWindow?: number
 }> {
   return BUILTIN_MODEL_DEFINITIONS.map((model) => ({
     id: model.id,
@@ -152,6 +163,7 @@ export function builtinModelSummaries(): Array<{
     supportsImages: model.capabilities.supportsImages,
     toolCall: model.capabilities.toolCall,
     runtimeKind: resolveBuiltinProvider(model.runtime.providerID).kind,
+    ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
   }))
 }
 

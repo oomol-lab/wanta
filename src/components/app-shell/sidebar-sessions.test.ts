@@ -48,6 +48,23 @@ test("groupSidebarSessions excludes archived sessions", () => {
   )
 })
 
+test("groupSidebarSessions keeps project sessions out of task groups", () => {
+  const groups = groupSidebarSessions([
+    session("task", 1_000),
+    session("project", 2_000, { projectId: "project-a" }),
+    session("project-pin", 3_000, { pinnedAt: 4_000, projectId: "project-a" }),
+  ])
+
+  assert.deepEqual(
+    groups.pinned.map((item) => item.id),
+    [],
+  )
+  assert.deepEqual(
+    groups.regular.map((item) => item.id),
+    ["task"],
+  )
+})
+
 test("nextActiveSessionIdAfterArchive picks the next visible session", () => {
   assert.equal(nextActiveSessionIdAfterArchive([session("first", 3_000), session("second", 2_000)], "first"), "second")
   assert.equal(nextActiveSessionIdAfterArchive([session("only", 1_000)], "only"), null)

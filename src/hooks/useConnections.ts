@@ -53,7 +53,12 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 function workspaceKey(workspace: ConnectionWorkspace): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
+  if (workspace.type !== "organization") {
+    return "personal"
+  }
+  return workspace.organizationId
+    ? `organization:${workspace.organizationId}`
+    : `organization-name:${workspace.organizationName}`
 }
 
 function sameWorkspace(workspace: ConnectionWorkspace | null, key: string): boolean {

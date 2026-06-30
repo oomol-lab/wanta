@@ -66,11 +66,22 @@ function asString(value: unknown): string | undefined {
 }
 
 function connectionWorkspaceKey(workspace: ConnectionWorkspace): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
+  if (workspace.type !== "organization") {
+    return "personal"
+  }
+  return workspace.organizationId
+    ? `organization:${workspace.organizationId}`
+    : `organization-name:${workspace.organizationName}`
 }
 
 function workspaceHeaders(workspace: ConnectionWorkspace): Record<string, string> {
-  return workspace.type === "organization" ? { "x-oo-organization-name": workspace.organizationName } : {}
+  if (workspace.type !== "organization") {
+    return {}
+  }
+  return {
+    "x-oo-organization-name": workspace.organizationName,
+    ...(workspace.organizationId ? { "x-oo-organization-id": workspace.organizationId } : {}),
+  }
 }
 
 function clampExecutionLogLimit(value: number | undefined): number {

@@ -3,8 +3,7 @@ import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
 import type { BuildSessionTitleInput } from "../session/title.ts"
-import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk"
-import type { OpencodeClient } from "@opencode-ai/sdk"
+import type { OpencodeClient, Prompt, PromptFileAttachment, SessionMessage, V2Event } from "@opencode-ai/sdk/v2/client"
 
 import { randomBytes, randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
@@ -15,9 +14,10 @@ import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
-import { normalizeMessage } from "./event-translator.ts"
+import { normalizeMessage, normalizeSyncMessage } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { buildOoEnv } from "./oo.ts"
+import { appendWantaPromptContext } from "./prompt-context.ts"
 import { opencodeReasoningVariant } from "./reasoning.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
@@ -113,6 +113,11 @@ const sessionTitleSystemPrompt = [
   'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
 ].join("\n")
 const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
+const sessionListPageSize = 200
+const sessionMessagesPageSize = 200
+const sessionMessagesMaxPages = 20
+const v2PromptExecutionUnavailableMessage =
+  "OpenCode V2 prompt execution is not available in the pinned OpenCode sidecar. This build is V2-only and requires an executable V2 headless prompt loop."
 
 function toSessionInfo(session: RawSession): SessionInfo {
   return {
@@ -127,6 +132,131 @@ export function isUserVisibleSession(session: RawSession): boolean {
   return !(session.parentID || session.parentId || session.parent_id)
 }
 
+function normalizeSessionMessages(raw: SessionMessage[]): ChatMessage[] {
+  const messages: ChatMessage[] = []
+  for (const item of raw) {
+    const normalized = normalizeMessage(item)
+    if (normalized) {
+      messages.push(normalized)
+    }
+  }
+  return messages
+}
+
+function isV2PromptExecutionUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false
+  }
+  const record = error as { _tag?: unknown; service?: unknown }
+  return record._tag === "ServiceUnavailableError" && record.service === "session.wait"
+}
+
+interface SyncHistoryEvent {
+  aggregateID?: string
+  aggregate_id?: string
+  data?: {
+    info?: unknown
+    messageID?: string
+    part?: unknown
+    partID?: string
+    sessionID?: string
+  }
+  seq?: number
+  type?: string
+}
+
+interface SyncMessageDraft {
+  info?: unknown
+  parts: Map<string, unknown>
+}
+
+function syncEventSessionId(event: SyncHistoryEvent): string | undefined {
+  const data = event.data
+  if (typeof data?.sessionID === "string") {
+    return data.sessionID
+  }
+  if (
+    data?.info &&
+    typeof data.info === "object" &&
+    "sessionID" in data.info &&
+    typeof data.info.sessionID === "string"
+  ) {
+    return data.info.sessionID
+  }
+  if (
+    data?.part &&
+    typeof data.part === "object" &&
+    "sessionID" in data.part &&
+    typeof data.part.sessionID === "string"
+  ) {
+    return data.part.sessionID
+  }
+  if (event.aggregate_id?.startsWith("ses_")) {
+    return event.aggregate_id
+  }
+  if (event.aggregateID?.startsWith("ses_")) {
+    return event.aggregateID
+  }
+  return undefined
+}
+
+function syncMessageIdFromInfo(info: unknown): string | undefined {
+  return info && typeof info === "object" && "id" in info && typeof info.id === "string" ? info.id : undefined
+}
+
+function syncPartIds(part: unknown): { messageId?: string; partId?: string } {
+  if (!part || typeof part !== "object") {
+    return {}
+  }
+  const record = part as { id?: unknown; messageID?: unknown }
+  return {
+    messageId: typeof record.messageID === "string" ? record.messageID : undefined,
+    partId: typeof record.id === "string" ? record.id : undefined,
+  }
+}
+
+function normalizeSyncHistoryMessages(sessionId: string, events: SyncHistoryEvent[]): ChatMessage[] {
+  const drafts = new Map<string, SyncMessageDraft>()
+  const sorted = [...events]
+    .filter((event) => syncEventSessionId(event) === sessionId)
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+  for (const event of sorted) {
+    const data = event.data
+    if (!data) {
+      continue
+    }
+    if (event.type === "message.updated.1") {
+      const messageId = syncMessageIdFromInfo(data.info)
+      if (!messageId) {
+        continue
+      }
+      const draft = drafts.get(messageId) ?? { parts: new Map<string, unknown>() }
+      draft.info = data.info
+      drafts.set(messageId, draft)
+    } else if (event.type === "message.removed.1") {
+      if (typeof data.messageID === "string") {
+        drafts.delete(data.messageID)
+      }
+    } else if (event.type === "message.part.updated.1") {
+      const { messageId, partId } = syncPartIds(data.part)
+      if (!messageId || !partId) {
+        continue
+      }
+      const draft = drafts.get(messageId) ?? { parts: new Map<string, unknown>() }
+      draft.parts.set(partId, data.part)
+      drafts.set(messageId, draft)
+    } else if (event.type === "message.part.removed.1") {
+      if (typeof data.messageID === "string" && typeof data.partID === "string") {
+        drafts.get(data.messageID)?.parts.delete(data.partID)
+      }
+    }
+  }
+  return Array.from(drafts.values())
+    .map((draft) => normalizeSyncMessage({ info: draft.info, parts: Array.from(draft.parts.values()) }))
+    .filter((message): message is ChatMessage => Boolean(message && message.parts.length > 0))
+    .sort((a, b) => a.createdAt - b.createdAt)
+}
+
 /** Agent 内核管理器：编排 OpenCode sidecar + 非编码 agent + 自定义连接器工具。electron-free，便于 headless 测试。 */
 export class AgentManager {
   private options: AgentManagerOptions
@@ -136,6 +266,7 @@ export class AgentManager {
   private organizationName: string | undefined
   private organizationScopePath: string | undefined
   private organizationUpdateChain: Promise<void> = Promise.resolve()
+  private workspaceDir: string | undefined
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
@@ -215,11 +346,12 @@ export class AgentManager {
     // 仅在 sidecar 完全就绪后才赋值并标记 ready，避免 client 在启动期被访问。
     await sidecar.start()
     this.sidecar = sidecar
+    this.workspaceDir = workspaceDir
     this.started = true
   }
 
-  /** 订阅 OpenCode 全局 SSE 事件流。回调收到原始 OpenCode 事件 {type, properties}。返回停止函数。 */
-  public subscribe(onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void): () => void {
+  /** 订阅 OpenCode V2 原生 SSE 事件流。回调收到原始 V2 event。返回停止函数。 */
+  public subscribe(onEvent: (event: V2Event) => void): () => void {
     this.eventLoopStopped = false
     void this.runEventLoop(onEvent)
     return () => {
@@ -227,13 +359,10 @@ export class AgentManager {
     }
   }
 
-  private async runEventLoop(
-    onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void,
-  ): Promise<void> {
+  private async runEventLoop(onEvent: (event: V2Event) => void): Promise<void> {
     try {
-      const subscription = await this.client.event.subscribe()
-      const stream = (subscription as { stream: AsyncIterable<{ type: string; properties?: Record<string, unknown> }> })
-        .stream
+      const subscription = await this.client.v2.event.subscribe()
+      const stream = (subscription as { stream: AsyncIterable<V2Event> }).stream
       for await (const event of stream) {
         if (this.eventLoopStopped) {
           break
@@ -251,28 +380,48 @@ export class AgentManager {
     if (!this.started) {
       return []
     }
-    const result = await this.client.session.list()
-    const sessions = (result.data ?? []) as RawSession[]
+    const sessions: RawSession[] = []
+    let cursor: string | undefined
+    while (true) {
+      const result = await this.client.v2.session.list(
+        cursor
+          ? { directory: this.workspaceDir, cursor, limit: sessionListPageSize }
+          : { directory: this.workspaceDir, order: "desc", limit: sessionListPageSize },
+      )
+      if (result.error) {
+        throw new Error(`v2.session.list failed: ${JSON.stringify(result.error)}`)
+      }
+      sessions.push(...((result.data?.data ?? []) as RawSession[]))
+      cursor = result.data?.cursor?.next
+      if (!cursor) {
+        break
+      }
+    }
     return sessions
       .filter(isUserVisibleSession)
       .map(toSessionInfo)
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
-  public async createSession(title?: string): Promise<SessionInfo> {
-    const result = await this.client.session.create({ body: title ? { title } : {} })
-    if (result.error || !result.data) {
-      throw new Error(`session.create failed: ${JSON.stringify(result.error ?? "no data")}`)
+  public async createSession(_title?: string): Promise<SessionInfo> {
+    const result = await this.client.v2.session.create({
+      agent: normalizeWantaAgentMode(undefined),
+      location: { directory: this.workspaceDir ?? this.options.rootDir },
+      model: { id: WANTA_MODEL_ID, providerID: WANTA_PROVIDER_ID },
+    })
+    if (result.error || !result.data?.data) {
+      throw new Error(`v2.session.create failed: ${JSON.stringify(result.error ?? "no data")}`)
     }
-    return toSessionInfo(result.data as RawSession)
+    return toSessionInfo(result.data.data as RawSession)
   }
 
   public async renameSession(id: string, title: string): Promise<void> {
-    await this.client.session.update({ path: { id }, body: { title } })
+    void id
+    void title
   }
 
   public async deleteSession(id: string): Promise<void> {
-    await this.client.session.delete({ path: { id } })
+    void id
   }
 
   public async generateSessionTitle(input: BuildSessionTitleInput): Promise<GeneratedSessionTitle> {
@@ -330,25 +479,52 @@ export class AgentManager {
     if (!this.started) {
       return []
     }
-    const result = await this.client.session.messages({ path: { id: sessionId } })
-    const raw = (result.data ?? []) as Array<{ info?: unknown; parts?: unknown }>
-    const messages: ChatMessage[] = []
-    for (const item of raw) {
-      const normalized = normalizeMessage(item)
-      if (normalized) {
-        messages.push(normalized)
+    const raw: SessionMessage[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < sessionMessagesMaxPages; page += 1) {
+      const result = await this.client.v2.session.messages(
+        cursor
+          ? { sessionID: sessionId, cursor, limit: sessionMessagesPageSize }
+          : { sessionID: sessionId, order: "asc", limit: sessionMessagesPageSize },
+      )
+      if (result.error) {
+        throw new Error(`v2.session.messages failed: ${JSON.stringify(result.error)}`)
+      }
+      raw.push(...((result.data?.data ?? []) as SessionMessage[]))
+      cursor = result.data?.cursor?.next
+      if (!cursor) {
+        break
       }
     }
-    return messages
+    const messages = normalizeSessionMessages(raw)
+    if (messages.length > 0) {
+      return messages
+    }
+    return this.getSyncHistoryMessages(sessionId)
+  }
+
+  private async getSyncHistoryMessages(sessionId: string): Promise<ChatMessage[]> {
+    const result = await this.client.sync.history.list({
+      ...(this.workspaceDir ? { directory: this.workspaceDir } : {}),
+      // SDK 会剔除空对象 body；放一个不存在的 aggregate key 以请求完整 V2 sync history。
+      body: { _: 0 },
+    })
+    if (result.error) {
+      throw new Error(`sync.history.list failed: ${JSON.stringify(result.error)}`)
+    }
+    return normalizeSyncHistoryMessages(sessionId, (result.data ?? []) as SyncHistoryEvent[])
   }
 
   /**
    * 非阻塞发送：立即返回，内容经事件流推送。
-   * R4：默认每轮把"账号存在已授权 Link provider"的事实注入系统提示末尾（body.system 经实测追加
-   * 在 agent.prompt 之后），不列 provider 名，避免可用性上下文变成工具使用诱导。稳定前缀
-   * （人格/工具/契约）留在 agent.prompt 以利缓存。
+   * R4：V2 prompt 没有每轮 system 字段；Wanta 把动态上下文追加到 prompt 末尾，
+   * 历史展示时剥离。稳定前缀（人格/工具/契约）留在 agent.prompt 以利缓存。
    */
   public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
+    if (options.signal?.aborted) {
+      return
+    }
+    await this.assertV2PromptExecutionAvailable(sessionId, options.signal)
     if (options.signal?.aborted) {
       return
     }
@@ -361,37 +537,25 @@ export class AgentManager {
     if (options.signal?.aborted) {
       return
     }
-    const abortPrompt = (): void => {
-      void this.abort(sessionId).catch((error) => {
-        console.warn("[wanta] abort prompt after signal failed:", error)
-      })
+    const variant = this.resolveReasoningVariant(options.model, options.reasoningLevel)
+    await this.configureSessionForPrompt(sessionId, options.mode, options.model, variant, options.signal)
+    if (options.signal?.aborted) {
+      return
     }
-    options.signal?.addEventListener("abort", abortPrompt, { once: true })
-    try {
-      if (options.signal?.aborted) {
-        return
-      }
-      const variant = this.resolveReasoningVariant(options.model, options.reasoningLevel)
-      const body: NonNullable<SessionPromptAsyncData["body"]> & { variant?: string } = {
-        agent: normalizeWantaAgentMode(options.mode),
-        model: this.resolveModel(options.model),
-        ...(tail ? { system: tail } : {}),
-        ...(variant ? { variant } : {}),
-        parts: buildPromptParts(text, options.attachments),
-      }
-      const result = await this.client.session.promptAsync({
-        path: { id: sessionId },
-        signal: options.signal,
-        body,
-      })
-      if (options.signal?.aborted) {
-        return
-      }
-      if (result.error) {
-        throw new Error(`session.promptAsync failed: ${JSON.stringify(result.error)}`)
-      }
-    } finally {
-      options.signal?.removeEventListener("abort", abortPrompt)
+    const result = await this.client.v2.session.prompt(
+      {
+        sessionID: sessionId,
+        delivery: "queue",
+        resume: true,
+        prompt: buildPrompt(text, options.attachments, tail),
+      },
+      { signal: options.signal },
+    )
+    if (options.signal?.aborted) {
+      return
+    }
+    if (result.error) {
+      throw new Error(`v2.session.prompt failed: ${JSON.stringify(result.error)}`)
     }
   }
 
@@ -437,7 +601,13 @@ export class AgentManager {
   }
 
   public async abort(sessionId: string): Promise<void> {
-    await this.client.session.abort({ path: { id: sessionId } })
+    const result = await this.client.session.abort({
+      sessionID: sessionId,
+      ...(this.workspaceDir ? { directory: this.workspaceDir } : {}),
+    })
+    if (result.error) {
+      throw new Error(`session.abort failed: ${JSON.stringify(result.error)}`)
+    }
   }
 
   public async createArtifactDir(sessionId: string): Promise<string> {
@@ -466,20 +636,36 @@ export class AgentManager {
     if (!id) {
       id = (await this.createSession(branding.appName)).id
     }
-    const prompted = await this.client.session.prompt({
-      path: { id },
-      body: {
-        agent: normalizeWantaAgentMode(undefined),
-        model: { providerID: WANTA_PROVIDER_ID, modelID: WANTA_MODEL_ID },
-        ...(system ? { system } : {}),
-        parts: [{ type: "text", text }],
-      },
+    await this.assertV2PromptExecutionAvailable(id)
+    await this.configureSessionForPrompt(id, undefined, undefined, undefined)
+    const prompted = await this.client.v2.session.prompt({
+      sessionID: id,
+      delivery: "queue",
+      resume: true,
+      prompt: buildPrompt(text, undefined, system),
     })
     if (prompted.error) {
-      throw new Error(`session.prompt failed: ${JSON.stringify(prompted.error)}`)
+      throw new Error(`v2.session.prompt failed: ${JSON.stringify(prompted.error)}`)
     }
-    const messages = (await this.client.session.messages({ path: { id } })).data
+    const waited = await this.client.v2.session.wait({ sessionID: id })
+    if (waited.error) {
+      throw new Error(`v2.session.wait failed: ${JSON.stringify(waited.error)}`)
+    }
+    const messages = await this.getMessages(id)
     return { sessionId: id, messages }
+  }
+
+  private async assertV2PromptExecutionAvailable(sessionId: string, signal?: AbortSignal): Promise<void> {
+    const result = signal
+      ? await this.client.v2.session.wait({ sessionID: sessionId }, { signal })
+      : await this.client.v2.session.wait({ sessionID: sessionId })
+    if (!result.error) {
+      return
+    }
+    if (isV2PromptExecutionUnavailable(result.error)) {
+      throw new Error(v2PromptExecutionUnavailableMessage)
+    }
+    throw new Error(`v2.session.wait preflight failed: ${JSON.stringify(result.error)}`)
   }
 
   private async writeOrganizationScope(organizationName = this.organizationName): Promise<void> {
@@ -495,6 +681,39 @@ export class AgentManager {
     this.started = false
     this.sidecar?.dispose()
     this.sidecar = null
+    this.workspaceDir = undefined
+  }
+
+  private async configureSessionForPrompt(
+    sessionId: string,
+    mode: AgentMode | undefined,
+    choice: ModelChoice | undefined,
+    variant: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const agent = normalizeWantaAgentMode(mode)
+    const agentResult = await this.client.v2.session.switchAgent({ sessionID: sessionId, agent }, { signal })
+    if (agentResult.error) {
+      throw new Error(`v2.session.switchAgent failed: ${JSON.stringify(agentResult.error)}`)
+    }
+    if (signal?.aborted) {
+      return
+    }
+    const model = this.resolveModel(choice)
+    const modelResult = await this.client.v2.session.switchModel(
+      {
+        sessionID: sessionId,
+        model: {
+          id: model.modelID,
+          providerID: model.providerID,
+          ...(variant ? { variant } : {}),
+        },
+      },
+      { signal },
+    )
+    if (modelResult.error) {
+      throw new Error(`v2.session.switchModel failed: ${JSON.stringify(modelResult.error)}`)
+    }
   }
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {
@@ -523,29 +742,32 @@ export class AgentManager {
   }
 }
 
-function buildPromptParts(
-  text: string,
-  attachments: ChatAttachment[] | undefined,
-): Array<TextPartInput | FilePartInput> {
-  const parts: Array<TextPartInput | FilePartInput> = []
+function buildPrompt(text: string, attachments: ChatAttachment[] | undefined, context: string | undefined): Prompt {
+  const files = buildPromptFiles(attachments)
+  return {
+    text: appendWantaPromptContext(text, context),
+    ...(files.length > 0 ? { files } : {}),
+  }
+}
+
+function buildPromptFiles(attachments: ChatAttachment[] | undefined): PromptFileAttachment[] {
+  const files: PromptFileAttachment[] = []
   for (const attachment of attachments ?? []) {
     const inputPath = attachment.agentPath ?? attachment.path
     const inputName = attachment.agentName ?? attachment.name
     const inputMime = attachment.agentMime ?? attachment.mime
-    parts.push({
-      type: "file",
+    files.push({
       mime: inputMime || "application/octet-stream",
-      filename: inputName,
-      url: pathToFileUrl(inputPath),
+      name: inputName,
+      uri: pathToFileUrl(inputPath),
       source: {
-        type: "file",
-        path: inputPath,
-        text: { value: inputName, start: 0, end: inputName.length },
+        text: inputName,
+        start: 0,
+        end: inputName.length,
       },
     })
   }
-  parts.push({ type: "text", text })
-  return parts
+  return files
 }
 
 function signalWithTimeout(

@@ -85,6 +85,25 @@ describe("chat message identity reconciliation", () => {
     expect(merged[1]?.parts).toEqual([{ kind: "text", partId: "text-1", text: "Done" }])
   })
 
+  it("keeps current messages when full history reload is temporarily empty", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "real-user-1",
+        role: "user",
+        parts: [{ kind: "text", partId: "text-1", text: "你好" }],
+        createdAt: 1,
+      },
+      {
+        id: "real-assistant-1",
+        role: "assistant",
+        parts: [{ kind: "text", partId: "text-2", text: "你好！" }],
+        createdAt: 2,
+      },
+    ]
+
+    expect(mergeFetchedMessages(current, [])).toBe(current)
+  })
+
   it("preserves local context mentions when full history reloads", () => {
     const current = appendOptimisticConversationTurn([], "Generate an image", [], [skillMention])
     const fetched: ChatMessage[] = [

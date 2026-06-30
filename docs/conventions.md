@@ -7,7 +7,7 @@
 - **R1** 品牌单一来源：`electron/branding.ts`。`electron-builder.ts` 必须从该模块派生 appId / productName / protocol。`OO_` env 前缀、`x-oomol-*` 头是外部协议契约，不随品牌改。
 - **R2** endpoint 单一来源：`electron/domain.ts` 派生一切域名，禁止散落硬编码（现为构建期常量，动态切换已移除）。
 - **R3** oo 只经环境变量控制：`electron/agent/oo.ts` 的 `buildOoEnv` 是全集。
-- **R4** 动态系统提示：稳定人格放 agent.prompt（prompt 缓存友好），每轮已授权 Link provider 存在性提示（来源 `/v1/apps`）经 `body.system` 注入末尾（实测追加非覆盖）；默认不列具体 provider 名，避免可用性上下文变成工具诱导。
+- **R4** 动态系统提示：稳定人格放 agent.prompt（prompt 缓存友好）；V2 prompt 没有每轮 `system` 字段，每轮已授权 Link provider 存在性提示（来源 `/v1/apps`）会追加到 prompt 末尾并在历史展示时剥离；默认不列具体 provider 名，避免可用性上下文变成工具诱导。
 - **R5** 发现/调用/授权信号全走结构化工具结果，不解析模型自由文本；未授权判定靠 stderr `errorCode: <code>` token（locale 无关锚点；zh 文案用全角括号，正则需排除 `)）`）。
 - **R6** 系统提示契约：蓝本来自 oo-cli 内置 oo skill，剔除 CLI 特定条款。
 - **R7 在代码中重载，grep 时注意区分**：原计划义 = **IPC 流式**（ClientInvokes 发起 + ServerEvents 推送，见 `electron/chat/common.ts` 注释与 [architecture.md §3](architecture.md)）；而 `electron/agent/system-prompt.ts` 头注释里的 "R7" 是**提示词修订号**（放开本地编码的那一版），与 IPC 无关。
@@ -59,7 +59,7 @@
 ## 7. Agent / 工具相关
 
 - **能力三处同步**：`config.ts` 的 tools 配置（现状：无禁用表，内置工具全启用）、permission（agent 级 + 根级）、`system-prompt.ts` 提示词。改任何能力策略三处必须一起改。
-- **permission 永不设 `"ask"`**（未接 `permission.updated` 确认 UI，会挂死会话）。
+- **permission 永不设 `"ask"`**（未接 `permission.v2.asked` 确认 UI，会挂死会话）。
 - **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器三工具照常 spawn oo，不受影响。
 - 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 search/inspect/call 三者的交叉引用。
 - sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界靠 `external_directory: "allow"`。

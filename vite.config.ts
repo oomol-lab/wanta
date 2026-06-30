@@ -133,8 +133,9 @@ export default defineConfig(({ command, mode }) => {
               rollupOptions: {
                 // @opencode-ai/sdk 依赖 cross-spawn（CJS require("child_process")）、electron-updater 走
                 // CJS 动态 require，都不能打进 ESM 主进程包；外部化后由 Node 运行时解析（electron-builder
-                // 随 dependencies 打包）。
-                external: ["@opencode-ai/sdk", "electron-updater"],
+                // 随 dependencies 打包）。正则覆盖子路径导入（如 @opencode-ai/sdk/v2/client）——精确字符串
+                // 匹配不会命中子路径，否则 v2 client 会被错误内联进主进程包。
+                external: [/^@opencode-ai\/sdk(\/|$)/, "electron-updater"],
               },
             },
           },

@@ -78,14 +78,12 @@ describe("AgentManager", () => {
     await manager.promptStreaming("session-1", "build it", { reasoningLevel: "medium" })
     await manager.promptStreaming("session-1", "default reasoning", { reasoningLevel: "default" })
 
-    const calls = promptAsync.mock.calls as unknown as Array<
-      [parameters: { body: { agent?: string; variant?: string } }]
-    >
-    expect(calls[0]?.[0].body.agent).toBe("plan")
-    expect(calls[0]?.[0].body.variant).toBe("high")
-    expect(calls[1]?.[0].body.agent).toBe("build")
-    expect(calls[1]?.[0].body.variant).toBe("medium")
-    expect(calls[2]?.[0].body).not.toHaveProperty("variant")
+    const calls = promptAsync.mock.calls as unknown as Array<[parameters: { agent?: string; variant?: string }]>
+    expect(calls[0]?.[0].agent).toBe("plan")
+    expect(calls[0]?.[0].variant).toBe("high")
+    expect(calls[1]?.[0].agent).toBe("build")
+    expect(calls[1]?.[0].variant).toBe("medium")
+    expect(calls[2]?.[0]).not.toHaveProperty("variant")
   })
 
   it("uses a generated session title without local length scoring or rewrite", async () => {

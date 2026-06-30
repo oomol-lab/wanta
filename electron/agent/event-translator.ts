@@ -128,11 +128,12 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
     case "session.status": {
       const p = props as {
         sessionID?: string
-        status?: { type?: string; attempt?: number; message?: string; next?: number }
+        status?: { type?: string; attempt?: number; message?: string }
       }
       if (!p.sessionID || p.status?.type !== "retry") {
         return []
       }
+      // v2 的 retry status 不再带 next 字段，nextRetryAt 在 UI 契约里可选，故省略。
       return [
         {
           event: "assistantActivity",
@@ -141,7 +142,6 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
             phase: "retrying",
             message: p.status.message,
             attempt: p.status.attempt,
-            nextRetryAt: p.status.next,
           },
         },
       ]

@@ -7,7 +7,7 @@ import type {
   OrganizationProviderOption,
   OrganizationUserSummary,
 } from "../../../electron/organizations/common.ts"
-import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
+import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type {
   BusyAction,
   LoadState,
@@ -111,12 +111,9 @@ import {
   searchUsers,
   updateOrganizationAppAccess,
 } from "@/lib/organizations-client"
-import { readPublicSkillPackageByName } from "@/lib/skills-catalog-client"
 import { cn } from "@/lib/utils"
-import {
-  buildProviderSkillRecommendations,
-  getConnectedProviderSkillCandidates,
-} from "@/routes/Skills/provider-skill-recommendations"
+import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
+import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
 import { getOrganizationSkillRuntimeStatus, getSkillRowStatusBadgeClassName } from "@/routes/Skills/skill-route-model"
 
 type AsyncResult<T> = { ok: true; value: T } | { error: unknown; ok: false }
@@ -127,75 +124,6 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
     (value) => ({ ok: true, value }),
     (error: unknown) => ({ error, ok: false }),
   )
-}
-
-const organizationSkillProviderPackageCacheMs = 30_000
-
-interface OrganizationSkillProviderPackageCacheEntry {
-  fetchedAt: number
-  package: PublicSkillPackage | null
-}
-
-const organizationSkillProviderPackageCache = new Map<string, OrganizationSkillProviderPackageCacheEntry>()
-
-function useOrganizationSkillProviderPackages(
-  providers: readonly ConnectionProvider[],
-): ReadonlyMap<string, PublicSkillPackage | null> {
-  const candidates = React.useMemo(() => getConnectedProviderSkillCandidates(providers), [providers])
-  const requestKey = React.useMemo(
-    () =>
-      candidates
-        .map((candidate) => `${candidate.service}:${candidate.packageName}`)
-        .sort()
-        .join("|"),
-    [candidates],
-  )
-  const [packagesByService, setPackagesByService] = React.useState<ReadonlyMap<string, PublicSkillPackage | null>>(
-    () => new Map(),
-  )
-
-  React.useEffect(() => {
-    let cancelled = false
-
-    if (candidates.length === 0) {
-      setPackagesByService(new Map())
-      return () => {
-        cancelled = true
-      }
-    }
-
-    void (async () => {
-      const now = Date.now()
-      const next = new Map<string, PublicSkillPackage | null>()
-
-      for (const candidate of candidates) {
-        const cached = organizationSkillProviderPackageCache.get(candidate.packageName)
-        if (cached && now - cached.fetchedAt < organizationSkillProviderPackageCacheMs) {
-          next.set(candidate.service, cached.package)
-          continue
-        }
-
-        try {
-          const pkg = await readPublicSkillPackageByName(candidate.packageName)
-          organizationSkillProviderPackageCache.set(candidate.packageName, { fetchedAt: Date.now(), package: pkg })
-          next.set(candidate.service, pkg)
-        } catch (error) {
-          console.warn("[wanta] failed to read provider Skill recommendation:", error)
-          next.set(candidate.service, null)
-        }
-      }
-
-      if (!cancelled) {
-        setPackagesByService(next)
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [candidates, requestKey])
-
-  return packagesByService
 }
 
 export function OrganizationManagementRoute({
@@ -276,7 +204,7 @@ export function OrganizationManagementRoute({
     () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
     [skillInventory.data?.groups],
   )
-  const providerPackagesByService = useOrganizationSkillProviderPackages(connectedProviders)
+  const providerPackagesByService = useProviderSkillPackageLookup(connectedProviders).packagesByService
   const providerSkillRecommendations = React.useMemo(
     () =>
       buildProviderSkillRecommendations({

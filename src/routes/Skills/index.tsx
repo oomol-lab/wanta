@@ -19,9 +19,9 @@ import type { TranslateFn as TFunction } from "@/i18n"
 import { LockKeyholeIcon, PackageOpenIcon, ShieldCheckIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { useProviderSkillPackageLookup } from "./provider-skill-package-lookup.ts"
 import {
   buildProviderSkillRecommendations,
-  getConnectedProviderSkillCandidates,
   getInstallableProviderSkillRecommendations,
 } from "./provider-skill-recommendations.ts"
 import {
@@ -88,11 +88,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
-import {
-  listMyPublishedSkillPackages,
-  listPublicSkillPackages,
-  readPublicSkillPackageByName,
-} from "@/lib/skills-catalog-client"
+import { listMyPublishedSkillPackages, listPublicSkillPackages } from "@/lib/skills-catalog-client"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
@@ -138,91 +134,7 @@ const skillUpdateActionBadgeClassName = cn(
 )
 const skillDocumentToggleItemClassName =
   "data-[state=off]:bg-muted/60 data-[state=off]:text-muted-foreground data-[state=on]:bg-background data-[state=on]:text-foreground"
-const providerSkillPackageCacheMs = 30_000
 const providerSkillRecommendationPreviewLimit = 3
-
-interface ProviderSkillPackageCacheEntry {
-  fetchedAt: number
-  package: PublicSkillPackage | null
-}
-
-interface ProviderSkillPackageLookup {
-  error: string | null
-  isLoading: boolean
-  packagesByService: ReadonlyMap<string, PublicSkillPackage | null>
-}
-
-const providerSkillPackageCache = new Map<string, ProviderSkillPackageCacheEntry>()
-
-function useProviderSkillPackageLookup(providers: readonly ConnectionProvider[]): ProviderSkillPackageLookup {
-  const candidates = React.useMemo(() => getConnectedProviderSkillCandidates(providers), [providers])
-  const requestKey = React.useMemo(
-    () =>
-      candidates
-        .map((candidate) => `${candidate.service}:${candidate.packageName}`)
-        .sort()
-        .join("|"),
-    [candidates],
-  )
-  const [packagesByService, setPackagesByService] = React.useState<ReadonlyMap<string, PublicSkillPackage | null>>(
-    () => new Map(),
-  )
-  const [isLoading, setIsLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    let cancelled = false
-
-    if (candidates.length === 0) {
-      setPackagesByService(new Map())
-      setIsLoading(false)
-      setError(null)
-      return () => {
-        cancelled = true
-      }
-    }
-
-    setIsLoading(true)
-    setError(null)
-
-    void (async () => {
-      const next = new Map<string, PublicSkillPackage | null>()
-      const now = Date.now()
-
-      for (const candidate of candidates) {
-        const cached = providerSkillPackageCache.get(candidate.packageName)
-        if (cached && now - cached.fetchedAt < providerSkillPackageCacheMs) {
-          next.set(candidate.service, cached.package)
-          continue
-        }
-
-        const pkg = await readPublicSkillPackageByName(candidate.packageName)
-        providerSkillPackageCache.set(candidate.packageName, { fetchedAt: Date.now(), package: pkg })
-        next.set(candidate.service, pkg)
-      }
-
-      if (!cancelled) {
-        setPackagesByService(next)
-      }
-    })()
-      .catch((cause) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : String(cause))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [candidates, requestKey])
-
-  return { error, isLoading, packagesByService }
-}
 
 function SkillUpdateBadge({ label }: { label: string }) {
   return (

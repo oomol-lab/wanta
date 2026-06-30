@@ -249,8 +249,6 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageInfo | null }) {
         <div
           ref={panelRef}
           id={panelId}
-          role="dialog"
-          aria-label={t("chat.contextUsagePanelTitle")}
           style={panelStyle}
           className="fixed z-50 rounded-xl border bg-popover/95 px-4 py-3 text-center text-popover-foreground shadow-xl backdrop-blur"
         >
@@ -270,8 +268,8 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageInfo | null }) {
         ref={triggerRef}
         type="button"
         aria-label={title}
+        aria-describedby={open ? panelId : undefined}
         aria-expanded={open}
-        aria-haspopup="dialog"
         aria-controls={open ? panelId : undefined}
         title={title}
         className={cn(

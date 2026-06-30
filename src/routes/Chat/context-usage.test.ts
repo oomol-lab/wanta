@@ -80,7 +80,7 @@ describe("chat context usage", () => {
           id: "custom-1",
           providerId: "custom",
           providerName: "Custom",
-          baseUrl: "https://example.test/v1",
+          baseUrl: "",
           modelName: "custom-model",
           displayName: "Custom",
           apiKeyConfigured: true,
@@ -106,6 +106,7 @@ describe("chat context usage", () => {
     expect(formatTokenCount(42)).toBe("42")
     expect(formatTokenCount(1200)).toBe("1.2K")
     expect(formatTokenCount(12_000)).toBe("12K")
+    expect(formatTokenCount(999_950)).toBe("1M")
     expect(formatTokenCount(1_500_000)).toBe("1.5M")
   })
 })

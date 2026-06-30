@@ -56,7 +56,8 @@ export function formatTokenCount(value: number): string {
     return `${formatCompactNumber(rounded / 1_000_000)}M`
   }
   if (rounded >= 1_000) {
-    return `${formatCompactNumber(rounded / 1_000)}K`
+    const thousands = formatCompactNumber(rounded / 1_000)
+    return thousands === "1000" ? "1M" : `${thousands}K`
   }
   return String(rounded)
 }

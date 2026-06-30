@@ -162,10 +162,13 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
   // Build 保持全 allow；Plan 显式禁止普通编辑，避免根级 allow 覆盖 OpenCode plan 语义。
-  assert.equal(buildAgent.permission?.bash, "allow")
-  assert.equal(buildAgent.permission?.edit, "allow")
-  assert.equal(buildAgent.permission?.webfetch, "allow")
-  assert.deepEqual(planAgent.permission?.bash, {
+  const buildPermission = buildAgent.permission as Record<string, unknown> | undefined
+  const planPermission = planAgent.permission as Record<string, unknown> | undefined
+  const rootPermission = config.permission as Record<string, unknown> | undefined
+  assert.equal(buildPermission?.bash, "allow")
+  assert.equal(buildPermission?.edit, "allow")
+  assert.equal(buildPermission?.webfetch, "allow")
+  assert.deepEqual(planPermission?.bash, {
     "*": "deny",
     "cat *": "allow",
     "head *": "allow",
@@ -186,8 +189,8 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
     "git grep*": "allow",
     "git remote*": "allow",
   })
-  assert.deepEqual(planAgent.permission?.edit, { "*": "deny", ".opencode/plans/*.md": "allow" })
-  assert.equal(config.permission?.bash, "allow")
+  assert.deepEqual(planPermission?.edit, { "*": "deny", ".opencode/plans/*.md": "allow" })
+  assert.equal(rootPermission?.bash, "allow")
 })
 
 test("system prompt treats Link as a contextual capability, not the default path", () => {

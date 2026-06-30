@@ -58,6 +58,31 @@ test("text part.updated → messageDelta carrying cumulative text", () => {
   ])
 })
 
+test("text part.updated strips Wanta hidden turn context before reaching the renderer", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "p1",
+        sessionID: "s1",
+        messageID: "m1",
+        type: "text",
+        text: [
+          "你好",
+          '<wanta_turn_context visibility="hidden_from_ui">',
+          "internal context",
+          "</wanta_turn_context>",
+        ].join("\n\n"),
+      },
+      delta: "\n</wanta_turn_context>",
+    },
+  })
+
+  assert.deepEqual(out, [
+    { event: "messageDelta", data: { sessionId: "s1", messageId: "m1", partId: "p1", text: "你好" } },
+  ])
+})
+
 test("text part.updated forwards streaming delta when cumulative text is unavailable", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -65,6 +90,27 @@ test("text part.updated forwards streaming delta when cumulative text is unavail
   })
   assert.deepEqual(out, [
     { event: "messageDelta", data: { sessionId: "s1", messageId: "m1", partId: "p1", text: "", delta: "Hi" } },
+  ])
+})
+
+test("session.next.text.ended strips Wanta hidden turn context", () => {
+  const out = translateOpencodeEvent({
+    type: "session.next.text.ended",
+    data: {
+      sessionID: "s1",
+      assistantMessageID: "m1",
+      textID: "t1",
+      text: [
+        "Done",
+        '<wanta_turn_context visibility="hidden_from_ui">',
+        "internal context",
+        "</wanta_turn_context>",
+      ].join("\n\n"),
+    },
+  })
+
+  assert.deepEqual(out, [
+    { event: "messageDelta", data: { sessionId: "s1", messageId: "m1", partId: "t1", text: "Done" } },
   ])
 })
 
@@ -347,9 +393,12 @@ test("session.idle → messageCompleted; session.error → agentError", () => {
   assert.deepEqual(translateOpencodeEvent({ type: "session.idle", properties: { sessionID: "s1" } }), [
     { event: "messageCompleted", data: { sessionId: "s1" } },
   ])
+  assert.deepEqual(translateOpencodeEvent({ type: "session.idle", data: { sessionID: "s2" } }), [
+    { event: "messageCompleted", data: { sessionId: "s2" } },
+  ])
   const err = translateOpencodeEvent({
     type: "session.error",
-    properties: { sessionID: "s1", error: { name: "UnknownError", data: { message: "boom" } } },
+    data: { sessionID: "s1", error: { name: "UnknownError", data: { message: "boom" } } },
   })
   assert.equal(err[0].event, "agentError")
   assert.equal((err[0].data as { message: string }).message, "boom")
@@ -391,23 +440,24 @@ test("parseAuthorization accepts auth json, rejects plain results", () => {
 
 test("normalizeMessage marks directory attachments from inode mime", () => {
   const message = normalizeMessage({
-    info: { id: "m1", role: "user", time: { created: 1 } },
-    parts: [
+    id: "m1",
+    type: "user",
+    time: { created: 1 },
+    text: "",
+    files: [
       {
-        id: "p1",
-        type: "file",
-        filename: "project",
+        uri: "file:///Users/me/project",
+        name: "project",
         mime: "inode/directory",
-        source: { path: "/Users/me/project" },
       },
     ],
   })
   assert.deepEqual(message?.parts, [
     {
       kind: "attachment",
-      partId: "p1",
+      partId: "m1-file-0",
       attachment: {
-        id: "p1",
+        id: "m1-file-0",
         name: "project",
         mime: "inode/directory",
         size: 0,
@@ -418,20 +468,84 @@ test("normalizeMessage marks directory attachments from inode mime", () => {
   ])
 })
 
+test("normalizeMessage strips hidden turn context from V2 user history", () => {
+  const message = normalizeMessage({
+    id: "u1",
+    type: "user",
+    time: { created: 1 },
+    text: [
+      "你好",
+      '<wanta_turn_context visibility="hidden_from_ui">',
+      "Artifact output contract for this turn:",
+      "</wanta_turn_context>",
+    ].join("\n\n"),
+  })
+
+  assert.deepEqual(message, {
+    id: "u1",
+    role: "user",
+    parts: [{ kind: "text", partId: "u1-text", text: "你好" }],
+    createdAt: 1,
+  })
+})
+
+test("normalizeMessage strips hidden turn context from V2 assistant text history", () => {
+  const message = normalizeMessage({
+    id: "a1",
+    type: "assistant",
+    time: { created: 2 },
+    agent: "build",
+    model: { id: "oopilot", providerID: "oomol" },
+    content: [
+      {
+        id: "text-1",
+        type: "text",
+        text: [
+          "Done",
+          '<wanta_turn_context visibility="hidden_from_ui">',
+          "internal context",
+          "</wanta_turn_context>",
+        ].join("\n\n"),
+      },
+    ],
+  })
+
+  assert.deepEqual(message, {
+    id: "a1",
+    role: "assistant",
+    parts: [{ kind: "text", partId: "text-1", text: "Done" }],
+    createdAt: 2,
+  })
+})
+
+test("normalizeMessage ignores non-chat V2 message history entries", () => {
+  const message = normalizeMessage({
+    id: "system-1",
+    type: "system",
+    time: { created: 1 },
+    text: "internal system message",
+  })
+
+  assert.equal(message, null)
+})
+
 test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in order", () => {
   const msg = normalizeMessage({
-    info: { id: "m1", role: "assistant", time: { created: 123 } },
-    parts: [
+    id: "m1",
+    type: "assistant",
+    time: { created: 123 },
+    agent: "build",
+    model: { id: "oopilot", providerID: "oomol" },
+    content: [
       { id: "p1", type: "text", text: "Result:" },
       { id: "r1", type: "reasoning", text: "Checked local context" },
       {
-        id: "p2",
+        id: "c1",
         type: "tool",
-        callID: "c1",
-        tool: "call_action",
-        state: { status: "completed", input: {}, output: "{}" },
+        name: "call_action",
+        state: { status: "completed", input: {}, content: [{ type: "text", text: "{}" }], structured: {} },
+        time: { created: 100, ran: 101, completed: 102 },
       },
-      { id: "p3", type: "step-finish" },
     ],
   })
   assert.ok(msg)
@@ -445,18 +559,18 @@ test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in 
 
 test("normalizeMessage preserves assistant token usage", () => {
   const msg = normalizeMessage({
-    info: {
-      id: "m1",
-      role: "assistant",
-      time: { created: 123 },
-      tokens: {
-        input: 1200,
-        output: 320,
-        reasoning: 40,
-        cache: { read: 800, write: 50 },
-      },
+    id: "m1",
+    type: "assistant",
+    time: { created: 123 },
+    agent: "build",
+    model: { id: "oopilot", providerID: "oomol" },
+    tokens: {
+      input: 1200,
+      output: 320,
+      reasoning: 40,
+      cache: { read: 800, write: 50 },
     },
-    parts: [{ id: "p1", type: "text", text: "Done" }],
+    content: [{ id: "p1", type: "text", text: "Done" }],
   })
 
   assert.deepEqual(msg?.tokenUsage, {
@@ -469,16 +583,13 @@ test("normalizeMessage preserves assistant token usage", () => {
 
 test("normalizeMessage appends assistant message-level errors", () => {
   const msg = normalizeMessage({
-    info: {
-      id: "m1",
-      role: "assistant",
-      time: { created: 123 },
-      error: {
-        name: "APIError",
-        data: { message: "Payment Required: account is in deficit", statusCode: 402 },
-      },
-    },
-    parts: [{ id: "p1", type: "text", text: "Partial answer" }],
+    id: "m1",
+    type: "assistant",
+    time: { created: 123 },
+    agent: "build",
+    model: { id: "oopilot", providerID: "oomol" },
+    error: { type: "unknown", message: "Payment Required: account is in deficit" },
+    content: [{ id: "p1", type: "text", text: "Partial answer" }],
   })
 
   assert.ok(msg)
@@ -486,23 +597,8 @@ test("normalizeMessage appends assistant message-level errors", () => {
     { kind: "text", partId: "p1", text: "Partial answer" },
     {
       kind: "error",
-      partId: "message-error-APIError",
+      partId: "message-error-unknown",
       errorText: "Payment Required: account is in deficit",
     },
   ])
-})
-
-test("normalizeMessage skips aborted message-level errors for stopped history", () => {
-  const msg = normalizeMessage({
-    info: {
-      id: "m1",
-      role: "assistant",
-      time: { created: 123 },
-      error: { name: "MessageAbortedError", data: { message: "Aborted" } },
-    },
-    parts: [{ id: "p1", type: "text", text: "Partial answer" }],
-  })
-
-  assert.ok(msg)
-  assert.deepEqual(msg.parts, [{ kind: "text", partId: "p1", text: "Partial answer" }])
 })

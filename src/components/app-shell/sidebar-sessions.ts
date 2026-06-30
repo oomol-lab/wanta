@@ -6,11 +6,12 @@ export interface SidebarSessionGroups {
 }
 
 export function groupSidebarSessions(sessions: SessionInfo[]): SidebarSessionGroups {
+  const taskSessions = sessions.filter((session) => !session.projectId)
   return {
-    pinned: sessions
+    pinned: taskSessions
       .filter((session) => session.pinnedAt && !session.archivedAt)
       .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0)),
-    regular: sessions.filter((session) => !session.pinnedAt && !session.archivedAt),
+    regular: taskSessions.filter((session) => !session.pinnedAt && !session.archivedAt),
   }
 }
 

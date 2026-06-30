@@ -1,7 +1,7 @@
-import type { Config, OpencodeClient } from "@opencode-ai/sdk"
+import type { Config, OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
 
-import { createOpencodeClient } from "@opencode-ai/sdk"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { spawn } from "node:child_process"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
@@ -120,7 +120,7 @@ export class OpencodeSidecar {
       const token = Buffer.from(`opencode:${serverPassword}`).toString("base64")
       headers.Authorization = `Basic ${token}`
     }
-    this.opencodeClient = createOpencodeClient({ baseUrl: url, headers })
+    this.opencodeClient = createOpencodeClient({ baseUrl: url, headers, directory: workspaceDir })
   }
 
   public dispose(): void {

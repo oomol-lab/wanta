@@ -5,10 +5,12 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 export interface SessionMetadata {
+  title?: string
   scope?: SessionScope
   projectId?: string
   pinnedAt?: number
   archivedAt?: number
+  deletedAt?: number
 }
 
 export interface PersistedSessionMetadata {
@@ -54,6 +56,9 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     }
     const source = entry as SessionMetadata
     const next: SessionMetadata = {}
+    if (typeof source.title === "string" && source.title.trim()) {
+      next.title = source.title.trim()
+    }
     const scope = normalizeScope(source.scope)
     if (scope) {
       next.scope = scope
@@ -67,7 +72,10 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (validTimestamp(source.archivedAt)) {
       next.archivedAt = source.archivedAt
     }
-    if (next.scope || next.projectId || next.pinnedAt || next.archivedAt) {
+    if (validTimestamp(source.deletedAt)) {
+      next.deletedAt = source.deletedAt
+    }
+    if (next.title || next.scope || next.projectId || next.pinnedAt || next.archivedAt || next.deletedAt) {
       metadata.set(id, next)
     }
   }
@@ -81,6 +89,9 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
       continue
     }
     const next: SessionMetadata = {}
+    if (typeof entry.title === "string" && entry.title.trim()) {
+      next.title = entry.title.trim()
+    }
     const scope = normalizeScope(entry.scope)
     if (scope) {
       next.scope = scope
@@ -94,7 +105,10 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
     if (validTimestamp(entry.archivedAt)) {
       next.archivedAt = entry.archivedAt
     }
-    if (next.scope || next.projectId || next.pinnedAt || next.archivedAt) {
+    if (validTimestamp(entry.deletedAt)) {
+      next.deletedAt = entry.deletedAt
+    }
+    if (next.title || next.scope || next.projectId || next.pinnedAt || next.archivedAt || next.deletedAt) {
       sessions[id] = next
     }
   }

@@ -1725,6 +1725,7 @@ export function AppShell() {
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
   )
+  const currentSessionScopeKey = React.useMemo(() => sessionScopeKey(sessionScope), [sessionScope])
   const sessionsEnabled = auth.state?.status === "authenticated" && sessionScope !== null
   const {
     sessions,
@@ -1834,6 +1835,18 @@ export function AppShell() {
   React.useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed
   }, [sidebarCollapsed])
+
+  React.useEffect(() => {
+    setActiveSessionId(null)
+    setIsDraftSession(false)
+    setDraftProjectId(null)
+    setPendingChatTransition(null)
+    setQueuedMessagesBySession({})
+    setHeldQueuedSessions(new Set())
+    pendingRetry.current = null
+    setPendingRetryWatch(null)
+    setConnectionAuthIntent(null)
+  }, [currentSessionScopeKey])
 
   const focusOrganizationSkills = React.useCallback(() => {
     setRoute("skills")
@@ -1997,10 +2010,15 @@ export function AppShell() {
 
   // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
   React.useLayoutEffect(() => {
-    if (sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0) {
-      setActiveSessionId(sessions[0].id)
+    if (sessionsLoaded && !isDraftSession && !activeSessionId) {
+      const defaultSession = sessions.find((session) =>
+        sidebarSegment === "projects" ? Boolean(session.projectId) : !session.projectId,
+      )
+      if (defaultSession) {
+        setActiveSessionId(defaultSession.id)
+      }
     }
-  }, [sessions, sessionsLoaded, activeSessionId, isDraftSession])
+  }, [sessions, sessionsLoaded, activeSessionId, isDraftSession, sidebarSegment])
 
   React.useEffect(() => {
     if (!sessionsLoaded || !activeSessionId) {
@@ -2021,6 +2039,30 @@ export function AppShell() {
       return next
     })
   }, [activeSessionId, sessions, sessionsLoaded])
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || !activeSessionId || isDraftSession || route !== "chat") {
+      return
+    }
+    const active = sessions.find((session) => session.id === activeSessionId)
+    if (!active) {
+      return
+    }
+    const activeMatchesSegment = sidebarSegment === "projects" ? Boolean(active.projectId) : !active.projectId
+    if (activeMatchesSegment) {
+      return
+    }
+    const nextSession = sessions.find((session) => {
+      if (session.archivedAt) {
+        return false
+      }
+      return sidebarSegment === "projects" ? Boolean(session.projectId) : !session.projectId
+    })
+    setActiveSessionId(nextSession?.id ?? null)
+    setIsDraftSession(false)
+    setDraftProjectId(null)
+    setPendingChatTransition(null)
+  }, [activeSessionId, isDraftSession, route, sessions, sessionsLoaded, sidebarSegment])
 
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
   React.useEffect(() => {
@@ -2105,7 +2147,7 @@ export function AppShell() {
   const collapsedProjectIds =
     collapsedProjectState.storageKey === projectCollapsedStorageKey ? collapsedProjectState.ids : new Set<string>()
   const activeComposerDraftKey =
-    activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}:${activeProjectId ?? "none"}`
+    activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${currentSessionScopeKey}:${activeProjectId ?? "none"}`
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
@@ -2584,6 +2626,7 @@ export function AppShell() {
     setActiveSessionId(session.id)
     setIsDraftSession(false)
     setDraftProjectId(null)
+    setSidebarSegment(session.projectId ? "projects" : "tasks")
     setRoute("chat")
   }, [])
 
@@ -3276,11 +3319,9 @@ export function AppShell() {
         <ArchivedRoute
           listArchived={listArchived}
           onBack={() => setRoute("chat")}
-          onOpenSession={(sessionId) => {
-            setActiveSessionId(sessionId)
-            setIsDraftSession(false)
+          onOpenSession={(session) => {
+            handleSelectSession(session)
             setPendingChatTransition(null)
-            setRoute("chat")
           }}
           refreshSessions={refreshSessions}
           removeSession={removeSession}
@@ -3731,10 +3772,8 @@ export function AppShell() {
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onSelect={(session) => {
-          setActiveSessionId(session.id)
-          setIsDraftSession(false)
+          handleSelectSession(session)
           setPendingChatTransition(null)
-          setRoute("chat")
           setSearchOpen(false)
         }}
       />

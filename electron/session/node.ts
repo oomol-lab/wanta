@@ -122,6 +122,7 @@ export class SessionServiceImpl
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
     return this.mergeLocalState(await this.agent.listSessions(), "active", normalizeSessionScope(req.scope))
   }
 
@@ -131,6 +132,7 @@ export class SessionServiceImpl
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
     return this.mergeLocalState(await this.agent.listSessions(), "archived", normalizeSessionScope(req.scope))
   }
 
@@ -152,13 +154,15 @@ export class SessionServiceImpl
     }
     const scope = createRequestScope(req)
     const projectId = createRequestProjectId(req)
-    const info = await this.agent.createSession(createRequestTitle(req))
+    const requestedTitle = createRequestTitle(req)?.trim()
+    const info = await this.agent.createSession(requestedTitle)
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
     const project = projectId ? this.projects.get(projectId) : undefined
     const scopedProjectId = project && sessionScopeMatches(project.scope, scope) ? project.id : undefined
     this.setMetadataEntry(info.id, {
       ...this.sessionMetadata.get(info.id),
+      ...(requestedTitle ? { title: requestedTitle } : {}),
       scope,
       ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
     })
@@ -168,7 +172,12 @@ export class SessionServiceImpl
     }
     await this.persistMetadata()
     void this.broadcastChanged().catch(() => undefined)
-    return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
+    return {
+      ...info,
+      ...(requestedTitle ? { title: requestedTitle } : {}),
+      scope,
+      ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
+    }
   }
 
   public async createProject(req: CreateProjectRequest): Promise<SessionProject> {
@@ -214,9 +223,11 @@ export class SessionServiceImpl
     const current = this.sessionMetadata.get(req.sessionId) ?? {}
     const projectId = req.projectId?.trim()
     const next = { ...current }
-    if (projectId && this.projects.has(projectId)) {
-      next.projectId = projectId
-      this.touchProject(projectId)
+    const sessionScope = normalizeSessionScope(current.scope)
+    const project = projectId ? this.projects.get(projectId) : undefined
+    if (project && sessionScopeMatches(project.scope, sessionScope)) {
+      next.projectId = project.id
+      this.touchProject(project.id)
       await this.persistProjects()
     } else {
       delete next.projectId
@@ -259,7 +270,17 @@ export class SessionServiceImpl
     if (!this.agent) {
       return
     }
-    await this.agent.renameSession(req.id, req.title)
+    await this.ensureMetadataLoaded()
+    const title = req.title.trim()
+    const current = this.sessionMetadata.get(req.id) ?? {}
+    if (title) {
+      this.sessionMetadata.set(req.id, { ...current, title })
+    } else {
+      const next = { ...current }
+      delete next.title
+      this.setMetadataEntry(req.id, next)
+    }
+    await this.persistMetadata()
     void this.broadcastChanged().catch(() => undefined)
   }
 
@@ -318,7 +339,7 @@ export class SessionServiceImpl
     await this.ensureMetadataLoaded()
     await this.agent.deleteSession(id)
     this.sessionActivityAt.delete(id)
-    this.sessionMetadata.delete(id)
+    this.setMetadataEntry(id, { ...this.sessionMetadata.get(id), deletedAt: Date.now() })
     await this.deps.onSessionRemoved?.(id)
     await this.persistActivity()
     await this.persistMetadata()
@@ -435,7 +456,14 @@ export class SessionServiceImpl
   }
 
   private setMetadataEntry(id: string, metadata: SessionMetadata): void {
-    if (metadata.scope || metadata.projectId || metadata.pinnedAt || metadata.archivedAt) {
+    if (
+      metadata.title ||
+      metadata.scope ||
+      metadata.projectId ||
+      metadata.pinnedAt ||
+      metadata.archivedAt ||
+      metadata.deletedAt
+    ) {
       this.sessionMetadata.set(id, metadata)
     } else {
       this.sessionMetadata.delete(id)
@@ -451,15 +479,21 @@ export class SessionServiceImpl
       .map((session) => {
         const usedAt = this.sessionActivityAt.get(session.id)
         const metadata = this.sessionMetadata.get(session.id)
+        const scope = normalizeSessionScope(metadata?.scope)
+        const project = metadata?.projectId ? this.projects.get(metadata.projectId) : undefined
+        const projectId = project && sessionScopeMatches(project.scope, scope) ? project.id : undefined
         return {
           ...session,
-          scope: normalizeSessionScope(metadata?.scope),
-          ...(metadata?.projectId ? { projectId: metadata.projectId } : {}),
+          ...(metadata?.title ? { title: metadata.title } : {}),
+          scope,
+          ...(projectId ? { projectId } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
           ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
+          ...(metadata?.deletedAt ? { deletedAt: metadata.deletedAt } : {}),
         }
       })
+      .filter((session) => !("deletedAt" in session))
       .filter((session) => sessionScopeMatches(session.scope, requestedScope))
       .filter((session) => (visibility === "archived" ? Boolean(session.archivedAt) : !session.archivedAt))
       .map((session) => {

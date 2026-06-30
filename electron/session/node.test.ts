@@ -215,7 +215,7 @@ test("create persists the requested session scope", async () => {
   const created = await service.create({ scope, title: "Scoped" })
 
   assert.deepEqual(created.scope, scope)
-  assert.deepEqual(await persistedMetadata.read(), new Map([["created", { scope }]]))
+  assert.deepEqual(await persistedMetadata.read(), new Map([["created", { scope, title: "Scoped" }]]))
 })
 
 test("createProject reuses an existing project in the same scope", async () => {
@@ -272,7 +272,97 @@ test("create persists project assignment when the project matches the session sc
   assert.equal(created.projectId, "project")
   assert.deepEqual(
     await persistedMetadata.read(),
-    new Map([["created", { scope: { type: "personal" }, projectId: "project" }]]),
+    new Map([["created", { scope: { type: "personal" }, projectId: "project", title: "Scoped" }]]),
+  )
+})
+
+test("list drops stale project assignments outside the session scope", async () => {
+  const orgScope = { type: "organization" as const, organizationId: "org-id", organizationName: "org" }
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "session",
+        title: "Session",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+    {
+      metadataStore: metadataStore(new Map([["session", { projectId: "org-project", scope: { type: "personal" } }]])),
+      projectStore: projectStore(
+        new Map([
+          [
+            "org-project",
+            {
+              id: "org-project",
+              name: "Org Project",
+              path: "/Users/example/code/org",
+              createdAt: 1_000,
+              updatedAt: 1_000,
+              scope: orgScope,
+            },
+          ],
+        ]),
+      ),
+    },
+  )
+
+  const sessions = await service.list({ scope: { type: "personal" } })
+
+  assert.equal(sessions[0]?.id, "session")
+  assert.equal(sessions[0]?.projectId, undefined)
+})
+
+test("assignSessionProject only accepts projects in the session scope", async () => {
+  const orgScope = { type: "organization" as const, organizationId: "org-id", organizationName: "org" }
+  const persistedMetadata = metadataStore(new Map([["session", { scope: orgScope }]]))
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "session",
+        title: "Session",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+    {
+      metadataStore: persistedMetadata,
+      projectStore: projectStore(
+        new Map([
+          [
+            "personal-project",
+            {
+              id: "personal-project",
+              name: "Personal Project",
+              path: "/Users/example/code/personal",
+              createdAt: 1_000,
+              updatedAt: 1_000,
+              scope: { type: "personal" },
+            },
+          ],
+          [
+            "org-project",
+            {
+              id: "org-project",
+              name: "Org Project",
+              path: "/Users/example/code/org",
+              createdAt: 2_000,
+              updatedAt: 2_000,
+              scope: orgScope,
+            },
+          ],
+        ]),
+      ),
+    },
+  )
+
+  await service.assignSessionProject({ projectId: "personal-project", sessionId: "session" })
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { scope: orgScope }]]))
+
+  await service.assignSessionProject({ projectId: "org-project", sessionId: "session" })
+  assert.deepEqual(
+    await persistedMetadata.read(),
+    new Map([["session", { projectId: "org-project", scope: orgScope }]]),
   )
 })
 
@@ -360,11 +450,21 @@ test("remove keeps local state when remote delete fails", async () => {
 
 test("remove invokes local cleanup after remote delete succeeds", async () => {
   const removed: string[] = []
+  const persistedMetadata = metadataStore()
   const service = new SessionServiceImpl(
     {
       deleteSession: async () => undefined,
+      listSessions: async () => [
+        {
+          id: "session",
+          title: "Session",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+        },
+      ],
     } as unknown as AgentManager,
     {
+      metadataStore: persistedMetadata,
       onSessionRemoved: (sessionId) => {
         removed.push(sessionId)
       },
@@ -374,4 +474,6 @@ test("remove invokes local cleanup after remote delete succeeds", async () => {
   await service.remove("session")
 
   assert.deepEqual(removed, ["session"])
+  assert.deepEqual(await service.list(), [])
+  assert.equal(typeof (await persistedMetadata.read()).get("session")?.deletedAt, "number")
 })

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { clearConnectorCache, isProviderConnectionActive } from "./connections-client.ts"
+import { clearConnectorCache, getConnectionSummary, isProviderConnectionActive } from "./connections-client.ts"
 
 describe("connections-client", () => {
   afterEach(() => {
@@ -34,5 +34,15 @@ describe("connections-client", () => {
     const [, init] = fetchMock.mock.calls[0] ?? []
     const headers = new Headers(init?.headers)
     expect(headers.get("x-oo-organization-name")).toBe("acme-corp")
+  })
+
+  it("keys cached organization reads by organization id when available", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ data: [] }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await getConnectionSummary({ type: "organization", organizationId: "org-a", organizationName: "same-name" })
+    await getConnectionSummary({ type: "organization", organizationId: "org-b", organizationName: "same-name" })
+
+    expect(fetchMock).toHaveBeenCalledTimes(8)
   })
 })

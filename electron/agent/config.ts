@@ -1,6 +1,6 @@
 import type { BuiltinModelDefinition } from "../models/builtin.ts"
 import type { WantaReasoningVariant } from "./reasoning.ts"
-import type { Config } from "@opencode-ai/sdk"
+import type { Config } from "@opencode-ai/sdk/v2/client"
 
 import { llmBaseUrl } from "../domain.ts"
 import {

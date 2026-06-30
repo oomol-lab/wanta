@@ -332,13 +332,13 @@ test("message.part.removed → messagePartRemoved", () => {
 test("session.status retry → assistantActivity", () => {
   const out = translateOpencodeEvent({
     type: "session.status",
-    properties: { sessionID: "s1", status: { type: "retry", attempt: 3, message: "rate limited", next: 1000 } },
+    properties: { sessionID: "s1", status: { type: "retry", attempt: 3, message: "rate limited" } },
   })
 
   assert.deepEqual(out, [
     {
       event: "assistantActivity",
-      data: { sessionId: "s1", phase: "retrying", message: "rate limited", attempt: 3, nextRetryAt: 1000 },
+      data: { sessionId: "s1", phase: "retrying", message: "rate limited", attempt: 3 },
     },
   ])
 })

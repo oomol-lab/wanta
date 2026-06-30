@@ -3,8 +3,8 @@ import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
 import type { BuildSessionTitleInput } from "../session/title.ts"
-import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk"
-import type { OpencodeClient } from "@opencode-ai/sdk"
+import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
+import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 
 import { randomBytes, randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
@@ -260,7 +260,7 @@ export class AgentManager {
   }
 
   public async createSession(title?: string): Promise<SessionInfo> {
-    const result = await this.client.session.create({ body: title ? { title } : {} })
+    const result = await this.client.session.create(title ? { title } : {})
     if (result.error || !result.data) {
       throw new Error(`session.create failed: ${JSON.stringify(result.error ?? "no data")}`)
     }
@@ -268,11 +268,11 @@ export class AgentManager {
   }
 
   public async renameSession(id: string, title: string): Promise<void> {
-    await this.client.session.update({ path: { id }, body: { title } })
+    await this.client.session.update({ sessionID: id, title })
   }
 
   public async deleteSession(id: string): Promise<void> {
-    await this.client.session.delete({ path: { id } })
+    await this.client.session.delete({ sessionID: id })
   }
 
   public async generateSessionTitle(input: BuildSessionTitleInput): Promise<GeneratedSessionTitle> {
@@ -330,7 +330,7 @@ export class AgentManager {
     if (!this.started) {
       return []
     }
-    const result = await this.client.session.messages({ path: { id: sessionId } })
+    const result = await this.client.session.messages({ sessionID: sessionId })
     const raw = (result.data ?? []) as Array<{ info?: unknown; parts?: unknown }>
     const messages: ChatMessage[] = []
     for (const item of raw) {
@@ -372,18 +372,17 @@ export class AgentManager {
         return
       }
       const variant = this.resolveReasoningVariant(options.model, options.reasoningLevel)
-      const body: NonNullable<SessionPromptAsyncData["body"]> & { variant?: string } = {
+      const body: NonNullable<SessionPromptAsyncData["body"]> = {
         agent: normalizeWantaAgentMode(options.mode),
         model: this.resolveModel(options.model),
         ...(tail ? { system: tail } : {}),
         ...(variant ? { variant } : {}),
         parts: buildPromptParts(text, options.attachments),
       }
-      const result = await this.client.session.promptAsync({
-        path: { id: sessionId },
-        signal: options.signal,
-        body,
-      })
+      const result = await this.client.session.promptAsync(
+        { sessionID: sessionId, ...body },
+        { signal: options.signal },
+      )
       if (options.signal?.aborted) {
         return
       }
@@ -437,7 +436,7 @@ export class AgentManager {
   }
 
   public async abort(sessionId: string): Promise<void> {
-    await this.client.session.abort({ path: { id: sessionId } })
+    await this.client.session.abort({ sessionID: sessionId })
   }
 
   public async createArtifactDir(sessionId: string): Promise<string> {
@@ -467,18 +466,16 @@ export class AgentManager {
       id = (await this.createSession(branding.appName)).id
     }
     const prompted = await this.client.session.prompt({
-      path: { id },
-      body: {
-        agent: normalizeWantaAgentMode(undefined),
-        model: { providerID: WANTA_PROVIDER_ID, modelID: WANTA_MODEL_ID },
-        ...(system ? { system } : {}),
-        parts: [{ type: "text", text }],
-      },
+      sessionID: id,
+      agent: normalizeWantaAgentMode(undefined),
+      model: { providerID: WANTA_PROVIDER_ID, modelID: WANTA_MODEL_ID },
+      ...(system ? { system } : {}),
+      parts: [{ type: "text", text }],
     })
     if (prompted.error) {
       throw new Error(`session.prompt failed: ${JSON.stringify(prompted.error)}`)
     }
-    const messages = (await this.client.session.messages({ path: { id } })).data
+    const messages = (await this.client.session.messages({ sessionID: id })).data
     return { sessionId: id, messages }
   }
 

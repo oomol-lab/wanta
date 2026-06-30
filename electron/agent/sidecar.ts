@@ -1,7 +1,7 @@
-import type { Config, OpencodeClient } from "@opencode-ai/sdk"
+import type { Config, OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
 
-import { createOpencodeClient } from "@opencode-ai/sdk"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { spawn } from "node:child_process"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"

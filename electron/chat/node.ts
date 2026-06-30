@@ -80,6 +80,7 @@ import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
 const artifactTextPreviewMaxBytes = 512 * 1024
 const artifactManifestFileName = ".wanta-artifact.json"
+const responseStartTimeoutMs = 20_000
 const userStopAbortWindowMs = 30_000
 const defaultMaxDirectoryItems = 80
 const maxProcessFiles = 200
@@ -294,6 +295,7 @@ interface ChatServiceDeps {
 interface SessionGeneration {
   controller: AbortController
   id: string
+  responseStartTimer?: ReturnType<typeof setTimeout>
 }
 
 export function isAbortErrorMessage(message: string): boolean {
@@ -853,24 +855,44 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.agent.subscribe((event) => {
       for (const translated of translateOpencodeEvent(event)) {
         if (translated.event === "unexpectedPermission") {
-          const { sessionId, messageId, message } = translated.data
+          const { sessionId, requestId, message } = translated.data
+          const eventMessageId = translated.data.messageId
+          const permissionGenerationId = this.sessionGenerations.get(sessionId)?.id
+          const permissionMessageId = eventMessageId ?? this.activeAssistantMessages.get(sessionId)
+          const permissionMessageGenerationId = this.activeAssistantMessageGenerations.get(sessionId)
+          // 无 messageId 的 permission 事件只能归属当前 generation 的 active message；
+          // 若新一轮已开始但 assistant message 还没到，active message 仍可能是上一轮。
+          if (
+            permissionGenerationId &&
+            permissionMessageGenerationId &&
+            permissionMessageGenerationId !== permissionGenerationId
+          ) {
+            continue
+          }
           const isCurrentPermissionTurn = (): boolean => {
             const currentGenerationId = this.sessionGenerations.get(sessionId)?.id
             const messageGenerationId = this.activeAssistantMessageGenerations.get(sessionId)
-            const sameMessage = this.activeAssistantMessages.get(sessionId) === messageId
-            if (currentGenerationId || messageGenerationId) {
-              return sameMessage && Boolean(currentGenerationId && messageGenerationId === currentGenerationId)
+            const activeMessageId = this.activeAssistantMessages.get(sessionId)
+            if (permissionGenerationId && currentGenerationId !== permissionGenerationId) {
+              return false
             }
-            return sameMessage
+            if (permissionMessageGenerationId && messageGenerationId !== permissionMessageGenerationId) {
+              return false
+            }
+            if (permissionMessageId && activeMessageId !== permissionMessageId) {
+              return false
+            }
+            return Boolean(permissionGenerationId || permissionMessageId)
           }
           void (async () => {
             if (!isCurrentPermissionTurn()) {
               return
             }
+            const messageId = permissionMessageId
             try {
-              await this.agent?.abort(sessionId)
+              await this.agent?.rejectPermission(sessionId, requestId, message)
             } catch (error) {
-              console.warn("[wanta] failed to abort unexpected permission request", error)
+              console.warn("[wanta] failed to reject unexpected permission request", error)
             }
             if (!isCurrentPermissionTurn()) {
               return
@@ -918,6 +940,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           this.emitSessionActivity(translated.data.sessionId)
         }
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
+          this.clearGenerationResponseTimer(this.sessionGenerations.get(translated.data.sessionId))
           this.setActiveAssistantMessage(translated.data.sessionId, translated.data.messageId)
           this.activeToolParts.set(translated.data.sessionId, new Set())
           const artifactRoot = this.consumePendingArtifactDir(translated.data.sessionId)
@@ -1085,7 +1108,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private beginSessionGeneration(sessionId: string): SessionGeneration {
-    this.sessionGenerations.get(sessionId)?.controller.abort()
+    const current = this.sessionGenerations.get(sessionId)
+    current?.controller.abort()
+    this.clearGenerationResponseTimer(current)
     const generation = { controller: new AbortController(), id: crypto.randomUUID() }
     this.sessionGenerations.set(sessionId, generation)
     return generation
@@ -1094,7 +1119,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private abortSessionGenerations(): void {
     for (const generation of this.sessionGenerations.values()) {
       generation.controller.abort()
+      this.clearGenerationResponseTimer(generation)
     }
+  }
+
+  private clearGenerationResponseTimer(generation: SessionGeneration | undefined): void {
+    if (!generation?.responseStartTimer) {
+      return
+    }
+    clearTimeout(generation.responseStartTimer)
+    delete generation.responseStartTimer
   }
 
   private isCurrentGeneration(sessionId: string, generationId: string): boolean {
@@ -1105,7 +1139,32 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (generationId && !this.isCurrentGeneration(sessionId, generationId)) {
       return
     }
+    this.clearGenerationResponseTimer(this.sessionGenerations.get(sessionId))
     this.sessionGenerations.delete(sessionId)
+  }
+
+  private scheduleResponseStartTimeout(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    generationId: string,
+  ): void {
+    const generation = this.sessionGenerations.get(sessionId)
+    if (!generation || generation.id !== generationId || generation.responseStartTimer) {
+      return
+    }
+    generation.responseStartTimer = setTimeout(() => {
+      if (!this.isCurrentGeneration(sessionId, generationId) || this.activeAssistantMessages.has(sessionId)) {
+        return
+      }
+      this.clearSessionGeneration(sessionId, generationId)
+      this.clearActiveAssistantMessage(sessionId)
+      this.pendingArtifactDirs.delete(sessionId)
+      this.pendingProcessDirs.delete(sessionId)
+      this.activeTurnOutputs.delete(sessionId)
+      this.activeToolParts.delete(sessionId)
+      this.emitSessionActivity(sessionId)
+      this.emitMessageError(emit, sessionId, "OpenCode accepted the prompt, but no assistant response stream started.")
+    }, responseStartTimeoutMs)
   }
 
   private markUserStopped(sessionId: string): void {
@@ -1197,6 +1256,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       ...(project.baseline ? { projectBaseline: project.baseline } : {}),
       ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
     })
+    const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
     // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
     void this.agent
       .promptStreaming(req.sessionId, req.text, {
@@ -1213,6 +1273,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           buildProjectContextSystem(req.projectContext),
         ),
       })
+      .then((result) => {
+        if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+          return
+        }
+        if (result?.messageId) {
+          this.emitSessionActivity(req.sessionId)
+          void emit("messageStarted", { sessionId: req.sessionId, messageId: result.messageId, role: "user" })
+        }
+        this.scheduleResponseStartTimeout(emit, req.sessionId, generation.id)
+      })
       .catch((error: unknown) => {
         this.removePendingArtifactDir(req.sessionId, artifactDir)
         this.removePendingProcessDir(req.sessionId, processDir)
@@ -1223,12 +1293,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         const messageId = this.activeAssistantMessages.get(req.sessionId)
         this.clearSessionGeneration(req.sessionId, generation.id)
         this.clearActiveAssistantMessage(req.sessionId)
-        this.emitMessageError(
-          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-          req.sessionId,
-          errorMessage(error),
-          messageId,
-        )
+        this.emitMessageError(emit, req.sessionId, errorMessage(error), messageId)
       })
   }
 

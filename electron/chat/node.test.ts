@@ -11,6 +11,7 @@ import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from
 import { TurnOutputStore } from "./turn-outputs.ts"
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -19,17 +20,23 @@ function createBridgeAgent(): {
   abort: ReturnType<typeof vi.fn>
   createArtifactDir: ReturnType<typeof vi.fn>
   createProcessDir: ReturnType<typeof vi.fn>
-  emit: (event: { type: string; properties?: Record<string, unknown> }) => void
+  emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
   promptStreaming: ReturnType<typeof vi.fn>
+  rejectPermission: ReturnType<typeof vi.fn>
 } {
-  let listener: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
+  let listener:
+    | ((event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void)
+    | undefined
   const abort = vi.fn(async () => undefined)
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
   const promptStreaming = vi.fn(async () => undefined)
+  const rejectPermission = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
-    subscribe: (callback: (event: { type: string; properties?: Record<string, unknown> }) => void) => {
+    subscribe: (
+      callback: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void,
+    ) => {
       listener = callback
       return () => {
         listener = undefined
@@ -39,6 +46,7 @@ function createBridgeAgent(): {
     createArtifactDir,
     createProcessDir,
     promptStreaming,
+    rejectPermission,
     getMessages: vi.fn(async () => []),
   } as unknown as AgentManager
   return {
@@ -48,6 +56,7 @@ function createBridgeAgent(): {
     createProcessDir,
     emit: (event) => listener?.(event),
     promptStreaming,
+    rejectPermission,
   }
 }
 
@@ -105,6 +114,41 @@ test("setAgentOrganization waits for the scope synchronization callback", async 
   resolveScope?.()
   await request
   assert.equal(completed, true)
+})
+
+test("sendMessage emits a user message when V2 prompt admission is confirmed", async () => {
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockResolvedValueOnce({ messageId: "user-1" })
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await waitForEventCount(events, 1)
+
+  assert.deepEqual(events.at(-1), {
+    event: "messageStarted",
+    data: { sessionId: "session-1", messageId: "user-1", role: "user" },
+  })
+})
+
+test("sendMessage surfaces an error when V2 prompt admission never starts a response stream", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockResolvedValueOnce({ messageId: "user-1" })
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await Promise.resolve()
+  vi.advanceTimersByTime(20_000)
+  await Promise.resolve()
+
+  const messageError = events.find((event) => event.event === "messageError") as
+    | { data: { message?: string; sessionId?: string } }
+    | undefined
+  assert.equal(messageError?.data.sessionId, "session-1")
+  assert.equal(messageError?.data.message, "OpenCode accepted the prompt, but no assistant response stream started.")
+  assert.equal(service.hasActiveGeneration(), false)
 })
 
 test("stopGeneration suppresses delayed streaming events until the next send", async () => {
@@ -178,7 +222,7 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   assert.equal(events.at(-1)?.event, "messageStarted")
 })
 
-test("unexpected OpenCode permission request is aborted and surfaced as a message error", async () => {
+test("unexpected OpenCode V2 permission request is rejected and surfaced as a message error", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
@@ -189,18 +233,23 @@ test("unexpected OpenCode permission request is aborted and surfaced as a messag
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
   })
   bridge.emit({
-    type: "permission.updated",
-    properties: {
+    type: "permission.v2.asked",
+    data: {
       id: "permission-1",
       sessionID: "session-1",
-      messageID: "assistant-1",
-      title: "Run bash",
-      type: "tool",
+      action: "Run bash",
+      resources: ["npm test"],
+      source: { type: "tool", tool: "bash" },
     },
   })
   await waitForEventCount(events, 2)
 
-  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.equal(bridge.rejectPermission.mock.calls.length, 1)
+  assert.deepEqual(bridge.rejectPermission.mock.calls[0], [
+    "session-1",
+    "permission-1",
+    "OpenCode requested permission approval (Run bash · bash · npm test), but Wanta does not support ask permissions. The generation was stopped.",
+  ])
   const messageError = events.find((event) => event.event === "messageError") as
     | { data: { message?: string; messageId?: string } }
     | undefined
@@ -208,7 +257,7 @@ test("unexpected OpenCode permission request is aborted and surfaced as a messag
   assert.match(messageError?.data.message ?? "", /does not support ask permissions/)
 })
 
-test("stale OpenCode permission request does not abort a newer generation before its message starts", async () => {
+test("stale OpenCode V2 permission request does not reject a newer generation before its message starts", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
@@ -222,18 +271,18 @@ test("stale OpenCode permission request does not abort a newer generation before
   await service.sendMessage({ sessionId: "session-1", text: "second" })
 
   bridge.emit({
-    type: "permission.updated",
-    properties: {
+    type: "permission.v2.asked",
+    data: {
       id: "permission-1",
       sessionID: "session-1",
-      messageID: "assistant-1",
-      title: "Run bash",
-      type: "tool",
+      action: "Run bash",
+      resources: ["npm test"],
+      source: { type: "tool", tool: "bash" },
     },
   })
   await new Promise((resolve) => setTimeout(resolve, 0))
 
-  assert.equal(bridge.abort.mock.calls.length, 0)
+  assert.equal(bridge.rejectPermission.mock.calls.length, 0)
   assert.equal(service.hasActiveGeneration(), true)
   assert.equal(
     events.some((event) => event.event === "messageError"),
@@ -247,13 +296,13 @@ test("stale OpenCode permission request does not abort a newer generation before
   assert.deepEqual(events.at(-1)?.data, { sessionId: "session-1", messageId: "assistant-2", role: "assistant" })
 })
 
-test("unexpected OpenCode permission request does not clear a newer generation", async () => {
+test("unexpected OpenCode V2 permission request does not clear a newer generation", async () => {
   const bridge = createBridgeAgent()
-  let resolveAbort: (() => void) | undefined
-  bridge.abort.mockImplementationOnce(
+  let resolveReject: (() => void) | undefined
+  bridge.rejectPermission.mockImplementationOnce(
     () =>
       new Promise<void>((resolve) => {
-        resolveAbort = resolve
+        resolveReject = resolve
       }),
   )
   const service = new ChatServiceImpl(bridge.agent)
@@ -266,17 +315,17 @@ test("unexpected OpenCode permission request does not clear a newer generation",
     properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
   })
   bridge.emit({
-    type: "permission.updated",
-    properties: {
+    type: "permission.v2.asked",
+    data: {
       id: "permission-1",
       sessionID: "session-1",
-      messageID: "assistant-1",
-      title: "Run bash",
-      type: "tool",
+      action: "Run bash",
+      resources: ["npm test"],
+      source: { type: "tool", tool: "bash" },
     },
   })
   await vi.waitFor(() => {
-    assert.equal(bridge.abort.mock.calls.length, 1)
+    assert.equal(bridge.rejectPermission.mock.calls.length, 1)
   })
 
   await service.sendMessage({ sessionId: "session-1", text: "second" })
@@ -284,7 +333,7 @@ test("unexpected OpenCode permission request does not clear a newer generation",
     type: "message.updated",
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
   })
-  resolveAbort?.()
+  resolveReject?.()
   await new Promise((resolve) => setTimeout(resolve, 0))
 
   assert.equal(service.hasActiveGeneration(), true)
@@ -398,8 +447,10 @@ test("agent errors from multiple opencode channels produce one message error per
     properties: { sessionID: "session-1", error },
   })
   rejectPrompt?.(new Error("The selected model does not exist."))
-  await Promise.resolve()
 
+  await vi.waitFor(() => {
+    assert.equal(events.filter((event) => event.event === "messageError").length, 1)
+  })
   const messageErrors = events.filter((event) => event.event === "messageError")
   assert.equal(messageErrors.length, 1)
   const messageError = messageErrors[0] as { data: { message?: string } }
@@ -411,7 +462,9 @@ test("agent errors from multiple opencode channels produce one message error per
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant", error } },
   })
 
-  assert.equal(events.filter((event) => event.event === "messageError").length, 2)
+  await vi.waitFor(() => {
+    assert.equal(events.filter((event) => event.event === "messageError").length, 2)
+  })
 })
 
 test("hasActiveGeneration tracks pending and completed assistant turns", async () => {

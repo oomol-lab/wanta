@@ -54,22 +54,37 @@ describe("AgentManager", () => {
     expect(list).toHaveBeenNthCalledWith(2, { directory: "/tmp/wanta-agent/workspace", cursor: "page-2", limit: 200 })
   })
 
-  it("aborts the backend session in the active workspace", async () => {
-    const abort = vi.fn(async () => ({ data: true }))
+  it("keeps abort local because the pinned V2 session API has no abort endpoint", async () => {
     const manager = new AgentManager({
       authToken: "test",
       opencodeBinPath: "/tmp/opencode",
       ooBinPath: "/tmp/oo",
       rootDir: "/tmp/wanta-agent",
     })
-    ;(manager as unknown as { sidecar: unknown; workspaceDir: string }).sidecar = {
-      client: { session: { abort } },
+
+    await expect(manager.abort("session-1")).resolves.toBeUndefined()
+  })
+
+  it("rejects unexpected permission requests through the V2 session permission API", async () => {
+    const reply = vi.fn(async () => ({ data: undefined }))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown }).sidecar = {
+      client: { v2: { session: { permission: { reply } } } },
     }
-    ;(manager as unknown as { workspaceDir: string }).workspaceDir = "/tmp/wanta-agent/workspace"
 
-    await manager.abort("session-1")
+    await manager.rejectPermission("session-1", "permission-1", "No ask permissions.")
 
-    expect(abort).toHaveBeenCalledWith({ sessionID: "session-1", directory: "/tmp/wanta-agent/workspace" })
+    expect(reply).toHaveBeenCalledWith({
+      sessionID: "session-1",
+      requestID: "permission-1",
+      reply: "reject",
+      message: "No ask permissions.",
+    })
   })
 
   it("frames connected providers as authorization awareness only", async () => {
@@ -120,9 +135,13 @@ describe("AgentManager", () => {
   })
 
   it("passes OpenCode agent names and reasoning variants through V2 session APIs", async () => {
+    let promptCount = 0
+    const prompt = vi.fn(async () => {
+      promptCount += 1
+      return { data: { data: { id: `user-${promptCount}` } } }
+    })
     const switchAgent = vi.fn(async () => ({ data: undefined }))
     const switchModel = vi.fn(async () => ({ data: undefined }))
-    const prompt = vi.fn(async () => ({ data: undefined }))
     const wait = vi.fn(async () => ({ data: undefined }))
     const manager = new AgentManager({
       authToken: "test",
@@ -135,39 +154,44 @@ describe("AgentManager", () => {
     }
     manager.buildAuthorizedSystem = async () => undefined
 
-    await manager.promptStreaming("session-1", "plan it", { mode: "plan", reasoningLevel: "high" })
+    await expect(
+      manager.promptStreaming("session-1", "plan it", { mode: "plan", reasoningLevel: "high" }),
+    ).resolves.toEqual({ messageId: "user-1" })
     await manager.promptStreaming("session-1", "build it", { reasoningLevel: "medium" })
     await manager.promptStreaming("session-1", "default reasoning", { reasoningLevel: "default" })
 
-    const agentCalls = switchAgent.mock.calls as unknown as Array<[{ sessionID: string; agent: string }]>
-    const modelCalls = switchModel.mock.calls as unknown as Array<
-      [{ sessionID: string; model: { id: string; providerID: string; variant?: string } }]
+    const switchAgentCalls = switchAgent.mock.calls as unknown as Array<
+      [{ agent: string; sessionID: string }, unknown?]
+    >
+    const switchModelCalls = switchModel.mock.calls as unknown as Array<
+      [{ model: { id: string; providerID: string; variant?: string }; sessionID: string }, unknown?]
     >
     const promptCalls = prompt.mock.calls as unknown as Array<
-      [
-        {
-          delivery: string
-          prompt: { text: string }
-          resume: boolean
-          sessionID: string
-        },
-      ]
+      [{ delivery: string; prompt: { text: string }; resume: boolean; sessionID: string }, unknown?]
     >
 
-    expect(agentCalls[0]?.[0]).toEqual({ sessionID: "session-1", agent: "plan" })
-    expect(agentCalls[1]?.[0]).toEqual({ sessionID: "session-1", agent: "build" })
-    expect(modelCalls[0]?.[0].model.variant).toBe("high")
-    expect(modelCalls[1]?.[0].model.variant).toBe("medium")
-    expect(modelCalls[2]?.[0].model).not.toHaveProperty("variant")
-    expect(promptCalls.map((call) => call[0].delivery)).toEqual(["queue", "queue", "queue"])
-    expect(promptCalls.map((call) => call[0].resume)).toEqual([true, true, true])
-    expect(promptCalls[0]?.[0].prompt).toEqual({ text: "plan it" })
+    expect(wait).toHaveBeenCalledTimes(3)
+    expect(switchAgentCalls.map((call) => call[0])).toEqual([
+      { sessionID: "session-1", agent: "plan" },
+      { sessionID: "session-1", agent: "build" },
+      { sessionID: "session-1", agent: "build" },
+    ])
+    expect(switchModelCalls.map((call) => call[0])).toEqual([
+      { sessionID: "session-1", model: { providerID: "oomol", id: "oopilot", variant: "high" } },
+      { sessionID: "session-1", model: { providerID: "oomol", id: "oopilot", variant: "medium" } },
+      { sessionID: "session-1", model: { providerID: "oomol", id: "oopilot" } },
+    ])
+    expect(promptCalls.map((call) => call[0])).toEqual([
+      { sessionID: "session-1", delivery: "queue", resume: true, prompt: { text: "plan it" } },
+      { sessionID: "session-1", delivery: "queue", resume: true, prompt: { text: "build it" } },
+      { sessionID: "session-1", delivery: "queue", resume: true, prompt: { text: "default reasoning" } },
+    ])
   })
 
-  it("fails fast when the pinned sidecar cannot execute V2 prompts", async () => {
+  it("fails fast when V2 prompt execution is unavailable instead of falling back to legacy prompt_async", async () => {
+    const prompt = vi.fn(async () => ({ data: { data: { id: "user-1" } } }))
     const switchAgent = vi.fn(async () => ({ data: undefined }))
     const switchModel = vi.fn(async () => ({ data: undefined }))
-    const prompt = vi.fn(async () => ({ data: undefined }))
     const wait = vi.fn(async () => ({
       error: { _tag: "ServiceUnavailableError", message: "Session wait is not available yet", service: "session.wait" },
     }))
@@ -180,12 +204,18 @@ describe("AgentManager", () => {
     ;(manager as unknown as { sidecar: unknown }).sidecar = {
       client: { v2: { session: { prompt, switchAgent, switchModel, wait } } },
     }
+    const buildAuthorizedSystem = vi.fn(async () => "authorized context")
+    manager.buildAuthorizedSystem = buildAuthorizedSystem
 
-    await expect(manager.promptStreaming("session-1", "hello")).rejects.toThrow("V2 prompt execution is not available")
+    await expect(manager.promptStreaming("session-1", "hello", { system: "extra context" })).rejects.toThrow(
+      "OpenCode V2 prompt execution is unavailable in the pinned sidecar.",
+    )
 
+    expect(wait).toHaveBeenCalledWith({ sessionID: "session-1" }, { signal: undefined })
     expect(prompt).not.toHaveBeenCalled()
     expect(switchAgent).not.toHaveBeenCalled()
     expect(switchModel).not.toHaveBeenCalled()
+    expect(buildAuthorizedSystem).not.toHaveBeenCalled()
   })
 
   it("rebuilds chat history from V2 sync events when projected messages only contain control events", async () => {
@@ -328,7 +358,8 @@ describe("AgentManager", () => {
       resume: true,
       prompt: { text: "hello" },
     })
-    expect(wait).toHaveBeenNthCalledWith(1, { sessionID: "session-1" })
+    expect(wait).toHaveBeenCalledTimes(2)
+    expect(wait).toHaveBeenNthCalledWith(1, { sessionID: "session-1" }, { signal: undefined })
     expect(wait).toHaveBeenNthCalledWith(2, { sessionID: "session-1" })
     expect(messages).toHaveBeenCalledWith({ sessionID: "session-1", order: "asc", limit: 200 })
     expect(result.messages).toEqual([

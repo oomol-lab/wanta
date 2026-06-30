@@ -38,7 +38,10 @@ export type ChatEmit =
   | { event: "messageCompleted"; data: MessageCompletedEvent }
   | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
   | { event: "agentError"; data: { sessionId?: string; message: string } }
-  | { event: "unexpectedPermission"; data: { sessionId: string; messageId: string; message: string } }
+  | {
+      event: "unexpectedPermission"
+      data: { sessionId: string; requestId: string; messageId?: string; message: string }
+    }
 
 interface OpencodeEvent {
   type: string
@@ -166,7 +169,7 @@ const ignoredOpencodeEventTypes = new Set([
   "lsp.client.diagnostics",
   "lsp.updated",
   "message.removed",
-  "permission.replied",
+  "permission.v2.replied",
   "pty.created",
   "pty.deleted",
   "pty.exited",
@@ -224,6 +227,15 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
         return []
       }
       return [{ event: "messagePartRemoved", data: { sessionId, messageId, partId } }]
+    }
+    case "session.next.prompted":
+    case "session.next.prompt.admitted": {
+      const sessionId = asString(props.sessionID)
+      const messageId = asString(props.messageID)
+      if (!sessionId || !messageId) {
+        return []
+      }
+      return [{ event: "messageStarted", data: { sessionId, messageId, role: "user" } }]
     }
     case "session.next.step.started": {
       const sessionId = asString(props.sessionID)
@@ -336,18 +348,24 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
         { event: "agentError", data: { sessionId: asString(props.sessionID), message: errorMessage(props.error) } },
       ]
     }
-    case "permission.updated": {
-      const p = props as { sessionID?: string; messageID?: string; title?: string; type?: string }
-      if (!p.sessionID || !p.messageID) {
+    case "permission.v2.asked": {
+      const p = props as {
+        action?: string
+        id?: string
+        resources?: string[]
+        sessionID?: string
+        source?: { type?: string; tool?: string }
+      }
+      if (!p.sessionID || !p.id) {
         return []
       }
-      const detail = [p.title, p.type].filter(Boolean).join(" · ")
+      const detail = [p.action, p.source?.tool ?? p.source?.type, ...(p.resources ?? [])].filter(Boolean).join(" · ")
       return [
         {
           event: "unexpectedPermission",
           data: {
             sessionId: p.sessionID,
-            messageId: p.messageID,
+            requestId: p.id,
             message: detail
               ? `OpenCode requested permission approval (${detail}), but Wanta does not support ask permissions. The generation was stopped.`
               : "OpenCode requested permission approval, but Wanta does not support ask permissions. The generation was stopped.",

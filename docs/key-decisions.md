@@ -14,7 +14,7 @@
 - **背景**：调研对比五种模式：云端 loop+薄客户端、本地 sidecar server（OpenCode）、Pi 进程内嵌、AI SDK 薄循环、stdio/ACP。云端 loop 评分最高但被用户否决（不想承担云端运维、要快出 POC）；Claude Agent SDK 被用户明确排除；Pi 落选主因是审批/权限层需全自建且 0.x 破坏性迭代。
 - **决策**：spawn 已发布二进制 `opencode-ai@1.17.11` 作 sidecar，主进程经 `@opencode-ai/sdk@1.17.11` 的 V2 HTTP+SSE client 驱动；纯配置定制（自定义 agent prompt 整段替换 + `.opencode/tools/` 自定义工具），零源码改动。**不用 SDK 的 `createOpencodeServer`** 而是自己 spawn：后者不允许控制二进制路径/env/cwd，且生产打包时 opencode-ai 不在 node_modules（二进制走 extraResources）。
 - **理由**：OpenCode 内置权限模型 + 会话基建 + 公司化维护；import 库不可行（调研时 server 相关包全 private，`opencode-ai` 是纯 bin 包）；vendor monorepo 维护负担大（2026-05 调研时上游约 41 commits/天、无 API 兼容承诺）。
-- **后果**：三包版本钉死 `1.17.11` 禁止浮动；sidecar 须隔离目录（`XDG_*` 指向 userData，否则读全局 `~/.config/opencode` 泄漏本机配置）；默认系统提示按模型 ID 选（编码人格），必须用 agent `prompt` 字段整段替换。V2 稳定 API 不再暴露旧的远端 rename/delete 端点，Wanta 的标题、归档、置顶、删除展示状态改由本地元数据承接；停止生成继续调用旧 `session.abort` 端点中断后端执行，并由本地事件层完成 UI 收尾。
+- **后果**：三包版本钉死 `1.17.11` 禁止浮动；sidecar 须隔离目录（`XDG_*` 指向 userData，否则读全局 `~/.config/opencode` 泄漏本机配置）；默认系统提示按模型 ID 选（编码人格），必须用 agent `prompt` 字段整段替换。V2 稳定 API 不再暴露远端 rename/delete/abort 端点，Wanta 的标题、归档、置顶、删除展示状态改由本地元数据承接；停止生成只做本地取消与事件收尾，等上游提供 V2 中断 API 后再接入。
 
 ## 3. 连接器调用全经内置 oo 二进制
 
@@ -73,8 +73,8 @@
 
 - **背景**：早期 agent 定位"非编码连接器助手"，内置工具全封禁。后果：答不了"我电脑上有哪些文件"，也无法写脚本组合多个 action 的 JSON 结果。
 - **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② `WANTA_PERMISSION = { edit: "allow", bash: "allow", webfetch: "allow", external_directory: "allow" }` 同时下发 agent 级与根级；③ 系统提示词整段重写为双能力（connector 三工具 + 本地工具）——只放开工具不改提示词，模型仍会自我拒绝。
-- **理由（关键约束）**：permission 取值 `ask | allow | deny`，但 `event-translator.ts` 未处理 `permission.v2.asked` 事件（无确认 UI），设 `ask` 会让会话静默挂死 → 只能 allow/deny 二选一。`external_directory: "allow"` 让 read/glob/list 越出私有 scratch cwd 访问真实文件系统（bash 本就不受限）；**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），用提示词引导绝对路径/`~` 代替。
-- **后果**：当前安全姿态是**模型拥有无确认的任意 shell / 文件读写 / 网络访问**，这是已知且接受的取舍。若将来要"危险操作前确认"，需监听 `permission.v2.asked` 并做确认弹窗（明确列为可选后续工作，未做）。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器三工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。前端无需改动（工具渲染有 default 分支）。
+- **理由（关键约束）**：permission 取值 `ask | allow | deny`，但 Wanta 没有确认 UI；若意外收到 `permission.v2.asked`，只会通过 V2 `session.permission.reply(..., reply:"reject")` 拒绝并结束本轮展示 → 配置上仍只能 allow/deny 二选一。`external_directory: "allow"` 让 read/glob/list 越出私有 scratch cwd 访问真实文件系统（bash 本就不受限）；**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），用提示词引导绝对路径/`~` 代替。
+- **后果**：当前安全姿态是**模型拥有无确认的任意 shell / 文件读写 / 网络访问**，这是已知且接受的取舍。若将来要"危险操作前确认"，需给 `permission.v2.asked` 增加确认弹窗并把用户选择回写 V2 permission reply（明确列为可选后续工作，未做）。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器三工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。前端无需改动（工具渲染有 default 分支）。
 
 ## 10. Beta/Stable 双发行渠道
 

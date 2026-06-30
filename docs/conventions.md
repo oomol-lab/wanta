@@ -59,10 +59,11 @@
 ## 7. Agent / 工具相关
 
 - **能力三处同步**：`config.ts` 的 tools 配置（现状：无禁用表，内置工具全启用）、permission（agent 级 + 根级）、`system-prompt.ts` 提示词。改任何能力策略三处必须一起改。
-- **permission 永不设 `"ask"`**（未接 `permission.v2.asked` 确认 UI，会挂死会话）。
+- **permission 永不设 `"ask"`**（未接 `permission.v2.asked` 确认 UI；意外 ask 只会被 V2 reply reject 并结束本轮）。
 - **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器三工具照常 spawn oo，不受影响。
 - 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 search/inspect/call 三者的交叉引用。
 - sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界靠 `external_directory: "allow"`。
+- UI 流式发送只走 OpenCode V2 stable route，不用旧 `/session/{id}/prompt_async` 兼容。OpenCode 1.17.11 headless sidecar 当前只能完成 V2 prompt admission，`v2.session.wait()` 返回 `ServiceUnavailableError(service:"session.wait")`，不会产生响应流；因此 Wanta 必须在 admission 前 fail fast。要恢复真实回复，应升级或修补 OpenCode 的 V2 headless execution service，而不是回退旧 endpoint。
 - `parseConnectorErrorCode`（`oo.ts`）与 `call_action` 内联正则必须保持一致，改一处要同步另一处。`AUTH_BLOCKING_ERROR_CODES`（`connection_required` 等）来自 connector 上游而非 oo-cli，**权威定义**是 connector OpenAPI 错误 schema（`https://connector.<endpoint>/openapi.json`，需 `Authorization: Bearer <会话 token>`）——增删该集合先核对此处。
 - 新增需要 endpoint 的代码：从 `domain.ts` import 派生常量；不要新增 `__OO_ENDPOINT__` 引用点（define 覆盖范围需与 vite/vitest 配置同步；当前三处 define：renderer/main/preload）。
 

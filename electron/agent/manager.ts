@@ -70,6 +70,10 @@ export interface SendMessageResult {
   messages: unknown
 }
 
+export interface PromptStreamingResult {
+  messageId?: string
+}
+
 export interface PromptStreamingOptions {
   system?: string
   attachments?: ChatAttachment[]
@@ -117,7 +121,7 @@ const sessionListPageSize = 200
 const sessionMessagesPageSize = 200
 const sessionMessagesMaxPages = 20
 const v2PromptExecutionUnavailableMessage =
-  "OpenCode V2 prompt execution is not available in the pinned OpenCode sidecar. This build is V2-only and requires an executable V2 headless prompt loop."
+  "OpenCode V2 prompt execution is unavailable in the pinned sidecar. Wanta is configured for V2-only prompt execution and will not fall back to legacy prompt_async."
 
 function toSessionInfo(session: RawSession): SessionInfo {
   return {
@@ -141,14 +145,6 @@ function normalizeSessionMessages(raw: SessionMessage[]): ChatMessage[] {
     }
   }
   return messages
-}
-
-function isV2PromptExecutionUnavailable(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false
-  }
-  const record = error as { _tag?: unknown; service?: unknown }
-  return record._tag === "ServiceUnavailableError" && record.service === "session.wait"
 }
 
 interface SyncHistoryEvent {
@@ -255,6 +251,14 @@ function normalizeSyncHistoryMessages(sessionId: string, events: SyncHistoryEven
     .map((draft) => normalizeSyncMessage({ info: draft.info, parts: Array.from(draft.parts.values()) }))
     .filter((message): message is ChatMessage => Boolean(message && message.parts.length > 0))
     .sort((a, b) => a.createdAt - b.createdAt)
+}
+
+function isV2PromptExecutionUnavailable(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false
+  }
+  const record = error as { _tag?: unknown; service?: unknown }
+  return record._tag === "ServiceUnavailableError" && record.service === "session.wait"
 }
 
 /** Agent 内核管理器：编排 OpenCode sidecar + 非编码 agent + 自定义连接器工具。electron-free，便于 headless 测试。 */
@@ -517,16 +521,20 @@ export class AgentManager {
 
   /**
    * 非阻塞发送：立即返回，内容经事件流推送。
-   * R4：V2 prompt 没有每轮 system 字段；Wanta 把动态上下文追加到 prompt 末尾，
-   * 历史展示时剥离。稳定前缀（人格/工具/契约）留在 agent.prompt 以利缓存。
+   * R4：只走 OpenCode V2 stable session API；当前钉死 sidecar 若未接入 V2 execution
+   * service，则在 admission 前失败，避免 UI 卡在“发送中”。
    */
-  public async promptStreaming(sessionId: string, text: string, options: PromptStreamingOptions = {}): Promise<void> {
+  public async promptStreaming(
+    sessionId: string,
+    text: string,
+    options: PromptStreamingOptions = {},
+  ): Promise<PromptStreamingResult> {
     if (options.signal?.aborted) {
-      return
+      return {}
     }
     await this.assertV2PromptExecutionAvailable(sessionId, options.signal)
     if (options.signal?.aborted) {
-      return
+      return {}
     }
     const tail = mergeSystemPrompts(
       await this.buildAuthorizedSystem(options.signal),
@@ -535,12 +543,12 @@ export class AgentManager {
       buildProcessSystem(options.processDir),
     )
     if (options.signal?.aborted) {
-      return
+      return {}
     }
     const variant = this.resolveReasoningVariant(options.model, options.reasoningLevel)
     await this.configureSessionForPrompt(sessionId, options.mode, options.model, variant, options.signal)
     if (options.signal?.aborted) {
-      return
+      return {}
     }
     const result = await this.client.v2.session.prompt(
       {
@@ -552,11 +560,13 @@ export class AgentManager {
       { signal: options.signal },
     )
     if (options.signal?.aborted) {
-      return
+      return {}
     }
     if (result.error) {
       throw new Error(`v2.session.prompt failed: ${JSON.stringify(result.error)}`)
     }
+    const admitted = result.data?.data as { id?: unknown } | undefined
+    return typeof admitted?.id === "string" ? { messageId: admitted.id } : {}
   }
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
@@ -601,12 +611,20 @@ export class AgentManager {
   }
 
   public async abort(sessionId: string): Promise<void> {
-    const result = await this.client.session.abort({
+    void sessionId
+    // 当前钉死 sidecar 的 OpenCode V2 stable session API 没有 abort endpoint；
+    // 停止生成只做本地收尾，等上游提供 V2 中断 API 后再接入。
+  }
+
+  public async rejectPermission(sessionId: string, requestId: string, message: string): Promise<void> {
+    const result = await this.client.v2.session.permission.reply({
       sessionID: sessionId,
-      ...(this.workspaceDir ? { directory: this.workspaceDir } : {}),
+      requestID: requestId,
+      reply: "reject",
+      message,
     })
     if (result.error) {
-      throw new Error(`session.abort failed: ${JSON.stringify(result.error)}`)
+      throw new Error(`v2.session.permission.reply failed: ${JSON.stringify(result.error)}`)
     }
   }
 
@@ -656,16 +674,17 @@ export class AgentManager {
   }
 
   private async assertV2PromptExecutionAvailable(sessionId: string, signal?: AbortSignal): Promise<void> {
-    const result = signal
-      ? await this.client.v2.session.wait({ sessionID: sessionId }, { signal })
-      : await this.client.v2.session.wait({ sessionID: sessionId })
-    if (!result.error) {
+    const waited = await this.client.v2.session.wait({ sessionID: sessionId }, { signal })
+    if (signal?.aborted) {
       return
     }
-    if (isV2PromptExecutionUnavailable(result.error)) {
+    if (!waited.error) {
+      return
+    }
+    if (isV2PromptExecutionUnavailable(waited.error)) {
       throw new Error(v2PromptExecutionUnavailableMessage)
     }
-    throw new Error(`v2.session.wait preflight failed: ${JSON.stringify(result.error)}`)
+    throw new Error(`v2.session.wait failed: ${JSON.stringify(waited.error)}`)
   }
 
   private async writeOrganizationScope(organizationName = this.organizationName): Promise<void> {

@@ -491,6 +491,23 @@ test("session.idle → messageCompleted; session.error → agentError", () => {
   assert.equal((err[0].data as { message: string }).message, "boom")
 })
 
+test("V2 prompt admission starts the user message", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "session.next.prompt.admitted",
+      data: { sessionID: "s1", messageID: "u1", prompt: { text: "hello" }, delivery: "queue" },
+    }),
+    [{ event: "messageStarted", data: { sessionId: "s1", messageId: "u1", role: "user" } }],
+  )
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "session.next.prompted",
+      properties: { sessionID: "s2", messageID: "u2", prompt: { text: "hi" }, delivery: "queue" },
+    }),
+    [{ event: "messageStarted", data: { sessionId: "s2", messageId: "u2", role: "user" } }],
+  )
+})
+
 test("session.error skips message aborts", () => {
   const out = translateOpencodeEvent({
     type: "session.error",
@@ -500,15 +517,15 @@ test("session.error skips message aborts", () => {
   assert.deepEqual(out, [])
 })
 
-test("permission.updated reports an unexpected permission request", () => {
+test("permission.v2.asked reports an unexpected permission request", () => {
   const out = translateOpencodeEvent({
-    type: "permission.updated",
-    properties: {
+    type: "permission.v2.asked",
+    data: {
       id: "perm-1",
       sessionID: "s1",
-      messageID: "m1",
-      title: "Run bash",
-      type: "tool",
+      action: "Run bash",
+      resources: ["npm test"],
+      source: { type: "tool", tool: "bash" },
     },
   })
 
@@ -517,9 +534,9 @@ test("permission.updated reports an unexpected permission request", () => {
       event: "unexpectedPermission",
       data: {
         sessionId: "s1",
-        messageId: "m1",
+        requestId: "perm-1",
         message:
-          "OpenCode requested permission approval (Run bash · tool), but Wanta does not support ask permissions. The generation was stopped.",
+          "OpenCode requested permission approval (Run bash · bash · npm test), but Wanta does not support ask permissions. The generation was stopped.",
       },
     },
   ])

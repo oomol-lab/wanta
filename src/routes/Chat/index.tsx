@@ -289,8 +289,13 @@ function TurnProcessActivity({
   const duration = formatProcessDuration(process, now, live)
   const title = processTitle(t, status, duration)
   const renderBlocks = blocks.map((item) => item.block)
-  const showLiveStatus = shouldShowLiveStatus(process, status)
+  const showLiveStatus = renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
   const titleText = processStatusText(t, status)
+  const activeTool = latestActiveTool(process)
+  const shimmerToolPartId =
+    !activeTool && status === "running" && process.activity && process.tools.length > 0
+      ? process.tools.at(-1)?.partId
+      : undefined
   const forceOpen = status === "needsAction" || (status === "error" && !process.hasFinalAnswer)
   const userChangedOpenRef = React.useRef(false)
 
@@ -346,6 +351,7 @@ function TurnProcessActivity({
               billingCacheScope={billingCacheScope}
               smoothText={false}
               providerByService={providerByService}
+              shimmerToolPartId={shimmerToolPartId}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
             />
@@ -372,11 +378,8 @@ function shouldShowLiveStatus(
   status = processStatus(process),
 ): boolean {
   const activeTool = latestActiveTool(process)
-  if (activeTool) {
-    return false
-  }
   return (
-    status === "running" ||
+    (status === "running" && !activeTool) ||
     status === "retrying" ||
     Boolean(process.activity && status !== "completed" && status !== "stopped")
   )
@@ -626,6 +629,7 @@ function AssistantBlock({
   billingCacheScope,
   smoothText,
   providerByService,
+  shimmerToolPartId,
   onAuthorize,
   onViewBilling,
 }: {
@@ -634,6 +638,7 @@ function AssistantBlock({
   billingCacheScope: string
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
+  shimmerToolPartId?: string
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
 }) {
@@ -653,10 +658,6 @@ function AssistantBlock({
           message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
           onViewBilling={onViewBilling}
         />
-      ) : block.kind === "attachment" ? (
-        block.part.attachment ? (
-          <AttachmentList attachments={[attachmentWithPreview(block.part.attachment)]} />
-        ) : null
       ) : (
         <div className="space-y-0.5">
           {block.parts.map((part) => {
@@ -666,6 +667,7 @@ function AssistantBlock({
                 key={part.partId}
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
+                shimmer={part.partId === shimmerToolPartId}
                 onAuthorize={onAuthorize}
               />
             )

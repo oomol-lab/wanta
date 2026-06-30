@@ -26,21 +26,6 @@ function reasoningPart(partId: string, text: string): ChatMessagePart {
   return { kind: "reasoning", partId, text }
 }
 
-function attachmentPart(partId: string): ChatMessagePart {
-  return {
-    kind: "attachment",
-    partId,
-    attachment: {
-      id: partId,
-      name: "report.pdf",
-      mime: "application/pdf",
-      size: 12,
-      path: "/tmp/report.pdf",
-      kind: "file",
-    },
-  }
-}
-
 describe("renderBlocks", () => {
   it("ignores whitespace-only text parts so adjacent tools stay grouped", () => {
     const firstTool = toolPart("tool-1")
@@ -95,17 +80,5 @@ describe("renderBlocks", () => {
     const blocks = renderBlocks([reasoning, answer])
 
     expect(blocks).toEqual([{ kind: "text", part: answer }])
-  })
-
-  it("renders assistant attachments as standalone blocks", () => {
-    const attachment = attachmentPart("attachment-1")
-    const answer = textPart("text-1", "Done")
-
-    const blocks = renderBlocks([attachment, answer])
-
-    expect(blocks).toEqual([
-      { kind: "attachment", part: attachment },
-      { kind: "text", part: answer },
-    ])
   })
 })

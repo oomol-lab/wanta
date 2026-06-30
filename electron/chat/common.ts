@@ -101,7 +101,6 @@ export interface ToolCallResultEvent {
   metadata?: Record<string, unknown>
   timing?: ToolTiming
   attachmentsCount?: number
-  attachments?: ChatAttachment[]
   authorization?: AuthorizationInfo
 }
 export interface MessageCompletedEvent {
@@ -156,7 +155,6 @@ export interface ChatMessagePart {
   metadata?: Record<string, unknown>
   timing?: ToolTiming
   attachmentsCount?: number
-  attachments?: ChatAttachment[]
   authorization?: AuthorizationInfo
   cancelled?: boolean
 }

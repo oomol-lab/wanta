@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 import { I18nContext, translate } from "../../i18n/i18n.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
 
-function renderToolActivityStep(part: ChatMessagePart): string {
+function renderToolActivityStep(part: ChatMessagePart, options: { shimmer?: boolean } = {}): string {
   return renderToStaticMarkup(
     React.createElement(
       I18nContext.Provider,
@@ -17,7 +17,7 @@ function renderToolActivityStep(part: ChatMessagePart): string {
           t: (key, vars) => translate("zh-CN", key, vars),
         },
       },
-      React.createElement(ToolActivityStep, { part, onAuthorize: () => undefined }),
+      React.createElement(ToolActivityStep, { part, shimmer: options.shimmer, onAuthorize: () => undefined }),
     ),
   )
 }
@@ -128,18 +128,21 @@ describe("ToolActivityStep", () => {
     expect(html).not.toContain("text-transparent")
   })
 
-  it("keeps completed tool rows static while the turn is still transitioning", () => {
-    const html = renderToolActivityStep({
-      kind: "tool",
-      partId: "tool-1",
-      callId: "call-1",
-      tool: "todo_write",
-      status: "completed",
-      input: {},
-      title: "4 todos",
-    })
+  it("can shimmer a completed tool row while the turn is still transitioning", () => {
+    const html = renderToolActivityStep(
+      {
+        kind: "tool",
+        partId: "tool-1",
+        callId: "call-1",
+        tool: "todo_write",
+        status: "completed",
+        input: {},
+        title: "4 todos",
+      },
+      { shimmer: true },
+    )
 
-    expect(html).not.toContain("text-transparent")
+    expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>使用工具<\/span>/)
     expect(html).toContain("4 todos")
     expect(html).toContain("已完成")
   })

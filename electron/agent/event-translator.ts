@@ -38,7 +38,6 @@ export type ChatEmit =
   | { event: "messageCompleted"; data: MessageCompletedEvent }
   | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
   | { event: "agentError"; data: { sessionId?: string; message: string } }
-  | { event: "unexpectedPermission"; data: { sessionId: string; messageId: string; message: string } }
 
 interface OpencodeEvent {
   type: string
@@ -155,43 +154,6 @@ function messageErrorPart(error: unknown): ChatMessagePart | undefined {
     partId: `message-error-${name}`,
     errorText: errorMessage(error),
   }
-}
-
-const ignoredOpencodeEventTypes = new Set([
-  "command.executed",
-  "file.edited",
-  "file.watcher.updated",
-  "installation.update-available",
-  "installation.updated",
-  "lsp.client.diagnostics",
-  "lsp.updated",
-  "message.removed",
-  "permission.replied",
-  "pty.created",
-  "pty.deleted",
-  "pty.exited",
-  "pty.updated",
-  "server.connected",
-  "server.instance.disposed",
-  "session.compacted",
-  "session.created",
-  "session.deleted",
-  "session.diff",
-  "session.updated",
-  "todo.updated",
-  "tui.command.execute",
-  "tui.prompt.append",
-  "tui.toast.show",
-  "vcs.branch.updated",
-])
-
-const ignoredOpencodePartTypes = new Set(["agent", "compaction", "patch", "snapshot", "subtask"])
-
-function warnUnhandledOpencode(kind: "event" | "part", type: string): void {
-  if (process.env.NODE_ENV === "test") {
-    return
-  }
-  console.warn(`[wanta] unhandled OpenCode ${kind} type: ${type}`)
 }
 
 export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
@@ -336,29 +298,7 @@ export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
         { event: "agentError", data: { sessionId: asString(props.sessionID), message: errorMessage(props.error) } },
       ]
     }
-    case "permission.updated": {
-      const p = props as { sessionID?: string; messageID?: string; title?: string; type?: string }
-      if (!p.sessionID || !p.messageID) {
-        return []
-      }
-      const detail = [p.title, p.type].filter(Boolean).join(" · ")
-      return [
-        {
-          event: "unexpectedPermission",
-          data: {
-            sessionId: p.sessionID,
-            messageId: p.messageID,
-            message: detail
-              ? `OpenCode requested permission approval (${detail}), but Wanta does not support ask permissions. The generation was stopped.`
-              : "OpenCode requested permission approval, but Wanta does not support ask permissions. The generation was stopped.",
-          },
-        },
-      ]
-    }
     default:
-      if (!ignoredOpencodeEventTypes.has(event.type)) {
-        warnUnhandledOpencode("event", event.type)
-      }
       return []
   }
 }
@@ -570,8 +510,6 @@ interface OpencodePart {
   }
   callID?: string
   tool?: string
-  ignored?: boolean
-  synthetic?: boolean
   state?: {
     status: ToolStatus
     input?: Record<string, unknown>
@@ -585,7 +523,7 @@ interface OpencodePart {
       end?: number
       compacted?: number
     }
-    attachments?: OpencodePart[]
+    attachments?: unknown[]
   }
   attempt?: number
   error?: unknown
@@ -597,15 +535,12 @@ interface OpencodePart {
 function toolContext(state: NonNullable<OpencodePart["state"]>) {
   const description = typeof state.input?.description === "string" ? state.input.description : undefined
   const title = state.title ?? description
-  const attachments = toolAttachments(state.attachments)
-  const attachmentsCount = attachments.length > 0 ? attachments.length : (state.attachments?.length ?? 0)
   return {
     input: state.input ?? {},
     ...(title ? { title } : {}),
     ...(state.metadata ? { metadata: state.metadata } : {}),
     ...(state.time ? { timing: { start: state.time.start, end: state.time.end } } : {}),
-    ...(attachmentsCount > 0 ? { attachmentsCount } : {}),
-    ...(attachments.length > 0 ? { attachments } : {}),
+    ...(Array.isArray(state.attachments) ? { attachmentsCount: state.attachments.length } : {}),
   }
 }
 
@@ -638,9 +573,6 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
     ]
   }
   if (part.type === "text") {
-    if (part.ignored === true) {
-      return []
-    }
     const rawText = part.text ?? ""
     const text = visibleText(rawText)
     const cleanedDelta = delta === undefined ? undefined : visibleText(delta)
@@ -725,9 +657,6 @@ function translatePart(part: OpencodePart, delta?: string): ChatEmit[] {
       return [{ event: "toolCallResult", data: { ...base, ...context, status: "error", error: state.error } }]
     }
   }
-  if (!ignoredOpencodePartTypes.has(part.type)) {
-    warnUnhandledOpencode("part", part.type)
-  }
   return []
 }
 
@@ -763,15 +692,6 @@ function attachmentPart(part: OpencodePart): ChatMessagePart {
       kind: mime === "inode/directory" ? "directory" : "file",
     },
   }
-}
-
-function toolAttachments(value: OpencodePart[] | undefined): NonNullable<ToolCallResultEvent["attachments"]> {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value
-    .map((part) => attachmentPart(part).attachment)
-    .filter((attachment): attachment is NonNullable<ChatMessagePart["attachment"]> => Boolean(attachment))
 }
 
 function numberOrZero(value: unknown): number {
@@ -815,9 +735,6 @@ export function normalizeSyncMessage(message: { info?: unknown; parts?: unknown 
   const parts: ChatMessagePart[] = []
   for (const part of rawParts) {
     if (part.type === "text") {
-      if (part.ignored === true) {
-        continue
-      }
       const text = visibleText(part.text ?? "")
       if (text.length > 0) {
         parts.push({ kind: "text", partId: part.id, text })
@@ -834,8 +751,6 @@ export function normalizeSyncMessage(message: { info?: unknown; parts?: unknown 
       }
     } else if (part.type === "tool" && part.state && part.callID && part.tool) {
       const state = part.state
-      const attachments = toolAttachments(state.attachments)
-      const attachmentsCount = attachments.length > 0 ? attachments.length : (state.attachments?.length ?? 0)
       const tool: ChatMessagePart = {
         kind: "tool",
         partId: part.id,
@@ -848,8 +763,7 @@ export function normalizeSyncMessage(message: { info?: unknown; parts?: unknown 
         title: state.title ?? (typeof state.input?.description === "string" ? state.input.description : undefined),
         metadata: state.metadata,
         timing: state.time ? { start: state.time.start, end: state.time.end } : undefined,
-        attachmentsCount: attachmentsCount > 0 ? attachmentsCount : undefined,
-        attachments: attachments.length > 0 ? attachments : undefined,
+        attachmentsCount: Array.isArray(state.attachments) ? state.attachments.length : undefined,
       }
       if (state.status === "completed") {
         const auth = parseToolAuthorization(part.tool, state.output)

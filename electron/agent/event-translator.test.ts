@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
-import { test } from "vitest"
-import { normalizeMessage, parseAuthorization, translateOpencodeEvent } from "./event-translator.ts"
+import { test, vi } from "vitest"
+import {
+  normalizeMessage,
+  normalizeSyncMessage,
+  parseAuthorization,
+  translateOpencodeEvent,
+} from "./event-translator.ts"
 
 test("message.updated → messageStarted with role", () => {
   const out = translateOpencodeEvent({
@@ -46,6 +51,40 @@ test("message.updated with assistant abort skips agentError", () => {
   })
 
   assert.deepEqual(out, [{ event: "messageStarted", data: { sessionId: "s1", messageId: "m1", role: "assistant" } }])
+})
+
+test("known ignored event types do not warn in development", () => {
+  const originalNodeEnv = process.env.NODE_ENV
+  process.env.NODE_ENV = "development"
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  try {
+    assert.deepEqual(translateOpencodeEvent({ type: "installation.update-available", properties: {} }), [])
+    assert.equal(warn.mock.calls.length, 0)
+  } finally {
+    warn.mockRestore()
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
+  }
+})
+
+test("unknown event types warn in development", () => {
+  const originalNodeEnv = process.env.NODE_ENV
+  process.env.NODE_ENV = "development"
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+  try {
+    assert.deepEqual(translateOpencodeEvent({ type: "new.event", properties: {} }), [])
+    assert.equal(warn.mock.calls[0]?.[0], "[wanta] unhandled OpenCode event type: new.event")
+  } finally {
+    warn.mockRestore()
+    if (originalNodeEnv === undefined) {
+      delete process.env.NODE_ENV
+    } else {
+      process.env.NODE_ENV = originalNodeEnv
+    }
+  }
 })
 
 test("text part.updated → messageDelta carrying cumulative text", () => {
@@ -114,6 +153,15 @@ test("session.next.text.ended strips Wanta hidden turn context", () => {
   ])
 })
 
+test("ignored text part.updated is not shown", () => {
+  const out = translateOpencodeEvent({
+    type: "message.part.updated",
+    properties: { part: { id: "p1", sessionID: "s1", messageID: "m1", type: "text", text: "hidden", ignored: true } },
+  })
+
+  assert.deepEqual(out, [])
+})
+
 test("reasoning part.updated → messageReasoningDelta", () => {
   const out = translateOpencodeEvent({
     type: "message.part.updated",
@@ -169,6 +217,25 @@ test("retry signals update assistant activity", () => {
       data: { sessionId: "s1", messageId: "m1", phase: "retrying", message: "upstream timeout", attempt: 2 },
     },
   ])
+})
+
+test("known non-chat part types are explicitly ignored", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.part.updated",
+      properties: {
+        part: { id: "snapshot-1", sessionID: "s1", messageID: "m1", type: "snapshot", snapshot: "abc" },
+      },
+    }),
+    [],
+  )
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "message.part.updated",
+      properties: { part: { id: "agent-1", sessionID: "s1", messageID: "m1", type: "agent", name: "build" } },
+    }),
+    [],
+  )
 })
 
 test("file part.updated → messageAttachment", () => {
@@ -276,7 +343,17 @@ test("tool events preserve title, metadata and timing for renderer summaries", (
           title: "Run tests",
           metadata: { exit: 0 },
           time: { start: 100, end: 250 },
-          attachments: [{}],
+          attachments: [
+            {
+              id: "file-1",
+              sessionID: "s1",
+              messageID: "m1",
+              type: "file",
+              filename: "result.txt",
+              mime: "text/plain",
+              source: { path: "/tmp/result.txt" },
+            },
+          ],
         },
       },
     },
@@ -296,6 +373,16 @@ test("tool events preserve title, metadata and timing for renderer summaries", (
     metadata: { exit: 0 },
     timing: { start: 100, end: 250 },
     attachmentsCount: 1,
+    attachments: [
+      {
+        id: "file-1",
+        name: "result.txt",
+        mime: "text/plain",
+        size: 0,
+        path: "/tmp/result.txt",
+        kind: "file",
+      },
+    ],
   })
 })
 
@@ -411,6 +498,31 @@ test("session.error skips message aborts", () => {
   })
 
   assert.deepEqual(out, [])
+})
+
+test("permission.updated reports an unexpected permission request", () => {
+  const out = translateOpencodeEvent({
+    type: "permission.updated",
+    properties: {
+      id: "perm-1",
+      sessionID: "s1",
+      messageID: "m1",
+      title: "Run bash",
+      type: "tool",
+    },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "unexpectedPermission",
+      data: {
+        sessionId: "s1",
+        messageId: "m1",
+        message:
+          "OpenCode requested permission approval (Run bash · tool), but Wanta does not support ask permissions. The generation was stopped.",
+      },
+    },
+  ])
 })
 
 test("parseAuthorization accepts auth json, rejects plain results", () => {
@@ -570,6 +682,18 @@ test("normalizeMessage ignores V2 history entries with no visible parts", () => 
   assert.equal(assistant, null)
 })
 
+test("normalizeSyncMessage skips ignored text parts", () => {
+  const message = normalizeSyncMessage({
+    info: { id: "m1", role: "assistant", time: { created: 1 } },
+    parts: [
+      { id: "p1", type: "text", text: "hidden", ignored: true },
+      { id: "p2", type: "text", text: "visible" },
+    ],
+  })
+
+  assert.deepEqual(message?.parts, [{ kind: "text", partId: "p2", text: "visible" }])
+})
+
 test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in order", () => {
   const msg = normalizeMessage({
     id: "m1",
@@ -596,6 +720,59 @@ test("normalizeMessage builds ChatMessage with text + reasoning + tool parts in 
   assert.equal(msg.parts[0].kind, "text")
   assert.equal(msg.parts[1].kind, "reasoning")
   assert.equal(msg.parts[2].kind, "tool")
+})
+
+test("normalizeSyncMessage preserves structured tool attachments", () => {
+  const msg = normalizeSyncMessage({
+    info: { id: "m1", role: "assistant", time: { created: 123 } },
+    parts: [
+      {
+        id: "tool-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "bash",
+        state: {
+          status: "completed",
+          input: { command: "cat result.txt" },
+          output: "ok",
+          attachments: [
+            {
+              id: "file-1",
+              type: "file",
+              filename: "result.txt",
+              mime: "text/plain",
+              source: { path: "/tmp/result.txt" },
+            },
+          ],
+        },
+      },
+    ],
+  })
+
+  assert.deepEqual(msg?.parts[0], {
+    kind: "tool",
+    partId: "tool-1",
+    callId: "call-1",
+    tool: "bash",
+    status: "completed",
+    input: { command: "cat result.txt" },
+    output: "ok",
+    error: undefined,
+    title: undefined,
+    metadata: undefined,
+    timing: undefined,
+    attachmentsCount: 1,
+    attachments: [
+      {
+        id: "file-1",
+        name: "result.txt",
+        mime: "text/plain",
+        size: 0,
+        path: "/tmp/result.txt",
+        kind: "file",
+      },
+    ],
+  })
 })
 
 test("normalizeMessage preserves assistant token usage", () => {

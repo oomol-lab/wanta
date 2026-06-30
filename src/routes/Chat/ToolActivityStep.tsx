@@ -25,6 +25,8 @@ import {
   Wrench,
 } from "lucide-react"
 import * as React from "react"
+import { attachmentWithPreview } from "./chat-attachment-utils.ts"
+import { AttachmentList } from "./ChatAttachments.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
@@ -183,6 +185,7 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
     Boolean(part.error && !stopped) ||
     Boolean(auth?.message) ||
     shouldShowRunningNoOutput(part) ||
+    Boolean(part.attachments?.length) ||
     Boolean(part.attachmentsCount)
   )
 }
@@ -190,12 +193,10 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): 
 export function ToolActivityStep({
   part,
   provider,
-  shimmer = false,
   onAuthorize,
 }: {
   part: ChatMessagePart
   provider?: ConnectionProvider
-  shimmer?: boolean
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
@@ -205,10 +206,11 @@ export function ToolActivityStep({
   const [open, setOpen] = React.useState(false)
   const statusText = toolPartStatusLabel(t, part)
   const active = isActiveToolPart(part)
-  const showShimmer = active || shimmer
+  const showShimmer = active
   const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
+  const toolAttachments = part.attachments ?? []
 
   const row = (
     <div className="group/tool-step flex min-h-6 min-w-0 flex-1 items-center gap-2">
@@ -321,7 +323,11 @@ export function ToolActivityStep({
                 <ToolPre>{formatJson(part.metadata ?? {})}</ToolPre>
               </ToolDetailSection>
             )}
-            {open && part.attachmentsCount ? (
+            {open && toolAttachments.length > 0 ? (
+              <ToolDetailSection label={t("chat.toolAttachments", { count: toolAttachments.length })}>
+                <AttachmentList attachments={toolAttachments.map(attachmentWithPreview)} />
+              </ToolDetailSection>
+            ) : open && part.attachmentsCount ? (
               <div className="oo-text-caption text-muted-foreground">
                 {t("chat.toolAttachments", { count: part.attachmentsCount })}
               </div>

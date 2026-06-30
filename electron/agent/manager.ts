@@ -1,9 +1,9 @@
-import type { ChatAttachment, ChatMessage } from "../chat/common.ts"
+import type { ChatAttachment, ChatMessage, ReasoningLevel } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
 import type { BuildSessionTitleInput } from "../session/title.ts"
-import type { FilePartInput, TextPartInput } from "@opencode-ai/sdk"
+import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk"
 import type { OpencodeClient } from "@opencode-ai/sdk"
 
 import { randomBytes, randomUUID } from "node:crypto"
@@ -72,6 +72,7 @@ export interface PromptStreamingOptions {
   system?: string
   attachments?: ChatAttachment[]
   model?: ModelChoice
+  reasoningLevel?: ReasoningLevel
   artifactDir?: string
   processDir?: string
   signal?: AbortSignal
@@ -367,15 +368,18 @@ export class AgentManager {
       if (options.signal?.aborted) {
         return
       }
+      const variant = opencodeReasoningVariant(options.reasoningLevel)
+      const body: NonNullable<SessionPromptAsyncData["body"]> & { variant?: string } = {
+        agent: WANTA_AGENT_NAME,
+        model: this.resolveModel(options.model),
+        ...(tail ? { system: tail } : {}),
+        ...(variant ? { variant } : {}),
+        parts: buildPromptParts(text, options.attachments),
+      }
       const result = await this.client.session.promptAsync({
         path: { id: sessionId },
         signal: options.signal,
-        body: {
-          agent: WANTA_AGENT_NAME,
-          model: this.resolveModel(options.model),
-          ...(tail ? { system: tail } : {}),
-          parts: buildPromptParts(text, options.attachments),
-        },
+        body,
       })
       if (options.signal?.aborted) {
         return
@@ -501,6 +505,10 @@ export class AgentManager {
     }
     return { providerID: customProviderId(model.id), modelID: model.modelName }
   }
+}
+
+function opencodeReasoningVariant(level: ReasoningLevel | undefined): string | undefined {
+  return level && level !== "default" ? level : undefined
 }
 
 function buildPromptParts(

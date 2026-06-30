@@ -10,7 +10,9 @@ import {
 import { customModelDisplayName } from "../models/store.ts"
 import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 
-type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string]
+type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string] & {
+  variants?: Record<string, { reasoningEffort: string }>
+}
 
 // OpenCode 内部标识（产品内部约定，可随品牌改，但 OO_/connector 协议契约不改）。
 export const WANTA_AGENT_NAME = "wanta"
@@ -36,6 +38,13 @@ const WANTA_PERMISSION = {
   bash: "allow",
   webfetch: "allow",
   external_directory: "allow",
+} as const
+
+const WANTA_REASONING_VARIANTS = {
+  low: { reasoningEffort: "low" },
+  medium: { reasoningEffort: "medium" },
+  high: { reasoningEffort: "high" },
+  max: { reasoningEffort: "max" },
 } as const
 
 export interface OpencodeConfigOptions {
@@ -126,6 +135,8 @@ function modelCapabilities({
 }): OpencodeModelConfig {
   return {
     name,
+    reasoning: true,
+    variants: WANTA_REASONING_VARIANTS,
     tool_call: toolCall,
     ...(supportsImages
       ? {

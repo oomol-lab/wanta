@@ -3,6 +3,7 @@ import type {
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
+  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
@@ -73,9 +74,30 @@ interface ChatComposerProps {
     attachments: ChatAttachment[],
     contextMentions: ChatContextMention[],
     model?: ModelChoice,
+    reasoningLevel?: ReasoningLevel,
   ) => Promise<boolean>
   onStop: () => void
   onViewBilling?: () => void
+}
+
+const reasoningLevelStorageKey = "wanta:chat:reasoning-level"
+const reasoningLevels = new Set<ReasoningLevel>(["default", "low", "medium", "high", "max"])
+
+function readStoredReasoningLevel(): ReasoningLevel {
+  try {
+    const stored = globalThis.localStorage?.getItem(reasoningLevelStorageKey)
+    return reasoningLevels.has(stored as ReasoningLevel) ? (stored as ReasoningLevel) : "default"
+  } catch {
+    return "default"
+  }
+}
+
+function writeStoredReasoningLevel(level: ReasoningLevel): void {
+  try {
+    globalThis.localStorage?.setItem(reasoningLevelStorageKey, level)
+  } catch {
+    // localStorage 不可用时保持本次会话内状态即可。
+  }
 }
 
 function paletteLabels({
@@ -144,6 +166,7 @@ export function ChatComposer({
   )
   const [inputError, setInputError] = React.useState<string | null>(null)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false)
+  const [reasoningLevel, setReasoningLevelState] = React.useState<ReasoningLevel>(readStoredReasoningLevel)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const appendVoiceTranscription = React.useCallback((text: string) => {
     dispatchComposer({ type: "insert-transcription", text })
@@ -192,6 +215,10 @@ export function ChatComposer({
     () => buildContextPaletteItems({ artifactItems, connectionItems, t }),
     [artifactItems, connectionItems, t],
   )
+  const setReasoningLevel = React.useCallback((level: ReasoningLevel): void => {
+    setReasoningLevelState(level)
+    writeStoredReasoningLevel(level)
+  }, [])
 
   React.useEffect(() => {
     if (focusRequest <= 0) {
@@ -314,7 +341,13 @@ export function ChatComposer({
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
-    const accepted = await onSend(text, attachments.map(stripDraftAttachment), contextMentions, modelCatalog?.selected)
+    const accepted = await onSend(
+      text,
+      attachments.map(stripDraftAttachment),
+      contextMentions,
+      modelCatalog?.selected,
+      reasoningLevel,
+    )
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
       return
@@ -460,6 +493,7 @@ export function ChatComposer({
           initialSendPending={initialSendPending}
           isGenerating={isGenerating}
           modelCatalog={modelCatalog}
+          reasoningLevel={reasoningLevel}
           status={status}
           voiceActive={voiceInput.active}
           voiceBars={voiceInput.bars}
@@ -472,6 +506,7 @@ export function ChatComposer({
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
+          onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
           onStartVoice={voiceInput.start}
           onStop={onStop}

@@ -6,6 +6,7 @@ import { serviceName } from "../branding.ts"
 
 export type ChatRole = "user" | "assistant"
 export type ToolStatus = "pending" | "running" | "completed" | "error"
+export type ReasoningLevel = "default" | "low" | "medium" | "high" | "max"
 
 export interface AuthorizationInfo {
   service: string
@@ -185,6 +186,7 @@ export interface SendMessageRequest {
   organizationSkills?: ChatOrganizationSkillContext[]
   projectContext?: ChatProjectContext
   model?: ModelChoice
+  reasoningLevel?: ReasoningLevel
 }
 
 export interface ChatProjectContext {

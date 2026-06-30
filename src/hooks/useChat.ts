@@ -8,6 +8,7 @@ import type {
   ChatProjectContext,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
+  ReasoningLevel,
   ToolCallResultEvent,
   ToolCallStartedEvent,
 } from "../../electron/chat/common.ts"
@@ -73,6 +74,7 @@ export interface UseChat {
       model?: ModelChoice
       organizationSkills?: ChatOrganizationSkillContext[]
       projectContext?: ChatProjectContext
+      reasoningLevel?: ReasoningLevel
     },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
@@ -546,6 +548,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         model?: ModelChoice
         organizationSkills?: ChatOrganizationSkillContext[]
         projectContext?: ChatProjectContext
+        reasoningLevel?: ReasoningLevel
       } = {},
     ) => {
       setGlobalError(null)
@@ -564,6 +567,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           model: options.model,
           organizationSkills: options.organizationSkills,
           projectContext: options.projectContext,
+          reasoningLevel: options.reasoningLevel,
         })
       } catch (err) {
         setStatus(sessionId, "error")

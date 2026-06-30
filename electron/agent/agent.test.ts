@@ -12,6 +12,10 @@ import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorEr
 import { WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
+function modelVariantKeys(model: unknown): string[] {
+  return Object.keys(((model as { variants?: Record<string, unknown> }).variants ?? {}) as Record<string, unknown>)
+}
+
 test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => {
   const config = buildOpencodeConfig({ authToken: "api-test" })
   assert.equal(config.model, `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`)
@@ -23,6 +27,8 @@ test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => 
   assert.equal(provider.options?.apiKey, "api-test")
   const model = provider.models?.[WANTA_MODEL_ID]
   assert.ok(model)
+  assert.equal(model.reasoning, true)
+  assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -37,6 +43,8 @@ test("buildOpencodeConfig wires the oomol openai-compatible provider", () => {
   assert.equal(provider.options?.apiKey, "api-test")
   const model = provider.models?.[auto.runtime.modelID]
   assert.ok(model)
+  assert.equal(model.reasoning, true)
+  assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -58,6 +66,8 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
     const model = provider?.models?.[definition.runtime.modelID]
     assert.ok(model, `missing built-in model ${definition.runtime.providerID}/${definition.runtime.modelID}`)
     assert.equal(model.name, definition.displayName)
+    assert.equal(model.reasoning, true)
+    assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
     assert.equal(model.tool_call, definition.capabilities.toolCall)
     assert.equal(model.attachment, definition.capabilities.supportsImages ? true : undefined)
   }
@@ -75,6 +85,7 @@ test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics",
   assert.equal(provider.options?.apiKey, "api-test")
   assert.ok(model)
   assert.equal(model.name, "GPT 5.5")
+  assert.equal(model.reasoning, true)
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -99,6 +110,7 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
   assert.equal(provider.options?.baseURL, "https://api.deepseek.com/v1")
   assert.equal(provider.options?.apiKey, "sk-custom")
   const model = provider.models?.["deepseek-chat"]
+  assert.equal(model?.reasoning, true)
   assert.equal(model?.tool_call, true)
   assert.equal(model?.attachment, undefined)
   assert.equal(model?.modalities, undefined)

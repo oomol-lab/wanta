@@ -1,3 +1,4 @@
+import type { ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ContextUsageInfo } from "./context-usage.ts"
 import type { ChatStatus } from "ai"
@@ -8,7 +9,7 @@ import { createPortal } from "react-dom"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 import { formatTokenCount } from "./context-usage.ts"
-import { ModelPicker } from "./ModelControls.tsx"
+import { ModelPicker, ReasoningLevelPicker } from "./ModelControls.tsx"
 import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
@@ -22,6 +23,7 @@ interface ComposerTrailingControlsProps {
   initialSendPending: boolean
   isGenerating: boolean
   modelCatalog: ModelCatalog | null
+  reasoningLevel: ReasoningLevel
   status: ChatStatus
   voiceActive: boolean
   voiceBars: readonly number[]
@@ -35,6 +37,7 @@ interface ComposerTrailingControlsProps {
   onDeleteModel: (id: string) => void
   onRetryVoice: () => void
   onSelectModel: (choice: ModelChoice) => void
+  onSelectReasoningLevel: (level: ReasoningLevel) => void
   onStartVoice: () => void
   onStop: () => void
   onStopVoice: () => void
@@ -319,6 +322,7 @@ export function ComposerTrailingControls({
   initialSendPending,
   isGenerating,
   modelCatalog,
+  reasoningLevel,
   status,
   voiceActive,
   voiceBars,
@@ -332,6 +336,7 @@ export function ComposerTrailingControls({
   onDeleteModel,
   onRetryVoice,
   onSelectModel,
+  onSelectReasoningLevel,
   onStartVoice,
   onStop,
   onStopVoice,
@@ -431,6 +436,11 @@ export function ComposerTrailingControls({
               onSelect={onSelectModel}
               onDelete={onDeleteModel}
               onAdd={onAddModel}
+            />
+            <ReasoningLevelPicker
+              disabled={composerDisabled}
+              value={reasoningLevel}
+              onValueChange={onSelectReasoningLevel}
             />
             <Button
               type="button"

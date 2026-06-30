@@ -6,6 +6,7 @@ import type {
   ChatMessage,
   ChatMessagePart,
   ChatOrganizationSkillContext,
+  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
@@ -113,6 +114,7 @@ interface ChatAreaProps {
     attachments: ChatAttachment[],
     contextMentions: ChatContextMention[],
     model?: ModelChoice,
+    reasoningLevel?: ReasoningLevel,
   ) => Promise<boolean>
   onStop: () => void
   onComposerStateChange?: (state: ComposerState) => void

@@ -1148,6 +1148,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         artifactDir,
         processDir,
         model: req.model,
+        reasoningLevel: req.reasoningLevel,
         signal: generation.controller.signal,
         system: mergeSystemPrompts(
           buildOrganizationSkillsSystem(req.organizationSkills),

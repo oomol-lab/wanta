@@ -8,7 +8,7 @@ import { ToolActivityStep } from "./ToolActivityStep.tsx"
 
 function renderToolActivityStep(
   part: ChatMessagePart,
-  options: { shimmer?: boolean; showAuthorizationPrompt?: boolean } = {},
+  options: { shimmer?: boolean; settling?: boolean; showAuthorizationPrompt?: boolean } = {},
 ): string {
   return renderToStaticMarkup(
     React.createElement(
@@ -23,6 +23,7 @@ function renderToolActivityStep(
       React.createElement(ToolActivityStep, {
         part,
         shimmer: options.shimmer,
+        settling: options.settling,
         showAuthorizationPrompt: options.showAuthorizationPrompt,
         onAuthorize: () => undefined,
       }),
@@ -156,7 +157,7 @@ describe("ToolActivityStep", () => {
     expect(html).not.toContain("text-transparent")
   })
 
-  it("can shimmer a completed tool row while the turn is still transitioning", () => {
+  it("uses a finalizing status for a completed tool row while the turn is still transitioning", () => {
     const html = renderToolActivityStep(
       {
         kind: "tool",
@@ -167,12 +168,13 @@ describe("ToolActivityStep", () => {
         input: {},
         title: "4 todos",
       },
-      { shimmer: true },
+      { shimmer: true, settling: true },
     )
 
     expect(html).toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>使用工具<\/span>/)
     expect(html).toContain("4 todos")
-    expect(html).toContain("已完成")
+    expect(html).toContain("正在整理")
+    expect(html).not.toContain("已完成")
   })
 
   it("keeps an incomplete tool collapsed and uses a neutral status treatment", () => {

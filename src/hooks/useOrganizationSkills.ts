@@ -22,9 +22,11 @@ import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface OrganizationSkillChatContext {
   description?: string
+  icon?: string
   id: string
   name: string
   packageName?: string
+  skillName?: string
   version?: string
 }
 
@@ -69,9 +71,11 @@ function isOrganizationSkillsUnavailable(cause: unknown): boolean {
 function toChatContextSkill(skill: OrganizationSkillConfigItem): OrganizationSkillChatContext {
   return {
     ...(skill.description ? { description: skill.description } : {}),
+    ...(skill.icon ? { icon: skill.icon } : {}),
     id: organizationSkillMentionId(skill),
     name: skill.displayName || skill.skillName,
     packageName: skill.packageName,
+    skillName: skill.skillName,
     version: skill.version,
   }
 }

@@ -1,5 +1,8 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
+import type { AttachmentPickerKind } from "./attachment-picker.ts"
+
+export type { AttachmentPickerKind } from "./attachment-picker.ts"
 
 import { electronAPI } from "@electron-toolkit/preload"
 import { setupConnectionPreload } from "@oomol/connection-electron-adapter/preload"
@@ -31,7 +34,7 @@ export interface WantaBridge {
   onAppCommand(callback: (command: AppCommand) => void): () => void
   platform: NodeJS.Platform
   saveClipboardAttachment(input: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath>
-  selectAttachmentPaths(kind: "file" | "directory"): Promise<SelectedAttachmentPath[]>
+  selectAttachmentPaths(kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]>
   selectProjectDirectory(): Promise<SelectedAttachmentPath | null>
   setAppLocale(locale: AppLocale): void
   version: string
@@ -61,7 +64,7 @@ const wanta: WantaBridge = {
   platform: process.platform,
   saveClipboardAttachment: (input: SaveClipboardAttachmentInput) =>
     electronAPI.ipcRenderer.invoke("wanta:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
-  selectAttachmentPaths: (kind: "file" | "directory") =>
+  selectAttachmentPaths: (kind: AttachmentPickerKind) =>
     electronAPI.ipcRenderer.invoke("wanta:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
   selectProjectDirectory: () =>
     electronAPI.ipcRenderer.invoke("wanta:select-project-directory") as Promise<SelectedAttachmentPath | null>,

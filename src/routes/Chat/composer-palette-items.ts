@@ -9,11 +9,16 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 
 import { File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
+import { normalizeSkillIconSource } from "@/components/skill-icon-source"
+import { SkillIcon } from "@/components/SkillIcon"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
+import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
 export const creatorSkillId = "oo-create-skill"
+const builtInSkillIds = new Set([creatorSkillId, "oo", "oo-find-skills", "oo-publish-skill"])
 
 export type SlashCommandAction =
+  | "attach-file-or-folder"
   | "attach-file"
   | "attach-folder"
   | "billing"
@@ -52,15 +57,18 @@ export interface ConnectionAccountPaletteItem extends ConnectionPaletteItem {
 
 export interface SkillPaletteItem extends ComposerPaletteItem {
   descriptionText: string
+  iconSource?: string
   kind: "skill"
   skillId: string
   skillName: string
 }
 
 export type AttachmentPaletteItem = ComposerPaletteItem & {
-  action: "attach-file" | "attach-folder"
+  action: AttachmentPaletteAction
   kind: "attachment"
 }
+
+export type AttachmentPaletteAction = "attach-file" | "attach-folder" | "attach-file-or-folder"
 
 export interface ArtifactPaletteItem extends ComposerPaletteItem {
   artifact: LocalArtifactItem
@@ -78,6 +86,10 @@ export type ChatComposerPaletteItem =
 export interface CreatorSkillPaletteCopy {
   description: string
   title: string
+}
+
+function supportsCombinedAttachmentPicker(platform: NodeJS.Platform | undefined): boolean {
+  return platform === "darwin"
 }
 
 function normalizedSearchText(value: string): string {
@@ -98,7 +110,44 @@ function installedSkillHostCount(group: ManagedSkillGroup): number {
   return group.runtimeHosts.filter((host) => host.status === "installed").length
 }
 
+function normalizedSkillIdentityPart(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase()
+}
+
+function skillIdentityKey(packageName: string | undefined, skillName: string | undefined): string | null {
+  const normalizedPackageName = normalizedSkillIdentityPart(packageName)
+  const normalizedSkillName = normalizedSkillIdentityPart(skillName)
+
+  if (!normalizedPackageName || !normalizedSkillName) {
+    return null
+  }
+  return `${normalizedPackageName}\u0000${normalizedSkillName}`
+}
+
+function organizationSkillIdentityKeys(skill: ChatOrganizationSkillContext): string[] {
+  const keys = [
+    skillIdentityKey(skill.packageName, skill.skillName),
+    skillIdentityKey(
+      skill.packageName,
+      skill.id
+        .replace(/^organization:/, "")
+        .split(":")
+        .at(-1),
+    ),
+  ]
+
+  return keys.filter((key): key is string => Boolean(key))
+}
+
+function managedSkillIdentityKeys(group: ManagedSkillGroup): string[] {
+  const keys = [skillIdentityKey(group.packageName, group.id), skillIdentityKey(group.packageName, group.name)]
+  return keys.filter((key): key is string => Boolean(key))
+}
+
 function skillKindMeta(group: ManagedSkillGroup): string {
+  if (builtInSkillIds.has(group.id)) {
+    return "built-in"
+  }
   if (group.kind === "registry") {
     return "registry"
   }
@@ -108,11 +157,30 @@ function skillKindMeta(group: ManagedSkillGroup): string {
   return ""
 }
 
-function buildCreatorSkillPaletteItem(copy: CreatorSkillPaletteCopy): SkillPaletteItem {
+function skillPaletteIcon(icon: string | undefined): React.ReactNode {
+  const normalizedIcon = normalizeSkillIconSource(icon)
+
+  if (isImageIcon(normalizedIcon)) {
+    return React.createElement("img", {
+      alt: "",
+      className: "size-5 rounded-sm object-contain",
+      src: normalizedIcon,
+    })
+  }
+
+  if (isEmojiIcon(normalizedIcon)) {
+    return React.createElement("span", { className: "text-base leading-none" }, normalizedIcon)
+  }
+
+  return React.createElement(SkillIcon, { className: "size-4", icon: normalizedIcon })
+}
+
+function buildCreatorSkillPaletteItem(copy: CreatorSkillPaletteCopy, icon: string | undefined): SkillPaletteItem {
   return {
     description: copy.description,
     descriptionText: copy.description,
-    icon: React.createElement(Package, { className: "size-4" }),
+    icon: skillPaletteIcon(icon),
+    ...(icon ? { iconSource: icon } : {}),
     id: `skill:${creatorSkillId}`,
     kind: "skill",
     meta: "built-in",
@@ -128,9 +196,11 @@ export function buildSkillPaletteItems(
   creatorSkillCopy: CreatorSkillPaletteCopy,
   organizationSkills: ChatOrganizationSkillContext[] = [],
 ): SkillPaletteItem[] {
-  const creatorSkillItem = buildCreatorSkillPaletteItem(creatorSkillCopy)
+  const creatorSkillGroup = groups.find((group) => group.id === creatorSkillId)
+  const creatorSkillItem = buildCreatorSkillPaletteItem(creatorSkillCopy, creatorSkillGroup?.icon)
   const validatedOrganizationSkills = organizationSkills.filter((skill) => skill.id.trim() && skill.name.trim())
-  const organizationSkillNames = new Set(validatedOrganizationSkills.map((skill) => skill.name.trim().toLowerCase()))
+  const organizationSkillKeys = new Set(validatedOrganizationSkills.flatMap(organizationSkillIdentityKeys))
+  const organizationSkillNames = new Set(validatedOrganizationSkills.map((skill) => normalizedSearchText(skill.name)))
   const organizationItems = validatedOrganizationSkills
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
@@ -138,7 +208,8 @@ export function buildSkillPaletteItems(
       (skill): SkillPaletteItem => ({
         description: skill.description || fallbackDescription,
         descriptionText: skill.description || fallbackDescription,
-        icon: React.createElement(Package, { className: "size-4" }),
+        icon: skillPaletteIcon(skill.icon),
+        ...(skill.icon ? { iconSource: skill.icon } : {}),
         id: `skill:${skill.id}`,
         kind: "skill",
         meta: "organization",
@@ -150,14 +221,20 @@ export function buildSkillPaletteItems(
   const inventoryItems = groups
     .filter((group) => installedSkillHostCount(group) > 0)
     .filter((group) => group.id !== creatorSkillId)
-    .filter((group) => !organizationSkillNames.has((group.name || group.id).trim().toLowerCase()))
+    .filter((group) => {
+      if (managedSkillIdentityKeys(group).some((key) => organizationSkillKeys.has(key))) {
+        return false
+      }
+      return !organizationSkillNames.has(normalizedSearchText(group.name || group.id))
+    })
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name))
     .map(
       (group): SkillPaletteItem => ({
         description: group.description || fallbackDescription,
         descriptionText: group.description || fallbackDescription,
-        icon: React.createElement(Package, { className: "size-4" }),
+        icon: skillPaletteIcon(group.icon),
+        ...(group.icon ? { iconSource: group.icon } : {}),
         id: `skill:${group.id}`,
         kind: "skill",
         meta: skillKindMeta(group),
@@ -336,34 +413,47 @@ export function buildConnectionAccountPaletteItems(
 export function buildContextPaletteItems({
   artifactItems = [],
   connectionItems,
+  platform,
   t,
 }: {
   artifactItems?: ArtifactPaletteItem[]
   connectionItems: ConnectionProviderPaletteItem[]
+  platform?: NodeJS.Platform
   t: TranslateFn
 }): Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionProviderPaletteItem> {
-  return [
-    {
-      action: "attach-file",
-      description: t("chat.contextAttachFileDescription"),
-      icon: React.createElement(File, { className: "size-4" }),
-      id: "context:attach-file",
-      kind: "attachment",
-      meta: "file",
-      title: t("chat.attachFileAction"),
-    },
-    {
-      action: "attach-folder",
-      description: t("chat.contextAttachFolderDescription"),
-      icon: React.createElement(Folder, { className: "size-4" }),
-      id: "context:attach-folder",
-      kind: "attachment",
-      meta: "folder",
-      title: t("chat.attachFolderAction"),
-    },
-    ...artifactItems,
-    ...connectionItems,
-  ]
+  const attachmentItems: AttachmentPaletteItem[] = supportsCombinedAttachmentPicker(platform)
+    ? [
+        {
+          action: "attach-file-or-folder",
+          description: t("chat.contextAttachFileOrFolderDescription"),
+          icon: React.createElement(File, { className: "size-4" }),
+          id: "context:attach-file-or-folder",
+          kind: "attachment",
+          meta: "file/folder",
+          title: t("chat.attachFileOrFolderAction"),
+        },
+      ]
+    : [
+        {
+          action: "attach-file",
+          description: t("chat.contextAttachFileDescription"),
+          icon: React.createElement(File, { className: "size-4" }),
+          id: "context:attach-file",
+          kind: "attachment",
+          meta: "file",
+          title: t("chat.attachFileAction"),
+        },
+        {
+          action: "attach-folder",
+          description: t("chat.contextAttachFolderDescription"),
+          icon: React.createElement(Folder, { className: "size-4" }),
+          id: "context:attach-folder",
+          kind: "attachment",
+          meta: "folder",
+          title: t("chat.attachFolderAction"),
+        },
+      ]
+  return [...attachmentItems, ...artifactItems, ...connectionItems]
 }
 
 function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
@@ -440,11 +530,45 @@ export function buildArtifactPaletteItems(selection: ArtifactSelection | null, t
 
 export function slashCommandItems({
   canViewBilling,
+  platform,
   t,
 }: {
   canViewBilling: boolean
+  platform?: NodeJS.Platform
   t: TranslateFn
 }): SlashCommandPaletteItem[] {
+  const attachmentItems: SlashCommandPaletteItem[] = supportsCombinedAttachmentPicker(platform)
+    ? [
+        {
+          action: "attach-file-or-folder",
+          description: t("chat.commandAttachFileOrFolderDescription"),
+          icon: React.createElement(File, { className: "size-4" }),
+          id: "attach-file-or-folder",
+          kind: "slash",
+          meta: "file/folder",
+          title: t("chat.commandAttachFileOrFolder"),
+        },
+      ]
+    : [
+        {
+          action: "attach-file",
+          description: t("chat.commandAttachFileDescription"),
+          icon: React.createElement(File, { className: "size-4" }),
+          id: "attach-file",
+          kind: "slash",
+          meta: "file",
+          title: t("chat.commandAttachFile"),
+        },
+        {
+          action: "attach-folder",
+          description: t("chat.commandAttachFolderDescription"),
+          icon: React.createElement(Folder, { className: "size-4" }),
+          id: "attach-folder",
+          kind: "slash",
+          meta: "folder",
+          title: t("chat.commandAttachFolder"),
+        },
+      ]
   return [
     {
       action: "creator-skill",
@@ -473,24 +597,7 @@ export function slashCommandItems({
       meta: "context",
       title: t("chat.commandConnections"),
     },
-    {
-      action: "attach-file",
-      description: t("chat.commandAttachFileDescription"),
-      icon: React.createElement(File, { className: "size-4" }),
-      id: "attach-file",
-      kind: "slash",
-      meta: "file",
-      title: t("chat.commandAttachFile"),
-    },
-    {
-      action: "attach-folder",
-      description: t("chat.commandAttachFolderDescription"),
-      icon: React.createElement(Folder, { className: "size-4" }),
-      id: "attach-folder",
-      kind: "slash",
-      meta: "folder",
-      title: t("chat.commandAttachFolder"),
-    },
+    ...attachmentItems,
     {
       action: "billing",
       description: t("chat.commandBillingDescription"),

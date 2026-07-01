@@ -1,3 +1,4 @@
+import type { AttachmentPickerKind } from "../../../electron/attachment-picker.ts"
 import type { ChatAttachment } from "../../../electron/chat/common.ts"
 import type { ComposerAction, DraftAttachment } from "./composer-state.ts"
 
@@ -40,7 +41,7 @@ export interface UseComposerAttachments {
   handlePaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void
   removeAttachment: (id: string) => void
   revokeCurrentPreviews: () => void
-  selectAttachments: (kind: "file" | "directory") => Promise<void>
+  selectAttachments: (kind: AttachmentPickerKind) => Promise<void>
 }
 
 const imageOptimizeMaxSidePx = 1600
@@ -238,7 +239,7 @@ export function useComposerAttachments({
   )
 
   const selectAttachments = React.useCallback(
-    async (kind: "file" | "directory") => {
+    async (kind: AttachmentPickerKind) => {
       setInputError(null)
       const picker = globalThis.wanta?.selectAttachmentPaths
       if (!picker) {

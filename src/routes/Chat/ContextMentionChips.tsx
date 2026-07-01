@@ -1,12 +1,15 @@
 import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 
-import { Package, Plug, X } from "lucide-react"
+import { Plug, X } from "lucide-react"
 import { contextMentionKey } from "./composer-state.ts"
 import { normalizeServiceSlug } from "./tool-display.ts"
+import { normalizeSkillIconSource } from "@/components/skill-icon-source"
+import { SkillIcon } from "@/components/SkillIcon"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
+import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
 function providerForMention(
   mention: Extract<ChatContextMention, { kind: "connection" }>,
@@ -41,6 +44,20 @@ function contextMentionTitle(mention: ChatContextMention, provider?: ConnectionP
   return contextMentionLabel(mention, provider)
 }
 
+function SkillMentionIcon({ icon }: { icon?: string }) {
+  const normalizedIcon = normalizeSkillIconSource(icon)
+
+  if (isImageIcon(normalizedIcon)) {
+    return <img alt="" src={normalizedIcon} className="size-5 rounded-sm object-contain" />
+  }
+
+  if (isEmojiIcon(normalizedIcon)) {
+    return <span className="text-base leading-none">{normalizedIcon}</span>
+  }
+
+  return <SkillIcon icon={normalizedIcon} className="size-3.5" />
+}
+
 export function ContextMentionChips({
   className,
   mentions,
@@ -72,15 +89,12 @@ export function ContextMentionChips({
               <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
             ) : (
               <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                {mention.kind === "skill" ? <Package className="size-3.5" /> : <Plug className="size-3.5" />}
+                {mention.kind === "skill" ? <SkillMentionIcon icon={mention.icon} /> : <Plug className="size-3.5" />}
               </span>
             )}
             <span className="flex min-w-0 items-center">
               {mention.kind === "skill" ? (
-                <>
-                  <span className="text-muted-foreground">{t("chat.contextSkillPrefix")}</span>
-                  <span className="ml-1 font-medium text-foreground">{mention.name}</span>
-                </>
+                <span className="min-w-0 truncate font-medium text-foreground">{mention.name}</span>
               ) : (
                 <>
                   <span className="min-w-0 truncate font-medium text-foreground">{mention.displayName}</span>

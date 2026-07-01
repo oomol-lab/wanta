@@ -94,6 +94,7 @@
   --oo-input-surface: oklch(0.991 0.002 289);
   --oo-prompt-input-surface: var(--background);
   --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --oo-prompt-input-placeholder: color-mix(in oklab, var(--foreground) 42%, transparent);
   --oo-prompt-input-shadow:
     0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent),
     0 8px 18px color-mix(in oklab, var(--foreground) 4%, transparent);
@@ -250,6 +251,7 @@
   --oo-input-surface: oklch(0.252 0.006 272);
   --oo-prompt-input-surface: var(--oo-input-surface);
   --oo-prompt-input-border: color-mix(in oklab, var(--foreground) 16%, transparent);
+  --oo-prompt-input-placeholder: color-mix(in oklab, var(--foreground) 48%, transparent);
   --oo-prompt-input-shadow: none;
   --oo-queue-dock-surface: color-mix(in oklab, var(--foreground) 5%, var(--oo-prompt-input-surface));
   --oo-queue-dock-hover: color-mix(in oklab, var(--foreground) 7%, var(--oo-queue-dock-surface));

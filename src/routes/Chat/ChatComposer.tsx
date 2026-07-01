@@ -16,6 +16,7 @@ import type { ChatStatus } from "ai"
 
 import { File as FileIcon, Folder, Plus } from "lucide-react"
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { WANTA_AGENT_MODES, WANTA_DEFAULT_AGENT_MODE } from "../../../electron/agent/mode.ts"
 import { WANTA_DEFAULT_REASONING_LEVEL, WANTA_REASONING_LEVELS } from "../../../electron/agent/reasoning.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
@@ -183,12 +184,14 @@ export function ChatComposer({
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
   const attachmentMenuRef = React.useRef<HTMLDivElement | null>(null)
+  const attachmentMenuPanelRef = React.useRef<HTMLDivElement | null>(null)
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
   )
   const [inputError, setInputError] = React.useState<string | null>(null)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false)
+  const [attachmentMenuStyle, setAttachmentMenuStyle] = React.useState<React.CSSProperties | undefined>()
   const [agentMode, setAgentModeState] = React.useState<AgentMode>(readStoredAgentMode)
   const [reasoningLevel, setReasoningLevelState] = React.useState<ReasoningLevel>(readStoredReasoningLevel)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
@@ -247,8 +250,23 @@ export function ChatComposer({
     setAgentModeState(mode)
     writeStoredAgentMode(mode)
   }, [])
+  const updateAttachmentMenuPlacement = React.useCallback((): void => {
+    const trigger = attachmentMenuRef.current
+    if (!trigger) {
+      return
+    }
+    const rect = trigger.getBoundingClientRect()
+    const menuWidth = 160
+    const viewportPadding = 8
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding)
+    setAttachmentMenuStyle({
+      bottom: Math.max(viewportPadding, window.innerHeight - rect.top + viewportPadding),
+      left: Math.min(Math.max(viewportPadding, rect.left), maxLeft),
+      minWidth: menuWidth,
+    })
+  }, [])
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (focusRequest <= 0) {
       return
     }
@@ -268,9 +286,13 @@ export function ChatComposer({
       setAttachmentMenuOpen(false)
       return
     }
+    updateAttachmentMenuPlacement()
     const handlePointerDown = (event: PointerEvent): void => {
       const target = event.target
       if (target instanceof Node && attachmentMenuRef.current?.contains(target)) {
+        return
+      }
+      if (target instanceof Node && attachmentMenuPanelRef.current?.contains(target)) {
         return
       }
       setAttachmentMenuOpen(false)
@@ -280,13 +302,18 @@ export function ChatComposer({
         setAttachmentMenuOpen(false)
       }
     }
+    const handleReposition = (): void => updateAttachmentMenuPlacement()
     document.addEventListener("pointerdown", handlePointerDown)
     document.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("resize", handleReposition)
+    window.addEventListener("scroll", handleReposition, true)
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown)
       document.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("resize", handleReposition)
+      window.removeEventListener("scroll", handleReposition, true)
     }
-  }, [attachmentMenuOpen, composerDisabled])
+  }, [attachmentMenuOpen, composerDisabled, updateAttachmentMenuPlacement])
 
   React.useLayoutEffect(() => {
     const textarea = textareaRef.current
@@ -483,36 +510,6 @@ export function ChatComposer({
             >
               <Plus className="size-4" />
             </Button>
-            {attachmentMenuOpen ? (
-              <div className="absolute bottom-full left-0 z-50 mb-2 min-w-40 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                <AttachmentMenuButton
-                  disabled={composerDisabled}
-                  onClick={() => {
-                    if (composerDisabled) {
-                      return
-                    }
-                    setAttachmentMenuOpen(false)
-                    void composerAttachments.selectAttachments("file")
-                  }}
-                >
-                  <FileIcon className="size-4" />
-                  {t("chat.attachFileAction")}
-                </AttachmentMenuButton>
-                <AttachmentMenuButton
-                  disabled={composerDisabled}
-                  onClick={() => {
-                    if (composerDisabled) {
-                      return
-                    }
-                    setAttachmentMenuOpen(false)
-                    void composerAttachments.selectAttachments("directory")
-                  }}
-                >
-                  <Folder className="size-4" />
-                  {t("chat.attachFolderAction")}
-                </AttachmentMenuButton>
-              </div>
-            ) : null}
           </div>
         </PromptInputTools>
         <ComposerTrailingControls
@@ -599,6 +596,43 @@ export function ChatComposer({
         </div>
       </div>
       {modelDialog}
+      {attachmentMenuOpen
+        ? createPortal(
+            <div
+              ref={attachmentMenuPanelRef}
+              style={attachmentMenuStyle}
+              className="fixed z-[130] rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+            >
+              <AttachmentMenuButton
+                disabled={composerDisabled}
+                onClick={() => {
+                  if (composerDisabled) {
+                    return
+                  }
+                  setAttachmentMenuOpen(false)
+                  void composerAttachments.selectAttachments("file")
+                }}
+              >
+                <FileIcon className="size-4" />
+                {t("chat.attachFileAction")}
+              </AttachmentMenuButton>
+              <AttachmentMenuButton
+                disabled={composerDisabled}
+                onClick={() => {
+                  if (composerDisabled) {
+                    return
+                  }
+                  setAttachmentMenuOpen(false)
+                  void composerAttachments.selectAttachments("directory")
+                }}
+              >
+                <Folder className="size-4" />
+                {t("chat.attachFolderAction")}
+              </AttachmentMenuButton>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   )
 }

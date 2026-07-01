@@ -228,14 +228,14 @@ export function buildConnectionPaletteItems(
     const apps = usableConnectionApps(provider)
     const defaultApp = defaultConnectionApp(provider)
     const accountLabel = defaultApp ? connectionAppDisplayName(defaultApp) : provider.accountLabel
-    const connectionAction =
-      provider.status === "needs_attention"
+    const needsAttention = provider.status === "needs_attention"
+    const connectionAction = defaultApp
+      ? "use"
+      : needsAttention
         ? "attention"
-        : defaultApp
-          ? "use"
-          : provider.actionKind === "unavailable"
-            ? "unsupported"
-            : "connect"
+        : provider.actionKind === "unavailable"
+          ? "unsupported"
+          : "connect"
     const hasMultipleAccounts = connectionAction === "use" && apps.length > 1
     const description =
       connectionAction === "use" && accountLabel
@@ -267,7 +267,9 @@ export function buildConnectionPaletteItems(
       kind: "connection-provider",
       meta:
         connectionAction === "use" && !hasMultipleAccounts
-          ? provider.service
+          ? needsAttention
+            ? copy.needsAttention
+            : provider.service
           : connectionAction === "attention"
             ? copy.needsAttention
             : undefined,

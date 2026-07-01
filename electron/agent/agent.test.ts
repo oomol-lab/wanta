@@ -25,6 +25,18 @@ function modelLimit(model: unknown): { context?: number; input?: number; output?
   return (model as { limit?: { context?: number; input?: number; output?: number } }).limit
 }
 
+function assertPositiveLimit(model: unknown, label: string): void {
+  const limit = modelLimit(model)
+  if (!limit) {
+    return
+  }
+  assert.ok(limit.context && limit.context > 0, `${label} context limit should be positive`)
+  assert.ok(limit.output && limit.output > 0, `${label} output limit should be positive`)
+  if (limit.input !== undefined) {
+    assert.ok(limit.input > 0, `${label} input limit should be positive`)
+  }
+}
+
 test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => {
   const config = buildOpencodeConfig({ authToken: "api-test" })
   assert.equal(config.model, `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`)
@@ -81,6 +93,7 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
     assert.deepEqual(modelVariantKeys(model), expectedVariantKeys)
     assert.equal(model.tool_call, definition.capabilities.toolCall)
     assert.equal(model.attachment, definition.capabilities.supportsImages ? true : undefined)
+    assertPositiveLimit(model, `${definition.runtime.providerID}/${definition.runtime.modelID}`)
   }
 })
 
@@ -132,6 +145,39 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
   assert.equal(model?.tool_call, true)
   assert.equal(model?.attachment, undefined)
   assert.equal(model?.modalities, undefined)
+})
+
+test("buildOpencodeConfig does not emit incomplete model limits", () => {
+  const config = buildOpencodeConfig({
+    authToken: "api-test",
+    customModels: [
+      {
+        id: "custom-context-only",
+        providerName: "ContextOnly",
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-custom",
+        modelName: "context-only-model",
+        contextWindow: 128_000,
+      },
+      {
+        id: "custom-input-only",
+        providerName: "InputOnly",
+        baseUrl: "https://example.com/v1",
+        apiKey: "sk-custom",
+        modelName: "input-only-model",
+        inputTokenLimit: 96_000,
+      },
+    ],
+  })
+
+  assert.equal(
+    modelLimit(config.provider?.[customProviderId("custom-context-only")]?.models?.["context-only-model"]),
+    undefined,
+  )
+  assert.equal(
+    modelLimit(config.provider?.[customProviderId("custom-input-only")]?.models?.["input-only-model"]),
+    undefined,
+  )
 })
 
 test("buildOpencodeConfig marks custom providers as image-capable only when requested", () => {

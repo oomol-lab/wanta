@@ -212,17 +212,18 @@ function modelCapabilities({
   supportsImages: boolean
   toolCall: boolean
 }): OpencodeModelConfig {
+  const limitContext = contextWindow ?? inputTokenLimit
+  const limit =
+    limitContext && maxOutputTokens
+      ? {
+          context: limitContext,
+          ...(inputTokenLimit ? { input: inputTokenLimit } : {}),
+          output: maxOutputTokens,
+        }
+      : undefined
   return {
     name,
-    ...(contextWindow || inputTokenLimit || maxOutputTokens
-      ? {
-          limit: {
-            context: contextWindow ?? inputTokenLimit ?? 0,
-            ...(inputTokenLimit ? { input: inputTokenLimit } : {}),
-            output: maxOutputTokens ?? 0,
-          },
-        }
-      : {}),
+    ...(limit ? { limit } : {}),
     ...(reasoningVariants
       ? {
           reasoning: true,

@@ -329,4 +329,50 @@ describe("composer palette items", () => {
       disabled: true,
     })
   })
+
+  it("uses active connection accounts even when another account needs attention", () => {
+    const provider: ConnectionProvider = {
+      actionKind: "oauth2",
+      appCount: 2,
+      appId: "app-active",
+      appStatus: "active",
+      apps: [
+        {
+          accountLabel: "active@example.com",
+          authType: "oauth2",
+          createdAt: 1,
+          id: "app-active",
+          isDefault: true,
+          service: "gmail",
+          status: "active",
+          updatedAt: 2,
+        },
+        {
+          accountLabel: "stale@example.com",
+          authType: "oauth2",
+          createdAt: 1,
+          id: "app-stale",
+          isDefault: false,
+          service: "gmail",
+          status: "reauth_required",
+          updatedAt: 1,
+        },
+      ],
+      authTypes: ["oauth2"],
+      canDisconnect: true,
+      categoryLabels: [],
+      displayName: "Gmail",
+      service: "gmail",
+      status: "needs_attention",
+    }
+
+    const items = buildConnectionPaletteItems([provider], (service) => `Use ${service}`, connectionPaletteCopy)
+
+    expect(items[0]).toMatchObject({
+      appId: "app-active",
+      connectionAction: "use",
+      disabled: false,
+      secondaryActionLabel: "2 accounts ›",
+    })
+  })
 })

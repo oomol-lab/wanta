@@ -1282,7 +1282,7 @@ function ProjectSidebarGroupItem({
       <div className="group oo-sidebar-nav-item oo-text-body flex h-8 items-center rounded-md px-3">
         <button
           type="button"
-          className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+          className="group/toggle flex h-full min-w-0 flex-1 items-center gap-2 text-left"
           title={toggleTitle}
           aria-label={toggleTitle}
           aria-expanded={expanded}
@@ -1294,9 +1294,9 @@ function ProjectSidebarGroupItem({
           </span>
           <span className="relative flex size-3.5 shrink-0 items-center justify-center">
             {expanded ? (
-              <ChevronDown className="absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+              <ChevronDown className="absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible/toggle:opacity-100" />
             ) : (
-              <ChevronRight className="absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+              <ChevronRight className="absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible/toggle:opacity-100" />
             )}
           </span>
         </button>

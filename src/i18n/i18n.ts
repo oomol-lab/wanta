@@ -688,6 +688,7 @@ const messages = {
     "connections.chatAuthRequestTitle": "聊天需要连接 {name}",
     "connections.chatAuthRequestDescription": "完成连接后，Wanta 会回到聊天并继续刚才的任务。",
     "connections.chatAuthRequestActionDescription": "完成连接后，Wanta 会继续执行 {action}。",
+    "connections.drawerLoading": "正在准备连接面板…",
     "connections.connectAndContinue": "连接并继续",
     "connections.more": "搜索以连接更多（共 {count} 个）",
     "connections.notReady": "未登录，连接不可用。",
@@ -1607,6 +1608,7 @@ const messages = {
     "connections.chatAuthRequestDescription":
       "After the connection is ready, Wanta will return to chat and continue the task.",
     "connections.chatAuthRequestActionDescription": "After the connection is ready, Wanta will continue {action}.",
+    "connections.drawerLoading": "Preparing the connection panel…",
     "connections.connectAndContinue": "Connect and continue",
     "connections.more": "Search to connect more ({count} total)",
     "connections.notReady": "Sign in to use connections.",

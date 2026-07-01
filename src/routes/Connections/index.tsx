@@ -63,7 +63,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
 import { resolveConnectionError } from "@/lib/connections-error"
-import { resolveUserFacingError } from "@/lib/user-facing-error"
+import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
 const executionLogLimit = 12
@@ -358,6 +358,8 @@ function matchesProviderFilter(provider: ConnectionProviderSummary, filter: Conn
 interface ConnectionsPanelProps {
   authIntent?: ConnectionAuthIntent | null
   connections: UseConnections
+  onClose?: () => void
+  presentation?: "drawer" | "page"
   selectedService?: string | null
 }
 
@@ -372,7 +374,13 @@ export interface ConnectionAuthIntent {
   source: "chat"
 }
 
-export function ConnectionsPanel({ authIntent, connections, selectedService }: ConnectionsPanelProps) {
+export function ConnectionsPanel({
+  authIntent,
+  connections,
+  onClose,
+  presentation = "page",
+  selectedService,
+}: ConnectionsPanelProps) {
   const t = useT()
   const {
     actionError,
@@ -582,6 +590,89 @@ export function ConnectionsPanel({ authIntent, connections, selectedService }: C
     },
     [connect, detail, detailService, getProviderDetail],
   )
+
+  if (presentation === "drawer") {
+    return (
+      <div className="h-full min-h-0 overflow-y-auto px-3 py-3">
+        {selectedProvider ? (
+          <ProviderDetail
+            authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
+            busy={busy}
+            detail={detailService === selectedProvider.service ? detail : null}
+            errorNotice={detailErrorNotice}
+            detailLoading={detailLoading}
+            connections={connections}
+            onCancelPolling={cancelPolling}
+            onClose={onClose ?? closeDetail}
+            onConnect={connectProvider}
+            onDisconnect={setConfirmDisconnect}
+            polling={polling}
+            provider={selectedProvider}
+            summary={summary}
+            showCloseButton={Boolean(onClose)}
+          />
+        ) : (
+          <section className="grid gap-2 rounded-lg border bg-muted/30 px-3 py-3">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="oo-text-label min-w-0 truncate">
+                {authIntent?.displayName ?? selectedService ?? t("connections.title")}
+              </div>
+              {onClose ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  aria-label={t("connections.closeProviderDetails")}
+                  title={t("connections.closeProviderDetails")}
+                  onClick={onClose}
+                >
+                  <X className="size-4" />
+                </Button>
+              ) : null}
+            </div>
+            <div className="oo-text-caption oo-text-muted">
+              {summaryError ? userFacingErrorDescription(summaryError, t) : t("connections.drawerLoading")}
+            </div>
+          </section>
+        )}
+        <ConnectDialog
+          open={dialog !== null}
+          detail={dialog?.detail ?? null}
+          authType={dialog?.authType ?? null}
+          appId={dialog?.appId}
+          busy={busy === "connect"}
+          onClose={() => setDialog(null)}
+          onSubmit={async (input) => {
+            const ok = await connect(input)
+            if (ok) {
+              detailCacheRef.current.delete(input.service)
+              setDialog(null)
+            }
+          }}
+          onOpenUrl={(url) => void connections.openExternal(url)}
+        />
+        <DisconnectDialog
+          target={confirmDisconnect}
+          busy={busy === "disconnect"}
+          onClose={() => setConfirmDisconnect(null)}
+          onConfirm={async (target) => {
+            const ok = target.app
+              ? await connections.disconnectAccount(target.app.id)
+              : await disconnect(target.provider.service)
+            if (ok) {
+              detailCacheRef.current.delete(target.provider.service)
+              if (detailService === target.provider.service) {
+                setDetail(null)
+                setDetailService(null)
+              }
+              setConfirmDisconnect(null)
+            }
+          }}
+        />
+      </div>
+    )
+  }
 
   return (
     <SplitViewRoot narrowPane={narrowPane}>
@@ -1066,6 +1157,7 @@ function ProviderDetail({
   onDisconnect,
   polling,
   provider,
+  showCloseButton = false,
   summary,
 }: {
   authIntent?: ConnectionAuthIntent | null
@@ -1084,6 +1176,7 @@ function ProviderDetail({
   onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
   provider: ConnectionProviderSummary
+  showCloseButton?: boolean
   summary: ConnectionSummary | null
 }) {
   const t = useT()
@@ -1119,7 +1212,7 @@ function ProviderDetail({
             <Button
               variant="ghost"
               size="icon"
-              className="hidden size-8 min-[960px]:inline-flex"
+              className={cn("size-8", !showCloseButton && "hidden min-[960px]:inline-flex")}
               aria-label={t("connections.closeProviderDetails")}
               title={t("connections.closeProviderDetails")}
               onClick={onClose}

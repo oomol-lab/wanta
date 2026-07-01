@@ -125,6 +125,12 @@ interface ConnectionAuthIntent {
   source: "chat"
 }
 
+interface ChatConnectionDrawerState {
+  authIntent: ConnectionAuthIntent | null
+  open: boolean
+  selectedService: string | null
+}
+
 const ArtifactsPanel = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.ArtifactsPanel })),
 )
@@ -154,6 +160,7 @@ const SIDEBAR_MIN_WIDTH_PX = 220
 const SIDEBAR_MAX_WIDTH_PX = 420
 const SIDEBAR_WIDTH_STORAGE_KEY = "wanta.sidebarWidth"
 const CHAT_AREA_MIN_WIDTH_PX = 420
+const CHAT_CONNECTION_DRAWER_WIDTH = "min(31.5rem, 38vw)"
 const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
@@ -179,6 +186,17 @@ function releaseTransientFocus(): void {
 
 function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
+}
+
+function ConnectionDrawerLoadingFallback() {
+  return (
+    <div className="h-full min-h-0 px-3 py-3">
+      <section className="grid gap-3 rounded-lg border bg-muted/30 px-3 py-3">
+        <div className="h-4 w-32 rounded-sm bg-muted" />
+        <div className="h-3 w-56 max-w-full rounded-sm bg-muted" />
+      </section>
+    </div>
+  )
 }
 
 interface TurnRetryOptions {
@@ -1787,7 +1805,9 @@ export function AppShell() {
     return new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group]))
   }, [skillInventory.data?.groups])
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
-  const [connectionAuthIntent, setConnectionAuthIntent] = React.useState<ConnectionAuthIntent | null>(null)
+  const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
+    {},
+  )
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
   const pendingRetry = React.useRef<{
     sessionId: string
@@ -2050,7 +2070,20 @@ export function AppShell() {
         if (!cancelled && pendingRetry.current?.service === pendingRetryWatch.service) {
           pendingRetry.current = null
         }
-        setConnectionAuthIntent((intent) => (intent?.service === pendingRetryWatch.service ? null : intent))
+        setChatConnectionDrawers((current) => {
+          let changed = false
+          const next = { ...current }
+          for (const [key, drawer] of Object.entries(current)) {
+            if (
+              drawer.selectedService === pendingRetryWatch.service ||
+              drawer.authIntent?.service === pendingRetryWatch.service
+            ) {
+              delete next[key]
+              changed = true
+            }
+          }
+          return changed ? next : current
+        })
         setPendingRetryWatch(null)
         return
       }
@@ -2078,8 +2111,14 @@ export function AppShell() {
     if (connected) {
       pendingRetry.current = null
       setPendingRetryWatch(null)
-      setSelectedService(null)
-      setConnectionAuthIntent(null)
+      setChatConnectionDrawers((current) => {
+        if (!Object.hasOwn(current, pending.sessionId)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[pending.sessionId]
+        return next
+      })
       setRoute("chat")
       void send(pending.sessionId, pending.text, pending.attachments, {
         contextMentions: pending.contextMentions ?? [],
@@ -2131,6 +2170,13 @@ export function AppShell() {
   const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
   const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
+  const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
+  const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
+  const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
+  const chatConnectionDrawerVisible =
+    route === "chat" &&
+    activeChatConnectionDrawer?.open === true &&
+    Boolean(chatConnectionAuthIntent || chatConnectionSelectedService)
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
@@ -2511,10 +2557,27 @@ export function AppShell() {
   }, [])
 
   const handleOpenConnections = React.useCallback((): void => {
-    setConnectionAuthIntent(null)
+    setChatConnectionDrawers((current) => {
+      if (!Object.hasOwn(current, activeComposerDraftKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[activeComposerDraftKey]
+      return next
+    })
     setSelectedService(null)
     setRoute("connections")
-  }, [])
+  }, [activeComposerDraftKey])
+  const handleCloseChatConnectionDrawer = React.useCallback((): void => {
+    setChatConnectionDrawers((current) => {
+      if (!Object.hasOwn(current, activeComposerDraftKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[activeComposerDraftKey]
+      return next
+    })
+  }, [activeComposerDraftKey])
 
   const handleNewSession = React.useCallback((): void => {
     setActiveSessionId(null)
@@ -3025,11 +3088,9 @@ export function AppShell() {
 
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo, source?: ChatTurnRetrySource): void => {
-      // R5 闭环：打开连接页并定位该 provider；记录原 action，待用户完成授权后自动重试。
-      setRoute("connections")
-      setSelectedService(auth.service)
+      // R5 闭环：打开聊天内连接抽屉并定位该 provider；记录原 action，待用户完成授权后自动重试。
       const createdAt = Date.now()
-      setConnectionAuthIntent({
+      const authIntent: ConnectionAuthIntent = {
         action: auth.action,
         createdAt,
         displayName: auth.displayName,
@@ -3038,7 +3099,15 @@ export function AppShell() {
         message: auth.message,
         service: auth.service,
         source: "chat",
-      })
+      }
+      setChatConnectionDrawers((current) => ({
+        ...current,
+        [activeComposerDraftKey]: {
+          authIntent,
+          open: true,
+          selectedService: auth.service,
+        },
+      }))
       if (activeSessionId && source && (source.text || source.attachments.length > 0)) {
         const retryKey = chatTurnInputKey(source)
         const storedOptions = turnRetryOptionsBySession.current.get(activeSessionId)?.get(retryKey)
@@ -3058,7 +3127,13 @@ export function AppShell() {
         void connections.refresh({ forceRefresh: true })
       }
     },
-    [activeProjectContext, activeSessionId, connections.refresh, organizationSkills.chatContextSkills],
+    [
+      activeComposerDraftKey,
+      activeProjectContext,
+      activeSessionId,
+      connections.refresh,
+      organizationSkills.chatContextSkills,
+    ],
   )
   const handleToggleSidebar = React.useCallback((): void => {
     setSidebarCollapsed((collapsed) => {
@@ -3600,11 +3675,7 @@ export function AppShell() {
             <React.Suspense fallback={<RouteLoadingFallback />}>
               {route === "connections" ? (
                 <div className="h-full min-h-0 p-0">
-                  <ConnectionsPanel
-                    authIntent={connectionAuthIntent}
-                    connections={connections}
-                    selectedService={selectedService}
-                  />
+                  <ConnectionsPanel connections={connections} selectedService={selectedService} />
                 </div>
               ) : route === "skills" ? (
                 <SkillsRoute
@@ -3621,69 +3692,93 @@ export function AppShell() {
                   onOpenOrganizationSkills={focusOrganizationSkills}
                 />
               ) : (
-                <div className="h-full min-h-0 overflow-hidden">
-                  <ChatArea
-                    activeSessionId={activeSessionId}
-                    billingCacheScope={billingCacheScope}
-                    composerDraftKey={activeComposerDraftKey}
-                    messages={bridgeInitialSendPending ? [] : messages}
-                    status={displayedStatus}
-                    activity={bridgeInitialSendPending ? null : activity}
-                    showEmptyState={showChatEmptyState}
-                    bootstrapping={chatBootstrapping}
-                    startupError={startupError}
-                    error={error}
-                    emptyTitle={chatEmptyTitle}
-                    generatedArtifacts={artifactSelection}
-                    submitDisabled={!ready || chatBootstrapping}
-                    initialComposerState={initialComposerState}
-                    initialSendPending={initialSendPending}
-                    composerFocusRequest={composerFocusRequest}
-                    organizationSkills={organizationSkills.chatContextSkills}
-                    providers={activeProviders}
-                    queueHeld={activeQueueHeld}
-                    queuedMessages={activeQueuedMessages}
-                    contextBar={
-                      showComposerProjectContext ? (
-                        <ProjectContextBar
-                          activeProject={activeProject}
-                          disabled={!ready || Boolean(activeSessionId && isSessionRunning(activeSessionId))}
-                          gitError={projectGit.error}
-                          gitLoading={projectGit.loading}
-                          gitState={projectGit.state}
-                          projects={projects}
-                          onCheckoutBranch={projectGit.checkoutBranch}
-                          onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
-                          onCreateProject={() => void handleSelectComposerProjectFolder()}
-                          onRefreshGit={projectGit.refresh}
-                          onSelectProject={handleSelectComposerProject}
+                <div className="flex h-full min-h-0 overflow-hidden">
+                  <div className="min-w-0 flex-1">
+                    <ChatArea
+                      activeSessionId={activeSessionId}
+                      billingCacheScope={billingCacheScope}
+                      composerDraftKey={activeComposerDraftKey}
+                      messages={bridgeInitialSendPending ? [] : messages}
+                      status={displayedStatus}
+                      activity={bridgeInitialSendPending ? null : activity}
+                      showEmptyState={showChatEmptyState}
+                      bootstrapping={chatBootstrapping}
+                      startupError={startupError}
+                      error={error}
+                      emptyTitle={chatEmptyTitle}
+                      generatedArtifacts={artifactSelection}
+                      submitDisabled={!ready || chatBootstrapping}
+                      initialComposerState={initialComposerState}
+                      initialSendPending={initialSendPending}
+                      composerFocusRequest={composerFocusRequest}
+                      organizationSkills={organizationSkills.chatContextSkills}
+                      providers={activeProviders}
+                      queueHeld={activeQueueHeld}
+                      queuedMessages={activeQueuedMessages}
+                      contextBar={
+                        showComposerProjectContext ? (
+                          <ProjectContextBar
+                            activeProject={activeProject}
+                            disabled={!ready || Boolean(activeSessionId && isSessionRunning(activeSessionId))}
+                            gitError={projectGit.error}
+                            gitLoading={projectGit.loading}
+                            gitState={projectGit.state}
+                            projects={projects}
+                            onCheckoutBranch={projectGit.checkoutBranch}
+                            onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
+                            onCreateProject={() => void handleSelectComposerProjectFolder()}
+                            onRefreshGit={projectGit.refresh}
+                            onSelectProject={handleSelectComposerProject}
+                          />
+                        ) : null
+                      }
+                      placeholder={
+                        startupError
+                          ? t("error.agent.title")
+                          : ready
+                            ? t("chat.inputPlaceholder")
+                            : t("chat.agentStarting")
+                      }
+                      onComposerStateChange={handleComposerStateChange}
+                      onSend={handleSend}
+                      onSetDefaultConnection={connections.setDefaultAccount}
+                      onStop={handleChatStop}
+                      onQueuedMessageMove={handleQueuedMessageMove}
+                      onQueuedMessageRemove={handleQueuedMessageRemove}
+                      onQueuedMessageResume={handleQueuedMessageResume}
+                      onAuthorize={handleAuthorize}
+                      onArtifactsReset={handleArtifactsReset}
+                      onArtifactsOpen={handleArtifactsOpen}
+                      onArtifactsAvailable={handleArtifactsAvailable}
+                      onTurnOutputOpen={handleTurnOutputOpen}
+                      onTurnOutputAvailable={handleTurnOutputAvailable}
+                      onOpenConnections={handleOpenConnections}
+                      onOpenOrganizations={() => setRoute("organizations")}
+                      onViewBilling={handleViewBilling}
+                    />
+                  </div>
+                  <aside
+                    className={cn(
+                      "oo-border-divider min-h-0 shrink-0 overflow-hidden border-l bg-background transition-[width,opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+                      chatConnectionDrawerVisible
+                        ? "translate-x-0 opacity-100"
+                        : "pointer-events-none translate-x-3 opacity-0",
+                    )}
+                    style={{ width: chatConnectionDrawerVisible ? CHAT_CONNECTION_DRAWER_WIDTH : "0px" }}
+                    aria-hidden={!chatConnectionDrawerVisible}
+                  >
+                    {chatConnectionDrawerVisible ? (
+                      <React.Suspense fallback={<ConnectionDrawerLoadingFallback />}>
+                        <ConnectionsPanel
+                          authIntent={chatConnectionAuthIntent}
+                          connections={connections}
+                          onClose={handleCloseChatConnectionDrawer}
+                          presentation="drawer"
+                          selectedService={chatConnectionSelectedService}
                         />
-                      ) : null
-                    }
-                    placeholder={
-                      startupError
-                        ? t("error.agent.title")
-                        : ready
-                          ? t("chat.inputPlaceholder")
-                          : t("chat.agentStarting")
-                    }
-                    onComposerStateChange={handleComposerStateChange}
-                    onSend={handleSend}
-                    onSetDefaultConnection={connections.setDefaultAccount}
-                    onStop={handleChatStop}
-                    onQueuedMessageMove={handleQueuedMessageMove}
-                    onQueuedMessageRemove={handleQueuedMessageRemove}
-                    onQueuedMessageResume={handleQueuedMessageResume}
-                    onAuthorize={handleAuthorize}
-                    onArtifactsReset={handleArtifactsReset}
-                    onArtifactsOpen={handleArtifactsOpen}
-                    onArtifactsAvailable={handleArtifactsAvailable}
-                    onTurnOutputOpen={handleTurnOutputOpen}
-                    onTurnOutputAvailable={handleTurnOutputAvailable}
-                    onOpenConnections={handleOpenConnections}
-                    onOpenOrganizations={() => setRoute("organizations")}
-                    onViewBilling={handleViewBilling}
-                  />
+                      </React.Suspense>
+                    ) : null}
+                  </aside>
                 </div>
               )}
             </React.Suspense>

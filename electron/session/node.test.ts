@@ -196,6 +196,23 @@ test("list filters sessions by requested placement", async () => {
     updatedAt: 1_000,
     scope: { type: "personal" },
   }
+  const archivedProject: SessionProject = {
+    id: "archived-project",
+    name: "Archived",
+    path: "/Users/example/code/archived",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    archivedAt: 4_000,
+    scope: { type: "personal" },
+  }
+  const scopedProject: SessionProject = {
+    id: "scoped-project",
+    name: "Scoped",
+    path: "/Users/example/code/scoped",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "organization", organizationId: "org", organizationName: "Org" },
+  }
   const service = new SessionServiceImpl(
     agentWithSessions([
       {
@@ -216,21 +233,48 @@ test("list filters sessions by requested placement", async () => {
         createdAt: 3_000,
         updatedAt: 3_000,
       },
+      {
+        id: "archived-project-session",
+        title: "Archived project",
+        createdAt: 4_000,
+        updatedAt: 4_000,
+      },
+      {
+        id: "scoped-project-session",
+        title: "Scoped project",
+        createdAt: 5_000,
+        updatedAt: 5_000,
+      },
     ]),
     {
       metadataStore: metadataStore(
         new Map([
           ["project-session", { scope: { type: "personal" }, projectId: project.id }],
           ["dangling-project-session", { scope: { type: "personal" }, projectId: "missing-project" }],
+          ["archived-project-session", { scope: { type: "personal" }, projectId: archivedProject.id }],
+          ["scoped-project-session", { scope: { type: "personal" }, projectId: scopedProject.id }],
         ]),
       ),
-      projectStore: projectStore(new Map([[project.id, project]])),
+      projectStore: projectStore(
+        new Map([
+          [project.id, project],
+          [archivedProject.id, archivedProject],
+          [scopedProject.id, scopedProject],
+        ]),
+      ),
     },
   )
 
+  const allSessions = await service.list({ placement: "all", scope: { type: "personal" } })
   assert.deepEqual(
-    (await service.list({ placement: "all", scope: { type: "personal" } })).map((session) => session.id),
-    ["dangling-project-session", "project-session", "task"],
+    allSessions.map((session) => ({ id: session.id, projectId: session.projectId })),
+    [
+      { id: "scoped-project-session", projectId: undefined },
+      { id: "archived-project-session", projectId: undefined },
+      { id: "dangling-project-session", projectId: undefined },
+      { id: "project-session", projectId: "project" },
+      { id: "task", projectId: undefined },
+    ],
   )
   assert.deepEqual(
     (await service.list({ placement: "project", scope: { type: "personal" } })).map((session) => session.id),
@@ -238,7 +282,7 @@ test("list filters sessions by requested placement", async () => {
   )
   assert.deepEqual(
     (await service.list({ placement: "task", scope: { type: "personal" } })).map((session) => session.id),
-    ["dangling-project-session", "task"],
+    ["scoped-project-session", "archived-project-session", "dangling-project-session", "task"],
   )
 })
 

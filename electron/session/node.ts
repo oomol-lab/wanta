@@ -475,10 +475,12 @@ export class SessionServiceImpl
 
     const usedAt = this.sessionActivityAt.get(session.id)
     const metadata = this.sessionMetadata.get(session.id)
+    const scope = normalizeSessionScope(metadata?.scope)
+    const project = this.resolveValidSessionProject(metadata?.projectId, scope)
     const resolved: SessionInfo = {
       ...session,
-      scope: normalizeSessionScope(metadata?.scope),
-      ...(metadata?.projectId ? { projectId: metadata.projectId } : {}),
+      scope,
+      ...(project ? { projectId: project.id } : {}),
       ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
       ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
       ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
@@ -504,10 +506,12 @@ export class SessionServiceImpl
       .map((session) => {
         const usedAt = this.sessionActivityAt.get(session.id)
         const metadata = this.sessionMetadata.get(session.id)
+        const scope = normalizeSessionScope(metadata?.scope)
+        const project = this.resolveValidSessionProject(metadata?.projectId, scope)
         return {
           ...session,
-          scope: normalizeSessionScope(metadata?.scope),
-          ...(metadata?.projectId ? { projectId: metadata.projectId } : {}),
+          scope,
+          ...(project ? { projectId: project.id } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
           ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
@@ -531,8 +535,21 @@ export class SessionServiceImpl
     if (placement === "all") {
       return true
     }
-    const hasValidProject = Boolean(session.projectId && this.projects.has(session.projectId))
+    const hasValidProject = Boolean(
+      this.resolveValidSessionProject(session.projectId, normalizeSessionScope(session.scope)),
+    )
     return placement === "project" ? hasValidProject : !hasValidProject
+  }
+
+  private resolveValidSessionProject(
+    projectId: string | undefined,
+    sessionScope: SessionScope,
+  ): SessionProject | undefined {
+    const project = projectId ? this.projects.get(projectId) : undefined
+    if (!project || project.archivedAt || !sessionScopeMatches(project.scope, sessionScope)) {
+      return undefined
+    }
+    return project
   }
 
   private async broadcastChanged(): Promise<void> {

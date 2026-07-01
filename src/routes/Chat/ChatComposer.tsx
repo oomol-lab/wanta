@@ -83,6 +83,7 @@ interface ChatComposerProps {
     mode?: AgentMode,
   ) => Promise<boolean>
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
+  onOpenConnectionProvider?: (service: string, displayName: string) => void
   onStop: () => void
   onViewBilling?: () => void
 }
@@ -190,6 +191,7 @@ export function ChatComposer({
   onComposerStateChange,
   onSend,
   onSetDefaultConnection,
+  onOpenConnectionProvider,
   onStop,
   onViewBilling,
 }: ChatComposerProps) {
@@ -250,10 +252,12 @@ export function ChatComposer({
     () =>
       buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service }), {
         accountCount: (count) => t("chat.connectionAccountCount", { count }),
+        connectProvider: t("chat.connectionConnectDescription"),
         defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),
         defaultLabel: t("connections.defaultConnection"),
         needsAttention: t("connections.needsAttention"),
         setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+        unsupportedProvider: t("chat.connectionUnsupportedDescription"),
         useForThisTurn: t("chat.connectionUseForThisTurn"),
       }),
     [providers, t],
@@ -424,6 +428,7 @@ export function ChatComposer({
       ])
     },
     onAddContextMention: addContextMention,
+    onOpenConnectionProvider,
     onSelectAttachments: (kind) => {
       if (composerDisabled) {
         return

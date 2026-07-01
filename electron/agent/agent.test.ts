@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { branding } from "../branding.ts"
-import { ooEndpoint } from "../domain.ts"
+import { llmBaseUrl, ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
@@ -19,6 +19,26 @@ function modelVariantKeys(model: unknown): string[] {
 
 function modelVariantReasoningEffort(model: unknown, variant: string): string | undefined {
   return (model as { variants?: Record<string, { reasoningEffort?: string }> }).variants?.[variant]?.reasoningEffort
+}
+
+function modelVariantEnableThinking(model: unknown, variant: string): boolean | undefined {
+  return (model as { variants?: Record<string, { enable_thinking?: boolean }> }).variants?.[variant]?.enable_thinking
+}
+
+function modelLimit(model: unknown): { context?: number; input?: number; output?: number } | undefined {
+  return (model as { limit?: { context?: number; input?: number; output?: number } }).limit
+}
+
+function assertPositiveLimit(model: unknown, label: string): void {
+  const limit = modelLimit(model)
+  if (!limit) {
+    return
+  }
+  assert.ok(limit.context && limit.context > 0, `${label} context limit should be positive`)
+  assert.ok(limit.output && limit.output > 0, `${label} output limit should be positive`)
+  if (limit.input !== undefined) {
+    assert.ok(limit.input > 0, `${label} input limit should be positive`)
+  }
 }
 
 test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => {
@@ -77,6 +97,7 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
     assert.deepEqual(modelVariantKeys(model), expectedVariantKeys)
     assert.equal(model.tool_call, definition.capabilities.toolCall)
     assert.equal(model.attachment, definition.capabilities.supportsImages ? true : undefined)
+    assertPositiveLimit(model, `${definition.runtime.providerID}/${definition.runtime.modelID}`)
   }
 })
 
@@ -92,6 +113,7 @@ test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics",
   assert.equal(provider.options?.apiKey, "api-test")
   assert.ok(model)
   assert.equal(model.name, "GPT 5.5")
+  assert.deepEqual(modelLimit(model), { context: 400_000, input: 258_400, output: 128_000 })
   assert.equal(model.reasoning, true)
   assert.equal(modelVariantReasoningEffort(model, "max"), "xhigh")
   assert.equal(model.attachment, true)
@@ -108,6 +130,9 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
         baseUrl: "https://api.deepseek.com/v1",
         apiKey: "sk-custom",
         modelName: "deepseek-chat",
+        contextWindow: 128_000,
+        inputTokenLimit: 96_000,
+        maxOutputTokens: 16_000,
       },
     ],
   })
@@ -120,9 +145,67 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
   const model = provider.models?.["deepseek-chat"]
   assert.equal(model?.reasoning, undefined)
   assert.deepEqual(modelVariantKeys(model), [])
+  assert.deepEqual(modelLimit(model), { context: 128_000, input: 96_000, output: 16_000 })
   assert.equal(model?.tool_call, true)
   assert.equal(model?.attachment, undefined)
   assert.equal(model?.modalities, undefined)
+})
+
+test("buildOpencodeConfig does not emit incomplete model limits", () => {
+  const config = buildOpencodeConfig({
+    authToken: "api-test",
+    customModels: [
+      {
+        id: "custom-context-only",
+        providerName: "ContextOnly",
+        baseUrl: llmBaseUrl,
+        apiKey: "sk-custom",
+        modelName: "context-only-model",
+        contextWindow: 128_000,
+      },
+      {
+        id: "custom-input-only",
+        providerName: "InputOnly",
+        baseUrl: llmBaseUrl,
+        apiKey: "sk-custom",
+        modelName: "input-only-model",
+        inputTokenLimit: 96_000,
+      },
+    ],
+  })
+
+  assert.equal(
+    modelLimit(config.provider?.[customProviderId("custom-context-only")]?.models?.["context-only-model"]),
+    undefined,
+  )
+  assert.equal(
+    modelLimit(config.provider?.[customProviderId("custom-input-only")]?.models?.["input-only-model"]),
+    undefined,
+  )
+})
+
+test("buildOpencodeConfig maps Qwen custom reasoning variants to enable_thinking", () => {
+  const config = buildOpencodeConfig({
+    authToken: "api-test",
+    customModels: [
+      {
+        id: "custom-qwen",
+        providerId: "qwen",
+        providerName: "Qwen",
+        baseUrl: llmBaseUrl,
+        apiKey: "sk-custom",
+        modelName: "qwen3.7-plus",
+        reasoningVariants: ["low", "medium", "high", "max"],
+      },
+    ],
+  })
+
+  const model = config.provider?.[customProviderId("custom-qwen")]?.models?.["qwen3.7-plus"]
+
+  assert.equal(model?.reasoning, true)
+  assert.deepEqual(modelVariantKeys(model), ["low", "high"])
+  assert.equal(modelVariantEnableThinking(model, "low"), false)
+  assert.equal(modelVariantEnableThinking(model, "high"), true)
 })
 
 test("buildOpencodeConfig marks custom providers as image-capable only when requested", () => {

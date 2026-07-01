@@ -14,23 +14,34 @@ import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { WANTA_PLAN_SYSTEM_PROMPT, WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 
 type OpencodeModelConfig = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string] & {
-  variants?: Record<string, { reasoningEffort: string }>
+  limit?: {
+    context?: number
+    input?: number
+    output?: number
+  }
+  variants?: Record<string, Record<string, unknown>>
 }
 type OpencodeAgentConfig = NonNullable<NonNullable<Config["agent"]>[string]>
 type OpencodePermissionConfig = NonNullable<OpencodeAgentConfig["permission"]>
-type OpencodeReasoningVariantConfig = { reasoningEffort: string }
+type OpencodeReasoningVariantConfig = Record<string, unknown>
 
 export const WANTA_PROVIDER_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.providerID
 export const WANTA_MODEL_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runtime.modelID
 
 export interface OpencodeCustomModel {
   id: string
+  providerId?: string
   providerName: string
   baseUrl: string
   apiKey: string
   modelName: string
   displayName?: string
   supportsImages?: boolean
+  supportsToolCalls?: boolean
+  contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
 // 全量放开内置工具 + 权限：bash/read/write/edit/grep/glob/list/webfetch/task/todo* 与自定义
@@ -89,6 +100,11 @@ const OPENAI_REASONING_VARIANTS = {
   max: { reasoningEffort: "xhigh" },
 } as const satisfies Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>
 
+const QWEN_REASONING_VARIANTS = {
+  low: { enable_thinking: false },
+  high: { enable_thinking: true },
+} as const satisfies Partial<Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>>
+
 export interface OpencodeConfigOptions {
   /** 网关鉴权凭证：现为会话 token（网关层接受 cookie/token/api-key）。仅入内存 env，不落盘。 */
   authToken: string
@@ -144,6 +160,9 @@ function builtinProviderConfigs(authToken: string): NonNullable<Config["provider
             model.runtime.modelID,
             modelCapabilities({
               name: model.displayName,
+              contextWindow: model.contextWindow,
+              inputTokenLimit: model.inputTokenLimit,
+              maxOutputTokens: model.maxOutputTokens,
               reasoningVariants: builtinReasoningVariants(model),
               supportsImages: model.capabilities.supportsImages,
               toolCall: model.capabilities.toolCall,
@@ -166,8 +185,12 @@ function customProviderConfig(model: OpencodeCustomModel): NonNullable<Config["p
     models: {
       [model.modelName]: modelCapabilities({
         name: customModelDisplayName(model),
+        contextWindow: model.contextWindow,
+        inputTokenLimit: model.inputTokenLimit,
+        maxOutputTokens: model.maxOutputTokens,
+        reasoningVariants: customReasoningVariants(model),
         supportsImages: model.supportsImages === true,
-        toolCall: true,
+        toolCall: model.supportsToolCalls !== false,
       }),
     },
   }
@@ -175,17 +198,33 @@ function customProviderConfig(model: OpencodeCustomModel): NonNullable<Config["p
 
 function modelCapabilities({
   name,
+  contextWindow,
+  inputTokenLimit,
+  maxOutputTokens,
   reasoningVariants,
   supportsImages,
   toolCall,
 }: {
   name: string
+  contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
   reasoningVariants?: Record<string, OpencodeReasoningVariantConfig>
   supportsImages: boolean
   toolCall: boolean
 }): OpencodeModelConfig {
+  const limitContext = contextWindow ?? inputTokenLimit
+  const limit =
+    limitContext && maxOutputTokens
+      ? {
+          context: limitContext,
+          ...(inputTokenLimit ? { input: inputTokenLimit } : {}),
+          output: maxOutputTokens,
+        }
+      : undefined
   return {
     name,
+    ...(limit ? { limit } : {}),
     ...(reasoningVariants
       ? {
           reasoning: true,
@@ -212,6 +251,42 @@ function builtinReasoningVariants(
   if (!levels || levels.length === 0) {
     return undefined
   }
-  const variantSet = model.runtime.providerID === "openai" ? OPENAI_REASONING_VARIANTS : OOMOL_REASONING_VARIANTS
-  return Object.fromEntries(levels.map((level) => [level, variantSet[level]]))
+  const variantSet: Partial<Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>> =
+    model.providerName === "Qwen"
+      ? QWEN_REASONING_VARIANTS
+      : model.runtime.providerID === "openai"
+        ? OPENAI_REASONING_VARIANTS
+        : OOMOL_REASONING_VARIANTS
+  return Object.fromEntries(
+    levels.flatMap((level) => {
+      const variant = variantSet[level]
+      return variant ? [[level, variant]] : []
+    }),
+  )
+}
+
+function customReasoningVariants(
+  model: OpencodeCustomModel,
+): Record<string, OpencodeReasoningVariantConfig> | undefined {
+  const levels = model.reasoningVariants
+  if (!levels || levels.length === 0) {
+    return undefined
+  }
+  const variantSet: Partial<Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>> = isQwenCustomModel(model)
+    ? QWEN_REASONING_VARIANTS
+    : OOMOL_REASONING_VARIANTS
+  return Object.fromEntries(
+    levels.flatMap((level) => {
+      const variant = variantSet[level]
+      return variant ? [[level, variant]] : []
+    }),
+  )
+}
+
+function isQwenCustomModel(model: OpencodeCustomModel): boolean {
+  return (
+    model.providerId === "qwen" ||
+    model.providerName.trim().toLowerCase() === "qwen" ||
+    model.modelName.trim().toLowerCase().startsWith("qwen")
+  )
 }

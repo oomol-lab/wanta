@@ -2574,6 +2574,20 @@ export function AppShell() {
     setSelectedService(null)
     setRoute("connections")
   }, [activeComposerDraftKey])
+  const handleOpenChatConnectionProvider = React.useCallback(
+    (service: string): void => {
+      setRoute("chat")
+      setChatConnectionDrawers((current) => ({
+        ...current,
+        [activeComposerDraftKey]: {
+          authIntent: null,
+          open: true,
+          selectedService: service,
+        },
+      }))
+    },
+    [activeComposerDraftKey],
+  )
   const handleCloseChatConnectionDrawer = React.useCallback((): void => {
     setChatConnectionDrawers((current) => {
       if (!Object.hasOwn(current, activeComposerDraftKey)) {
@@ -3781,6 +3795,7 @@ export function AppShell() {
                       onTurnOutputOpen={handleTurnOutputOpen}
                       onTurnOutputAvailable={handleTurnOutputAvailable}
                       onOpenConnections={handleOpenConnections}
+                      onOpenConnectionProvider={handleOpenChatConnectionProvider}
                       onOpenOrganizations={() => setRoute("organizations")}
                       onViewBilling={handleViewBilling}
                     />

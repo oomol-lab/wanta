@@ -7,16 +7,24 @@ import { randomUUID } from "node:crypto"
 import { ModelsService as ModelsServiceName } from "./common.ts"
 import {
   CUSTOM_MODEL_PROVIDERS,
+  customProviderModelContextWindow,
+  customProviderModelInputTokenLimit,
+  customProviderModelMaxOutputTokens,
+  customProviderModelReasoningVariants,
   customProviderModelSupportsImages,
+  customProviderModelSupportsToolCalls,
   defaultModelChoice,
   isKnownModelChoice,
   sanitizeBaseUrl,
+  sanitizeOptionalTokenLimit,
 } from "./store.ts"
 
 export interface ModelsServiceDeps {
   store: ModelsStore
   onCustomModelsChanged?: () => void
 }
+
+type OptionalTokenLimitField = "contextWindow" | "inputTokenLimit" | "maxOutputTokens"
 
 export class ModelsServiceImpl extends ConnectionService<ModelsService> implements IConnectionService<ModelsService> {
   private readonly deps: ModelsServiceDeps
@@ -52,6 +60,27 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
     if (!apiKey) {
       throw new Error("API Key is required.")
     }
+    const contextWindow = resolveOptionalTokenLimit(
+      req,
+      "contextWindow",
+      existing,
+      customProviderModelContextWindow(provider, modelName),
+      "Context window",
+    )
+    const maxOutputTokens = resolveOptionalTokenLimit(
+      req,
+      "maxOutputTokens",
+      existing,
+      customProviderModelMaxOutputTokens(provider, modelName),
+      "Max output tokens",
+    )
+    const inputTokenLimit = resolveOptionalTokenLimit(
+      req,
+      "inputTokenLimit",
+      existing,
+      customProviderModelInputTokenLimit(provider, modelName),
+      "Input token limit",
+    )
     const next: PersistedCustomModel = {
       id: existing?.id ?? randomUUID(),
       providerId: req.providerId,
@@ -62,6 +91,17 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
       displayName: req.displayName?.trim() || undefined,
       supportsImages:
         req.supportsImages ?? existing?.supportsImages ?? customProviderModelSupportsImages(provider, modelName),
+      supportsToolCalls:
+        req.supportsToolCalls ??
+        existing?.supportsToolCalls ??
+        customProviderModelSupportsToolCalls(provider, modelName),
+      ...(contextWindow ? { contextWindow } : {}),
+      ...(inputTokenLimit ? { inputTokenLimit } : {}),
+      ...(maxOutputTokens ? { maxOutputTokens } : {}),
+      reasoningVariants:
+        req.reasoningVariants !== undefined
+          ? [...req.reasoningVariants]
+          : (existing?.reasoningVariants ?? customProviderModelReasoningVariants(provider, modelName)),
     }
     const customModels = existing
       ? current.map((model) => (model.id === existing.id ? next : model))
@@ -90,4 +130,15 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
     await this.send("modelsChanged", catalog).catch(() => undefined)
     return catalog
   }
+}
+
+function resolveOptionalTokenLimit(
+  req: SaveCustomModelRequest,
+  field: OptionalTokenLimitField,
+  existing: PersistedCustomModel | undefined,
+  providerDefault: number | undefined,
+  fieldName: string,
+): number | undefined {
+  const value = Object.hasOwn(req, field) ? req[field] : (existing?.[field] ?? providerDefault)
+  return sanitizeOptionalTokenLimit(value, fieldName)
 }

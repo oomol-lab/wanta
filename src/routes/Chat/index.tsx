@@ -132,6 +132,7 @@ interface ChatAreaProps {
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onOpenConnections?: () => void
+  onOpenConnectionProvider?: (service: string, displayName: string) => void
   onOpenOrganizations?: () => void
   onViewBilling?: () => void
 }
@@ -1273,6 +1274,7 @@ export const ChatArea = React.memo(function ChatArea({
   onTurnOutputOpen,
   onTurnOutputAvailable,
   onOpenConnections,
+  onOpenConnectionProvider,
   onOpenOrganizations,
   onViewBilling,
 }: ChatAreaProps) {
@@ -1314,6 +1316,7 @@ export const ChatArea = React.memo(function ChatArea({
       onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
       onSetDefaultConnection={onSetDefaultConnection}
+      onOpenConnectionProvider={onOpenConnectionProvider}
       onStop={onStop}
       onViewBilling={onViewBilling}
     />

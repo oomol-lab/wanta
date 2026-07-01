@@ -1,3 +1,4 @@
+import type { WantaReasoningVariant } from "../agent/reasoning.ts"
 import type { CustomModelProvider, CustomModelSummary, ModelCatalog, ModelChoice } from "./common.ts"
 
 import { randomUUID } from "node:crypto"
@@ -7,6 +8,15 @@ import { externalModelProviderBaseUrls } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
 
 const providerBaseUrls = externalModelProviderBaseUrls
+const context200K = 204_800
+const context256K = 262_144
+const millionTokenContextWindow = 1_000_000
+const gemini3InputTokenLimit = 1_048_576
+const gemini3MaxOutputTokens = 65_536
+const gemini3ContextWindow = gemini3InputTokenLimit + gemini3MaxOutputTokens
+const maxOutput128K = 128_000
+const deepSeekV4ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
+const glm52ReasoningVariants = ["high", "max"] as const satisfies readonly WantaReasoningVariant[]
 
 export interface PersistedCustomModel {
   id: string
@@ -17,6 +27,11 @@ export interface PersistedCustomModel {
   modelName: string
   displayName?: string
   supportsImages?: boolean
+  supportsToolCalls?: boolean
+  contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: WantaReasoningVariant[]
 }
 
 export interface PersistedModels {
@@ -30,16 +45,64 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
     displayName: "DeepSeek",
     baseUrl: providerBaseUrls.deepseek,
     modelOptions: [
-      { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash" },
-      { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro" },
+      {
+        id: "deepseek-v4-flash",
+        displayName: "DeepSeek V4 Flash",
+        contextWindow: millionTokenContextWindow,
+        reasoningVariants: deepSeekV4ReasoningVariants,
+      },
+      {
+        id: "deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        contextWindow: millionTokenContextWindow,
+        reasoningVariants: deepSeekV4ReasoningVariants,
+      },
     ],
     supportsImages: false,
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
     id: "openrouter",
     displayName: "OpenRouter",
     baseUrl: providerBaseUrls.openrouter,
+    requiresBaseUrl: true,
+  },
+  {
+    id: "gemini",
+    displayName: "Gemini",
+    baseUrl: providerBaseUrls.gemini,
+    modelOptions: [
+      {
+        id: "gemini-3.5-flash",
+        displayName: "Gemini 3.5 Flash",
+        supportsImages: true,
+        supportsToolCalls: true,
+        contextWindow: gemini3ContextWindow,
+        inputTokenLimit: gemini3InputTokenLimit,
+        maxOutputTokens: gemini3MaxOutputTokens,
+      },
+      {
+        id: "gemini-3.1-pro-preview",
+        displayName: "Gemini 3.1 Pro Preview",
+        supportsImages: true,
+        supportsToolCalls: true,
+        contextWindow: gemini3ContextWindow,
+        inputTokenLimit: gemini3InputTokenLimit,
+        maxOutputTokens: gemini3MaxOutputTokens,
+      },
+      {
+        id: "gemini-2.5-pro",
+        displayName: "Gemini 2.5 Pro",
+        supportsImages: true,
+        supportsToolCalls: true,
+        contextWindow: gemini3ContextWindow,
+        inputTokenLimit: gemini3InputTokenLimit,
+        maxOutputTokens: gemini3MaxOutputTokens,
+      },
+    ],
+    supportsImages: true,
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -65,14 +128,26 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
     ],
     modelOptions: [
-      { id: "glm-5.2", displayName: "GLM-5.2" },
+      {
+        id: "glm-5.2",
+        displayName: "GLM-5.2",
+        contextWindow: millionTokenContextWindow,
+        maxOutputTokens: maxOutput128K,
+        reasoningVariants: glm52ReasoningVariants,
+      },
       { id: "glm-5.1", displayName: "GLM-5.1" },
       { id: "glm-5-turbo", displayName: "GLM-5-Turbo" },
       { id: "glm-5", displayName: "GLM-5" },
-      { id: "glm-4.7", displayName: "GLM-4.7" },
-      { id: "glm-4.7-flash", displayName: "GLM-4.7 Flash" },
+      { id: "glm-4.7", displayName: "GLM-4.7", contextWindow: context200K, maxOutputTokens: maxOutput128K },
+      {
+        id: "glm-4.7-flash",
+        displayName: "GLM-4.7 Flash",
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
     ],
     supportsImages: false,
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -84,10 +159,16 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.kimiGlobal },
     ],
     modelOptions: [
-      { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true },
-      { id: "kimi-k2.7-code-highspeed", displayName: "Kimi K2.7 Code Highspeed", supportsImages: true },
-      { id: "kimi-k2.6", displayName: "Kimi K2.6", supportsImages: true },
+      { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true, contextWindow: context256K },
+      {
+        id: "kimi-k2.7-code-highspeed",
+        displayName: "Kimi K2.7 Code Highspeed",
+        supportsImages: true,
+        contextWindow: context256K,
+      },
+      { id: "kimi-k2.6", displayName: "Kimi K2.6", supportsImages: true, contextWindow: context256K },
     ],
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -99,15 +180,58 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.minimaxGlobal },
     ],
     modelOptions: [
-      { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true },
-      { id: "MiniMax-M2.7", displayName: "MiniMax M2.7", supportsImages: false },
-      { id: "MiniMax-M2.7-highspeed", displayName: "MiniMax M2.7 Highspeed", supportsImages: false },
-      { id: "MiniMax-M2.5", displayName: "MiniMax M2.5", supportsImages: false },
-      { id: "MiniMax-M2.5-highspeed", displayName: "MiniMax M2.5 Highspeed", supportsImages: false },
-      { id: "MiniMax-M2.1", displayName: "MiniMax M2.1", supportsImages: false },
-      { id: "MiniMax-M2.1-highspeed", displayName: "MiniMax M2.1 Highspeed", supportsImages: false },
-      { id: "MiniMax-M2", displayName: "MiniMax M2", supportsImages: false },
+      { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true, contextWindow: millionTokenContextWindow },
+      {
+        id: "MiniMax-M2.7",
+        displayName: "MiniMax M2.7",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.7-highspeed",
+        displayName: "MiniMax M2.7 Highspeed",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.5",
+        displayName: "MiniMax M2.5",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.5-highspeed",
+        displayName: "MiniMax M2.5 Highspeed",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.1",
+        displayName: "MiniMax M2.1",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.1-highspeed",
+        displayName: "MiniMax M2.1 Highspeed",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2",
+        displayName: "MiniMax M2",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
     ],
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -137,9 +261,15 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.qwenStandardGlobal },
     ],
     modelOptions: [
-      { id: "qwen3.7-plus", displayName: "Qwen3.7 Plus", supportsImages: true },
-      { id: "qwen3.7-max", displayName: "Qwen3.7 Max", supportsImages: true },
+      {
+        id: "qwen3.7-plus",
+        displayName: "Qwen3.7 Plus",
+        supportsImages: true,
+        contextWindow: millionTokenContextWindow,
+      },
+      { id: "qwen3.7-max", displayName: "Qwen3.7 Max", supportsImages: true, contextWindow: millionTokenContextWindow },
     ],
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -162,9 +292,15 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       },
     ],
     modelOptions: [
-      { id: "mimo-v2.5-pro", displayName: "MiMo V2.5 Pro", supportsImages: false },
-      { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true },
+      {
+        id: "mimo-v2.5-pro",
+        displayName: "MiMo V2.5 Pro",
+        supportsImages: false,
+        contextWindow: millionTokenContextWindow,
+      },
+      { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true, contextWindow: millionTokenContextWindow },
     ],
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -189,6 +325,47 @@ export function customProviderModelSupportsImages(
   return option?.supportsImages ?? provider?.supportsImages ?? false
 }
 
+export function customProviderModelSupportsToolCalls(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): boolean {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.supportsToolCalls ?? provider?.supportsToolCalls ?? true
+}
+
+export function customProviderModelContextWindow(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): number | undefined {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.contextWindow ?? provider?.contextWindow
+}
+
+export function customProviderModelMaxOutputTokens(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): number | undefined {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.maxOutputTokens ?? provider?.maxOutputTokens
+}
+
+export function customProviderModelInputTokenLimit(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): number | undefined {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.inputTokenLimit ?? provider?.inputTokenLimit
+}
+
+export function customProviderModelReasoningVariants(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): WantaReasoningVariant[] | undefined {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  const variants = option?.reasoningVariants ?? provider?.reasoningVariants
+  return variants ? [...variants] : undefined
+}
+
 export function publicCustomModel(model: PersistedCustomModel): CustomModelSummary {
   return {
     id: model.id,
@@ -199,6 +376,11 @@ export function publicCustomModel(model: PersistedCustomModel): CustomModelSumma
     displayName: customModelDisplayName(model),
     apiKeyConfigured: model.apiKey.length > 0,
     supportsImages: model.supportsImages === true,
+    supportsToolCalls: model.supportsToolCalls !== false,
+    ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+    ...(model.inputTokenLimit ? { inputTokenLimit: model.inputTokenLimit } : {}),
+    ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
+    ...(model.reasoningVariants ? { reasoningVariants: model.reasoningVariants } : {}),
   }
 }
 
@@ -217,6 +399,16 @@ export function sanitizeBaseUrl(value: string): string {
     throw new Error("Base URL must start with http:// or https://.")
   }
   return trimmed.replace(/\/+$/, "")
+}
+
+export function sanitizeOptionalTokenLimit(value: number | undefined, fieldName: string): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${fieldName} must be a positive integer.`)
+  }
+  return value
 }
 
 export function defaultModelChoice(): ModelChoice {
@@ -292,6 +484,22 @@ function isPersistedCustomModel(value: unknown): value is PersistedCustomModel {
     typeof model.apiKey === "string" &&
     typeof model.modelName === "string" &&
     (model.displayName === undefined || typeof model.displayName === "string") &&
-    (model.supportsImages === undefined || typeof model.supportsImages === "boolean")
+    (model.supportsImages === undefined || typeof model.supportsImages === "boolean") &&
+    (model.supportsToolCalls === undefined || typeof model.supportsToolCalls === "boolean") &&
+    (model.contextWindow === undefined || isPositiveSafeInteger(model.contextWindow)) &&
+    (model.inputTokenLimit === undefined || isPositiveSafeInteger(model.inputTokenLimit)) &&
+    (model.maxOutputTokens === undefined || isPositiveSafeInteger(model.maxOutputTokens)) &&
+    (model.reasoningVariants === undefined || isReasoningVariantArray(model.reasoningVariants))
+  )
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+}
+
+function isReasoningVariantArray(value: unknown): value is WantaReasoningVariant[] {
+  return (
+    Array.isArray(value) &&
+    value.every((item) => item === "low" || item === "medium" || item === "high" || item === "max")
   )
 }

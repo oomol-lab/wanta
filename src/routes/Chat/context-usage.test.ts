@@ -85,6 +85,7 @@ describe("chat context usage", () => {
           displayName: "Custom",
           apiKeyConfigured: true,
           supportsImages: false,
+          supportsToolCalls: true,
         },
       ],
     }
@@ -100,6 +101,82 @@ describe("chat context usage", () => {
 
     expect(selectedModelContextWindow(customCatalog)).toBeUndefined()
     expect(buildContextUsageInfo(messages, customCatalog)).toEqual({ usedTokens: 1700 })
+  })
+
+  it("uses a custom model context window when configured", () => {
+    const customCatalog: ModelCatalog = {
+      ...catalog,
+      selected: { kind: "custom", id: "custom-1" },
+      customModels: [
+        {
+          id: "custom-1",
+          providerId: "custom",
+          providerName: "Custom",
+          baseUrl: "",
+          modelName: "custom-model",
+          displayName: "Custom",
+          apiKeyConfigured: true,
+          supportsImages: false,
+          supportsToolCalls: true,
+          contextWindow: 10_000,
+        },
+      ],
+    }
+    const messages: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [],
+        tokenUsage: { input: 1500, output: 500, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+    ]
+
+    expect(selectedModelContextWindow(customCatalog)).toBe(10_000)
+    expect(buildContextUsageInfo(messages, customCatalog)).toEqual({
+      usedTokens: 2000,
+      limitTokens: 10_000,
+      percent: 20,
+    })
+  })
+
+  it("prefers the input token limit over the full context window", () => {
+    const customCatalog: ModelCatalog = {
+      ...catalog,
+      selected: { kind: "custom", id: "custom-1" },
+      customModels: [
+        {
+          id: "custom-1",
+          providerId: "custom",
+          providerName: "Custom",
+          baseUrl: "",
+          modelName: "custom-model",
+          displayName: "Custom",
+          apiKeyConfigured: true,
+          supportsImages: false,
+          supportsToolCalls: true,
+          contextWindow: 1_000_000,
+          inputTokenLimit: 128_000,
+        },
+      ],
+    }
+
+    expect(selectedModelContextWindow(customCatalog)).toBe(128_000)
+  })
+
+  it("prefers the input token limit for built-in models", () => {
+    const builtinCatalog: ModelCatalog = {
+      ...catalog,
+      builtins: [
+        {
+          ...catalog.builtins[0]!,
+          contextWindow: 1_000_000,
+          inputTokenLimit: 128_000,
+        },
+      ],
+    }
+
+    expect(selectedModelContextWindow(builtinCatalog)).toBe(128_000)
   })
 
   it("formats compact token counts", () => {

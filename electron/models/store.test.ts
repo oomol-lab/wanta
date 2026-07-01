@@ -34,6 +34,24 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
   assert.equal(providers.get("openrouter")?.apiRegions, undefined)
   assert.equal(providers.get("openrouter")?.modelOptions, undefined)
   assert.equal(providers.get("openrouter")?.supportsImages, undefined)
+  assert.equal(providers.get("gemini")?.baseUrl, providerBaseUrls.gemini)
+  assert.deepEqual(
+    providers
+      .get("gemini")
+      ?.modelOptions?.map((model) => [
+        model.id,
+        model.supportsImages,
+        model.supportsToolCalls,
+        model.contextWindow,
+        model.inputTokenLimit,
+        model.maxOutputTokens,
+      ]),
+    [
+      ["gemini-3.5-flash", true, true, 1_114_112, 1_048_576, 65_536],
+      ["gemini-3.1-pro-preview", true, true, 1_114_112, 1_048_576, 65_536],
+      ["gemini-2.5-pro", true, true, 1_114_112, 1_048_576, 65_536],
+    ],
+  )
   assert.equal(providers.get("zhipu")?.baseUrl, providerBaseUrls.zhipuCn)
   assert.deepEqual(providers.get("zhipu")?.apiRegions, [
     { id: "cn", baseUrl: providerBaseUrls.zhipuCn },
@@ -54,6 +72,20 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     },
   ])
   assert.equal(providers.get("zhipu")?.supportsImages, false)
+  assert.equal(providers.get("zhipu")?.supportsToolCalls, true)
+  assert.deepEqual(
+    providers
+      .get("zhipu")
+      ?.modelOptions?.map((model) => [model.id, model.contextWindow, model.maxOutputTokens, model.reasoningVariants]),
+    [
+      ["glm-5.2", 1_000_000, 128_000, ["high", "max"]],
+      ["glm-5.1", undefined, undefined, undefined],
+      ["glm-5-turbo", undefined, undefined, undefined],
+      ["glm-5", undefined, undefined, undefined],
+      ["glm-4.7", 204_800, 128_000, undefined],
+      ["glm-4.7-flash", 204_800, 128_000, undefined],
+    ],
+  )
   assert.equal(providers.get("kimi")?.baseUrl, providerBaseUrls.kimiCn)
   assert.deepEqual(providers.get("kimi")?.apiRegions, [
     { id: "cn", baseUrl: providerBaseUrls.kimiCn },
@@ -64,27 +96,35 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     ["kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6"],
   )
   assert.deepEqual(
-    providers.get("kimi")?.modelOptions?.map((model) => model.supportsImages),
-    [true, true, true],
+    providers.get("kimi")?.modelOptions?.map((model) => [model.supportsImages, model.contextWindow]),
+    [
+      [true, 262_144],
+      [true, 262_144],
+      [true, 262_144],
+    ],
   )
+  assert.equal(providers.get("kimi")?.supportsToolCalls, true)
   assert.equal(providers.get("minimax")?.baseUrl, providerBaseUrls.minimaxCn)
   assert.deepEqual(providers.get("minimax")?.apiRegions, [
     { id: "cn", baseUrl: providerBaseUrls.minimaxCn },
     { id: "global", baseUrl: providerBaseUrls.minimaxGlobal },
   ])
   assert.deepEqual(
-    providers.get("minimax")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
+    providers
+      .get("minimax")
+      ?.modelOptions?.map((model) => [model.id, model.supportsImages, model.contextWindow, model.maxOutputTokens]),
     [
-      ["MiniMax-M3", true],
-      ["MiniMax-M2.7", false],
-      ["MiniMax-M2.7-highspeed", false],
-      ["MiniMax-M2.5", false],
-      ["MiniMax-M2.5-highspeed", false],
-      ["MiniMax-M2.1", false],
-      ["MiniMax-M2.1-highspeed", false],
-      ["MiniMax-M2", false],
+      ["MiniMax-M3", true, 1_000_000, undefined],
+      ["MiniMax-M2.7", false, 204_800, 128_000],
+      ["MiniMax-M2.7-highspeed", false, 204_800, 128_000],
+      ["MiniMax-M2.5", false, 204_800, 128_000],
+      ["MiniMax-M2.5-highspeed", false, 204_800, 128_000],
+      ["MiniMax-M2.1", false, 204_800, 128_000],
+      ["MiniMax-M2.1-highspeed", false, 204_800, 128_000],
+      ["MiniMax-M2", false, 204_800, 128_000],
     ],
   )
+  assert.equal(providers.get("minimax")?.supportsToolCalls, true)
   assert.equal(providers.get("qwen")?.baseUrl, providerBaseUrls.qwenStandardCn)
   assert.equal(providers.get("qwen")?.displayName, "Qwen")
   assert.deepEqual(providers.get("qwen")?.apiRegions, [
@@ -133,13 +173,13 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
     },
   ])
   assert.deepEqual(
-    providers.get("xiaomi")?.modelOptions?.map((model) => [model.id, model.supportsImages]),
+    providers.get("xiaomi")?.modelOptions?.map((model) => [model.id, model.supportsImages, model.contextWindow]),
     [
-      ["mimo-v2.5-pro", false],
-      ["mimo-v2.5", true],
+      ["mimo-v2.5-pro", false, 1_000_000],
+      ["mimo-v2.5", true, 1_000_000],
     ],
   )
-  assert.equal(providers.has("gemini"), false)
+  assert.equal(providers.get("xiaomi")?.supportsToolCalls, true)
   assert.equal(providers.has("ollama"), false)
 })
 
@@ -170,6 +210,7 @@ test("ModelsStore persists custom models but public catalog redacts apiKey", asy
     displayName: "DeepSeek:deepseek-chat",
     apiKeyConfigured: true,
     supportsImages: false,
+    supportsToolCalls: true,
   })
   assert.equal(statSync(path.join(dir, "models.json")).mode & 0o777, 0o600)
   assert.deepEqual(readdirSync(dir), ["models.json"])
@@ -189,6 +230,7 @@ test("ModelsStore exposes custom model image support", async () => {
         apiKey: "sk-secret",
         modelName: "vision-model",
         supportsImages: true,
+        inputTokenLimit: 128_000,
       },
     ],
   })
@@ -196,6 +238,7 @@ test("ModelsStore exposes custom model image support", async () => {
   const catalog = await store.catalog()
 
   assert.equal(catalog.customModels[0]?.supportsImages, true)
+  assert.equal(catalog.customModels[0]?.inputTokenLimit, 128_000)
 })
 
 test("sanitizeBaseUrl trims trailing slash and rejects invalid protocols", () => {

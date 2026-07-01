@@ -33,18 +33,22 @@ const translations: Record<string, string> = {
   "chat.contextGeneratedArtifactDescription": "Reference a generated file from this chat",
   "chat.contextGeneratedImageDescription": "Reference a generated image from this chat",
   "chat.connectionAccountCount": "{count} accounts ›",
+  "chat.connectionConnectDescription": "Connect it to use this connector",
   "chat.connectionDefaultAccountDescription": "Default · {account}",
   "chat.connectionSetDefaultAndUse": "Set default and use",
+  "chat.connectionUnsupportedDescription": "Connection setup is not supported in Wanta yet",
   "chat.connectionUseForThisTurn": "Use for this turn",
 }
 
 const t = ((key: string) => translations[key] ?? key) as TranslateFn
 const connectionPaletteCopy = {
   accountCount: (count: number) => `${count} accounts ›`,
+  connectProvider: t("chat.connectionConnectDescription"),
   defaultAccountDescription: (account: string) => t("chat.connectionDefaultAccountDescription", { account }),
   defaultLabel: "Default",
   needsAttention: "Needs attention",
   setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+  unsupportedProvider: t("chat.connectionUnsupportedDescription"),
   useForThisTurn: t("chat.connectionUseForThisTurn"),
 }
 
@@ -181,6 +185,7 @@ describe("composer palette items", () => {
       "artifact:/tmp/artifacts/corgi.png",
       "artifact:/tmp/artifacts/notes.md",
       "connection-provider:gmail",
+      "connection-provider:slack",
     ])
   })
 
@@ -227,6 +232,7 @@ describe("composer palette items", () => {
       accountLabel: "work@example.com",
       appId: "app-work",
       canOpenAccounts: true,
+      connectionAction: "use",
       id: "connection-provider:gmail",
       secondaryActionLabel: "2 accounts ›",
     })
@@ -238,6 +244,7 @@ describe("composer palette items", () => {
     ])
     expect(accountItems[0]).toMatchObject({
       appId: "app-work",
+      connectionAction: "use",
       isDefault: true,
       meta: "Default",
       secondaryActionLabel: undefined,
@@ -246,6 +253,126 @@ describe("composer palette items", () => {
       appId: "app-personal",
       isDefault: false,
       secondaryActionLabel: "Set default and use",
+    })
+  })
+
+  it("includes available and attention providers in connection search", () => {
+    const providers: ConnectionProvider[] = [
+      {
+        actionKind: "oauth2",
+        appCount: 0,
+        apps: [],
+        authTypes: ["oauth2"],
+        canDisconnect: false,
+        categoryLabels: [],
+        displayName: "Supabase",
+        service: "supabase",
+        status: "available",
+      },
+      {
+        actionKind: "oauth2",
+        appCount: 1,
+        appId: "app-slack",
+        appStatus: "reauth_required",
+        apps: [
+          {
+            accountLabel: "team@example.com",
+            authType: "oauth2",
+            createdAt: 1,
+            id: "app-slack",
+            isDefault: true,
+            service: "slack",
+            status: "reauth_required",
+            updatedAt: 1,
+          },
+        ],
+        authTypes: ["oauth2"],
+        canDisconnect: true,
+        categoryLabels: [],
+        displayName: "Slack",
+        service: "slack",
+        status: "needs_attention",
+      },
+      {
+        actionKind: "unavailable",
+        appCount: 0,
+        apps: [],
+        authTypes: [],
+        canDisconnect: false,
+        categoryLabels: [],
+        displayName: "Unsupported",
+        service: "unsupported",
+        status: "available",
+      },
+    ]
+
+    const items = buildConnectionPaletteItems(providers, (service) => `Use ${service}`, connectionPaletteCopy)
+
+    expect(items.map((item) => item.id)).toEqual([
+      "connection-provider:supabase",
+      "connection-provider:slack",
+      "connection-provider:unsupported",
+    ])
+    expect(items[0]).toMatchObject({
+      appId: undefined,
+      connectionAction: "connect",
+      description: "Connect it to use this connector",
+      disabled: false,
+    })
+    expect(items[1]).toMatchObject({
+      connectionAction: "attention",
+      description: "Needs attention",
+      meta: "Needs attention",
+    })
+    expect(items[2]).toMatchObject({
+      connectionAction: "unsupported",
+      disabled: true,
+    })
+  })
+
+  it("uses active connection accounts even when another account needs attention", () => {
+    const provider: ConnectionProvider = {
+      actionKind: "oauth2",
+      appCount: 2,
+      appId: "app-active",
+      appStatus: "active",
+      apps: [
+        {
+          accountLabel: "active@example.com",
+          authType: "oauth2",
+          createdAt: 1,
+          id: "app-active",
+          isDefault: true,
+          service: "gmail",
+          status: "active",
+          updatedAt: 2,
+        },
+        {
+          accountLabel: "stale@example.com",
+          authType: "oauth2",
+          createdAt: 1,
+          id: "app-stale",
+          isDefault: false,
+          service: "gmail",
+          status: "reauth_required",
+          updatedAt: 1,
+        },
+      ],
+      authTypes: ["oauth2"],
+      canDisconnect: true,
+      categoryLabels: [],
+      displayName: "Gmail",
+      service: "gmail",
+      status: "needs_attention",
+    }
+
+    const items = buildConnectionPaletteItems([provider], (service) => `Use ${service}`, connectionPaletteCopy)
+
+    expect(items[0]).toMatchObject({
+      appId: "app-active",
+      connectionAction: "use",
+      disabled: false,
+      secondaryActionLabel: "2 accounts ›",
     })
   })
 })

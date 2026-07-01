@@ -4,12 +4,12 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import { Plug, X } from "lucide-react"
 import { contextMentionKey } from "./composer-state.ts"
 import { normalizeServiceSlug } from "./tool-display.ts"
-import { normalizeSkillIconSource } from "@/components/skill-icon-source.ts"
+import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
-import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model.ts"
+import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
 function providerForMention(
   mention: Extract<ChatContextMention, { kind: "connection" }>,

@@ -1,3 +1,4 @@
+import type { AttachmentPickerKind } from "../../../electron/attachment-picker.ts"
 import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import type {
   ArtifactPaletteItem,
@@ -23,8 +24,6 @@ import {
   updateComposerPaletteNavigation,
 } from "./composer-palette-state.ts"
 import { detectComposerTrigger } from "./composer-triggers.ts"
-
-type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
 
 interface UseComposerPaletteOptions {
   connectionItems: ConnectionProviderPaletteItem[]

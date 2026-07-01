@@ -1,5 +1,6 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
+import type { AttachmentPickerKind } from "./attachment-picker.ts"
 import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
@@ -20,6 +21,7 @@ import {
 import { AgentManager } from "./agent/manager.ts"
 import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
 import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
+import { isAttachmentPickerKind } from "./attachment-picker.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
@@ -80,8 +82,6 @@ interface SaveClipboardAttachmentRequest {
   mime?: string
   bytes: ArrayBuffer
 }
-
-type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
 
 // dev 用本地 scheme，生产用正式 scheme（R1 / 阶段 6）。
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
@@ -312,7 +312,7 @@ function registerAttachmentDialogHandler(): void {
 }
 
 function assertAttachmentPickerKind(kind: unknown): asserts kind is AttachmentPickerKind {
-  if (kind !== "file" && kind !== "directory" && kind !== "file-or-directory") {
+  if (!isAttachmentPickerKind(kind)) {
     throw new Error("Invalid attachment picker kind.")
   }
 }

@@ -193,12 +193,11 @@ describe("composer palette items", () => {
       },
     )
     const item = items.find((candidate) => candidate.skillId === "ecommerce-image-studio")
+    const icon = item?.icon
 
-    expect(React.isValidElement<{ icon?: string }>(item?.icon)).toBe(true)
+    expect(React.isValidElement<{ icon?: string }>(icon)).toBe(true)
     expect(item?.iconSource).toBe(":lucide:shopping-bag:")
-    expect(React.isValidElement<{ icon?: string }>(item?.icon) ? item.icon.props.icon : undefined).toBe(
-      ":lucide:shopping-bag:",
-    )
+    expect(React.isValidElement<{ icon?: string }>(icon) ? icon.props.icon : undefined).toBe(":lucide:shopping-bag:")
   })
 
   it("builds context items from attachments and connected providers", () => {

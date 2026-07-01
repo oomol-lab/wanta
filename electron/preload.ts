@@ -1,5 +1,8 @@
 import type { AppCommand } from "./app-command.ts"
 import type { AppLocale } from "./app-locale.ts"
+import type { AttachmentPickerKind } from "./attachment-picker.ts"
+
+export type { AttachmentPickerKind } from "./attachment-picker.ts"
 
 import { electronAPI } from "@electron-toolkit/preload"
 import { setupConnectionPreload } from "@oomol/connection-electron-adapter/preload"
@@ -24,8 +27,6 @@ export interface SaveClipboardAttachmentInput {
   mime?: string
   bytes: ArrayBuffer
 }
-
-export type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
 
 export interface WantaBridge {
   appCommit: string

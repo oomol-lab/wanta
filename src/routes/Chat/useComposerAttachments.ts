@@ -1,3 +1,4 @@
+import type { AttachmentPickerKind } from "../../../electron/attachment-picker.ts"
 import type { ChatAttachment } from "../../../electron/chat/common.ts"
 import type { ComposerAction, DraftAttachment } from "./composer-state.ts"
 
@@ -9,8 +10,6 @@ import {
   setAttachmentPreviewUrl,
 } from "./chat-attachment-utils.ts"
 import { useT } from "@/i18n/i18n"
-
-type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
 
 export interface ComposerAttachmentInput {
   agentMime?: string
@@ -244,7 +243,7 @@ export function useComposerAttachments({
       setInputError(null)
       const picker = globalThis.wanta?.selectAttachmentPaths
       if (!picker) {
-        if (kind === "file" || kind === "file-or-directory") {
+        if (kind === "file") {
           fileInputRef.current?.click()
         } else {
           setInputError(t("chat.attachmentFolderPickerUnavailable"))

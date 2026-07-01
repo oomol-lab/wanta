@@ -133,7 +133,7 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
                   {item.icon}
                 </span>
                 <span className="flex min-w-0 flex-1 items-baseline gap-2">
-                  <span className="oo-text-label max-w-[42%] shrink-0 truncate">{item.title}</span>
+                  <span className="oo-text-label min-w-0 shrink truncate">{item.title}</span>
                   <span className="oo-text-caption-compact min-w-0 flex-1 truncate text-muted-foreground">
                     {item.description}
                   </span>

@@ -9,10 +9,10 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 
 import { File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
-import { normalizeSkillIconSource } from "@/components/skill-icon-source.ts"
+import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
-import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model.ts"
+import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
 export const creatorSkillId = "oo-create-skill"
 const builtInSkillIds = new Set([creatorSkillId, "oo", "oo-find-skills", "oo-publish-skill"])

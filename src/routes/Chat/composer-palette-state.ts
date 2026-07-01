@@ -1,9 +1,10 @@
 import type { ComposerTrigger } from "./composer-triggers.ts"
 
-export type PaletteMode = "connections" | "root" | "skills"
+export type PaletteMode = "connection-accounts" | "connections" | "root" | "skills"
 
 export interface ComposerPaletteNavigationState {
   activeIndex: number
+  connectionService: string | null
   mode: PaletteMode
   triggerAnchorKey: string | null
   triggerQueryKey: string | null
@@ -11,6 +12,7 @@ export interface ComposerPaletteNavigationState {
 
 export interface ResolvedComposerPaletteNavigation {
   activeIndex: number
+  connectionService: string | null
   mode: PaletteMode
   triggerAnchorKey: string | null
   triggerQueryKey: string | null
@@ -22,6 +24,7 @@ export type ComposerPaletteNavigationUpdater = (
 
 export const initialComposerPaletteNavigation: ComposerPaletteNavigationState = {
   activeIndex: 0,
+  connectionService: null,
   mode: "root",
   triggerAnchorKey: null,
   triggerQueryKey: null,
@@ -48,6 +51,7 @@ export function resolveComposerPaletteNavigation(
   if (!trigger) {
     return {
       activeIndex: 0,
+      connectionService: null,
       mode: "root",
       triggerAnchorKey: null,
       triggerQueryKey: null,
@@ -56,6 +60,7 @@ export function resolveComposerPaletteNavigation(
 
   return {
     activeIndex: state.triggerAnchorKey === anchorKey && state.triggerQueryKey === queryKey ? state.activeIndex : 0,
+    connectionService: state.triggerAnchorKey === anchorKey ? state.connectionService : null,
     mode: state.triggerAnchorKey === anchorKey ? state.mode : defaultPaletteMode(trigger),
     triggerAnchorKey: anchorKey,
     triggerQueryKey: queryKey,
@@ -65,6 +70,7 @@ export function resolveComposerPaletteNavigation(
 function sameNavigationState(left: ComposerPaletteNavigationState, right: ComposerPaletteNavigationState): boolean {
   return (
     left.activeIndex === right.activeIndex &&
+    left.connectionService === right.connectionService &&
     left.mode === right.mode &&
     left.triggerAnchorKey === right.triggerAnchorKey &&
     left.triggerQueryKey === right.triggerQueryKey
@@ -79,6 +85,7 @@ export function updateComposerPaletteNavigation(
   const current = resolveComposerPaletteNavigation(state, trigger)
   const next = updater({
     activeIndex: current.activeIndex,
+    connectionService: current.connectionService,
     mode: current.mode,
     triggerAnchorKey: current.triggerAnchorKey,
     triggerQueryKey: current.triggerQueryKey,

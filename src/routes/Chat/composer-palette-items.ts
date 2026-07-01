@@ -1,5 +1,6 @@
 import type { ChatOrganizationSkillContext } from "../../../electron/chat/common.ts"
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
+import type { ConnectionAppSummary } from "../../../electron/connections/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { ComposerPaletteItem } from "./ComposerPalette.tsx"
@@ -29,8 +30,23 @@ export interface ConnectionPaletteItem extends ComposerPaletteItem {
   appId?: string
   accountLabel?: string
   displayName: string
-  kind: "connection"
+  kind: "connection-account" | "connection-provider"
   service: string
+}
+
+export interface ConnectionProviderPaletteItem extends ConnectionPaletteItem {
+  accountCount: number
+  canOpenAccounts: boolean
+  copy: ConnectionPaletteCopy
+  kind: "connection-provider"
+  provider: ConnectionProvider
+}
+
+export interface ConnectionAccountPaletteItem extends ConnectionPaletteItem {
+  appId: string
+  isDefault: boolean
+  kind: "connection-account"
+  status: ConnectionAppSummary["status"]
 }
 
 export interface SkillPaletteItem extends ComposerPaletteItem {
@@ -53,7 +69,8 @@ export interface ArtifactPaletteItem extends ComposerPaletteItem {
 export type ChatComposerPaletteItem =
   | ArtifactPaletteItem
   | AttachmentPaletteItem
-  | ConnectionPaletteItem
+  | ConnectionAccountPaletteItem
+  | ConnectionProviderPaletteItem
   | SkillPaletteItem
   | SlashCommandPaletteItem
 
@@ -71,7 +88,7 @@ export function matchesComposerQuery(item: ComposerPaletteItem, query: string): 
   if (!normalized) {
     return true
   }
-  return [item.id, item.title, item.description, item.meta ?? ""].some((value) =>
+  return [item.id, item.title, item.description, item.meta ?? "", ...(item.keywords ?? [])].some((value) =>
     normalizedSearchText(value).includes(normalized),
   )
 }
@@ -152,30 +169,144 @@ export function buildSkillPaletteItems(
   return [creatorSkillItem, ...organizationItems, ...inventoryItems]
 }
 
+export interface ConnectionPaletteCopy {
+  accountCount: (count: number) => string
+  defaultAccountDescription: (account: string) => string
+  defaultLabel: string
+  needsAttention: string
+  setDefaultAndUse: string
+  useForThisTurn: string
+}
+
+function connectionAppDisplayName(app: ConnectionAppSummary): string {
+  return app.displayName || app.alias || app.accountLabel || app.providerAccountId || app.id
+}
+
+function connectionAppSecondaryLabel(app: ConnectionAppSummary): string | undefined {
+  const primary = connectionAppDisplayName(app)
+  const account = app.accountLabel || app.providerAccountId
+  return account && account !== primary ? account : undefined
+}
+
+function connectionAppSearchText(app: ConnectionAppSummary): string[] {
+  return [app.displayName, app.alias, app.accountLabel, app.providerAccountId, app.id].filter(
+    (value): value is string => Boolean(value),
+  )
+}
+
+function usableConnectionApps(provider: ConnectionProvider): ConnectionAppSummary[] {
+  return provider.apps.filter((app) => app.status !== "disconnected")
+}
+
+function activeConnectionApps(provider: ConnectionProvider): ConnectionAppSummary[] {
+  return usableConnectionApps(provider).filter((app) => app.status === "active")
+}
+
+function defaultConnectionApp(provider: ConnectionProvider): ConnectionAppSummary | undefined {
+  const activeApps = activeConnectionApps(provider)
+  return activeApps.find((app) => app.isDefault) ?? activeApps.find((app) => app.id === provider.appId) ?? activeApps[0]
+}
+
+function providerKeywords(provider: ConnectionProvider, apps: ConnectionAppSummary[]): string[] {
+  return [
+    provider.service,
+    provider.displayName,
+    provider.accountLabel,
+    ...apps.flatMap((app) => connectionAppSearchText(app)),
+  ].filter((value): value is string => Boolean(value))
+}
+
 export function buildConnectionPaletteItems(
   providers: ConnectionProvider[],
   fallbackDescription: (service: string) => string,
-): ConnectionPaletteItem[] {
+  copy: ConnectionPaletteCopy,
+): ConnectionProviderPaletteItem[] {
   return providers
-    .filter((provider) => provider.status === "connected" && provider.appStatus === "active")
+    .filter((provider) => provider.status === "connected" && activeConnectionApps(provider).length > 0)
     .slice()
     .sort((left, right) => left.displayName.localeCompare(right.displayName))
-    .map((provider) => ({
-      accountLabel: provider.accountLabel,
-      appId: provider.appId,
-      description: provider.accountLabel || fallbackDescription(provider.service),
-      displayName: provider.displayName,
-      icon: React.createElement(ProviderIcon, {
+    .map((provider): ConnectionProviderPaletteItem => {
+      const apps = usableConnectionApps(provider)
+      const defaultApp = defaultConnectionApp(provider)
+      const accountLabel = defaultApp ? connectionAppDisplayName(defaultApp) : provider.accountLabel
+      const hasMultipleAccounts = apps.length > 1
+      return {
+        accountCount: apps.length,
+        accountLabel,
+        appId: defaultApp?.id,
+        canOpenAccounts: hasMultipleAccounts,
+        copy,
+        description: accountLabel
+          ? copy.defaultAccountDescription(accountLabel)
+          : fallbackDescription(provider.service),
+        disabled: !defaultApp,
         displayName: provider.displayName,
-        iconUrl: provider.iconUrl,
-        size: "compact",
-      }),
-      id: `connection:${provider.service}:${provider.appId ?? "default"}`,
-      kind: "connection",
-      meta: provider.service,
-      service: provider.service,
-      title: provider.displayName,
-    }))
+        icon: React.createElement(ProviderIcon, {
+          displayName: provider.displayName,
+          iconUrl: provider.iconUrl,
+          size: "compact",
+        }),
+        id: `connection-provider:${provider.service}`,
+        keywords: providerKeywords(provider, apps),
+        kind: "connection-provider",
+        meta: hasMultipleAccounts ? undefined : provider.service,
+        secondaryActionLabel: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
+        secondaryActionTitle: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
+        provider,
+        service: provider.service,
+        title: provider.displayName,
+      }
+    })
+}
+
+export function buildConnectionAccountPaletteItems(
+  provider: ConnectionProvider | undefined,
+  copy: ConnectionPaletteCopy | undefined,
+): ConnectionAccountPaletteItem[] {
+  if (!provider || !copy) {
+    return []
+  }
+  return usableConnectionApps(provider)
+    .slice()
+    .sort((left, right) => {
+      if (left.isDefault !== right.isDefault) {
+        return left.isDefault ? -1 : 1
+      }
+      if (left.status === "active" && right.status !== "active") {
+        return -1
+      }
+      if (left.status !== "active" && right.status === "active") {
+        return 1
+      }
+      return connectionAppDisplayName(left).localeCompare(connectionAppDisplayName(right))
+    })
+    .map((app): ConnectionAccountPaletteItem => {
+      const title = connectionAppDisplayName(app)
+      const description =
+        app.status === "active" ? (connectionAppSecondaryLabel(app) ?? copy.useForThisTurn) : copy.needsAttention
+      return {
+        accountLabel: title,
+        appId: app.id,
+        description,
+        disabled: app.status !== "active",
+        displayName: provider.displayName,
+        icon: React.createElement(ProviderIcon, {
+          displayName: provider.displayName,
+          iconUrl: provider.iconUrl,
+          size: "compact",
+        }),
+        id: `connection-account:${provider.service}:${app.id}`,
+        isDefault: app.isDefault,
+        keywords: [provider.service, provider.displayName, ...connectionAppSearchText(app)],
+        kind: "connection-account",
+        meta: app.isDefault ? copy.defaultLabel : undefined,
+        secondaryActionDisabled: app.status !== "active",
+        secondaryActionLabel: app.isDefault || app.status !== "active" ? undefined : copy.setDefaultAndUse,
+        service: provider.service,
+        status: app.status,
+        title,
+      }
+    })
 }
 
 export function buildContextPaletteItems({
@@ -184,9 +315,9 @@ export function buildContextPaletteItems({
   t,
 }: {
   artifactItems?: ArtifactPaletteItem[]
-  connectionItems: ConnectionPaletteItem[]
+  connectionItems: ConnectionProviderPaletteItem[]
   t: TranslateFn
-}): Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionPaletteItem> {
+}): Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionProviderPaletteItem> {
   return [
     {
       action: "attach-file",

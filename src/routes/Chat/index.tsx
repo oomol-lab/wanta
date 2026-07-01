@@ -119,6 +119,7 @@ interface ChatAreaProps {
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
   ) => Promise<boolean>
+  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => void
   onComposerStateChange?: (state: ComposerState) => void
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
@@ -1256,6 +1257,7 @@ export const ChatArea = React.memo(function ChatArea({
   organizationSkills,
   onComposerStateChange,
   onSend,
+  onSetDefaultConnection,
   onStop,
   onQueuedMessageMove,
   onQueuedMessageRemove,
@@ -1307,6 +1309,7 @@ export const ChatArea = React.memo(function ChatArea({
       onQueuedMessageRemove={onQueuedMessageRemove}
       onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
+      onSetDefaultConnection={onSetDefaultConnection}
       onStop={onStop}
       onViewBilling={onViewBilling}
     />

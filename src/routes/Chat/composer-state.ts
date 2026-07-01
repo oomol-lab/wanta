@@ -101,6 +101,18 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
       if (state.contextMentions.some((mention) => sameContextMention(mention, action.mention))) {
         return state
       }
+      if (action.mention.kind === "connection") {
+        const nextMention = action.mention
+        return {
+          ...state,
+          contextMentions: [
+            ...state.contextMentions.filter(
+              (mention) => mention.kind !== "connection" || mention.service !== nextMention.service,
+            ),
+            nextMention,
+          ],
+        }
+      }
       return { ...state, contextMentions: [...state.contextMentions, action.mention] }
     case "insert-transcription": {
       if (!action.text.trim()) {

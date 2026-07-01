@@ -76,6 +76,7 @@ describe("composer palette navigation", () => {
 
     assert.deepEqual(resolveComposerPaletteNavigation(updated, null), {
       activeIndex: 0,
+      connectionService: null,
       mode: "root",
       triggerAnchorKey: null,
       triggerQueryKey: null,

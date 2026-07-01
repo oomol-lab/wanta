@@ -81,6 +81,7 @@ interface ChatComposerProps {
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
   ) => Promise<boolean>
+  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => void
   onViewBilling?: () => void
 }
@@ -125,16 +126,26 @@ function writeStoredAgentMode(mode: AgentMode): void {
 }
 
 function paletteLabels({
+  accountHeaderLabel,
   isSkillInventoryLoading,
   isContextTrigger,
   mode,
   t,
 }: {
+  accountHeaderLabel?: string
   isSkillInventoryLoading: boolean
   isContextTrigger: boolean
-  mode: "connections" | "root" | "skills"
+  mode: "connection-accounts" | "connections" | "root" | "skills"
   t: ReturnType<typeof useT>
 }): { emptyLabel: string; headerLabel?: string } {
+  if (mode === "connection-accounts") {
+    return {
+      emptyLabel: t("chat.connectionPaletteEmpty"),
+      headerLabel: accountHeaderLabel
+        ? t("chat.connectionAccountsHeader", { name: accountHeaderLabel })
+        : t("chat.paletteConnectionsHeader"),
+    }
+  }
   if (isContextTrigger) {
     return {
       emptyLabel: t("chat.contextPaletteEmpty"),
@@ -177,6 +188,7 @@ export function ChatComposer({
   onQueuedMessageResume,
   onComposerStateChange,
   onSend,
+  onSetDefaultConnection,
   onStop,
   onViewBilling,
 }: ChatComposerProps) {
@@ -234,7 +246,15 @@ export function ChatComposer({
     [organizationSkills, skillInventory.data?.groups, t],
   )
   const connectionItems = React.useMemo(
-    () => buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service })),
+    () =>
+      buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service }), {
+        accountCount: (count) => t("chat.connectionAccountCount", { count }),
+        defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),
+        defaultLabel: t("connections.defaultConnection"),
+        needsAttention: t("connections.needsAttention"),
+        setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+        useForThisTurn: t("chat.connectionUseForThisTurn"),
+      }),
     [providers, t],
   )
   const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
@@ -356,6 +376,27 @@ export function ChatComposer({
   const removeContextMention = React.useCallback((mention: ChatContextMention) => {
     dispatchComposer({ type: "remove-context-mention", mention })
   }, [])
+  const setDefaultConnection = React.useCallback(
+    async (service: string, appId: string): Promise<boolean> => {
+      if (!onSetDefaultConnection) {
+        setInputError(t("chat.connectionSetDefaultFailed"))
+        return false
+      }
+      try {
+        const accepted = await onSetDefaultConnection(service, appId)
+        if (!accepted) {
+          setInputError(t("chat.connectionSetDefaultFailed"))
+        } else {
+          setInputError(null)
+        }
+        return accepted
+      } catch {
+        setInputError(t("chat.connectionSetDefaultFailed"))
+        return false
+      }
+    },
+    [onSetDefaultConnection, t],
+  )
 
   const composerPalette = useComposerPalette({
     connectionItems,
@@ -384,6 +425,7 @@ export function ChatComposer({
       }
       void composerAttachments.selectAttachments(kind)
     },
+    onSetDefaultConnection: setDefaultConnection,
     onViewBilling,
     skillItems,
     slashItems,
@@ -562,7 +604,14 @@ export function ChatComposer({
       onResume={onQueuedMessageResume}
     />
   )
+  const accountHeaderLabel =
+    composerPalette.mode === "connection-accounts" &&
+    (composerPalette.activeItem?.kind === "connection-account" ||
+      composerPalette.activeItem?.kind === "connection-provider")
+      ? composerPalette.activeItem.displayName
+      : undefined
   const { emptyLabel, headerLabel } = paletteLabels({
+    accountHeaderLabel,
     isSkillInventoryLoading: skillInventory.isInitialLoading,
     isContextTrigger: composerPalette.activeTrigger?.kind === "context",
     mode: composerPalette.mode,
@@ -577,6 +626,7 @@ export function ChatComposer({
         items={composerPalette.items}
         onBack={composerPalette.handleBack}
         onSelect={composerPalette.onSelect}
+        onSecondarySelect={composerPalette.onSecondarySelect}
       />
     ) : null
 

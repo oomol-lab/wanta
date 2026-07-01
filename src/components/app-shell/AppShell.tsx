@@ -3669,6 +3669,7 @@ export function AppShell() {
                     }
                     onComposerStateChange={handleComposerStateChange}
                     onSend={handleSend}
+                    onSetDefaultConnection={connections.setDefaultAccount}
                     onStop={handleChatStop}
                     onQueuedMessageMove={handleQueuedMessageMove}
                     onQueuedMessageRemove={handleQueuedMessageRemove}

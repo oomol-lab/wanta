@@ -728,7 +728,11 @@ function MessageBubble({
     return (
       <Message from="user" className={cn("items-end", copyText && "pb-7")}>
         {contextMentions.length > 0 ? (
-          <ContextMentionChips mentions={contextMentions} className="max-w-[min(34rem,85%)] justify-end" />
+          <ContextMentionChips
+            mentions={contextMentions}
+            providerByService={providerByService}
+            className="max-w-[min(34rem,85%)] justify-end"
+          />
         ) : null}
         {attachments.length > 0 ? <AttachmentList attachments={attachments} className="justify-end" /> : null}
         {visibleText ? (

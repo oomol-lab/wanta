@@ -34,6 +34,7 @@ import { buildContextUsageInfo } from "./context-usage.ts"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { AddCustomModelDialog } from "./ModelControls.tsx"
 import { QueuedMessagePanel } from "./QueuedMessagePanel.tsx"
+import { normalizeServiceSlug } from "./tool-display.ts"
 import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttachments.ts"
 import { useComposerPalette } from "./useComposerPalette.ts"
 import { useModelCatalog } from "./useModelCatalog.ts"
@@ -261,6 +262,10 @@ export function ChatComposer({
   const contextItems = React.useMemo(
     () => buildContextPaletteItems({ artifactItems, connectionItems, t }),
     [artifactItems, connectionItems, t],
+  )
+  const providerByService = React.useMemo(
+    () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
+    [providers],
   )
   const setReasoningLevel = React.useCallback((level: ReasoningLevel): void => {
     setReasoningLevelState(level)
@@ -494,6 +499,7 @@ export function ChatComposer({
           <div className="flex max-h-[min(42vh,20rem)] w-full flex-col gap-2 overflow-y-auto pr-1">
             <ContextMentionChips
               mentions={contextMentions}
+              providerByService={providerByService}
               onRemove={composerDisabled ? undefined : removeContextMention}
             />
             {attachments.length > 0 ? (

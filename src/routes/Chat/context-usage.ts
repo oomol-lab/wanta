@@ -29,10 +29,12 @@ export function selectedModelContextWindow(catalog: ModelCatalog | null): number
   if (!catalog) {
     return undefined
   }
-  if (catalog.selected.kind !== "builtin") {
-    return undefined
+  if (catalog.selected.kind === "custom") {
+    const model = catalog.customModels.find((item) => item.id === catalog.selected.id)
+    return model?.inputTokenLimit ?? model?.contextWindow
   }
-  return catalog.builtins.find((model) => model.id === catalog.selected.id)?.contextWindow
+  const model = catalog.builtins.find((item) => item.id === catalog.selected.id)
+  return model?.inputTokenLimit ?? model?.contextWindow
 }
 
 export function buildContextUsageInfo(messages: ChatMessage[], catalog: ModelCatalog | null): ContextUsageInfo | null {

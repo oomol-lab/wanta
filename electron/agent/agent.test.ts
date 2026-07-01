@@ -21,6 +21,10 @@ function modelVariantReasoningEffort(model: unknown, variant: string): string | 
   return (model as { variants?: Record<string, { reasoningEffort?: string }> }).variants?.[variant]?.reasoningEffort
 }
 
+function modelLimit(model: unknown): { context?: number; input?: number; output?: number } | undefined {
+  return (model as { limit?: { context?: number; input?: number; output?: number } }).limit
+}
+
 test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => {
   const config = buildOpencodeConfig({ authToken: "api-test" })
   assert.equal(config.model, `${WANTA_PROVIDER_ID}/${WANTA_MODEL_ID}`)
@@ -92,6 +96,7 @@ test("GPT 5.5 resolves through the OpenAI provider for Responses API semantics",
   assert.equal(provider.options?.apiKey, "api-test")
   assert.ok(model)
   assert.equal(model.name, "GPT 5.5")
+  assert.deepEqual(modelLimit(model), { context: 400_000, input: 258_400, output: 128_000 })
   assert.equal(model.reasoning, true)
   assert.equal(modelVariantReasoningEffort(model, "max"), "xhigh")
   assert.equal(model.attachment, true)
@@ -108,6 +113,9 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
         baseUrl: "https://api.deepseek.com/v1",
         apiKey: "sk-custom",
         modelName: "deepseek-chat",
+        contextWindow: 128_000,
+        inputTokenLimit: 96_000,
+        maxOutputTokens: 16_000,
       },
     ],
   })
@@ -120,6 +128,7 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
   const model = provider.models?.["deepseek-chat"]
   assert.equal(model?.reasoning, undefined)
   assert.deepEqual(modelVariantKeys(model), [])
+  assert.deepEqual(modelLimit(model), { context: 128_000, input: 96_000, output: 16_000 })
   assert.equal(model?.tool_call, true)
   assert.equal(model?.attachment, undefined)
   assert.equal(model?.modalities, undefined)

@@ -170,6 +170,7 @@ test("ModelsStore persists custom models but public catalog redacts apiKey", asy
     displayName: "DeepSeek:deepseek-chat",
     apiKeyConfigured: true,
     supportsImages: false,
+    supportsToolCalls: true,
   })
   assert.equal(statSync(path.join(dir, "models.json")).mode & 0o777, 0o600)
   assert.deepEqual(readdirSync(dir), ["models.json"])
@@ -189,6 +190,7 @@ test("ModelsStore exposes custom model image support", async () => {
         apiKey: "sk-secret",
         modelName: "vision-model",
         supportsImages: true,
+        inputTokenLimit: 128_000,
       },
     ],
   })
@@ -196,6 +198,7 @@ test("ModelsStore exposes custom model image support", async () => {
   const catalog = await store.catalog()
 
   assert.equal(catalog.customModels[0]?.supportsImages, true)
+  assert.equal(catalog.customModels[0]?.inputTokenLimit, 128_000)
 })
 
 test("sanitizeBaseUrl trims trailing slash and rejects invalid protocols", () => {

@@ -30,10 +30,18 @@ export interface BuiltinModelDefinition {
   runtime: BuiltinModelRuntime
   capabilities: BuiltinModelCapabilities
   contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
 }
 
 // UI 展示用的内置模型上下文窗口；网关别名实际窗口调整时只改这里。
-const defaultContextWindow = 200_000
+const autoContextWindow = 200_000
+const gpt55ContextWindow = 400_000
+const gpt55InputTokenLimit = 258_400
+const gpt55MaxOutputTokens = 128_000
+const millionTokenContextWindow = 1_000_000
+const deepSeekV4ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
+const qwen37ReasoningVariants = ["low", "high"] as const satisfies readonly WantaReasoningVariant[]
 
 export const BUILTIN_MODEL_IDS = [
   "oopilot",
@@ -76,7 +84,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: true,
       toolCall: true,
     },
-    contextWindow: defaultContextWindow,
+    contextWindow: autoContextWindow,
   },
   {
     id: "gpt-5.5",
@@ -91,7 +99,9 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       supportsImages: true,
       toolCall: true,
     },
-    contextWindow: defaultContextWindow,
+    contextWindow: gpt55ContextWindow,
+    inputTokenLimit: gpt55InputTokenLimit,
+    maxOutputTokens: gpt55MaxOutputTokens,
   },
   {
     id: "deepseek-v4-flash",
@@ -102,11 +112,11 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "deepseek-v4-flash",
     },
     capabilities: {
-      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
+      reasoningVariants: deepSeekV4ReasoningVariants,
       supportsImages: false,
       toolCall: true,
     },
-    contextWindow: defaultContextWindow,
+    contextWindow: millionTokenContextWindow,
   },
   {
     id: "deepseek-v4-pro",
@@ -117,11 +127,11 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "deepseek-v4-pro",
     },
     capabilities: {
-      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
+      reasoningVariants: deepSeekV4ReasoningVariants,
       supportsImages: false,
       toolCall: true,
     },
-    contextWindow: defaultContextWindow,
+    contextWindow: millionTokenContextWindow,
   },
   {
     id: "qwen3.7-plus",
@@ -132,11 +142,11 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "qwen3.7-plus",
     },
     capabilities: {
-      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
+      reasoningVariants: qwen37ReasoningVariants,
       supportsImages: true,
       toolCall: true,
     },
-    contextWindow: defaultContextWindow,
+    contextWindow: millionTokenContextWindow,
   },
   {
     id: "qwen3.7-max",
@@ -147,11 +157,11 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       modelID: "qwen3.7-max",
     },
     capabilities: {
-      reasoningVariants: WANTA_REASONING_VARIANT_LEVELS,
+      reasoningVariants: qwen37ReasoningVariants,
       supportsImages: true,
       toolCall: true,
     },
-    contextWindow: defaultContextWindow,
+    contextWindow: millionTokenContextWindow,
   },
 ]
 
@@ -165,6 +175,9 @@ export function builtinModelSummaries(): Array<{
   toolCall: boolean
   runtimeKind: BuiltinProviderKind
   contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: readonly WantaReasoningVariant[]
 }> {
   return BUILTIN_MODEL_DEFINITIONS.map((model) => ({
     id: model.id,
@@ -174,6 +187,9 @@ export function builtinModelSummaries(): Array<{
     toolCall: model.capabilities.toolCall,
     runtimeKind: resolveBuiltinProvider(model.runtime.providerID).kind,
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+    ...(model.inputTokenLimit ? { inputTokenLimit: model.inputTokenLimit } : {}),
+    ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
+    ...(model.capabilities.reasoningVariants ? { reasoningVariants: model.capabilities.reasoningVariants } : {}),
   }))
 }
 

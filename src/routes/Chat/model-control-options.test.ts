@@ -35,6 +35,7 @@ const catalog: ModelCatalog = {
       displayName: "Custom Model",
       apiKeyConfigured: true,
       supportsImages: false,
+      supportsToolCalls: true,
     },
   ],
 }

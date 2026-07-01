@@ -1,3 +1,4 @@
+import type { WantaReasoningVariant } from "../../../electron/agent/reasoning.ts"
 import type { AgentMode, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type {
   CustomModelApiPlan,
@@ -25,7 +26,7 @@ import {
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { WANTA_AGENT_MODES } from "../../../electron/agent/mode.ts"
-import { WANTA_REASONING_LEVELS } from "../../../electron/agent/reasoning.ts"
+import { WANTA_REASONING_LEVELS, WANTA_REASONING_VARIANT_LEVELS } from "../../../electron/agent/reasoning.ts"
 import { buildModelMenuItems, combinedModelReasoningLabel, selectedModelSummary } from "./model-control-options.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
@@ -473,6 +474,17 @@ export function ModelPicker({
 const reasoningLevelOptions: readonly ReasoningLevel[] = WANTA_REASONING_LEVELS
 const agentModeOptions: readonly AgentMode[] = WANTA_AGENT_MODES
 
+function selectedModelReasoningLevels(catalog: ModelCatalog | null): ReasoningLevel[] {
+  if (!catalog) {
+    return [...reasoningLevelOptions]
+  }
+  const variants =
+    catalog.selected.kind === "custom"
+      ? catalog.customModels.find((model) => model.id === catalog.selected.id)?.reasoningVariants
+      : catalog.builtins.find((model) => model.id === catalog.selected.id)?.reasoningVariants
+  return ["default", ...(variants ?? [])]
+}
+
 function agentModeMenuItemElementId(mode: AgentMode): string {
   return `agent-mode-menu-item-${mode}`
 }
@@ -786,14 +798,16 @@ export function ModelReasoningPicker({
   const rootItemRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const modelItemRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const selected = selectedModelSummary(catalog)
-  const selectedReasoningLabel = reasoningLevelLabel(reasoningLevel, t)
+  const availableReasoningLevels = React.useMemo(() => selectedModelReasoningLevels(catalog), [catalog])
+  const effectiveReasoningLevel = availableReasoningLevels.includes(reasoningLevel) ? reasoningLevel : "default"
+  const selectedReasoningLabel = reasoningLevelLabel(effectiveReasoningLevel, t)
   const triggerLabel = combinedModelReasoningLabel(selected.label, selectedReasoningLabel)
   const triggerTitle = selected.supportsImages ? `${triggerLabel} · ${t("chat.modelVision")}` : triggerLabel
   const rootItems = React.useMemo<ModelReasoningRootItem[]>(
     () => [
-      ...reasoningLevelOptions.map(
+      ...availableReasoningLevels.map(
         (level): ModelReasoningRootItem => ({
-          active: reasoningLevel === level,
+          active: effectiveReasoningLevel === level,
           id: `reasoning:${level}`,
           kind: "reasoning",
           level,
@@ -806,7 +820,7 @@ export function ModelReasoningPicker({
         title: selected.label,
       },
     ],
-    [reasoningLevel, selected.label, t],
+    [availableReasoningLevels, effectiveReasoningLevel, selected.label, t],
   )
   const modelItems = React.useMemo<ModelMenuItem[]>(
     () => buildModelMenuItems(catalog, t("chat.modelAdd")),
@@ -909,10 +923,16 @@ export function ModelReasoningPicker({
         onAddModel()
         return
       }
+      const nextReasoningLevels = selectedModelReasoningLevels(
+        catalog ? { ...catalog, selected: item.choice } : catalog,
+      )
+      if (!nextReasoningLevels.includes(reasoningLevel)) {
+        onSelectReasoningLevel("default")
+      }
       onSelectModel(item.choice)
       closeMenu()
     },
-    [closeMenu, onAddModel, onSelectModel],
+    [catalog, closeMenu, onAddModel, onSelectModel, onSelectReasoningLevel, reasoningLevel],
   )
 
   const activateRootItem = React.useCallback(
@@ -1652,6 +1672,42 @@ function providerDefaultSupportsImages(provider: CustomModelProvider | undefined
   return option?.supportsImages ?? provider?.supportsImages ?? false
 }
 
+function providerDefaultSupportsToolCalls(provider: CustomModelProvider | undefined, modelName: string): boolean {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return option?.supportsToolCalls ?? provider?.supportsToolCalls ?? true
+}
+
+function providerDefaultContextWindow(provider: CustomModelProvider | undefined, modelName: string): string {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return String(option?.contextWindow ?? provider?.contextWindow ?? "")
+}
+
+function providerDefaultInputTokenLimit(provider: CustomModelProvider | undefined, modelName: string): string {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return String(option?.inputTokenLimit ?? provider?.inputTokenLimit ?? "")
+}
+
+function providerDefaultMaxOutputTokens(provider: CustomModelProvider | undefined, modelName: string): string {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return String(option?.maxOutputTokens ?? provider?.maxOutputTokens ?? "")
+}
+
+function providerDefaultReasoningVariants(
+  provider: CustomModelProvider | undefined,
+  modelName: string,
+): WantaReasoningVariant[] {
+  const option = provider?.modelOptions?.find((model) => model.id === modelName.trim())
+  return [...(option?.reasoningVariants ?? provider?.reasoningVariants ?? [])]
+}
+
+function optionalTokenLimit(value: string): number | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return undefined
+  }
+  return Number(trimmed)
+}
+
 const modelDialogControlClass = "h-[var(--oo-control-height)] w-full px-2.5 text-sm"
 
 export function AddCustomModelDialog({
@@ -1676,8 +1732,19 @@ export function AddCustomModelDialog({
   const [modelName, setModelName] = React.useState("")
   const [apiRegionId, setApiRegionId] = React.useState(endpointDefaultApiRegionId(providerEndpoint(firstProvider)))
   const [supportsImages, setSupportsImages] = React.useState(providerDefaultSupportsImages(firstProvider, ""))
+  const [supportsToolCalls, setSupportsToolCalls] = React.useState(providerDefaultSupportsToolCalls(firstProvider, ""))
+  const [contextWindow, setContextWindow] = React.useState(providerDefaultContextWindow(firstProvider, ""))
+  const [inputTokenLimit, setInputTokenLimit] = React.useState(providerDefaultInputTokenLimit(firstProvider, ""))
+  const [maxOutputTokens, setMaxOutputTokens] = React.useState(providerDefaultMaxOutputTokens(firstProvider, ""))
+  const [reasoningVariants, setReasoningVariants] = React.useState<WantaReasoningVariant[]>(
+    providerDefaultReasoningVariants(firstProvider, ""),
+  )
   const [saving, setSaving] = React.useState(false)
   const supportsImagesId = React.useId()
+  const supportsToolCallsId = React.useId()
+  const contextWindowId = React.useId()
+  const inputTokenLimitId = React.useId()
+  const maxOutputTokensId = React.useId()
   const provider = providers.find((item) => item.id === providerId)
   const modelOptions = provider?.modelOptions ?? []
   const apiPlans = provider?.apiPlans ?? []
@@ -1694,6 +1761,11 @@ export function AddCustomModelDialog({
       setApiPlanId(providerDefaultApiPlanId(initial))
       setApiRegionId(endpointDefaultApiRegionId(providerEndpoint(initial)))
       setSupportsImages(providerDefaultSupportsImages(initial, initialModelName))
+      setSupportsToolCalls(providerDefaultSupportsToolCalls(initial, initialModelName))
+      setContextWindow(providerDefaultContextWindow(initial, initialModelName))
+      setInputTokenLimit(providerDefaultInputTokenLimit(initial, initialModelName))
+      setMaxOutputTokens(providerDefaultMaxOutputTokens(initial, initialModelName))
+      setReasoningVariants(providerDefaultReasoningVariants(initial, initialModelName))
       setApiKey("")
       setSaving(false)
     }
@@ -1710,11 +1782,21 @@ export function AddCustomModelDialog({
     setModelName(nextModelName)
     setApiRegionId(endpointDefaultApiRegionId(nextEndpoint))
     setSupportsImages(providerDefaultSupportsImages(next, nextModelName))
+    setSupportsToolCalls(providerDefaultSupportsToolCalls(next, nextModelName))
+    setContextWindow(providerDefaultContextWindow(next, nextModelName))
+    setInputTokenLimit(providerDefaultInputTokenLimit(next, nextModelName))
+    setMaxOutputTokens(providerDefaultMaxOutputTokens(next, nextModelName))
+    setReasoningVariants(providerDefaultReasoningVariants(next, nextModelName))
   }
 
   const handleModelChange = (nextModelName: string): void => {
     setModelName(nextModelName)
     setSupportsImages(providerDefaultSupportsImages(provider, nextModelName))
+    setSupportsToolCalls(providerDefaultSupportsToolCalls(provider, nextModelName))
+    setContextWindow(providerDefaultContextWindow(provider, nextModelName))
+    setInputTokenLimit(providerDefaultInputTokenLimit(provider, nextModelName))
+    setMaxOutputTokens(providerDefaultMaxOutputTokens(provider, nextModelName))
+    setReasoningVariants(providerDefaultReasoningVariants(provider, nextModelName))
   }
 
   const handleApiPlanChange = (nextId: string): void => {
@@ -1742,6 +1824,11 @@ export function AddCustomModelDialog({
   const canSave = Boolean(
     providerId && apiKey.trim() && modelName.trim() && (!(provider?.requiresBaseUrl ?? true) || baseUrl.trim()),
   )
+  const toggleReasoningVariant = (variant: WantaReasoningVariant, checked: boolean): void => {
+    setReasoningVariants((current) =>
+      checked ? [...new Set([...current, variant])] : current.filter((item) => item !== variant),
+    )
+  }
 
   return (
     <Dialog
@@ -1767,6 +1854,11 @@ export function AddCustomModelDialog({
                 apiKey,
                 modelName,
                 supportsImages,
+                supportsToolCalls,
+                contextWindow: optionalTokenLimit(contextWindow),
+                inputTokenLimit: optionalTokenLimit(inputTokenLimit),
+                maxOutputTokens: optionalTokenLimit(maxOutputTokens),
+                reasoningVariants,
               })
                 .catch(() => undefined)
                 .finally(() => setSaving(false))
@@ -1909,6 +2001,86 @@ export function AddCustomModelDialog({
               <span className="oo-text-caption text-muted-foreground">{t("chat.modelSupportsImagesDescription")}</span>
             </span>
           </label>
+        </div>
+
+        <div className="rounded-md border border-border/70 px-3 py-2.5">
+          <label htmlFor={supportsToolCallsId} className="flex cursor-pointer items-start gap-3">
+            <input
+              id={supportsToolCallsId}
+              type="checkbox"
+              checked={supportsToolCalls}
+              onChange={(event) => setSupportsToolCalls(event.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span className="grid gap-1">
+              <span className="oo-text-label">{t("chat.modelSupportsToolCalls")}</span>
+              <span className="oo-text-caption text-muted-foreground">
+                {t("chat.modelSupportsToolCallsDescription")}
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div className="grid gap-2 rounded-md border border-border/70 px-3 py-2.5">
+          <div className="grid gap-1">
+            <span className="oo-text-label">{t("chat.modelTokenLimits")}</span>
+            <span className="oo-text-caption text-muted-foreground">{t("chat.modelTokenLimitsDescription")}</span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor={contextWindowId}>{t("chat.modelContextWindow")}</Label>
+              <Input
+                id={contextWindowId}
+                value={contextWindow}
+                onChange={(event) => setContextWindow(event.target.value)}
+                inputMode="numeric"
+                placeholder={t("chat.modelOptionalTokenPlaceholder")}
+                className={modelDialogControlClass}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor={inputTokenLimitId}>{t("chat.modelInputTokenLimit")}</Label>
+              <Input
+                id={inputTokenLimitId}
+                value={inputTokenLimit}
+                onChange={(event) => setInputTokenLimit(event.target.value)}
+                inputMode="numeric"
+                placeholder={t("chat.modelOptionalTokenPlaceholder")}
+                className={modelDialogControlClass}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor={maxOutputTokensId}>{t("chat.modelMaxOutputTokens")}</Label>
+              <Input
+                id={maxOutputTokensId}
+                value={maxOutputTokens}
+                onChange={(event) => setMaxOutputTokens(event.target.value)}
+                inputMode="numeric"
+                placeholder={t("chat.modelOptionalTokenPlaceholder")}
+                className={modelDialogControlClass}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-2 rounded-md border border-border/70 px-3 py-2.5">
+          <div className="grid gap-1">
+            <span className="oo-text-label">{t("chat.modelReasoningVariants")}</span>
+            <span className="oo-text-caption text-muted-foreground">{t("chat.modelReasoningVariantsDescription")}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {WANTA_REASONING_VARIANT_LEVELS.map((variant) => (
+              <label key={variant} className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={reasoningVariants.includes(variant)}
+                  onChange={(event) => toggleReasoningVariant(variant, event.target.checked)}
+                  className="size-4 shrink-0 accent-primary"
+                />
+                <span>{reasoningLevelLabel(variant, t)}</span>
+              </label>
+            ))}
+          </div>
         </div>
 
         {error ? <ErrorNotice error={error} compact /> : null}

@@ -511,8 +511,12 @@ export class AgentManager {
     level: ReasoningLevel | undefined,
   ): string | undefined {
     const variant = opencodeReasoningVariant(level)
-    if (!variant || (choice && choice.kind === "custom")) {
+    if (!variant) {
       return undefined
+    }
+    if (choice?.kind === "custom") {
+      const model = this.options.customModels?.find((item) => item.id === choice.id)
+      return model?.reasoningVariants?.includes(variant) ? variant : undefined
     }
     const modelID = choice && isBuiltinModelId(choice.id) ? choice.id : DEFAULT_BUILTIN_MODEL_ID
     const model = resolveBuiltinModel(modelID)

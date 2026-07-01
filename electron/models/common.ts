@@ -1,3 +1,4 @@
+import type { WantaReasoningVariant } from "../agent/reasoning.ts"
 import type { BuiltinModelId } from "./builtin.ts"
 import type { ServiceName } from "@oomol/connection"
 
@@ -11,12 +12,20 @@ export interface BuiltinModelSummary {
   toolCall: boolean
   runtimeKind: "openai-compatible" | "openai-responses"
   contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
 export interface CustomModelOption {
   id: string
   displayName?: string
   supportsImages?: boolean
+  supportsToolCalls?: boolean
+  contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
 export interface CustomModelApiRegion {
@@ -38,6 +47,11 @@ export interface CustomModelProvider {
   apiRegions?: CustomModelApiRegion[]
   modelOptions?: CustomModelOption[]
   supportsImages?: boolean
+  supportsToolCalls?: boolean
+  contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: readonly WantaReasoningVariant[]
   documentationUrl?: string
   requiresBaseUrl?: boolean
 }
@@ -51,6 +65,11 @@ export interface CustomModelSummary {
   displayName: string
   apiKeyConfigured: boolean
   supportsImages: boolean
+  supportsToolCalls: boolean
+  contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
 export type ModelChoice = { kind: "builtin"; id: BuiltinModelId } | { kind: "custom"; id: string }
@@ -71,6 +90,11 @@ export interface SaveCustomModelRequest {
   modelName: string
   displayName?: string
   supportsImages?: boolean
+  supportsToolCalls?: boolean
+  contextWindow?: number
+  inputTokenLimit?: number
+  maxOutputTokens?: number
+  reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
 export type ModelsService = typeof ModelsService

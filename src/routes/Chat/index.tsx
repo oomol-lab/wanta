@@ -295,7 +295,7 @@ function TurnProcessActivity({
   const showLiveStatus = renderBlocks.length === 0 && shouldShowLiveStatus(process, status)
   const titleText = processStatusText(t, status)
   const activeTool = latestActiveTool(process)
-  const shimmerToolPartId =
+  const settlingToolPartId =
     !activeTool && status === "running" && process.activity && process.tools.length > 0
       ? process.tools.at(-1)?.partId
       : undefined
@@ -354,7 +354,7 @@ function TurnProcessActivity({
               billingCacheScope={billingCacheScope}
               smoothText={false}
               providerByService={providerByService}
-              shimmerToolPartId={shimmerToolPartId}
+              settlingToolPartId={settlingToolPartId}
               showAuthorizationPrompt={!live}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
@@ -633,7 +633,7 @@ function AssistantBlock({
   billingCacheScope,
   smoothText,
   providerByService,
-  shimmerToolPartId,
+  settlingToolPartId,
   showAuthorizationPrompt = true,
   onAuthorize,
   onViewBilling,
@@ -643,7 +643,7 @@ function AssistantBlock({
   billingCacheScope: string
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
-  shimmerToolPartId?: string
+  settlingToolPartId?: string
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
@@ -673,7 +673,8 @@ function AssistantBlock({
                 key={part.partId}
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
-                shimmer={part.partId === shimmerToolPartId}
+                shimmer={part.partId === settlingToolPartId}
+                settling={part.partId === settlingToolPartId}
                 showAuthorizationPrompt={showAuthorizationPrompt}
                 onAuthorize={onAuthorize}
               />

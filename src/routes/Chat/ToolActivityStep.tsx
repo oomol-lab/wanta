@@ -191,12 +191,14 @@ export function ToolActivityStep({
   part,
   provider,
   shimmer = false,
+  settling = false,
   showAuthorizationPrompt = true,
   onAuthorize,
 }: {
   part: ChatMessagePart
   provider?: ConnectionProvider
   shimmer?: boolean
+  settling?: boolean
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
@@ -205,7 +207,8 @@ export function ToolActivityStep({
   const stopped = isToolCancellation(part)
   const details = hasToolDetails(part, auth)
   const [open, setOpen] = React.useState(false)
-  const statusText = toolPartStatusLabel(t, part)
+  const statusText =
+    settling && part.status === "completed" ? t("chat.toolStatusFinalizing") : toolPartStatusLabel(t, part)
   const active = isActiveToolPart(part)
   const showShimmer = active || shimmer
   const displayLine = toolDisplayLine(t, part)

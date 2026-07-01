@@ -132,7 +132,6 @@ const ModelRow = React.forwardRef<HTMLButtonElement, ModelRowProps>(function Mod
               <span>{visionLabel}</span>
             </Badge>
           ) : null}
-          {active ? <Check className="size-4" /> : null}
         </span>
       </button>
       {onDelete ? (

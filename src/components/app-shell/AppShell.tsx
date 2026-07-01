@@ -1293,28 +1293,30 @@ function ProjectSidebarGroupItem({
             {group.project.name}
           </span>
           <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-            {showCollapsedRunning ? (
-              <LoaderCircle
-                className="absolute size-3.5 animate-spin text-sidebar-foreground/70 opacity-100 transition-opacity group-focus-within:opacity-0 group-hover:opacity-0"
-                aria-hidden="true"
-              />
-            ) : null}
             {expanded ? (
-              <ChevronDown className="absolute size-3.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100" />
+              <ChevronDown className="absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
             ) : (
-              <ChevronRight className="absolute size-3.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100" />
+              <ChevronRight className="absolute size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
             )}
           </span>
         </button>
-        <button
-          type="button"
-          title={projectTitle}
-          aria-label={projectTitle}
-          className="pointer-events-none flex size-5 shrink-0 items-center justify-center rounded opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          onClick={() => onNewSession(group.project)}
-        >
-          <SquarePen className="size-3.5" />
-        </button>
+        <span className="relative flex size-5 shrink-0 items-center justify-center">
+          {showCollapsedRunning ? (
+            <LoaderCircle
+              className="absolute size-3.5 animate-spin text-sidebar-foreground/70 opacity-100 transition-opacity group-hover:opacity-0"
+              aria-hidden="true"
+            />
+          ) : null}
+          <button
+            type="button"
+            title={projectTitle}
+            aria-label={projectTitle}
+            className="pointer-events-none absolute flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
+            onClick={() => onNewSession(group.project)}
+          >
+            <SquarePen className="size-3.5" />
+          </button>
+        </span>
       </div>
       {expanded ? (
         <div className="grid gap-0.5">

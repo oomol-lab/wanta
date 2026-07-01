@@ -2498,6 +2498,11 @@ export function AppShell() {
     setRoute("connections")
   }, [])
 
+  const handleReturnToConnections = React.useCallback((): void => {
+    setSearchOpen(false)
+    setRoute("connections")
+  }, [])
+
   const handleNewSession = React.useCallback((): void => {
     setActiveSessionId(null)
     setIsDraftSession(true)
@@ -3178,7 +3183,7 @@ export function AppShell() {
     (command: AppCommand): void => {
       switch (command) {
         case APP_COMMANDS.openConnections:
-          handleOpenConnections()
+          handleReturnToConnections()
           void connections.refresh({ forceRefresh: true })
           return
         case APP_COMMANDS.focusComposer:
@@ -3206,8 +3211,8 @@ export function AppShell() {
       connections.refresh,
       handleChatStop,
       handleNewSession,
-      handleOpenConnections,
       handleOpenSearch,
+      handleReturnToConnections,
       handleToggleSidebar,
       requestComposerFocus,
     ],

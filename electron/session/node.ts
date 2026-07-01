@@ -7,6 +7,7 @@ import type {
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
   SessionInfo,
+  SessionPlacement,
   SessionProject,
   SessionScope,
   SessionScopeRequest,
@@ -70,6 +71,10 @@ function createRequestProjectId(req?: CreateSessionRequest | string): string | u
   return projectId || undefined
 }
 
+function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {
+  return placement === "project" || placement === "task" ? placement : "all"
+}
+
 function normalizeProjectPath(projectPath: string): string {
   return projectPath.trim().replace(/[\\/]+$/, "")
 }
@@ -122,7 +127,13 @@ export class SessionServiceImpl
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
-    return this.mergeLocalState(await this.agent.listSessions(), "active", normalizeSessionScope(req.scope))
+    await this.ensureProjectsLoaded()
+    return this.mergeLocalState(
+      await this.agent.listSessions(),
+      "active",
+      normalizeSessionScope(req.scope),
+      normalizeSessionPlacement(req.placement),
+    )
   }
 
   public async listArchived(req: SessionScopeRequest = {}): Promise<SessionInfo[]> {
@@ -131,7 +142,13 @@ export class SessionServiceImpl
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
-    return this.mergeLocalState(await this.agent.listSessions(), "archived", normalizeSessionScope(req.scope))
+    await this.ensureProjectsLoaded()
+    return this.mergeLocalState(
+      await this.agent.listSessions(),
+      "archived",
+      normalizeSessionScope(req.scope),
+      normalizeSessionPlacement(req.placement),
+    )
   }
 
   public async listProjects(req: SessionScopeRequest = {}): Promise<SessionProject[]> {
@@ -446,6 +463,7 @@ export class SessionServiceImpl
     sessions: SessionInfo[],
     visibility: "active" | "archived",
     requestedScope: SessionScope,
+    placement: SessionPlacement,
   ): SessionInfo[] {
     return sessions
       .map((session) => {
@@ -461,6 +479,7 @@ export class SessionServiceImpl
         }
       })
       .filter((session) => sessionScopeMatches(session.scope, requestedScope))
+      .filter((session) => this.sessionPlacementMatches(session, placement))
       .filter((session) => (visibility === "archived" ? Boolean(session.archivedAt) : !session.archivedAt))
       .map((session) => {
         if (session.archivedAt && session.pinnedAt) {
@@ -471,6 +490,14 @@ export class SessionServiceImpl
         return session
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
+  private sessionPlacementMatches(session: SessionInfo, placement: SessionPlacement): boolean {
+    if (placement === "all") {
+      return true
+    }
+    const hasValidProject = Boolean(session.projectId && this.projects.has(session.projectId))
+    return placement === "project" ? hasValidProject : !hasValidProject
   }
 
   private async broadcastChanged(): Promise<void> {

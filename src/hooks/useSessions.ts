@@ -32,6 +32,8 @@ export function mergeSessionsWithLocalCreated(
 
 export interface UseSessions {
   sessions: SessionInfo[]
+  taskSessions: SessionInfo[]
+  projectSessions: SessionInfo[]
   projects: SessionProject[]
   loaded: boolean
   error: UserFacingError | null
@@ -61,6 +63,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     return personalSessionScope
   }, [organizationId, organizationName, scopeType])
   const [sessions, setSessions] = React.useState<SessionInfo[]>([])
+  const [taskSessions, setTaskSessions] = React.useState<SessionInfo[]>([])
+  const [projectSessions, setProjectSessions] = React.useState<SessionInfo[]>([])
   const [projects, setProjects] = React.useState<SessionProject[]>([])
   const [loaded, setLoaded] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
@@ -81,6 +85,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     requestSequenceRef.current += 1
     localCreatedSessionsRef.current.clear()
     setSessions([])
+    setTaskSessions([])
+    setProjectSessions([])
     setProjects([])
     setLoaded(false)
     setError(null)
@@ -90,20 +96,39 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     const requestId = ++requestSequenceRef.current
     if (!enabled) {
       setSessions([])
+      setTaskSessions([])
+      setProjectSessions([])
       setLoaded(false)
       setError(null)
       return
     }
     try {
-      const nextSessions = await sessionService.invoke("list", { scope: requestScope })
-      const nextProjects = await sessionService.invoke("listProjects", { scope: requestScope })
+      const [nextSessions, nextTaskSessions, nextProjectSessions, nextProjects] = await Promise.all([
+        sessionService.invoke("list", { placement: "all", scope: requestScope }),
+        sessionService.invoke("list", { placement: "task", scope: requestScope }),
+        sessionService.invoke("list", { placement: "project", scope: requestScope }),
+        sessionService.invoke("listProjects", { scope: requestScope }),
+      ])
       if (requestId !== requestSequenceRef.current || !enabledRef.current) {
         return
       }
       for (const session of nextSessions) {
         localCreatedSessionsRef.current.delete(session.id)
       }
-      setSessions(mergeSessionsWithLocalCreated(nextSessions, localCreatedSessionsRef.current.values()))
+      const localCreatedSessions = [...localCreatedSessionsRef.current.values()]
+      setSessions(mergeSessionsWithLocalCreated(nextSessions, localCreatedSessions))
+      setTaskSessions(
+        mergeSessionsWithLocalCreated(
+          nextTaskSessions,
+          localCreatedSessions.filter((session) => !session.projectId),
+        ),
+      )
+      setProjectSessions(
+        mergeSessionsWithLocalCreated(
+          nextProjectSessions,
+          localCreatedSessions.filter((session) => Boolean(session.projectId)),
+        ),
+      )
       setProjects(nextProjects)
       setError(null)
     } catch (error) {
@@ -121,6 +146,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   React.useEffect(() => {
     if (!enabled) {
       setSessions([])
+      setTaskSessions([])
+      setProjectSessions([])
       setProjects([])
       setLoaded(false)
       setError(null)
@@ -140,6 +167,11 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       const info = await sessionService.invoke("create", { projectId, scope: requestScope, title })
       localCreatedSessionsRef.current.set(info.id, info)
       setSessions((current) => mergeSessionsWithLocalCreated(current, [info]))
+      if (info.projectId) {
+        setProjectSessions((current) => mergeSessionsWithLocalCreated(current, [info]))
+      } else {
+        setTaskSessions((current) => mergeSessionsWithLocalCreated(current, [info]))
+      }
       await refresh()
       return info
     },
@@ -162,9 +194,45 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const assignSessionProject = React.useCallback(
     async (sessionId: string, projectId?: string) => {
       await sessionService.invoke("assignSessionProject", { sessionId, projectId })
+      const existingSession = sessions.find((session) => session.id === sessionId)
+      const updatedSession = existingSession ? { ...existingSession } : undefined
+      if (updatedSession) {
+        if (projectId) {
+          updatedSession.projectId = projectId
+        } else {
+          delete updatedSession.projectId
+        }
+      }
+      setSessions((current) =>
+        current.map((session) => {
+          if (session.id !== sessionId) {
+            return session
+          }
+          return updatedSession ?? session
+        }),
+      )
+      if (updatedSession) {
+        if (projectId) {
+          setTaskSessions((current) => current.filter((session) => session.id !== sessionId))
+          setProjectSessions((current) =>
+            mergeSessionsWithLocalCreated(
+              current.filter((session) => session.id !== sessionId),
+              [updatedSession],
+            ),
+          )
+        } else {
+          setProjectSessions((current) => current.filter((session) => session.id !== sessionId))
+          setTaskSessions((current) =>
+            mergeSessionsWithLocalCreated(
+              current.filter((session) => session.id !== sessionId),
+              [updatedSession],
+            ),
+          )
+        }
+      }
       await refresh()
     },
-    [sessionService, refresh],
+    [sessionService, refresh, sessions],
   )
 
   const removeProject = React.useCallback(
@@ -201,6 +269,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       await sessionService.invoke("archive", id)
       localCreatedSessionsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
+      setTaskSessions((current) => current.filter((session) => session.id !== id))
+      setProjectSessions((current) => current.filter((session) => session.id !== id))
     },
     [sessionService],
   )
@@ -217,12 +287,16 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       await sessionService.invoke("remove", id)
       localCreatedSessionsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
+      setTaskSessions((current) => current.filter((session) => session.id !== id))
+      setProjectSessions((current) => current.filter((session) => session.id !== id))
     },
     [sessionService],
   )
 
   return {
     sessions,
+    taskSessions,
+    projectSessions,
     projects,
     loaded,
     error,

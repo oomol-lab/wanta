@@ -331,13 +331,9 @@ function projectContextFromProject(
 function activeProjectIdForComposer({
   activeSession,
   draftProjectId,
-  projects,
-  sidebarSegment,
 }: {
   activeSession?: SessionInfo
   draftProjectId: string | null
-  projects: SessionProject[]
-  sidebarSegment: SidebarSegment
 }): string | undefined {
   if (activeSession?.projectId) {
     return activeSession.projectId
@@ -348,7 +344,7 @@ function activeProjectIdForComposer({
   if (draftProjectId) {
     return draftProjectId
   }
-  return sidebarSegment === "projects" ? projects[0]?.id : undefined
+  return undefined
 }
 
 function buildProjectSidebarGroups(projects: SessionProject[], sessions: SessionInfo[]): ProjectSidebarGroup[] {
@@ -1730,6 +1726,8 @@ export function AppShell() {
   const sessionsEnabled = auth.state?.status === "authenticated" && sessionScope !== null
   const {
     sessions,
+    taskSessions,
+    projectSessions,
     projects,
     loaded: sessionsLoaded,
     error: sessionsError,
@@ -1836,6 +1834,10 @@ export function AppShell() {
   React.useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed
   }, [sidebarCollapsed])
+  const activeSidebarSessions = React.useMemo(
+    () => (sidebarSegment === "projects" ? projectSessions : taskSessions),
+    [projectSessions, sidebarSegment, taskSessions],
+  )
 
   const focusOrganizationSkills = React.useCallback(() => {
     setRoute("skills")
@@ -1999,10 +2001,22 @@ export function AppShell() {
 
   // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
   React.useLayoutEffect(() => {
-    if (sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0) {
-      setActiveSessionId(sessions[0].id)
+    if (sessionsLoaded && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0) {
+      setActiveSessionId(activeSidebarSessions[0].id)
     }
-  }, [sessions, sessionsLoaded, activeSessionId, isDraftSession])
+  }, [activeSidebarSessions, sessionsLoaded, activeSessionId, isDraftSession])
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || isDraftSession || !activeSessionId) {
+      return
+    }
+    if (activeSidebarSessions.some((session) => session.id === activeSessionId)) {
+      return
+    }
+    setActiveSessionId(activeSidebarSessions[0]?.id ?? null)
+    setDraftProjectId(null)
+    setPendingChatTransition(null)
+  }, [activeSessionId, activeSidebarSessions, isDraftSession, sessionsLoaded])
 
   React.useEffect(() => {
     if (!sessionsLoaded || !activeSessionId) {
@@ -2080,8 +2094,8 @@ export function AppShell() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeProjectId = React.useMemo(
-    () => activeProjectIdForComposer({ activeSession, draftProjectId, projects, sidebarSegment }),
-    [activeSession, draftProjectId, projects, sidebarSegment],
+    () => activeProjectIdForComposer({ activeSession, draftProjectId }),
+    [activeSession, draftProjectId],
   )
   const activeProject = React.useMemo(() => {
     return activeProjectId ? projects.find((project) => project.id === activeProjectId) : undefined
@@ -2091,15 +2105,18 @@ export function AppShell() {
     () => projectContextFromProject(activeProject, projectGit.state),
     [activeProject, projectGit.state],
   )
-  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(sessions), [sessions])
+  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(taskSessions), [taskSessions])
   const projectPinnedSessions = React.useMemo(
     () =>
-      sessions
+      projectSessions
         .filter((session) => session.projectId && session.pinnedAt && !session.archivedAt)
         .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0)),
-    [sessions],
+    [projectSessions],
   )
-  const projectSidebarGroups = React.useMemo(() => buildProjectSidebarGroups(projects, sessions), [projects, sessions])
+  const projectSidebarGroups = React.useMemo(
+    () => buildProjectSidebarGroups(projects, projectSessions),
+    [projectSessions, projects],
+  )
   const projectCollapsedStorageKey = React.useMemo(
     () => projectSidebarCollapsedStorageKey(auth.state?.account?.id, sessionScope),
     [auth.state?.account?.id, sessionScope],
@@ -2118,7 +2135,8 @@ export function AppShell() {
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
-  const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
+  const needsDefaultSessionSelection =
+    sessionsLoaded && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0
   const startupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
   const hasVisibleLoadedSession = Boolean(activeSessionId && messagesLoaded)
@@ -2501,9 +2519,10 @@ export function AppShell() {
   const handleNewSession = React.useCallback((): void => {
     setActiveSessionId(null)
     setIsDraftSession(true)
-    setDraftProjectId(null)
+    setDraftProjectId(NO_DRAFT_PROJECT_ID)
     setPendingChatTransition(null)
     setRoute("chat")
+    setSidebarSegment("tasks")
     setSearchOpen(false)
     setComposerFocusRequest((request) => request + 1)
   }, [])
@@ -2525,6 +2544,7 @@ export function AppShell() {
         try {
           await assignSessionProject(activeSessionId, projectId)
           await refreshSessions()
+          setSidebarSegment(projectId ? "projects" : "tasks")
         } catch (cause) {
           const notice = resolveUserFacingError(cause, { area: "session" })
           toast.error(userFacingErrorDescription(notice, t))
@@ -2534,6 +2554,7 @@ export function AppShell() {
       setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
       setIsDraftSession(true)
       setRoute("chat")
+      setSidebarSegment(projectId ? "projects" : "tasks")
     },
     [activeSessionId, assignSessionProject, isDraftSession, refreshSessions, t],
   )
@@ -2587,6 +2608,7 @@ export function AppShell() {
     setIsDraftSession(false)
     setDraftProjectId(null)
     setRoute("chat")
+    setSidebarSegment(session.projectId ? "projects" : "tasks")
   }, [])
 
   const refreshGeneratedTitle = React.useCallback(
@@ -2993,7 +3015,7 @@ export function AppShell() {
       setArchiveConfirming(false)
     }
     if (activeSessionId === session.id) {
-      setActiveSessionId(nextActiveSessionIdAfterArchive(sessions, session.id))
+      setActiveSessionId(nextActiveSessionIdAfterArchive(activeSidebarSessions, session.id))
       setIsDraftSession(false)
       setPendingChatTransition(null)
       setRoute("chat")
@@ -3278,11 +3300,12 @@ export function AppShell() {
         <ArchivedRoute
           listArchived={listArchived}
           onBack={() => setRoute("chat")}
-          onOpenSession={(sessionId) => {
-            setActiveSessionId(sessionId)
+          onOpenSession={(session) => {
+            setActiveSessionId(session.id)
             setIsDraftSession(false)
             setPendingChatTransition(null)
             setRoute("chat")
+            setSidebarSegment(session.projectId ? "projects" : "tasks")
           }}
           refreshSessions={refreshSessions}
           removeSession={removeSession}
@@ -3427,7 +3450,7 @@ export function AppShell() {
                           hasUnreadSession={hasUnreadSession}
                           isSessionRunning={isSessionRunning}
                           now={relativeTimeNow}
-                          running={projectHasRunningSession(group.project.id, sessions, isSessionRunning)}
+                          running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
                           onExpandedChange={(expanded) =>
                             handleProjectSidebarExpandedChange(group.project.id, expanded)
                           }
@@ -3443,7 +3466,7 @@ export function AppShell() {
                 ) : (
                   <ProjectSidebarEmptyState onSelectFolder={() => void handleSelectProjectFolder()} />
                 )
-              ) : sessions.length > 0 ? (
+              ) : taskSessions.length > 0 ? (
                 <div className="grid gap-3">
                   {sidebarSessionGroups.pinned.length > 0 ? (
                     <div className="grid gap-0.5">
@@ -3733,10 +3756,8 @@ export function AppShell() {
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onSelect={(session) => {
-          setActiveSessionId(session.id)
-          setIsDraftSession(false)
+          handleSelectSession(session)
           setPendingChatTransition(null)
-          setRoute("chat")
           setSearchOpen(false)
         }}
       />

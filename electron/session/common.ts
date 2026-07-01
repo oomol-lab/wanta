@@ -17,7 +17,10 @@ export type SessionScope =
   | { type: "personal" }
   | { organizationId: string; organizationName: string; type: "organization" }
 
+export type SessionPlacement = "all" | "project" | "task"
+
 export interface SessionScopeRequest {
+  placement?: SessionPlacement
   scope?: SessionScope
 }
 

@@ -187,6 +187,106 @@ test("list filters sessions by requested scope", async () => {
   )
 })
 
+test("list filters sessions by requested placement", async () => {
+  const project: SessionProject = {
+    id: "project",
+    name: "Wanta",
+    path: "/Users/example/code/wanta",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "personal" },
+  }
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "task",
+        title: "Task",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+      {
+        id: "project-session",
+        title: "Project",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+      {
+        id: "dangling-project-session",
+        title: "Dangling",
+        createdAt: 3_000,
+        updatedAt: 3_000,
+      },
+    ]),
+    {
+      metadataStore: metadataStore(
+        new Map([
+          ["project-session", { scope: { type: "personal" }, projectId: project.id }],
+          ["dangling-project-session", { scope: { type: "personal" }, projectId: "missing-project" }],
+        ]),
+      ),
+      projectStore: projectStore(new Map([[project.id, project]])),
+    },
+  )
+
+  assert.deepEqual(
+    (await service.list({ placement: "all", scope: { type: "personal" } })).map((session) => session.id),
+    ["dangling-project-session", "project-session", "task"],
+  )
+  assert.deepEqual(
+    (await service.list({ placement: "project", scope: { type: "personal" } })).map((session) => session.id),
+    ["project-session"],
+  )
+  assert.deepEqual(
+    (await service.list({ placement: "task", scope: { type: "personal" } })).map((session) => session.id),
+    ["dangling-project-session", "task"],
+  )
+})
+
+test("listArchived filters sessions by requested placement", async () => {
+  const project: SessionProject = {
+    id: "project",
+    name: "Wanta",
+    path: "/Users/example/code/wanta",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "personal" },
+  }
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "archived-task",
+        title: "Archived task",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+      {
+        id: "archived-project",
+        title: "Archived project",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+    ]),
+    {
+      metadataStore: metadataStore(
+        new Map([
+          ["archived-task", { archivedAt: 3_000, scope: { type: "personal" } }],
+          ["archived-project", { archivedAt: 4_000, scope: { type: "personal" }, projectId: project.id }],
+        ]),
+      ),
+      projectStore: projectStore(new Map([[project.id, project]])),
+    },
+  )
+
+  assert.deepEqual(
+    (await service.listArchived({ placement: "task", scope: { type: "personal" } })).map((session) => session.id),
+    ["archived-task"],
+  )
+  assert.deepEqual(
+    (await service.listArchived({ placement: "project", scope: { type: "personal" } })).map((session) => session.id),
+    ["archived-project"],
+  )
+})
+
 test("create persists the requested session scope", async () => {
   const persistedMetadata = metadataStore()
   const service = new SessionServiceImpl(

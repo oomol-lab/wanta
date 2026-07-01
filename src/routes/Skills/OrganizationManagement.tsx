@@ -68,6 +68,7 @@ import {
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import { useSkillService } from "@/components/AppContext"
 import { useAuthStateResource, useHomeSummaryResource, useSkillInventoryResource } from "@/components/AppDataHooks"
+import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
@@ -3265,33 +3266,20 @@ function Panel({
 }
 
 function OrganizationAvatar({ className, organization }: { className?: string; organization: Organization }) {
-  const [failed, setFailed] = React.useState(false)
-  const avatarVisible = Boolean(organization.avatar && !failed)
-
-  React.useEffect(() => {
-    setFailed(false)
-  }, [organization.avatar])
-
   return (
     <span
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
+        "relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
         className,
       )}
-      style={avatarVisible ? undefined : organizationAvatarStyle(organization.id || organization.name)}
+      style={organizationAvatarStyle(organization.id || organization.name)}
     >
-      {avatarVisible ? (
-        <img
-          src={organization.avatar}
-          alt={organization.name}
-          className="size-full object-cover"
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        organizationInitials(organization.name)
-      )}
+      <span>{organizationInitials(organization.name)}</span>
+      <CachedAvatarImage
+        src={organization.avatar}
+        alt={organization.name}
+        className="absolute inset-0 size-full object-cover"
+      />
     </span>
   )
 }
@@ -3305,40 +3293,26 @@ function AccountWorkspaceAvatar({
   className?: string
   name?: string
 }) {
-  const [failed, setFailed] = React.useState(false)
   const label = name?.trim() || "User"
-
-  React.useEffect(() => {
-    setFailed(false)
-  }, [avatarUrl])
 
   return (
     <span
       className={cn(
-        "flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
+        "relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
         className,
       )}
     >
-      {avatarUrl && !failed ? (
-        <img
-          src={avatarUrl}
-          alt={label}
-          className="size-full object-cover"
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        userFallback(label)
-      )}
+      <span>{userFallback(label)}</span>
+      <CachedAvatarImage src={avatarUrl} alt={label} className="absolute inset-0 size-full object-cover" />
     </span>
   )
 }
 
 function UserAvatar({ avatar, fallback, label }: { avatar: string; fallback: string; label: string }) {
   return (
-    <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
-      {avatar ? <img src={avatar} alt={label} className="size-full object-cover" /> : fallback}
+    <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
+      <span>{fallback}</span>
+      <CachedAvatarImage src={avatar} alt={label} className="absolute inset-0 size-full object-cover" />
     </span>
   )
 }

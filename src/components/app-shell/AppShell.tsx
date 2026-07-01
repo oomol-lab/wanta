@@ -84,6 +84,7 @@ import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/componen
 import { useChatService, useSkillService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { BrandIcon } from "@/components/BrandIcon"
+import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -403,41 +404,24 @@ function WorkspaceAvatar({
   className?: string
   workspace: WorkspaceSelection
 }) {
-  const [failed, setFailed] = React.useState(false)
   const avatarUrl = workspace.type === "organization" ? workspace.organization?.avatar : accountAvatarUrl
   const fallback =
     workspace.type === "organization"
       ? organizationInitials(workspace.organization?.name ?? workspace.organizationId)
       : accountInitial(accountName)
   const fallbackStyle =
-    workspace.type === "organization" && (!avatarUrl || failed)
-      ? organizationAvatarStyle(workspace.organizationId)
-      : undefined
-
-  React.useEffect(() => {
-    setFailed(false)
-  }, [avatarUrl])
+    workspace.type === "organization" ? organizationAvatarStyle(workspace.organizationId) : undefined
 
   return (
     <span
       className={cn(
-        "grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background text-xs font-medium text-foreground",
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-full border bg-background text-xs font-medium text-foreground",
         className,
       )}
       style={fallbackStyle}
     >
-      {avatarUrl && !failed ? (
-        <img
-          src={avatarUrl}
-          alt=""
-          className="size-full object-cover"
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        fallback
-      )}
+      <span className="min-w-0">{fallback}</span>
+      <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </span>
   )
 }
@@ -1631,26 +1615,10 @@ function SidebarMenuButton({
 }
 
 function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
-  const [failed, setFailed] = React.useState(false)
-
-  React.useEffect(() => {
-    setFailed(false)
-  }, [avatarUrl])
-
   return (
-    <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
-      {avatarUrl && !failed ? (
-        <img
-          src={avatarUrl}
-          alt=""
-          className="size-full object-cover"
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        accountInitial(name)
-      )}
+    <div className="relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
+      <span>{accountInitial(name)}</span>
+      <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </div>
   )
 }

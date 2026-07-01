@@ -253,6 +253,7 @@ export function ChatComposer({
   const connectionItems = React.useMemo(
     () =>
       buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service }), {
+        accountActiveHint: t("chat.connectionAccountActiveHint"),
         accountCount: (count) => t("chat.connectionAccountCount", { count }),
         connectProvider: t("chat.connectionConnectDescription"),
         defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),

@@ -19,6 +19,7 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 import { branding } from "../../../electron/branding.ts"
+import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { SectionHeading } from "@/components/SectionHeading"
@@ -374,26 +375,10 @@ function getUpdateStatusText(update: UseAppUpdate, t: ReturnType<typeof useI18n>
 }
 
 function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
-  const [failed, setFailed] = React.useState(false)
-
-  React.useEffect(() => {
-    setFailed(false)
-  }, [avatarUrl])
-
   return (
-    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground">
-      {avatarUrl && !failed ? (
-        <img
-          src={avatarUrl}
-          alt=""
-          className="size-full object-cover"
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        name.trim().charAt(0).toLocaleUpperCase() || "L"
-      )}
+    <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground">
+      <span>{name.trim().charAt(0).toLocaleUpperCase() || "L"}</span>
+      <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </div>
   )
 }

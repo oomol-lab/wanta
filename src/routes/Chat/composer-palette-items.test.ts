@@ -37,7 +37,7 @@ const translations: Record<string, string> = {
   "chat.contextAttachFolderDescription": "Choose a folder from disk for this turn",
   "chat.contextGeneratedArtifactDescription": "Reference a generated file from this chat",
   "chat.contextGeneratedImageDescription": "Reference a generated image from this chat",
-  "chat.connectionAccountCount": "{count} accounts ›",
+  "chat.connectionAccountCount": "{count} accounts",
   "chat.connectionConnectDescription": "Connect it to use this connector",
   "chat.connectionDefaultAccountDescription": "Default · {account}",
   "chat.connectionSetDefaultAndUse": "Set default and use",
@@ -47,7 +47,8 @@ const translations: Record<string, string> = {
 
 const t = ((key: string) => translations[key] ?? key) as TranslateFn
 const connectionPaletteCopy = {
-  accountCount: (count: number) => `${count} accounts ›`,
+  accountActiveHint: "Click right arrow to choose",
+  accountCount: (count: number) => `${count} accounts`,
   connectProvider: t("chat.connectionConnectDescription"),
   defaultAccountDescription: (account: string) => t("chat.connectionDefaultAccountDescription", { account }),
   defaultLabel: "Default",
@@ -337,7 +338,10 @@ describe("composer palette items", () => {
       canOpenAccounts: true,
       connectionAction: "use",
       id: "connection-provider:gmail",
-      secondaryActionLabel: "2 accounts ›",
+      meta: undefined,
+      secondaryActionActiveLabel: "Click right arrow to choose",
+      secondaryActionLabel: "2 accounts",
+      secondaryActionTitle: "2 accounts · Click right arrow to choose",
     })
 
     const accountItems = buildConnectionAccountPaletteItems(provider, connectionPaletteCopy)
@@ -475,7 +479,9 @@ describe("composer palette items", () => {
       appId: "app-active",
       connectionAction: "use",
       disabled: false,
-      secondaryActionLabel: "2 accounts ›",
+      secondaryActionActiveLabel: "Click right arrow to choose",
+      secondaryActionLabel: "2 accounts",
+      secondaryActionTitle: "2 accounts · Click right arrow to choose",
     })
   })
 })

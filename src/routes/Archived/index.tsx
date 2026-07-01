@@ -46,11 +46,11 @@ import { cn } from "@/lib/utils"
 interface ArchivedRouteProps {
   listArchived: () => Promise<SessionInfo[]>
   onBack: () => void
-  onOpenSession: (sessionId: string) => void
+  onOpenSession: (session: SessionInfo) => void
   refreshSessions: () => Promise<void>
   removeSession: (id: string) => Promise<void>
   ready: boolean
-  unarchiveSession: (id: string) => Promise<void>
+  unarchiveSession: (id: string) => Promise<SessionInfo | null>
 }
 
 const sortOptions = [
@@ -148,15 +148,30 @@ export function ArchivedRoute({
     }
   }
 
+  const restoreSession = async (session: SessionInfo): Promise<SessionInfo | null> => {
+    setPendingSessionId(session.id)
+    try {
+      const restored = await unarchiveSession(session.id)
+      await Promise.all([refreshArchived(), refreshSessions()])
+      return restored
+    } catch (cause) {
+      const notice = resolveUserFacingError(cause, { area: "session" })
+      toast.error(userFacingErrorDescription(notice, t))
+      return null
+    } finally {
+      setPendingSessionId(null)
+    }
+  }
+
   const handleOpen = async (session: SessionInfo): Promise<void> => {
-    const restored = await runSessionAction(session.id, () => unarchiveSession(session.id))
+    const restored = await restoreSession(session)
     if (restored) {
-      onOpenSession(session.id)
+      onOpenSession(restored)
     }
   }
 
   const handleRestore = async (session: SessionInfo): Promise<void> => {
-    const restored = await runSessionAction(session.id, () => unarchiveSession(session.id))
+    const restored = await restoreSession(session)
     if (restored) {
       toast.success(t("archived.restoredToast"))
     }

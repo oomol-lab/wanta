@@ -125,6 +125,12 @@ interface ConnectionAuthIntent {
   source: "chat"
 }
 
+interface ChatConnectionDrawerState {
+  authIntent: ConnectionAuthIntent | null
+  open: boolean
+  selectedService: string | null
+}
+
 const ArtifactsPanel = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.ArtifactsPanel })),
 )
@@ -154,6 +160,7 @@ const SIDEBAR_MIN_WIDTH_PX = 220
 const SIDEBAR_MAX_WIDTH_PX = 420
 const SIDEBAR_WIDTH_STORAGE_KEY = "wanta.sidebarWidth"
 const CHAT_AREA_MIN_WIDTH_PX = 420
+const CHAT_CONNECTION_DRAWER_WIDTH = "min(31.5rem, 38vw)"
 const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
 const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
 const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
@@ -179,6 +186,17 @@ function releaseTransientFocus(): void {
 
 function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
+}
+
+function ConnectionDrawerLoadingFallback() {
+  return (
+    <div className="h-full min-h-0 px-3 py-3">
+      <section className="grid gap-3 rounded-lg border bg-muted/30 px-3 py-3">
+        <div className="h-4 w-32 rounded-sm bg-muted" />
+        <div className="h-3 w-56 max-w-full rounded-sm bg-muted" />
+      </section>
+    </div>
+  )
 }
 
 interface TurnRetryOptions {
@@ -331,13 +349,9 @@ function projectContextFromProject(
 function activeProjectIdForComposer({
   activeSession,
   draftProjectId,
-  projects,
-  sidebarSegment,
 }: {
   activeSession?: SessionInfo
   draftProjectId: string | null
-  projects: SessionProject[]
-  sidebarSegment: SidebarSegment
 }): string | undefined {
   if (activeSession?.projectId) {
     return activeSession.projectId
@@ -348,7 +362,7 @@ function activeProjectIdForComposer({
   if (draftProjectId) {
     return draftProjectId
   }
-  return sidebarSegment === "projects" ? projects[0]?.id : undefined
+  return undefined
 }
 
 function buildProjectSidebarGroups(projects: SessionProject[], sessions: SessionInfo[]): ProjectSidebarGroup[] {
@@ -1730,6 +1744,8 @@ export function AppShell() {
   const sessionsEnabled = auth.state?.status === "authenticated" && sessionScope !== null
   const {
     sessions,
+    taskSessions,
+    projectSessions,
     projects,
     loaded: sessionsLoaded,
     error: sessionsError,
@@ -1789,7 +1805,9 @@ export function AppShell() {
     return new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group]))
   }, [skillInventory.data?.groups])
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
-  const [connectionAuthIntent, setConnectionAuthIntent] = React.useState<ConnectionAuthIntent | null>(null)
+  const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
+    {},
+  )
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
   const pendingRetry = React.useRef<{
     sessionId: string
@@ -1803,7 +1821,12 @@ export function AppShell() {
     reasoningLevel?: ReasoningLevel
     mode?: AgentMode
   } | null>(null)
-  const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{ service: string; startedAt: number } | null>(null)
+  const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{
+    drawerKey: string
+    service: string
+    sessionId: string
+    startedAt: number
+  } | null>(null)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
@@ -1836,6 +1859,10 @@ export function AppShell() {
   React.useEffect(() => {
     sidebarCollapsedRef.current = sidebarCollapsed
   }, [sidebarCollapsed])
+  const activeSidebarSessions = React.useMemo(
+    () => (sidebarSegment === "projects" ? projectSessions : taskSessions),
+    [projectSessions, sidebarSegment, taskSessions],
+  )
 
   const focusOrganizationSkills = React.useCallback(() => {
     setRoute("skills")
@@ -1999,10 +2026,25 @@ export function AppShell() {
 
   // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
   React.useLayoutEffect(() => {
-    if (sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0) {
-      setActiveSessionId(sessions[0].id)
+    if (sessionsLoaded && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0) {
+      setActiveSessionId(activeSidebarSessions[0].id)
     }
-  }, [sessions, sessionsLoaded, activeSessionId, isDraftSession])
+  }, [activeSidebarSessions, sessionsLoaded, activeSessionId, isDraftSession])
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || isDraftSession || !activeSessionId) {
+      return
+    }
+    if (activeSidebarSessions.some((session) => session.id === activeSessionId)) {
+      return
+    }
+    if (sessions.some((session) => session.id === activeSessionId)) {
+      return
+    }
+    setActiveSessionId(activeSidebarSessions[0]?.id ?? null)
+    setDraftProjectId(null)
+    setPendingChatTransition(null)
+  }, [activeSessionId, activeSidebarSessions, isDraftSession, sessions, sessionsLoaded])
 
   React.useEffect(() => {
     if (!sessionsLoaded || !activeSessionId) {
@@ -2033,10 +2075,21 @@ export function AppShell() {
     let cancelled = false
     const refreshUntilConnected = async (): Promise<void> => {
       if (Date.now() - pendingRetryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
-        if (!cancelled && pendingRetry.current?.service === pendingRetryWatch.service) {
+        if (
+          !cancelled &&
+          pendingRetry.current?.sessionId === pendingRetryWatch.sessionId &&
+          pendingRetry.current.service === pendingRetryWatch.service
+        ) {
           pendingRetry.current = null
         }
-        setConnectionAuthIntent((intent) => (intent?.service === pendingRetryWatch.service ? null : intent))
+        setChatConnectionDrawers((current) => {
+          if (!Object.hasOwn(current, pendingRetryWatch.drawerKey)) {
+            return current
+          }
+          const next = { ...current }
+          delete next[pendingRetryWatch.drawerKey]
+          return next
+        })
         setPendingRetryWatch(null)
         return
       }
@@ -2064,8 +2117,14 @@ export function AppShell() {
     if (connected) {
       pendingRetry.current = null
       setPendingRetryWatch(null)
-      setSelectedService(null)
-      setConnectionAuthIntent(null)
+      setChatConnectionDrawers((current) => {
+        if (!Object.hasOwn(current, pending.sessionId)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[pending.sessionId]
+        return next
+      })
       setRoute("chat")
       void send(pending.sessionId, pending.text, pending.attachments, {
         contextMentions: pending.contextMentions ?? [],
@@ -2080,8 +2139,8 @@ export function AppShell() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const activeProjectId = React.useMemo(
-    () => activeProjectIdForComposer({ activeSession, draftProjectId, projects, sidebarSegment }),
-    [activeSession, draftProjectId, projects, sidebarSegment],
+    () => activeProjectIdForComposer({ activeSession, draftProjectId }),
+    [activeSession, draftProjectId],
   )
   const activeProject = React.useMemo(() => {
     return activeProjectId ? projects.find((project) => project.id === activeProjectId) : undefined
@@ -2091,15 +2150,18 @@ export function AppShell() {
     () => projectContextFromProject(activeProject, projectGit.state),
     [activeProject, projectGit.state],
   )
-  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(sessions), [sessions])
+  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(taskSessions), [taskSessions])
   const projectPinnedSessions = React.useMemo(
     () =>
-      sessions
+      projectSessions
         .filter((session) => session.projectId && session.pinnedAt && !session.archivedAt)
         .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0)),
-    [sessions],
+    [projectSessions],
   )
-  const projectSidebarGroups = React.useMemo(() => buildProjectSidebarGroups(projects, sessions), [projects, sessions])
+  const projectSidebarGroups = React.useMemo(
+    () => buildProjectSidebarGroups(projects, projectSessions),
+    [projectSessions, projects],
+  )
   const projectCollapsedStorageKey = React.useMemo(
     () => projectSidebarCollapsedStorageKey(auth.state?.account?.id, sessionScope),
     [auth.state?.account?.id, sessionScope],
@@ -2114,11 +2176,19 @@ export function AppShell() {
   const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
   const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
+  const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
+  const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
+  const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
+  const chatConnectionDrawerVisible =
+    route === "chat" &&
+    activeChatConnectionDrawer?.open === true &&
+    Boolean(chatConnectionAuthIntent || chatConnectionSelectedService)
   const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
-  const needsDefaultSessionSelection = sessionsLoaded && !isDraftSession && !activeSessionId && sessions.length > 0
+  const needsDefaultSessionSelection =
+    sessionsLoaded && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0
   const startupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
   const hasVisibleLoadedSession = Boolean(activeSessionId && messagesLoaded)
@@ -2493,17 +2563,35 @@ export function AppShell() {
   }, [])
 
   const handleOpenConnections = React.useCallback((): void => {
-    setConnectionAuthIntent(null)
+    setChatConnectionDrawers((current) => {
+      if (!Object.hasOwn(current, activeComposerDraftKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[activeComposerDraftKey]
+      return next
+    })
     setSelectedService(null)
     setRoute("connections")
-  }, [])
+  }, [activeComposerDraftKey])
+  const handleCloseChatConnectionDrawer = React.useCallback((): void => {
+    setChatConnectionDrawers((current) => {
+      if (!Object.hasOwn(current, activeComposerDraftKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[activeComposerDraftKey]
+      return next
+    })
+  }, [activeComposerDraftKey])
 
   const handleNewSession = React.useCallback((): void => {
     setActiveSessionId(null)
     setIsDraftSession(true)
-    setDraftProjectId(null)
+    setDraftProjectId(NO_DRAFT_PROJECT_ID)
     setPendingChatTransition(null)
     setRoute("chat")
+    setSidebarSegment("tasks")
     setSearchOpen(false)
     setComposerFocusRequest((request) => request + 1)
   }, [])
@@ -2525,6 +2613,7 @@ export function AppShell() {
         try {
           await assignSessionProject(activeSessionId, projectId)
           await refreshSessions()
+          setSidebarSegment(projectId ? "projects" : "tasks")
         } catch (cause) {
           const notice = resolveUserFacingError(cause, { area: "session" })
           toast.error(userFacingErrorDescription(notice, t))
@@ -2534,6 +2623,7 @@ export function AppShell() {
       setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
       setIsDraftSession(true)
       setRoute("chat")
+      setSidebarSegment(projectId ? "projects" : "tasks")
     },
     [activeSessionId, assignSessionProject, isDraftSession, refreshSessions, t],
   )
@@ -2587,6 +2677,7 @@ export function AppShell() {
     setIsDraftSession(false)
     setDraftProjectId(null)
     setRoute("chat")
+    setSidebarSegment(session.projectId ? "projects" : "tasks")
   }, [])
 
   const refreshGeneratedTitle = React.useCallback(
@@ -2993,7 +3084,7 @@ export function AppShell() {
       setArchiveConfirming(false)
     }
     if (activeSessionId === session.id) {
-      setActiveSessionId(nextActiveSessionIdAfterArchive(sessions, session.id))
+      setActiveSessionId(nextActiveSessionIdAfterArchive(activeSidebarSessions, session.id))
       setIsDraftSession(false)
       setPendingChatTransition(null)
       setRoute("chat")
@@ -3003,11 +3094,9 @@ export function AppShell() {
 
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo, source?: ChatTurnRetrySource): void => {
-      // R5 闭环：打开连接页并定位该 provider；记录原 action，待用户完成授权后自动重试。
-      setRoute("connections")
-      setSelectedService(auth.service)
+      // R5 闭环：打开聊天内连接抽屉并定位该 provider；记录原 action，待用户完成授权后自动重试。
       const createdAt = Date.now()
-      setConnectionAuthIntent({
+      const authIntent: ConnectionAuthIntent = {
         action: auth.action,
         createdAt,
         displayName: auth.displayName,
@@ -3016,7 +3105,15 @@ export function AppShell() {
         message: auth.message,
         service: auth.service,
         source: "chat",
-      })
+      }
+      setChatConnectionDrawers((current) => ({
+        ...current,
+        [activeComposerDraftKey]: {
+          authIntent,
+          open: true,
+          selectedService: auth.service,
+        },
+      }))
       if (activeSessionId && source && (source.text || source.attachments.length > 0)) {
         const retryKey = chatTurnInputKey(source)
         const storedOptions = turnRetryOptionsBySession.current.get(activeSessionId)?.get(retryKey)
@@ -3032,11 +3129,22 @@ export function AppShell() {
           reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeSessionId),
           mode: storedOptions?.mode ?? lastModeBySession.current.get(activeSessionId),
         }
-        setPendingRetryWatch({ service: auth.service, startedAt: Date.now() })
+        setPendingRetryWatch({
+          drawerKey: activeComposerDraftKey,
+          service: auth.service,
+          sessionId: activeSessionId,
+          startedAt: Date.now(),
+        })
         void connections.refresh({ forceRefresh: true })
       }
     },
-    [activeProjectContext, activeSessionId, connections.refresh, organizationSkills.chatContextSkills],
+    [
+      activeComposerDraftKey,
+      activeProjectContext,
+      activeSessionId,
+      connections.refresh,
+      organizationSkills.chatContextSkills,
+    ],
   )
   const handleToggleSidebar = React.useCallback((): void => {
     setSidebarCollapsed((collapsed) => {
@@ -3278,11 +3386,12 @@ export function AppShell() {
         <ArchivedRoute
           listArchived={listArchived}
           onBack={() => setRoute("chat")}
-          onOpenSession={(sessionId) => {
-            setActiveSessionId(sessionId)
+          onOpenSession={(session) => {
+            setActiveSessionId(session.id)
             setIsDraftSession(false)
             setPendingChatTransition(null)
             setRoute("chat")
+            setSidebarSegment(session.projectId ? "projects" : "tasks")
           }}
           refreshSessions={refreshSessions}
           removeSession={removeSession}
@@ -3427,7 +3536,7 @@ export function AppShell() {
                           hasUnreadSession={hasUnreadSession}
                           isSessionRunning={isSessionRunning}
                           now={relativeTimeNow}
-                          running={projectHasRunningSession(group.project.id, sessions, isSessionRunning)}
+                          running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
                           onExpandedChange={(expanded) =>
                             handleProjectSidebarExpandedChange(group.project.id, expanded)
                           }
@@ -3443,7 +3552,7 @@ export function AppShell() {
                 ) : (
                   <ProjectSidebarEmptyState onSelectFolder={() => void handleSelectProjectFolder()} />
                 )
-              ) : sessions.length > 0 ? (
+              ) : taskSessions.length > 0 ? (
                 <div className="grid gap-3">
                   {sidebarSessionGroups.pinned.length > 0 ? (
                     <div className="grid gap-0.5">
@@ -3577,11 +3686,7 @@ export function AppShell() {
             <React.Suspense fallback={<RouteLoadingFallback />}>
               {route === "connections" ? (
                 <div className="h-full min-h-0 p-0">
-                  <ConnectionsPanel
-                    authIntent={connectionAuthIntent}
-                    connections={connections}
-                    selectedService={selectedService}
-                  />
+                  <ConnectionsPanel connections={connections} selectedService={selectedService} />
                 </div>
               ) : route === "skills" ? (
                 <SkillsRoute
@@ -3598,68 +3703,93 @@ export function AppShell() {
                   onOpenOrganizationSkills={focusOrganizationSkills}
                 />
               ) : (
-                <div className="h-full min-h-0 overflow-hidden">
-                  <ChatArea
-                    activeSessionId={activeSessionId}
-                    billingCacheScope={billingCacheScope}
-                    composerDraftKey={activeComposerDraftKey}
-                    messages={bridgeInitialSendPending ? [] : messages}
-                    status={displayedStatus}
-                    activity={bridgeInitialSendPending ? null : activity}
-                    showEmptyState={showChatEmptyState}
-                    bootstrapping={chatBootstrapping}
-                    startupError={startupError}
-                    error={error}
-                    emptyTitle={chatEmptyTitle}
-                    generatedArtifacts={artifactSelection}
-                    submitDisabled={!ready || chatBootstrapping}
-                    initialComposerState={initialComposerState}
-                    initialSendPending={initialSendPending}
-                    composerFocusRequest={composerFocusRequest}
-                    organizationSkills={organizationSkills.chatContextSkills}
-                    providers={activeProviders}
-                    queueHeld={activeQueueHeld}
-                    queuedMessages={activeQueuedMessages}
-                    contextBar={
-                      showComposerProjectContext ? (
-                        <ProjectContextBar
-                          activeProject={activeProject}
-                          disabled={!ready || Boolean(activeSessionId && isSessionRunning(activeSessionId))}
-                          gitError={projectGit.error}
-                          gitLoading={projectGit.loading}
-                          gitState={projectGit.state}
-                          projects={projects}
-                          onCheckoutBranch={projectGit.checkoutBranch}
-                          onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
-                          onCreateProject={() => void handleSelectComposerProjectFolder()}
-                          onRefreshGit={projectGit.refresh}
-                          onSelectProject={handleSelectComposerProject}
+                <div className="flex h-full min-h-0 overflow-hidden">
+                  <div className="min-w-0 flex-1">
+                    <ChatArea
+                      activeSessionId={activeSessionId}
+                      billingCacheScope={billingCacheScope}
+                      composerDraftKey={activeComposerDraftKey}
+                      messages={bridgeInitialSendPending ? [] : messages}
+                      status={displayedStatus}
+                      activity={bridgeInitialSendPending ? null : activity}
+                      showEmptyState={showChatEmptyState}
+                      bootstrapping={chatBootstrapping}
+                      startupError={startupError}
+                      error={error}
+                      emptyTitle={chatEmptyTitle}
+                      generatedArtifacts={artifactSelection}
+                      submitDisabled={!ready || chatBootstrapping}
+                      initialComposerState={initialComposerState}
+                      initialSendPending={initialSendPending}
+                      composerFocusRequest={composerFocusRequest}
+                      organizationSkills={organizationSkills.chatContextSkills}
+                      providers={activeProviders}
+                      queueHeld={activeQueueHeld}
+                      queuedMessages={activeQueuedMessages}
+                      contextBar={
+                        showComposerProjectContext ? (
+                          <ProjectContextBar
+                            activeProject={activeProject}
+                            disabled={!ready || Boolean(activeSessionId && isSessionRunning(activeSessionId))}
+                            gitError={projectGit.error}
+                            gitLoading={projectGit.loading}
+                            gitState={projectGit.state}
+                            projects={projects}
+                            onCheckoutBranch={projectGit.checkoutBranch}
+                            onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
+                            onCreateProject={() => void handleSelectComposerProjectFolder()}
+                            onRefreshGit={projectGit.refresh}
+                            onSelectProject={handleSelectComposerProject}
+                          />
+                        ) : null
+                      }
+                      placeholder={
+                        startupError
+                          ? t("error.agent.title")
+                          : ready
+                            ? t("chat.inputPlaceholder")
+                            : t("chat.agentStarting")
+                      }
+                      onComposerStateChange={handleComposerStateChange}
+                      onSend={handleSend}
+                      onSetDefaultConnection={connections.setDefaultAccount}
+                      onStop={handleChatStop}
+                      onQueuedMessageMove={handleQueuedMessageMove}
+                      onQueuedMessageRemove={handleQueuedMessageRemove}
+                      onQueuedMessageResume={handleQueuedMessageResume}
+                      onAuthorize={handleAuthorize}
+                      onArtifactsReset={handleArtifactsReset}
+                      onArtifactsOpen={handleArtifactsOpen}
+                      onArtifactsAvailable={handleArtifactsAvailable}
+                      onTurnOutputOpen={handleTurnOutputOpen}
+                      onTurnOutputAvailable={handleTurnOutputAvailable}
+                      onOpenConnections={handleOpenConnections}
+                      onOpenOrganizations={() => setRoute("organizations")}
+                      onViewBilling={handleViewBilling}
+                    />
+                  </div>
+                  <aside
+                    className={cn(
+                      "oo-border-divider min-h-0 shrink-0 overflow-hidden border-l bg-background transition-[width,opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+                      chatConnectionDrawerVisible
+                        ? "translate-x-0 opacity-100"
+                        : "pointer-events-none translate-x-3 opacity-0",
+                    )}
+                    style={{ width: chatConnectionDrawerVisible ? CHAT_CONNECTION_DRAWER_WIDTH : "0px" }}
+                    aria-hidden={!chatConnectionDrawerVisible}
+                  >
+                    {chatConnectionDrawerVisible ? (
+                      <React.Suspense fallback={<ConnectionDrawerLoadingFallback />}>
+                        <ConnectionsPanel
+                          authIntent={chatConnectionAuthIntent}
+                          connections={connections}
+                          onClose={handleCloseChatConnectionDrawer}
+                          presentation="drawer"
+                          selectedService={chatConnectionSelectedService}
                         />
-                      ) : null
-                    }
-                    placeholder={
-                      startupError
-                        ? t("error.agent.title")
-                        : ready
-                          ? t("chat.inputPlaceholder")
-                          : t("chat.agentStarting")
-                    }
-                    onComposerStateChange={handleComposerStateChange}
-                    onSend={handleSend}
-                    onStop={handleChatStop}
-                    onQueuedMessageMove={handleQueuedMessageMove}
-                    onQueuedMessageRemove={handleQueuedMessageRemove}
-                    onQueuedMessageResume={handleQueuedMessageResume}
-                    onAuthorize={handleAuthorize}
-                    onArtifactsReset={handleArtifactsReset}
-                    onArtifactsOpen={handleArtifactsOpen}
-                    onArtifactsAvailable={handleArtifactsAvailable}
-                    onTurnOutputOpen={handleTurnOutputOpen}
-                    onTurnOutputAvailable={handleTurnOutputAvailable}
-                    onOpenConnections={handleOpenConnections}
-                    onOpenOrganizations={() => setRoute("organizations")}
-                    onViewBilling={handleViewBilling}
-                  />
+                      </React.Suspense>
+                    ) : null}
+                  </aside>
                 </div>
               )}
             </React.Suspense>
@@ -3733,10 +3863,8 @@ export function AppShell() {
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
         onSelect={(session) => {
-          setActiveSessionId(session.id)
-          setIsDraftSession(false)
+          handleSelectSession(session)
           setPendingChatTransition(null)
-          setRoute("chat")
           setSearchOpen(false)
         }}
       />

@@ -1,9 +1,11 @@
+import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup } from "../../../electron/skills/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import { describe, expect, it } from "vitest"
 import {
   buildArtifactPaletteItems,
+  buildConnectionAccountPaletteItems,
   buildConnectionPaletteItems,
   buildContextPaletteItems,
   buildSkillPaletteItems,
@@ -30,9 +32,21 @@ const translations: Record<string, string> = {
   "chat.contextAttachFolderDescription": "Choose a folder from disk for this turn",
   "chat.contextGeneratedArtifactDescription": "Reference a generated file from this chat",
   "chat.contextGeneratedImageDescription": "Reference a generated image from this chat",
+  "chat.connectionAccountCount": "{count} accounts ›",
+  "chat.connectionDefaultAccountDescription": "Default · {account}",
+  "chat.connectionSetDefaultAndUse": "Set default and use",
+  "chat.connectionUseForThisTurn": "Use for this turn",
 }
 
 const t = ((key: string) => translations[key] ?? key) as TranslateFn
+const connectionPaletteCopy = {
+  accountCount: (count: number) => `${count} accounts ›`,
+  defaultAccountDescription: (account: string) => t("chat.connectionDefaultAccountDescription", { account }),
+  defaultLabel: "Default",
+  needsAttention: "Needs attention",
+  setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+  useForThisTurn: t("chat.connectionUseForThisTurn"),
+}
 
 function runtimeSkillGroup(id: string): ManagedSkillGroup {
   return {
@@ -125,7 +139,18 @@ describe("composer palette items", () => {
           appCount: 1,
           appId: "app-1",
           appStatus: "active",
-          apps: [],
+          apps: [
+            {
+              accountLabel: "work@example.com",
+              authType: "oauth2",
+              createdAt: 1,
+              id: "app-1",
+              isDefault: true,
+              service: "gmail",
+              status: "active",
+              updatedAt: 1,
+            },
+          ],
           authTypes: ["oauth2"],
           canDisconnect: true,
           categoryLabels: [],
@@ -146,6 +171,7 @@ describe("composer palette items", () => {
         },
       ],
       (service) => `Use ${service}`,
+      connectionPaletteCopy,
     )
     const items = buildContextPaletteItems({ artifactItems: artifacts, connectionItems: connections, t })
 
@@ -154,7 +180,72 @@ describe("composer palette items", () => {
       "context:attach-folder",
       "artifact:/tmp/artifacts/corgi.png",
       "artifact:/tmp/artifacts/notes.md",
-      "connection:gmail:app-1",
+      "connection-provider:gmail",
     ])
+  })
+
+  it("builds account-aware connection palette items", () => {
+    const provider: ConnectionProvider = {
+      actionKind: "oauth2",
+      appCount: 2,
+      appId: "app-work",
+      appStatus: "active",
+      apps: [
+        {
+          accountLabel: "personal@example.com",
+          authType: "oauth2",
+          createdAt: 1,
+          id: "app-personal",
+          isDefault: false,
+          service: "gmail",
+          status: "active",
+          updatedAt: 1,
+        },
+        {
+          accountLabel: "work@example.com",
+          authType: "oauth2",
+          createdAt: 2,
+          id: "app-work",
+          isDefault: true,
+          service: "gmail",
+          status: "active",
+          updatedAt: 2,
+        },
+      ],
+      authTypes: ["oauth2"],
+      canDisconnect: true,
+      categoryLabels: [],
+      displayName: "Gmail",
+      service: "gmail",
+      status: "connected",
+    }
+    const items = buildConnectionPaletteItems([provider], (service) => `Use ${service}`, connectionPaletteCopy)
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      accountCount: 2,
+      accountLabel: "work@example.com",
+      appId: "app-work",
+      canOpenAccounts: true,
+      id: "connection-provider:gmail",
+      secondaryActionLabel: "2 accounts ›",
+    })
+
+    const accountItems = buildConnectionAccountPaletteItems(provider, connectionPaletteCopy)
+    expect(accountItems.map((item) => item.id)).toEqual([
+      "connection-account:gmail:app-work",
+      "connection-account:gmail:app-personal",
+    ])
+    expect(accountItems[0]).toMatchObject({
+      appId: "app-work",
+      isDefault: true,
+      meta: "Default",
+      secondaryActionLabel: undefined,
+    })
+    expect(accountItems[1]).toMatchObject({
+      appId: "app-personal",
+      isDefault: false,
+      secondaryActionLabel: "Set default and use",
+    })
   })
 })

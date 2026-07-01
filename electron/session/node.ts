@@ -7,6 +7,7 @@ import type {
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
   SessionInfo,
+  SessionPlacement,
   SessionProject,
   SessionScope,
   SessionScopeRequest,
@@ -70,6 +71,10 @@ function createRequestProjectId(req?: CreateSessionRequest | string): string | u
   return projectId || undefined
 }
 
+function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {
+  return placement === "project" || placement === "task" ? placement : "all"
+}
+
 function normalizeProjectPath(projectPath: string): string {
   return projectPath.trim().replace(/[\\/]+$/, "")
 }
@@ -122,7 +127,13 @@ export class SessionServiceImpl
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
-    return this.mergeLocalState(await this.agent.listSessions(), "active", normalizeSessionScope(req.scope))
+    await this.ensureProjectsLoaded()
+    return this.mergeLocalState(
+      await this.agent.listSessions(),
+      "active",
+      normalizeSessionScope(req.scope),
+      normalizeSessionPlacement(req.placement),
+    )
   }
 
   public async listArchived(req: SessionScopeRequest = {}): Promise<SessionInfo[]> {
@@ -131,7 +142,13 @@ export class SessionServiceImpl
     }
     await this.ensureActivityLoaded()
     await this.ensureMetadataLoaded()
-    return this.mergeLocalState(await this.agent.listSessions(), "archived", normalizeSessionScope(req.scope))
+    await this.ensureProjectsLoaded()
+    return this.mergeLocalState(
+      await this.agent.listSessions(),
+      "archived",
+      normalizeSessionScope(req.scope),
+      normalizeSessionPlacement(req.placement),
+    )
   }
 
   public async listProjects(req: SessionScopeRequest = {}): Promise<SessionProject[]> {
@@ -294,20 +311,22 @@ export class SessionServiceImpl
     void this.broadcastChanged().catch(() => undefined)
   }
 
-  public async unarchive(id: string): Promise<void> {
+  public async unarchive(id: string): Promise<SessionInfo | null> {
     if (!this.agent) {
-      return
+      return null
     }
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(id)
     if (!current) {
-      return
+      return null
     }
     const next = { ...current }
     delete next.archivedAt
     this.setMetadataEntry(id, next)
     await this.persistMetadata()
+    const restored = await this.resolveSession(id, "active")
     void this.broadcastChanged().catch(() => undefined)
+    return restored
   }
 
   public async remove(id: string): Promise<void> {
@@ -442,25 +461,64 @@ export class SessionServiceImpl
     }
   }
 
+  private async resolveSession(id: string, visibility: "active" | "archived"): Promise<SessionInfo | null> {
+    if (!this.agent) {
+      return null
+    }
+    await this.ensureActivityLoaded()
+    await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
+    const session = (await this.agent.listSessions()).find((item) => item.id === id)
+    if (!session) {
+      return null
+    }
+
+    const usedAt = this.sessionActivityAt.get(session.id)
+    const metadata = this.sessionMetadata.get(session.id)
+    const scope = normalizeSessionScope(metadata?.scope)
+    const project = this.resolveValidSessionProject(metadata?.projectId, scope)
+    const resolved: SessionInfo = {
+      ...session,
+      scope,
+      ...(project ? { projectId: project.id } : {}),
+      ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
+      ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
+      ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
+    }
+    if (visibility === "archived" ? !resolved.archivedAt : resolved.archivedAt) {
+      return null
+    }
+    if (resolved.archivedAt && resolved.pinnedAt) {
+      const next = { ...resolved }
+      delete next.pinnedAt
+      return next
+    }
+    return resolved
+  }
+
   private mergeLocalState(
     sessions: SessionInfo[],
     visibility: "active" | "archived",
     requestedScope: SessionScope,
+    placement: SessionPlacement,
   ): SessionInfo[] {
     return sessions
       .map((session) => {
         const usedAt = this.sessionActivityAt.get(session.id)
         const metadata = this.sessionMetadata.get(session.id)
+        const scope = normalizeSessionScope(metadata?.scope)
+        const project = this.resolveValidSessionProject(metadata?.projectId, scope)
         return {
           ...session,
-          scope: normalizeSessionScope(metadata?.scope),
-          ...(metadata?.projectId ? { projectId: metadata.projectId } : {}),
+          scope,
+          ...(project ? { projectId: project.id } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
           ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
         }
       })
       .filter((session) => sessionScopeMatches(session.scope, requestedScope))
+      .filter((session) => this.sessionPlacementMatches(session, placement))
       .filter((session) => (visibility === "archived" ? Boolean(session.archivedAt) : !session.archivedAt))
       .map((session) => {
         if (session.archivedAt && session.pinnedAt) {
@@ -471,6 +529,27 @@ export class SessionServiceImpl
         return session
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
+  private sessionPlacementMatches(session: SessionInfo, placement: SessionPlacement): boolean {
+    if (placement === "all") {
+      return true
+    }
+    const hasValidProject = Boolean(
+      this.resolveValidSessionProject(session.projectId, normalizeSessionScope(session.scope)),
+    )
+    return placement === "project" ? hasValidProject : !hasValidProject
+  }
+
+  private resolveValidSessionProject(
+    projectId: string | undefined,
+    sessionScope: SessionScope,
+  ): SessionProject | undefined {
+    const project = projectId ? this.projects.get(projectId) : undefined
+    if (!project || project.archivedAt || !sessionScopeMatches(project.scope, sessionScope)) {
+      return undefined
+    }
+    return project
   }
 
   private async broadcastChanged(): Promise<void> {

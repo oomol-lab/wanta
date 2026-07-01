@@ -7,7 +7,11 @@ export interface ComposerPaletteItem {
   disabled?: boolean
   icon: React.ReactNode
   id: string
+  keywords?: string[]
   meta?: string
+  secondaryActionDisabled?: boolean
+  secondaryActionLabel?: string
+  secondaryActionTitle?: string
   title: string
 }
 
@@ -18,6 +22,7 @@ export interface ComposerPaletteProps<TItem extends ComposerPaletteItem = Compos
   items: TItem[]
   onBack?: () => void
   onSelect: (item: TItem) => void
+  onSecondarySelect?: (item: TItem) => void
 }
 
 function readTitlebarHeight(): number {
@@ -33,9 +38,10 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
   items,
   onBack,
   onSelect,
+  onSecondarySelect,
 }: ComposerPaletteProps<TItem>) {
   const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const activeItemRef = React.useRef<HTMLButtonElement | null>(null)
+  const activeItemRef = React.useRef<HTMLDivElement | null>(null)
   const [maxHeight, setMaxHeight] = React.useState<number | undefined>(undefined)
 
   const updateMaxHeight = React.useCallback(() => {
@@ -102,33 +108,54 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
         items.map((item) => {
           const active = item.id === activeId
           return (
-            <button
+            <div
               key={item.id}
               ref={active ? activeItemRef : undefined}
-              type="button"
-              disabled={item.disabled}
               className={cn(
                 "flex h-12 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left outline-none",
-                "hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
                 active && "bg-accent text-accent-foreground",
                 item.disabled && "cursor-not-allowed opacity-55",
               )}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onSelect(item)}
             >
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                {item.icon}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="oo-text-label block truncate">{item.title}</span>
-                <span className="oo-text-caption-compact block truncate text-muted-foreground">{item.description}</span>
-              </span>
-              {item.meta ? (
-                <span className="oo-text-caption-compact max-w-24 shrink-0 truncate text-muted-foreground">
+              <button
+                type="button"
+                disabled={item.disabled}
+                className={cn(
+                  "-mx-2 flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left outline-none",
+                  "hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                  active && "text-accent-foreground",
+                  item.disabled && "cursor-not-allowed",
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onSelect(item)}
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                  {item.icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="oo-text-label block truncate">{item.title}</span>
+                  <span className="oo-text-caption-compact block truncate text-muted-foreground">
+                    {item.description}
+                  </span>
+                </span>
+              </button>
+              {item.secondaryActionLabel && onSecondarySelect ? (
+                <button
+                  type="button"
+                  title={item.secondaryActionTitle ?? item.secondaryActionLabel}
+                  disabled={item.secondaryActionDisabled}
+                  className="oo-text-caption-compact ml-1 max-w-36 shrink-0 truncate rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:bg-background focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onSecondarySelect(item)}
+                >
+                  {item.secondaryActionLabel}
+                </button>
+              ) : item.meta ? (
+                <span className="oo-text-caption-compact ml-1 max-w-24 shrink-0 truncate text-muted-foreground">
                   {item.meta}
                 </span>
               ) : null}
-            </button>
+            </div>
           )
         })
       ) : (

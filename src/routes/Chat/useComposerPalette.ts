@@ -3,7 +3,9 @@ import type {
   ArtifactPaletteItem,
   AttachmentPaletteItem,
   ChatComposerPaletteItem,
+  ConnectionAccountPaletteItem,
   ConnectionPaletteItem,
+  ConnectionProviderPaletteItem,
   SkillPaletteItem,
   SlashCommandPaletteItem,
 } from "./composer-palette-items.ts"
@@ -12,7 +14,7 @@ import type { ComposerAction } from "./composer-state.ts"
 import type { ComposerTrigger } from "./composer-triggers.ts"
 
 import * as React from "react"
-import { creatorSkillId, matchesComposerQuery } from "./composer-palette-items.ts"
+import { buildConnectionAccountPaletteItems, creatorSkillId, matchesComposerQuery } from "./composer-palette-items.ts"
 import { resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
 import {
   initialComposerPaletteNavigation,
@@ -22,8 +24,8 @@ import {
 import { detectComposerTrigger } from "./composer-triggers.ts"
 
 interface UseComposerPaletteOptions {
-  connectionItems: ConnectionPaletteItem[]
-  contextItems: Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionPaletteItem>
+  connectionItems: ConnectionProviderPaletteItem[]
+  contextItems: Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionProviderPaletteItem>
   disabled: boolean
   dismissedTriggerKey: string | null
   dispatch: React.Dispatch<ComposerAction>
@@ -33,6 +35,7 @@ interface UseComposerPaletteOptions {
   onAddArtifactAttachment: (item: ArtifactPaletteItem) => void
   onAddContextMention: (mention: ChatContextMention) => void
   onSelectAttachments: (kind: "file" | "directory") => void
+  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onViewBilling?: () => void
   skillItems: SkillPaletteItem[]
   slashItems: SlashCommandPaletteItem[]
@@ -46,6 +49,7 @@ export interface UseComposerPaletteResult {
   items: ChatComposerPaletteItem[]
   mode: PaletteMode
   onSelect: (item: ChatComposerPaletteItem | undefined) => void
+  onSecondarySelect: (item: ChatComposerPaletteItem | undefined) => void
   open: boolean
 }
 
@@ -61,6 +65,7 @@ export function useComposerPalette({
   onAddArtifactAttachment,
   onAddContextMention,
   onSelectAttachments,
+  onSetDefaultConnection,
   onViewBilling,
   skillItems,
   slashItems,
@@ -78,6 +83,14 @@ export function useComposerPalette({
   )
   const paletteMode = resolvedPaletteNavigation.mode
   const activePaletteIndex = resolvedPaletteNavigation.activeIndex
+  const selectedConnectionProvider = React.useMemo(
+    () => connectionItems.find((item) => item.service === resolvedPaletteNavigation.connectionService),
+    [connectionItems, resolvedPaletteNavigation.connectionService],
+  )
+  const selectedConnectionAccountItems = React.useMemo(
+    () => buildConnectionAccountPaletteItems(selectedConnectionProvider?.provider, selectedConnectionProvider?.copy),
+    [selectedConnectionProvider],
+  )
   const updatePaletteNavigation = React.useCallback(
     (updater: (current: typeof resolvedPaletteNavigation) => typeof resolvedPaletteNavigation) => {
       setPaletteNavigation((current) => updateComposerPaletteNavigation(current, activeTrigger, updater))
@@ -90,28 +103,78 @@ export function useComposerPalette({
     }
     let sourceItems: ChatComposerPaletteItem[]
     if (activeTrigger.kind === "context") {
-      sourceItems = contextItems
+      sourceItems = paletteMode === "connection-accounts" ? selectedConnectionAccountItems : contextItems
     } else if (activeTrigger.kind === "skill" || paletteMode === "skills") {
       sourceItems = skillItems
+    } else if (paletteMode === "connection-accounts") {
+      sourceItems = selectedConnectionAccountItems
     } else if (paletteMode === "connections") {
       sourceItems = connectionItems
     } else {
       sourceItems = slashItems
     }
     return sourceItems.filter((item) => matchesComposerQuery(item, activeTrigger.query)).slice(0, 8)
-  }, [activeTrigger, connectionItems, contextItems, paletteMode, skillItems, slashItems])
+  }, [
+    activeTrigger,
+    connectionItems,
+    contextItems,
+    paletteMode,
+    selectedConnectionAccountItems,
+    skillItems,
+    slashItems,
+  ])
   const open = Boolean(activeTrigger)
   const activeItem = items[Math.min(activePaletteIndex, Math.max(0, items.length - 1))]
 
   const handleBack = React.useCallback(() => {
+    if (paletteMode === "connection-accounts") {
+      const parentIndex =
+        activeTrigger?.kind === "context"
+          ? contextItems.findIndex(
+              (item) =>
+                item.kind === "connection-provider" && item.service === resolvedPaletteNavigation.connectionService,
+            )
+          : connectionItems.findIndex((item) => item.service === resolvedPaletteNavigation.connectionService)
+      updatePaletteNavigation((current) => ({
+        ...current,
+        activeIndex: Math.max(0, parentIndex),
+        connectionService: null,
+        mode: activeTrigger?.kind === "context" ? "root" : "connections",
+      }))
+      return
+    }
     const parentId = paletteMode === "connections" ? "connections" : "skills"
     const parentIndex = slashItems.findIndex((item) => item.id === parentId)
     updatePaletteNavigation((current) => ({
       ...current,
       activeIndex: parentIndex >= 0 ? parentIndex : 0,
+      connectionService: null,
       mode: "root",
     }))
-  }, [paletteMode, slashItems, updatePaletteNavigation])
+  }, [
+    activeTrigger?.kind,
+    connectionItems,
+    contextItems,
+    paletteMode,
+    resolvedPaletteNavigation.connectionService,
+    slashItems,
+    updatePaletteNavigation,
+  ])
+
+  const openConnectionAccounts = React.useCallback(
+    (item: ConnectionProviderPaletteItem) => {
+      if (!item.canOpenAccounts) {
+        return
+      }
+      updatePaletteNavigation((current) => ({
+        ...current,
+        activeIndex: 0,
+        connectionService: item.service,
+        mode: "connection-accounts",
+      }))
+    },
+    [updatePaletteNavigation],
+  )
 
   const applySlashCommand = React.useCallback(
     (item: SlashCommandPaletteItem, currentTrigger: ComposerTrigger) => {
@@ -120,13 +183,18 @@ export function useComposerPalette({
       }
       if (item.action === "skills") {
         dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "/" })
-        updatePaletteNavigation((current) => ({ ...current, activeIndex: 0, mode: "skills" }))
+        updatePaletteNavigation((current) => ({ ...current, activeIndex: 0, connectionService: null, mode: "skills" }))
         focusDraftAt(currentTrigger.start + 1)
         return
       }
       if (item.action === "connections") {
         dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "/" })
-        updatePaletteNavigation((current) => ({ ...current, activeIndex: 0, mode: "connections" }))
+        updatePaletteNavigation((current) => ({
+          ...current,
+          activeIndex: 0,
+          connectionService: null,
+          mode: "connections",
+        }))
         focusDraftAt(currentTrigger.start + 1)
         return
       }
@@ -172,9 +240,12 @@ export function useComposerPalette({
 
   const applyConnectionItem = React.useCallback(
     (item: ConnectionPaletteItem, currentTrigger: ComposerTrigger) => {
+      if (item.disabled || !item.appId) {
+        return
+      }
       onAddContextMention({
         ...(item.accountLabel ? { accountLabel: item.accountLabel } : {}),
-        ...(item.appId ? { appId: item.appId } : {}),
+        appId: item.appId,
         displayName: item.displayName,
         kind: "connection",
         service: item.service,
@@ -183,6 +254,24 @@ export function useComposerPalette({
       focusDraftAt(currentTrigger.start)
     },
     [dispatch, focusDraftAt, onAddContextMention],
+  )
+
+  const setDefaultAndApplyConnectionItem = React.useCallback(
+    async (item: ConnectionAccountPaletteItem, currentTrigger: ComposerTrigger) => {
+      if (item.disabled || !onSetDefaultConnection) {
+        return
+      }
+      try {
+        const accepted = await onSetDefaultConnection(item.service, item.appId)
+        if (!accepted) {
+          return
+        }
+        applyConnectionItem(item, currentTrigger)
+      } catch (cause) {
+        console.error("[wanta] set default connection failed", cause)
+      }
+    },
+    [applyConnectionItem, onSetDefaultConnection],
   )
 
   const applyAttachmentItem = React.useCallback(
@@ -205,7 +294,7 @@ export function useComposerPalette({
 
   const onSelect = React.useCallback(
     (item: ChatComposerPaletteItem | undefined) => {
-      if (!item || !activeTrigger) {
+      if (!item || item.disabled || !activeTrigger) {
         return
       }
       switch (item.kind) {
@@ -214,7 +303,10 @@ export function useComposerPalette({
             applySlashCommand(item, activeTrigger)
           }
           return
-        case "connection":
+        case "connection-account":
+          applyConnectionItem(item, activeTrigger)
+          return
+        case "connection-provider":
           applyConnectionItem(item, activeTrigger)
           return
         case "attachment":
@@ -238,12 +330,51 @@ export function useComposerPalette({
     ],
   )
 
+  const onSecondarySelect = React.useCallback(
+    (item: ChatComposerPaletteItem | undefined) => {
+      if (!item || item.disabled || !activeTrigger) {
+        return
+      }
+      if (item.kind === "connection-provider") {
+        openConnectionAccounts(item)
+        return
+      }
+      if (item.kind === "connection-account" && item.secondaryActionLabel && !item.secondaryActionDisabled) {
+        void setDefaultAndApplyConnectionItem(item, activeTrigger)
+      }
+    },
+    [activeTrigger, openConnectionAccounts, setDefaultAndApplyConnectionItem],
+  )
+
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing) {
         return
       }
       if (!open) {
+        return
+      }
+      if (
+        event.key === "ArrowRight" &&
+        activeItem?.kind === "connection-provider" &&
+        !activeItem.disabled &&
+        activeItem.canOpenAccounts
+      ) {
+        event.preventDefault()
+        openConnectionAccounts(activeItem)
+        return
+      }
+      if (
+        event.key === "Enter" &&
+        (event.metaKey || event.altKey) &&
+        activeItem?.kind === "connection-account" &&
+        !activeItem.disabled &&
+        activeItem.secondaryActionLabel &&
+        !activeItem.secondaryActionDisabled &&
+        activeTrigger
+      ) {
+        event.preventDefault()
+        void setDefaultAndApplyConnectionItem(activeItem, activeTrigger)
         return
       }
       const action = resolveComposerPaletteKeyAction({
@@ -283,7 +414,9 @@ export function useComposerPalette({
       items.length,
       onSelect,
       open,
+      openConnectionAccounts,
       paletteMode,
+      setDefaultAndApplyConnectionItem,
       triggerKey,
       updatePaletteNavigation,
     ],
@@ -292,11 +425,15 @@ export function useComposerPalette({
   return {
     activeItem,
     activeTrigger,
-    handleBack: activeTrigger?.kind === "slash" && paletteMode !== "root" ? handleBack : undefined,
+    handleBack:
+      (activeTrigger?.kind === "slash" && paletteMode !== "root") || paletteMode === "connection-accounts"
+        ? handleBack
+        : undefined,
     handleKeyDown,
     items,
     mode: paletteMode,
     onSelect,
+    onSecondarySelect,
     open,
   }
 }

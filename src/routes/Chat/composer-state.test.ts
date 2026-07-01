@@ -32,6 +32,28 @@ describe("composer state", () => {
     expect(contextMentionKey(connectionMention)).toBe("connection:gmail:app-a")
   })
 
+  it("replaces previous connection context when switching accounts for the same service", () => {
+    const first = composerReducer(initialComposerState(), { type: "add-context-mention", mention: connectionMention })
+    const switched = composerReducer(first, {
+      type: "add-context-mention",
+      mention: {
+        appId: "app-b",
+        displayName: "Gmail",
+        kind: "connection",
+        service: "gmail",
+      },
+    })
+
+    expect(switched.contextMentions).toEqual([
+      {
+        appId: "app-b",
+        displayName: "Gmail",
+        kind: "connection",
+        service: "gmail",
+      },
+    ])
+  })
+
   it("replaces a trigger and clears dismissed trigger state", () => {
     const initial = composerReducer(initialComposerState(), {
       draft: "/rev please",

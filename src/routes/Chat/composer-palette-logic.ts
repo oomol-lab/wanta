@@ -44,7 +44,9 @@ export function resolveComposerPaletteKeyAction({
     case "ArrowUp":
       return itemCount > 0 ? { type: "move", index: nextPaletteIndex(activeIndex, itemCount, -1) } : { type: "none" }
     case "ArrowLeft":
-      return triggerKind === "slash" && paletteMode !== "root" ? { type: "back" } : { type: "none" }
+      return (triggerKind === "slash" && paletteMode !== "root") || paletteMode === "connection-accounts"
+        ? { type: "back" }
+        : { type: "none" }
     case "ArrowRight":
       return shouldOpenRootPaletteItem(triggerKind, paletteMode, activeRootAction)
         ? { type: "open-root-item" }

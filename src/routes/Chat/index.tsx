@@ -119,6 +119,7 @@ interface ChatAreaProps {
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
   ) => Promise<boolean>
+  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => void
   onComposerStateChange?: (state: ComposerState) => void
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
@@ -727,7 +728,11 @@ function MessageBubble({
     return (
       <Message from="user" className={cn("items-end", copyText && "pb-7")}>
         {contextMentions.length > 0 ? (
-          <ContextMentionChips mentions={contextMentions} className="max-w-[min(34rem,85%)] justify-end" />
+          <ContextMentionChips
+            mentions={contextMentions}
+            providerByService={providerByService}
+            className="max-w-[min(34rem,85%)] justify-end"
+          />
         ) : null}
         {attachments.length > 0 ? <AttachmentList attachments={attachments} className="justify-end" /> : null}
         {visibleText ? (
@@ -1256,6 +1261,7 @@ export const ChatArea = React.memo(function ChatArea({
   organizationSkills,
   onComposerStateChange,
   onSend,
+  onSetDefaultConnection,
   onStop,
   onQueuedMessageMove,
   onQueuedMessageRemove,
@@ -1307,6 +1313,7 @@ export const ChatArea = React.memo(function ChatArea({
       onQueuedMessageRemove={onQueuedMessageRemove}
       onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
+      onSetDefaultConnection={onSetDefaultConnection}
       onStop={onStop}
       onViewBilling={onViewBilling}
     />

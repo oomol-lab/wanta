@@ -34,6 +34,7 @@ import { buildContextUsageInfo } from "./context-usage.ts"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { AddCustomModelDialog } from "./ModelControls.tsx"
 import { QueuedMessagePanel } from "./QueuedMessagePanel.tsx"
+import { normalizeServiceSlug } from "./tool-display.ts"
 import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttachments.ts"
 import { useComposerPalette } from "./useComposerPalette.ts"
 import { useModelCatalog } from "./useModelCatalog.ts"
@@ -81,6 +82,7 @@ interface ChatComposerProps {
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
   ) => Promise<boolean>
+  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => void
   onViewBilling?: () => void
 }
@@ -125,16 +127,26 @@ function writeStoredAgentMode(mode: AgentMode): void {
 }
 
 function paletteLabels({
+  accountHeaderLabel,
   isSkillInventoryLoading,
   isContextTrigger,
   mode,
   t,
 }: {
+  accountHeaderLabel?: string
   isSkillInventoryLoading: boolean
   isContextTrigger: boolean
-  mode: "connections" | "root" | "skills"
+  mode: "connection-accounts" | "connections" | "root" | "skills"
   t: ReturnType<typeof useT>
 }): { emptyLabel: string; headerLabel?: string } {
+  if (mode === "connection-accounts") {
+    return {
+      emptyLabel: t("chat.connectionPaletteEmpty"),
+      headerLabel: accountHeaderLabel
+        ? t("chat.connectionAccountsHeader", { name: accountHeaderLabel })
+        : t("chat.paletteConnectionsHeader"),
+    }
+  }
   if (isContextTrigger) {
     return {
       emptyLabel: t("chat.contextPaletteEmpty"),
@@ -177,6 +189,7 @@ export function ChatComposer({
   onQueuedMessageResume,
   onComposerStateChange,
   onSend,
+  onSetDefaultConnection,
   onStop,
   onViewBilling,
 }: ChatComposerProps) {
@@ -234,13 +247,25 @@ export function ChatComposer({
     [organizationSkills, skillInventory.data?.groups, t],
   )
   const connectionItems = React.useMemo(
-    () => buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service })),
+    () =>
+      buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service }), {
+        accountCount: (count) => t("chat.connectionAccountCount", { count }),
+        defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),
+        defaultLabel: t("connections.defaultConnection"),
+        needsAttention: t("connections.needsAttention"),
+        setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+        useForThisTurn: t("chat.connectionUseForThisTurn"),
+      }),
     [providers, t],
   )
   const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
   const contextItems = React.useMemo(
     () => buildContextPaletteItems({ artifactItems, connectionItems, t }),
     [artifactItems, connectionItems, t],
+  )
+  const providerByService = React.useMemo(
+    () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
+    [providers],
   )
   const setReasoningLevel = React.useCallback((level: ReasoningLevel): void => {
     setReasoningLevelState(level)
@@ -356,6 +381,27 @@ export function ChatComposer({
   const removeContextMention = React.useCallback((mention: ChatContextMention) => {
     dispatchComposer({ type: "remove-context-mention", mention })
   }, [])
+  const setDefaultConnection = React.useCallback(
+    async (service: string, appId: string): Promise<boolean> => {
+      if (!onSetDefaultConnection) {
+        setInputError(t("chat.connectionSetDefaultFailed"))
+        return false
+      }
+      try {
+        const accepted = await onSetDefaultConnection(service, appId)
+        if (!accepted) {
+          setInputError(t("chat.connectionSetDefaultFailed"))
+        } else {
+          setInputError(null)
+        }
+        return accepted
+      } catch {
+        setInputError(t("chat.connectionSetDefaultFailed"))
+        return false
+      }
+    },
+    [onSetDefaultConnection, t],
+  )
 
   const composerPalette = useComposerPalette({
     connectionItems,
@@ -384,6 +430,7 @@ export function ChatComposer({
       }
       void composerAttachments.selectAttachments(kind)
     },
+    onSetDefaultConnection: setDefaultConnection,
     onViewBilling,
     skillItems,
     slashItems,
@@ -452,6 +499,7 @@ export function ChatComposer({
           <div className="flex max-h-[min(42vh,20rem)] w-full flex-col gap-2 overflow-y-auto pr-1">
             <ContextMentionChips
               mentions={contextMentions}
+              providerByService={providerByService}
               onRemove={composerDisabled ? undefined : removeContextMention}
             />
             {attachments.length > 0 ? (
@@ -562,7 +610,14 @@ export function ChatComposer({
       onResume={onQueuedMessageResume}
     />
   )
+  const accountHeaderLabel =
+    composerPalette.mode === "connection-accounts" &&
+    (composerPalette.activeItem?.kind === "connection-account" ||
+      composerPalette.activeItem?.kind === "connection-provider")
+      ? composerPalette.activeItem.displayName
+      : undefined
   const { emptyLabel, headerLabel } = paletteLabels({
+    accountHeaderLabel,
     isSkillInventoryLoading: skillInventory.isInitialLoading,
     isContextTrigger: composerPalette.activeTrigger?.kind === "context",
     mode: composerPalette.mode,
@@ -577,6 +632,7 @@ export function ChatComposer({
         items={composerPalette.items}
         onBack={composerPalette.handleBack}
         onSelect={composerPalette.onSelect}
+        onSecondarySelect={composerPalette.onSecondarySelect}
       />
     ) : null
 

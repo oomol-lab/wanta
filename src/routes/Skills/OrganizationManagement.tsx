@@ -143,7 +143,7 @@ import {
 
 type AsyncResult<T> = { ok: true; value: T } | { error: unknown; ok: false }
 type OrganizationSkillManageTab = "configured" | "market" | "recommended"
-type OrganizationSkillLinkInput = {
+export type OrganizationSkillLinkInput = {
   packageName: string
   skillName: string
   version: string
@@ -1530,19 +1530,20 @@ function organizationRuntimeStatusTone(
       : "attention"
 }
 
-function OrganizationSkillManageDialog({
+export function OrganizationSkillManageDialog({
   busyAction,
   groupById,
   onAddRecommendation,
   onAddRecommendationBatch,
   onAddMarketPackage,
-  onClose,
+  onClose = () => undefined,
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
   onOpenAdvanced,
-  open,
+  open = true,
   organizationSkills,
   providerRecommendations,
+  variant = "dialog",
 }: {
   busyAction: BusyAction | null
   groupById: ReadonlyMap<string, ManagedSkillGroup>
@@ -1558,15 +1559,17 @@ function OrganizationSkillManageDialog({
     pkg: PublicSkillPackage,
     options: { installRuntime: boolean; skillName?: string },
   ) => Promise<void>
-  onClose: () => void
+  onClose?: () => void
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
   onOpenAdvanced?: () => void
-  open: boolean
+  open?: boolean
   organizationSkills: UseOrganizationSkills
   providerRecommendations: ProviderSkillRecommendation[]
+  variant?: "dialog" | "inline"
 }) {
   const { t } = useAppI18n()
+  const isActive = variant === "inline" || open
   const [busyConfigId, setBusyConfigId] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<OrganizationSkillManageTab>("configured")
   const [searchQuery, setSearchQuery] = React.useState("")
@@ -1626,14 +1629,14 @@ function OrganizationSkillManageDialog({
   }, [marketLoadingMore, marketCatalog.next])
 
   React.useEffect(() => {
-    if (!open) {
+    if (!isActive) {
       return
     }
     setActiveTab(recommendedOrganizationSkills.length > 0 ? "recommended" : "configured")
     setSearchQuery("")
     setMarketExactPackage(null)
     setMarketExactLoading(false)
-  }, [open, recommendedOrganizationSkills.length])
+  }, [isActive, organizationSkills.organizationId, recommendedOrganizationSkills.length])
 
   const loadMarketPackages = React.useCallback(
     async (options: { clearItems?: boolean; forceRefresh?: boolean; next?: string | null; query?: string } = {}) => {
@@ -1657,7 +1660,7 @@ function OrganizationSkillManageDialog({
   )
 
   React.useEffect(() => {
-    if (!open || activeTab !== "market") {
+    if (!isActive || activeTab !== "market") {
       return
     }
 
@@ -1672,7 +1675,7 @@ function OrganizationSkillManageDialog({
 
     const timer = window.setTimeout(load, 300)
     return () => window.clearTimeout(timer)
-  }, [activeTab, loadMarketPackages, marketQuery, open])
+  }, [activeTab, isActive, loadMarketPackages, marketQuery])
 
   React.useEffect(() => {
     const query = searchQuery.trim()
@@ -1681,7 +1684,7 @@ function OrganizationSkillManageDialog({
     setMarketExactPackage(null)
     setMarketExactLoading(false)
 
-    if (!open || activeTab !== "market" || !looksLikeSkillPackageName(query)) {
+    if (!isActive || activeTab !== "market" || !looksLikeSkillPackageName(query)) {
       return
     }
 
@@ -1702,7 +1705,7 @@ function OrganizationSkillManageDialog({
     }, 250)
 
     return () => window.clearTimeout(timer)
-  }, [activeTab, open, searchQuery])
+  }, [activeTab, isActive, searchQuery])
 
   const changeActiveTab = React.useCallback((tab: OrganizationSkillManageTab) => {
     setActiveTab(tab)
@@ -1796,6 +1799,291 @@ function OrganizationSkillManageDialog({
     }
   }
 
+  const content = (
+    <div className={cn("grid min-h-full grid-rows-[minmax(0,1fr)] gap-4", variant === "inline" && "h-full min-h-0")}>
+      {!organizationSkills.apiEnabled ? (
+        <OrganizationSkillDialogEmpty
+          title={t("organizations.skillGuideUnavailableTitle")}
+          description={t("organizations.skillGuideUnavailableDescription")}
+        />
+      ) : organizationSkills.error ? (
+        <div className="grid gap-2">
+          <ErrorNotice error={organizationSkills.error} compact />
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void organizationSkills.refresh({ forceRefresh: true })}
+            >
+              <RefreshCwIcon className="size-3.5" />
+              {t("organizations.retry")}
+            </Button>
+          </div>
+        </div>
+      ) : organizationSkills.loading && !organizationSkills.hasLoaded ? (
+        <div className="grid content-start gap-2">
+          <Skeleton className="h-16 rounded-md" />
+          <Skeleton className="h-16 rounded-md" />
+          <Skeleton className="h-16 rounded-md" />
+        </div>
+      ) : (
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
+          <div className="grid min-w-0 gap-2 md:grid-cols-[auto_minmax(0,1fr)] md:items-center">
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              value={activeTab}
+              aria-label={t("organizations.skillManageTitle")}
+              onValueChange={(value) => {
+                if (value === "configured" || value === "recommended" || value === "market") {
+                  changeActiveTab(value)
+                }
+              }}
+            >
+              <ToggleGroupItem value="configured">
+                <span>{t("organizations.skillManageConfigured")}</span>
+                <span className="oo-text-caption-compact text-muted-foreground">
+                  {organizationSkills.skills.length}
+                </span>
+              </ToggleGroupItem>
+              <ToggleGroupItem value="recommended">
+                <span>{t("organizations.skillManageRecommended")}</span>
+                {recommendedOrganizationSkills.length > 0 ? (
+                  <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                ) : null}
+                <span className="oo-text-caption-compact text-muted-foreground">
+                  {recommendedOrganizationSkills.length}
+                </span>
+              </ToggleGroupItem>
+              <ToggleGroupItem value="market">
+                <span>{t("organizations.skillManageMarket")}</span>
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+              <SearchField
+                className="min-w-0 flex-1 sm:max-w-72"
+                inputClassName="h-[var(--oo-control-height-compact)]"
+                placeholder={
+                  activeTab === "configured"
+                    ? t("organizations.skillManageSearchConfigured")
+                    : activeTab === "recommended"
+                      ? t("organizations.skillManageSearchRecommended")
+                      : t("organizations.skillManageSearchMarket")
+                }
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+              />
+              {activeTab === "configured" && installableConfiguredSkills.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(busyAction)}
+                  onClick={() => onInstallRuntimeSkills(installableConfiguredSkills)}
+                >
+                  {busyAction === "installSkillBatch" ? (
+                    <RefreshCwIcon className="size-3.5 animate-spin" />
+                  ) : (
+                    <PackageIcon className="size-3.5" />
+                  )}
+                  {t("organizations.skillManageInstallMissingAll", {
+                    count: installableConfiguredSkills.length,
+                  })}
+                </Button>
+              ) : null}
+              {activeTab === "recommended" &&
+              organizationSkills.canManage &&
+              recommendedOrganizationSkills.length > 1 ? (
+                <div className="inline-flex max-w-full items-center justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="min-w-0 rounded-r-none"
+                    disabled={Boolean(busyAction)}
+                    onClick={() => onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: true })}
+                  >
+                    {busyAction === "addSkillBatch" ? (
+                      <RefreshCwIcon className="size-3.5 animate-spin" />
+                    ) : (
+                      <PackageIcon className="size-3.5" />
+                    )}
+                    <span className="truncate">
+                      {t("organizations.skillManageAddInstallAll", { count: recommendedOrganizationSkills.length })}
+                    </span>
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
+                        disabled={Boolean(busyAction)}
+                        aria-label={t("organizations.skillManageMoreActions")}
+                      >
+                        <ChevronDownIcon className="size-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: false })
+                        }
+                      >
+                        {t("organizations.skillManageLinkAll", { count: recommendedOrganizationSkills.length })}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              ) : null}
+            </div>
+          </div>
+          {activeTab === "configured" ? (
+            organizationSkills.skills.length === 0 ? (
+              <OrganizationSkillDialogEmpty
+                title={
+                  organizationSkills.canManage
+                    ? t("organizations.skillGuideEmptyCreatorTitle")
+                    : t("organizations.skillGuideEmptyTitle")
+                }
+                description={
+                  organizationSkills.canManage
+                    ? t("organizations.skillGuideEmptyCreatorDescription")
+                    : t("organizations.skillGuideEmptyDescription")
+                }
+              />
+            ) : filteredConfiguredSkills.length === 0 ? (
+              <OrganizationSkillDialogEmpty
+                title={t("organizations.skillManageSearchEmptyTitle")}
+                description={t("organizations.skillManageSearchEmptyDescription")}
+              />
+            ) : (
+              <div className="min-h-0 overflow-y-auto rounded-md border bg-background">
+                {filteredConfiguredSkills.map((skill) => (
+                  <OrganizationSkillManageRow
+                    key={skill.id}
+                    busy={busyConfigId === skill.id || busyAction === "installSkillBatch"}
+                    canManage={organizationSkills.canManage}
+                    groupById={groupById}
+                    installBusy={
+                      busyAction === `installSkill:${skill.packageName}:${skill.skillName}` ||
+                      busyAction === "installSkillBatch"
+                    }
+                    skill={skill}
+                    onInstallRuntime={() =>
+                      onInstallRuntimeSkill({ packageName: skill.packageName, skillName: skill.skillName })
+                    }
+                    onRemove={() => void removeOrganizationSkill(skill)}
+                    onToggleEnabled={() => void updateOrganizationSkill(skill, { enabled: !skill.enabled })}
+                  />
+                ))}
+              </div>
+            )
+          ) : activeTab === "recommended" ? (
+            recommendedOrganizationSkills.length === 0 ? (
+              <div className="oo-text-caption rounded-md border border-dashed bg-muted/20 px-3 py-4 text-muted-foreground">
+                {t("organizations.skillManageRecommendedEmpty")}
+              </div>
+            ) : filteredRecommendedSkills.length === 0 ? (
+              <OrganizationSkillDialogEmpty
+                title={t("organizations.skillManageSearchEmptyTitle")}
+                description={t("organizations.skillManageSearchEmptyDescription")}
+              />
+            ) : (
+              <div className="min-h-0 overflow-y-auto rounded-md border bg-background">
+                {filteredRecommendedSkills.map((recommendation) => {
+                  const busyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
+                  return (
+                    <OrganizationSkillRecommendationRow
+                      key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
+                      busy={busyAction === busyKey || busyAction === "addSkillBatch"}
+                      canManage={organizationSkills.canManage}
+                      recommendation={recommendation}
+                      onAdd={() => onAddRecommendation(recommendation, { installRuntime: false })}
+                      onAddAndInstall={() => onAddRecommendation(recommendation, { installRuntime: true })}
+                    />
+                  )
+                })}
+              </div>
+            )
+          ) : (
+            <div className="flex min-h-0 flex-col gap-2">
+              {marketCatalog.error ? (
+                <div className="flex min-w-0 items-start gap-2">
+                  <ErrorNotice
+                    error={resolveUserFacingError(marketCatalog.error, { area: "skills" })}
+                    compact
+                    className="min-w-0 flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={marketLoading}
+                    onClick={() =>
+                      void loadMarketPackages({ clearItems: true, forceRefresh: true, query: marketQuery })
+                    }
+                  >
+                    <RefreshCwIcon className={cn("size-3.5", marketLoading && "animate-spin")} />
+                    {t("organizations.retry")}
+                  </Button>
+                </div>
+              ) : null}
+              {(marketLoading || marketExactLoading) && marketPackages.length === 0 ? (
+                <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-background">
+                  <OrganizationSkillPackageListSkeleton />
+                </div>
+              ) : marketPackages.length === 0 ? (
+                <OrganizationSkillDialogEmpty
+                  className="min-h-0 flex-1"
+                  title={t("organizations.skillManageMarketEmptyTitle")}
+                  description={t("organizations.skillManageMarketEmptyDescription")}
+                />
+              ) : (
+                <div
+                  ref={marketScrollContainerRef}
+                  className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-background"
+                  onScroll={handleMarketScroll}
+                >
+                  {marketPackages.map((pkg) => (
+                    <OrganizationSkillMarketRow
+                      key={pkg.id}
+                      busyAction={busyAction}
+                      canManage={organizationSkills.canManage}
+                      groupById={groupById}
+                      linked={organizationSkillPackageLinked(linkedPackageKeys, pkg.name)}
+                      pkg={pkg}
+                      onAdd={(skillName) => onAddMarketPackage(pkg, { installRuntime: false, skillName })}
+                      onAddAndInstall={(skillName) => onAddMarketPackage(pkg, { installRuntime: true, skillName })}
+                      onManageLinked={() => {
+                        setActiveTab("configured")
+                        setSearchQuery(pkg.name)
+                      }}
+                    />
+                  ))}
+                  <div ref={marketLoadMoreAnchorRef} className="h-px" aria-hidden="true" />
+                  {marketLoadingMore ? (
+                    <div className="oo-border-divider flex justify-center border-t px-3 py-2">
+                      <div className="oo-text-caption-compact inline-flex items-center gap-1.5 text-muted-foreground">
+                        <RefreshCwIcon className="size-3.5 animate-spin" />
+                        {t("skills.discoverLoadingMore")}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+
+  if (variant === "inline") {
+    return content
+  }
+
   return (
     <Dialog
       open={open}
@@ -1824,284 +2112,7 @@ function OrganizationSkillManageDialog({
       }
       onClose={onClose}
     >
-      <div className="grid min-h-full grid-rows-[minmax(0,1fr)] gap-4">
-        {!organizationSkills.apiEnabled ? (
-          <OrganizationSkillDialogEmpty
-            title={t("organizations.skillGuideUnavailableTitle")}
-            description={t("organizations.skillGuideUnavailableDescription")}
-          />
-        ) : organizationSkills.error ? (
-          <div className="grid gap-2">
-            <ErrorNotice error={organizationSkills.error} compact />
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void organizationSkills.refresh({ forceRefresh: true })}
-              >
-                <RefreshCwIcon className="size-3.5" />
-                {t("organizations.retry")}
-              </Button>
-            </div>
-          </div>
-        ) : organizationSkills.loading && !organizationSkills.hasLoaded ? (
-          <div className="grid content-start gap-2">
-            <Skeleton className="h-16 rounded-md" />
-            <Skeleton className="h-16 rounded-md" />
-            <Skeleton className="h-16 rounded-md" />
-          </div>
-        ) : (
-          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
-            <div className="grid min-w-0 gap-2 md:grid-cols-[auto_minmax(0,1fr)] md:items-center">
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                size="sm"
-                value={activeTab}
-                aria-label={t("organizations.skillManageTitle")}
-                onValueChange={(value) => {
-                  if (value === "configured" || value === "recommended" || value === "market") {
-                    changeActiveTab(value)
-                  }
-                }}
-              >
-                <ToggleGroupItem value="configured">
-                  <span>{t("organizations.skillManageConfigured")}</span>
-                  <span className="oo-text-caption-compact text-muted-foreground">
-                    {organizationSkills.skills.length}
-                  </span>
-                </ToggleGroupItem>
-                <ToggleGroupItem value="recommended">
-                  <span>{t("organizations.skillManageRecommended")}</span>
-                  {recommendedOrganizationSkills.length > 0 ? (
-                    <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                  ) : null}
-                  <span className="oo-text-caption-compact text-muted-foreground">
-                    {recommendedOrganizationSkills.length}
-                  </span>
-                </ToggleGroupItem>
-                <ToggleGroupItem value="market">
-                  <span>{t("organizations.skillManageMarket")}</span>
-                </ToggleGroupItem>
-              </ToggleGroup>
-              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                <SearchField
-                  className="min-w-0 flex-1 sm:max-w-72"
-                  inputClassName="h-[var(--oo-control-height-compact)]"
-                  placeholder={
-                    activeTab === "configured"
-                      ? t("organizations.skillManageSearchConfigured")
-                      : activeTab === "recommended"
-                        ? t("organizations.skillManageSearchRecommended")
-                        : t("organizations.skillManageSearchMarket")
-                  }
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                />
-                {activeTab === "configured" && installableConfiguredSkills.length > 0 ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={Boolean(busyAction)}
-                    onClick={() => onInstallRuntimeSkills(installableConfiguredSkills)}
-                  >
-                    {busyAction === "installSkillBatch" ? (
-                      <RefreshCwIcon className="size-3.5 animate-spin" />
-                    ) : (
-                      <PackageIcon className="size-3.5" />
-                    )}
-                    {t("organizations.skillManageInstallMissingAll", {
-                      count: installableConfiguredSkills.length,
-                    })}
-                  </Button>
-                ) : null}
-                {activeTab === "recommended" &&
-                organizationSkills.canManage &&
-                recommendedOrganizationSkills.length > 1 ? (
-                  <div className="inline-flex max-w-full items-center justify-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="min-w-0 rounded-r-none"
-                      disabled={Boolean(busyAction)}
-                      onClick={() => onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: true })}
-                    >
-                      {busyAction === "addSkillBatch" ? (
-                        <RefreshCwIcon className="size-3.5 animate-spin" />
-                      ) : (
-                        <PackageIcon className="size-3.5" />
-                      )}
-                      <span className="truncate">
-                        {t("organizations.skillManageAddInstallAll", { count: recommendedOrganizationSkills.length })}
-                      </span>
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
-                          disabled={Boolean(busyAction)}
-                          aria-label={t("organizations.skillManageMoreActions")}
-                        >
-                          <ChevronDownIcon className="size-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            void onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: false })
-                          }
-                        >
-                          {t("organizations.skillManageLinkAll", { count: recommendedOrganizationSkills.length })}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            {activeTab === "configured" ? (
-              organizationSkills.skills.length === 0 ? (
-                <OrganizationSkillDialogEmpty
-                  title={
-                    organizationSkills.canManage
-                      ? t("organizations.skillGuideEmptyCreatorTitle")
-                      : t("organizations.skillGuideEmptyTitle")
-                  }
-                  description={
-                    organizationSkills.canManage
-                      ? t("organizations.skillGuideEmptyCreatorDescription")
-                      : t("organizations.skillGuideEmptyDescription")
-                  }
-                />
-              ) : filteredConfiguredSkills.length === 0 ? (
-                <OrganizationSkillDialogEmpty
-                  title={t("organizations.skillManageSearchEmptyTitle")}
-                  description={t("organizations.skillManageSearchEmptyDescription")}
-                />
-              ) : (
-                <div className="min-h-0 overflow-y-auto rounded-md border bg-background">
-                  {filteredConfiguredSkills.map((skill) => (
-                    <OrganizationSkillManageRow
-                      key={skill.id}
-                      busy={busyConfigId === skill.id || busyAction === "installSkillBatch"}
-                      canManage={organizationSkills.canManage}
-                      groupById={groupById}
-                      installBusy={
-                        busyAction === `installSkill:${skill.packageName}:${skill.skillName}` ||
-                        busyAction === "installSkillBatch"
-                      }
-                      skill={skill}
-                      onInstallRuntime={() =>
-                        onInstallRuntimeSkill({ packageName: skill.packageName, skillName: skill.skillName })
-                      }
-                      onRemove={() => void removeOrganizationSkill(skill)}
-                      onToggleEnabled={() => void updateOrganizationSkill(skill, { enabled: !skill.enabled })}
-                    />
-                  ))}
-                </div>
-              )
-            ) : activeTab === "recommended" ? (
-              recommendedOrganizationSkills.length === 0 ? (
-                <div className="oo-text-caption rounded-md border border-dashed bg-muted/20 px-3 py-4 text-muted-foreground">
-                  {t("organizations.skillManageRecommendedEmpty")}
-                </div>
-              ) : filteredRecommendedSkills.length === 0 ? (
-                <OrganizationSkillDialogEmpty
-                  title={t("organizations.skillManageSearchEmptyTitle")}
-                  description={t("organizations.skillManageSearchEmptyDescription")}
-                />
-              ) : (
-                <div className="min-h-0 overflow-y-auto rounded-md border bg-background">
-                  {filteredRecommendedSkills.map((recommendation) => {
-                    const busyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
-                    return (
-                      <OrganizationSkillRecommendationRow
-                        key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
-                        busy={busyAction === busyKey || busyAction === "addSkillBatch"}
-                        canManage={organizationSkills.canManage}
-                        recommendation={recommendation}
-                        onAdd={() => onAddRecommendation(recommendation, { installRuntime: false })}
-                        onAddAndInstall={() => onAddRecommendation(recommendation, { installRuntime: true })}
-                      />
-                    )
-                  })}
-                </div>
-              )
-            ) : (
-              <div className="flex min-h-0 flex-col gap-2">
-                {marketCatalog.error ? (
-                  <div className="flex min-w-0 items-start gap-2">
-                    <ErrorNotice
-                      error={resolveUserFacingError(marketCatalog.error, { area: "skills" })}
-                      compact
-                      className="min-w-0 flex-1"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={marketLoading}
-                      onClick={() =>
-                        void loadMarketPackages({ clearItems: true, forceRefresh: true, query: marketQuery })
-                      }
-                    >
-                      <RefreshCwIcon className={cn("size-3.5", marketLoading && "animate-spin")} />
-                      {t("organizations.retry")}
-                    </Button>
-                  </div>
-                ) : null}
-                {(marketLoading || marketExactLoading) && marketPackages.length === 0 ? (
-                  <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-background">
-                    <OrganizationSkillPackageListSkeleton />
-                  </div>
-                ) : marketPackages.length === 0 ? (
-                  <OrganizationSkillDialogEmpty
-                    className="min-h-0 flex-1"
-                    title={t("organizations.skillManageMarketEmptyTitle")}
-                    description={t("organizations.skillManageMarketEmptyDescription")}
-                  />
-                ) : (
-                  <div
-                    ref={marketScrollContainerRef}
-                    className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-background"
-                    onScroll={handleMarketScroll}
-                  >
-                    {marketPackages.map((pkg) => (
-                      <OrganizationSkillMarketRow
-                        key={pkg.id}
-                        busyAction={busyAction}
-                        canManage={organizationSkills.canManage}
-                        groupById={groupById}
-                        linked={organizationSkillPackageLinked(linkedPackageKeys, pkg.name)}
-                        pkg={pkg}
-                        onAdd={(skillName) => onAddMarketPackage(pkg, { installRuntime: false, skillName })}
-                        onAddAndInstall={(skillName) => onAddMarketPackage(pkg, { installRuntime: true, skillName })}
-                        onManageLinked={() => {
-                          setActiveTab("configured")
-                          setSearchQuery(pkg.name)
-                        }}
-                      />
-                    ))}
-                    <div ref={marketLoadMoreAnchorRef} className="h-px" aria-hidden="true" />
-                    {marketLoadingMore ? (
-                      <div className="oo-border-divider flex justify-center border-t px-3 py-2">
-                        <div className="oo-text-caption-compact inline-flex items-center gap-1.5 text-muted-foreground">
-                          <RefreshCwIcon className="size-3.5 animate-spin" />
-                          {t("skills.discoverLoadingMore")}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      {content}
     </Dialog>
   )
 }

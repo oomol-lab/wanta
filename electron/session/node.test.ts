@@ -187,6 +187,150 @@ test("list filters sessions by requested scope", async () => {
   )
 })
 
+test("list filters sessions by requested placement", async () => {
+  const project: SessionProject = {
+    id: "project",
+    name: "Wanta",
+    path: "/Users/example/code/wanta",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "personal" },
+  }
+  const archivedProject: SessionProject = {
+    id: "archived-project",
+    name: "Archived",
+    path: "/Users/example/code/archived",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    archivedAt: 4_000,
+    scope: { type: "personal" },
+  }
+  const scopedProject: SessionProject = {
+    id: "scoped-project",
+    name: "Scoped",
+    path: "/Users/example/code/scoped",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "organization", organizationId: "org", organizationName: "Org" },
+  }
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "task",
+        title: "Task",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+      {
+        id: "project-session",
+        title: "Project",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+      {
+        id: "dangling-project-session",
+        title: "Dangling",
+        createdAt: 3_000,
+        updatedAt: 3_000,
+      },
+      {
+        id: "archived-project-session",
+        title: "Archived project",
+        createdAt: 4_000,
+        updatedAt: 4_000,
+      },
+      {
+        id: "scoped-project-session",
+        title: "Scoped project",
+        createdAt: 5_000,
+        updatedAt: 5_000,
+      },
+    ]),
+    {
+      metadataStore: metadataStore(
+        new Map([
+          ["project-session", { scope: { type: "personal" }, projectId: project.id }],
+          ["dangling-project-session", { scope: { type: "personal" }, projectId: "missing-project" }],
+          ["archived-project-session", { scope: { type: "personal" }, projectId: archivedProject.id }],
+          ["scoped-project-session", { scope: { type: "personal" }, projectId: scopedProject.id }],
+        ]),
+      ),
+      projectStore: projectStore(
+        new Map([
+          [project.id, project],
+          [archivedProject.id, archivedProject],
+          [scopedProject.id, scopedProject],
+        ]),
+      ),
+    },
+  )
+
+  const allSessions = await service.list({ placement: "all", scope: { type: "personal" } })
+  assert.deepEqual(
+    allSessions.map((session) => ({ id: session.id, projectId: session.projectId })),
+    [
+      { id: "scoped-project-session", projectId: undefined },
+      { id: "archived-project-session", projectId: undefined },
+      { id: "dangling-project-session", projectId: undefined },
+      { id: "project-session", projectId: "project" },
+      { id: "task", projectId: undefined },
+    ],
+  )
+  assert.deepEqual(
+    (await service.list({ placement: "project", scope: { type: "personal" } })).map((session) => session.id),
+    ["project-session"],
+  )
+  assert.deepEqual(
+    (await service.list({ placement: "task", scope: { type: "personal" } })).map((session) => session.id),
+    ["scoped-project-session", "archived-project-session", "dangling-project-session", "task"],
+  )
+})
+
+test("listArchived filters sessions by requested placement", async () => {
+  const project: SessionProject = {
+    id: "project",
+    name: "Wanta",
+    path: "/Users/example/code/wanta",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "personal" },
+  }
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "archived-task",
+        title: "Archived task",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+      {
+        id: "archived-project",
+        title: "Archived project",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+    ]),
+    {
+      metadataStore: metadataStore(
+        new Map([
+          ["archived-task", { archivedAt: 3_000, scope: { type: "personal" } }],
+          ["archived-project", { archivedAt: 4_000, scope: { type: "personal" }, projectId: project.id }],
+        ]),
+      ),
+      projectStore: projectStore(new Map([[project.id, project]])),
+    },
+  )
+
+  assert.deepEqual(
+    (await service.listArchived({ placement: "task", scope: { type: "personal" } })).map((session) => session.id),
+    ["archived-task"],
+  )
+  assert.deepEqual(
+    (await service.listArchived({ placement: "project", scope: { type: "personal" } })).map((session) => session.id),
+    ["archived-project"],
+  )
+})
+
 test("create persists the requested session scope", async () => {
   const persistedMetadata = metadataStore()
   const service = new SessionServiceImpl(

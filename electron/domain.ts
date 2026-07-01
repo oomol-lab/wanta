@@ -49,6 +49,7 @@ export const voiceAsrBaseUrl = `https://chat-as-proxy-dev.${ooEndpoint}`
 /** 第三方自定义模型提供方默认 API 基址。业务代码统一从这里引用，避免域名散落。 */
 export const externalModelProviderBaseUrls = {
   deepseek: "https://api.deepseek.com",
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
   openrouter: "https://openrouter.ai/api/v1",
   zhipuCn: "https://open.bigmodel.cn/api/paas/v4",
   zhipuGlobal: "https://api.z.ai/api/paas/v4",

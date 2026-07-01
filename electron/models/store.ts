@@ -8,8 +8,15 @@ import { externalModelProviderBaseUrls } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
 
 const providerBaseUrls = externalModelProviderBaseUrls
+const context200K = 204_800
+const context256K = 262_144
 const millionTokenContextWindow = 1_000_000
+const gemini3ContextWindow = 1_064_000
+const gemini3InputTokenLimit = 1_000_000
+const gemini3MaxOutputTokens = 64_000
+const maxOutput128K = 128_000
 const deepSeekV4ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
+const glm52ReasoningVariants = ["high", "max"] as const satisfies readonly WantaReasoningVariant[]
 
 export interface PersistedCustomModel {
   id: string
@@ -62,6 +69,43 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
     requiresBaseUrl: true,
   },
   {
+    id: "gemini",
+    displayName: "Gemini",
+    baseUrl: providerBaseUrls.gemini,
+    modelOptions: [
+      {
+        id: "gemini-3.5-flash",
+        displayName: "Gemini 3.5 Flash",
+        supportsImages: true,
+        supportsToolCalls: true,
+        contextWindow: gemini3ContextWindow,
+        inputTokenLimit: gemini3InputTokenLimit,
+        maxOutputTokens: gemini3MaxOutputTokens,
+      },
+      {
+        id: "gemini-3-pro",
+        displayName: "Gemini 3 Pro",
+        supportsImages: true,
+        supportsToolCalls: true,
+        contextWindow: gemini3ContextWindow,
+        inputTokenLimit: gemini3InputTokenLimit,
+        maxOutputTokens: gemini3MaxOutputTokens,
+      },
+      {
+        id: "gemini-2.5-pro",
+        displayName: "Gemini 2.5 Pro",
+        supportsImages: true,
+        supportsToolCalls: true,
+        contextWindow: gemini3ContextWindow,
+        inputTokenLimit: gemini3InputTokenLimit,
+        maxOutputTokens: gemini3MaxOutputTokens,
+      },
+    ],
+    supportsImages: true,
+    supportsToolCalls: true,
+    requiresBaseUrl: true,
+  },
+  {
     id: "zhipu",
     displayName: "GLM API",
     baseUrl: providerBaseUrls.zhipuCn,
@@ -84,14 +128,26 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.zhipuGlobal },
     ],
     modelOptions: [
-      { id: "glm-5.2", displayName: "GLM-5.2" },
+      {
+        id: "glm-5.2",
+        displayName: "GLM-5.2",
+        contextWindow: millionTokenContextWindow,
+        maxOutputTokens: maxOutput128K,
+        reasoningVariants: glm52ReasoningVariants,
+      },
       { id: "glm-5.1", displayName: "GLM-5.1" },
       { id: "glm-5-turbo", displayName: "GLM-5-Turbo" },
       { id: "glm-5", displayName: "GLM-5" },
-      { id: "glm-4.7", displayName: "GLM-4.7" },
-      { id: "glm-4.7-flash", displayName: "GLM-4.7 Flash" },
+      { id: "glm-4.7", displayName: "GLM-4.7", contextWindow: context200K, maxOutputTokens: maxOutput128K },
+      {
+        id: "glm-4.7-flash",
+        displayName: "GLM-4.7 Flash",
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
     ],
     supportsImages: false,
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -103,10 +159,16 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.kimiGlobal },
     ],
     modelOptions: [
-      { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true },
-      { id: "kimi-k2.7-code-highspeed", displayName: "Kimi K2.7 Code Highspeed", supportsImages: true },
-      { id: "kimi-k2.6", displayName: "Kimi K2.6", supportsImages: true },
+      { id: "kimi-k2.7-code", displayName: "Kimi K2.7 Code", supportsImages: true, contextWindow: context256K },
+      {
+        id: "kimi-k2.7-code-highspeed",
+        displayName: "Kimi K2.7 Code Highspeed",
+        supportsImages: true,
+        contextWindow: context256K,
+      },
+      { id: "kimi-k2.6", displayName: "Kimi K2.6", supportsImages: true, contextWindow: context256K },
     ],
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -118,15 +180,58 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       { id: "global", baseUrl: providerBaseUrls.minimaxGlobal },
     ],
     modelOptions: [
-      { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true },
-      { id: "MiniMax-M2.7", displayName: "MiniMax M2.7", supportsImages: false },
-      { id: "MiniMax-M2.7-highspeed", displayName: "MiniMax M2.7 Highspeed", supportsImages: false },
-      { id: "MiniMax-M2.5", displayName: "MiniMax M2.5", supportsImages: false },
-      { id: "MiniMax-M2.5-highspeed", displayName: "MiniMax M2.5 Highspeed", supportsImages: false },
-      { id: "MiniMax-M2.1", displayName: "MiniMax M2.1", supportsImages: false },
-      { id: "MiniMax-M2.1-highspeed", displayName: "MiniMax M2.1 Highspeed", supportsImages: false },
-      { id: "MiniMax-M2", displayName: "MiniMax M2", supportsImages: false },
+      { id: "MiniMax-M3", displayName: "MiniMax M3", supportsImages: true, contextWindow: millionTokenContextWindow },
+      {
+        id: "MiniMax-M2.7",
+        displayName: "MiniMax M2.7",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.7-highspeed",
+        displayName: "MiniMax M2.7 Highspeed",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.5",
+        displayName: "MiniMax M2.5",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.5-highspeed",
+        displayName: "MiniMax M2.5 Highspeed",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.1",
+        displayName: "MiniMax M2.1",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2.1-highspeed",
+        displayName: "MiniMax M2.1 Highspeed",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
+      {
+        id: "MiniMax-M2",
+        displayName: "MiniMax M2",
+        supportsImages: false,
+        contextWindow: context200K,
+        maxOutputTokens: maxOutput128K,
+      },
     ],
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {
@@ -187,9 +292,15 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
       },
     ],
     modelOptions: [
-      { id: "mimo-v2.5-pro", displayName: "MiMo V2.5 Pro", supportsImages: false },
-      { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true },
+      {
+        id: "mimo-v2.5-pro",
+        displayName: "MiMo V2.5 Pro",
+        supportsImages: false,
+        contextWindow: millionTokenContextWindow,
+      },
+      { id: "mimo-v2.5", displayName: "MiMo V2.5", supportsImages: true, contextWindow: millionTokenContextWindow },
     ],
+    supportsToolCalls: true,
     requiresBaseUrl: true,
   },
   {

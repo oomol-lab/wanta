@@ -47,6 +47,21 @@ test("ModelsServiceImpl defaults known provider image support but honors user ch
     modelName: "qwen3.7-plus",
   })
   assert.equal(qwen.customModels[0]?.supportsImages, true)
+  assert.equal(qwen.customModels[0]?.contextWindow, 1_000_000)
+
+  const gemini = await service.saveCustomModel({
+    providerId: "gemini",
+    providerName: "Gemini",
+    baseUrl: providerBaseUrls.gemini,
+    apiKey: "sk-secret",
+    modelName: "gemini-3.5-flash",
+  })
+  const geminiModel = gemini.customModels.at(-1)
+  assert.equal(geminiModel?.supportsImages, true)
+  assert.equal(geminiModel?.supportsToolCalls, true)
+  assert.equal(geminiModel?.contextWindow, 1_064_000)
+  assert.equal(geminiModel?.inputTokenLimit, 1_000_000)
+  assert.equal(geminiModel?.maxOutputTokens, 64_000)
 
   const openRouter = await service.saveCustomModel({
     providerId: "openrouter",

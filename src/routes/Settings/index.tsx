@@ -377,7 +377,7 @@ function getUpdateStatusText(update: UseAppUpdate, t: ReturnType<typeof useI18n>
 function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
   return (
     <div className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground">
-      <span>{name.trim().charAt(0).toLocaleUpperCase() || "L"}</span>
+      <span aria-hidden="true">{name.trim().charAt(0).toLocaleUpperCase() || "L"}</span>
       <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </div>
   )

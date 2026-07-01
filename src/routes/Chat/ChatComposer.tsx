@@ -267,10 +267,10 @@ export function ChatComposer({
         defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),
         defaultLabel: t("connections.defaultConnection"),
         needsAttention: t("connections.needsAttention"),
-        setDefault: t("chat.connectionSetDefault"),
+        setDefault: onSetDefaultConnection ? t("chat.connectionSetDefault") : "",
         unsupportedProvider: t("chat.connectionUnsupportedDescription"),
       }),
-    [providers, t],
+    [onSetDefaultConnection, providers, t],
   )
   const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
   const contextItems = React.useMemo(
@@ -468,7 +468,7 @@ export function ChatComposer({
     },
     onAddContextMention: addContextMention,
     onOpenConnectionProvider,
-    onRequestSetDefaultConnection: requestSetDefaultConnection,
+    onRequestSetDefaultConnection: onSetDefaultConnection ? requestSetDefaultConnection : undefined,
     onSelectAttachments: (kind) => {
       if (composerDisabled) {
         return

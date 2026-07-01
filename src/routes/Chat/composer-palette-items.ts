@@ -386,7 +386,7 @@ export function buildConnectionAccountPaletteItems(
     .map((app): ConnectionAccountPaletteItem => {
       const title = connectionAppDisplayName(app)
       const description = app.status === "active" ? (connectionAppSecondaryLabel(app) ?? "") : copy.needsAttention
-      const canSetDefault = !app.isDefault && app.status === "active"
+      const canSetDefault = Boolean(copy.setDefault) && !app.isDefault && app.status === "active"
       return {
         accountLabel: title,
         appId: app.id,

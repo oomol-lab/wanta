@@ -68,3 +68,23 @@ test("dropCachedAvatarImage revokes and removes the cached object URL", async ()
   expect(readCachedAvatarImage("https://example.com/a.png")).toBeNull()
   expect(revoked).toEqual(["blob:avatar-1"])
 })
+
+test("clearAvatarImageCache prevents an in-flight request from repopulating the cache", async () => {
+  let resolveResponse: ((response: Response) => void) | undefined
+  const responsePromise = new Promise<Response>((resolve) => {
+    resolveResponse = resolve
+  })
+  const revoked: string[] = []
+  const request = loadCachedAvatarImage("https://example.com/a.png", {
+    createObjectUrl: () => "blob:stale-avatar",
+    fetcher: async () => responsePromise,
+    revokeObjectUrl: (url) => revoked.push(url),
+  })
+
+  clearAvatarImageCache({ revokeObjectUrl: (url) => revoked.push(url) })
+  resolveResponse?.(new Response(new Blob(["avatar"], { type: "image/png" })))
+
+  await expect(request).rejects.toThrow("Avatar cache was cleared.")
+  expect(readCachedAvatarImage("https://example.com/a.png")).toBeNull()
+  expect(revoked).toEqual(["blob:stale-avatar"])
+})

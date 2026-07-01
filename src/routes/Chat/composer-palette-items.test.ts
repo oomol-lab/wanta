@@ -367,6 +367,51 @@ describe("composer palette items", () => {
     expect(accountItems[1]).not.toHaveProperty("secondaryActionActiveLabel")
   })
 
+  it("hides account default actions when the set default copy is empty", () => {
+    const provider: ConnectionProvider = {
+      actionKind: "oauth2",
+      appCount: 2,
+      appId: "app-work",
+      appStatus: "active",
+      apps: [
+        {
+          accountLabel: "personal@example.com",
+          authType: "oauth2",
+          createdAt: 1,
+          id: "app-personal",
+          isDefault: false,
+          service: "gmail",
+          status: "active",
+          updatedAt: 1,
+        },
+        {
+          accountLabel: "work@example.com",
+          authType: "oauth2",
+          createdAt: 2,
+          id: "app-work",
+          isDefault: true,
+          service: "gmail",
+          status: "active",
+          updatedAt: 2,
+        },
+      ],
+      authTypes: ["oauth2"],
+      canDisconnect: true,
+      categoryLabels: [],
+      displayName: "Gmail",
+      service: "gmail",
+      status: "connected",
+    }
+
+    const accountItems = buildConnectionAccountPaletteItems(provider, { ...connectionPaletteCopy, setDefault: "" })
+
+    expect(accountItems[1]).toMatchObject({
+      appId: "app-personal",
+      secondaryActionLabel: undefined,
+      secondaryActionTitle: undefined,
+    })
+  })
+
   it("includes available and attention providers in connection search", () => {
     const providers: ConnectionProvider[] = [
       {

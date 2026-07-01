@@ -3274,12 +3274,8 @@ function OrganizationAvatar({ className, organization }: { className?: string; o
       )}
       style={organizationAvatarStyle(organization.id || organization.name)}
     >
-      <span>{organizationInitials(organization.name)}</span>
-      <CachedAvatarImage
-        src={organization.avatar}
-        alt={organization.name}
-        className="absolute inset-0 size-full object-cover"
-      />
+      <span aria-hidden="true">{organizationInitials(organization.name)}</span>
+      <CachedAvatarImage src={organization.avatar} alt="" className="absolute inset-0 size-full object-cover" />
     </span>
   )
 }
@@ -3302,17 +3298,17 @@ function AccountWorkspaceAvatar({
         className,
       )}
     >
-      <span>{userFallback(label)}</span>
-      <CachedAvatarImage src={avatarUrl} alt={label} className="absolute inset-0 size-full object-cover" />
+      <span aria-hidden="true">{userFallback(label)}</span>
+      <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </span>
   )
 }
 
-function UserAvatar({ avatar, fallback, label }: { avatar: string; fallback: string; label: string }) {
+function UserAvatar({ avatar, fallback }: { avatar: string; fallback: string }) {
   return (
     <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
-      <span>{fallback}</span>
-      <CachedAvatarImage src={avatar} alt={label} className="absolute inset-0 size-full object-cover" />
+      <span aria-hidden="true">{fallback}</span>
+      <CachedAvatarImage src={avatar} alt="" className="absolute inset-0 size-full object-cover" />
     </span>
   )
 }
@@ -3323,7 +3319,7 @@ function MemberDisplay({ members, userId }: { members: MemberView[]; userId: str
   const secondary = member?.secondaryLabel ?? userId
   return (
     <div className="flex min-h-9 min-w-0 items-center gap-3 rounded-md border bg-muted/40 px-3 py-2">
-      <UserAvatar avatar={member?.avatar ?? ""} fallback={member?.fallback ?? userFallback(label)} label={label} />
+      <UserAvatar avatar={member?.avatar ?? ""} fallback={member?.fallback ?? userFallback(label)} />
       <span className="min-w-0">
         <span className="oo-text-label block truncate">{label}</span>
         <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">{secondary}</span>

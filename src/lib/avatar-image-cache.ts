@@ -20,6 +20,7 @@ export interface AvatarImageCacheFetchOptions {
 const avatarCache = new Map<string, AvatarCacheEntry>()
 const avatarFailures = new Map<string, AvatarFailureEntry>()
 const avatarInFlight = new Map<string, Promise<string>>()
+let avatarCacheGeneration = 0
 
 function currentTime(options: AvatarImageCacheFetchOptions = {}): number {
   return options.now?.() ?? Date.now()
@@ -132,6 +133,7 @@ export async function loadCachedAvatarImage(
   src: string | undefined,
   options: AvatarImageCacheFetchOptions = {},
 ): Promise<string> {
+  const requestGeneration = avatarCacheGeneration
   const key = normalizeAvatarCacheKey(src)
   if (!key) {
     throw new Error("Avatar URL is invalid.")
@@ -172,6 +174,11 @@ export async function loadCachedAvatarImage(
         throw new Error("Avatar response is empty.")
       }
       const objectUrl = createObjectUrl(blob)
+      if (avatarCacheGeneration !== requestGeneration) {
+        const revokeObjectUrl = options.revokeObjectUrl ?? URL.revokeObjectURL.bind(URL)
+        revokeObjectUrl(objectUrl)
+        throw new Error("Avatar cache was cleared.")
+      }
       putCachedAvatarImage(key, objectUrl, options)
       clearAvatarImageFailure(key)
       return objectUrl
@@ -187,6 +194,7 @@ export async function loadCachedAvatarImage(
 }
 
 export function clearAvatarImageCache(options: Pick<AvatarImageCacheFetchOptions, "revokeObjectUrl"> = {}): void {
+  avatarCacheGeneration += 1
   const revokeObjectUrl = options.revokeObjectUrl ?? URL.revokeObjectURL.bind(URL)
   for (const cached of avatarCache.values()) {
     revokeObjectUrl(cached.objectUrl)

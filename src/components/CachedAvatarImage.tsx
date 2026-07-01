@@ -18,7 +18,11 @@ interface CachedAvatarImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement
 
 export function CachedAvatarImage({ className, onError, onLoad, src, style, ...props }: CachedAvatarImageProps) {
   const cacheKey = React.useMemo(() => normalizeAvatarCacheKey(src), [src])
-  const [imageSrc, setImageSrc] = React.useState<string | null>(() => readCachedAvatarImage(src))
+  const [imageState, setImageState] = React.useState<{ cacheKey: string | null; src: string | null }>(() => ({
+    cacheKey,
+    src: readCachedAvatarImage(src),
+  }))
+  const imageSrc = imageState.cacheKey === cacheKey ? imageState.src : null
   const [visible, setVisible] = React.useState(false)
   const remoteFallbackRef = React.useRef(false)
 
@@ -26,35 +30,35 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
     remoteFallbackRef.current = false
     setVisible(false)
     if (!cacheKey) {
-      setImageSrc(null)
+      setImageState({ cacheKey, src: null })
       return
     }
 
     const cached = readCachedAvatarImage(cacheKey)
     if (cached) {
-      setImageSrc(cached)
+      setImageState({ cacheKey, src: cached })
       return
     }
 
     if (shouldSkipAvatarImageLoad(cacheKey)) {
-      setImageSrc(null)
+      setImageState({ cacheKey, src: null })
       return
     }
 
     let cancelled = false
-    setImageSrc(null)
+    setImageState({ cacheKey, src: null })
     void loadCachedAvatarImage(cacheKey)
       .then((nextSrc) => {
         if (!cancelled) {
           setVisible(false)
-          setImageSrc(nextSrc)
+          setImageState({ cacheKey, src: nextSrc })
         }
       })
       .catch(() => {
         if (!cancelled) {
           remoteFallbackRef.current = true
           setVisible(false)
-          setImageSrc(cacheKey)
+          setImageState({ cacheKey, src: cacheKey })
         }
       })
     return () => {
@@ -62,7 +66,7 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
     }
   }, [cacheKey])
 
-  if (!cacheKey || !imageSrc) {
+  if (!cacheKey || !imageSrc || imageState.cacheKey !== cacheKey) {
     return null
   }
 
@@ -84,12 +88,12 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
           dropCachedAvatarImage(cacheKey)
           remoteFallbackRef.current = true
           setVisible(false)
-          setImageSrc(cacheKey)
+          setImageState({ cacheKey, src: cacheKey })
           return
         }
         markAvatarImageFailed(cacheKey)
         setVisible(false)
-        setImageSrc(null)
+        setImageState({ cacheKey, src: null })
         onError?.(event)
       }}
     />

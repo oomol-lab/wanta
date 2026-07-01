@@ -420,7 +420,9 @@ function WorkspaceAvatar({
       )}
       style={fallbackStyle}
     >
-      <span className="min-w-0">{fallback}</span>
+      <span aria-hidden="true" className="min-w-0">
+        {fallback}
+      </span>
       <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </span>
   )
@@ -1617,7 +1619,7 @@ function SidebarMenuButton({
 function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
   return (
     <div className="relative flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-foreground">
-      <span>{accountInitial(name)}</span>
+      <span aria-hidden="true">{accountInitial(name)}</span>
       <CachedAvatarImage src={avatarUrl} alt="" className="absolute inset-0 size-full object-cover" />
     </div>
   )

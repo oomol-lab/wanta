@@ -63,12 +63,17 @@ export function Dialog({
 }: DialogProps) {
   const panelRef = React.useRef<HTMLDivElement>(null)
   const onCloseRef = React.useRef(onClose)
+  const initialFocusRef = React.useRef(initialFocus)
   const generatedTitleId = React.useId()
   const titleId = titleIdProp ?? generatedTitleId
 
   React.useEffect(() => {
     onCloseRef.current = onClose
   }, [onClose])
+
+  React.useEffect(() => {
+    initialFocusRef.current = initialFocus
+  }, [initialFocus])
 
   React.useEffect(() => {
     if (!open) {
@@ -125,7 +130,11 @@ export function Dialog({
       if (!panel) {
         return
       }
-      ;(initialFocus?.() ?? getFocusableElements(panel)[0] ?? panel).focus()
+      const focusableElements = getFocusableElements(panel)
+      const requestedFocus = initialFocusRef.current?.()
+      const target =
+        requestedFocus && focusableElements.includes(requestedFocus) ? requestedFocus : (focusableElements[0] ?? panel)
+      target.focus()
     })
     return () => {
       window.cancelAnimationFrame(frame)
@@ -134,7 +143,7 @@ export function Dialog({
         previousActiveElement.focus()
       }
     }
-  }, [initialFocus, open])
+  }, [open])
 
   if (!open) {
     return null

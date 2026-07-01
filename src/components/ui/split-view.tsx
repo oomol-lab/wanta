@@ -54,7 +54,7 @@ function SplitViewBody({ children, className, desktopLayout = "default", ...prop
       data-slot="split-view-body"
       className={cn(
         "grid min-h-0 overflow-hidden",
-        desktopLayout === "default" && "min-[960px]:grid-cols-[minmax(0,1fr)_minmax(20rem,min(42%,30rem))]",
+        desktopLayout === "default" && "min-[960px]:grid-cols-[minmax(0,1fr)_minmax(24rem,min(46%,34rem))]",
         desktopLayout === "narrow-list" && "min-[960px]:grid-cols-[minmax(24rem,31rem)_minmax(22rem,1fr)]",
         desktopLayout === "single" && "min-[960px]:grid-cols-[minmax(0,1fr)]",
         className,

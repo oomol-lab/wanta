@@ -227,13 +227,15 @@ export function ChatComposer({
     dispatch: dispatchComposer,
     setInputError,
   })
+  const platform = globalThis.wanta?.platform
   const slashItems = React.useMemo(
     () =>
       slashCommandItems({
         canViewBilling: Boolean(onViewBilling),
+        platform,
         t,
       }),
-    [onViewBilling, t],
+    [onViewBilling, platform, t],
   )
   const skillItems = React.useMemo(
     () =>
@@ -264,8 +266,8 @@ export function ChatComposer({
   )
   const artifactItems = React.useMemo(() => buildArtifactPaletteItems(generatedArtifacts, t), [generatedArtifacts, t])
   const contextItems = React.useMemo(
-    () => buildContextPaletteItems({ artifactItems, connectionItems, t }),
-    [artifactItems, connectionItems, t],
+    () => buildContextPaletteItems({ artifactItems, connectionItems, platform, t }),
+    [artifactItems, connectionItems, platform, t],
   )
   const providerByService = React.useMemo(
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),

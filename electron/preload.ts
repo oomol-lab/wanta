@@ -25,13 +25,15 @@ export interface SaveClipboardAttachmentInput {
   bytes: ArrayBuffer
 }
 
+export type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
+
 export interface WantaBridge {
   appCommit: string
   getPathForFile(file: File): string
   onAppCommand(callback: (command: AppCommand) => void): () => void
   platform: NodeJS.Platform
   saveClipboardAttachment(input: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath>
-  selectAttachmentPaths(kind: "file" | "directory"): Promise<SelectedAttachmentPath[]>
+  selectAttachmentPaths(kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]>
   selectProjectDirectory(): Promise<SelectedAttachmentPath | null>
   setAppLocale(locale: AppLocale): void
   version: string
@@ -61,7 +63,7 @@ const wanta: WantaBridge = {
   platform: process.platform,
   saveClipboardAttachment: (input: SaveClipboardAttachmentInput) =>
     electronAPI.ipcRenderer.invoke("wanta:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
-  selectAttachmentPaths: (kind: "file" | "directory") =>
+  selectAttachmentPaths: (kind: AttachmentPickerKind) =>
     electronAPI.ipcRenderer.invoke("wanta:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
   selectProjectDirectory: () =>
     electronAPI.ipcRenderer.invoke("wanta:select-project-directory") as Promise<SelectedAttachmentPath | null>,

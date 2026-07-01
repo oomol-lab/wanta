@@ -56,7 +56,7 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
     const paletteGap = 8
     const anchorTop = anchor.getBoundingClientRect().top
     const availableHeight = Math.floor(anchorTop - safeTop - paletteGap)
-    setMaxHeight(Math.max(1, Math.min(288, availableHeight)))
+    setMaxHeight(Math.max(1, Math.min(400, availableHeight)))
   }, [])
 
   React.useLayoutEffect(() => {
@@ -85,7 +85,7 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
     <div
       ref={rootRef}
       style={maxHeight === undefined ? undefined : { maxHeight }}
-      className="oo-border-divider absolute right-0 bottom-full left-0 z-20 mb-2 overflow-y-auto rounded-xl border bg-popover p-1.5 text-popover-foreground shadow-xl"
+      className="oo-border-divider absolute right-0 bottom-full left-0 z-20 mb-2 overflow-y-auto rounded-xl border bg-popover p-2 text-popover-foreground shadow-xl"
     >
       {headerLabel ? (
         <div className="mb-1 flex h-8 items-center gap-1 px-1">
@@ -112,7 +112,7 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
               key={item.id}
               ref={active ? activeItemRef : undefined}
               className={cn(
-                "flex h-12 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left outline-none",
+                "flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left outline-none",
                 active && "bg-accent text-accent-foreground",
                 item.disabled && "cursor-not-allowed opacity-55",
               )}
@@ -121,7 +121,7 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
                 type="button"
                 disabled={item.disabled}
                 className={cn(
-                  "-mx-2 flex h-full min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left outline-none",
+                  "-mx-2 flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none",
                   "hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
                   active && "text-accent-foreground",
                   item.disabled && "cursor-not-allowed",
@@ -129,12 +129,12 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onSelect(item)}
               >
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
                   {item.icon}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="oo-text-label block truncate">{item.title}</span>
-                  <span className="oo-text-caption-compact block truncate text-muted-foreground">
+                <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                  <span className="oo-text-label max-w-[42%] shrink-0 truncate">{item.title}</span>
+                  <span className="oo-text-caption-compact min-w-0 flex-1 truncate text-muted-foreground">
                     {item.description}
                   </span>
                 </span>
@@ -144,14 +144,14 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
                   type="button"
                   title={item.secondaryActionTitle ?? item.secondaryActionLabel}
                   disabled={item.secondaryActionDisabled}
-                  className="oo-text-caption-compact ml-1 max-w-36 shrink-0 truncate rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:bg-background focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  className="oo-text-caption-compact ml-1 max-w-32 shrink-0 truncate rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:bg-background focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onSecondarySelect(item)}
                 >
                   {item.secondaryActionLabel}
                 </button>
               ) : item.meta ? (
-                <span className="oo-text-caption-compact ml-1 max-w-24 shrink-0 truncate text-muted-foreground">
+                <span className="oo-text-caption-compact ml-1 max-w-20 shrink-0 truncate text-muted-foreground">
                   {item.meta}
                 </span>
               ) : null}

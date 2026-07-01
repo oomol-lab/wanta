@@ -1,6 +1,7 @@
 import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import type {
   ArtifactPaletteItem,
+  AttachmentPaletteAction,
   AttachmentPaletteItem,
   ChatComposerPaletteItem,
   ConnectionAccountPaletteItem,
@@ -23,6 +24,8 @@ import {
 } from "./composer-palette-state.ts"
 import { detectComposerTrigger } from "./composer-triggers.ts"
 
+type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
+
 interface UseComposerPaletteOptions {
   connectionItems: ConnectionProviderPaletteItem[]
   contextItems: Array<ArtifactPaletteItem | AttachmentPaletteItem | ConnectionProviderPaletteItem>
@@ -35,11 +38,18 @@ interface UseComposerPaletteOptions {
   onAddArtifactAttachment: (item: ArtifactPaletteItem) => void
   onAddContextMention: (mention: ChatContextMention) => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
-  onSelectAttachments: (kind: "file" | "directory") => void
+  onSelectAttachments: (kind: AttachmentPickerKind) => void
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onViewBilling?: () => void
   skillItems: SkillPaletteItem[]
   slashItems: SlashCommandPaletteItem[]
+}
+
+function attachmentPickerKind(action: AttachmentPaletteAction): AttachmentPickerKind {
+  if (action === "attach-folder") {
+    return "directory"
+  }
+  return action === "attach-file-or-folder" ? "file-or-directory" : "file"
 }
 
 export interface UseComposerPaletteResult {
@@ -206,9 +216,9 @@ export function useComposerPalette({
         focusDraftAt(currentTrigger.start)
         return
       }
-      if (item.action === "attach-file" || item.action === "attach-folder") {
+      if (item.action === "attach-file" || item.action === "attach-folder" || item.action === "attach-file-or-folder") {
         dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
-        onSelectAttachments(item.action === "attach-file" ? "file" : "directory")
+        onSelectAttachments(attachmentPickerKind(item.action))
         focusDraftAt(currentTrigger.start)
         return
       }
@@ -230,6 +240,7 @@ export function useComposerPalette({
     (item: SkillPaletteItem, currentTrigger: ComposerTrigger) => {
       onAddContextMention({
         description: item.descriptionText,
+        ...(item.iconSource ? { icon: item.iconSource } : {}),
         id: item.skillId,
         kind: "skill",
         name: item.skillName,
@@ -288,7 +299,7 @@ export function useComposerPalette({
   const applyAttachmentItem = React.useCallback(
     (item: AttachmentPaletteItem, currentTrigger: ComposerTrigger) => {
       dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
-      onSelectAttachments(item.action === "attach-file" ? "file" : "directory")
+      onSelectAttachments(attachmentPickerKind(item.action))
       focusDraftAt(currentTrigger.start)
     },
     [dispatch, focusDraftAt, onSelectAttachments],

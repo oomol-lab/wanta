@@ -1,7 +1,14 @@
 import type { PaletteMode } from "./composer-palette-state.ts"
 import type { ComposerTriggerKind } from "./composer-triggers.ts"
 
-export type RootPaletteAction = "attach-file" | "attach-folder" | "billing" | "connections" | "creator-skill" | "skills"
+export type RootPaletteAction =
+  | "attach-file"
+  | "attach-file-or-folder"
+  | "attach-folder"
+  | "billing"
+  | "connections"
+  | "creator-skill"
+  | "skills"
 
 export type ComposerPaletteKeyAction =
   | { type: "back" }

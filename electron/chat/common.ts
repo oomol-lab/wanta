@@ -207,15 +207,18 @@ export interface ChatProjectContext {
 
 export interface ChatOrganizationSkillContext {
   description?: string
+  icon?: string
   id: string
   name: string
   packageName?: string
+  skillName?: string
   version?: string
 }
 
 export type ChatContextMention =
   | {
       description?: string
+      icon?: string
       id: string
       kind: "skill"
       name: string

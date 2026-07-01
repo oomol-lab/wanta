@@ -10,6 +10,8 @@ import {
 } from "./chat-attachment-utils.ts"
 import { useT } from "@/i18n/i18n"
 
+type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
+
 export interface ComposerAttachmentInput {
   agentMime?: string
   agentName?: string
@@ -40,7 +42,7 @@ export interface UseComposerAttachments {
   handlePaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void
   removeAttachment: (id: string) => void
   revokeCurrentPreviews: () => void
-  selectAttachments: (kind: "file" | "directory") => Promise<void>
+  selectAttachments: (kind: AttachmentPickerKind) => Promise<void>
 }
 
 const imageOptimizeMaxSidePx = 1600
@@ -238,11 +240,11 @@ export function useComposerAttachments({
   )
 
   const selectAttachments = React.useCallback(
-    async (kind: "file" | "directory") => {
+    async (kind: AttachmentPickerKind) => {
       setInputError(null)
       const picker = globalThis.wanta?.selectAttachmentPaths
       if (!picker) {
-        if (kind === "file") {
+        if (kind === "file" || kind === "file-or-directory") {
           fileInputRef.current?.click()
         } else {
           setInputError(t("chat.attachmentFolderPickerUnavailable"))

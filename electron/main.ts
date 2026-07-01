@@ -81,6 +81,8 @@ interface SaveClipboardAttachmentRequest {
   bytes: ArrayBuffer
 }
 
+type AttachmentPickerKind = "file" | "directory" | "file-or-directory"
+
 // dev 用本地 scheme，生产用正式 scheme（R1 / 阶段 6）。
 const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.protocolScheme
 
@@ -265,10 +267,9 @@ if (isLocked) {
 function registerAttachmentDialogHandler(): void {
   ipcMain.handle(
     "wanta:select-attachment-paths",
-    async (event, kind: "file" | "directory"): Promise<SelectedAttachmentPath[]> => {
+    async (event, kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]> => {
       const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-      const properties: Electron.OpenDialogOptions["properties"] =
-        kind === "directory" ? ["openDirectory", "multiSelections"] : ["openFile", "multiSelections"]
+      const properties = attachmentDialogProperties(kind, process.platform)
       const result = parent
         ? await dialog.showOpenDialog(parent, { properties })
         : await dialog.showOpenDialog({ properties })
@@ -310,6 +311,19 @@ function registerAttachmentDialogHandler(): void {
       kind: "directory",
     }
   })
+}
+
+function attachmentDialogProperties(
+  kind: AttachmentPickerKind,
+  platform: NodeJS.Platform,
+): NonNullable<Electron.OpenDialogOptions["properties"]> {
+  if (kind === "file-or-directory") {
+    if (platform !== "darwin") {
+      throw new Error("Selecting files and folders together is only supported on macOS.")
+    }
+    return ["openFile", "openDirectory", "multiSelections"]
+  }
+  return kind === "directory" ? ["openDirectory", "multiSelections"] : ["openFile", "multiSelections"]
 }
 
 async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachmentPath | null> {

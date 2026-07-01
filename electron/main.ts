@@ -265,21 +265,19 @@ if (isLocked) {
 }
 
 function registerAttachmentDialogHandler(): void {
-  ipcMain.handle(
-    "wanta:select-attachment-paths",
-    async (event, kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]> => {
-      const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
-      const properties = attachmentDialogProperties(kind, process.platform)
-      const result = parent
-        ? await dialog.showOpenDialog(parent, { properties })
-        : await dialog.showOpenDialog({ properties })
-      if (result.canceled) {
-        return []
-      }
-      const items = await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))
-      return items.filter((item): item is SelectedAttachmentPath => Boolean(item))
-    },
-  )
+  ipcMain.handle("wanta:select-attachment-paths", async (event, kind: unknown): Promise<SelectedAttachmentPath[]> => {
+    assertAttachmentPickerKind(kind)
+    const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
+    const properties = attachmentDialogProperties(kind, process.platform)
+    const result = parent
+      ? await dialog.showOpenDialog(parent, { properties })
+      : await dialog.showOpenDialog({ properties })
+    if (result.canceled) {
+      return []
+    }
+    const items = await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))
+    return items.filter((item): item is SelectedAttachmentPath => Boolean(item))
+  })
   ipcMain.handle(
     "wanta:save-clipboard-attachment",
     async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
@@ -313,17 +311,28 @@ function registerAttachmentDialogHandler(): void {
   })
 }
 
+function assertAttachmentPickerKind(kind: unknown): asserts kind is AttachmentPickerKind {
+  if (kind !== "file" && kind !== "directory" && kind !== "file-or-directory") {
+    throw new Error("Invalid attachment picker kind.")
+  }
+}
+
 function attachmentDialogProperties(
   kind: AttachmentPickerKind,
   platform: NodeJS.Platform,
 ): NonNullable<Electron.OpenDialogOptions["properties"]> {
-  if (kind === "file-or-directory") {
-    if (platform !== "darwin") {
-      throw new Error("Selecting files and folders together is only supported on macOS.")
+  switch (kind) {
+    case "file":
+      return ["openFile", "multiSelections"]
+    case "directory":
+      return ["openDirectory", "multiSelections"]
+    case "file-or-directory": {
+      if (platform !== "darwin") {
+        throw new Error("Selecting files and folders together is only supported on macOS.")
+      }
+      return ["openFile", "openDirectory", "multiSelections"]
     }
-    return ["openFile", "openDirectory", "multiSelections"]
   }
-  return kind === "directory" ? ["openDirectory", "multiSelections"] : ["openFile", "multiSelections"]
 }
 
 async function selectedAttachmentPath(filePath: string): Promise<SelectedAttachmentPath | null> {

@@ -44,6 +44,7 @@ import {
   retrySourceFromTurn,
   reuseStableChatTurns,
   shouldShowPlainTurnActivity,
+  shouldShowSuggestedAuthorization,
   shouldShowTurnProcess,
   summarizeTurnProcess,
 } from "./chat-turns.ts"
@@ -159,17 +160,17 @@ function isLiveProcess(process: ReturnType<typeof summarizeTurnProcess>, live = 
 }
 
 function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = false): TurnProcessStatus {
-  if (process.hasAuthorization) {
-    return "needsAction"
-  }
   if (process.activity?.phase === "retrying") {
     return "retrying"
   }
-  if (process.hasBlockingError) {
-    return "error"
-  }
   if (isLiveProcess(process, live)) {
     return "running"
+  }
+  if (process.hasAuthorization) {
+    return "needsAction"
+  }
+  if (process.hasBlockingError) {
+    return "error"
   }
   if (process.hasToolError) {
     return "completedWithIssues"
@@ -352,6 +353,7 @@ function TurnProcessActivity({
               smoothText={false}
               providerByService={providerByService}
               shimmerToolPartId={shimmerToolPartId}
+              showAuthorizationPrompt={!live}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
             />
@@ -630,6 +632,7 @@ function AssistantBlock({
   smoothText,
   providerByService,
   shimmerToolPartId,
+  showAuthorizationPrompt = true,
   onAuthorize,
   onViewBilling,
 }: {
@@ -639,6 +642,7 @@ function AssistantBlock({
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
   shimmerToolPartId?: string
+  showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
 }) {
@@ -668,6 +672,7 @@ function AssistantBlock({
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
                 shimmer={part.partId === shimmerToolPartId}
+                showAuthorizationPrompt={showAuthorizationPrompt}
                 onAuthorize={onAuthorize}
               />
             )
@@ -938,8 +943,11 @@ const ChatTurnView = React.memo(function ChatTurnView({
   const responseActionsText =
     lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseRenderBlocks) || null
   const processActionsText = responseRenderBlocks.length > 0 ? null : assistantActionsText
-  const responseSuggestedAuthorization = responseRenderBlocks.length > 0 ? process.suggestedAuthorization : undefined
-  const processSuggestedAuthorization = responseRenderBlocks.length > 0 ? undefined : process.suggestedAuthorization
+  const showSuggestedAuthorization = shouldShowSuggestedAuthorization(process, turnIsActive)
+  const responseSuggestedAuthorization =
+    showSuggestedAuthorization && responseRenderBlocks.length > 0 ? process.suggestedAuthorization : undefined
+  const processSuggestedAuthorization =
+    showSuggestedAuthorization && responseRenderBlocks.length === 0 ? process.suggestedAuthorization : undefined
   const retrySource = React.useMemo(() => retrySourceFromTurn(turn), [turn])
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo) => {

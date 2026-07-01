@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest"
 import { I18nContext, translate } from "../../i18n/i18n.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
 
-function renderToolActivityStep(part: ChatMessagePart, options: { shimmer?: boolean } = {}): string {
+function renderToolActivityStep(
+  part: ChatMessagePart,
+  options: { shimmer?: boolean; showAuthorizationPrompt?: boolean } = {},
+): string {
   return renderToStaticMarkup(
     React.createElement(
       I18nContext.Provider,
@@ -17,7 +20,12 @@ function renderToolActivityStep(part: ChatMessagePart, options: { shimmer?: bool
           t: (key, vars) => translate("zh-CN", key, vars),
         },
       },
-      React.createElement(ToolActivityStep, { part, shimmer: options.shimmer, onAuthorize: () => undefined }),
+      React.createElement(ToolActivityStep, {
+        part,
+        shimmer: options.shimmer,
+        showAuthorizationPrompt: options.showAuthorizationPrompt,
+        onAuthorize: () => undefined,
+      }),
     ),
   )
 }
@@ -80,6 +88,26 @@ describe("ToolActivityStep", () => {
     expect(shimmerClassFor(html, "读取文件")).toContain("shrink-0")
     expect(html).toContain("/tmp/a.txt")
     expect(html).not.toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>[^<]*\/tmp/)
+  })
+
+  it("can hide authorization prompts while the turn is still live", () => {
+    const part: ChatMessagePart = {
+      kind: "tool",
+      partId: "tool-1",
+      callId: "call-1",
+      tool: "call_action",
+      status: "completed",
+      input: { service: "gmail", action: "fetch_emails" },
+      output: JSON.stringify({
+        status: "authorization_required",
+        service: "gmail",
+        displayName: "Gmail",
+        errorCode: "connection_required",
+      }),
+    }
+
+    expect(renderToolActivityStep(part)).toContain("需要授权 Gmail 才能继续")
+    expect(renderToolActivityStep(part, { showAuthorizationPrompt: false })).not.toContain("需要授权 Gmail 才能继续")
   })
 
   it("shimmers only the active connector title when a connector target is shown inline", () => {

@@ -191,11 +191,13 @@ export function ToolActivityStep({
   part,
   provider,
   shimmer = false,
+  showAuthorizationPrompt = true,
   onAuthorize,
 }: {
   part: ChatMessagePart
   provider?: ConnectionProvider
   shimmer?: boolean
+  showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
@@ -264,15 +266,16 @@ export function ToolActivityStep({
       </div>
     </div>
   )
-  const authPrompt = auth ? (
-    <div className="mt-1 ml-7 flex flex-wrap items-center gap-2">
-      <span>{t("chat.authNeeded", { name: auth.displayName })}</span>
-      <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
-        <Plug className="size-3.5" />
-        {t("chat.authorizeConnection")}
-      </Button>
-    </div>
-  ) : null
+  const authPrompt =
+    auth && showAuthorizationPrompt ? (
+      <div className="mt-1 ml-7 flex flex-wrap items-center gap-2">
+        <span>{t("chat.authNeeded", { name: auth.displayName })}</span>
+        <Button size="sm" variant="outline" className="h-7 gap-1 px-2" onClick={() => onAuthorize(auth)}>
+          <Plug className="size-3.5" />
+          {t("chat.authorizeConnection")}
+        </Button>
+      </div>
+    ) : null
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>

@@ -29,6 +29,7 @@ export interface SlashCommandPaletteItem extends ComposerPaletteItem {
 export interface ConnectionPaletteItem extends ComposerPaletteItem {
   appId?: string
   accountLabel?: string
+  connectionAction: "attention" | "connect" | "unsupported" | "use"
   displayName: string
   kind: "connection-account" | "connection-provider"
   service: string
@@ -171,10 +172,12 @@ export function buildSkillPaletteItems(
 
 export interface ConnectionPaletteCopy {
   accountCount: (count: number) => string
+  connectProvider: string
   defaultAccountDescription: (account: string) => string
   defaultLabel: string
   needsAttention: string
   setDefaultAndUse: string
+  unsupportedProvider: string
   useForThisTurn: string
 }
 
@@ -221,42 +224,60 @@ export function buildConnectionPaletteItems(
   fallbackDescription: (service: string) => string,
   copy: ConnectionPaletteCopy,
 ): ConnectionProviderPaletteItem[] {
-  return providers
-    .filter((provider) => provider.status === "connected" && activeConnectionApps(provider).length > 0)
-    .slice()
-    .sort((left, right) => left.displayName.localeCompare(right.displayName))
-    .map((provider): ConnectionProviderPaletteItem => {
-      const apps = usableConnectionApps(provider)
-      const defaultApp = defaultConnectionApp(provider)
-      const accountLabel = defaultApp ? connectionAppDisplayName(defaultApp) : provider.accountLabel
-      const hasMultipleAccounts = apps.length > 1
-      return {
-        accountCount: apps.length,
-        accountLabel,
-        appId: defaultApp?.id,
-        canOpenAccounts: hasMultipleAccounts,
-        copy,
-        description: accountLabel
-          ? copy.defaultAccountDescription(accountLabel)
-          : fallbackDescription(provider.service),
-        disabled: !defaultApp,
+  return providers.map((provider): ConnectionProviderPaletteItem => {
+    const apps = usableConnectionApps(provider)
+    const defaultApp = defaultConnectionApp(provider)
+    const accountLabel = defaultApp ? connectionAppDisplayName(defaultApp) : provider.accountLabel
+    const connectionAction =
+      provider.status === "needs_attention"
+        ? "attention"
+        : defaultApp
+          ? "use"
+          : provider.actionKind === "unavailable"
+            ? "unsupported"
+            : "connect"
+    const hasMultipleAccounts = connectionAction === "use" && apps.length > 1
+    const description =
+      connectionAction === "use" && accountLabel
+        ? copy.defaultAccountDescription(accountLabel)
+        : connectionAction === "connect"
+          ? copy.connectProvider
+          : connectionAction === "attention"
+            ? copy.needsAttention
+            : connectionAction === "unsupported"
+              ? copy.unsupportedProvider
+              : fallbackDescription(provider.service)
+    return {
+      accountCount: apps.length,
+      accountLabel,
+      appId: defaultApp?.id,
+      canOpenAccounts: hasMultipleAccounts,
+      connectionAction,
+      copy,
+      description,
+      disabled: connectionAction === "unsupported",
+      displayName: provider.displayName,
+      icon: React.createElement(ProviderIcon, {
         displayName: provider.displayName,
-        icon: React.createElement(ProviderIcon, {
-          displayName: provider.displayName,
-          iconUrl: provider.iconUrl,
-          size: "compact",
-        }),
-        id: `connection-provider:${provider.service}`,
-        keywords: providerKeywords(provider, apps),
-        kind: "connection-provider",
-        meta: hasMultipleAccounts ? undefined : provider.service,
-        secondaryActionLabel: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
-        secondaryActionTitle: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
-        provider,
-        service: provider.service,
-        title: provider.displayName,
-      }
-    })
+        iconUrl: provider.iconUrl,
+        size: "compact",
+      }),
+      id: `connection-provider:${provider.service}`,
+      keywords: providerKeywords(provider, apps),
+      kind: "connection-provider",
+      meta:
+        connectionAction === "use" && !hasMultipleAccounts
+          ? provider.service
+          : connectionAction === "attention"
+            ? copy.needsAttention
+            : undefined,
+      secondaryActionLabel: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
+      secondaryActionTitle: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
+      provider,
+      service: provider.service,
+      title: provider.displayName,
+    }
+  })
 }
 
 export function buildConnectionAccountPaletteItems(
@@ -287,6 +308,7 @@ export function buildConnectionAccountPaletteItems(
       return {
         accountLabel: title,
         appId: app.id,
+        connectionAction: "use",
         description,
         disabled: app.status !== "active",
         displayName: provider.displayName,

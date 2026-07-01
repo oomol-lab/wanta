@@ -34,6 +34,7 @@ interface UseComposerPaletteOptions {
   focusDraftAt: (index: number) => void
   onAddArtifactAttachment: (item: ArtifactPaletteItem) => void
   onAddContextMention: (mention: ChatContextMention) => void
+  onOpenConnectionProvider?: (service: string, displayName: string) => void
   onSelectAttachments: (kind: "file" | "directory") => void
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onViewBilling?: () => void
@@ -64,6 +65,7 @@ export function useComposerPalette({
   focusDraftAt,
   onAddArtifactAttachment,
   onAddContextMention,
+  onOpenConnectionProvider,
   onSelectAttachments,
   onSetDefaultConnection,
   onViewBilling,
@@ -240,7 +242,16 @@ export function useComposerPalette({
 
   const applyConnectionItem = React.useCallback(
     (item: ConnectionPaletteItem, currentTrigger: ComposerTrigger) => {
-      if (item.disabled || !item.appId) {
+      if (item.disabled) {
+        return
+      }
+      if (item.connectionAction !== "use") {
+        onOpenConnectionProvider?.(item.service, item.displayName)
+        dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
+        focusDraftAt(currentTrigger.start)
+        return
+      }
+      if (!item.appId) {
         return
       }
       onAddContextMention({
@@ -253,7 +264,7 @@ export function useComposerPalette({
       dispatch({ type: "replace-trigger", trigger: currentTrigger, replacement: "" })
       focusDraftAt(currentTrigger.start)
     },
-    [dispatch, focusDraftAt, onAddContextMention],
+    [dispatch, focusDraftAt, onAddContextMention, onOpenConnectionProvider],
   )
 
   const setDefaultAndApplyConnectionItem = React.useCallback(

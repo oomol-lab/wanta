@@ -168,6 +168,8 @@ export default defineConfig(({ command, mode }) => {
         "@iconify-icons/simple-icons/googlebigquery",
         "@iconify-icons/simple-icons/openai",
         "@iconify-icons/simple-icons/tencentqq",
+        "@iconify-icons/simple-icons/wechat",
+        "@iconify-icons/tabler/flame",
         "@iconify-icons/tabler/photo-star",
         "streamdown",
         "motion/react",

@@ -8,6 +8,7 @@ import type {
 } from "../../electron/connections/common.ts"
 import type { RawApp, RawAppListMeta, RawProvider } from "../../electron/connections/summary.ts"
 
+import { branding } from "../../electron/branding.ts"
 import { createConnectorOAuthReturnUri, parseConnectorAuthorizationUrl } from "../../electron/connections/domain.ts"
 import { normalizeConnectionExecutionLogs } from "../../electron/connections/executions.ts"
 import { createFederatedConnectBody } from "../../electron/connections/federated.ts"
@@ -63,6 +64,12 @@ export function clearConnectorCache(): void {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function connectorOAuthReturnProtocol(): string {
+  return typeof window !== "undefined" && window.location.protocol === "http:"
+    ? branding.devProtocolScheme
+    : branding.protocolScheme
 }
 
 function connectionWorkspaceKey(workspace: ConnectionWorkspace): string {
@@ -304,7 +311,7 @@ export async function startOAuthConnect(
   const path = input.appId ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect` : `/v1/apps/${service}/connect`
   const result = await requestConnector<{ authorizationUrl?: unknown }>(path, workspace, {
     method: "POST",
-    body: JSON.stringify({ returnUri: createConnectorOAuthReturnUri(consoleBaseUrl) }),
+    body: JSON.stringify({ returnUri: createConnectorOAuthReturnUri(consoleBaseUrl, connectorOAuthReturnProtocol()) }),
   })
   const authorizationUrl = asString(result.data.authorizationUrl)
   if (!authorizationUrl) {

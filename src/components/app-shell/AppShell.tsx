@@ -2585,6 +2585,11 @@ export function AppShell() {
     })
   }, [activeComposerDraftKey])
 
+  const handleReturnToConnections = React.useCallback((): void => {
+    setSearchOpen(false)
+    setRoute("connections")
+  }, [])
+
   const handleNewSession = React.useCallback((): void => {
     setActiveSessionId(null)
     setIsDraftSession(true)
@@ -3285,6 +3290,10 @@ export function AppShell() {
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {
       switch (command) {
+        case APP_COMMANDS.openConnections:
+          handleReturnToConnections()
+          void connections.refresh({ forceRefresh: true })
+          return
         case APP_COMMANDS.focusComposer:
           requestComposerFocus()
           return
@@ -3306,7 +3315,15 @@ export function AppShell() {
           return
       }
     },
-    [handleChatStop, handleNewSession, handleOpenSearch, handleToggleSidebar, requestComposerFocus],
+    [
+      connections.refresh,
+      handleChatStop,
+      handleNewSession,
+      handleOpenSearch,
+      handleReturnToConnections,
+      handleToggleSidebar,
+      requestComposerFocus,
+    ],
   )
   useAppCommandEvents(runAppCommand)
   useAppCommandShortcuts(runAppCommand)

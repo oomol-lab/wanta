@@ -1,6 +1,7 @@
 export const APP_COMMAND_CHANNEL = "wanta:app-command"
 
 export const APP_COMMANDS = {
+  openConnections: "connections.open",
   focusComposer: "chat.focusComposer",
   newChat: "chat.new",
   openSearch: "sessions.search",

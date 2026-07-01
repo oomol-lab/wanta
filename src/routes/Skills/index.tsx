@@ -285,6 +285,7 @@ export function SkillsRoute({
   const updateRegistryInFlightRef = React.useRef(false)
   const cliUpdateInFlightRef = React.useRef(false)
   const installRegistryInFlightRef = React.useRef(false)
+  const organizationSkillInFlightRef = React.useRef(false)
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
   const myPublishedPackageRequestIdRef = React.useRef(0)
@@ -512,13 +513,26 @@ export function SkillsRoute({
     [homeSummaryResource, inventoryResource, skillService, t, versionResource],
   )
 
+  const beginOrganizationSkillAction = React.useCallback((action: BusyAction): boolean => {
+    if (organizationSkillInFlightRef.current) {
+      return false
+    }
+    organizationSkillInFlightRef.current = true
+    setOrganizationSkillBusyAction(action)
+    return true
+  }, [])
+
+  const endOrganizationSkillAction = React.useCallback((): void => {
+    organizationSkillInFlightRef.current = false
+    setOrganizationSkillBusyAction(null)
+  }, [])
+
   const installOrganizationRuntimeSkill = React.useCallback(
     async (skill: { packageName: string; skillName: string }) => {
-      if (organizationSkillBusyAction) {
+      if (!beginOrganizationSkillAction(`installSkill:${skill.packageName}:${skill.skillName}`)) {
         return
       }
 
-      setOrganizationSkillBusyAction(`installSkill:${skill.packageName}:${skill.skillName}`)
       try {
         const nextInventory = await skillService.invoke("installRegistrySkill", {
           packageName: skill.packageName,
@@ -531,20 +545,27 @@ export function SkillsRoute({
       } catch (cause) {
         toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(cause, t) }))
       } finally {
-        setOrganizationSkillBusyAction(null)
+        endOrganizationSkillAction()
       }
     },
-    [homeSummaryResource, inventoryResource, organizationSkillBusyAction, skillService, t, versionResource],
+    [
+      beginOrganizationSkillAction,
+      endOrganizationSkillAction,
+      homeSummaryResource,
+      inventoryResource,
+      skillService,
+      t,
+      versionResource,
+    ],
   )
 
   const installOrganizationRuntimeSkills = React.useCallback(
     async (skills: readonly { packageName: string; skillName: string }[]) => {
       const targets = skills.filter((skill) => skill.packageName.trim() && skill.skillName.trim())
-      if (targets.length === 0 || organizationSkillBusyAction) {
+      if (targets.length === 0 || !beginOrganizationSkillAction("installSkillBatch")) {
         return
       }
 
-      setOrganizationSkillBusyAction("installSkillBatch")
       let installedCount = 0
       let failedCount = 0
       let firstError: unknown
@@ -576,10 +597,18 @@ export function SkillsRoute({
           )
         }
       } finally {
-        setOrganizationSkillBusyAction(null)
+        endOrganizationSkillAction()
       }
     },
-    [homeSummaryResource, inventoryResource, organizationSkillBusyAction, skillService, t, versionResource],
+    [
+      beginOrganizationSkillAction,
+      endOrganizationSkillAction,
+      homeSummaryResource,
+      inventoryResource,
+      skillService,
+      t,
+      versionResource,
+    ],
   )
 
   const linkOrganizationSkill = React.useCallback(
@@ -609,11 +638,13 @@ export function SkillsRoute({
 
   const addOrganizationSkillFromRecommendation = React.useCallback(
     async (recommendation: ProviderSkillRecommendation, options: { installRuntime: boolean }) => {
-      if (!organizationSkills.canManage || organizationSkillBusyAction) {
+      if (
+        !organizationSkills.canManage ||
+        !beginOrganizationSkillAction(`addSkill:${recommendation.packageName}:${recommendation.skillId}`)
+      ) {
         return
       }
 
-      setOrganizationSkillBusyAction(`addSkill:${recommendation.packageName}:${recommendation.skillId}`)
       try {
         await linkOrganizationSkill(
           {
@@ -627,15 +658,15 @@ export function SkillsRoute({
       } catch (cause) {
         toast.error(skillErrorMessage(cause, t))
       } finally {
-        setOrganizationSkillBusyAction(null)
+        endOrganizationSkillAction()
       }
     },
-    [linkOrganizationSkill, organizationSkillBusyAction, organizationSkills.canManage, t],
+    [beginOrganizationSkillAction, endOrganizationSkillAction, linkOrganizationSkill, organizationSkills.canManage, t],
   )
 
   const addOrganizationSkillFromPackage = React.useCallback(
     async (pkg: PublicSkillPackage, options: { installRuntime: boolean; skillName?: string }) => {
-      if (!organizationSkills.canManage || organizationSkillBusyAction) {
+      if (!organizationSkills.canManage) {
         return
       }
 
@@ -645,22 +676,25 @@ export function SkillsRoute({
         return
       }
 
-      setOrganizationSkillBusyAction(`addSkill:${input.packageName}:${input.skillName}`)
+      if (!beginOrganizationSkillAction(`addSkill:${input.packageName}:${input.skillName}`)) {
+        return
+      }
+
       try {
         await linkOrganizationSkill(input, options)
         toast.success(t("organizations.skillManageAddSuccess"))
       } catch (cause) {
         toast.error(skillErrorMessage(cause, t))
       } finally {
-        setOrganizationSkillBusyAction(null)
+        endOrganizationSkillAction()
       }
     },
-    [linkOrganizationSkill, organizationSkillBusyAction, organizationSkills.canManage, t],
+    [beginOrganizationSkillAction, endOrganizationSkillAction, linkOrganizationSkill, organizationSkills.canManage, t],
   )
 
   const addOrganizationSkillBatch = React.useCallback(
     async (recommendations: readonly ProviderSkillRecommendation[], options: { installRuntime: boolean }) => {
-      if (!organizationSkills.canManage || recommendations.length === 0 || organizationSkillBusyAction) {
+      if (!organizationSkills.canManage || recommendations.length === 0) {
         return
       }
 
@@ -669,7 +703,10 @@ export function SkillsRoute({
         return
       }
 
-      setOrganizationSkillBusyAction("addSkillBatch")
+      if (!beginOrganizationSkillAction("addSkillBatch")) {
+        return
+      }
+
       let linkedCount = 0
       let failedCount = 0
       let firstError: unknown
@@ -706,10 +743,10 @@ export function SkillsRoute({
           )
         }
       } finally {
-        setOrganizationSkillBusyAction(null)
+        endOrganizationSkillAction()
       }
     },
-    [linkOrganizationSkill, organizationSkillBusyAction, organizationSkills, t],
+    [beginOrganizationSkillAction, endOrganizationSkillAction, linkOrganizationSkill, organizationSkills, t],
   )
 
   const updateRegistrySkill = React.useCallback(
@@ -993,6 +1030,10 @@ function OrganizationSkillsPane({
     )
   }
 
+  const activeOrganizationId = workspace.activeWorkspace.organizationId
+  const selectedOrganizationSkills =
+    organizationSkills.organizationId === activeOrganizationId ? organizationSkills : null
+
   return (
     <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 px-3 py-3">
       <div className="flex min-w-0 items-start justify-between gap-4 border-b pb-4">
@@ -1023,18 +1064,24 @@ function OrganizationSkillsPane({
         </div>
       </div>
 
-      <OrganizationSkillManageDialog
-        busyAction={busyAction}
-        groupById={groupById}
-        organizationSkills={organizationSkills}
-        providerRecommendations={providerRecommendations}
-        variant="inline"
-        onAddMarketPackage={onAddMarketPackage}
-        onAddRecommendation={onAddRecommendation}
-        onAddRecommendationBatch={onAddRecommendationBatch}
-        onInstallRuntimeSkill={onInstallRuntimeSkill}
-        onInstallRuntimeSkills={onInstallRuntimeSkills}
-      />
+      {selectedOrganizationSkills ? (
+        <OrganizationSkillManageDialog
+          busyAction={busyAction}
+          groupById={groupById}
+          organizationSkills={selectedOrganizationSkills}
+          providerRecommendations={providerRecommendations}
+          variant="inline"
+          onAddMarketPackage={onAddMarketPackage}
+          onAddRecommendation={onAddRecommendation}
+          onAddRecommendationBatch={onAddRecommendationBatch}
+          onInstallRuntimeSkill={onInstallRuntimeSkill}
+          onInstallRuntimeSkills={onInstallRuntimeSkills}
+        />
+      ) : (
+        <div className="min-h-0 overflow-hidden">
+          <ObjectRowSkeletonGroup count={3} rows={2} />
+        </div>
+      )}
     </div>
   )
 }

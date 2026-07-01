@@ -46,7 +46,7 @@ export interface UseSessions {
   rename: (id: string, title: string) => Promise<void>
   pin: (id: string, pinned: boolean) => Promise<void>
   archive: (id: string) => Promise<void>
-  unarchive: (id: string) => Promise<void>
+  unarchive: (id: string) => Promise<SessionInfo | null>
   remove: (id: string) => Promise<void>
   refresh: () => Promise<void>
 }
@@ -98,6 +98,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setSessions([])
       setTaskSessions([])
       setProjectSessions([])
+      setProjects([])
       setLoaded(false)
       setError(null)
       return
@@ -277,7 +278,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const unarchive = React.useCallback(
     async (id: string) => {
-      await sessionService.invoke("unarchive", id)
+      return sessionService.invoke("unarchive", id)
     },
     [sessionService],
   )

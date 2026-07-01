@@ -311,20 +311,22 @@ export class SessionServiceImpl
     void this.broadcastChanged().catch(() => undefined)
   }
 
-  public async unarchive(id: string): Promise<void> {
+  public async unarchive(id: string): Promise<SessionInfo | null> {
     if (!this.agent) {
-      return
+      return null
     }
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(id)
     if (!current) {
-      return
+      return null
     }
     const next = { ...current }
     delete next.archivedAt
     this.setMetadataEntry(id, next)
     await this.persistMetadata()
+    const restored = await this.resolveSession(id, "active")
     void this.broadcastChanged().catch(() => undefined)
+    return restored
   }
 
   public async remove(id: string): Promise<void> {
@@ -457,6 +459,39 @@ export class SessionServiceImpl
     } else {
       this.sessionMetadata.delete(id)
     }
+  }
+
+  private async resolveSession(id: string, visibility: "active" | "archived"): Promise<SessionInfo | null> {
+    if (!this.agent) {
+      return null
+    }
+    await this.ensureActivityLoaded()
+    await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
+    const session = (await this.agent.listSessions()).find((item) => item.id === id)
+    if (!session) {
+      return null
+    }
+
+    const usedAt = this.sessionActivityAt.get(session.id)
+    const metadata = this.sessionMetadata.get(session.id)
+    const resolved: SessionInfo = {
+      ...session,
+      scope: normalizeSessionScope(metadata?.scope),
+      ...(metadata?.projectId ? { projectId: metadata.projectId } : {}),
+      ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
+      ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
+      ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
+    }
+    if (visibility === "archived" ? !resolved.archivedAt : resolved.archivedAt) {
+      return null
+    }
+    if (resolved.archivedAt && resolved.pinnedAt) {
+      const next = { ...resolved }
+      delete next.pinnedAt
+      return next
+    }
+    return resolved
   }
 
   private mergeLocalState(

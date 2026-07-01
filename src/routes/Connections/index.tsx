@@ -609,7 +609,7 @@ export function ConnectionsPanel({
             polling={polling}
             provider={selectedProvider}
             summary={summary}
-            showCloseButton={Boolean(onClose)}
+            showCloseButton
           />
         ) : (
           <section className="grid gap-2 rounded-lg border bg-muted/30 px-3 py-3">

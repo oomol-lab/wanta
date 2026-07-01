@@ -82,7 +82,7 @@ export const SessionService = serviceName("session-service") as ServiceName<{
     rename(req: { id: string; title: string }): Promise<void>
     pin(req: { id: string; pinned: boolean }): Promise<void>
     archive(id: string): Promise<void>
-    unarchive(id: string): Promise<void>
+    unarchive(id: string): Promise<SessionInfo | null>
     remove(id: string): Promise<void>
   }
 }>

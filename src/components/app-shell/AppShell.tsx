@@ -1821,7 +1821,12 @@ export function AppShell() {
     reasoningLevel?: ReasoningLevel
     mode?: AgentMode
   } | null>(null)
-  const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{ service: string; startedAt: number } | null>(null)
+  const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{
+    drawerKey: string
+    service: string
+    sessionId: string
+    startedAt: number
+  } | null>(null)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
   const artifactsPanelResizeFrame = React.useRef<number | null>(null)
@@ -2033,10 +2038,13 @@ export function AppShell() {
     if (activeSidebarSessions.some((session) => session.id === activeSessionId)) {
       return
     }
+    if (sessions.some((session) => session.id === activeSessionId)) {
+      return
+    }
     setActiveSessionId(activeSidebarSessions[0]?.id ?? null)
     setDraftProjectId(null)
     setPendingChatTransition(null)
-  }, [activeSessionId, activeSidebarSessions, isDraftSession, sessionsLoaded])
+  }, [activeSessionId, activeSidebarSessions, isDraftSession, sessions, sessionsLoaded])
 
   React.useEffect(() => {
     if (!sessionsLoaded || !activeSessionId) {
@@ -2067,22 +2075,20 @@ export function AppShell() {
     let cancelled = false
     const refreshUntilConnected = async (): Promise<void> => {
       if (Date.now() - pendingRetryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
-        if (!cancelled && pendingRetry.current?.service === pendingRetryWatch.service) {
+        if (
+          !cancelled &&
+          pendingRetry.current?.sessionId === pendingRetryWatch.sessionId &&
+          pendingRetry.current.service === pendingRetryWatch.service
+        ) {
           pendingRetry.current = null
         }
         setChatConnectionDrawers((current) => {
-          let changed = false
-          const next = { ...current }
-          for (const [key, drawer] of Object.entries(current)) {
-            if (
-              drawer.selectedService === pendingRetryWatch.service ||
-              drawer.authIntent?.service === pendingRetryWatch.service
-            ) {
-              delete next[key]
-              changed = true
-            }
+          if (!Object.hasOwn(current, pendingRetryWatch.drawerKey)) {
+            return current
           }
-          return changed ? next : current
+          const next = { ...current }
+          delete next[pendingRetryWatch.drawerKey]
+          return next
         })
         setPendingRetryWatch(null)
         return
@@ -3123,7 +3129,12 @@ export function AppShell() {
           reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeSessionId),
           mode: storedOptions?.mode ?? lastModeBySession.current.get(activeSessionId),
         }
-        setPendingRetryWatch({ service: auth.service, startedAt: Date.now() })
+        setPendingRetryWatch({
+          drawerKey: activeComposerDraftKey,
+          service: auth.service,
+          sessionId: activeSessionId,
+          startedAt: Date.now(),
+        })
         void connections.refresh({ forceRefresh: true })
       }
     },

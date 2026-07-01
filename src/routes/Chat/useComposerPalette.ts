@@ -240,7 +240,7 @@ export function useComposerPalette({
 
   const applyConnectionItem = React.useCallback(
     (item: ConnectionPaletteItem, currentTrigger: ComposerTrigger) => {
-      if (!item.appId) {
+      if (item.disabled || !item.appId) {
         return
       }
       onAddContextMention({
@@ -258,14 +258,18 @@ export function useComposerPalette({
 
   const setDefaultAndApplyConnectionItem = React.useCallback(
     async (item: ConnectionAccountPaletteItem, currentTrigger: ComposerTrigger) => {
-      if (!onSetDefaultConnection) {
+      if (item.disabled || !onSetDefaultConnection) {
         return
       }
-      const accepted = await onSetDefaultConnection(item.service, item.appId)
-      if (!accepted) {
-        return
+      try {
+        const accepted = await onSetDefaultConnection(item.service, item.appId)
+        if (!accepted) {
+          return
+        }
+        applyConnectionItem(item, currentTrigger)
+      } catch (cause) {
+        console.error("[wanta] set default connection failed", cause)
       }
-      applyConnectionItem(item, currentTrigger)
     },
     [applyConnectionItem, onSetDefaultConnection],
   )
@@ -290,7 +294,7 @@ export function useComposerPalette({
 
   const onSelect = React.useCallback(
     (item: ChatComposerPaletteItem | undefined) => {
-      if (!item || !activeTrigger) {
+      if (!item || item.disabled || !activeTrigger) {
         return
       }
       switch (item.kind) {
@@ -328,7 +332,7 @@ export function useComposerPalette({
 
   const onSecondarySelect = React.useCallback(
     (item: ChatComposerPaletteItem | undefined) => {
-      if (!item || !activeTrigger) {
+      if (!item || item.disabled || !activeTrigger) {
         return
       }
       if (item.kind === "connection-provider") {
@@ -350,7 +354,12 @@ export function useComposerPalette({
       if (!open) {
         return
       }
-      if (event.key === "ArrowRight" && activeItem?.kind === "connection-provider" && activeItem.canOpenAccounts) {
+      if (
+        event.key === "ArrowRight" &&
+        activeItem?.kind === "connection-provider" &&
+        !activeItem.disabled &&
+        activeItem.canOpenAccounts
+      ) {
         event.preventDefault()
         openConnectionAccounts(activeItem)
         return
@@ -359,6 +368,7 @@ export function useComposerPalette({
         event.key === "Enter" &&
         (event.metaKey || event.altKey) &&
         activeItem?.kind === "connection-account" &&
+        !activeItem.disabled &&
         activeItem.secondaryActionLabel &&
         !activeItem.secondaryActionDisabled &&
         activeTrigger

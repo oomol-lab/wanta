@@ -1435,42 +1435,54 @@ function ConnectionAccountsList({
 }) {
   const t = useT()
   return (
-    <div className="grid overflow-hidden rounded-md border">
-      <div className="oo-text-caption oo-text-muted border-b px-2.5 py-1.5">{t("connections.connectionAccounts")}</div>
+    <div className="grid gap-2">
+      <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
+        <h4 className="oo-text-caption font-medium text-foreground">{t("connections.connectionAccounts")}</h4>
+        <span className="oo-text-micro oo-text-muted shrink-0">
+          {t("connections.connectionCount", { count: provider.apps.length })}
+        </span>
+      </div>
       {provider.apps.map((app) => {
         const reconnectAuthType =
           app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
             ? app.authType
             : null
+        const secondaryLabel = getConnectionAppSecondaryLabel(app)
+        const authLabel = app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown")
         return (
-          <div
+          <article
             key={app.id}
-            className="grid min-w-0 gap-2 border-b px-2.5 py-2 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto]"
+            className="grid min-w-0 gap-2.5 rounded-md border bg-card px-3 py-2.5 text-card-foreground"
           >
-            <div className="min-w-0">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="oo-text-control truncate font-medium">{getConnectionAppDisplayName(app)}</span>
-                {app.isDefault ? <Badge variant="success">{t("connections.defaultConnection")}</Badge> : null}
-                {app.status === "reauth_required" || app.status === "error" ? (
-                  <Badge variant="warning">{t("connections.providerNeedsAttention")}</Badge>
-                ) : null}
+            <div className="grid min-w-0 gap-1">
+              <div className="flex min-w-0 flex-wrap items-start gap-1.5">
+                <span className="oo-text-control max-w-full min-w-0 font-medium break-all">
+                  {getConnectionAppDisplayName(app)}
+                </span>
+                <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  {app.isDefault ? <Badge variant="success">{t("connections.defaultConnection")}</Badge> : null}
+                  {app.status === "reauth_required" || app.status === "error" ? (
+                    <Badge variant="warning">{t("connections.providerNeedsAttention")}</Badge>
+                  ) : null}
+                </span>
               </div>
-              <div className="oo-text-micro oo-text-muted mt-0.5 min-w-0 truncate">
-                {getConnectionAppSecondaryLabel(app) ??
-                  (app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown"))}
+              <div className="oo-text-micro oo-text-muted flex min-w-0 flex-wrap items-center gap-1.5">
+                {secondaryLabel ? <span className="max-w-full min-w-0 break-all">{secondaryLabel}</span> : null}
+                {secondaryLabel ? <span className="h-3 w-px shrink-0 bg-border" /> : null}
+                <span className="shrink-0">{authLabel}</span>
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2">
               {canSetDefault && !app.isDefault && provider.apps.length > 1 ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
+                  className="h-7 gap-1.5 px-2"
                   onClick={() => void connections.setDefaultAccount(provider.service, app.id)}
                 >
                   <Star className="size-3.5" />
-                  {t("connections.setDefaultConnection")}
+                  {t("connections.setDefault")}
                 </Button>
               ) : null}
               {reconnectAuthType ? (
@@ -1478,7 +1490,7 @@ function ConnectionAccountsList({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
+                  className="h-7 gap-1.5 px-2"
                   disabled={busy === "connect"}
                   onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
                 >
@@ -1492,7 +1504,7 @@ function ConnectionAccountsList({
                   variant="outline"
                   size="sm"
                   disabled={busy === "disconnect"}
-                  className="gap-1.5 border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive"
+                  className="h-7 gap-1.5 border-[var(--oo-danger-border)] px-2 text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive"
                   onClick={() => onDisconnect({ provider, app })}
                 >
                   <Unplug className="size-3.5" />
@@ -1500,7 +1512,7 @@ function ConnectionAccountsList({
                 </Button>
               ) : null}
             </div>
-          </div>
+          </article>
         )
       })}
     </div>

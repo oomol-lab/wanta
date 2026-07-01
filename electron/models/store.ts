@@ -11,9 +11,9 @@ const providerBaseUrls = externalModelProviderBaseUrls
 const context200K = 204_800
 const context256K = 262_144
 const millionTokenContextWindow = 1_000_000
-const gemini3ContextWindow = 1_064_000
-const gemini3InputTokenLimit = 1_000_000
-const gemini3MaxOutputTokens = 64_000
+const gemini3InputTokenLimit = 1_048_576
+const gemini3MaxOutputTokens = 65_536
+const gemini3ContextWindow = gemini3InputTokenLimit + gemini3MaxOutputTokens
 const maxOutput128K = 128_000
 const deepSeekV4ReasoningVariants = ["low", "high", "max"] as const satisfies readonly WantaReasoningVariant[]
 const glm52ReasoningVariants = ["high", "max"] as const satisfies readonly WantaReasoningVariant[]
@@ -83,8 +83,8 @@ export const CUSTOM_MODEL_PROVIDERS: CustomModelProvider[] = [
         maxOutputTokens: gemini3MaxOutputTokens,
       },
       {
-        id: "gemini-3-pro",
-        displayName: "Gemini 3 Pro",
+        id: "gemini-3.1-pro-preview",
+        displayName: "Gemini 3.1 Pro Preview",
         supportsImages: true,
         supportsToolCalls: true,
         contextWindow: gemini3ContextWindow,

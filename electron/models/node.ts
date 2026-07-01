@@ -24,6 +24,8 @@ export interface ModelsServiceDeps {
   onCustomModelsChanged?: () => void
 }
 
+type OptionalTokenLimitField = "contextWindow" | "inputTokenLimit" | "maxOutputTokens"
+
 export class ModelsServiceImpl extends ConnectionService<ModelsService> implements IConnectionService<ModelsService> {
   private readonly deps: ModelsServiceDeps
 
@@ -58,16 +60,25 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
     if (!apiKey) {
       throw new Error("API Key is required.")
     }
-    const contextWindow = sanitizeOptionalTokenLimit(
-      req.contextWindow ?? existing?.contextWindow ?? customProviderModelContextWindow(provider, modelName),
+    const contextWindow = resolveOptionalTokenLimit(
+      req,
+      "contextWindow",
+      existing,
+      customProviderModelContextWindow(provider, modelName),
       "Context window",
     )
-    const maxOutputTokens = sanitizeOptionalTokenLimit(
-      req.maxOutputTokens ?? existing?.maxOutputTokens ?? customProviderModelMaxOutputTokens(provider, modelName),
+    const maxOutputTokens = resolveOptionalTokenLimit(
+      req,
+      "maxOutputTokens",
+      existing,
+      customProviderModelMaxOutputTokens(provider, modelName),
       "Max output tokens",
     )
-    const inputTokenLimit = sanitizeOptionalTokenLimit(
-      req.inputTokenLimit ?? existing?.inputTokenLimit ?? customProviderModelInputTokenLimit(provider, modelName),
+    const inputTokenLimit = resolveOptionalTokenLimit(
+      req,
+      "inputTokenLimit",
+      existing,
+      customProviderModelInputTokenLimit(provider, modelName),
       "Input token limit",
     )
     const next: PersistedCustomModel = {
@@ -119,4 +130,15 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
     await this.send("modelsChanged", catalog).catch(() => undefined)
     return catalog
   }
+}
+
+function resolveOptionalTokenLimit(
+  req: SaveCustomModelRequest,
+  field: OptionalTokenLimitField,
+  existing: PersistedCustomModel | undefined,
+  providerDefault: number | undefined,
+  fieldName: string,
+): number | undefined {
+  const value = Object.hasOwn(req, field) ? req[field] : (existing?.[field] ?? providerDefault)
+  return sanitizeOptionalTokenLimit(value, fieldName)
 }

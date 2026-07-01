@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { branding } from "../branding.ts"
-import { ooEndpoint } from "../domain.ts"
+import { llmBaseUrl, ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
@@ -19,6 +19,10 @@ function modelVariantKeys(model: unknown): string[] {
 
 function modelVariantReasoningEffort(model: unknown, variant: string): string | undefined {
   return (model as { variants?: Record<string, { reasoningEffort?: string }> }).variants?.[variant]?.reasoningEffort
+}
+
+function modelVariantEnableThinking(model: unknown, variant: string): boolean | undefined {
+  return (model as { variants?: Record<string, { enable_thinking?: boolean }> }).variants?.[variant]?.enable_thinking
 }
 
 function modelLimit(model: unknown): { context?: number; input?: number; output?: number } | undefined {
@@ -154,7 +158,7 @@ test("buildOpencodeConfig does not emit incomplete model limits", () => {
       {
         id: "custom-context-only",
         providerName: "ContextOnly",
-        baseUrl: "https://example.com/v1",
+        baseUrl: llmBaseUrl,
         apiKey: "sk-custom",
         modelName: "context-only-model",
         contextWindow: 128_000,
@@ -162,7 +166,7 @@ test("buildOpencodeConfig does not emit incomplete model limits", () => {
       {
         id: "custom-input-only",
         providerName: "InputOnly",
-        baseUrl: "https://example.com/v1",
+        baseUrl: llmBaseUrl,
         apiKey: "sk-custom",
         modelName: "input-only-model",
         inputTokenLimit: 96_000,
@@ -178,6 +182,30 @@ test("buildOpencodeConfig does not emit incomplete model limits", () => {
     modelLimit(config.provider?.[customProviderId("custom-input-only")]?.models?.["input-only-model"]),
     undefined,
   )
+})
+
+test("buildOpencodeConfig maps Qwen custom reasoning variants to enable_thinking", () => {
+  const config = buildOpencodeConfig({
+    authToken: "api-test",
+    customModels: [
+      {
+        id: "custom-qwen",
+        providerId: "qwen",
+        providerName: "Qwen",
+        baseUrl: llmBaseUrl,
+        apiKey: "sk-custom",
+        modelName: "qwen3.7-plus",
+        reasoningVariants: ["low", "medium", "high", "max"],
+      },
+    ],
+  })
+
+  const model = config.provider?.[customProviderId("custom-qwen")]?.models?.["qwen3.7-plus"]
+
+  assert.equal(model?.reasoning, true)
+  assert.deepEqual(modelVariantKeys(model), ["low", "high"])
+  assert.equal(modelVariantEnableThinking(model, "low"), false)
+  assert.equal(modelVariantEnableThinking(model, "high"), true)
 })
 
 test("buildOpencodeConfig marks custom providers as image-capable only when requested", () => {

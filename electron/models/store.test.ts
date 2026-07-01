@@ -47,9 +47,9 @@ test("ModelsStore exposes provider default URLs and model options", async () => 
         model.maxOutputTokens,
       ]),
     [
-      ["gemini-3.5-flash", true, true, 1_064_000, 1_000_000, 64_000],
-      ["gemini-3-pro", true, true, 1_064_000, 1_000_000, 64_000],
-      ["gemini-2.5-pro", true, true, 1_064_000, 1_000_000, 64_000],
+      ["gemini-3.5-flash", true, true, 1_114_112, 1_048_576, 65_536],
+      ["gemini-3.1-pro-preview", true, true, 1_114_112, 1_048_576, 65_536],
+      ["gemini-2.5-pro", true, true, 1_114_112, 1_048_576, 65_536],
     ],
   )
   assert.equal(providers.get("zhipu")?.baseUrl, providerBaseUrls.zhipuCn)

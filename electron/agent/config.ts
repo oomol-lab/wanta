@@ -30,6 +30,7 @@ export const WANTA_MODEL_ID = resolveBuiltinModel(DEFAULT_BUILTIN_MODEL_ID).runt
 
 export interface OpencodeCustomModel {
   id: string
+  providerId?: string
   providerName: string
   baseUrl: string
   apiKey: string
@@ -271,5 +272,21 @@ function customReasoningVariants(
   if (!levels || levels.length === 0) {
     return undefined
   }
-  return Object.fromEntries(levels.map((level) => [level, OOMOL_REASONING_VARIANTS[level]]))
+  const variantSet: Partial<Record<WantaReasoningVariant, OpencodeReasoningVariantConfig>> = isQwenCustomModel(model)
+    ? QWEN_REASONING_VARIANTS
+    : OOMOL_REASONING_VARIANTS
+  return Object.fromEntries(
+    levels.flatMap((level) => {
+      const variant = variantSet[level]
+      return variant ? [[level, variant]] : []
+    }),
+  )
+}
+
+function isQwenCustomModel(model: OpencodeCustomModel): boolean {
+  return (
+    model.providerId === "qwen" ||
+    model.providerName.trim().toLowerCase() === "qwen" ||
+    model.modelName.trim().toLowerCase().startsWith("qwen")
+  )
 }

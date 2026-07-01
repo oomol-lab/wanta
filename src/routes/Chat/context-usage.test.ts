@@ -164,6 +164,21 @@ describe("chat context usage", () => {
     expect(selectedModelContextWindow(customCatalog)).toBe(128_000)
   })
 
+  it("prefers the input token limit for built-in models", () => {
+    const builtinCatalog: ModelCatalog = {
+      ...catalog,
+      builtins: [
+        {
+          ...catalog.builtins[0]!,
+          contextWindow: 1_000_000,
+          inputTokenLimit: 128_000,
+        },
+      ],
+    }
+
+    expect(selectedModelContextWindow(builtinCatalog)).toBe(128_000)
+  })
+
   it("formats compact token counts", () => {
     expect(formatTokenCount(42)).toBe("42")
     expect(formatTokenCount(1200)).toBe("1.2K")

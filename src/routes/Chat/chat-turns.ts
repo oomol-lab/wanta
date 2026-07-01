@@ -32,6 +32,7 @@ export interface ChatTurnProcess {
   hasBlockingError: boolean
   hasStoppedTool: boolean
   hasAuthorization: boolean
+  hasSuccessfulConnectorCall: boolean
   suggestedAuthorization?: AuthorizationInfo
   activity: AssistantActivityEvent | null
   startedAt?: number
@@ -190,19 +191,26 @@ function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
 
 function suggestedAuthorizationFromTools(tools: ChatMessagePart[]): AuthorizationInfo | undefined {
   const successfulServices = successfulCallActionServices(tools)
+  if (successfulServices.size > 0) {
+    return undefined
+  }
   for (const part of tools) {
     if (part.tool !== "search_actions" || part.status !== "completed") {
       continue
     }
     const authorization = parseSearchAuthorizationSignal(part.output, part.input)
     if (authorization) {
-      if (successfulServices.has(normalizeServiceSlug(authorization.service))) {
-        continue
-      }
       return authorization
     }
   }
   return undefined
+}
+
+export function shouldShowSuggestedAuthorization(
+  process: Pick<ChatTurnProcess, "activity" | "hasActiveTool" | "suggestedAuthorization">,
+  turnIsActive: boolean,
+): boolean {
+  return Boolean(process.suggestedAuthorization && !turnIsActive && !process.hasActiveTool && !process.activity)
 }
 
 export function summarizeTurnProcess(
@@ -240,6 +248,7 @@ export function summarizeTurnProcess(
 
   const hasToolError = hasBlockingToolError(tools)
   const hasAuthorization = tools.some((part) => Boolean(parseToolAuthorization(part)))
+  const hasSuccessfulConnectorCall = successfulCallActionServices(tools).size > 0
 
   return {
     tools,
@@ -250,6 +259,7 @@ export function summarizeTurnProcess(
     hasBlockingError: errors.length > 0 || (hasToolError && !hasFinalAnswer),
     hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization,
+    hasSuccessfulConnectorCall,
     ...(hasAuthorization ? {} : { suggestedAuthorization: suggestedAuthorizationFromTools(tools) }),
     activity: activeTurnActivity,
     startedAt,

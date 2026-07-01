@@ -3177,6 +3177,10 @@ export function AppShell() {
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {
       switch (command) {
+        case APP_COMMANDS.openConnections:
+          handleOpenConnections()
+          void connections.refresh({ forceRefresh: true })
+          return
         case APP_COMMANDS.focusComposer:
           requestComposerFocus()
           return
@@ -3198,7 +3202,15 @@ export function AppShell() {
           return
       }
     },
-    [handleChatStop, handleNewSession, handleOpenSearch, handleToggleSidebar, requestComposerFocus],
+    [
+      connections.refresh,
+      handleChatStop,
+      handleNewSession,
+      handleOpenConnections,
+      handleOpenSearch,
+      handleToggleSidebar,
+      requestComposerFocus,
+    ],
   )
   useAppCommandEvents(runAppCommand)
   useAppCommandShortcuts(runAppCommand)

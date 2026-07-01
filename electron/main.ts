@@ -18,7 +18,7 @@ import {
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
-import { APP_COMMAND_CHANNEL } from "./app-command.ts"
+import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
 import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
@@ -30,6 +30,7 @@ import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
+import { parseConnectionOAuthCallback } from "./connections/domain.ts"
 import { GitServiceImpl } from "./git/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
@@ -674,6 +675,11 @@ function showMainWindow(): void {
 async function handleDeepLink(url: string): Promise<boolean> {
   // 先聚焦窗口（登录回调的网络交换可能耗时数秒），再交给 auth 完成登录。
   showMainWindow()
+  const connectionCallback = parseConnectionOAuthCallback(url, protocolScheme)
+  if (connectionCallback) {
+    sendAppCommand(APP_COMMANDS.openConnections)
+    return true
+  }
   const handled = await authManager.completeBrowserLoginCallback(url)
   if (!handled) {
     console.log("[wanta] unrecognized deep link:", redactDeepLink(url))

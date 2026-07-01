@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { clearConnectorCache, isProviderConnectionActive } from "./connections-client.ts"
+import { clearConnectorCache, isProviderConnectionActive, startOAuthConnect } from "./connections-client.ts"
+import { consoleBaseUrl } from "./domain.ts"
 
 describe("connections-client", () => {
   afterEach(() => {
@@ -34,5 +35,18 @@ describe("connections-client", () => {
     const [, init] = fetchMock.mock.calls[0] ?? []
     const headers = new Headers(init?.headers)
     expect(headers.get("x-oo-organization-name")).toBe("acme-corp")
+  })
+
+  it("sends a dev app protocol in the OAuth return URI from the Vite renderer", async () => {
+    vi.stubGlobal("window", { location: { protocol: "http:" } })
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ data: { authorizationUrl: "https://accounts.example.com/oauth" } }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await startOAuthConnect({ authType: "oauth2", service: "figma" }, { type: "personal" })
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body.returnUri).toBe(`${consoleBaseUrl}/app-connections/callback?protocol=wanta-local`)
   })
 })

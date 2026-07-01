@@ -69,6 +69,7 @@ import { cn } from "@/lib/utils"
 const executionLogLimit = 12
 const detailPaneAnimationMs = 150
 const categoryFilterLimit = 4
+const accountActionButtonClassName = "h-7 gap-1.5 px-2"
 const categoryFilterPrefix = "category:"
 const uncategorizedCategoryValue = "__uncategorized__"
 const categoryMessageKeysByRawLabel: Record<string, MessageKey> = {
@@ -1478,11 +1479,11 @@ function ConnectionAccountsList({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1.5 px-2"
+                  className={accountActionButtonClassName}
                   onClick={() => void connections.setDefaultAccount(provider.service, app.id)}
                 >
                   <Star className="size-3.5" />
-                  {t("connections.setDefault")}
+                  {t("connections.setDefaultConnection")}
                 </Button>
               ) : null}
               {reconnectAuthType ? (
@@ -1490,7 +1491,7 @@ function ConnectionAccountsList({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 gap-1.5 px-2"
+                  className={accountActionButtonClassName}
                   disabled={busy === "connect"}
                   onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
                 >
@@ -1504,7 +1505,10 @@ function ConnectionAccountsList({
                   variant="outline"
                   size="sm"
                   disabled={busy === "disconnect"}
-                  className="h-7 gap-1.5 border-[var(--oo-danger-border)] px-2 text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive"
+                  className={cn(
+                    accountActionButtonClassName,
+                    "border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive",
+                  )}
                   onClick={() => onDisconnect({ provider, app })}
                 >
                   <Unplug className="size-3.5" />

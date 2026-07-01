@@ -13,6 +13,7 @@ export interface DialogProps {
   ariaLabel?: string
   closeLabel?: string
   className?: string
+  initialFocus?: () => HTMLElement | null
   titleId?: string
 }
 
@@ -57,6 +58,7 @@ export function Dialog({
   ariaLabel,
   closeLabel,
   className,
+  initialFocus,
   titleId: titleIdProp,
 }: DialogProps) {
   const panelRef = React.useRef<HTMLDivElement>(null)
@@ -123,7 +125,7 @@ export function Dialog({
       if (!panel) {
         return
       }
-      ;(getFocusableElements(panel)[0] ?? panel).focus()
+      ;(initialFocus?.() ?? getFocusableElements(panel)[0] ?? panel).focus()
     })
     return () => {
       window.cancelAnimationFrame(frame)
@@ -132,7 +134,7 @@ export function Dialog({
         previousActiveElement.focus()
       }
     }
-  }, [open])
+  }, [initialFocus, open])
 
   if (!open) {
     return null

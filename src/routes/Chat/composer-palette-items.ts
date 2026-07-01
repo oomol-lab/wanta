@@ -254,9 +254,8 @@ export interface ConnectionPaletteCopy {
   defaultAccountDescription: (account: string) => string
   defaultLabel: string
   needsAttention: string
-  setDefaultAndUse: string
+  setDefault: string
   unsupportedProvider: string
-  useForThisTurn: string
 }
 
 function connectionAppDisplayName(app: ConnectionAppSummary): string {
@@ -386,8 +385,8 @@ export function buildConnectionAccountPaletteItems(
     })
     .map((app): ConnectionAccountPaletteItem => {
       const title = connectionAppDisplayName(app)
-      const description =
-        app.status === "active" ? (connectionAppSecondaryLabel(app) ?? copy.useForThisTurn) : copy.needsAttention
+      const description = app.status === "active" ? (connectionAppSecondaryLabel(app) ?? "") : copy.needsAttention
+      const canSetDefault = !app.isDefault && app.status === "active"
       return {
         accountLabel: title,
         appId: app.id,
@@ -406,7 +405,9 @@ export function buildConnectionAccountPaletteItems(
         kind: "connection-account",
         meta: app.isDefault ? copy.defaultLabel : undefined,
         secondaryActionDisabled: app.status !== "active",
-        secondaryActionLabel: app.isDefault || app.status !== "active" ? undefined : copy.setDefaultAndUse,
+        secondaryActionIconVisibility: canSetDefault ? "active" : undefined,
+        secondaryActionLabel: canSetDefault ? copy.setDefault : undefined,
+        secondaryActionTitle: canSetDefault ? copy.setDefault : undefined,
         service: provider.service,
         status: app.status,
         title,

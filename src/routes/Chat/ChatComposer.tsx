@@ -8,13 +8,14 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
+import type { ConnectionAccountPaletteItem } from "./composer-palette-items.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { ChatStatus } from "ai"
 
-import { File as FileIcon, Folder, Plus } from "lucide-react"
+import { File as FileIcon, Folder, LoaderCircle, Plus } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { WANTA_AGENT_MODES, WANTA_DEFAULT_AGENT_MODE } from "../../../electron/agent/mode.ts"
@@ -50,6 +51,7 @@ import {
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -92,6 +94,11 @@ const reasoningLevelStorageKey = "wanta:chat:reasoning-level"
 const reasoningLevels = new Set<ReasoningLevel>(WANTA_REASONING_LEVELS)
 const agentModeStorageKey = "wanta:chat:agent-mode"
 const agentModes = new Set<AgentMode>(WANTA_AGENT_MODES)
+
+interface PendingDefaultConnection {
+  item: ConnectionAccountPaletteItem
+  selectConnection: () => void
+}
 
 function readStoredReasoningLevel(): ReasoningLevel {
   try {
@@ -200,6 +207,7 @@ export function ChatComposer({
   const modelCatalogState = useModelCatalog()
   const attachmentMenuRef = React.useRef<HTMLDivElement | null>(null)
   const attachmentMenuPanelRef = React.useRef<HTMLDivElement | null>(null)
+  const defaultConnectionConfirmButtonRef = React.useRef<HTMLButtonElement | null>(null)
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
     initialComposerStateProp ?? initialComposerState(),
@@ -259,9 +267,8 @@ export function ChatComposer({
         defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),
         defaultLabel: t("connections.defaultConnection"),
         needsAttention: t("connections.needsAttention"),
-        setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+        setDefault: t("chat.connectionSetDefault"),
         unsupportedProvider: t("chat.connectionUnsupportedDescription"),
-        useForThisTurn: t("chat.connectionUseForThisTurn"),
       }),
     [providers, t],
   )
@@ -388,6 +395,8 @@ export function ChatComposer({
   const removeContextMention = React.useCallback((mention: ChatContextMention) => {
     dispatchComposer({ type: "remove-context-mention", mention })
   }, [])
+  const [pendingDefaultConnection, setPendingDefaultConnection] = React.useState<PendingDefaultConnection | null>(null)
+  const [defaultConnectionPending, setDefaultConnectionPending] = React.useState(false)
   const setDefaultConnection = React.useCallback(
     async (service: string, appId: string): Promise<boolean> => {
       if (!onSetDefaultConnection) {
@@ -409,6 +418,33 @@ export function ChatComposer({
     },
     [onSetDefaultConnection, t],
   )
+  const requestSetDefaultConnection = React.useCallback(
+    (item: ConnectionAccountPaletteItem, selectConnection: () => void) => {
+      setInputError(null)
+      setPendingDefaultConnection({ item, selectConnection })
+    },
+    [],
+  )
+  const closeDefaultConnectionDialog = React.useCallback(() => {
+    if (defaultConnectionPending) {
+      return
+    }
+    setPendingDefaultConnection(null)
+  }, [defaultConnectionPending])
+  const setPendingDefaultAndUse = React.useCallback(async () => {
+    const pending = pendingDefaultConnection
+    if (!pending || defaultConnectionPending) {
+      return
+    }
+    setDefaultConnectionPending(true)
+    const accepted = await setDefaultConnection(pending.item.service, pending.item.appId)
+    setDefaultConnectionPending(false)
+    if (!accepted) {
+      return
+    }
+    setPendingDefaultConnection(null)
+    pending.selectConnection()
+  }, [defaultConnectionPending, pendingDefaultConnection, setDefaultConnection])
 
   const composerPalette = useComposerPalette({
     connectionItems,
@@ -432,13 +468,13 @@ export function ChatComposer({
     },
     onAddContextMention: addContextMention,
     onOpenConnectionProvider,
+    onRequestSetDefaultConnection: requestSetDefaultConnection,
     onSelectAttachments: (kind) => {
       if (composerDisabled) {
         return
       }
       void composerAttachments.selectAttachments(kind)
     },
-    onSetDefaultConnection: setDefaultConnection,
     onViewBilling,
     skillItems,
     slashItems,
@@ -618,6 +654,52 @@ export function ChatComposer({
       onResume={onQueuedMessageResume}
     />
   )
+  const defaultConnectionDialog = pendingDefaultConnection ? (
+    <Dialog
+      open
+      title={t("chat.connectionSetDefaultDialogTitle", { name: pendingDefaultConnection.item.displayName })}
+      description={t("chat.connectionSetDefaultDialogDescription", {
+        account: pendingDefaultConnection.item.accountLabel ?? pendingDefaultConnection.item.title,
+      })}
+      closeLabel={t("common.close")}
+      initialFocus={() => defaultConnectionConfirmButtonRef.current}
+      onClose={closeDefaultConnectionDialog}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={defaultConnectionPending}
+            onClick={closeDefaultConnectionDialog}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button
+            ref={defaultConnectionConfirmButtonRef}
+            type="button"
+            aria-busy={defaultConnectionPending}
+            disabled={defaultConnectionPending}
+            onClick={() => void setPendingDefaultAndUse()}
+          >
+            {defaultConnectionPending ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+            {t("common.confirm")}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex items-center gap-3 rounded-md border bg-muted/35 px-3 py-2">
+        <span className="flex size-8 shrink-0 items-center justify-center">{pendingDefaultConnection.item.icon}</span>
+        <div className="min-w-0">
+          <div className="oo-text-label truncate text-foreground">{pendingDefaultConnection.item.title}</div>
+          {pendingDefaultConnection.item.description ? (
+            <div className="oo-text-caption truncate text-muted-foreground">
+              {pendingDefaultConnection.item.description}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </Dialog>
+  ) : null
   const accountHeaderLabel =
     composerPalette.mode === "connection-accounts" &&
     (composerPalette.activeItem?.kind === "connection-account" ||
@@ -660,6 +742,7 @@ export function ChatComposer({
         </div>
       </div>
       {modelDialog}
+      {defaultConnectionDialog}
       {attachmentMenuOpen
         ? createPortal(
             <div

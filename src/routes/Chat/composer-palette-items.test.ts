@@ -40,9 +40,8 @@ const translations: Record<string, string> = {
   "chat.connectionAccountCount": "{count} accounts",
   "chat.connectionConnectDescription": "Connect it to use this connector",
   "chat.connectionDefaultAccountDescription": "Default · {account}",
-  "chat.connectionSetDefaultAndUse": "Set default and use",
+  "chat.connectionSetDefault": "Set default · Press right arrow",
   "chat.connectionUnsupportedDescription": "Connection setup is not supported in Wanta yet",
-  "chat.connectionUseForThisTurn": "Use for this turn",
 }
 
 const t = ((key: string) => translations[key] ?? key) as TranslateFn
@@ -53,9 +52,8 @@ const connectionPaletteCopy = {
   defaultAccountDescription: (account: string) => t("chat.connectionDefaultAccountDescription", { account }),
   defaultLabel: "Default",
   needsAttention: "Needs attention",
-  setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+  setDefault: t("chat.connectionSetDefault"),
   unsupportedProvider: t("chat.connectionUnsupportedDescription"),
-  useForThisTurn: t("chat.connectionUseForThisTurn"),
 }
 
 function runtimeSkillGroup(
@@ -302,6 +300,7 @@ describe("composer palette items", () => {
       apps: [
         {
           accountLabel: "personal@example.com",
+          alias: "personal",
           authType: "oauth2",
           createdAt: 1,
           id: "app-personal",
@@ -352,15 +351,20 @@ describe("composer palette items", () => {
     expect(accountItems[0]).toMatchObject({
       appId: "app-work",
       connectionAction: "use",
+      description: "",
       isDefault: true,
       meta: "Default",
       secondaryActionLabel: undefined,
     })
     expect(accountItems[1]).toMatchObject({
       appId: "app-personal",
+      description: "personal@example.com",
       isDefault: false,
-      secondaryActionLabel: "Set default and use",
+      secondaryActionIconVisibility: "active",
+      secondaryActionLabel: "Set default · Press right arrow",
+      secondaryActionTitle: "Set default · Press right arrow",
     })
+    expect(accountItems[1]).not.toHaveProperty("secondaryActionActiveLabel")
   })
 
   it("includes available and attention providers in connection search", () => {

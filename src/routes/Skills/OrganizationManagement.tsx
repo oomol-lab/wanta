@@ -11,7 +11,6 @@ import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/sk
 import type {
   BusyAction,
   LoadState,
-  MemberSearchState,
   MemberView,
   OrganizationSkillLinkInput,
   ProviderAccessForm,
@@ -44,7 +43,6 @@ import {
   loadState,
   loadingState,
   maxOrganizationNameLength,
-  minimumMemberSearchLength,
   organizationCanManage,
   organizationManagementSnapshotsByAccountId,
   organizationNameValidation,
@@ -56,7 +54,6 @@ import {
   readSelectedOrganizationId,
   runtimeSkillRemoveBusyKey,
   uniqueStrings,
-  userFallback,
   writeSelectedOrganizationId,
 } from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
@@ -107,7 +104,6 @@ import {
   listOrganizationProviderOptions,
   listUserSummaries,
   removeOrganizationMember,
-  searchUsers,
   updateOrganizationAppAccess,
   updateOrganization,
   uploadOrganizationAvatar,
@@ -120,6 +116,8 @@ import {
   getOrganizationSkillRuntimeStatus,
   getPublicPackagePrimarySkill,
 } from "@/routes/Skills/skill-route-model"
+import { useOrganizationAvatarPreviews } from "@/routes/Skills/use-organization-avatar-previews"
+import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-member-search"
 
 type AsyncResult<T> = { ok: true; value: T } | { error: unknown; ok: false }
 
@@ -228,28 +226,26 @@ export function OrganizationManagementRoute({
   const [editDuplicated, setEditDuplicated] = React.useState(false)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
-  const [memberInput, setMemberInput] = React.useState("")
-  const [selectedSearchUserId, setSelectedSearchUserId] = React.useState<string | null>(null)
-  const [memberSearch, setMemberSearch] = React.useState<MemberSearchState>({
-    error: null,
-    items: [],
-    loading: false,
-    query: "",
-  })
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
   const [runtimeSkillRemoveTarget, setRuntimeSkillRemoveTarget] = React.useState<RuntimeSkillRemoveTarget | null>(null)
-  const [avatarPreviewUrls, setAvatarPreviewUrls] = React.useState<Record<string, string>>({})
   const overviewRequestId = React.useRef(0)
   const detailsRequestId = React.useRef(0)
   const editAvatarUploadVersion = React.useRef(0)
-  const avatarPreviewUrlsRef = React.useRef(new Map<string, string>())
   const detailsOrganizationIdRef = React.useRef<string | null>(initialSnapshot?.detailsOrganizationId ?? null)
   const skipInitialDetailsLoadRef = React.useRef(
     Boolean(initialSnapshot?.detailsOrganizationId && initialSnapshot.detailsOrganizationId === selectedOrganizationId),
   )
   const skipInitialOrganizationsLoadRef = React.useRef(Boolean(initialSnapshot))
   const resetAccountIdRef = React.useRef<string | null>(null)
-  const memberSearchRequestId = React.useRef(0)
+  const { avatarPreviewUrls, setOrganizationAvatarPreview } = useOrganizationAvatarPreviews()
+  const {
+    memberInput,
+    memberSearch,
+    resetMemberSearch,
+    selectedSearchUserId,
+    setMemberInput,
+    setSelectedSearchUserId,
+  } = useOrganizationMemberSearch({ addMemberOpen, members: membersState.data })
 
   const organizations = React.useMemo(() => allOrganizations(overviewState.data), [overviewState.data])
   const selectedOrganization = React.useMemo(() => {
@@ -352,29 +348,6 @@ export function OrganizationManagementRoute({
     setSummariesState(loadState({}))
     setProviderOptionsState(loadState([]))
     setAppAccessState(loadState(null))
-  }, [])
-
-  const setOrganizationAvatarPreview = React.useCallback((organizationId: string, file: File | null) => {
-    const current = avatarPreviewUrlsRef.current.get(organizationId)
-    if (current) {
-      URL.revokeObjectURL(current)
-      avatarPreviewUrlsRef.current.delete(organizationId)
-    }
-
-    if (file) {
-      avatarPreviewUrlsRef.current.set(organizationId, URL.createObjectURL(file))
-    }
-
-    setAvatarPreviewUrls(Object.fromEntries(avatarPreviewUrlsRef.current))
-  }, [])
-
-  React.useEffect(() => {
-    return () => {
-      for (const url of avatarPreviewUrlsRef.current.values()) {
-        URL.revokeObjectURL(url)
-      }
-      avatarPreviewUrlsRef.current.clear()
-    }
   }, [])
 
   const loadOrganizations = React.useCallback(
@@ -670,46 +643,6 @@ export function OrganizationManagementRoute({
     void loadSelectedDetails(selectedOrganization, canManage)
   }, [canManage, loadSelectedDetails, selectedOrganization?.id, selectedOrganization?.name])
 
-  React.useEffect(() => {
-    const query = memberInput.trim()
-    const requestId = memberSearchRequestId.current + 1
-    memberSearchRequestId.current = requestId
-
-    if (!addMemberOpen || query.length < minimumMemberSearchLength) {
-      setMemberSearch({ error: null, items: [], loading: false, query })
-      return
-    }
-
-    setMemberSearch({ error: null, items: [], loading: true, query })
-    const timer = window.setTimeout(() => {
-      void searchUsers(query)
-        .then((users) => {
-          if (memberSearchRequestId.current !== requestId) {
-            return
-          }
-          const existingMemberIds = new Set(membersState.data.map((member) => member.user_id))
-          setMemberSearch({
-            error: null,
-            items: users
-              .filter((user) => !existingMemberIds.has(user.user_id))
-              .map((user) => {
-                const displayName = user.nickname || user.username
-                return { ...user, displayName, fallback: userFallback(displayName), userId: user.user_id }
-              }),
-            loading: false,
-            query,
-          })
-        })
-        .catch((error) => {
-          if (memberSearchRequestId.current === requestId) {
-            setMemberSearch({ error: errorMessage(error), items: [], loading: false, query })
-          }
-        })
-    }, 250)
-
-    return () => window.clearTimeout(timer)
-  }, [addMemberOpen, memberInput, membersState.data])
-
   const handleCreateOrganization = React.useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault()
@@ -918,9 +851,7 @@ export function OrganizationManagementRoute({
       try {
         await addOrganizationMember({ orgId: selectedOrganization.id, userId })
         toast.success(t("organizations.addMemberSuccess"))
-        setMemberInput("")
-        setSelectedSearchUserId(null)
-        setMemberSearch({ error: null, items: [], loading: false, query: "" })
+        resetMemberSearch()
         setAddMemberOpen(false)
         await reloadMembersAndAccess()
       } catch (error) {
@@ -929,7 +860,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [canManage, memberInput, reloadMembersAndAccess, selectedOrganization, selectedSearchUserId, t],
+    [canManage, memberInput, reloadMembersAndAccess, resetMemberSearch, selectedOrganization, selectedSearchUserId, t],
   )
 
   const handleRemoveMember = React.useCallback(
@@ -1423,8 +1354,7 @@ export function OrganizationManagementRoute({
         onClose={() => {
           if (busyAction !== "add") {
             setAddMemberOpen(false)
-            setMemberInput("")
-            setSelectedSearchUserId(null)
+            resetMemberSearch()
           }
         }}
         onInputChange={(value) => {

@@ -65,10 +65,10 @@ import {
   OrganizationDetailPanel,
   OrganizationAvatar,
   OrganizationMemberAccessButton,
-  OrganizationMembersSheet,
   Panel,
   ProviderAccessDialog,
 } from "./OrganizationMembersPanel.tsx"
+import { OrganizationMembersSheet } from "./OrganizationMembersSheet.tsx"
 import {
   OrganizationSkillManageDialog,
   OrganizationSkillManageLoadingSkeleton,

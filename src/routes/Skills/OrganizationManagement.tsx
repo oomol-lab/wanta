@@ -1607,6 +1607,16 @@ export function OrganizationSkillManageDialog({
       ),
     [normalizedQuery, recommendedOrganizationSkills],
   )
+  const installableRecommendedSkills = React.useMemo(
+    () =>
+      recommendedOrganizationSkills
+        .filter((recommendation) => canInstallPublicSkill(recommendation.installState))
+        .map((recommendation) => ({
+          packageName: recommendation.packageName,
+          skillName: recommendation.skillId,
+        })),
+    [recommendedOrganizationSkills],
+  )
   const installableConfiguredSkills = React.useMemo(
     () =>
       organizationSkills.skills.filter((skill) => {
@@ -1622,6 +1632,7 @@ export function OrganizationSkillManageDialog({
   const marketLoading = marketCatalog.status === "loading" || marketCatalog.status === "refreshing"
   const marketLoadingMore = marketCatalog.status === "loading-more"
   const canLoadMoreMarket = Boolean(marketCatalog.next) && !marketLoading && !marketLoadingMore
+  const shouldInstallRecommendedBatch = installableRecommendedSkills.length > 1
 
   React.useEffect(() => {
     if (!marketLoadingMore) {
@@ -1851,7 +1862,7 @@ export function OrganizationSkillManageDialog({
               </ToggleGroupItem>
               <ToggleGroupItem value="recommended">
                 <span>{t("organizations.skillManageRecommended")}</span>
-                {recommendedOrganizationSkills.length > 0 ? (
+                {installableRecommendedSkills.length > 0 ? (
                   <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
                 ) : null}
                 <span className="oo-text-caption-compact text-muted-foreground">
@@ -1896,22 +1907,30 @@ export function OrganizationSkillManageDialog({
               ) : null}
               {activeTab === "recommended" &&
               organizationSkills.canManage &&
-              recommendedOrganizationSkills.length > 1 ? (
+              (installableRecommendedSkills.length > 1 || recommendedOrganizationSkills.length > 1) ? (
                 <div className="inline-flex max-w-full items-center justify-end">
                   <Button
                     type="button"
                     size="sm"
                     className="min-w-0 rounded-r-none"
                     disabled={Boolean(busyAction)}
-                    onClick={() => onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: true })}
+                    onClick={() =>
+                      shouldInstallRecommendedBatch
+                        ? onInstallRuntimeSkills(installableRecommendedSkills)
+                        : onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: false })
+                    }
                   >
-                    {busyAction === "addSkillBatch" ? (
+                    {busyAction === "installSkillBatch" || busyAction === "addSkillBatch" ? (
                       <RefreshCwIcon className="size-3.5 animate-spin" />
                     ) : (
                       <PackageIcon className="size-3.5" />
                     )}
                     <span className="truncate">
-                      {t("organizations.skillManageAddInstallAll", { count: recommendedOrganizationSkills.length })}
+                      {shouldInstallRecommendedBatch
+                        ? t("organizations.skillManageInstallRecommendedAll", {
+                            count: installableRecommendedSkills.length,
+                          })
+                        : t("organizations.skillManageLinkAll", { count: recommendedOrganizationSkills.length })}
                     </span>
                   </Button>
                   <DropdownMenu>
@@ -1927,6 +1946,15 @@ export function OrganizationSkillManageDialog({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {installableRecommendedSkills.length > 0 ? (
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            void onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: true })
+                          }
+                        >
+                          {t("organizations.skillManageAddInstallAll", { count: recommendedOrganizationSkills.length })}
+                        </DropdownMenuItem>
+                      ) : null}
                       <DropdownMenuItem
                         onSelect={() =>
                           void onAddRecommendationBatch(recommendedOrganizationSkills, { installRuntime: false })
@@ -1937,6 +1965,25 @@ export function OrganizationSkillManageDialog({
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+              ) : activeTab === "recommended" &&
+                !organizationSkills.canManage &&
+                installableRecommendedSkills.length > 1 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(busyAction)}
+                  onClick={() => onInstallRuntimeSkills(installableRecommendedSkills)}
+                >
+                  {busyAction === "installSkillBatch" ? (
+                    <RefreshCwIcon className="size-3.5 animate-spin" />
+                  ) : (
+                    <PackageIcon className="size-3.5" />
+                  )}
+                  {t("organizations.skillManageInstallRecommendedAll", {
+                    count: installableRecommendedSkills.length,
+                  })}
+                </Button>
               ) : null}
             </div>
           </div>
@@ -1993,19 +2040,22 @@ export function OrganizationSkillManageDialog({
               />
             ) : (
               <div className="min-h-0 overflow-y-auto rounded-md border bg-background">
-                {filteredRecommendedSkills.map((recommendation) => {
-                  const busyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
-                  return (
-                    <OrganizationSkillRecommendationRow
-                      key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
-                      busy={busyAction === busyKey || busyAction === "addSkillBatch"}
-                      canManage={organizationSkills.canManage}
-                      recommendation={recommendation}
-                      onAdd={() => onAddRecommendation(recommendation, { installRuntime: false })}
-                      onAddAndInstall={() => onAddRecommendation(recommendation, { installRuntime: true })}
-                    />
-                  )
-                })}
+                {filteredRecommendedSkills.map((recommendation) => (
+                  <OrganizationSkillRecommendationRow
+                    key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
+                    busyAction={busyAction}
+                    canManage={organizationSkills.canManage}
+                    recommendation={recommendation}
+                    onAdd={() => onAddRecommendation(recommendation, { installRuntime: false })}
+                    onAddAndInstall={() => onAddRecommendation(recommendation, { installRuntime: true })}
+                    onInstallRuntime={() =>
+                      onInstallRuntimeSkill({
+                        packageName: recommendation.packageName,
+                        skillName: recommendation.skillId,
+                      })
+                    }
+                  />
+                ))}
               </div>
             )
           ) : (
@@ -2369,21 +2419,28 @@ function OrganizationSkillManageRow({
 }
 
 function OrganizationSkillRecommendationRow({
-  busy,
+  busyAction,
   canManage,
   onAdd,
   onAddAndInstall,
+  onInstallRuntime,
   recommendation,
 }: {
-  busy: boolean
+  busyAction: BusyAction | null
   canManage: boolean
   onAdd: () => Promise<void>
   onAddAndInstall: () => Promise<void>
+  onInstallRuntime: () => void
   recommendation: ProviderSkillRecommendation
 }) {
   const { t } = useAppI18n()
   const canInstallRuntime =
     recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+  const addBusyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
+  const installBusyKey = `installSkill:${recommendation.packageName}:${recommendation.skillId}`
+  const addBusy = busyAction === addBusyKey || busyAction === "addSkillBatch"
+  const installBusy = busyAction === installBusyKey || busyAction === "installSkillBatch"
+  const disabled = Boolean(busyAction && !addBusy && !installBusy)
   const skillDescription =
     recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ??
     recommendation.package.description
@@ -2404,43 +2461,49 @@ function OrganizationSkillRecommendationRow({
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
-        {!canManage ? (
-          <Badge variant="outline">{t("organizations.readOnly")}</Badge>
-        ) : canInstallRuntime ? (
+        {canInstallRuntime ? (
           <div className="inline-flex items-center gap-0">
             <Button
               type="button"
+              variant={canManage ? "default" : "outline"}
               size="sm"
-              className="rounded-r-none"
-              disabled={busy}
-              onClick={() => void onAddAndInstall()}
+              className={cn(canManage && "rounded-r-none")}
+              disabled={disabled || installBusy}
+              onClick={onInstallRuntime}
             >
-              {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
-              {t("organizations.skillManageAddAndInstall")}
+              {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
+              {installBusy ? t("skills.registryInstalling") : t("organizations.skillManageInstallRuntime")}
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
-                  disabled={busy}
-                  aria-label={t("organizations.skillManageMoreActions")}
-                >
-                  <MoreHorizontalIcon className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void onAdd()}>
-                  {t("organizations.skillManageLinkOnly")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {canManage ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    className="-ml-px w-[var(--oo-control-height-compact)] rounded-l-none border-l border-primary-foreground/25 px-0"
+                    disabled={disabled || addBusy || installBusy}
+                    aria-label={t("organizations.skillManageMoreActions")}
+                  >
+                    <MoreHorizontalIcon className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => void onAddAndInstall()}>
+                    {t("organizations.skillManageAddAndInstall")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void onAdd()}>
+                    {t("organizations.skillManageLinkOnly")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
           </div>
+        ) : !canManage ? (
+          <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
         ) : (
-          <Button type="button" size="sm" disabled={busy} onClick={() => void onAdd()}>
-            {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+          <Button type="button" size="sm" disabled={disabled || addBusy} onClick={() => void onAdd()}>
+            {addBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
             {t("organizations.skillManageAddOnly")}
           </Button>
         )}

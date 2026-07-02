@@ -1946,17 +1946,20 @@ export function AppShell() {
     () => organizationSkills.skills.filter((skill) => skill.enabled),
     [organizationSkills.skills],
   )
+  const installableOrganizationSkills = React.useMemo(() => {
+    if (!organizationSkills.organizationId) {
+      return []
+    }
+    return skillInventory.data
+      ? getInstallableOrganizationSkills(organizationSkillGroupById, enabledOrganizationSkills)
+      : enabledOrganizationSkills
+  }, [enabledOrganizationSkills, organizationSkillGroupById, organizationSkills.organizationId, skillInventory.data])
   const organizationSkillEntryVisible = Boolean(
     organizationSkills.organizationId && enabledOrganizationSkills.length > 0,
   )
   const organizationSkillShowcaseItems = React.useMemo<ChatOrganizationSkillContext[]>(() => {
-    if (!organizationSkills.organizationId) {
-      return []
-    }
-    const missingSkills = skillInventory.data
-      ? getInstallableOrganizationSkills(organizationSkillGroupById, enabledOrganizationSkills)
-      : enabledOrganizationSkills
-    const showcaseSkills = missingSkills.length > 0 ? missingSkills : enabledOrganizationSkills
+    const showcaseSkills =
+      installableOrganizationSkills.length > 0 ? installableOrganizationSkills : enabledOrganizationSkills
     return showcaseSkills.map((skill) => ({
       ...(skill.description ? { description: skill.description } : {}),
       ...(skill.icon ? { icon: skill.icon } : {}),
@@ -1966,7 +1969,7 @@ export function AppShell() {
       skillName: skill.skillName,
       version: skill.version,
     }))
-  }, [enabledOrganizationSkills, organizationSkillGroupById, organizationSkills.organizationId, skillInventory.data])
+  }, [enabledOrganizationSkills, installableOrganizationSkills])
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -2039,6 +2042,10 @@ export function AppShell() {
     route === "chat" ? activeSessionId : null,
   )
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
+  const sharedConnectorCount =
+    organizationWorkspace.activeWorkspace.type === "organization"
+      ? connections.summary?.connectedProviderCount
+      : undefined
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
@@ -4047,8 +4054,10 @@ export function AppShell() {
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
+                      sharedConnectorCount={sharedConnectorCount}
                       organizationSkillEntryVisible={organizationSkillEntryVisible}
                       organizationSkillShowcaseItems={organizationSkillShowcaseItems}
+                      organizationSkillPendingInstallCount={installableOrganizationSkills.length}
                       organizationSkills={organizationSkills.chatContextSkills}
                       providers={activeProviders}
                       queueHeld={activeQueueHeld}

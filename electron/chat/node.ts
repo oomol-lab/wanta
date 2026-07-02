@@ -1594,7 +1594,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void> {
-    shell.showItemInFolder(req.path)
+    const item = await localArtifactItem(req.path)
+    if (!item) {
+      throw new Error("File does not exist.")
+    }
+    try {
+      shell.showItemInFolder(item.path)
+    } catch (error) {
+      throw new Error(`Failed to show local path in folder: ${errorMessage(error)}`)
+    }
   }
 
   public async openExternalUrl(req: OpenExternalUrlRequest): Promise<void> {

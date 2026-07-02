@@ -295,6 +295,8 @@ export class SessionServiceImpl
       return
     }
     const now = Date.now()
+    const previousProject = current
+    const previousMetadata = new Map<string, SessionMetadata>()
     const nextProject = { ...current, archivedAt: now }
     delete nextProject.pinnedAt
     this.projects.set(id, nextProject)
@@ -302,12 +304,27 @@ export class SessionServiceImpl
       if (metadata.projectId !== id) {
         continue
       }
+      previousMetadata.set(sessionId, metadata)
       const nextMetadata = { ...metadata, archivedAt: now }
       delete nextMetadata.pinnedAt
       this.setMetadataEntry(sessionId, nextMetadata)
     }
-    await this.persistProjects()
-    await this.persistMetadata()
+    try {
+      await this.persistProjects()
+      await this.persistMetadata()
+    } catch (error) {
+      this.projects.set(id, previousProject)
+      for (const [sessionId, metadata] of previousMetadata) {
+        this.setMetadataEntry(sessionId, metadata)
+      }
+      try {
+        await this.persistProjects()
+        await this.persistMetadata()
+      } catch {
+        // 回滚落盘是 best-effort；仍向调用方暴露原始持久化错误。
+      }
+      throw error
+    }
     void this.broadcastChanged().catch(() => undefined)
   }
 

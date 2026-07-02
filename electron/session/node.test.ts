@@ -486,6 +486,66 @@ test("archiveProject hides the project and archives assigned sessions", async ()
   assert.equal(archivedSessionMetadata?.pinnedAt, undefined)
 })
 
+test("archiveProject rolls back project state when metadata persistence fails", async () => {
+  const persistedMetadata = metadataStore(
+    new Map([["session", { pinnedAt: 2_000, projectId: "project", scope: { type: "personal" } }]]),
+  )
+  let failMetadataWrite = true
+  const failingMetadataStore = {
+    read: persistedMetadata.read,
+    write: async (next: Map<string, SessionMetadata>) => {
+      if (failMetadataWrite) {
+        failMetadataWrite = false
+        throw new Error("metadata write failed")
+      }
+      await persistedMetadata.write(next)
+    },
+  } as SessionMetadataStore
+  const persistedProjects = projectStore(
+    new Map([
+      [
+        "project",
+        {
+          id: "project",
+          name: "Wanta",
+          path: "/Users/example/code/wanta",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          pinnedAt: 2_000,
+          scope: { type: "personal" },
+        },
+      ],
+    ]),
+  )
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "session",
+        title: "Session",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+    {
+      metadataStore: failingMetadataStore,
+      projectStore: persistedProjects,
+    },
+  )
+
+  await assert.rejects(() => service.archiveProject("project"), /metadata write failed/)
+
+  const projects = await service.listProjects()
+  assert.equal(projects[0]?.archivedAt, undefined)
+  assert.equal(projects[0]?.pinnedAt, 2_000)
+  assert.deepEqual(
+    (await service.list()).map((session) => session.id),
+    ["session"],
+  )
+  const restoredProject = (await persistedProjects.read()).get("project")
+  assert.equal(restoredProject?.archivedAt, undefined)
+  assert.equal(restoredProject?.pinnedAt, 2_000)
+})
+
 test("create persists project assignment when the project matches the session scope", async () => {
   const persistedMetadata = metadataStore()
   const project: SessionProject = {

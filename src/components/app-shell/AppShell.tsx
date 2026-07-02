@@ -927,6 +927,7 @@ function RenameProjectDialog({
 }) {
   const t = useT()
   const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const formId = React.useId()
   const [draft, setDraft] = React.useState("")
   const trimmedDraft = draft.trim()
   const canSave = Boolean(project && trimmedDraft)
@@ -936,10 +937,6 @@ function RenameProjectDialog({
       return
     }
     setDraft(project.name)
-    window.setTimeout(() => {
-      inputRef.current?.focus()
-      inputRef.current?.select()
-    }, 0)
   }, [open, project])
 
   if (!open || !project) {
@@ -958,68 +955,45 @@ function RenameProjectDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="rename-project-title"
-      aria-describedby="rename-project-description"
-      className="oo-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center p-5"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose()
-        }
+    <Dialog
+      open={open}
+      onClose={onClose}
+      closeLabel={t("common.close")}
+      title={t("project.renameTitle")}
+      description={t("project.renameDescription")}
+      className="max-w-[440px]"
+      initialFocus={() => {
+        const input = inputRef.current
+        input?.select()
+        return input
       }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault()
-          onClose()
-        }
-      }}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" form={formId} disabled={!canSave}>
+            {t("common.save")}
+          </Button>
+        </>
+      }
     >
       <form
-        className="oo-modal-surface w-full max-w-[440px] rounded-xl p-6"
+        id={formId}
         onSubmit={(event) => {
           event.preventDefault()
           save()
         }}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 id="rename-project-title" className="oo-text-dialog-title text-foreground">
-              {t("project.renameTitle")}
-            </h2>
-            <p id="rename-project-description" className="oo-text-caption mt-1 text-muted-foreground">
-              {t("project.renameDescription")}
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label={t("common.close")}
-            onClick={onClose}
-            className="oo-icon-muted -mt-1 -mr-1 flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
-          >
-            <span aria-hidden="true">×</span>
-          </button>
-        </div>
-
         <input
           ref={inputRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           aria-label={t("project.renameInputLabel")}
-          className="oo-text-value mt-6 block h-8 w-full min-w-0 border-0 bg-transparent p-0 text-foreground shadow-none ring-0 outline-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus:border-0 focus:ring-0 focus:outline-none focus-visible:outline-none"
+          className="oo-text-value block h-8 w-full min-w-0 border-0 bg-transparent p-0 text-foreground shadow-none ring-0 outline-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus:border-0 focus:ring-0 focus:outline-none focus-visible:outline-none"
         />
-
-        <div className="mt-6 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>
-            {t("common.cancel")}
-          </Button>
-          <Button type="submit" disabled={!canSave}>
-            {t("common.save")}
-          </Button>
-        </div>
       </form>
-    </div>
+    </Dialog>
   )
 }
 

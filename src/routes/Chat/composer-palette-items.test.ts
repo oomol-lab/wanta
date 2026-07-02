@@ -334,6 +334,7 @@ describe("composer palette items", () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({
       accountCount: 2,
+      accountLabel: "work@example.com",
       appId: "app-work",
       canOpenAccounts: true,
       connectionAction: "use",

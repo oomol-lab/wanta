@@ -1181,7 +1181,7 @@ function EmptyStateActions({
       : t("chat.emptyOrganizationSkillsViewAction")
 
   return (
-    <div className="relative w-full pl-2 text-muted-foreground">
+    <div className="w-full pl-2 text-muted-foreground">
       <div className="grid min-w-0 justify-start gap-1 overflow-hidden">
         <EmptyCapabilityAction
           icon={<Building2 className="size-4" />}
@@ -1199,9 +1199,7 @@ function EmptyStateActions({
           ariaLabel={t("chat.emptyConnectorsAria")}
           onClick={onOpenConnections}
         />
-      </div>
-      {organizationSkillEntryVisible ? (
-        <div className="absolute top-full right-0 left-2 mt-1">
+        {organizationSkillEntryVisible ? (
           <EmptyCapabilityAction
             icon={<Package className="size-4" />}
             title={t("chat.emptyOrganizationSkillsTitle")}
@@ -1210,8 +1208,8 @@ function EmptyStateActions({
             ariaLabel={t("chat.emptyOrganizationSkillsAria")}
             onClick={onOpenOrganizations}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   )
 }

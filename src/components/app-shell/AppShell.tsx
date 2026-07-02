@@ -1947,13 +1947,12 @@ export function AppShell() {
     [organizationSkills.skills],
   )
   const installableOrganizationSkills = React.useMemo(() => {
-    if (!organizationSkills.organizationId) {
+    if (!organizationSkills.organizationId || !skillInventory.data) {
       return []
     }
-    return skillInventory.data
-      ? getInstallableOrganizationSkills(organizationSkillGroupById, enabledOrganizationSkills)
-      : enabledOrganizationSkills
+    return getInstallableOrganizationSkills(organizationSkillGroupById, enabledOrganizationSkills)
   }, [enabledOrganizationSkills, organizationSkillGroupById, organizationSkills.organizationId, skillInventory.data])
+  const organizationSkillPendingInstallCount = skillInventory.data ? installableOrganizationSkills.length : undefined
   const organizationSkillEntryVisible = Boolean(
     organizationSkills.organizationId && enabledOrganizationSkills.length > 0,
   )
@@ -4057,7 +4056,7 @@ export function AppShell() {
                       sharedConnectorCount={sharedConnectorCount}
                       organizationSkillEntryVisible={organizationSkillEntryVisible}
                       organizationSkillShowcaseItems={organizationSkillShowcaseItems}
-                      organizationSkillPendingInstallCount={installableOrganizationSkills.length}
+                      organizationSkillPendingInstallCount={organizationSkillPendingInstallCount}
                       organizationSkills={organizationSkills.chatContextSkills}
                       providers={activeProviders}
                       queueHeld={activeQueueHeld}

@@ -62,6 +62,7 @@ import {
   SplitViewRoot,
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { isConnectionPollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { resolveConnectionError } from "@/lib/connections-error"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -300,10 +301,8 @@ function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQue
       )
     }) ||
     provider.apps.some((app) => {
-      const appLabel = connectionAppUiDisplayLabel(app)
-      return (
-        appLabel?.toLowerCase().includes(normalizedQuery) === true || app.id.toLowerCase().includes(normalizedQuery)
-      )
+      const candidates = [app.displayName, app.alias, app.accountLabel, app.providerAccountId, app.id]
+      return candidates.some((value) => value?.toLowerCase().includes(normalizedQuery))
     })
   )
 }
@@ -1335,7 +1334,7 @@ function ConnectionPanel({
   const usableAuthTypes = authTypes.length > 0 ? authTypes : currentAuthType ? [currentAuthType] : []
   const activeAuthType =
     selectedAuthType && usableAuthTypes.includes(selectedAuthType) ? selectedAuthType : usableAuthTypes[0]
-  const isPolling = polling === provider.service
+  const isPolling = isConnectionPollingTarget(polling, provider.service)
 
   React.useEffect(() => {
     setSelectedAuthType(currentAuthType)
@@ -1436,7 +1435,6 @@ function ConnectionAccountsList({
   provider: ConnectionProviderSummary
 }) {
   const t = useT()
-  const isPolling = polling === provider.service
   return (
     <div className="grid gap-2">
       <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
@@ -1446,6 +1444,7 @@ function ConnectionAccountsList({
         </span>
       </div>
       {provider.apps.map((app, index) => {
+        const isPolling = isConnectionPollingTarget(polling, provider.service, app.id)
         const reconnectAuthType =
           app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
             ? app.authType
@@ -1858,7 +1857,7 @@ function DisconnectDialog({
         provider.apps.findIndex((item) => item.id === app.id),
       )
     : 0
-  const accountTypeLabel = app ? getConnectionAppDisplayLabel(app, appIndex, t) : provider.service
+  const accountTypeLabel = app ? getConnectionAppDisplayLabel(app, appIndex, t) : t("connections.connectionAccounts")
 
   return (
     <Dialog

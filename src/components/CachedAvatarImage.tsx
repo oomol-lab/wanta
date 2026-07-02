@@ -23,7 +23,10 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
   const cacheKey = React.useMemo(() => normalizeAvatarCacheKey(src), [src])
   const [imageState, setImageState] = React.useState<{ cacheKey: string | null; src: string | null }>(() => ({
     cacheKey,
-    src: cacheKey && !shouldFetchAvatarImage(cacheKey) ? cacheKey : readCachedAvatarImage(src),
+    src:
+      cacheKey && !shouldFetchAvatarImage(cacheKey) && !shouldSkipAvatarImageLoad(cacheKey)
+        ? cacheKey
+        : readCachedAvatarImage(src),
   }))
   const imageSrc = imageState.cacheKey === cacheKey ? imageState.src : null
   const [visible, setVisible] = React.useState(false)

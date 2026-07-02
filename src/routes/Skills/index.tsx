@@ -1130,6 +1130,7 @@ function OrganizationSkillsPane({
             groupById={groupById}
             item={selectedOrganizationItem}
             onAddRecommendation={(recommendation) => onAddRecommendation(recommendation, { installRuntime: false })}
+            onDisableConfiguredSkill={(skill) => void updateOrganizationSkill(skill, { enabled: false })}
             onEnableConfiguredSkill={(skill) => void updateOrganizationSkill(skill, { enabled: true })}
             onInstallRuntimeSkill={onInstallRuntimeSkill}
             onOpenManagedSkill={onOpenManagedSkill}
@@ -1460,6 +1461,7 @@ function OrganizationSkillDetail({
   groupById,
   item,
   onAddRecommendation,
+  onDisableConfiguredSkill,
   onEnableConfiguredSkill,
   onInstallRuntimeSkill,
   onOpenManagedSkill,
@@ -1471,6 +1473,7 @@ function OrganizationSkillDetail({
   groupById: ManagedSkillGroupById
   item: OrganizationRecommendationItem
   onAddRecommendation: (recommendation: ProviderSkillRecommendation) => Promise<void>
+  onDisableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
   onEnableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onOpenManagedSkill: (skillName: string) => void
@@ -1483,6 +1486,7 @@ function OrganizationSkillDetail({
       canManage={canManage}
       groupById={groupById}
       skill={item.skill}
+      onDisableConfiguredSkill={onDisableConfiguredSkill}
       onEnableConfiguredSkill={onEnableConfiguredSkill}
       onInstallRuntimeSkill={onInstallRuntimeSkill}
       onOpenManagedSkill={onOpenManagedSkill}
@@ -1505,6 +1509,7 @@ function OrganizationConfiguredSkillDetail({
   busyConfigId,
   canManage,
   groupById,
+  onDisableConfiguredSkill,
   onEnableConfiguredSkill,
   onInstallRuntimeSkill,
   onOpenManagedSkill,
@@ -1515,6 +1520,7 @@ function OrganizationConfiguredSkillDetail({
   busyConfigId: string | null
   canManage: boolean
   groupById: ManagedSkillGroupById
+  onDisableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
   onEnableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onOpenManagedSkill: (skillName: string) => void
@@ -1577,16 +1583,16 @@ function OrganizationConfiguredSkillDetail({
                 {t("skills.installedManage")}
               </Button>
             ) : null}
-            {!skill.enabled && canManage ? (
+            {canManage ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 disabled={configBusy}
-                onClick={() => onEnableConfiguredSkill(skill)}
+                onClick={() => (skill.enabled ? onDisableConfiguredSkill(skill) : onEnableConfiguredSkill(skill))}
               >
                 {configBusy ? <AppIcons.status.loading className="animate-spin" /> : null}
-                {t("skills.organizationEnable")}
+                {skill.enabled ? t("skills.organizationDisable") : t("skills.organizationEnable")}
               </Button>
             ) : null}
             {canManage ? (

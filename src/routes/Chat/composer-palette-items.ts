@@ -266,7 +266,9 @@ function connectionAppDisplayLabel(app: ConnectionAppSummary, index: number, cop
 }
 
 function connectionAppSearchText(app: ConnectionAppSummary): string[] {
-  return [connectionAppUiDisplayLabel(app), app.id].filter((value): value is string => Boolean(value))
+  return [app.displayName, app.alias, app.accountLabel, app.providerAccountId, app.id].filter(
+    (value): value is string => Boolean(value),
+  )
 }
 
 function usableConnectionApps(provider: ConnectionProvider): ConnectionAppSummary[] {
@@ -297,7 +299,8 @@ export function buildConnectionPaletteItems(
     const apps = usableConnectionApps(provider)
     const defaultApp = defaultConnectionApp(provider)
     const defaultAppIndex = defaultApp ? apps.findIndex((app) => app.id === defaultApp.id) : -1
-    const accountLabel = defaultApp && defaultAppIndex !== -1 ? connectionAppUiDisplayLabel(defaultApp) : undefined
+    const accountLabel =
+      defaultApp && defaultAppIndex !== -1 ? connectionAppDisplayLabel(defaultApp, defaultAppIndex, copy) : undefined
     const needsAttention = provider.status === "needs_attention"
     const connectionAction = defaultApp
       ? "use"
@@ -308,18 +311,18 @@ export function buildConnectionPaletteItems(
           : "connect"
     const hasMultipleAccounts = connectionAction === "use" && apps.length > 1
     const accountCountLabel = hasMultipleAccounts ? copy.accountCount(apps.length) : undefined
-    const description =
-      connectionAction === "use" && accountLabel
-        ? copy.defaultAccountDescription(accountLabel)
-        : connectionAction === "use"
-          ? fallbackDescription(provider.service)
-          : connectionAction === "connect"
-            ? copy.connectProvider
-            : connectionAction === "attention"
-              ? copy.needsAttention
-              : connectionAction === "unsupported"
-                ? copy.unsupportedProvider
-                : fallbackDescription(provider.service)
+    const description = (() => {
+      switch (connectionAction) {
+        case "use":
+          return accountLabel ? copy.defaultAccountDescription(accountLabel) : fallbackDescription(provider.service)
+        case "connect":
+          return copy.connectProvider
+        case "attention":
+          return copy.needsAttention
+        case "unsupported":
+          return copy.unsupportedProvider
+      }
+    })()
     return {
       accountCount: apps.length,
       ...(accountLabel ? { accountLabel } : {}),

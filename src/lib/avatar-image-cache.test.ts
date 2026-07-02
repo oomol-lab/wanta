@@ -152,3 +152,56 @@ test("refreshCachedAvatarImage replaces a cached object URL", async () => {
   expect(readCachedAvatarImage(avatarUrl)).toBe("blob:avatar-2")
   expect(revoked).toEqual(["blob:avatar-1"])
 })
+
+test("refreshCachedAvatarImage deduplicates concurrent refreshes for the same key", async () => {
+  const avatarUrl = new URL("/avatar.png", apiBaseUrl).toString()
+  let calls = 0
+  let objectUrlIndex = 0
+  const fetcher = async () => {
+    calls += 1
+    return new Response(new Blob(["avatar"], { type: "image/png" }))
+  }
+  const createObjectUrl = () => {
+    objectUrlIndex += 1
+    return `blob:avatar-${objectUrlIndex}`
+  }
+
+  await loadCachedAvatarImage(avatarUrl, { createObjectUrl, fetcher })
+  const [left, right] = await Promise.all([
+    refreshCachedAvatarImage(avatarUrl, { createObjectUrl, fetcher }),
+    refreshCachedAvatarImage(avatarUrl, { createObjectUrl, fetcher }),
+  ])
+
+  expect(left).toBe("blob:avatar-2")
+  expect(right).toBe("blob:avatar-2")
+  expect(calls).toBe(2)
+  expect(readCachedAvatarImage(avatarUrl)).toBe("blob:avatar-2")
+})
+
+test("refreshCachedAvatarImage does not invalidate other in-flight avatar keys", async () => {
+  const firstUrl = new URL("/first-avatar.png", apiBaseUrl).toString()
+  const secondUrl = new URL("/second-avatar.png", apiBaseUrl).toString()
+  const pending = new Map<string, (response: Response) => void>()
+  let objectUrlIndex = 0
+  const fetcher = async (input: string | URL | Request) => {
+    const url = String(input)
+    return new Promise<Response>((resolve) => {
+      pending.set(url, resolve)
+    })
+  }
+  const createObjectUrl = () => {
+    objectUrlIndex += 1
+    return `blob:avatar-${objectUrlIndex}`
+  }
+
+  const firstLoad = loadCachedAvatarImage(firstUrl, { createObjectUrl, fetcher })
+  const secondRefresh = refreshCachedAvatarImage(secondUrl, { createObjectUrl, fetcher })
+  pending.get(secondUrl)?.(new Response(new Blob(["second"], { type: "image/png" })))
+  pending.get(firstUrl)?.(new Response(new Blob(["first"], { type: "image/png" })))
+
+  const [secondResult, firstResult] = await Promise.all([secondRefresh, firstLoad])
+  expect(secondResult).toMatch(/^blob:avatar-/)
+  expect(firstResult).toMatch(/^blob:avatar-/)
+  expect(readCachedAvatarImage(secondUrl)).toBe(secondResult)
+  expect(readCachedAvatarImage(firstUrl)).toBe(firstResult)
+})

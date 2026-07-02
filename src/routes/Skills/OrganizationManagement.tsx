@@ -360,9 +360,11 @@ export function OrganizationManagementRoute({
   })
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
   const [runtimeSkillRemoveTarget, setRuntimeSkillRemoveTarget] = React.useState<RuntimeSkillRemoveTarget | null>(null)
+  const [avatarPreviewUrls, setAvatarPreviewUrls] = React.useState<Record<string, string>>({})
   const overviewRequestId = React.useRef(0)
   const detailsRequestId = React.useRef(0)
   const editAvatarUploadVersion = React.useRef(0)
+  const avatarPreviewUrlsRef = React.useRef(new Map<string, string>())
   const detailsOrganizationIdRef = React.useRef<string | null>(initialSnapshot?.detailsOrganizationId ?? null)
   const skipInitialDetailsLoadRef = React.useRef(
     Boolean(initialSnapshot?.detailsOrganizationId && initialSnapshot.detailsOrganizationId === selectedOrganizationId),
@@ -472,6 +474,29 @@ export function OrganizationManagementRoute({
     setSummariesState(loadState({}))
     setProviderOptionsState(loadState([]))
     setAppAccessState(loadState(null))
+  }, [])
+
+  const setOrganizationAvatarPreview = React.useCallback((organizationId: string, file: File | null) => {
+    const current = avatarPreviewUrlsRef.current.get(organizationId)
+    if (current) {
+      URL.revokeObjectURL(current)
+      avatarPreviewUrlsRef.current.delete(organizationId)
+    }
+
+    if (file) {
+      avatarPreviewUrlsRef.current.set(organizationId, URL.createObjectURL(file))
+    }
+
+    setAvatarPreviewUrls(Object.fromEntries(avatarPreviewUrlsRef.current))
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      for (const url of avatarPreviewUrlsRef.current.values()) {
+        URL.revokeObjectURL(url)
+      }
+      avatarPreviewUrlsRef.current.clear()
+    }
   }, [])
 
   const loadOrganizations = React.useCallback(
@@ -833,6 +858,7 @@ export function OrganizationManagementRoute({
             orgId: organization.id,
             orgName: organization.name,
           })
+          setOrganizationAvatarPreview(organization.id, createAvatarFile)
         }
         toast.success(t("organizations.createOrganizationSuccess"))
         setCreateOpen(false)
@@ -853,7 +879,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [createAvatarFile, createName, loadOrganizations, selectOrganizationWorkspace, t],
+    [createAvatarFile, createName, loadOrganizations, selectOrganizationWorkspace, setOrganizationAvatarPreview, t],
   )
 
   const openEditOrganization = React.useCallback((organization: Organization) => {
@@ -942,6 +968,7 @@ export function OrganizationManagementRoute({
           orgId: editingOrganization.id,
           orgName,
         })
+        setOrganizationAvatarPreview(organization.id, editAvatarFile)
         applyOrganizationPatch(organization)
         toast.success(t("organizations.updateOrganizationSuccess"))
         setEditOpen(false)
@@ -964,7 +991,17 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [applyOrganizationPatch, editAvatar, editName, editingOrganization, loadOrganizations, overviewState.data, t],
+    [
+      applyOrganizationPatch,
+      editAvatar,
+      editAvatarFile,
+      editName,
+      editingOrganization,
+      loadOrganizations,
+      overviewState.data,
+      setOrganizationAvatarPreview,
+      t,
+    ],
   )
 
   const reloadMembersAndAccess = React.useCallback(async () => {
@@ -1388,12 +1425,14 @@ export function OrganizationManagementRoute({
                   members={memberViews}
                   membersLoading={membersState.status === "loading"}
                   organizations={organizations}
+                  avatarPreviewUrls={avatarPreviewUrls}
                   overview={overviewState.data}
                   selectedOrganization={selectedOrganization}
                   selectedOrganizationId={selectedOrganizationId}
                   onCreate={() => setCreateOpen(true)}
                   onEdit={openEditOrganization}
                   onOpenMembers={() => setMembersPanelOpen(true)}
+                  onRemoteAvatarLoad={setOrganizationAvatarPreview}
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
@@ -1426,8 +1465,10 @@ export function OrganizationManagementRoute({
                 ) : (
                   <PersonalWorkspaceState
                     organizations={organizations}
+                    avatarPreviewUrls={avatarPreviewUrls}
                     overview={overviewState.data}
                     onCreate={() => setCreateOpen(true)}
+                    onRemoteAvatarLoad={setOrganizationAvatarPreview}
                     onSelectOrganization={handleSelectOrganizationWorkspace}
                   />
                 )}
@@ -1545,12 +1586,14 @@ function OrganizationSwitcherPanel({
   activeWorkspace,
   accountAvatarUrl,
   accountName,
+  avatarPreviewUrls,
   canManage,
   members,
   membersLoading,
   onCreate,
   onEdit,
   onOpenMembers,
+  onRemoteAvatarLoad,
   onSelect,
   onSelectPersonal,
   organizations,
@@ -1561,12 +1604,14 @@ function OrganizationSwitcherPanel({
   activeWorkspace?: WorkspaceSelection
   accountAvatarUrl?: string
   accountName?: string
+  avatarPreviewUrls: Record<string, string>
   canManage: boolean
   members: MemberView[]
   membersLoading: boolean
   onCreate: () => void
   onEdit: (organization: Organization) => void
   onOpenMembers: () => void
+  onRemoteAvatarLoad: (organizationId: string, file: File | null) => void
   onSelect: (organizationId: string) => void
   onSelectPersonal: () => void
   organizations: Organization[]
@@ -1593,7 +1638,12 @@ function OrganizationSwitcherPanel({
                 name={accountName}
               />
             ) : selectedOrganization ? (
-              <OrganizationAvatar organization={selectedOrganization} className="size-16 rounded-md text-lg" />
+              <OrganizationAvatar
+                organization={selectedOrganization}
+                previewUrl={avatarPreviewUrls[selectedOrganization.id]}
+                className="size-16 rounded-md text-lg"
+                onRemoteAvatarLoad={onRemoteAvatarLoad}
+              />
             ) : (
               <div className="grid size-16 place-items-center rounded-md bg-muted text-muted-foreground">
                 <Building2Icon className="size-5" />
@@ -1705,7 +1755,12 @@ function OrganizationSwitcherPanel({
                       )}
                       onSelect={() => onSelect(organization.id)}
                     >
-                      <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
+                      <OrganizationAvatar
+                        organization={organization}
+                        previewUrl={avatarPreviewUrls[organization.id]}
+                        className="size-10 rounded-md text-sm"
+                        onRemoteAvatarLoad={onRemoteAvatarLoad}
+                      />
                       <span className="grid min-h-10 min-w-0 content-center">
                         <span className="flex min-h-5 min-w-0 items-center gap-2">
                           <span className="oo-text-label truncate">{organization.name}</span>
@@ -3379,12 +3434,16 @@ function EmptyOrganizationsState({ onCreate }: { onCreate: () => void }) {
 }
 
 function PersonalWorkspaceState({
+  avatarPreviewUrls,
   onCreate,
+  onRemoteAvatarLoad,
   onSelectOrganization,
   organizations,
   overview,
 }: {
+  avatarPreviewUrls: Record<string, string>
   onCreate: () => void
+  onRemoteAvatarLoad: (organizationId: string, file: File | null) => void
   onSelectOrganization: (organizationId: string) => void
   organizations: Organization[]
   overview: OrganizationOverview | null
@@ -3426,7 +3485,12 @@ function PersonalWorkspaceState({
                     className="grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2"
                     onSelect={() => onSelectOrganization(organization.id)}
                   >
-                    <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
+                    <OrganizationAvatar
+                      organization={organization}
+                      previewUrl={avatarPreviewUrls[organization.id]}
+                      className="size-10 rounded-md text-sm"
+                      onRemoteAvatarLoad={onRemoteAvatarLoad}
+                    />
                     <span className="grid min-h-10 min-w-0 content-center">
                       <span className="oo-text-label truncate">{organization.name}</span>
                       <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
@@ -4327,9 +4391,11 @@ function OrganizationAvatarField({
   const { t } = useAppI18n()
   const inputId = React.useId()
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const imageSrc = previewUrl || avatar
+  const remoteAvatar = previewUrl ? "" : avatar.trim()
+  const [loadedRemoteAvatar, setLoadedRemoteAvatar] = React.useState<string | null>(null)
+  const imageVisible = Boolean(previewUrl || (remoteAvatar && loadedRemoteAvatar === remoteAvatar))
   const canClear = Boolean(file || avatar)
-  const fallbackStyle = imageSrc ? undefined : organizationAvatarStyle(seed || name || "organization")
+  const fallbackStyle = imageVisible ? undefined : organizationAvatarStyle(seed || name || "organization")
 
   return (
     <div className="grid gap-2">
@@ -4338,14 +4404,20 @@ function OrganizationAvatarField({
         <span
           className={cn(
             "relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md text-lg font-medium",
-            imageSrc ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
+            imageVisible ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
           )}
           style={fallbackStyle}
         >
-          {imageSrc ? null : <span aria-hidden="true">{organizationInitials(name || "Organization")}</span>}
+          {imageVisible ? null : <span aria-hidden="true">{organizationInitials(name || "Organization")}</span>}
           {previewUrl ? <img src={previewUrl} alt="" className="absolute inset-0 size-full object-contain" /> : null}
-          {!previewUrl && avatar ? (
-            <CachedAvatarImage src={avatar} alt="" className="absolute inset-0 size-full object-contain" />
+          {remoteAvatar ? (
+            <CachedAvatarImage
+              src={remoteAvatar}
+              alt=""
+              className="absolute inset-0 size-full object-contain"
+              onLoad={() => setLoadedRemoteAvatar(remoteAvatar)}
+              onError={() => setLoadedRemoteAvatar((current) => (current === remoteAvatar ? null : current))}
+            />
           ) : null}
         </span>
         <div className="grid min-w-0 flex-1 gap-2">
@@ -4721,20 +4793,46 @@ function Panel({
   )
 }
 
-function OrganizationAvatar({ className, organization }: { className?: string; organization: Organization }) {
-  const hasAvatar = Boolean(organization.avatar)
+function OrganizationAvatar({
+  className,
+  onRemoteAvatarLoad,
+  organization,
+  previewUrl,
+}: {
+  className?: string
+  onRemoteAvatarLoad?: (organizationId: string, file: File | null) => void
+  organization: Organization
+  previewUrl?: string
+}) {
+  const avatar = organization.avatar.trim()
+  const [loadedAvatar, setLoadedAvatar] = React.useState<string | null>(null)
+  const avatarLoaded = Boolean(avatar && loadedAvatar === avatar)
+  const showPreview = Boolean(previewUrl && !avatarLoaded)
+  const showImage = showPreview || avatarLoaded
 
   return (
     <span
       className={cn(
         "relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md text-xs font-medium",
-        hasAvatar ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
+        showImage ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
         className,
       )}
-      style={hasAvatar ? undefined : organizationAvatarStyle(organization.id || organization.name)}
+      style={showImage ? undefined : organizationAvatarStyle(organization.id || organization.name)}
     >
-      {hasAvatar ? null : <span aria-hidden="true">{organizationInitials(organization.name)}</span>}
-      <CachedAvatarImage src={organization.avatar} alt="" className="absolute inset-0 size-full object-contain" />
+      {showImage ? null : <span aria-hidden="true">{organizationInitials(organization.name)}</span>}
+      {showPreview ? <img src={previewUrl} alt="" className="absolute inset-0 size-full object-contain" /> : null}
+      {avatar ? (
+        <CachedAvatarImage
+          src={avatar}
+          alt=""
+          className="absolute inset-0 size-full object-contain"
+          onLoad={() => {
+            setLoadedAvatar(avatar)
+            onRemoteAvatarLoad?.(organization.id, null)
+          }}
+          onError={() => setLoadedAvatar((current) => (current === avatar ? null : current))}
+        />
+      ) : null}
     </span>
   )
 }

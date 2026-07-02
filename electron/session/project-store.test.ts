@@ -18,6 +18,7 @@ test("SessionProjectStore persists local projects", async () => {
         createdAt: 1_000,
         updatedAt: 2_000,
         scope: { type: "personal" as const },
+        pinnedAt: 3_000,
       },
     ],
   ])

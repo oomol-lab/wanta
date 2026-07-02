@@ -378,6 +378,114 @@ test("createProject reuses an existing project in the same scope", async () => {
   )
 })
 
+test("project actions rename, pin, and sort projects", async () => {
+  const persistedProjects = projectStore(
+    new Map([
+      [
+        "project-a",
+        {
+          id: "project-a",
+          name: "A",
+          path: "/Users/example/code/a",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          scope: { type: "personal" },
+        },
+      ],
+      [
+        "project-b",
+        {
+          id: "project-b",
+          name: "B",
+          path: "/Users/example/code/b",
+          createdAt: 2_000,
+          updatedAt: 2_000,
+          scope: { type: "personal" },
+        },
+      ],
+    ]),
+  )
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    projectStore: persistedProjects,
+  })
+
+  await service.renameProject({ id: "project-a", name: "Renamed" })
+  await service.pinProject({ id: "project-a", pinned: true })
+
+  const projects = await service.listProjects()
+
+  assert.equal(projects[0]?.id, "project-a")
+  assert.equal(projects[0]?.name, "Renamed")
+  assert.equal(typeof projects[0]?.pinnedAt, "number")
+  assert.equal((await persistedProjects.read()).get("project-a")?.name, "Renamed")
+})
+
+test("archiveProject hides the project and archives assigned sessions", async () => {
+  const persistedMetadata = metadataStore(
+    new Map([
+      ["session", { pinnedAt: 2_000, projectId: "project", scope: { type: "personal" } }],
+      ["task", { scope: { type: "personal" } }],
+    ]),
+  )
+  const persistedProjects = projectStore(
+    new Map([
+      [
+        "project",
+        {
+          id: "project",
+          name: "Wanta",
+          path: "/Users/example/code/wanta",
+          createdAt: 1_000,
+          updatedAt: 1_000,
+          pinnedAt: 2_000,
+          scope: { type: "personal" },
+        },
+      ],
+    ]),
+  )
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "session",
+        title: "Session",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+      {
+        id: "task",
+        title: "Task",
+        createdAt: 2_000,
+        updatedAt: 2_000,
+      },
+    ]),
+    {
+      metadataStore: persistedMetadata,
+      projectStore: persistedProjects,
+    },
+  )
+
+  await service.archiveProject("project")
+
+  assert.deepEqual(
+    (await service.listProjects()).map((project) => project.id),
+    [],
+  )
+  assert.deepEqual(
+    (await service.list()).map((session) => session.id),
+    ["task"],
+  )
+  assert.deepEqual(
+    (await service.listArchived()).map((session) => session.id),
+    ["session"],
+  )
+  const archivedProject = (await persistedProjects.read()).get("project")
+  assert.equal(typeof archivedProject?.archivedAt, "number")
+  assert.equal(archivedProject?.pinnedAt, undefined)
+  const archivedSessionMetadata = (await persistedMetadata.read()).get("session")
+  assert.equal(typeof archivedSessionMetadata?.archivedAt, "number")
+  assert.equal(archivedSessionMetadata?.pinnedAt, undefined)
+})
+
 test("create persists project assignment when the project matches the session scope", async () => {
   const persistedMetadata = metadataStore()
   const project: SessionProject = {

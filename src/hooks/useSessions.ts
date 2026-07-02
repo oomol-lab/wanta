@@ -41,6 +41,9 @@ export interface UseSessions {
   listArchived: () => Promise<SessionInfo[]>
   createProject: (req: CreateProjectRequest) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
+  renameProject: (id: string, name: string) => Promise<void>
+  pinProject: (id: string, pinned: boolean) => Promise<void>
+  archiveProject: (id: string) => Promise<void>
   removeProject: (id: string) => Promise<void>
   generateTitle: (req: GenerateSessionTitleRequest) => Promise<GenerateSessionTitleResult>
   rename: (id: string, title: string) => Promise<void>
@@ -244,6 +247,33 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [sessionService, refresh],
   )
 
+  const renameProject = React.useCallback(
+    async (id: string, name: string) => {
+      await sessionService.invoke("renameProject", { id, name })
+      await refresh()
+    },
+    [sessionService, refresh],
+  )
+
+  const pinProject = React.useCallback(
+    async (id: string, pinned: boolean) => {
+      await sessionService.invoke("pinProject", { id, pinned })
+      await refresh()
+    },
+    [sessionService, refresh],
+  )
+
+  const archiveProject = React.useCallback(
+    async (id: string) => {
+      await sessionService.invoke("archiveProject", id)
+      setProjects((current) => current.filter((project) => project.id !== id))
+      setSessions((current) => current.filter((session) => session.projectId !== id))
+      setProjectSessions((current) => current.filter((session) => session.projectId !== id))
+      await refresh()
+    },
+    [sessionService, refresh],
+  )
+
   const generateTitle = React.useCallback(
     async (req: GenerateSessionTitleRequest) => {
       return sessionService.invoke("generateTitle", req)
@@ -305,6 +335,9 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     listArchived,
     createProject,
     assignSessionProject,
+    renameProject,
+    pinProject,
+    archiveProject,
     removeProject,
     generateTitle,
     rename,

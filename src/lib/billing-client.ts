@@ -11,6 +11,8 @@ import type {
   SubscriptionPlanTag,
   SubscriptionSchedule,
   SubscriptionStatus,
+  WantaPendingPaymentResult,
+  WantaSubscriptionPlan,
 } from "../../electron/chat/common.ts"
 
 import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl } from "@/lib/domain"
@@ -28,6 +30,7 @@ const billingOptionalRequestSoftTimeoutMs = 3_000
 const billingLogsMaxRangeDays = 30
 const billingLogsMaxPagesPerRange = 100
 const billingCreditUsagesMaxPages = 100
+export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_plus", "wanta_pro"]
 
 /** 会话过期/缺失的哨兵文案（与 oomol-http 的 authRequiredMessage 同字面量）；resolveUserFacingError 据此归为 auth_required。 */
 export const billingAuthRequiredMessage = authRequiredMessage
@@ -127,6 +130,33 @@ function readCreditUsages(payload: unknown): CreditUsages {
     },
     deficit: String(record["deficit"] ?? "0"),
   }
+}
+
+function readWantaPendingPayment(payload: unknown): WantaPendingPaymentResult | null {
+  const source = unwrapConsoleData<unknown>(payload)
+  if (!source || typeof source !== "object") {
+    return null
+  }
+  const record = source as Record<string, unknown>
+  return {
+    subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]),
+    status: readStringField(record, ["status"]),
+    plan: isWantaSubscriptionPlan(record["plan"]) ? record["plan"] : null,
+    additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
+    currentPeriodEnd: readOptionalTimestampField(record, ["currentPeriodEnd", "current_period_end"]),
+    latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
+    paymentRequired: readBooleanField(record, ["paymentRequired", "payment_required"]),
+    paymentURL: readStringField(record, ["paymentURL", "paymentUrl", "payment_url"]),
+    invoiceStatus: readStringField(record, ["invoiceStatus", "invoice_status"]),
+    amountRemaining: readOptionalNumberField(record, ["amountRemaining", "amount_remaining"]),
+    currency: readStringField(record, ["currency"]),
+    pendingUpdate: readBooleanField(record, ["pendingUpdate", "pending_update"]),
+    pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
+  }
+}
+
+function isWantaSubscriptionPlan(value: unknown): value is WantaSubscriptionPlan {
+  return typeof value === "string" && wantaSubscriptionPlans.includes(value as WantaSubscriptionPlan)
 }
 
 export function readBillingLogs(payload: unknown): BillingLogItem[] {
@@ -243,6 +273,51 @@ function readTimestampField(record: Record<string, unknown>, keys: string[]): nu
     }
   }
   return null
+}
+
+function readOptionalTimestampField(record: Record<string, unknown>, keys: string[]): number | null {
+  return readTimestampField(record, keys)
+}
+
+function readIntegerField(record: Record<string, unknown>, keys: string[]): number {
+  for (const key of keys) {
+    const value = record[key]
+    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
+    if (Number.isFinite(amount)) {
+      return Math.max(0, Math.floor(amount))
+    }
+  }
+  return 0
+}
+
+function readOptionalNumberField(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key]
+    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
+    if (Number.isFinite(amount)) {
+      return amount
+    }
+  }
+  return null
+}
+
+function readBooleanField(record: Record<string, unknown>, keys: string[]): boolean {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "boolean") {
+      return value
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase()
+      if (normalized === "true") {
+        return true
+      }
+      if (normalized === "false") {
+        return false
+      }
+    }
+  }
+  return false
 }
 
 export function ensureHttpUrl(rawUrl: string): string {
@@ -461,15 +536,24 @@ async function getSubscriptionSchedules(): Promise<SubscriptionSchedule[]> {
   return unwrapConsoleData<SubscriptionSchedule[]>(await fetchAuthenticatedJson(url))
 }
 
+async function getWantaPendingPayment(): Promise<WantaPendingPaymentResult | null> {
+  const url = new URL("/api/user/subscriptions/wanta/pending_payment", consoleServerBaseUrl)
+  return readWantaPendingPayment(await fetchAuthenticatedJson(url))
+}
+
 export async function getBillingSummary(days: number): Promise<BillingSummaryResult> {
+  const subscriptionPromise = getSubscriptionStatus()
+  void subscriptionPromise.catch(() => undefined)
   const [balance, spend, metering] = await Promise.allSettled([
     getAllCreditUsages(),
     getCreditSpendStats(days),
     getCreditMeteringStats(days),
   ])
+  const subscription = await settleWithSoftTimeout("subscription", subscriptionPromise)
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)
+  logSettledFailure("subscription", subscription)
   // 会话过期优先于一切：余额鉴权失败必须上抛 auth_required，否则会被 UI 渲染成假 "$0"。
   if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
     throw balance.reason
@@ -483,8 +567,9 @@ export async function getBillingSummary(days: number): Promise<BillingSummaryRes
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
     logs: [],
-    subscription: null,
+    subscription: subscription.status === "fulfilled" ? subscription.value : null,
     schedules: [],
+    wantaPendingPayment: null,
   }
 }
 
@@ -495,16 +580,19 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
   const logsPromise = getBillingLogs(days)
   const subscriptionPromise = getSubscriptionStatus()
   const schedulesPromise = getSubscriptionSchedules()
+  const wantaPendingPaymentPromise = getWantaPendingPayment()
 
   void logsPromise.catch(() => undefined)
   void subscriptionPromise.catch(() => undefined)
   void schedulesPromise.catch(() => undefined)
+  void wantaPendingPaymentPromise.catch(() => undefined)
 
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
-  const [logs, subscription, schedules] = await Promise.all([
+  const [logs, subscription, schedules, wantaPendingPayment] = await Promise.all([
     settleWithSoftTimeout("logs", logsPromise),
     settleWithSoftTimeout("subscription", subscriptionPromise),
     settleWithSoftTimeout("schedules", schedulesPromise),
+    settleWithSoftTimeout("wanta pending payment", wantaPendingPaymentPromise),
   ])
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
@@ -512,6 +600,7 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
   logSettledFailure("logs", logs)
   logSettledFailure("subscription", subscription)
   logSettledFailure("schedules", schedules)
+  logSettledFailure("wanta pending payment", wantaPendingPayment)
   if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
     throw balance.reason
   }
@@ -526,6 +615,7 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
     logs: logs.status === "fulfilled" ? logs.value : [],
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
     schedules: schedules.status === "fulfilled" ? schedules.value : [],
+    wantaPendingPayment: wantaPendingPayment.status === "fulfilled" ? wantaPendingPayment.value : null,
   }
 }
 
@@ -559,6 +649,33 @@ export function subscriptionCheckoutUrl(plan: SubscriptionPlanTag, userId?: stri
   return ensureHttpUrl(url.toString())
 }
 
+/** Wanta 订阅结账页：前端使用总席位心智，兼容当前 console 的 additional_seats 参数。 */
+export function wantaSubscriptionCheckoutUrl({
+  billableSeats,
+  organizationId,
+  plan,
+}: {
+  billableSeats: number
+  organizationId?: string
+  plan?: WantaSubscriptionPlan
+}): string {
+  const url = new URL("/api/user/subscriptions/wanta/page", consoleServerBaseUrl)
+  url.searchParams.set("client_platform", "chat-web")
+  url.searchParams.set("redirect", checkoutReturnUrl())
+  url.searchParams.set("source_page", checkoutReturnUrl())
+  if (plan) {
+    url.searchParams.set("plan", plan)
+  }
+  if (organizationId) {
+    url.searchParams.set("org_id", organizationId)
+  }
+  if (billableSeats > 0) {
+    url.searchParams.set("additional_seats", String(Math.floor(billableSeats)))
+    url.searchParams.set("billable_seats", String(Math.floor(billableSeats)))
+  }
+  return ensureHttpUrl(url.toString())
+}
+
 /** 订阅管理门户：向 console-server 解析 Stripe portal 链接。 */
 export async function subscriptionPortalUrl(): Promise<string> {
   const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
@@ -566,6 +683,17 @@ export async function subscriptionPortalUrl(): Promise<string> {
   const portalUrl = unwrapConsoleData<string>(await fetchAuthenticatedJson(url))
   if (!portalUrl) {
     throw new Error("Subscription portal URL response is invalid.")
+  }
+  return ensureHttpUrl(portalUrl)
+}
+
+/** Wanta 订阅管理门户：Stripe portal 的 product 使用 wanta。 */
+export async function wantaSubscriptionPortalUrl(): Promise<string> {
+  const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
+  url.searchParams.set("product", "wanta")
+  const portalUrl = unwrapConsoleData<string>(await fetchAuthenticatedJson(url))
+  if (!portalUrl) {
+    throw new Error("Wanta subscription portal URL response is invalid.")
   }
   return ensureHttpUrl(portalUrl)
 }

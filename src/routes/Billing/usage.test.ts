@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildDailySpendBuckets } from "./usage.ts"
+import { buildDailySpendBuckets, usageCategory } from "./usage.ts"
 
 describe("billing usage helpers", () => {
   it("spreads total spend across daily buckets when the stats response has no daily items", () => {
@@ -48,6 +48,13 @@ describe("billing usage helpers", () => {
 
     expect(sumCredits(buckets)).toBeCloseTo(12.98)
     expect(buckets.some((bucket) => bucket.estimated)).toBe(false)
+  })
+
+  it("classifies spend by user-facing billing buckets", () => {
+    expect(usageCategory("SERVICE_LLM", "oopilot")).toBe("model")
+    expect(usageCategory("SERVICE_FUSION_API", "tts")).toBe("api")
+    expect(usageCategory("SERVICE_AUTH_LINK", "google_sheets.read")).toBe("link")
+    expect(usageCategory("SERVICE_OOMOL_CONNECTOR", "hubspot.search")).toBe("link")
   })
 })
 

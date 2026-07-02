@@ -1,6 +1,6 @@
 import type { BillingPeriodDays, BillingSpendStats } from "../../../electron/chat/common.ts"
 
-export type UsageCategory = "chat" | "image" | "other"
+export type UsageCategory = "model" | "api" | "link"
 
 export interface CategorySummary {
   category: UsageCategory
@@ -15,7 +15,7 @@ export interface DailySpendBucket {
   estimated: boolean
 }
 
-export const categoryOrder: UsageCategory[] = ["chat", "image", "other"]
+export const categoryOrder: UsageCategory[] = ["model", "api", "link"]
 
 export function buildCategorySummaries(
   spend: BillingSpendStats | null | undefined,
@@ -36,7 +36,7 @@ export function buildCategorySummaries(
   if (spendItems.length === 0) {
     const fallbackSpend = statsTotalCredit(spend)
     if (fallbackSpend > 0) {
-      const summary = summaries.get("other")
+      const summary = summaries.get("api")
       if (summary) {
         summary.credit += fallbackSpend
       }
@@ -51,7 +51,7 @@ export function buildCategorySummaries(
   if (meteringItems.length === 0) {
     const fallbackEvents = statsTotalEvents(metering)
     if (fallbackEvents > 0) {
-      const summary = summaries.get("other")
+      const summary = summaries.get("api")
       if (summary) {
         summary.eventCount += fallbackEvents
       }
@@ -100,15 +100,28 @@ export function usageCategory(source: string, subject: string): UsageCategory {
   const normalizedSource = source.toLowerCase()
   const normalizedSubject = subject.toLowerCase()
   if (source === "SERVICE_LLM" || normalizedSource.includes("llm")) {
-    return "chat"
+    return "model"
   }
   if (
-    normalizedSource.includes("image") ||
-    /\b(image|img|picture|photo|png|jpg|jpeg|flux|banana|gpt-image|stable-diffusion)\b/.test(normalizedSubject)
+    source === "SERVICE_AUTH_LINK" ||
+    source === "SERVICE_OOMOL_CONNECTOR" ||
+    normalizedSource.includes("auth_link") ||
+    normalizedSource.includes("connector") ||
+    /\b(link|connector|provider|oauth|action)\b/.test(normalizedSubject)
   ) {
-    return "image"
+    return "link"
   }
-  return "other"
+  if (
+    source === "SERVICE_FUSION_API" ||
+    normalizedSource.includes("image") ||
+    normalizedSource.includes("fusion") ||
+    /\b(image|img|picture|photo|png|jpg|jpeg|flux|banana|gpt-image|stable-diffusion|tts|stt|speech|voice|audio|transcribe)\b/.test(
+      normalizedSubject,
+    )
+  ) {
+    return "api"
+  }
+  return "api"
 }
 
 export function toNumber(value: string | number | undefined): number {

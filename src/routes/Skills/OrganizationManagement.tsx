@@ -227,12 +227,10 @@ export function OrganizationManagementRoute({
   connectedProviders = [],
   organizationSkills,
   workspace,
-  onOpenOrganizationSkills,
 }: {
   connectedProviders?: ConnectionProvider[]
   organizationSkills?: UseOrganizationSkills
   workspace?: UseOrganizationWorkspace
-  onOpenOrganizationSkills?: () => void
 }) {
   const { t } = useAppI18n()
   const skillService = useSkillService()
@@ -1122,36 +1120,68 @@ export function OrganizationManagementRoute({
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
-                {selectedOrganization && selectedOrganizationSkills ? (
-                  <OrganizationSkillGuidePanel
+                {selectedOrganization ? (
+                  <div className="grid min-w-[52rem] grid-cols-[minmax(0,1fr)_minmax(15rem,18rem)] items-start gap-3">
+                    {selectedOrganizationSkills ? (
+                      <OrganizationSkillGuidePanel
+                        busyAction={busyAction}
+                        groupById={skillGroupById}
+                        organizationSkills={selectedOrganizationSkills}
+                        providerRecommendations={providerSkillRecommendations}
+                        onAddRecommendation={addOrganizationSkillFromRecommendation}
+                        onAddRecommendationBatch={addOrganizationSkillBatch}
+                        onAddMarketPackage={addOrganizationSkillFromPackage}
+                        onInstallRuntimeSkill={installRuntimeSkill}
+                        onInstallRuntimeSkills={installRuntimeSkills}
+                      />
+                    ) : (
+                      <Panel
+                        title={t("organizations.skillGuideTitle")}
+                        description={t("organizations.skillGuideDescription")}
+                      >
+                        <div className="p-3">
+                          <Skeleton className="h-16 rounded-md" />
+                        </div>
+                      </Panel>
+                    )}
+                    <OrganizationDetailPanel
+                      compact
+                      appAccessLoading={
+                        appAccessState.status === "loading" || providerOptionsState.status === "loading"
+                      }
+                      busyAction={busyAction}
+                      canManage={canManage}
+                      grantsByUserId={grantsByUserId}
+                      members={memberViews}
+                      membersError={membersState.error}
+                      membersLoading={membersState.status === "loading"}
+                      organization={selectedOrganization}
+                      providerAccessError={providerAccessError}
+                      onAddMember={() => setAddMemberOpen(true)}
+                      onEditProviderAccess={openEditProviderAccess}
+                      onGrantProviderAccess={openGrantProviderAccess}
+                      onRemoveMember={handleRemoveMember}
+                      onRevokeProviderAccess={handleRevokeProviderAccess}
+                    />
+                  </div>
+                ) : (
+                  <OrganizationDetailPanel
+                    appAccessLoading={appAccessState.status === "loading" || providerOptionsState.status === "loading"}
                     busyAction={busyAction}
-                    groupById={skillGroupById}
-                    organizationSkills={selectedOrganizationSkills}
-                    providerRecommendations={providerSkillRecommendations}
-                    onAddRecommendation={addOrganizationSkillFromRecommendation}
-                    onAddRecommendationBatch={addOrganizationSkillBatch}
-                    onAddMarketPackage={addOrganizationSkillFromPackage}
-                    onInstallRuntimeSkill={installRuntimeSkill}
-                    onInstallRuntimeSkills={installRuntimeSkills}
-                    onOpenOrganizationSkills={onOpenOrganizationSkills}
+                    canManage={canManage}
+                    grantsByUserId={grantsByUserId}
+                    members={memberViews}
+                    membersError={membersState.error}
+                    membersLoading={membersState.status === "loading"}
+                    organization={selectedOrganization}
+                    providerAccessError={providerAccessError}
+                    onAddMember={() => setAddMemberOpen(true)}
+                    onEditProviderAccess={openEditProviderAccess}
+                    onGrantProviderAccess={openGrantProviderAccess}
+                    onRemoveMember={handleRemoveMember}
+                    onRevokeProviderAccess={handleRevokeProviderAccess}
                   />
-                ) : null}
-                <OrganizationDetailPanel
-                  appAccessLoading={appAccessState.status === "loading" || providerOptionsState.status === "loading"}
-                  busyAction={busyAction}
-                  canManage={canManage}
-                  grantsByUserId={grantsByUserId}
-                  members={memberViews}
-                  membersError={membersState.error}
-                  membersLoading={membersState.status === "loading"}
-                  organization={selectedOrganization}
-                  providerAccessError={providerAccessError}
-                  onAddMember={() => setAddMemberOpen(true)}
-                  onEditProviderAccess={openEditProviderAccess}
-                  onGrantProviderAccess={openGrantProviderAccess}
-                  onRemoveMember={handleRemoveMember}
-                  onRevokeProviderAccess={handleRevokeProviderAccess}
-                />
+                )}
               </>
             )}
           </div>
@@ -1404,18 +1434,6 @@ function organizationSkillGuideStatus(
     : t("organizations.skillGuideEmptyBadge")
 }
 
-function organizationSkillGuideActionLabel(
-  organizationSkills: UseOrganizationSkills,
-  t: ReturnType<typeof useAppI18n>["t"],
-): string {
-  if (!organizationSkills.canManage) {
-    return t("organizations.skillGuideView")
-  }
-  return organizationSkills.apiEnabled && organizationSkills.skills.length > 0
-    ? t("organizations.skillGuideManage")
-    : t("organizations.skillGuideConfigure")
-}
-
 function OrganizationSkillGuidePanel({
   busyAction,
   groupById,
@@ -1426,7 +1444,6 @@ function OrganizationSkillGuidePanel({
   onAddMarketPackage,
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
-  onOpenOrganizationSkills,
 }: {
   busyAction: BusyAction | null
   groupById: ReadonlyMap<string, ManagedSkillGroup>
@@ -1446,56 +1463,78 @@ function OrganizationSkillGuidePanel({
   ) => Promise<void>
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
-  onOpenOrganizationSkills?: () => void
 }) {
   const { t } = useAppI18n()
-  const [manageOpen, setManageOpen] = React.useState(false)
   const statusLabel = organizationSkillGuideStatus(organizationSkills, t)
-  const actionLabel = organizationSkillGuideActionLabel(organizationSkills, t)
-  const canOpenSettings = organizationSkills.apiEnabled || organizationSkills.canManage
+  const recommendedPlan = React.useMemo(
+    () => planOrganizationSkillBulkLinks(providerRecommendations, organizationSkills.skills),
+    [organizationSkills.skills, providerRecommendations],
+  )
+  const installableHeaderSkills = React.useMemo(() => {
+    const configuredSkills = organizationSkills.skills
+      .filter((skill) => {
+        const state = getOrganizationSkillRuntimeStatus(groupById, skill).state
+        return skill.enabled && (state === "missing" || state === "external-only")
+      })
+      .map((skill) => ({ packageName: skill.packageName, skillName: skill.skillName }))
+    const recommendedSkills = recommendedPlan.linkable
+      .filter((recommendation) => canInstallPublicSkill(recommendation.installState))
+      .map((recommendation) => ({
+        packageName: recommendation.packageName,
+        skillName: recommendation.skillId,
+      }))
+    const seen = new Set<string>()
+    return [...configuredSkills, ...recommendedSkills].filter((skill) => {
+      const key = `${skill.packageName}\u0000${skill.skillName}`
+      if (seen.has(key)) {
+        return false
+      }
+      seen.add(key)
+      return true
+    })
+  }, [groupById, organizationSkills.skills, recommendedPlan.linkable])
+  const installBusy = busyAction === "installSkillBatch"
 
   return (
-    <>
-      <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-        <div className="flex min-w-0 flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-md border bg-[var(--oo-inspector-surface)] text-muted-foreground">
-              <PackageIcon className="size-5" />
-            </div>
-            <div className="grid min-w-0 gap-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h2 className="oo-text-title min-w-0 truncate text-foreground">{t("organizations.skillGuideTitle")}</h2>
-                <Badge variant="outline" className="max-w-full shrink-0">
-                  <span className="truncate">{statusLabel}</span>
-                </Badge>
-              </div>
-              <p className="oo-text-body max-w-3xl text-muted-foreground">{t("organizations.skillGuideDescription")}</p>
-            </div>
+    <section className="grid min-h-[34rem] min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+      <div className="flex min-h-14 min-w-0 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-[7px]">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="oo-text-title min-w-0 truncate text-foreground">{t("organizations.skillGuideTitle")}</h2>
+            <Badge variant="outline" className="max-w-full shrink-0">
+              <span className="truncate">{statusLabel}</span>
+            </Badge>
           </div>
-          <div className="flex shrink-0 items-center gap-2 self-end md:self-center">
-            {canOpenSettings ? (
-              <Button type="button" size="sm" onClick={() => setManageOpen(true)}>
-                {actionLabel}
-              </Button>
-            ) : null}
-          </div>
+          <p className="oo-text-caption mt-0.5 truncate text-muted-foreground">
+            {t("organizations.skillGuideDescription")}
+          </p>
         </div>
-      </section>
-      <OrganizationSkillManageDialog
-        busyAction={busyAction}
-        groupById={groupById}
-        open={manageOpen}
-        organizationSkills={organizationSkills}
-        providerRecommendations={providerRecommendations}
-        onAddRecommendation={onAddRecommendation}
-        onAddRecommendationBatch={onAddRecommendationBatch}
-        onAddMarketPackage={onAddMarketPackage}
-        onClose={() => setManageOpen(false)}
-        onInstallRuntimeSkill={onInstallRuntimeSkill}
-        onInstallRuntimeSkills={onInstallRuntimeSkills}
-        onOpenAdvanced={onOpenOrganizationSkills}
-      />
-    </>
+        <Button
+          type="button"
+          size="sm"
+          className="shrink-0"
+          disabled={installableHeaderSkills.length === 0 || Boolean(busyAction)}
+          onClick={() => onInstallRuntimeSkills(installableHeaderSkills)}
+        >
+          {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
+          {t("organizations.skillManageInstallAll")}
+        </Button>
+      </div>
+      <div className="min-h-0 p-3">
+        <OrganizationSkillManageDialog
+          busyAction={busyAction}
+          groupById={groupById}
+          organizationSkills={organizationSkills}
+          providerRecommendations={providerRecommendations}
+          variant="inline"
+          onAddRecommendation={onAddRecommendation}
+          onAddRecommendationBatch={onAddRecommendationBatch}
+          onAddMarketPackage={onAddMarketPackage}
+          onInstallRuntimeSkill={onInstallRuntimeSkill}
+          onInstallRuntimeSkills={onInstallRuntimeSkills}
+        />
+      </div>
+    </section>
   )
 }
 
@@ -2595,6 +2634,7 @@ function OrganizationDetailPanel({
   appAccessLoading,
   busyAction,
   canManage,
+  compact = false,
   grantsByUserId,
   members,
   membersError,
@@ -2610,6 +2650,7 @@ function OrganizationDetailPanel({
   appAccessLoading: boolean
   busyAction: BusyAction | null
   canManage: boolean
+  compact?: boolean
   grantsByUserId: Map<string, ProviderGrantView>
   members: MemberView[]
   membersError: string | null
@@ -2633,6 +2674,9 @@ function OrganizationDetailPanel({
   }
 
   const memberCountLabel = membersLoading ? "..." : String(members.length)
+  const compactMemberCountLabel = membersLoading
+    ? t("organizations.memberCountLoading")
+    : t("organizations.memberCountCompact", { count: members.length })
   const permissionModeLabel = canManage ? t("organizations.canManage") : t("organizations.readOnly")
 
   return (
@@ -2640,23 +2684,29 @@ function OrganizationDetailPanel({
       <Panel
         title={t("organizations.membersAndPermissions")}
         description={
-          <div className="grid min-w-0 gap-1">
-            <span className="min-w-0 truncate">{t("organizations.membersAndPermissionsDescription")}</span>
-            <span className="oo-text-caption-compact flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <UsersIcon className="size-3.5 shrink-0" />
-                <span className="truncate">
-                  {t("organizations.memberCount")}: {memberCountLabel}
-                </span>
-              </span>
-              <span className="flex min-w-0 items-center gap-1.5">
-                <ShieldCheckIcon className="size-3.5 shrink-0" />
-                <span className="truncate">
-                  {t("organizations.permissionMode")}: {permissionModeLabel}
-                </span>
-              </span>
+          compact ? (
+            <span className="oo-text-caption-compact truncate text-muted-foreground">
+              {compactMemberCountLabel} · {permissionModeLabel}
             </span>
-          </div>
+          ) : (
+            <div className="grid min-w-0 gap-1">
+              <span className="min-w-0 truncate">{t("organizations.membersAndPermissionsDescription")}</span>
+              <span className="oo-text-caption-compact flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <UsersIcon className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    {t("organizations.memberCount")}: {memberCountLabel}
+                  </span>
+                </span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <ShieldCheckIcon className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    {t("organizations.permissionMode")}: {permissionModeLabel}
+                  </span>
+                </span>
+              </span>
+            </div>
+          )
         }
         action={
           canManage ? (
@@ -2682,6 +2732,7 @@ function OrganizationDetailPanel({
               appAccessLoading={appAccessLoading}
               busyAction={busyAction}
               canManage={canManage}
+              compact={compact}
               grantsByUserId={grantsByUserId}
               members={members}
               providerAccessError={providerAccessError}
@@ -2713,6 +2764,7 @@ function MembersTable({
   appAccessLoading,
   busyAction,
   canManage,
+  compact = false,
   grantsByUserId,
   members,
   onEditProviderAccess,
@@ -2724,6 +2776,7 @@ function MembersTable({
   appAccessLoading: boolean
   busyAction: BusyAction | null
   canManage: boolean
+  compact?: boolean
   grantsByUserId: Map<string, ProviderGrantView>
   members: MemberView[]
   onEditProviderAccess: (grant: ProviderGrantView) => void
@@ -2733,6 +2786,96 @@ function MembersTable({
   providerAccessError: string | null
 }) {
   const { t } = useAppI18n()
+  if (compact) {
+    return (
+      <div className="divide-y">
+        {members.map((member) => {
+          const grant = grantsByUserId.get(member.user_id) ?? null
+          const removeBusy = busyAction === `remove:${member.user_id}`
+          return (
+            <div key={member.user_id} className="grid min-w-0 gap-2 px-3 py-3">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <UserAvatar avatar={member.avatar} fallback={member.fallback} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <div className="oo-text-label min-w-0 truncate">{member.displayName}</div>
+                    <Badge variant="secondary" className="shrink-0">
+                      {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                    </Badge>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
+                        {member.secondaryLabel}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent className="font-mono break-all">{member.user_id}</TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+              {canManage && member.role !== "creator" ? (
+                <div className="grid min-w-0 gap-2 pl-10">
+                  <div className="min-w-0">
+                    <ProviderAccessSummary
+                      compact
+                      allProvidersLabel={t("organizations.allProviders")}
+                      grant={grant}
+                      loading={appAccessLoading}
+                      notAuthorizedLabel={
+                        providerAccessError
+                          ? t("organizations.providerAccessUnavailable")
+                          : t("organizations.notAuthorized")
+                      }
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    <ProviderAccessActions
+                      compact
+                      busyAction={busyAction}
+                      disabled={appAccessLoading || Boolean(providerAccessError)}
+                      grant={grant}
+                      memberId={member.user_id}
+                      onEdit={onEditProviderAccess}
+                      onGrant={onGrantProviderAccess}
+                      onRevoke={onRevokeProviderAccess}
+                    />
+                    <ConfirmDialog>
+                      <ConfirmDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={removeBusy}
+                          aria-label={t("organizations.removeMember")}
+                        >
+                          <Trash2Icon className="size-4" />
+                        </Button>
+                      </ConfirmDialogTrigger>
+                      <ConfirmDialogContent>
+                        <ConfirmDialogHeader>
+                          <ConfirmDialogTitle>{t("organizations.removeMemberConfirmTitle")}</ConfirmDialogTitle>
+                          <ConfirmDialogDescription>
+                            {t("organizations.removeMemberConfirmDescription", { name: member.displayName })}
+                          </ConfirmDialogDescription>
+                        </ConfirmDialogHeader>
+                        <ConfirmDialogFooter>
+                          <ConfirmDialogCancel>{t("common.cancel")}</ConfirmDialogCancel>
+                          <ConfirmDialogAction onClick={() => onRemoveMember(member)}>
+                            {t("organizations.removeMember")}
+                          </ConfirmDialogAction>
+                        </ConfirmDialogFooter>
+                      </ConfirmDialogContent>
+                    </ConfirmDialog>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   const gridClassName = canManage
     ? "grid-cols-[minmax(12rem,1fr)_7rem_minmax(12rem,1fr)_auto]"
     : "grid-cols-[minmax(12rem,1fr)_7rem]"
@@ -2846,11 +2989,13 @@ function MembersTable({
 
 function ProviderAccessSummary({
   allProvidersLabel,
+  compact = false,
   grant,
   loading,
   notAuthorizedLabel,
 }: {
   allProvidersLabel: string
+  compact?: boolean
   grant: ProviderGrantView | null
   loading: boolean
   notAuthorizedLabel: string
@@ -2865,16 +3010,16 @@ function ProviderAccessSummary({
     return <Badge variant="secondary">{allProvidersLabel}</Badge>
   }
 
-  const visibleProviders = grant.providers.slice(0, 3)
+  const visibleProviders = grant.providers.slice(0, compact ? 1 : 3)
   const hiddenProviderCount = grant.providers.length - visibleProviders.length
   return (
     <div
-      className="flex min-w-0 flex-nowrap gap-2"
+      className={cn("flex min-w-0 gap-2", compact ? "flex-wrap" : "flex-nowrap")}
       title={grant.providers.map((provider) => provider.label).join(", ")}
     >
       {visibleProviders.map((provider) => (
-        <Badge key={provider.service} variant="secondary" title={provider.service}>
-          {provider.label}
+        <Badge key={provider.service} variant="secondary" className="max-w-full" title={provider.service}>
+          <span className="truncate">{provider.label}</span>
         </Badge>
       ))}
       {hiddenProviderCount > 0 ? <Badge variant="secondary">+{hiddenProviderCount}</Badge> : null}
@@ -2884,6 +3029,7 @@ function ProviderAccessSummary({
 
 function ProviderAccessActions({
   busyAction,
+  compact = false,
   disabled,
   grant,
   memberId,
@@ -2892,6 +3038,7 @@ function ProviderAccessActions({
   onRevoke,
 }: {
   busyAction: BusyAction | null
+  compact?: boolean
   disabled: boolean
   grant: ProviderGrantView | null
   memberId: string
@@ -2903,6 +3050,7 @@ function ProviderAccessActions({
   if (!grant) {
     return (
       <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onGrant(memberId)}>
+        {compact ? <ShieldCheckIcon className="size-4" /> : null}
         {t("organizations.grantProviderAccessAction")}
       </Button>
     )
@@ -2911,15 +3059,28 @@ function ProviderAccessActions({
   const revokeBusy = busyAction === `revokeProviderAccess:${grant.userId}`
   return (
     <>
-      <Button type="button" variant="outline" size="sm" disabled={disabled || revokeBusy} onClick={() => onEdit(grant)}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={disabled || revokeBusy}
+        aria-label={compact ? t("organizations.editProviderAccessAction") : undefined}
+        onClick={() => onEdit(grant)}
+      >
         <PencilIcon className="size-4" />
-        {t("organizations.editProviderAccessAction")}
+        {compact ? null : t("organizations.editProviderAccessAction")}
       </Button>
       <ConfirmDialog>
         <ConfirmDialogTrigger asChild>
-          <Button type="button" variant="outline" size="sm" disabled={disabled || revokeBusy}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || revokeBusy}
+            aria-label={compact ? t("organizations.revokeProviderAccess") : undefined}
+          >
             <Trash2Icon className="size-4" />
-            {t("organizations.revokeProviderAccess")}
+            {compact ? null : t("organizations.revokeProviderAccess")}
           </Button>
         </ConfirmDialogTrigger>
         <ConfirmDialogContent>
@@ -3316,7 +3477,7 @@ function Panel({
 }) {
   return (
     <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
+      <div className="flex min-h-14 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
         <div className="min-w-0">
           <h2 className="oo-text-title truncate text-foreground">{title}</h2>
           {description ? <div className="oo-text-caption mt-0.5 min-w-0">{description}</div> : null}

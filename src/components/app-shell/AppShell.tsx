@@ -58,6 +58,7 @@ import {
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
+import { branding } from "../../../electron/branding.ts"
 import {
   buildFallbackSessionTitle,
   shouldAutoRefreshSessionTitle,
@@ -85,7 +86,7 @@ import { groupSidebarSessions, nextActiveSessionIdAfterArchive, projectHasRunnin
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
-import { useChatService, useSkillService } from "@/components/AppContext"
+import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { BrandIcon } from "@/components/BrandIcon"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
@@ -121,6 +122,11 @@ import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { visibleUserText } from "@/routes/Chat/message-text"
+import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
+import {
+  buildProviderSkillRecommendations,
+  getInstallableProviderSkillRecommendations,
+} from "@/routes/Skills/provider-skill-recommendations"
 import { getInstallableOrganizationSkills, getOrganizationSkillRuntimeStatus } from "@/routes/Skills/skill-route-model"
 
 type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
@@ -141,6 +147,11 @@ interface ChatConnectionDrawerState {
   authIntent: ConnectionAuthIntent | null
   open: boolean
   selectedService: string | null
+}
+
+interface OrganizationSkillNoticeCloseRequest {
+  organizationId: string
+  toastId: string
 }
 
 const ArtifactsPanel = React.lazy(() =>
@@ -184,6 +195,48 @@ const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
 const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 const NO_DRAFT_PROJECT_ID = "__no_project__"
+const ORGANIZATION_SKILL_NOTICE_STORAGE_SCHEMA_VERSION = 1
+const ORGANIZATION_SKILL_NOTICE_UI_VERSION = 3
+
+function organizationSkillNoticeSuppressionKey(accountId: string, organizationId: string): string {
+  return `${branding.storageKeyPrefix}:organization-skill-notice:suppressed:${accountId}:${organizationId}`
+}
+
+function isOrganizationSkillNoticeSuppressed(accountId: string | undefined, organizationId: string): boolean {
+  if (!accountId) {
+    return false
+  }
+  try {
+    const raw = globalThis.localStorage?.getItem(organizationSkillNoticeSuppressionKey(accountId, organizationId))
+    if (!raw) {
+      return false
+    }
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object") {
+      return false
+    }
+    return (parsed as { schemaVersion?: unknown }).schemaVersion === ORGANIZATION_SKILL_NOTICE_STORAGE_SCHEMA_VERSION
+  } catch {
+    return false
+  }
+}
+
+function suppressOrganizationSkillNotice(accountId: string | undefined, organizationId: string): void {
+  if (!accountId) {
+    return
+  }
+  try {
+    globalThis.localStorage?.setItem(
+      organizationSkillNoticeSuppressionKey(accountId, organizationId),
+      JSON.stringify({
+        schemaVersion: ORGANIZATION_SKILL_NOTICE_STORAGE_SCHEMA_VERSION,
+        suppressedAt: new Date().toISOString(),
+      }),
+    )
+  } catch {
+    // 本地记忆只是体验优化，失败不影响本次关闭。
+  }
+}
 
 function releaseTransientFocus(): void {
   const blurActiveElement = (): void => {
@@ -1077,6 +1130,73 @@ function RemoveProjectDialog({
   )
 }
 
+function OrganizationSkillNoticeToast({
+  closeLabel,
+  description,
+  onClose,
+  onOpen,
+  openLabel,
+  title,
+}: {
+  closeLabel: string
+  description: string
+  onClose: () => void
+  onOpen: () => void
+  openLabel: string
+  title: string
+}) {
+  return (
+    <div className="grid w-[min(34rem,calc(100vw-2rem))] min-w-0 gap-5 rounded-lg border border-border bg-background px-5 py-4 text-foreground shadow-lg">
+      <div className="grid min-w-0 gap-2">
+        <div className="oo-text-label min-w-0 text-foreground">{title}</div>
+        <p className="oo-text-body min-w-0 text-muted-foreground">{description}</p>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          {closeLabel}
+        </Button>
+        <Button type="button" size="sm" onClick={onOpen}>
+          {openLabel}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function OrganizationSkillNoticeCloseDialog({
+  open,
+  onCloseOnce,
+  onSuppressOrganization,
+}: {
+  open: boolean
+  onCloseOnce: () => void
+  onSuppressOrganization: () => void
+}) {
+  const t = useT()
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onCloseOnce}
+      closeLabel={t("common.close")}
+      title={t("skills.organizationInstallDismissTitle")}
+      className="max-w-[440px]"
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onCloseOnce}>
+            {t("skills.organizationInstallDismissOnce")}
+          </Button>
+          <Button type="button" onClick={onSuppressOrganization}>
+            {t("skills.organizationInstallDismissOrganization")}
+          </Button>
+        </>
+      }
+    >
+      <p className="oo-text-body text-muted-foreground">{t("skills.organizationInstallDismissDescription")}</p>
+    </Dialog>
+  )
+}
+
 function EditableTitlebarTitle({
   title,
   editable,
@@ -1932,13 +2052,13 @@ function AppUpdateTitlebarEntry() {
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
-  const skillService = useSkillService()
   const auth = useAuth()
   const [ready, setReady] = React.useState(false)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace)
   const skillInventory = useSkillInventoryResource()
+  const connections = useConnections(organizationWorkspace.connectionWorkspace)
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -1969,6 +2089,8 @@ export function AppShell() {
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [skillsFocusRequest, setSkillsFocusRequest] = React.useState<{ nonce: number; tab: SkillPageTab } | null>(null)
+  const [organizationSkillNoticeCloseRequest, setOrganizationSkillNoticeCloseRequest] =
+    React.useState<OrganizationSkillNoticeCloseRequest | null>(null)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
@@ -2011,10 +2133,30 @@ export function AppShell() {
     activeSessionId,
     route === "chat" ? activeSessionId : null,
   )
-  const connections = useConnections(organizationWorkspace.connectionWorkspace)
   const installedSkillGroupById = React.useMemo(() => {
     return new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group]))
   }, [skillInventory.data?.groups])
+  const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
+  const organizationProviderRecommendationProviders =
+    organizationWorkspace.activeWorkspace.type === "organization" ? activeProviders : EMPTY_CONNECTION_PROVIDERS
+  const providerSkillPackageLookup = useProviderSkillPackageLookup(organizationProviderRecommendationProviders)
+  const providerSkillRecommendations = React.useMemo(
+    () =>
+      buildProviderSkillRecommendations({
+        groupById: installedSkillGroupById,
+        packagesByService: providerSkillPackageLookup.packagesByService,
+        providers: organizationProviderRecommendationProviders,
+      }),
+    [
+      installedSkillGroupById,
+      organizationProviderRecommendationProviders,
+      providerSkillPackageLookup.packagesByService,
+    ],
+  )
+  const installableProviderSkillRecommendations = React.useMemo(
+    () => getInstallableProviderSkillRecommendations(providerSkillRecommendations),
+    [providerSkillRecommendations],
+  )
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
@@ -2059,7 +2201,6 @@ export function AppShell() {
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
-  const organizationSkillInstallInFlightRef = React.useRef(false)
   const shownOrganizationSkillNoticeKeysRef = React.useRef<Set<string>>(new Set())
   const titleGenerationInFlightBySession = React.useRef<Map<string, string>>(new Map())
   const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
@@ -2081,61 +2222,45 @@ export function AppShell() {
     setSkillsFocusRequest({ nonce: Date.now(), tab: "organization" })
   }, [])
 
-  const installOrganizationSkills = React.useCallback(
-    async (skills: Array<{ packageName: string; skillName: string }>): Promise<void> => {
-      if (organizationSkillInstallInFlightRef.current) {
-        return
-      }
-      organizationSkillInstallInFlightRef.current = true
-      try {
-        let nextInventory = skillInventory.data
-        for (const skill of skills) {
-          nextInventory = await skillService.invoke("installRegistrySkill", {
-            packageName: skill.packageName,
-            skillId: skill.skillName,
-          })
-        }
-        if (nextInventory) {
-          skillInventory.setData(nextInventory)
-        } else {
-          await skillInventory.refresh({ forceRefresh: true, silent: true })
-        }
-        toast.success(t("skills.organizationInstallDone"))
-      } catch (cause) {
-        toast.error(
-          t("skills.organizationInstallFailed", {
-            error: userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t),
-          }),
-        )
-        focusOrganizationSkills()
-      } finally {
-        organizationSkillInstallInFlightRef.current = false
-      }
-    },
-    [focusOrganizationSkills, skillInventory, skillService, t],
-  )
+  const closeOrganizationSkillNoticeOnce = React.useCallback(() => {
+    setOrganizationSkillNoticeCloseRequest(null)
+  }, [])
+
+  const suppressCurrentOrganizationSkillNotice = React.useCallback(() => {
+    const request = organizationSkillNoticeCloseRequest
+    if (!request) {
+      return
+    }
+    suppressOrganizationSkillNotice(auth.state?.account?.id, request.organizationId)
+    toast.dismiss(request.toastId)
+    setOrganizationSkillNoticeCloseRequest(null)
+  }, [auth.state?.account?.id, organizationSkillNoticeCloseRequest])
 
   React.useEffect(() => {
     if (
       organizationWorkspace.activeWorkspace.type !== "organization" ||
       !organizationSkills.hasLoaded ||
+      providerSkillPackageLookup.isLoading ||
       !skillInventory.data
     ) {
       return
     }
 
+    const accountId = auth.state?.account?.id
     const organizationId = organizationWorkspace.activeWorkspace.organizationId
-    const enabledSkills = organizationSkills.skills.filter((skill) => skill.enabled)
-    if (enabledSkills.length === 0) {
+    if (isOrganizationSkillNoticeSuppressed(accountId, organizationId)) {
       return
     }
+
+    const enabledSkills = organizationSkills.skills.filter((skill) => skill.enabled)
 
     const installableSkills = getInstallableOrganizationSkills(installedSkillGroupById, enabledSkills)
     const attentionCount = enabledSkills.filter((skill) => {
       const state = getOrganizationSkillRuntimeStatus(installedSkillGroupById, skill).state
       return state !== "installed-same" && state !== "missing" && state !== "external-only"
     }).length
-    if (installableSkills.length === 0 && attentionCount === 0) {
+    const installableProviderSkillCount = installableProviderSkillRecommendations.length
+    if (installableSkills.length === 0 && attentionCount === 0 && installableProviderSkillCount === 0) {
       return
     }
 
@@ -2144,43 +2269,86 @@ export function AppShell() {
         const state = getOrganizationSkillRuntimeStatus(installedSkillGroupById, skill).state
         return [skill.packageName, skill.skillName, skill.version, state].join(":")
       })
+      .concat(
+        installableProviderSkillRecommendations.map((recommendation) =>
+          [
+            "provider",
+            recommendation.packageName,
+            recommendation.skillId,
+            recommendation.package.version,
+            recommendation.installState,
+          ].join(":"),
+        ),
+      )
       .sort()
       .join("|")
-    const noticeKey = `${organizationId}:${stateKey}`
+    const noticeKey = `${ORGANIZATION_SKILL_NOTICE_UI_VERSION}:${organizationId}:${stateKey}`
     if (shownOrganizationSkillNoticeKeysRef.current.has(noticeKey)) {
       return
     }
     shownOrganizationSkillNoticeKeysRef.current.add(noticeKey)
 
-    const extra = attentionCount > 0 ? t("skills.organizationInstallNoticeExtra", { count: attentionCount }) : ""
-    toast(
+    const toastId = `organization-skill-notice:${noticeKey}`
+    toast.dismiss(`organization-skill-notice:${organizationId}:${stateKey}`)
+    toast.dismiss(`organization-skill-notice:2:${organizationId}:${stateKey}`)
+    const extraParts = [
+      attentionCount > 0 ? t("skills.organizationInstallNoticeExtra", { count: attentionCount }) : "",
+      installableProviderSkillCount > 0
+        ? t("skills.organizationInstallNoticeProviderExtra", { count: installableProviderSkillCount })
+        : "",
+    ].filter(Boolean)
+    const extra = extraParts.join(" ")
+    const title =
       installableSkills.length > 0
         ? t("skills.organizationInstallNoticeTitle", { count: installableSkills.length })
-        : t("skills.organizationInstallReviewTitle", { count: attentionCount }),
+        : installableProviderSkillCount > 0
+          ? t("skills.organizationInstallNoticeProviderTitle", { count: installableProviderSkillCount })
+          : t("skills.organizationInstallReviewTitle", { count: attentionCount })
+    const description =
+      installableSkills.length > 0 || installableProviderSkillCount > 0
+        ? t("skills.organizationInstallNoticeDescription", { extra })
+        : t("skills.organizationInstallReviewDescription")
+    const openLabel =
+      installableSkills.length > 0 || installableProviderSkillCount > 0
+        ? t("skills.organizationInstallNoticeOpen")
+        : t("skills.organizationInstallNoticeReview")
+    const closeLabel = t("skills.organizationInstallNoticeClose")
+    const openOrganizationSkills = (): void => {
+      toast.dismiss(toastId)
+      focusOrganizationSkills()
+    }
+    const requestCloseOrganizationSkillNotice = (): void => {
+      toast.dismiss(toastId)
+      setOrganizationSkillNoticeCloseRequest({ organizationId, toastId })
+    }
+
+    toast.custom(
+      () => (
+        <OrganizationSkillNoticeToast
+          closeLabel={closeLabel}
+          description={description}
+          openLabel={openLabel}
+          title={title}
+          onClose={requestCloseOrganizationSkillNotice}
+          onOpen={openOrganizationSkills}
+        />
+      ),
       {
-        description:
-          installableSkills.length > 0
-            ? t("skills.organizationInstallNoticeDescription", { extra })
-            : t("skills.organizationInstallReviewDescription"),
-        action:
-          installableSkills.length > 0
-            ? {
-                label: t("skills.organizationInstallNoticeAction"),
-                onClick: () => void installOrganizationSkills(installableSkills),
-              }
-            : {
-                label: t("skills.organizationInstallNoticeReview"),
-                onClick: focusOrganizationSkills,
-              },
+        id: toastId,
+        duration: Infinity,
+        unstyled: true,
+        className: "border-0 bg-transparent p-0 shadow-none",
       },
     )
   }, [
+    auth.state?.account?.id,
     focusOrganizationSkills,
-    installOrganizationSkills,
+    installableProviderSkillRecommendations,
     installedSkillGroupById,
     organizationSkills.hasLoaded,
     organizationSkills.skills,
     organizationWorkspace.activeWorkspace,
+    providerSkillPackageLookup.isLoading,
     skillInventory.data,
     t,
   ])
@@ -2405,7 +2573,6 @@ export function AppShell() {
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
   const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
   const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
-  const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
   const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
@@ -4115,7 +4282,6 @@ export function AppShell() {
                   connectedProviders={activeProviders}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
-                  onOpenOrganizationSkills={focusOrganizationSkills}
                 />
               ) : (
                 <div className="flex h-full min-h-0 overflow-hidden">
@@ -4325,6 +4491,11 @@ export function AppShell() {
             void handleRemoveProject(removeProjectTarget)
           }
         }}
+      />
+      <OrganizationSkillNoticeCloseDialog
+        open={Boolean(organizationSkillNoticeCloseRequest)}
+        onCloseOnce={closeOrganizationSkillNoticeOnce}
+        onSuppressOrganization={suppressCurrentOrganizationSkillNotice}
       />
     </div>
   )

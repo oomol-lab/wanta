@@ -21,8 +21,22 @@ export interface ProviderSkillRecommendation extends ProviderSkillCandidate {
   skillId: string
 }
 
-export function createOfficialProviderSkillPackageName(service: string): string {
-  return `oo-${service.trim()}`
+const officialProviderSkillPackageNameByService = new Map<string, string>([
+  ["amap", "oo-amap"],
+  ["dida365", "oo-dida365"],
+  ["github", "oo-github"],
+  ["gmail", "oo-gmail"],
+  ["googlecalendar", "oo-googlecalendar"],
+  ["notion", "oo-notion"],
+  ["slack", "oo-slack"],
+])
+
+export function resolveOfficialProviderSkillPackageName(service: string): string | null {
+  const normalizedService = service.trim()
+  if (!normalizedService) {
+    return null
+  }
+  return officialProviderSkillPackageNameByService.get(normalizedService) ?? null
 }
 
 export function getConnectedProviderSkillCandidates(
@@ -42,9 +56,13 @@ export function getConnectedProviderSkillCandidates(
     if (seen.has(service)) {
       continue
     }
+    const packageName = resolveOfficialProviderSkillPackageName(service)
+    if (!packageName) {
+      continue
+    }
     seen.add(service)
     candidates.push({
-      packageName: createOfficialProviderSkillPackageName(service),
+      packageName,
       providerDisplayName: provider.displayName || service,
       ...(provider.iconUrl ? { providerIconUrl: provider.iconUrl } : {}),
       service,

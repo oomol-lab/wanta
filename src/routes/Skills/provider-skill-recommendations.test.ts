@@ -5,23 +5,26 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
   buildProviderSkillRecommendations,
-  createOfficialProviderSkillPackageName,
   getConnectedProviderSkillCandidates,
   getInstallableProviderSkillRecommendations,
+  resolveOfficialProviderSkillPackageName,
 } from "./provider-skill-recommendations.ts"
 
-test("createOfficialProviderSkillPackageName uses the current official naming convention", () => {
-  assert.equal(createOfficialProviderSkillPackageName("gmail"), "oo-gmail")
-  assert.equal(createOfficialProviderSkillPackageName(" googlecalendar "), "oo-googlecalendar")
+test("resolveOfficialProviderSkillPackageName only returns explicitly mapped packages", () => {
+  assert.equal(resolveOfficialProviderSkillPackageName("gmail"), "oo-gmail")
+  assert.equal(resolveOfficialProviderSkillPackageName(" googlecalendar "), "oo-googlecalendar")
+  assert.equal(resolveOfficialProviderSkillPackageName("google_bigquery"), null)
+  assert.equal(resolveOfficialProviderSkillPackageName(""), null)
 })
 
-test("getConnectedProviderSkillCandidates only keeps active connected providers", () => {
+test("getConnectedProviderSkillCandidates only keeps active connected providers with mapped packages", () => {
   const candidates = getConnectedProviderSkillCandidates([
     provider("gmail"),
     provider("github", { appStatus: "reauth_required" }),
     provider("notion", { status: "available" }),
     provider("gmail", { displayName: "Gmail Duplicate" }),
     provider("amap", { appStatus: undefined }),
+    provider("google_bigquery"),
   ])
 
   assert.deepEqual(

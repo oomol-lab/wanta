@@ -7,9 +7,10 @@ import { getConnectedProviderSkillCandidates } from "./provider-skill-recommenda
 import { readPublicSkillPackageByName } from "@/lib/skills-catalog-client"
 
 const providerSkillPackageCacheMs = 30_000
+const missingProviderSkillPackageCacheMs = 24 * 60 * 60_000
 
 interface ProviderSkillPackageCacheEntry {
-  fetchedAt: number
+  expiresAt: number
   package: PublicSkillPackage | null
 }
 
@@ -63,14 +64,17 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
 
       for (const candidate of candidates) {
         const cached = providerSkillPackageCache.get(candidate.packageName)
-        if (cached && now - cached.fetchedAt < providerSkillPackageCacheMs) {
+        if (cached && now < cached.expiresAt) {
           next.set(candidate.service, cached.package)
           continue
         }
 
         try {
           const pkg = await readPublicSkillPackageByName(candidate.packageName)
-          providerSkillPackageCache.set(candidate.packageName, { fetchedAt: Date.now(), package: pkg })
+          providerSkillPackageCache.set(candidate.packageName, {
+            expiresAt: Date.now() + (pkg ? providerSkillPackageCacheMs : missingProviderSkillPackageCacheMs),
+            package: pkg,
+          })
           next.set(candidate.service, pkg)
         } catch (cause) {
           console.warn("[wanta] failed to read provider Skill recommendation:", cause)

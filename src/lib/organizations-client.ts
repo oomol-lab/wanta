@@ -66,6 +66,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null
 }
 
+function normalizeAvatarUrl(value: unknown): string {
+  const raw = asString(value)?.trim()
+  if (!raw) {
+    return ""
+  }
+  try {
+    const url = new URL(raw, apiBaseUrl)
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : ""
+  } catch {
+    return ""
+  }
+}
+
 function normalizeOrganization(value: unknown): Organization | undefined {
   if (!isPlainObject(value)) {
     return undefined
@@ -81,7 +94,7 @@ function normalizeOrganization(value: unknown): Organization | undefined {
   return {
     id,
     name,
-    avatar: asString(value["avatar"]) ?? "",
+    avatar: normalizeAvatarUrl(value["avatar"]),
     creator_user_id: creatorUserId,
     ...(role === "creator" || role === "member" ? { role } : {}),
     ...(typeof writable === "boolean" ? { writable } : {}),
@@ -340,10 +353,11 @@ export async function uploadOrganizationAvatar(orgId: string, file: File): Promi
     body: form,
   })
   const avatar = isPlainObject(result) ? asString(result["avatar"]) : undefined
-  if (!avatar) {
+  const normalizedAvatar = normalizeAvatarUrl(avatar)
+  if (!normalizedAvatar) {
     throw new Error("Organization avatar response is invalid.")
   }
-  return { avatar }
+  return { avatar: normalizedAvatar }
 }
 
 export async function listOrganizationMembers(orgId: string): Promise<OrganizationMember[]> {

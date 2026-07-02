@@ -8,6 +8,7 @@ import {
   markAvatarImageFailed,
   normalizeAvatarCacheKey,
   readCachedAvatarImage,
+  shouldFetchAvatarImage,
   shouldSkipAvatarImageLoad,
 } from "@/lib/avatar-image-cache"
 import { cn } from "@/lib/utils"
@@ -20,7 +21,7 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
   const cacheKey = React.useMemo(() => normalizeAvatarCacheKey(src), [src])
   const [imageState, setImageState] = React.useState<{ cacheKey: string | null; src: string | null }>(() => ({
     cacheKey,
-    src: readCachedAvatarImage(src),
+    src: cacheKey && !shouldFetchAvatarImage(cacheKey) ? cacheKey : readCachedAvatarImage(src),
   }))
   const imageSrc = imageState.cacheKey === cacheKey ? imageState.src : null
   const [visible, setVisible] = React.useState(false)
@@ -31,6 +32,11 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
     setVisible(false)
     if (!cacheKey) {
       setImageState({ cacheKey, src: null })
+      return
+    }
+
+    if (!shouldFetchAvatarImage(cacheKey)) {
+      setImageState({ cacheKey, src: shouldSkipAvatarImageLoad(cacheKey) ? null : cacheKey })
       return
     }
 

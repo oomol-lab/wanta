@@ -1,3 +1,5 @@
+import { ooEndpoint } from "@/lib/domain"
+
 const avatarCacheMaxEntries = 128
 const avatarFailureTtlMs = 60_000
 
@@ -91,6 +93,16 @@ function isFetchableAvatarKey(key: string): boolean {
   return protocol === "http:" || protocol === "https:"
 }
 
+function isOomolAvatarKey(key: string): boolean {
+  const hostname = new URL(key).hostname
+  return hostname === ooEndpoint || hostname.endsWith(`.${ooEndpoint}`)
+}
+
+export function shouldFetchAvatarImage(src: string | undefined): boolean {
+  const key = normalizeAvatarCacheKey(src)
+  return Boolean(key && isFetchableAvatarKey(key) && isOomolAvatarKey(key))
+}
+
 function putCachedAvatarImage(key: string, objectUrl: string, options: AvatarImageCacheFetchOptions = {}): void {
   const revokeObjectUrl = options.revokeObjectUrl ?? URL.revokeObjectURL.bind(URL)
   const existing = avatarCache.get(key)
@@ -138,7 +150,7 @@ export async function loadCachedAvatarImage(
   if (!key) {
     throw new Error("Avatar URL is invalid.")
   }
-  if (!isFetchableAvatarKey(key)) {
+  if (!shouldFetchAvatarImage(key)) {
     return key
   }
   if (shouldSkipAvatarImageLoad(key, currentTime(options))) {

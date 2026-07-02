@@ -22,7 +22,6 @@ import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
-import type { SkillPageTab } from "@/routes/Skills/skill-route-model"
 import type { ChatStatus } from "ai"
 
 import {
@@ -197,6 +196,7 @@ const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 const NO_DRAFT_PROJECT_ID = "__no_project__"
 const ORGANIZATION_SKILL_NOTICE_STORAGE_SCHEMA_VERSION = 1
 const ORGANIZATION_SKILL_NOTICE_UI_VERSION = 3
+const ORGANIZATION_SKILL_NOTICE_TOAST_ID = "organization-skill-notice:active"
 
 function organizationSkillNoticeSuppressionKey(accountId: string, organizationId: string): string {
   return `${branding.storageKeyPrefix}:organization-skill-notice:suppressed:${accountId}:${organizationId}`
@@ -2051,6 +2051,7 @@ function AppUpdateTitlebarEntry() {
 
 export function AppShell() {
   const t = useT()
+  const { locale } = useI18n()
   const chatService = useChatService()
   const auth = useAuth()
   const [ready, setReady] = React.useState(false)
@@ -2088,7 +2089,6 @@ export function AppShell() {
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
   const [route, setRoute] = React.useState<Route>(initialRoute)
-  const [skillsFocusRequest, setSkillsFocusRequest] = React.useState<{ nonce: number; tab: SkillPageTab } | null>(null)
   const [organizationSkillNoticeCloseRequest, setOrganizationSkillNoticeCloseRequest] =
     React.useState<OrganizationSkillNoticeCloseRequest | null>(null)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
@@ -2201,7 +2201,12 @@ export function AppShell() {
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
-  const shownOrganizationSkillNoticeKeysRef = React.useRef<Set<string>>(new Set())
+  const activeOrganizationSkillNoticeRef = React.useRef<{
+    noticeKey: string
+    organizationId: string
+    renderKey: string
+    toastId: string
+  } | null>(null)
   const titleGenerationInFlightBySession = React.useRef<Map<string, string>>(new Map())
   const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
   const titleGenerationRetryAfterBySession = React.useRef<Map<string, { key: string; retryAfter: number }>>(new Map())
@@ -2218,8 +2223,7 @@ export function AppShell() {
   )
 
   const focusOrganizationSkills = React.useCallback(() => {
-    setRoute("skills")
-    setSkillsFocusRequest({ nonce: Date.now(), tab: "organization" })
+    setRoute("organizations")
   }, [])
 
   const closeOrganizationSkillNoticeOnce = React.useCallback(() => {
@@ -2236,19 +2240,46 @@ export function AppShell() {
     setOrganizationSkillNoticeCloseRequest(null)
   }, [auth.state?.account?.id, organizationSkillNoticeCloseRequest])
 
+  const activeOrganizationSkillNoticeOrganizationId =
+    organizationWorkspace.activeWorkspace.type === "organization"
+      ? organizationWorkspace.activeWorkspace.organizationId
+      : null
+
   React.useEffect(() => {
+    toast.dismiss(ORGANIZATION_SKILL_NOTICE_TOAST_ID)
+    activeOrganizationSkillNoticeRef.current = null
+    setOrganizationSkillNoticeCloseRequest(null)
+  }, [activeOrganizationSkillNoticeOrganizationId])
+
+  React.useEffect(() => {
+    const dismissActiveOrganizationSkillNotice = (): void => {
+      const activeNotice = activeOrganizationSkillNoticeRef.current
+      toast.dismiss(ORGANIZATION_SKILL_NOTICE_TOAST_ID)
+      if (!activeNotice) {
+        return
+      }
+      activeOrganizationSkillNoticeRef.current = null
+      setOrganizationSkillNoticeCloseRequest((request) => (request?.toastId === activeNotice.toastId ? null : request))
+    }
+    const activeNotice = activeOrganizationSkillNoticeRef.current
+    if (activeNotice && activeNotice.organizationId !== activeOrganizationSkillNoticeOrganizationId) {
+      dismissActiveOrganizationSkillNotice()
+    }
+
     if (
       organizationWorkspace.activeWorkspace.type !== "organization" ||
       !organizationSkills.hasLoaded ||
       providerSkillPackageLookup.isLoading ||
       !skillInventory.data
     ) {
+      dismissActiveOrganizationSkillNotice()
       return
     }
 
     const accountId = auth.state?.account?.id
     const organizationId = organizationWorkspace.activeWorkspace.organizationId
     if (isOrganizationSkillNoticeSuppressed(accountId, organizationId)) {
+      dismissActiveOrganizationSkillNotice()
       return
     }
 
@@ -2260,7 +2291,8 @@ export function AppShell() {
       return state !== "installed-same" && state !== "missing" && state !== "external-only"
     }).length
     const installableProviderSkillCount = installableProviderSkillRecommendations.length
-    if (installableSkills.length === 0 && attentionCount === 0 && installableProviderSkillCount === 0) {
+    if (installableSkills.length === 0 && installableProviderSkillCount === 0) {
+      dismissActiveOrganizationSkillNotice()
       return
     }
 
@@ -2283,12 +2315,13 @@ export function AppShell() {
       .sort()
       .join("|")
     const noticeKey = `${ORGANIZATION_SKILL_NOTICE_UI_VERSION}:${organizationId}:${stateKey}`
-    if (shownOrganizationSkillNoticeKeysRef.current.has(noticeKey)) {
+    const renderKey = `${noticeKey}:${locale}`
+    if (activeOrganizationSkillNoticeRef.current?.renderKey === renderKey) {
       return
     }
-    shownOrganizationSkillNoticeKeysRef.current.add(noticeKey)
+    dismissActiveOrganizationSkillNotice()
 
-    const toastId = `organization-skill-notice:${noticeKey}`
+    const toastId = ORGANIZATION_SKILL_NOTICE_TOAST_ID
     toast.dismiss(`organization-skill-notice:${organizationId}:${stateKey}`)
     toast.dismiss(`organization-skill-notice:2:${organizationId}:${stateKey}`)
     const extraParts = [
@@ -2315,13 +2348,21 @@ export function AppShell() {
     const closeLabel = t("skills.organizationInstallNoticeClose")
     const openOrganizationSkills = (): void => {
       toast.dismiss(toastId)
+      activeOrganizationSkillNoticeRef.current = null
       focusOrganizationSkills()
     }
     const requestCloseOrganizationSkillNotice = (): void => {
       toast.dismiss(toastId)
+      activeOrganizationSkillNoticeRef.current = null
       setOrganizationSkillNoticeCloseRequest({ organizationId, toastId })
     }
 
+    activeOrganizationSkillNoticeRef.current = {
+      noticeKey,
+      organizationId,
+      renderKey,
+      toastId,
+    }
     toast.custom(
       () => (
         <OrganizationSkillNoticeToast
@@ -2342,9 +2383,11 @@ export function AppShell() {
     )
   }, [
     auth.state?.account?.id,
+    activeOrganizationSkillNoticeOrganizationId,
     focusOrganizationSkills,
     installableProviderSkillRecommendations,
     installedSkillGroupById,
+    locale,
     organizationSkills.hasLoaded,
     organizationSkills.skills,
     organizationWorkspace.activeWorkspace,
@@ -4273,7 +4316,6 @@ export function AppShell() {
               ) : route === "skills" ? (
                 <SkillsRoute
                   connectedProviders={activeProviders}
-                  focusRequest={skillsFocusRequest}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
                 />

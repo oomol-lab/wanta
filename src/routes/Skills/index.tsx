@@ -17,11 +17,9 @@ import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import type { TranslateFn as TFunction } from "@/i18n"
 
-import { LockKeyholeIcon, ShieldCheckIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { planOrganizationSkillBulkLinks } from "./organization-management-model.ts"
-import { OrganizationSkillManageDialog } from "./OrganizationManagement.tsx"
 import { useProviderSkillPackageLookup } from "./provider-skill-package-lookup.ts"
 import {
   buildProviderSkillRecommendations,
@@ -33,12 +31,12 @@ import {
   getGroupRowPackageLine,
   getGroupStatus,
   getLocalSkillPublishPath,
+  getOrganizationSkillRuntimeStatus,
   getPublicPackageInstallState,
   getPublicPackageMaintainerLine,
   getPublicPackageMetaLine,
   getPublicPackagePrimaryInstallSkill,
   getPublicPackagePrimarySkill,
-  getPublicSkillInstallActionLabel,
   getPublicSkillInstallKey,
   getPublicSkillInstallStateLabel,
   getRuntimeHosts,
@@ -110,6 +108,12 @@ type SkillOperationError = {
   skillId: SkillSelectionKey
 }
 
+type OrganizationSkillFilter = "all" | "recommended" | "configured"
+
+function isOrganizationSkillFilter(value: string): value is OrganizationSkillFilter {
+  return value === "all" || value === "recommended" || value === "configured"
+}
+
 function visibleSkillOperationError(
   error: SkillOperationError | null,
   skillId: SkillSelectionKey | undefined,
@@ -132,23 +136,6 @@ const skillUpdateActionBadgeClassName = cn(
   "oo-text-caption-compact h-7 shrink-0 border-[var(--oo-warning-border)] bg-[var(--oo-warning-surface)] px-2 font-medium text-[var(--oo-warning-foreground)]",
   "border shadow-none hover:bg-[var(--oo-warning-surface)] hover:text-[var(--oo-warning-foreground)]",
 )
-
-function publicPackageOrganizationLinkInput(
-  pkg: PublicSkillPackage,
-  skillName?: string,
-): OrganizationSkillLinkInput | null {
-  const skill = skillName
-    ? (pkg.skills.find((item) => item.name === skillName) ?? getPublicPackagePrimarySkill(pkg))
-    : getPublicPackagePrimarySkill(pkg)
-  if (!skill) {
-    return null
-  }
-  return {
-    packageName: pkg.name,
-    skillName: skill.name,
-    version: pkg.version,
-  }
-}
 
 function SkillUpdateBadge({ label }: { label: string }) {
   return (
@@ -264,6 +251,8 @@ export function SkillsRoute({
   const [query, setQuery] = React.useState("")
   const [discoveryFilter, setDiscoveryFilter] = React.useState<DiscoverSkillFilter>("all")
   const [installedFilter, setInstalledFilter] = React.useState<InstalledSkillFilter>("all")
+  const [organizationFilter, setOrganizationFilter] = React.useState<OrganizationSkillFilter>("all")
+  const [organizationQuery, setOrganizationQuery] = React.useState("")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
@@ -664,91 +653,6 @@ export function SkillsRoute({
     [beginOrganizationSkillAction, endOrganizationSkillAction, linkOrganizationSkill, organizationSkills.canManage, t],
   )
 
-  const addOrganizationSkillFromPackage = React.useCallback(
-    async (pkg: PublicSkillPackage, options: { installRuntime: boolean; skillName?: string }) => {
-      if (!organizationSkills.canManage) {
-        return
-      }
-
-      const input = publicPackageOrganizationLinkInput(pkg, options.skillName)
-      if (!input) {
-        toast.error(t("skills.discoverInstallNoSkill"))
-        return
-      }
-
-      if (!beginOrganizationSkillAction(`addSkill:${input.packageName}:${input.skillName}`)) {
-        return
-      }
-
-      try {
-        await linkOrganizationSkill(input, options)
-        toast.success(t("organizations.skillManageAddSuccess"))
-      } catch (cause) {
-        toast.error(skillErrorMessage(cause, t))
-      } finally {
-        endOrganizationSkillAction()
-      }
-    },
-    [beginOrganizationSkillAction, endOrganizationSkillAction, linkOrganizationSkill, organizationSkills.canManage, t],
-  )
-
-  const addOrganizationSkillBatch = React.useCallback(
-    async (recommendations: readonly ProviderSkillRecommendation[], options: { installRuntime: boolean }) => {
-      if (!organizationSkills.canManage || recommendations.length === 0) {
-        return
-      }
-
-      const plan = planOrganizationSkillBulkLinks(recommendations, organizationSkills.skills)
-      if (plan.linkable.length === 0) {
-        return
-      }
-
-      if (!beginOrganizationSkillAction("addSkillBatch")) {
-        return
-      }
-
-      let linkedCount = 0
-      let failedCount = 0
-      let firstError: unknown
-      try {
-        for (const recommendation of plan.linkable) {
-          try {
-            await linkOrganizationSkill(
-              {
-                packageName: recommendation.packageName,
-                skillName: recommendation.skillId,
-                version: recommendation.package.version,
-              },
-              options,
-            )
-            linkedCount += 1
-          } catch (cause) {
-            failedCount += 1
-            firstError ??= cause
-          }
-        }
-        if (linkedCount > 0) {
-          toast.success(
-            options.installRuntime
-              ? t("organizations.skillManageBulkAddInstallSuccess", { count: linkedCount })
-              : t("organizations.skillManageBulkAddSuccess", { count: linkedCount }),
-          )
-        }
-        if (failedCount > 0) {
-          toast.error(
-            t("organizations.skillManageBulkAddFailed", {
-              count: failedCount,
-              error: skillErrorMessage(firstError, t),
-            }),
-          )
-        }
-      } finally {
-        endOrganizationSkillAction()
-      }
-    },
-    [beginOrganizationSkillAction, endOrganizationSkillAction, linkOrganizationSkill, organizationSkills, t],
-  )
-
   const updateRegistrySkill = React.useCallback(
     async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
       if (updateRegistryInFlightRef.current) {
@@ -888,25 +792,30 @@ export function SkillsRoute({
           discoveryQuery={discoveryQuery}
           installedFilter={installedFilter}
           installedQuery={query}
+          organizationFilter={organizationFilter}
+          organizationQuery={organizationQuery}
           organizationTabAvailable={workspace.activeWorkspace.type === "organization"}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
           onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
+          onOrganizationFilterChange={setOrganizationFilter}
+          onOrganizationQueryChange={setOrganizationQuery}
           onTabChange={setActiveTab}
         />
         {activeTab === "organization" ? (
           <OrganizationSkillsPane
             busyAction={organizationSkillBusyAction}
             groupById={installedSkillGroupById}
+            organizationFilter={organizationFilter}
+            organizationQuery={organizationQuery}
             organizationSkills={organizationSkills}
             providerRecommendations={providerSkillRecommendations}
             workspace={workspace}
-            onAddMarketPackage={addOrganizationSkillFromPackage}
             onAddRecommendation={addOrganizationSkillFromRecommendation}
-            onAddRecommendationBatch={addOrganizationSkillBatch}
             onInstallRuntimeSkill={installOrganizationRuntimeSkill}
             onInstallRuntimeSkills={installOrganizationRuntimeSkills}
+            onOpenManagedSkill={openManagedPublicSkill}
           />
         ) : activeTab === "discover" ? (
           <DiscoverSkillsPane
@@ -985,20 +894,15 @@ export function SkillsRoute({
 interface OrganizationSkillsPaneProps {
   busyAction: BusyAction | null
   groupById: ManagedSkillGroupById
-  onAddMarketPackage: (
-    pkg: PublicSkillPackage,
-    options: { installRuntime: boolean; skillName?: string },
-  ) => Promise<void>
   onAddRecommendation: (
     recommendation: ProviderSkillRecommendation,
     options: { installRuntime: boolean },
   ) => Promise<void>
-  onAddRecommendationBatch: (
-    recommendations: readonly ProviderSkillRecommendation[],
-    options: { installRuntime: boolean },
-  ) => Promise<void>
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
+  onOpenManagedSkill: (skillName: string) => void
+  organizationFilter: OrganizationSkillFilter
+  organizationQuery: string
   organizationSkills: UseOrganizationSkills
   providerRecommendations: ProviderSkillRecommendation[]
   workspace: UseOrganizationWorkspace
@@ -1007,20 +911,20 @@ interface OrganizationSkillsPaneProps {
 function OrganizationSkillsPane({
   busyAction,
   groupById,
-  onAddMarketPackage,
   onAddRecommendation,
-  onAddRecommendationBatch,
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
+  onOpenManagedSkill,
+  organizationFilter,
+  organizationQuery,
   organizationSkills,
   providerRecommendations,
   workspace,
 }: OrganizationSkillsPaneProps) {
   const { t } = useAppI18n()
-  const activeOrganization =
-    workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organization : null
   const canManage = workspace.activeWorkspace.type === "organization" && workspace.activeWorkspace.canManage
-  const activeRole = workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.role : null
+  const [busyConfigId, setBusyConfigId] = React.useState<string | null>(null)
+  const [selectedItemId, setSelectedItemId] = React.useState<string | null>(null)
 
   if (workspace.activeWorkspace.type !== "organization") {
     return (
@@ -1034,55 +938,827 @@ function OrganizationSkillsPane({
   const selectedOrganizationSkills =
     organizationSkills.organizationId === activeOrganizationId ? organizationSkills : null
 
-  return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 px-3 py-3">
-      <div className="flex min-w-0 items-start justify-between gap-4 border-b pb-4">
-        <div className="grid min-w-0 gap-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <div className="oo-text-title min-w-0 truncate">
-              {activeOrganization?.name ?? t("organizations.workspace")}
-            </div>
-            {activeRole ? (
-              <Badge variant="secondary">
-                {activeRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-              </Badge>
-            ) : null}
-          </div>
-          <p className="oo-text-body max-w-3xl text-muted-foreground">
-            {canManage ? t("skills.organizationDescriptionManage") : t("skills.organizationDescriptionReadOnly")}
-          </p>
-          <div className="oo-text-caption-compact flex min-w-0 items-center gap-1.5 text-muted-foreground">
-            {canManage ? (
-              <ShieldCheckIcon className="size-3.5 shrink-0" />
-            ) : (
-              <LockKeyholeIcon className="size-3.5 shrink-0" />
-            )}
-            <span className="min-w-0">
-              {canManage ? t("skills.organizationManageNotice") : t("skills.organizationReadOnlyNotice")}
-            </span>
-          </div>
-        </div>
-      </div>
+  const normalizedQuery = organizationQuery.trim().toLowerCase()
+  const recommendedPlan = selectedOrganizationSkills
+    ? planOrganizationSkillBulkLinks(providerRecommendations, selectedOrganizationSkills.skills)
+    : null
+  const recommendedOrganizationSkills = recommendedPlan?.linkable ?? []
+  const filteredOrganizationItems = selectedOrganizationSkills
+    ? buildOrganizationRecommendationItems({
+        filter: organizationFilter,
+        normalizedQuery,
+        recommendedSkills: recommendedOrganizationSkills,
+        skills: selectedOrganizationSkills.skills,
+      })
+    : []
+  const installableConfiguredSkills = selectedOrganizationSkills
+    ? selectedOrganizationSkills.skills.filter((skill) => {
+        const state = getOrganizationSkillRuntimeStatus(groupById, skill).state
+        return skill.enabled && (state === "missing" || state === "external-only")
+      })
+    : []
+  const selectedOrganizationItem = selectedItemId
+    ? filteredOrganizationItems.find((item) => item.id === selectedItemId)
+    : undefined
 
+  const updateOrganizationSkill = async (
+    skill: UseOrganizationSkills["skills"][number],
+    input: { enabled: boolean },
+  ): Promise<void> => {
+    if (!selectedOrganizationSkills?.canManage || busyConfigId) {
+      return
+    }
+    setBusyConfigId(skill.id)
+    try {
+      await selectedOrganizationSkills.updateSkill(skill.id, input)
+      toast.success(input.enabled ? t("skills.organizationSkillEnabled") : t("skills.organizationSkillDisabled"))
+    } catch (cause) {
+      toast.error(skillErrorMessage(cause, t))
+    } finally {
+      setBusyConfigId(null)
+    }
+  }
+
+  const removeOrganizationSkill = async (skill: UseOrganizationSkills["skills"][number]): Promise<void> => {
+    if (!selectedOrganizationSkills?.canManage || busyConfigId) {
+      return
+    }
+    const confirmed = window.confirm(t("skills.organizationRemoveConfirm", { name: skill.displayName }))
+    if (!confirmed) {
+      return
+    }
+    setBusyConfigId(skill.id)
+    try {
+      await selectedOrganizationSkills.removeSkill(skill.id)
+      toast.success(t("skills.organizationSkillRemoved"))
+      setSelectedItemId(null)
+    } catch (cause) {
+      toast.error(skillErrorMessage(cause, t))
+    } finally {
+      setBusyConfigId(null)
+    }
+  }
+
+  return (
+    <div className="min-h-0 overflow-auto px-3 py-3">
       {selectedOrganizationSkills ? (
-        <OrganizationSkillManageDialog
-          busyAction={busyAction}
-          groupById={groupById}
-          organizationSkills={selectedOrganizationSkills}
-          providerRecommendations={providerRecommendations}
-          variant="inline"
-          onAddMarketPackage={onAddMarketPackage}
-          onAddRecommendation={onAddRecommendation}
-          onAddRecommendationBatch={onAddRecommendationBatch}
-          onInstallRuntimeSkill={onInstallRuntimeSkill}
-          onInstallRuntimeSkills={onInstallRuntimeSkills}
-        />
+        <div className="grid gap-3 pr-1">
+          {selectedOrganizationSkills.error ? (
+            <div className="flex min-w-0 items-start gap-2">
+              <ErrorNotice
+                error={resolveUserFacingError(selectedOrganizationSkills.error, { area: "skills" })}
+                compact
+                className="min-w-0 flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={selectedOrganizationSkills.loading}
+                onClick={() => void selectedOrganizationSkills.refresh({ forceRefresh: true })}
+              >
+                {selectedOrganizationSkills.loading ? (
+                  <AppIcons.status.loading className="animate-spin" />
+                ) : (
+                  <AppIcons.action.refresh />
+                )}
+                {t("organizations.retry")}
+              </Button>
+            </div>
+          ) : null}
+          {installableConfiguredSkills.length > 1 ? (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={Boolean(busyAction)}
+                onClick={() => onInstallRuntimeSkills(installableConfiguredSkills)}
+              >
+                {busyAction === "installSkillBatch" ? (
+                  <AppIcons.status.loading className="animate-spin" />
+                ) : (
+                  <AppIcons.action.installPackage />
+                )}
+                {t("organizations.skillManageInstallMissingAll", { count: installableConfiguredSkills.length })}
+              </Button>
+            </div>
+          ) : null}
+          {selectedOrganizationSkills.loading && !selectedOrganizationSkills.hasLoaded ? (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-44 rounded-md" />
+              ))}
+            </div>
+          ) : filteredOrganizationItems.length === 0 ? (
+            <OrganizationRecommendationEmptyState
+              description={
+                normalizedQuery
+                  ? t("skills.organizationSearchEmptyDescription")
+                  : organizationFilter === "recommended"
+                    ? t("organizations.skillManageRecommendedEmpty")
+                    : t("skills.organizationEmptyDescription")
+              }
+              title={
+                normalizedQuery
+                  ? t("skills.organizationSearchEmpty")
+                  : organizationFilter === "recommended"
+                    ? t("organizations.skillManageRecommended")
+                    : t("skills.organizationEmpty")
+              }
+            />
+          ) : (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+              {filteredOrganizationItems.map((item) =>
+                item.type === "configured" ? (
+                  <OrganizationConfiguredSkillCard
+                    key={item.id}
+                    busy={busyConfigId === item.skill.id || busyAction === "installSkillBatch"}
+                    groupById={groupById}
+                    installBusy={
+                      busyAction === `installSkill:${item.skill.packageName}:${item.skill.skillName}` ||
+                      busyAction === "installSkillBatch"
+                    }
+                    selected={selectedItemId === item.id}
+                    skill={item.skill}
+                    onInstallRuntime={() =>
+                      onInstallRuntimeSkill({ packageName: item.skill.packageName, skillName: item.skill.skillName })
+                    }
+                    onOpenManagedSkill={() => onOpenManagedSkill(item.skill.skillName)}
+                    onSelect={() => setSelectedItemId(item.id)}
+                  />
+                ) : (
+                  <OrganizationRecommendedSkillCard
+                    key={item.id}
+                    busyAction={busyAction}
+                    recommendation={item.recommendation}
+                    selected={selectedItemId === item.id}
+                    onInstallRuntime={() =>
+                      onInstallRuntimeSkill({
+                        packageName: item.recommendation.packageName,
+                        skillName: item.recommendation.skillId,
+                      })
+                    }
+                    onOpenManagedSkill={() => onOpenManagedSkill(item.recommendation.skillId)}
+                    onSelect={() => setSelectedItemId(item.id)}
+                  />
+                ),
+              )}
+            </div>
+          )}
+        </div>
       ) : (
-        <div className="min-h-0 overflow-hidden">
-          <ObjectRowSkeletonGroup count={3} rows={2} />
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} className="h-44 rounded-md" />
+          ))}
         </div>
       )}
+      {selectedOrganizationItem ? (
+        <SkillManagementSheet
+          title={
+            selectedOrganizationItem.type === "configured"
+              ? selectedOrganizationItem.skill.displayName
+              : selectedOrganizationItem.recommendation.package.displayName
+          }
+          onClose={() => setSelectedItemId(null)}
+        >
+          <OrganizationSkillDetail
+            busyAction={busyAction}
+            busyConfigId={busyConfigId}
+            canManage={canManage}
+            groupById={groupById}
+            item={selectedOrganizationItem}
+            onAddRecommendation={(recommendation) => onAddRecommendation(recommendation, { installRuntime: false })}
+            onEnableConfiguredSkill={(skill) => void updateOrganizationSkill(skill, { enabled: true })}
+            onInstallRuntimeSkill={onInstallRuntimeSkill}
+            onOpenManagedSkill={onOpenManagedSkill}
+            onRemoveConfiguredSkill={(skill) => void removeOrganizationSkill(skill)}
+          />
+        </SkillManagementSheet>
+      ) : null}
     </div>
+  )
+}
+
+type OrganizationRecommendationItem =
+  | {
+      id: string
+      skill: UseOrganizationSkills["skills"][number]
+      type: "configured"
+    }
+  | {
+      id: string
+      recommendation: ProviderSkillRecommendation
+      type: "recommended"
+    }
+
+function buildOrganizationRecommendationItems({
+  filter,
+  normalizedQuery,
+  recommendedSkills,
+  skills,
+}: {
+  filter: OrganizationSkillFilter
+  normalizedQuery: string
+  recommendedSkills: ProviderSkillRecommendation[]
+  skills: UseOrganizationSkills["skills"]
+}): OrganizationRecommendationItem[] {
+  const configuredItems: OrganizationRecommendationItem[] =
+    filter === "recommended"
+      ? []
+      : skills
+          .filter((skill) => organizationSkillMatchesSearchQuery(skill, normalizedQuery))
+          .map((skill) => ({ id: `configured:${skill.id}`, skill, type: "configured" }))
+
+  const recommendedItems: OrganizationRecommendationItem[] =
+    filter === "configured"
+      ? []
+      : recommendedSkills
+          .filter((recommendation) => providerRecommendationMatchesSearchQuery(recommendation, normalizedQuery))
+          .map((recommendation) => ({
+            id: `recommended:${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`,
+            recommendation,
+            type: "recommended",
+          }))
+
+  return [...recommendedItems, ...configuredItems]
+}
+
+function organizationSkillMatchesSearchQuery(
+  skill: UseOrganizationSkills["skills"][number],
+  normalizedQuery: string,
+): boolean {
+  if (!normalizedQuery) {
+    return true
+  }
+  return [skill.displayName, skill.skillName, skill.packageName, skill.description ?? "", skill.version]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+}
+
+function providerRecommendationMatchesSearchQuery(
+  recommendation: ProviderSkillRecommendation,
+  normalizedQuery: string,
+): boolean {
+  if (!normalizedQuery) {
+    return true
+  }
+  const skillDescription =
+    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ?? ""
+  return [
+    recommendation.providerDisplayName,
+    recommendation.package.displayName,
+    recommendation.packageName,
+    recommendation.skillId,
+    recommendation.package.description ?? "",
+    skillDescription,
+  ].some((value) => value.toLowerCase().includes(normalizedQuery))
+}
+
+function OrganizationRecommendationEmptyState({ description, title }: { description: string; title: string }) {
+  return (
+    <div className="grid min-h-[22rem] place-items-center px-4 py-10 text-center">
+      <div className="grid max-w-sm justify-items-center gap-2">
+        <div className="grid size-12 place-items-center rounded-md border bg-muted/30 text-muted-foreground">
+          <AppIcons.object.skill className="size-6" />
+        </div>
+        <div className="oo-text-label text-foreground">{title}</div>
+        <p className="oo-text-caption text-muted-foreground">{description}</p>
+      </div>
+    </div>
+  )
+}
+
+function organizationRuntimeStatusLabel(
+  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+  t: ReturnType<typeof useAppI18n>["t"],
+): string {
+  switch (state) {
+    case "installed-same":
+      return t("skills.organizationRuntimeInstalled")
+    case "installed-modified":
+      return t("skills.organizationRuntimeModified")
+    case "installed-version-mismatch":
+      return t("skills.organizationRuntimeVersionMismatch")
+    case "same-id-different-package":
+      return t("skills.organizationRuntimePackageConflict")
+    case "local-conflict":
+    case "unknown-conflict":
+      return t("skills.organizationRuntimeLocalConflict")
+    case "external-only":
+    case "missing":
+      return t("skills.organizationRuntimeMissing")
+  }
+}
+
+function organizationRuntimeStatusTone(
+  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+): "attention" | "pending" | "ready" {
+  return state === "installed-same"
+    ? "ready"
+    : state === "missing" || state === "external-only"
+      ? "pending"
+      : "attention"
+}
+
+function shouldShowOrganizationRuntimeStatusOnCard(
+  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+): boolean {
+  return state !== "installed-same" && state !== "missing" && state !== "external-only"
+}
+
+function canOpenManagedOrganizationSkill(
+  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+): boolean {
+  return (
+    state === "installed-same" ||
+    state === "installed-modified" ||
+    state === "installed-version-mismatch" ||
+    state === "local-conflict" ||
+    state === "same-id-different-package" ||
+    state === "unknown-conflict"
+  )
+}
+
+function OrganizationConfiguredSkillCard({
+  busy,
+  groupById,
+  installBusy,
+  onInstallRuntime,
+  onOpenManagedSkill,
+  onSelect,
+  selected,
+  skill,
+}: {
+  busy: boolean
+  groupById: ManagedSkillGroupById
+  installBusy: boolean
+  onInstallRuntime: () => void
+  onOpenManagedSkill: () => void
+  onSelect: () => void
+  selected: boolean
+  skill: UseOrganizationSkills["skills"][number]
+}) {
+  const { t } = useAppI18n()
+  const runtimeStatus = getOrganizationSkillRuntimeStatus(groupById, skill)
+  const runtimeTone = organizationRuntimeStatusTone(runtimeStatus.state)
+  const runtimeInstallable =
+    skill.enabled && (runtimeStatus.state === "missing" || runtimeStatus.state === "external-only")
+  const managedSkillOpenable = canOpenManagedOrganizationSkill(runtimeStatus.state)
+
+  return (
+    <div
+      className={cn(
+        "grid min-h-44 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-md border bg-card text-card-foreground transition-colors hover:bg-[var(--oo-row-hover)]",
+        selected && "border-[var(--accent-ring)] bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
+      )}
+    >
+      <button
+        type="button"
+        className="grid min-w-0 gap-2 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        onClick={onSelect}
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <SkillIconFrame icon={skill.icon} />
+          <div className="grid min-w-0 gap-1">
+            <div className="oo-text-label min-w-0 truncate">{skill.displayName}</div>
+            <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={skill.packageName}>
+              {skill.packageName}
+            </div>
+          </div>
+        </div>
+        {skill.description ? (
+          <p className="oo-text-caption line-clamp-2 text-foreground/75">{skill.description}</p>
+        ) : null}
+        <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={`${skill.skillName} · ${skill.version}`}>
+          {skill.skillName} · {skill.version}
+        </div>
+      </button>
+      <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
+        <div className="min-w-0">
+          <Badge variant="secondary">{t("organizations.skillManageConfigured")}</Badge>
+        </div>
+        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
+          {!skill.enabled ? (
+            <Badge variant="outline">{t("skills.organizationDisabled")}</Badge>
+          ) : shouldShowOrganizationRuntimeStatusOnCard(runtimeStatus.state) ? (
+            <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
+              {organizationRuntimeStatusLabel(runtimeStatus.state, t)}
+            </Badge>
+          ) : null}
+          {runtimeInstallable ? (
+            <Button type="button" variant="ghost" size="sm" disabled={installBusy} onClick={onInstallRuntime}>
+              {installBusy ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
+              {t("organizations.skillManageInstallRuntime")}
+            </Button>
+          ) : null}
+          {managedSkillOpenable ? (
+            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onOpenManagedSkill}>
+              {t("skills.installedManage")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OrganizationRecommendedSkillCard({
+  busyAction,
+  onInstallRuntime,
+  onOpenManagedSkill,
+  onSelect,
+  recommendation,
+  selected,
+}: {
+  busyAction: BusyAction | null
+  onInstallRuntime: () => void
+  onOpenManagedSkill: () => void
+  onSelect: () => void
+  recommendation: ProviderSkillRecommendation
+  selected: boolean
+}) {
+  const { t } = useAppI18n()
+  const canInstallRuntime =
+    recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+  const addBusyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
+  const installBusyKey = `installSkill:${recommendation.packageName}:${recommendation.skillId}`
+  const installBusy = busyAction === installBusyKey || busyAction === "installSkillBatch"
+  const disabled = Boolean(busyAction && busyAction !== addBusyKey && !installBusy)
+  const skillDescription =
+    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ??
+    recommendation.package.description
+  const canOpenManage = recommendation.installState === "installed" || recommendation.installState === "name-conflict"
+
+  return (
+    <div
+      className={cn(
+        "grid min-h-44 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-md border bg-card text-card-foreground transition-colors hover:bg-[var(--oo-row-hover)]",
+        selected && "border-[var(--accent-ring)] bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
+      )}
+    >
+      <button
+        type="button"
+        className="grid min-w-0 gap-2 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+        onClick={onSelect}
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <SkillIconFrame icon={recommendation.package.icon} />
+          <div className="grid min-w-0 gap-1">
+            <div className="oo-text-label min-w-0 truncate">{recommendation.package.displayName}</div>
+            <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={recommendation.packageName}>
+              {recommendation.providerDisplayName}
+            </div>
+          </div>
+        </div>
+        {skillDescription ? (
+          <p className="oo-text-caption line-clamp-2 text-foreground/75">{skillDescription}</p>
+        ) : null}
+        <div
+          className="oo-text-caption oo-text-muted min-w-0 truncate"
+          title={`${recommendation.packageName} · ${recommendation.skillId}`}
+        >
+          {recommendation.packageName} · {recommendation.skillId}
+        </div>
+      </button>
+      <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
+        <div className="min-w-0">
+          <Badge variant="secondary">{t("organizations.skillManageRecommended")}</Badge>
+        </div>
+        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
+          {recommendation.installState === "name-conflict" || recommendation.installState === "unavailable" ? (
+            <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
+          ) : null}
+          {canInstallRuntime ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={disabled || installBusy}
+              onClick={onInstallRuntime}
+            >
+              {installBusy ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
+              {t("organizations.skillManageInstallRuntime")}
+            </Button>
+          ) : null}
+          {canOpenManage ? (
+            <Button type="button" variant="ghost" size="sm" onClick={onOpenManagedSkill}>
+              {t("skills.installedManage")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OrganizationSkillDetail({
+  busyAction,
+  busyConfigId,
+  canManage,
+  groupById,
+  item,
+  onAddRecommendation,
+  onEnableConfiguredSkill,
+  onInstallRuntimeSkill,
+  onOpenManagedSkill,
+  onRemoveConfiguredSkill,
+}: {
+  busyAction: BusyAction | null
+  busyConfigId: string | null
+  canManage: boolean
+  groupById: ManagedSkillGroupById
+  item: OrganizationRecommendationItem
+  onAddRecommendation: (recommendation: ProviderSkillRecommendation) => Promise<void>
+  onEnableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
+  onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
+  onOpenManagedSkill: (skillName: string) => void
+  onRemoveConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
+}) {
+  return item.type === "configured" ? (
+    <OrganizationConfiguredSkillDetail
+      busyAction={busyAction}
+      busyConfigId={busyConfigId}
+      canManage={canManage}
+      groupById={groupById}
+      skill={item.skill}
+      onEnableConfiguredSkill={onEnableConfiguredSkill}
+      onInstallRuntimeSkill={onInstallRuntimeSkill}
+      onOpenManagedSkill={onOpenManagedSkill}
+      onRemoveConfiguredSkill={onRemoveConfiguredSkill}
+    />
+  ) : (
+    <OrganizationRecommendedSkillDetail
+      busyAction={busyAction}
+      canManage={canManage}
+      recommendation={item.recommendation}
+      onAddRecommendation={onAddRecommendation}
+      onInstallRuntimeSkill={onInstallRuntimeSkill}
+      onOpenManagedSkill={onOpenManagedSkill}
+    />
+  )
+}
+
+function OrganizationConfiguredSkillDetail({
+  busyAction,
+  busyConfigId,
+  canManage,
+  groupById,
+  onEnableConfiguredSkill,
+  onInstallRuntimeSkill,
+  onOpenManagedSkill,
+  onRemoveConfiguredSkill,
+  skill,
+}: {
+  busyAction: BusyAction | null
+  busyConfigId: string | null
+  canManage: boolean
+  groupById: ManagedSkillGroupById
+  onEnableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
+  onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
+  onOpenManagedSkill: (skillName: string) => void
+  onRemoveConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
+  skill: UseOrganizationSkills["skills"][number]
+}) {
+  const { t } = useAppI18n()
+  const runtimeStatus = getOrganizationSkillRuntimeStatus(groupById, skill)
+  const runtimeTone = organizationRuntimeStatusTone(runtimeStatus.state)
+  const installBusy =
+    busyAction === `installSkill:${skill.packageName}:${skill.skillName}` || busyAction === "installSkillBatch"
+  const configBusy = busyConfigId === skill.id
+  const runtimeInstallable =
+    skill.enabled && (runtimeStatus.state === "missing" || runtimeStatus.state === "external-only")
+  const managedSkillOpenable = canOpenManagedOrganizationSkill(runtimeStatus.state)
+
+  return (
+    <div className="grid min-w-0 content-start gap-3">
+      <InspectorCard>
+        <CardHeader className="flex-row items-start gap-3 px-3 py-0">
+          <SkillIconFrame icon={skill.icon} />
+          <div className="grid min-w-0 flex-1 gap-1">
+            <CardTitle className="oo-text-label min-w-0 truncate">{skill.displayName}</CardTitle>
+            <CardDescription className="min-w-0 truncate">{skill.packageName}</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-2 px-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <Badge variant="secondary">{t("organizations.skillManageConfigured")}</Badge>
+            {skill.enabled ? null : <Badge variant="outline">{t("skills.organizationDisabled")}</Badge>}
+            {skill.enabled && shouldShowOrganizationRuntimeStatusOnCard(runtimeStatus.state) ? (
+              <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
+                {organizationRuntimeStatusLabel(runtimeStatus.state, t)}
+              </Badge>
+            ) : null}
+            {skill.version ? <Badge variant="outline">{skill.version}</Badge> : null}
+          </div>
+          {skill.description ? (
+            <CardDescription className="min-w-0 break-words text-foreground/80">{skill.description}</CardDescription>
+          ) : null}
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {runtimeInstallable ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={installBusy}
+                onClick={() => onInstallRuntimeSkill({ packageName: skill.packageName, skillName: skill.skillName })}
+              >
+                {installBusy ? (
+                  <AppIcons.status.loading className="animate-spin" />
+                ) : (
+                  <AppIcons.action.installPackage />
+                )}
+                {t("organizations.skillManageInstallRuntime")}
+              </Button>
+            ) : null}
+            {managedSkillOpenable ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onOpenManagedSkill(skill.skillName)}>
+                {t("skills.installedManage")}
+              </Button>
+            ) : null}
+            {!skill.enabled && canManage ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={configBusy}
+                onClick={() => onEnableConfiguredSkill(skill)}
+              >
+                {configBusy ? <AppIcons.status.loading className="animate-spin" /> : null}
+                {t("skills.organizationEnable")}
+              </Button>
+            ) : null}
+            {canManage ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive"
+                disabled={configBusy}
+                onClick={() => onRemoveConfiguredSkill(skill)}
+              >
+                {configBusy ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.delete />}
+                {t("skills.organizationRemove")}
+              </Button>
+            ) : null}
+          </div>
+        </CardContent>
+      </InspectorCard>
+
+      <OrganizationSkillMetaCard packageName={skill.packageName} skillName={skill.skillName} version={skill.version} />
+    </div>
+  )
+}
+
+function OrganizationRecommendedSkillDetail({
+  busyAction,
+  canManage,
+  onAddRecommendation,
+  onInstallRuntimeSkill,
+  onOpenManagedSkill,
+  recommendation,
+}: {
+  busyAction: BusyAction | null
+  canManage: boolean
+  onAddRecommendation: (recommendation: ProviderSkillRecommendation) => Promise<void>
+  onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
+  onOpenManagedSkill: (skillName: string) => void
+  recommendation: ProviderSkillRecommendation
+}) {
+  const { t } = useAppI18n()
+  const canInstallRuntime =
+    recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+  const installBusy =
+    busyAction === `installSkill:${recommendation.packageName}:${recommendation.skillId}` ||
+    busyAction === "installSkillBatch"
+  const addBusy =
+    busyAction === `addSkill:${recommendation.packageName}:${recommendation.skillId}` || busyAction === "addSkillBatch"
+  const managedSkillOpenable =
+    recommendation.installState === "installed" || recommendation.installState === "name-conflict"
+  const disabled = Boolean(busyAction && !installBusy && !addBusy)
+  const skillDescription =
+    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ??
+    recommendation.package.description
+
+  return (
+    <div className="grid min-w-0 content-start gap-3">
+      <InspectorCard>
+        <CardHeader className="flex-row items-start gap-3 px-3 py-0">
+          <SkillIconFrame icon={recommendation.package.icon} />
+          <div className="grid min-w-0 flex-1 gap-1">
+            <CardTitle className="oo-text-label min-w-0 truncate">{recommendation.package.displayName}</CardTitle>
+            <CardDescription className="min-w-0 truncate">{recommendation.packageName}</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-2 px-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <Badge variant="secondary">{t("organizations.skillManageRecommended")}</Badge>
+            {recommendation.installState === "name-conflict" || recommendation.installState === "unavailable" ? (
+              <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
+            ) : null}
+            <Badge variant="outline">{recommendation.package.version}</Badge>
+          </div>
+          {skillDescription ? (
+            <CardDescription className="min-w-0 break-words text-foreground/80">{skillDescription}</CardDescription>
+          ) : null}
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {canInstallRuntime ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled || installBusy}
+                onClick={() =>
+                  onInstallRuntimeSkill({
+                    packageName: recommendation.packageName,
+                    skillName: recommendation.skillId,
+                  })
+                }
+              >
+                {installBusy ? (
+                  <AppIcons.status.loading className="animate-spin" />
+                ) : (
+                  <AppIcons.action.installPackage />
+                )}
+                {t("organizations.skillManageInstallRuntime")}
+              </Button>
+            ) : null}
+            {managedSkillOpenable ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenManagedSkill(recommendation.skillId)}
+              >
+                {t("skills.installedManage")}
+              </Button>
+            ) : null}
+            {canManage ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled || addBusy}
+                onClick={() => void onAddRecommendation(recommendation)}
+              >
+                {addBusy ? <AppIcons.status.loading className="animate-spin" /> : null}
+                {t("organizations.skillManageAddOnly")}
+              </Button>
+            ) : null}
+          </div>
+        </CardContent>
+      </InspectorCard>
+
+      <OrganizationSkillMetaCard
+        packageName={recommendation.packageName}
+        providerDisplayName={recommendation.providerDisplayName}
+        skillName={recommendation.skillId}
+        version={recommendation.package.version}
+      />
+    </div>
+  )
+}
+
+function OrganizationSkillMetaCard({
+  packageName,
+  providerDisplayName,
+  skillName,
+  version,
+}: {
+  packageName: string
+  providerDisplayName?: string
+  skillName: string
+  version?: string
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <InspectorInsetCard className="gap-2 px-3 py-2">
+      <div className="oo-text-caption-compact font-medium">{t("skills.discoverPackageInfo")}</div>
+      <div className="oo-text-caption-compact grid gap-1">
+        {providerDisplayName ? (
+          <div className="flex min-w-0 justify-between gap-3">
+            <span className="oo-text-muted">{t("organizations.provider")}</span>
+            <span className="min-w-0 truncate text-right">{providerDisplayName}</span>
+          </div>
+        ) : null}
+        <div className="flex min-w-0 justify-between gap-3">
+          <span className="oo-text-muted">{t("skills.package")}</span>
+          <span className="min-w-0 truncate text-right">{packageName}</span>
+        </div>
+        <div className="flex min-w-0 justify-between gap-3">
+          <span className="oo-text-muted">{t("skills.organizationSkillName")}</span>
+          <span className="min-w-0 truncate text-right">{skillName}</span>
+        </div>
+        {version ? (
+          <div className="flex min-w-0 justify-between gap-3">
+            <span className="oo-text-muted">{t("skills.version")}</span>
+            <span className="min-w-0 truncate text-right">{version}</span>
+          </div>
+        ) : null}
+      </div>
+    </InspectorInsetCard>
   )
 }
 
@@ -1171,11 +1847,15 @@ interface SkillPageHeaderProps {
   discoveryQuery: string
   installedFilter: InstalledSkillFilter
   installedQuery: string
+  organizationFilter: OrganizationSkillFilter
+  organizationQuery: string
   organizationTabAvailable: boolean
   onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
   onInstalledFilterChange: (filter: InstalledSkillFilter) => void
   onInstalledQueryChange: (value: string) => void
+  onOrganizationFilterChange: (filter: OrganizationSkillFilter) => void
+  onOrganizationQueryChange: (value: string) => void
   onTabChange: (tab: SkillPageTab) => void
 }
 
@@ -1185,29 +1865,43 @@ function SkillPageHeader({
   discoveryQuery,
   installedFilter,
   installedQuery,
+  organizationFilter,
+  organizationQuery,
   organizationTabAvailable,
   onDiscoveryFilterChange,
   onDiscoveryQueryChange,
   onInstalledFilterChange,
   onInstalledQueryChange,
+  onOrganizationFilterChange,
+  onOrganizationQueryChange,
   onTabChange,
 }: SkillPageHeaderProps) {
   const { t } = useAppI18n()
   const isDiscoverTab = activeTab === "discover"
   const isOrganizationTab = activeTab === "organization"
-  const searchValue = isDiscoverTab ? discoveryQuery : installedQuery
-  const searchPlaceholder = isDiscoverTab ? "skills.discoverSearch" : "skills.installedSearch"
-  const filterValue = isDiscoverTab ? discoveryFilter : installedFilter
+  const searchValue = isDiscoverTab ? discoveryQuery : isOrganizationTab ? organizationQuery : installedQuery
+  const searchPlaceholder = isDiscoverTab
+    ? "skills.discoverSearch"
+    : isOrganizationTab
+      ? "skills.organizationSearch"
+      : "skills.installedSearch"
+  const filterValue = isDiscoverTab ? discoveryFilter : isOrganizationTab ? organizationFilter : installedFilter
   const filterOptions = isDiscoverTab
     ? [
         { label: t("skills.discoverFilter.all"), value: "all" },
         { label: t("skills.discoverFilter.mine"), value: "mine" },
       ]
-    : [
-        { label: t("skills.installedFilter.all"), value: "all" },
-        { label: t("skills.installedFilter.updates"), value: "updates" },
-        { label: t("skills.installedFilter.local"), value: "local" },
-      ]
+    : isOrganizationTab
+      ? [
+          { label: t("skills.organizationFilter.all"), value: "all" },
+          { label: t("organizations.skillManageRecommended"), value: "recommended" },
+          { label: t("organizations.skillManageConfigured"), value: "configured" },
+        ]
+      : [
+          { label: t("skills.installedFilter.all"), value: "all" },
+          { label: t("skills.installedFilter.updates"), value: "updates" },
+          { label: t("skills.installedFilter.local"), value: "local" },
+        ]
 
   return (
     <header className="oo-border-divider flex min-h-12 items-center gap-2 border-b px-3 py-2">
@@ -1216,38 +1910,44 @@ function SkillPageHeader({
         organizationTabAvailable={organizationTabAvailable}
         onTabChange={onTabChange}
       />
-      {isOrganizationTab ? <div className="min-w-0 flex-1" /> : null}
-      {isOrganizationTab ? null : (
-        <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-          <SearchField
-            placeholder={t(searchPlaceholder)}
-            value={searchValue}
-            onChange={(event) => {
-              const value = event.currentTarget.value
-              if (isDiscoverTab) {
-                onDiscoveryQueryChange(value)
-              } else {
-                onInstalledQueryChange(value)
-              }
-            }}
-          />
-          <SkillFilterDropdown
-            ariaLabel={t("skills.filter")}
-            options={filterOptions}
-            value={filterValue}
-            onValueChange={(value) => {
-              if (isDiscoverTab && isDiscoverSkillFilter(value)) {
-                onDiscoveryFilterChange(value)
-                return
-              }
+      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+        <SearchField
+          placeholder={t(searchPlaceholder)}
+          value={searchValue}
+          onChange={(event) => {
+            const value = event.currentTarget.value
+            if (isDiscoverTab) {
+              onDiscoveryQueryChange(value)
+              return
+            }
+            if (isOrganizationTab) {
+              onOrganizationQueryChange(value)
+              return
+            }
+            onInstalledQueryChange(value)
+          }}
+        />
+        <SkillFilterDropdown
+          ariaLabel={t("skills.filter")}
+          options={filterOptions}
+          value={filterValue}
+          onValueChange={(value) => {
+            if (isDiscoverTab && isDiscoverSkillFilter(value)) {
+              onDiscoveryFilterChange(value)
+              return
+            }
 
-              if (!isDiscoverTab && isInstalledSkillFilter(value)) {
-                onInstalledFilterChange(value)
-              }
-            }}
-          />
-        </div>
-      )}
+            if (isOrganizationTab && isOrganizationSkillFilter(value)) {
+              onOrganizationFilterChange(value)
+              return
+            }
+
+            if (!isDiscoverTab && !isOrganizationTab && isInstalledSkillFilter(value)) {
+              onInstalledFilterChange(value)
+            }
+          }}
+        />
+      </div>
     </header>
   )
 }
@@ -1590,29 +2290,35 @@ function PublicSkillPackageCard({
         </div>
       </button>
       <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
-        <Badge variant={state === "installed" ? "secondary" : "outline"}>
-          {getPublicSkillInstallStateLabel(state, t)}
-        </Badge>
+        <div className="min-w-0">
+          {state === "name-conflict" || state === "unavailable" ? (
+            <Badge variant="outline">{getPublicSkillInstallStateLabel(state, t)}</Badge>
+          ) : null}
+        </div>
         {state === "name-conflict" && primarySkill ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
             {t("skills.discoverOpenManage")}
           </Button>
         ) : state === "installed" && primarySkill ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
-            {t("skills.discoverOpenManage")}
+            {t("skills.installedManage")}
           </Button>
-        ) : (
+        ) : canInstallPublicSkill(state) ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
-            disabled={isInstalling || !canInstallPublicSkill(state)}
+            disabled={isInstalling}
             onClick={() => onInstall(primaryInstallSkill?.name)}
           >
             {isInstalling ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
-            {isInstalling ? t("skills.registryInstalling") : getPublicSkillInstallActionLabel(state, t)}
+            {isInstalling
+              ? t("skills.registryInstalling")
+              : state === "partially-installed"
+                ? t("skills.discoverInstallMissing")
+                : t("organizations.skillManageInstallRuntime")}
           </Button>
-        )}
+        ) : null}
       </div>
     </div>
   )
@@ -2165,7 +2871,11 @@ function PublicSkillPackageDetail({
                   )}
                   {isInstallingPrimary
                     ? t("skills.registryInstalling")
-                    : getPublicSkillInstallActionLabel(primaryState, t)}
+                    : primaryState === "partially-installed"
+                      ? t("skills.discoverInstallMissing")
+                      : primaryState === "unavailable"
+                        ? t("skills.discoverUnavailable")
+                        : t("organizations.skillManageInstallRuntime")}
                 </Button>
               )}
             </div>

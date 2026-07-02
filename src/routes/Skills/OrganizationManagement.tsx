@@ -1171,7 +1171,7 @@ export function OrganizationManagementRoute({
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
                 {selectedOrganization ? (
-                  <div className="grid min-h-0 min-w-0 grid-cols-1 items-stretch gap-3 2xl:grid-cols-[minmax(0,1fr)_minmax(15rem,18rem)]">
+                  <div className="grid min-h-0 min-w-0">
                     {selectedOrganizationSkills ? (
                       <OrganizationSkillGuidePanel
                         busyAction={busyAction}
@@ -1194,44 +1194,13 @@ export function OrganizationManagementRoute({
                         </div>
                       </Panel>
                     )}
-                    <div className="hidden min-w-0 2xl:block">
-                      <OrganizationDetailPanel
-                        compact
-                        appAccessLoading={
-                          appAccessState.status === "loading" || providerOptionsState.status === "loading"
-                        }
-                        busyAction={busyAction}
-                        canManage={canManage}
-                        grantsByUserId={grantsByUserId}
-                        members={memberViews}
-                        membersError={membersError}
-                        membersLoading={membersState.status === "loading"}
-                        organization={selectedOrganization}
-                        providerAccessError={providerAccessError}
-                        onAddMember={() => setAddMemberOpen(true)}
-                        onEditProviderAccess={openEditProviderAccess}
-                        onGrantProviderAccess={openGrantProviderAccess}
-                        onRemoveMember={handleRemoveMember}
-                        onRevokeProviderAccess={handleRevokeProviderAccess}
-                      />
-                    </div>
                   </div>
                 ) : (
-                  <OrganizationDetailPanel
-                    appAccessLoading={appAccessState.status === "loading" || providerOptionsState.status === "loading"}
-                    busyAction={busyAction}
-                    canManage={canManage}
-                    grantsByUserId={grantsByUserId}
-                    members={memberViews}
-                    membersError={membersError}
-                    membersLoading={membersState.status === "loading"}
-                    organization={selectedOrganization}
-                    providerAccessError={providerAccessError}
-                    onAddMember={() => setAddMemberOpen(true)}
-                    onEditProviderAccess={openEditProviderAccess}
-                    onGrantProviderAccess={openGrantProviderAccess}
-                    onRemoveMember={handleRemoveMember}
-                    onRevokeProviderAccess={handleRevokeProviderAccess}
+                  <PersonalWorkspaceState
+                    organizations={organizations}
+                    overview={overviewState.data}
+                    onCreate={() => setCreateOpen(true)}
+                    onSelectOrganization={handleSelectOrganizationWorkspace}
                   />
                 )}
                 {selectedOrganization ? (
@@ -2417,7 +2386,7 @@ function OrganizationSkillMarketRow({
   return (
     <div
       className={cn(
-        "grid min-w-0 gap-3 border-b px-3 py-2.5 md:items-center",
+        "grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:items-center",
         "md:grid-cols-[auto_minmax(0,1fr)_auto_auto]",
       )}
     >
@@ -2514,7 +2483,7 @@ function OrganizationSkillManageRow({
   const runtimeInstallable = runtimeStatus.state === "missing" || runtimeStatus.state === "external-only"
 
   return (
-    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+    <div className="grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <OrganizationSkillIconFrame icon={skill.icon} />
       <div className="grid min-w-0 gap-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2587,7 +2556,7 @@ function OrganizationSkillRecommendationRow({
     recommendation.package.description
 
   return (
-    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+    <div className="grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <OrganizationSkillIconFrame icon={recommendation.package.icon} />
       <div className="grid min-w-0 gap-0.5">
         <div className="oo-text-label min-w-0 truncate text-foreground">{recommendation.package.displayName}</div>
@@ -2715,13 +2684,15 @@ function EmptyOrganizationsState({ onCreate }: { onCreate: () => void }) {
   const { t } = useAppI18n()
   return (
     <div className="flex min-h-full items-center justify-center px-4 py-10">
-      <div className="grid max-w-sm justify-items-center gap-3 text-center">
-        <div className="grid size-10 place-items-center rounded-md bg-[var(--oo-inspector-surface)] text-muted-foreground">
-          <Building2Icon className="size-5" />
+      <div className="grid max-w-md justify-items-center gap-4 text-center">
+        <div className="grid size-14 place-items-center rounded-md border border-[var(--oo-divider)] bg-[var(--oo-inspector-surface)] text-muted-foreground">
+          <Building2Icon className="size-7" />
         </div>
         <div className="min-w-0">
           <div className="oo-text-title text-foreground">{t("organizations.emptyOrganizations")}</div>
-          <div className="oo-text-caption mt-1">{t("organizations.emptyOrganizationsDescription")}</div>
+          <div className="oo-text-body mt-1 max-w-sm text-muted-foreground">
+            {t("organizations.emptyOrganizationsDescription")}
+          </div>
         </div>
         <Button type="button" onClick={onCreate}>
           <PlusIcon className="size-4" />
@@ -2729,6 +2700,78 @@ function EmptyOrganizationsState({ onCreate }: { onCreate: () => void }) {
         </Button>
       </div>
     </div>
+  )
+}
+
+function PersonalWorkspaceState({
+  onCreate,
+  onSelectOrganization,
+  organizations,
+  overview,
+}: {
+  onCreate: () => void
+  onSelectOrganization: (organizationId: string) => void
+  organizations: Organization[]
+  overview: OrganizationOverview | null
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <section className="grid min-h-0 min-w-0 place-items-center overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background px-4 py-10">
+      <div className="grid max-w-lg justify-items-center gap-4 text-center">
+        <div className="grid size-14 place-items-center rounded-md border border-[var(--oo-divider)] bg-[var(--oo-inspector-surface)] text-muted-foreground">
+          <Building2Icon className="size-7" />
+        </div>
+        <div className="grid min-w-0 gap-1.5">
+          <h2 className="oo-text-title text-foreground">{t("organizations.personalWorkspaceTitle")}</h2>
+          <p className="oo-text-body max-w-md text-muted-foreground">
+            {t("organizations.personalWorkspaceDescription")}
+          </p>
+        </div>
+        <div className="flex min-w-0 flex-wrap items-center justify-center gap-2">
+          <Button type="button" onClick={onCreate}>
+            <PlusIcon className="size-4" />
+            {t("organizations.personalWorkspaceCreate")}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" disabled={organizations.length === 0}>
+                {t("organizations.personalWorkspaceSwitch")}
+                <ChevronsUpDownIcon className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="center" sideOffset={8} className="w-[min(28rem,calc(100vw-2rem))]">
+              <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {organizations.map((organization) => {
+                const role = organizationRole(overview, organization)
+                return (
+                  <DropdownMenuItem
+                    key={organization.id}
+                    className="grid min-h-14 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-2 py-2"
+                    onSelect={() => onSelectOrganization(organization.id)}
+                  >
+                    <OrganizationAvatar organization={organization} className="size-10 rounded-md text-sm" />
+                    <span className="grid min-h-10 min-w-0 content-center">
+                      <span className="oo-text-label truncate">{organization.name}</span>
+                      <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
+                        {organization.id}
+                      </span>
+                    </span>
+                    <Badge variant="secondary" className="justify-self-end">
+                      {role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                    </Badge>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        <p className="oo-text-caption max-w-md text-muted-foreground">
+          {t("organizations.personalWorkspaceSwitchHint")}
+        </p>
+      </div>
+    </section>
   )
 }
 
@@ -2775,7 +2818,6 @@ function OrganizationMemberAccessButton({
     </button>
   )
 }
-
 function MemberAvatarStack({ members }: { members: MemberView[] }) {
   const visibleMemberCount = members.length > 5 ? 4 : 5
   const visibleMembers = members.slice(0, visibleMemberCount)
@@ -2860,7 +2902,7 @@ function OrganizationMembersSheet({
         ref={sheetRef}
         role="dialog"
         aria-modal="true"
-        aria-label={t("organizations.membersAndPermissions")}
+        aria-label={t("organizations.memberManagement")}
         tabIndex={-1}
         className="absolute top-0 right-0 grid h-full w-[min(24rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)] border-l bg-background shadow-xl outline-none [-webkit-app-region:no-drag]"
         onKeyDown={(event) => {
@@ -2904,7 +2946,7 @@ function OrganizationMembersSheet({
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
-          <div className="oo-text-label min-w-0 truncate">{t("organizations.membersAndPermissions")}</div>
+          <div className="oo-text-label min-w-0 truncate">{t("organizations.memberManagement")}</div>
           <Button type="button" variant="ghost" size="icon" aria-label={t("common.close")} onClick={onClose}>
             <XIcon className="size-4" />
           </Button>
@@ -2949,10 +2991,11 @@ function OrganizationDetailPanel({
   providerAccessError: string | null
 }) {
   const { t } = useAppI18n()
+  const showProviderAccess = false
 
   if (!organization) {
     return (
-      <Panel title={t("organizations.membersAndPermissions")}>
+      <Panel title={t("organizations.memberManagement")}>
         <EmptyBlock>{t("organizations.teamNoSelectionDescription")}</EmptyBlock>
       </Panel>
     )
@@ -2967,7 +3010,7 @@ function OrganizationDetailPanel({
   return (
     <div className="grid min-w-0 gap-3">
       <Panel
-        title={t("organizations.membersAndPermissions")}
+        title={t("organizations.memberManagement")}
         description={
           compact ? (
             <span className="oo-text-caption-compact truncate text-muted-foreground">
@@ -2975,7 +3018,11 @@ function OrganizationDetailPanel({
             </span>
           ) : (
             <div className="grid min-w-0 gap-1">
-              <span className="min-w-0 truncate">{t("organizations.membersAndPermissionsDescription")}</span>
+              <span className="min-w-0 truncate">
+                {showProviderAccess
+                  ? t("organizations.membersAndPermissionsDescription")
+                  : t("organizations.memberManagementDescription")}
+              </span>
               <span className="oo-text-caption-compact flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <UsersIcon className="size-3.5 shrink-0" />
@@ -3003,9 +3050,11 @@ function OrganizationDetailPanel({
         }
       >
         <>
-          {providerAccessError && !membersError ? <ProviderAccessWarning error={providerAccessError} /> : null}
+          {showProviderAccess && providerAccessError && !membersError ? (
+            <ProviderAccessWarning error={providerAccessError} />
+          ) : null}
           {membersLoading ? (
-            <MemberRowsSkeleton canManage={canManage} />
+            <MemberRowsSkeleton canManage={canManage && showProviderAccess} />
           ) : membersError ? (
             <EmptyBlock>
               {membersError.includes("HTTP 403") ? t("organizations.membersForbidden") : membersError}
@@ -3020,6 +3069,7 @@ function OrganizationDetailPanel({
               compact={compact}
               grantsByUserId={grantsByUserId}
               members={members}
+              showProviderAccess={showProviderAccess}
               providerAccessError={providerAccessError}
               onEditProviderAccess={onEditProviderAccess}
               onGrantProviderAccess={onGrantProviderAccess}
@@ -3057,6 +3107,7 @@ function MembersTable({
   onRemoveMember,
   onRevokeProviderAccess,
   providerAccessError,
+  showProviderAccess,
 }: {
   appAccessLoading: boolean
   busyAction: BusyAction | null
@@ -3069,6 +3120,7 @@ function MembersTable({
   onRemoveMember: (member: OrganizationMember) => void
   onRevokeProviderAccess: (grant: ProviderGrantView) => void
   providerAccessError: string | null
+  showProviderAccess: boolean
 }) {
   const { t } = useAppI18n()
   if (compact) {
@@ -3100,30 +3152,34 @@ function MembersTable({
               </div>
               {canManage && member.role !== "creator" ? (
                 <div className="grid min-w-0 gap-2 pl-10">
-                  <div className="min-w-0">
-                    <ProviderAccessSummary
-                      compact
-                      allProvidersLabel={t("organizations.allProviders")}
-                      grant={grant}
-                      loading={appAccessLoading}
-                      notAuthorizedLabel={
-                        providerAccessError
-                          ? t("organizations.providerAccessUnavailable")
-                          : t("organizations.notAuthorized")
-                      }
-                    />
-                  </div>
+                  {showProviderAccess ? (
+                    <div className="min-w-0">
+                      <ProviderAccessSummary
+                        compact
+                        allProvidersLabel={t("organizations.allProviders")}
+                        grant={grant}
+                        loading={appAccessLoading}
+                        notAuthorizedLabel={
+                          providerAccessError
+                            ? t("organizations.providerAccessUnavailable")
+                            : t("organizations.notAuthorized")
+                        }
+                      />
+                    </div>
+                  ) : null}
                   <div className="flex min-w-0 flex-wrap gap-2">
-                    <ProviderAccessActions
-                      compact
-                      busyAction={busyAction}
-                      disabled={appAccessLoading || Boolean(providerAccessError)}
-                      grant={grant}
-                      memberId={member.user_id}
-                      onEdit={onEditProviderAccess}
-                      onGrant={onGrantProviderAccess}
-                      onRevoke={onRevokeProviderAccess}
-                    />
+                    {showProviderAccess ? (
+                      <ProviderAccessActions
+                        compact
+                        busyAction={busyAction}
+                        disabled={appAccessLoading || Boolean(providerAccessError)}
+                        grant={grant}
+                        memberId={member.user_id}
+                        onEdit={onEditProviderAccess}
+                        onGrant={onGrantProviderAccess}
+                        onRevoke={onRevokeProviderAccess}
+                      />
+                    ) : null}
                     <ConfirmDialog>
                       <ConfirmDialogTrigger asChild>
                         <Button
@@ -3162,12 +3218,16 @@ function MembersTable({
   }
 
   const gridClassName = canManage
-    ? "grid-cols-[minmax(12rem,1fr)_7rem_minmax(12rem,1fr)_auto]"
+    ? showProviderAccess
+      ? "grid-cols-[minmax(12rem,1fr)_7rem_minmax(12rem,1fr)_auto]"
+      : "grid-cols-[minmax(12rem,1fr)_7rem_auto]"
     : "grid-cols-[minmax(12rem,1fr)_7rem]"
+
+  const minWidthClassName = canManage && showProviderAccess ? "min-w-[44rem]" : "min-w-[32rem]"
 
   return (
     <div className="min-w-0 overflow-x-auto">
-      <div className="min-w-[44rem]">
+      <div className={minWidthClassName}>
         <div
           className={cn(
             "oo-text-caption-compact grid gap-3 border-b bg-muted/30 px-3 py-2 font-medium text-muted-foreground",
@@ -3176,7 +3236,7 @@ function MembersTable({
         >
           <div>{t("organizations.member")}</div>
           <div>{t("organizations.role")}</div>
-          {canManage ? <div>{t("organizations.usableConnections")}</div> : null}
+          {canManage && showProviderAccess ? <div>{t("organizations.usableConnections")}</div> : null}
           {canManage ? <div className="text-right">{t("organizations.actions")}</div> : null}
         </div>
         <div className="divide-y">
@@ -3204,7 +3264,7 @@ function MembersTable({
                     {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
                   </Badge>
                 </div>
-                {canManage ? (
+                {canManage && showProviderAccess ? (
                   <div>
                     {member.role === "creator" ? (
                       <Badge variant="secondary">{t("organizations.creatorDefaultAccess")}</Badge>
@@ -3228,15 +3288,17 @@ function MembersTable({
                       <span className="oo-text-body text-muted-foreground">{t("organizations.creatorProtected")}</span>
                     ) : (
                       <>
-                        <ProviderAccessActions
-                          busyAction={busyAction}
-                          disabled={appAccessLoading || Boolean(providerAccessError)}
-                          grant={grant}
-                          memberId={member.user_id}
-                          onEdit={onEditProviderAccess}
-                          onGrant={onGrantProviderAccess}
-                          onRevoke={onRevokeProviderAccess}
-                        />
+                        {showProviderAccess ? (
+                          <ProviderAccessActions
+                            busyAction={busyAction}
+                            disabled={appAccessLoading || Boolean(providerAccessError)}
+                            grant={grant}
+                            memberId={member.user_id}
+                            onEdit={onEditProviderAccess}
+                            onGrant={onGrantProviderAccess}
+                            onRevoke={onRevokeProviderAccess}
+                          />
+                        ) : null}
                         <ConfirmDialog>
                           <ConfirmDialogTrigger asChild>
                             <Button type="button" variant="outline" size="sm" disabled={removeBusy}>

@@ -2695,7 +2695,7 @@ function MembersTable({
             return (
               <div key={member.user_id} className={cn("grid items-center gap-3 px-3 py-3", gridClassName)}>
                 <div className="flex min-w-0 items-center gap-3">
-                  <UserAvatar avatar={member.avatar} fallback={member.fallback} label={member.displayName} />
+                  <UserAvatar avatar={member.avatar} fallback={member.fallback} />
                   <div className="min-w-0">
                     <div className="oo-text-label truncate">{member.displayName}</div>
                     <Tooltip>
@@ -3046,7 +3046,7 @@ function MemberSearchResults({
               className="flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground"
               onClick={() => onSelect(user)}
             >
-              <UserAvatar avatar={user.avatar} fallback={user.fallback} label={user.displayName} />
+              <UserAvatar avatar={user.avatar} fallback={user.fallback} />
               <span className="min-w-0">
                 <span className="oo-text-label block truncate">{user.displayName}</span>
                 <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">

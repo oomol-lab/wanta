@@ -19,7 +19,7 @@ import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ChatStatus } from "ai"
 
-import { Building2, FolderPlus, Package, PanelRightClose, PanelRightOpen, Plug, SquarePen } from "lucide-react"
+import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
@@ -37,8 +37,6 @@ import {
   projectContextFromProject,
   rememberTurnRetryOptions,
   sessionScopeFromWorkspace,
-  SIDEBAR_MAX_WIDTH_PX,
-  SIDEBAR_MIN_WIDTH_PX,
 } from "./app-shell-model.ts"
 import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
@@ -50,19 +48,11 @@ import {
   RenameSessionDialog,
 } from "./AppShellDialogs.tsx"
 import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
-import {
-  ProjectSidebarEmptyState,
-  ProjectSidebarGroupItem,
-  SessionItem,
-  SessionSearchOverlay,
-  SidebarEmptyState,
-  SidebarFooterControls,
-  SidebarSegmentControl,
-  SidebarTitlebarActions,
-} from "./AppShellSidebar.tsx"
+import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
+import { SessionSearchOverlay } from "./AppShellSidebar.tsx"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
-import { groupSidebarSessions, nextActiveSessionIdAfterArchive, projectHasRunningSession } from "./sidebar-sessions.ts"
+import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
@@ -71,8 +61,6 @@ import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
-import { BrandIcon } from "@/components/BrandIcon"
-import { ErrorNotice } from "@/components/ErrorNotice"
 import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
 import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
@@ -82,7 +70,7 @@ import { useOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 import { useProjectGit } from "@/hooks/useProjectGit"
 import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
-import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
+import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
@@ -1312,251 +1300,51 @@ export function AppShell() {
       )}
       style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
     >
-      {/* 左：会话导航栏 */}
-      <aside className="oo-sidebar oo-border-divider relative z-[80] flex min-h-0 flex-col overflow-visible border-r">
-        <header
-          data-slot="sidebar-chrome-header"
-          className="oo-sidebar-chrome-header relative flex h-[var(--app-titlebar-height)] items-center justify-between gap-3 [-webkit-app-region:drag]"
-        >
-          <div className="oo-sidebar-chrome-brand min-w-0 items-center gap-2">
-            <BrandIcon className="size-6" />
-          </div>
-          <div className="oo-sidebar-titlebar-actions-expanded ml-auto">
-            <SidebarTitlebarActions
-              collapsed={sidebarCollapsed}
-              onToggleCollapsed={handleToggleSidebar}
-              onSearch={handleOpenSearch}
-            />
-          </div>
-        </header>
-
-        <div className="oo-sidebar-content flex min-h-0 flex-1 flex-col">
-          <nav aria-label="primary" className="grid gap-1 px-3 pt-0 pb-3 [-webkit-app-region:no-drag]">
-            <button
-              type="button"
-              onClick={handleNewSession}
-              title={newChatLabel}
-              aria-label={newChatLabel}
-              aria-keyshortcuts={appCommandAriaShortcut(APP_COMMANDS.newChat)}
-              className="oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2"
-            >
-              <SquarePen className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("sidebar.newSession")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleOpenConnections}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                route === "connections" && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
-            >
-              <Plug className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("connections.title")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoute("skills")}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                route === "skills" && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
-            >
-              <Package className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("skills.title")}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoute("organizations")}
-              className={cn(
-                "oo-sidebar-nav-item oo-text-body flex h-[var(--sidebar-item-height)] items-center gap-2 rounded-md px-2",
-                route === "organizations" && "bg-sidebar-accent text-sidebar-accent-foreground",
-              )}
-            >
-              <Building2 className="size-4 shrink-0" />
-              <span className="oo-sidebar-nav-label truncate">{t("organizations.title")}</span>
-            </button>
-          </nav>
-
-          <nav className="flex min-h-0 flex-1 flex-col px-3 [-webkit-app-region:no-drag]">
-            <div className="pb-2">
-              <SidebarSegmentControl value={sidebarSegment} onChange={setSidebarSegment} />
-            </div>
-            <div className="oo-sidebar-session-scroll -mx-3 min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-              {sessionsError ? (
-                <ErrorNotice error={sessionsError} compact className="mx-0" />
-              ) : sidebarSegment === "projects" ? (
-                projectSidebarGroups.length > 0 ? (
-                  <div className="grid gap-2">
-                    {projectPinnedGroups.length > 0 || projectPinnedSessions.length > 0 ? (
-                      <div className="grid gap-1">
-                        <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-1">
-                          {t("sidebar.pinned")}
-                        </div>
-                        {projectPinnedGroups.map((group) => (
-                          <ProjectSidebarGroupItem
-                            key={group.project.id}
-                            group={group}
-                            activeSessionId={route === "chat" ? activeSessionId : null}
-                            expanded={!collapsedProjectIds.has(group.project.id)}
-                            hasUnreadSession={hasUnreadSession}
-                            isSessionRunning={isSessionRunning}
-                            now={relativeTimeNow}
-                            running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
-                            onExpandedChange={(expanded) =>
-                              handleProjectSidebarExpandedChange(group.project.id, expanded)
-                            }
-                            onNewSession={handleOpenProjectDraft}
-                            onPinProject={(project) => void handlePinProject(project)}
-                            onShowProjectInFolder={handleShowProjectInFolder}
-                            onRenameProject={(project) => setRenameProjectId(project.id)}
-                            onArchiveProject={(project) => setArchiveProjectId(project.id)}
-                            onRemoveProject={(project) => setRemoveProjectId(project.id)}
-                            onSelectSession={handleSelectSession}
-                            onRenameSession={(session) => setRenameSessionId(session.id)}
-                            onPinSession={(session) => void handlePinSession(session)}
-                            onArchiveSession={handleArchiveSessionRequest}
-                          />
-                        ))}
-                        {projectPinnedSessions.map((session) => (
-                          <SessionItem
-                            key={session.id}
-                            session={session}
-                            active={route === "chat" && activeSessionId === session.id}
-                            running={isSessionRunning(session.id)}
-                            unread={hasUnreadSession(session.id)}
-                            now={relativeTimeNow}
-                            onSelect={() => handleSelectSession(session)}
-                            onRenameRequest={() => setRenameSessionId(session.id)}
-                            onPinToggle={() => void handlePinSession(session)}
-                            onArchive={() => handleArchiveSessionRequest(session)}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                    {projectRegularGroups.length > 0 ? (
-                      <div className="grid gap-1">
-                        <div className="group flex items-center justify-between px-3 pt-1">
-                          <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.projects")}</div>
-                          <button
-                            type="button"
-                            title={t("project.selectFolder")}
-                            aria-label={t("project.selectFolder")}
-                            className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
-                            onClick={(event) => {
-                              event.currentTarget.blur()
-                              void handleSelectProjectFolder()
-                            }}
-                          >
-                            <FolderPlus className="size-3.5" />
-                          </button>
-                        </div>
-                        {projectRegularGroups.map((group) => (
-                          <ProjectSidebarGroupItem
-                            key={group.project.id}
-                            group={group}
-                            activeSessionId={route === "chat" ? activeSessionId : null}
-                            expanded={!collapsedProjectIds.has(group.project.id)}
-                            hasUnreadSession={hasUnreadSession}
-                            isSessionRunning={isSessionRunning}
-                            now={relativeTimeNow}
-                            running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
-                            onExpandedChange={(expanded) =>
-                              handleProjectSidebarExpandedChange(group.project.id, expanded)
-                            }
-                            onNewSession={handleOpenProjectDraft}
-                            onPinProject={(project) => void handlePinProject(project)}
-                            onShowProjectInFolder={handleShowProjectInFolder}
-                            onRenameProject={(project) => setRenameProjectId(project.id)}
-                            onArchiveProject={(project) => setArchiveProjectId(project.id)}
-                            onRemoveProject={(project) => setRemoveProjectId(project.id)}
-                            onSelectSession={handleSelectSession}
-                            onRenameSession={(session) => setRenameSessionId(session.id)}
-                            onPinSession={(session) => void handlePinSession(session)}
-                            onArchiveSession={handleArchiveSessionRequest}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <ProjectSidebarEmptyState onSelectFolder={() => void handleSelectProjectFolder()} />
-                )
-              ) : taskSessions.length > 0 ? (
-                <div className="grid gap-3">
-                  {sidebarSessionGroups.pinned.length > 0 ? (
-                    <div className="grid gap-0.5">
-                      <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
-                        {t("sidebar.pinned")}
-                      </div>
-                      {sidebarSessionGroups.pinned.map((session) => (
-                        <SessionItem
-                          key={session.id}
-                          session={session}
-                          active={route === "chat" && activeSessionId === session.id}
-                          running={isSessionRunning(session.id)}
-                          unread={hasUnreadSession(session.id)}
-                          now={relativeTimeNow}
-                          onSelect={() => handleSelectSession(session)}
-                          onRenameRequest={() => setRenameSessionId(session.id)}
-                          onPinToggle={() => void handlePinSession(session)}
-                          onArchive={() => handleArchiveSessionRequest(session)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  {sidebarSessionGroups.regular.length > 0 ? (
-                    <div className="grid gap-0.5">
-                      <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
-                        {t("sidebar.tasks")}
-                      </div>
-                      {sidebarSessionGroups.regular.map((session) => (
-                        <SessionItem
-                          key={session.id}
-                          session={session}
-                          active={route === "chat" && activeSessionId === session.id}
-                          running={isSessionRunning(session.id)}
-                          unread={hasUnreadSession(session.id)}
-                          now={relativeTimeNow}
-                          onSelect={() => handleSelectSession(session)}
-                          onRenameRequest={() => setRenameSessionId(session.id)}
-                          onPinToggle={() => void handlePinSession(session)}
-                          onArchive={() => handleArchiveSessionRequest(session)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <SidebarEmptyState />
-              )}
-            </div>
-
-            <SidebarFooterControls
-              accountName={auth.state?.account?.name}
-              avatarUrl={auth.state?.account?.avatarUrl}
-              activeRoute={route}
-              loggingOut={auth.loggingOut}
-              workspace={organizationWorkspace}
-              onNavigate={setRoute}
-              onLogout={() => void auth.logout()}
-            />
-          </nav>
-        </div>
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("aria.resizeSidebar")}
-          aria-valuemin={SIDEBAR_MIN_WIDTH_PX}
-          aria-valuemax={SIDEBAR_MAX_WIDTH_PX}
-          aria-valuenow={sidebarWidth}
-          title={t("aria.resizeSidebar")}
-          tabIndex={sidebarCollapsed ? -1 : 0}
-          className="oo-sidebar-resize-handle"
-          onPointerDown={handleSidebarResizeStart}
-          onKeyDown={handleSidebarResizeKeyDown}
-        />
-      </aside>
+      <AppShellNavigationSidebar
+        accountName={auth.state?.account?.name}
+        activeRoute={route}
+        activeSessionId={activeSessionId}
+        avatarUrl={auth.state?.account?.avatarUrl}
+        collapsed={sidebarCollapsed}
+        collapsedProjectIds={collapsedProjectIds}
+        hasUnreadSession={hasUnreadSession}
+        isSessionRunning={isSessionRunning}
+        loggingOut={auth.loggingOut}
+        newChatLabel={newChatLabel}
+        now={relativeTimeNow}
+        projectPinnedGroups={projectPinnedGroups}
+        projectPinnedSessions={projectPinnedSessions}
+        projectRegularGroups={projectRegularGroups}
+        projectSessions={projectSessions}
+        projectSidebarGroups={projectSidebarGroups}
+        sessionsError={sessionsError}
+        sidebarSegment={sidebarSegment}
+        sidebarSessionGroups={sidebarSessionGroups}
+        taskSessions={taskSessions}
+        width={sidebarWidth}
+        workspace={organizationWorkspace}
+        onArchiveProjectRequest={(project) => setArchiveProjectId(project.id)}
+        onArchiveSessionRequest={handleArchiveSessionRequest}
+        onLogout={() => void auth.logout()}
+        onNavigate={setRoute}
+        onNewSession={handleNewSession}
+        onOpenConnections={handleOpenConnections}
+        onOpenSearch={handleOpenSearch}
+        onPinProject={(project) => void handlePinProject(project)}
+        onPinSession={(session) => void handlePinSession(session)}
+        onProjectExpandedChange={handleProjectSidebarExpandedChange}
+        onRemoveProjectRequest={(project) => setRemoveProjectId(project.id)}
+        onRenameProjectRequest={(project) => setRenameProjectId(project.id)}
+        onRenameSessionRequest={(session) => setRenameSessionId(session.id)}
+        onSelectProjectDraft={handleOpenProjectDraft}
+        onSelectProjectFolder={() => void handleSelectProjectFolder()}
+        onSelectSession={handleSelectSession}
+        onSetSidebarSegment={setSidebarSegment}
+        onShowProjectInFolder={handleShowProjectInFolder}
+        onSidebarResizeKeyDown={handleSidebarResizeKeyDown}
+        onSidebarResizeStart={handleSidebarResizeStart}
+        onToggleSidebar={handleToggleSidebar}
+      />
 
       {/* 右：主区（顶部工具条 + 内容） */}
       <div className="flex min-h-0 min-w-0 overflow-hidden">

@@ -1196,7 +1196,7 @@ export function OrganizationManagementRoute({
         ) : (
           <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
             {showOverviewLoading ? (
-              <OrganizationManagementSkeleton />
+              <OrganizationManagementSkeleton mode={activeWorkspaceIsPersonal ? "personal" : "organization"} />
             ) : (
               <>
                 <OrganizationSwitcherPanel
@@ -3067,7 +3067,9 @@ function OrganizationSkillRecommendationRow({
   )
 }
 
-function OrganizationManagementSkeleton() {
+function OrganizationManagementSkeleton({ mode }: { mode: "organization" | "personal" }) {
+  const isPersonal = mode === "personal"
+
   return (
     <>
       <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
@@ -3077,12 +3079,16 @@ function OrganizationManagementSkeleton() {
             <div className="grid min-h-16 min-w-0 content-center gap-1.5">
               <div className="flex min-w-0 items-baseline gap-3">
                 <Skeleton className="h-5 w-28 rounded-md" />
-                <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />
+                {isPersonal ? null : <Skeleton className="h-4 w-64 max-w-[48%] rounded-md" />}
               </div>
-              <div className="flex min-w-0 items-center gap-2">
+              {isPersonal ? (
                 <Skeleton className="h-4 w-20 rounded-md" />
-                <Skeleton className="h-6 w-16 rounded-full" />
-              </div>
+              ) : (
+                <div className="flex min-w-0 items-center gap-2">
+                  <Skeleton className="h-4 w-20 rounded-md" />
+                  <Skeleton className="h-6 w-16 rounded-full" />
+                </div>
+              )}
             </div>
           </div>
           <div className="grid min-w-0 gap-2 sm:h-16 sm:min-w-fit sm:shrink-0 sm:content-between sm:justify-items-end sm:gap-0">
@@ -3095,32 +3101,39 @@ function OrganizationManagementSkeleton() {
         </div>
       </section>
 
-      <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-        <div className="flex min-w-0 items-center gap-3 p-3">
-          <Skeleton className="size-10 shrink-0 rounded-md" />
-          <div className="grid min-w-0 flex-1 gap-2">
-            <Skeleton className="h-5 w-28 rounded-md" />
-            <Skeleton className="h-4 w-96 max-w-full rounded-md" />
+      {isPersonal ? (
+        <section className="grid min-h-0 min-w-0 place-items-center overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background px-4 py-10">
+          <div className="grid w-full max-w-lg justify-items-center gap-4 text-center">
+            <Skeleton className="size-14 rounded-md" />
+            <div className="grid w-full min-w-0 justify-items-center gap-2">
+              <Skeleton className="h-5 w-36 rounded-md" />
+              <Skeleton className="h-4 w-96 max-w-full rounded-md" />
+              <Skeleton className="h-4 w-72 max-w-[86%] rounded-md" />
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center justify-center gap-2">
+              <Skeleton className="h-[var(--oo-control-height)] w-28 rounded-md" />
+              <Skeleton className="h-[var(--oo-control-height)] w-28 rounded-md" />
+            </div>
+            <Skeleton className="h-3.5 w-80 max-w-full rounded-md" />
           </div>
-          <Skeleton className="h-[var(--oo-control-height-compact)] w-28 rounded-md" />
-        </div>
-      </section>
-
-      <section className="min-w-0 overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-        <div className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
-          <div className="grid min-w-0 gap-2">
-            <Skeleton className="h-5 w-24 rounded-md" />
-            <Skeleton className="h-4 w-72 max-w-full rounded-md" />
-            <Skeleton className="h-4 w-48 max-w-full rounded-md" />
+        </section>
+      ) : (
+        <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+          <div className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-[7px]">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <Skeleton className="h-5 w-24 rounded-md" />
+                <Skeleton className="h-5 w-12 rounded-full" />
+              </div>
+              <Skeleton className="mt-1.5 h-4 w-72 max-w-full rounded-md" />
+            </div>
+            <Skeleton className="h-[var(--oo-control-height-compact)] w-28 shrink-0 rounded-md" />
           </div>
-          <Skeleton className="h-[var(--oo-control-height)] w-28 rounded-md" />
-        </div>
-        <div className="grid gap-3 p-3">
-          <Skeleton className="h-9 w-full rounded-md" />
-          <Skeleton className="h-9 w-[88%] rounded-md" />
-          <Skeleton className="h-9 w-[72%] rounded-md" />
-        </div>
-      </section>
+          <div className="min-h-0">
+            <OrganizationSkillManageLoadingSkeleton inline />
+          </div>
+        </section>
+      )}
     </>
   )
 }

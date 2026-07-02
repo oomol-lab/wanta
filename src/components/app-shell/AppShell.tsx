@@ -85,6 +85,7 @@ import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { useChatService } from "@/components/AppContext"
+import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { BrandIcon } from "@/components/BrandIcon"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -119,6 +120,7 @@ import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { visibleUserText } from "@/routes/Chat/message-text"
+import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 type ProjectSelectionSource = "composer" | "sidebar"
@@ -1934,7 +1936,37 @@ export function AppShell() {
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace)
+  const skillInventory = useSkillInventoryResource()
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
+  const organizationSkillGroupById = React.useMemo(
+    () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
+    [skillInventory.data?.groups],
+  )
+  const enabledOrganizationSkills = React.useMemo(
+    () => organizationSkills.skills.filter((skill) => skill.enabled),
+    [organizationSkills.skills],
+  )
+  const organizationSkillEntryVisible = Boolean(
+    organizationSkills.organizationId && enabledOrganizationSkills.length > 0,
+  )
+  const organizationSkillShowcaseItems = React.useMemo<ChatOrganizationSkillContext[]>(() => {
+    if (!organizationSkills.organizationId) {
+      return []
+    }
+    const missingSkills = skillInventory.data
+      ? getInstallableOrganizationSkills(organizationSkillGroupById, enabledOrganizationSkills)
+      : enabledOrganizationSkills
+    const showcaseSkills = missingSkills.length > 0 ? missingSkills : enabledOrganizationSkills
+    return showcaseSkills.map((skill) => ({
+      ...(skill.description ? { description: skill.description } : {}),
+      ...(skill.icon ? { icon: skill.icon } : {}),
+      id: skill.id,
+      name: skill.displayName || skill.skillName,
+      packageName: skill.packageName,
+      skillName: skill.skillName,
+      version: skill.version,
+    }))
+  }, [enabledOrganizationSkills, organizationSkillGroupById, organizationSkills.organizationId, skillInventory.data])
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -4015,6 +4047,8 @@ export function AppShell() {
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
+                      organizationSkillEntryVisible={organizationSkillEntryVisible}
+                      organizationSkillShowcaseItems={organizationSkillShowcaseItems}
                       organizationSkills={organizationSkills.chatContextSkills}
                       providers={activeProviders}
                       queueHeld={activeQueueHeld}

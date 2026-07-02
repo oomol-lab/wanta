@@ -29,6 +29,7 @@ import {
   ChevronRight,
   ChevronUp,
   CopyIcon,
+  Package,
   PlugZap,
   ThumbsDown,
   ThumbsUp,
@@ -76,11 +77,14 @@ import {
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
+import { normalizeSkillIconSource } from "@/components/skill-icon-source"
+import { SkillIcon } from "@/components/SkillIcon"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
+import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
 const GeneratedArtifacts = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
@@ -111,6 +115,8 @@ interface ChatAreaProps {
   queuedMessages: QueuedChatMessage[]
   placeholder: string
   contextBar?: React.ReactNode
+  organizationSkillEntryVisible?: boolean
+  organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
   organizationSkills?: ChatOrganizationSkillContext[]
   onSend: (
     text: string,
@@ -148,6 +154,15 @@ const CONNECTOR_SHOWCASE_PROVIDERS = [
   { names: ["github"], label: "GitHub" },
   { names: ["google drive", "googledrive", "google_drive", "gdrive", "drive"], label: "Google Drive" },
 ] as const
+const ORGANIZATION_SKILL_SHOWCASE_LIMIT = 5
+const SHOWCASE_ICON_DIM = { height: "1.5rem", width: "1.5rem" }
+const SHOWCASE_ICON_IMAGE_DIM = { height: "1.0625rem", width: "1.0625rem" }
+
+interface OrganizationSkillShowcaseItem {
+  icon?: string
+  id: string
+  name: string
+}
 
 type TurnProcessStatus =
   | "running"
@@ -212,6 +227,45 @@ function connectorShowcaseProviders(providers: ConnectionProvider[]): Connection
       }
     )
   })
+}
+
+function OrganizationSkillShowcaseIcon({ skill }: { skill: OrganizationSkillShowcaseItem }) {
+  const [failed, setFailed] = React.useState(false)
+  const normalizedIcon = normalizeSkillIconSource(skill.icon)
+
+  if (isImageIcon(normalizedIcon) && !failed) {
+    return (
+      <span className="oo-entity-icon oo-entity-icon-brand" style={SHOWCASE_ICON_DIM} title={skill.name}>
+        <img
+          alt=""
+          className="oo-entity-icon-image"
+          decoding="async"
+          loading="lazy"
+          src={normalizedIcon}
+          style={SHOWCASE_ICON_IMAGE_DIM}
+          onError={() => setFailed(true)}
+        />
+      </span>
+    )
+  }
+
+  if (isEmojiIcon(normalizedIcon)) {
+    return (
+      <span
+        className="oo-entity-icon oo-entity-icon-brand text-sm leading-none"
+        style={SHOWCASE_ICON_DIM}
+        title={skill.name}
+      >
+        {normalizedIcon}
+      </span>
+    )
+  }
+
+  return (
+    <span className="oo-entity-icon oo-entity-icon-brand" style={SHOWCASE_ICON_DIM} title={skill.name}>
+      <SkillIcon className="size-3.5" icon={normalizedIcon} />
+    </span>
+  )
 }
 
 function formatProcessDuration(
@@ -1179,19 +1233,24 @@ const ChatTimeline = React.memo(function ChatTimeline({
 })
 
 function EmptyStateActions({
+  organizationSkillEntryVisible = false,
+  organizationSkillShowcaseItems = [],
   providers,
   onOpenConnections,
   onOpenOrganizations,
 }: {
+  organizationSkillEntryVisible?: boolean
+  organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
   providers: ConnectionProvider[]
   onOpenConnections?: () => void
   onOpenOrganizations?: () => void
 }) {
   const t = useT()
   const showcaseProviders = React.useMemo(() => connectorShowcaseProviders(providers), [providers])
+  const showcaseOrganizationSkills = organizationSkillShowcaseItems.slice(0, ORGANIZATION_SKILL_SHOWCASE_LIMIT)
 
   return (
-    <div className="w-full pl-2 text-muted-foreground">
+    <div className="relative w-full pl-2 text-muted-foreground">
       <div className="grid min-w-0 justify-start gap-1 overflow-hidden">
         <button
           type="button"
@@ -1235,6 +1294,30 @@ function EmptyStateActions({
           <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
         </button>
       </div>
+      {organizationSkillEntryVisible ? (
+        <button
+          type="button"
+          className="group absolute top-full right-0 left-2 mt-1 flex min-h-8 min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          aria-label={t("chat.emptyOrganizationSkillsAria")}
+          onClick={onOpenOrganizations}
+        >
+          <span
+            className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
+            aria-hidden="true"
+          >
+            <Package className="size-4" />
+          </span>
+          <span className="oo-text-control min-w-0 truncate font-medium">
+            {t("chat.emptyOrganizationSkillsAction")}
+          </span>
+          <span className="flex min-w-0 shrink-0 items-center gap-1" aria-hidden="true">
+            {showcaseOrganizationSkills.map((skill) => (
+              <OrganizationSkillShowcaseIcon key={skill.id} skill={skill} />
+            ))}
+          </span>
+          <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -1257,6 +1340,8 @@ export const ChatArea = React.memo(function ChatArea({
   initialComposerState,
   initialSendPending,
   providers,
+  organizationSkillEntryVisible,
+  organizationSkillShowcaseItems,
   queueHeld,
   queuedMessages,
   placeholder,
@@ -1353,6 +1438,8 @@ export const ChatArea = React.memo(function ChatArea({
         <div className="flex flex-col gap-3">
           {composer}
           <EmptyStateActions
+            organizationSkillEntryVisible={organizationSkillEntryVisible}
+            organizationSkillShowcaseItems={organizationSkillShowcaseItems}
             providers={providers}
             onOpenConnections={onOpenConnections}
             onOpenOrganizations={onOpenOrganizations}

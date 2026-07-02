@@ -25,6 +25,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronsUpDownIcon,
+  CrownIcon,
   MoreHorizontalIcon,
   PackageIcon,
   PencilIcon,
@@ -34,13 +35,14 @@ import {
   ShieldCheckIcon,
   Trash2Icon,
   UsersIcon,
+  XIcon,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import {
   allOrganizations,
   buildGrantViews,
-  buildMemberViews,
+  buildOrganizationMemberViews,
   createOrganizationSkillPackageSet,
   errorMessage,
   errorState,
@@ -157,6 +159,25 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
   )
 }
 
+function getFocusableElements(container: HTMLElement): HTMLElement[] {
+  const selector = [
+    "a[href]",
+    "button:not([disabled])",
+    "input:not([disabled])",
+    "select:not([disabled])",
+    "textarea:not([disabled])",
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(",")
+
+  return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((element) => {
+    return (
+      !element.hasAttribute("disabled") &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      element.getClientRects().length > 0
+    )
+  })
+}
+
 function looksLikeSkillPackageName(query: string): boolean {
   const normalized = query.trim()
   return /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i.test(normalized) && normalized.length >= 3
@@ -270,6 +291,7 @@ export function OrganizationManagementRoute({
   const [createAvatar, setCreateAvatar] = React.useState("")
   const [createDuplicated, setCreateDuplicated] = React.useState(false)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
+  const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
   const [memberInput, setMemberInput] = React.useState("")
   const [selectedSearchUserId, setSelectedSearchUserId] = React.useState<string | null>(null)
   const [memberSearch, setMemberSearch] = React.useState<MemberSearchState>({
@@ -314,9 +336,17 @@ export function OrganizationManagementRoute({
     [overviewState.data, selectedOrganization],
   )
   const memberViews = React.useMemo(
-    () => buildMemberViews(membersState.data, summariesState.data),
-    [membersState.data, summariesState.data],
+    () =>
+      buildOrganizationMemberViews({
+        account: activeAccount,
+        members: membersState.data,
+        organization: selectedOrganization,
+        overview: overviewState.data,
+        summaries: summariesState.data,
+      }),
+    [activeAccount, membersState.data, overviewState.data, selectedOrganization, summariesState.data],
   )
+  const membersError = memberViews.length > 0 && membersState.error?.includes("HTTP 403") ? null : membersState.error
   const grantState = React.useMemo(
     () => buildGrantViews(appAccessState.data, memberViews, providerOptionsState.data),
     [appAccessState.data, memberViews, providerOptionsState.data],
@@ -329,6 +359,11 @@ export function OrganizationManagementRoute({
   const showOverviewLoading = organizations.length === 0 && ["idle", "loading"].includes(overviewState.status)
   const showOverviewError = organizations.length === 0 && Boolean(overviewState.error)
   const showOrganizationEmptyState = !showOverviewLoading && !showOverviewError && organizations.length === 0
+
+  React.useEffect(() => {
+    setMembersPanelOpen(false)
+  }, [selectedOrganization?.id])
+
   const createNameError = React.useMemo(() => {
     if (!createName) {
       return null
@@ -429,6 +464,11 @@ export function OrganizationManagementRoute({
         const appAccessRequest = canManageDetails
           ? settle(getOrganizationAppAccess(organization.id))
           : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
+        const fallbackUserIds = uniqueStrings([organization.creator_user_id, activeAccountId ?? ""])
+        const loadSummaries = (userIds: string[]): Promise<AsyncResult<Record<string, OrganizationUserSummary>>> =>
+          userIds.length > 0
+            ? settle(listUserSummaries(userIds))
+            : Promise.resolve<AsyncResult<Record<string, OrganizationUserSummary>>>({ ok: true, value: {} })
 
         const membersResult = await membersRequest
         if (detailsRequestId.current !== requestId) {
@@ -437,17 +477,23 @@ export function OrganizationManagementRoute({
         if (!membersResult.ok) {
           setMembersState((current) => errorState(current, membersResult.error))
           setSummariesState((current) => errorState(current, membersResult.error))
+          const summariesResult = await loadSummaries(fallbackUserIds)
+          if (detailsRequestId.current !== requestId) {
+            return
+          }
+          if (summariesResult.ok) {
+            setSummariesState(readyState(summariesResult.value))
+          } else {
+            setSummariesState((current) => errorState(current, summariesResult.error))
+          }
           return
         }
 
         const members = membersResult.value
         setMembersState(readyState(members))
 
-        const userIds = uniqueStrings(members.map((member) => member.user_id))
-        const summariesRequest =
-          userIds.length > 0
-            ? settle(listUserSummaries(userIds))
-            : Promise.resolve<AsyncResult<Record<string, OrganizationUserSummary>>>({ ok: true, value: {} })
+        const userIds = uniqueStrings([...members.map((member) => member.user_id), ...fallbackUserIds])
+        const summariesRequest = loadSummaries(userIds)
         const detailTasks = [
           summariesRequest.then((summariesResult) => {
             if (detailsRequestId.current !== requestId) {
@@ -505,7 +551,7 @@ export function OrganizationManagementRoute({
         }
       }
     },
-    [],
+    [activeAccountId],
   )
 
   React.useEffect(() => {
@@ -1092,7 +1138,7 @@ export function OrganizationManagementRoute({
 
   return (
     <>
-      <div className="h-full min-h-0 overflow-auto px-3 py-3">
+      <div className="h-full min-h-0 overflow-hidden px-3 py-3">
         {showOverviewError ? (
           <div className="flex min-h-full items-center justify-center px-4 py-10">
             <ErrorBlock
@@ -1103,7 +1149,7 @@ export function OrganizationManagementRoute({
         ) : showOrganizationEmptyState ? (
           <EmptyOrganizationsState onCreate={() => setCreateOpen(true)} />
         ) : (
-          <div className="grid min-w-0 items-start gap-3">
+          <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
             {showOverviewLoading ? (
               <OrganizationManagementSkeleton />
             ) : (
@@ -1112,16 +1158,20 @@ export function OrganizationManagementRoute({
                   activeWorkspace={activeWorkspace}
                   accountAvatarUrl={activeAccount?.avatarUrl}
                   accountName={activeAccount?.name}
+                  canManage={canManage}
+                  members={memberViews}
+                  membersLoading={membersState.status === "loading"}
                   organizations={organizations}
                   overview={overviewState.data}
                   selectedOrganization={selectedOrganization}
                   selectedOrganizationId={selectedOrganizationId}
                   onCreate={() => setCreateOpen(true)}
+                  onOpenMembers={() => setMembersPanelOpen(true)}
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
                 {selectedOrganization ? (
-                  <div className="grid min-w-[52rem] grid-cols-[minmax(0,1fr)_minmax(15rem,18rem)] items-start gap-3">
+                  <div className="grid min-h-0 min-w-0 grid-cols-1 items-stretch gap-3 2xl:grid-cols-[minmax(0,1fr)_minmax(15rem,18rem)]">
                     {selectedOrganizationSkills ? (
                       <OrganizationSkillGuidePanel
                         busyAction={busyAction}
@@ -1144,25 +1194,27 @@ export function OrganizationManagementRoute({
                         </div>
                       </Panel>
                     )}
-                    <OrganizationDetailPanel
-                      compact
-                      appAccessLoading={
-                        appAccessState.status === "loading" || providerOptionsState.status === "loading"
-                      }
-                      busyAction={busyAction}
-                      canManage={canManage}
-                      grantsByUserId={grantsByUserId}
-                      members={memberViews}
-                      membersError={membersState.error}
-                      membersLoading={membersState.status === "loading"}
-                      organization={selectedOrganization}
-                      providerAccessError={providerAccessError}
-                      onAddMember={() => setAddMemberOpen(true)}
-                      onEditProviderAccess={openEditProviderAccess}
-                      onGrantProviderAccess={openGrantProviderAccess}
-                      onRemoveMember={handleRemoveMember}
-                      onRevokeProviderAccess={handleRevokeProviderAccess}
-                    />
+                    <div className="hidden min-w-0 2xl:block">
+                      <OrganizationDetailPanel
+                        compact
+                        appAccessLoading={
+                          appAccessState.status === "loading" || providerOptionsState.status === "loading"
+                        }
+                        busyAction={busyAction}
+                        canManage={canManage}
+                        grantsByUserId={grantsByUserId}
+                        members={memberViews}
+                        membersError={membersError}
+                        membersLoading={membersState.status === "loading"}
+                        organization={selectedOrganization}
+                        providerAccessError={providerAccessError}
+                        onAddMember={() => setAddMemberOpen(true)}
+                        onEditProviderAccess={openEditProviderAccess}
+                        onGrantProviderAccess={openGrantProviderAccess}
+                        onRemoveMember={handleRemoveMember}
+                        onRevokeProviderAccess={handleRevokeProviderAccess}
+                      />
+                    </div>
                   </div>
                 ) : (
                   <OrganizationDetailPanel
@@ -1171,7 +1223,7 @@ export function OrganizationManagementRoute({
                     canManage={canManage}
                     grantsByUserId={grantsByUserId}
                     members={memberViews}
-                    membersError={membersState.error}
+                    membersError={membersError}
                     membersLoading={membersState.status === "loading"}
                     organization={selectedOrganization}
                     providerAccessError={providerAccessError}
@@ -1182,6 +1234,29 @@ export function OrganizationManagementRoute({
                     onRevokeProviderAccess={handleRevokeProviderAccess}
                   />
                 )}
+                {selectedOrganization ? (
+                  <OrganizationMembersSheet open={membersPanelOpen} onClose={() => setMembersPanelOpen(false)}>
+                    <OrganizationDetailPanel
+                      compact
+                      appAccessLoading={
+                        appAccessState.status === "loading" || providerOptionsState.status === "loading"
+                      }
+                      busyAction={busyAction}
+                      canManage={canManage}
+                      grantsByUserId={grantsByUserId}
+                      members={memberViews}
+                      membersError={membersError}
+                      membersLoading={membersState.status === "loading"}
+                      organization={selectedOrganization}
+                      providerAccessError={providerAccessError}
+                      onAddMember={() => setAddMemberOpen(true)}
+                      onEditProviderAccess={openEditProviderAccess}
+                      onGrantProviderAccess={openGrantProviderAccess}
+                      onRemoveMember={handleRemoveMember}
+                      onRevokeProviderAccess={handleRevokeProviderAccess}
+                    />
+                  </OrganizationMembersSheet>
+                ) : null}
               </>
             )}
           </div>
@@ -1244,7 +1319,11 @@ function OrganizationSwitcherPanel({
   activeWorkspace,
   accountAvatarUrl,
   accountName,
+  canManage,
+  members,
+  membersLoading,
   onCreate,
+  onOpenMembers,
   onSelect,
   onSelectPersonal,
   organizations,
@@ -1255,7 +1334,11 @@ function OrganizationSwitcherPanel({
   activeWorkspace?: WorkspaceSelection
   accountAvatarUrl?: string
   accountName?: string
+  canManage: boolean
+  members: MemberView[]
+  membersLoading: boolean
   onCreate: () => void
+  onOpenMembers: () => void
   onSelect: (organizationId: string) => void
   onSelectPersonal: () => void
   organizations: Organization[]
@@ -1265,7 +1348,6 @@ function OrganizationSwitcherPanel({
 }) {
   const { t } = useAppI18n()
   const countLabel = t("organizations.organizationCount", { count: organizations.length })
-  const selectedRole = selectedOrganization ? organizationRole(overview, selectedOrganization) : null
   const personalSelected = activeWorkspace?.type === "personal"
   const personalLabel = accountName?.trim() || t("organizations.personal")
   const personalDescription =
@@ -1311,29 +1393,27 @@ function OrganizationSwitcherPanel({
               )}
             </div>
 
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="oo-text-caption shrink-0">
-                {personalSelected ? t("organizations.selectedWorkspace") : t("organizations.selectedOrganization")}
-              </span>
-              {personalSelected ? (
-                <Badge variant="secondary" className="shrink-0">
-                  {t("organizations.workspace")}
-                </Badge>
-              ) : selectedRole ? (
-                <Badge variant="secondary" className="shrink-0">
-                  {selectedRole === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                </Badge>
-              ) : null}
-            </div>
+            {selectedOrganization ? (
+              <OrganizationMemberAccessButton
+                canManage={canManage}
+                members={members}
+                membersLoading={membersLoading}
+                onOpen={onOpenMembers}
+              />
+            ) : (
+              <div className="oo-text-caption min-w-0 truncate text-muted-foreground">
+                {personalSelected ? personalDescription : t("organizations.selectOrganization")}
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="grid min-w-0 gap-2 sm:h-16 sm:min-w-fit sm:shrink-0 sm:content-between sm:justify-items-end sm:gap-0">
+        <div className="grid min-w-0 gap-2 sm:min-w-fit sm:shrink-0 sm:justify-items-end">
           <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onCreate}>
             <PlusIcon className="size-3.5" />
             {t("organizations.createOrganization")}
           </Button>
-          <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-end">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 sm:justify-end">
             <span className="oo-text-body shrink-0 text-muted-foreground">{countLabel}</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1496,8 +1576,8 @@ function OrganizationSkillGuidePanel({
   const installBusy = busyAction === "installSkillBatch"
 
   return (
-    <section className="grid min-h-[34rem] min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="flex min-h-14 min-w-0 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-[7px]">
+    <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+      <div className="flex min-h-14 min-w-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--oo-divider)] px-3 py-[7px]">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="oo-text-title min-w-0 truncate text-foreground">{t("organizations.skillGuideTitle")}</h2>
@@ -1520,7 +1600,7 @@ function OrganizationSkillGuidePanel({
           {t("organizations.skillManageInstallAll")}
         </Button>
       </div>
-      <div className="min-h-0 p-3">
+      <div className="min-h-0">
         <OrganizationSkillManageDialog
           busyAction={busyAction}
           groupById={groupById}
@@ -1850,10 +1930,20 @@ export function OrganizationSkillManageDialog({
     }
   }
 
+  const inline = variant === "inline"
+  const emptyStateClassName = inline ? "m-3 border-0 bg-transparent" : undefined
+  const skillListClassName = inline
+    ? "min-h-0 overflow-y-auto bg-background pb-3"
+    : "min-h-0 overflow-y-auto rounded-md border bg-background"
+  const marketListClassName = inline
+    ? "min-h-0 flex-1 overflow-y-auto bg-background pb-3"
+    : "min-h-0 flex-1 overflow-y-auto rounded-md border bg-background"
+
   const content = (
-    <div className={cn("grid min-h-full grid-rows-[minmax(0,1fr)] gap-4", variant === "inline" && "h-full min-h-0")}>
+    <div className={cn("grid min-h-full grid-rows-[minmax(0,1fr)] gap-4", inline && "h-full min-h-0")}>
       {!organizationSkills.apiEnabled ? (
         <OrganizationSkillDialogEmpty
+          className={emptyStateClassName}
           title={t("organizations.skillGuideUnavailableTitle")}
           description={t("organizations.skillGuideUnavailableDescription")}
         />
@@ -1879,42 +1969,50 @@ export function OrganizationSkillManageDialog({
           <Skeleton className="h-16 rounded-md" />
         </div>
       ) : (
-        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
-          <div className="grid min-w-0 gap-2 md:grid-cols-[auto_minmax(0,1fr)] md:items-center">
-            <ToggleGroup
-              type="single"
-              variant="outline"
-              size="sm"
-              value={activeTab}
-              aria-label={t("organizations.skillManageTitle")}
-              onValueChange={(value) => {
-                if (value === "configured" || value === "recommended" || value === "market") {
-                  changeActiveTab(value)
-                }
-              }}
-            >
-              <ToggleGroupItem value="configured">
-                <span>{t("organizations.skillManageConfigured")}</span>
-                <span className="oo-text-caption-compact text-muted-foreground">
-                  {organizationSkills.skills.length}
-                </span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="recommended">
-                <span>{t("organizations.skillManageRecommended")}</span>
-                {installableRecommendedSkills.length > 0 ? (
-                  <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
-                ) : null}
-                <span className="oo-text-caption-compact text-muted-foreground">
-                  {recommendedOrganizationSkills.length}
-                </span>
-              </ToggleGroupItem>
-              <ToggleGroupItem value="market">
-                <span>{t("organizations.skillManageMarket")}</span>
-              </ToggleGroupItem>
-            </ToggleGroup>
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+        <div className={cn("grid min-h-0 grid-rows-[auto_minmax(0,1fr)]", inline ? "gap-0" : "gap-3")}>
+          <div
+            className={cn(
+              "flex min-w-0 flex-wrap items-center justify-between gap-2",
+              inline && "border-b border-[var(--oo-divider)] px-3 py-3",
+            )}
+          >
+            <div className="max-w-full min-w-0 overflow-x-auto">
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={activeTab}
+                aria-label={t("organizations.skillManageTitle")}
+                className="w-max"
+                onValueChange={(value) => {
+                  if (value === "configured" || value === "recommended" || value === "market") {
+                    changeActiveTab(value)
+                  }
+                }}
+              >
+                <ToggleGroupItem value="configured">
+                  <span>{t("organizations.skillManageConfigured")}</span>
+                  <span className="oo-text-caption-compact text-muted-foreground">
+                    {organizationSkills.skills.length}
+                  </span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="recommended">
+                  <span>{t("organizations.skillManageRecommended")}</span>
+                  {installableRecommendedSkills.length > 0 ? (
+                    <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
+                  ) : null}
+                  <span className="oo-text-caption-compact text-muted-foreground">
+                    {recommendedOrganizationSkills.length}
+                  </span>
+                </ToggleGroupItem>
+                <ToggleGroupItem value="market">
+                  <span>{t("organizations.skillManageMarket")}</span>
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:min-w-80 sm:flex-row sm:items-center sm:justify-end">
               <SearchField
-                className="min-w-0 flex-1 sm:max-w-72"
+                className="min-w-0 flex-1 sm:max-w-80"
                 inputClassName="h-[var(--oo-control-height-compact)]"
                 placeholder={
                   activeTab === "configured"
@@ -1951,7 +2049,7 @@ export function OrganizationSkillManageDialog({
                   <Button
                     type="button"
                     size="sm"
-                    className="min-w-0 rounded-r-none"
+                    className="min-w-0 shrink rounded-r-none"
                     disabled={Boolean(busyAction)}
                     onClick={() =>
                       shouldInstallRecommendedBatch
@@ -2029,6 +2127,7 @@ export function OrganizationSkillManageDialog({
           {activeTab === "configured" ? (
             organizationSkills.skills.length === 0 ? (
               <OrganizationSkillDialogEmpty
+                className={emptyStateClassName}
                 title={
                   organizationSkills.canManage
                     ? t("organizations.skillGuideEmptyCreatorTitle")
@@ -2042,11 +2141,12 @@ export function OrganizationSkillManageDialog({
               />
             ) : filteredConfiguredSkills.length === 0 ? (
               <OrganizationSkillDialogEmpty
+                className={emptyStateClassName}
                 title={t("organizations.skillManageSearchEmptyTitle")}
                 description={t("organizations.skillManageSearchEmptyDescription")}
               />
             ) : (
-              <div className="min-h-0 overflow-y-auto rounded-md border bg-background">
+              <div className={skillListClassName}>
                 {filteredConfiguredSkills.map((skill) => (
                   <OrganizationSkillManageRow
                     key={skill.id}
@@ -2069,16 +2169,22 @@ export function OrganizationSkillManageDialog({
             )
           ) : activeTab === "recommended" ? (
             recommendedOrganizationSkills.length === 0 ? (
-              <div className="oo-text-caption rounded-md border border-dashed bg-muted/20 px-3 py-4 text-muted-foreground">
+              <div
+                className={cn(
+                  "oo-text-caption px-3 py-4 text-muted-foreground",
+                  inline ? "bg-transparent" : "rounded-md border border-dashed bg-muted/20",
+                )}
+              >
                 {t("organizations.skillManageRecommendedEmpty")}
               </div>
             ) : filteredRecommendedSkills.length === 0 ? (
               <OrganizationSkillDialogEmpty
+                className={emptyStateClassName}
                 title={t("organizations.skillManageSearchEmptyTitle")}
                 description={t("organizations.skillManageSearchEmptyDescription")}
               />
             ) : (
-              <div className="min-h-0 overflow-y-auto rounded-md border bg-background">
+              <div className={skillListClassName}>
                 {filteredRecommendedSkills.map((recommendation) => (
                   <OrganizationSkillRecommendationRow
                     key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
@@ -2121,21 +2227,17 @@ export function OrganizationSkillManageDialog({
                 </div>
               ) : null}
               {(marketLoading || marketExactLoading) && marketPackages.length === 0 ? (
-                <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-background">
+                <div className={marketListClassName}>
                   <OrganizationSkillPackageListSkeleton />
                 </div>
               ) : marketPackages.length === 0 ? (
                 <OrganizationSkillDialogEmpty
-                  className="min-h-0 flex-1"
+                  className={cn("min-h-0 flex-1", emptyStateClassName)}
                   title={t("organizations.skillManageMarketEmptyTitle")}
                   description={t("organizations.skillManageMarketEmptyDescription")}
                 />
               ) : (
-                <div
-                  ref={marketScrollContainerRef}
-                  className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-background"
-                  onScroll={handleMarketScroll}
-                >
+                <div ref={marketScrollContainerRef} className={marketListClassName} onScroll={handleMarketScroll}>
                   {marketPackages.map((pkg) => (
                     <OrganizationSkillMarketRow
                       key={pkg.id}
@@ -2315,7 +2417,7 @@ function OrganizationSkillMarketRow({
   return (
     <div
       className={cn(
-        "grid min-w-0 gap-3 border-b px-3 py-2.5 last:border-b-0 md:items-center",
+        "grid min-w-0 gap-3 border-b px-3 py-2.5 md:items-center",
         "md:grid-cols-[auto_minmax(0,1fr)_auto_auto]",
       )}
     >
@@ -2412,7 +2514,7 @@ function OrganizationSkillManageRow({
   const runtimeInstallable = runtimeStatus.state === "missing" || runtimeStatus.state === "external-only"
 
   return (
-    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <OrganizationSkillIconFrame icon={skill.icon} />
       <div className="grid min-w-0 gap-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2485,7 +2587,7 @@ function OrganizationSkillRecommendationRow({
     recommendation.package.description
 
   return (
-    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+    <div className="grid min-w-0 gap-3 border-b px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <OrganizationSkillIconFrame icon={recommendation.package.icon} />
       <div className="grid min-w-0 gap-0.5">
         <div className="oo-text-label min-w-0 truncate text-foreground">{recommendation.package.displayName}</div>
@@ -2626,6 +2728,189 @@ function EmptyOrganizationsState({ onCreate }: { onCreate: () => void }) {
           {t("organizations.createOrganization")}
         </Button>
       </div>
+    </div>
+  )
+}
+
+function OrganizationMemberAccessButton({
+  canManage,
+  members,
+  membersLoading,
+  onOpen,
+}: {
+  canManage: boolean
+  members: MemberView[]
+  membersLoading: boolean
+  onOpen: () => void
+}) {
+  const { t } = useAppI18n()
+  const label = canManage ? t("organizations.manageMembers") : t("organizations.viewMembers")
+  const countLabel = membersLoading
+    ? t("organizations.memberCountLoading")
+    : t("organizations.memberCountCompact", { count: members.length })
+
+  return (
+    <button
+      type="button"
+      className="group -ml-1 flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      aria-label={`${label}，${countLabel}`}
+      onClick={onOpen}
+    >
+      {membersLoading ? (
+        <MemberAvatarStackSkeleton />
+      ) : members.length > 0 ? (
+        <MemberAvatarStack members={members} />
+      ) : (
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <UsersIcon className="size-3.5" />
+        </span>
+      )}
+      <span className="flex min-w-0 items-center gap-1.5">
+        {canManage ? (
+          <CrownIcon className="size-3.5 shrink-0 text-[var(--oo-warning-foreground)]" aria-hidden="true" />
+        ) : null}
+        <span className="oo-text-caption-compact shrink-0 font-medium text-foreground">{label}</span>
+        <span className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">{countLabel}</span>
+      </span>
+    </button>
+  )
+}
+
+function MemberAvatarStack({ members }: { members: MemberView[] }) {
+  const visibleMemberCount = members.length > 5 ? 4 : 5
+  const visibleMembers = members.slice(0, visibleMemberCount)
+  const hiddenMemberCount = members.length - visibleMembers.length
+
+  return (
+    <span className="flex shrink-0 items-center -space-x-2" aria-hidden="true">
+      {visibleMembers.map((member) => (
+        <span
+          key={member.user_id}
+          className="relative flex size-6 items-center justify-center overflow-hidden rounded-full border-2 border-background bg-muted text-[10px] font-medium text-foreground"
+          title={member.displayName}
+        >
+          <span>{member.fallback}</span>
+          <CachedAvatarImage src={member.avatar} alt="" className="absolute inset-0 size-full object-cover" />
+        </span>
+      ))}
+      {hiddenMemberCount > 0 ? (
+        <span className="flex size-6 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-medium text-muted-foreground">
+          +{hiddenMemberCount}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+function MemberAvatarStackSkeleton() {
+  return (
+    <span className="flex shrink-0 items-center -space-x-2" aria-hidden="true">
+      <Skeleton className="size-6 rounded-full border-2 border-background" />
+      <Skeleton className="size-6 rounded-full border-2 border-background" />
+      <Skeleton className="size-6 rounded-full border-2 border-background" />
+    </span>
+  )
+}
+
+function OrganizationMembersSheet({
+  children,
+  onClose,
+  open,
+}: {
+  children: React.ReactNode
+  onClose: () => void
+  open: boolean
+}) {
+  const { t } = useAppI18n()
+  const sheetRef = React.useRef<HTMLElement | null>(null)
+
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const previousActiveElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const frame = window.requestAnimationFrame(() => {
+      sheetRef.current?.focus()
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      if (previousActiveElement?.isConnected) {
+        previousActiveElement.focus()
+      }
+    }
+  }, [open])
+
+  if (!open) {
+    return null
+  }
+
+  return (
+    <div
+      className="oo-modal-backdrop fixed inset-0 z-[120] [-webkit-app-region:no-drag]"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose()
+        }
+      }}
+    >
+      <aside
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("organizations.membersAndPermissions")}
+        tabIndex={-1}
+        className="absolute top-0 right-0 grid h-full w-[min(24rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)] border-l bg-background shadow-xl outline-none [-webkit-app-region:no-drag]"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation()
+            onClose()
+            return
+          }
+          if (event.key !== "Tab") {
+            return
+          }
+
+          const sheet = sheetRef.current
+          if (!sheet) {
+            return
+          }
+
+          const focusableElements = getFocusableElements(sheet)
+          if (focusableElements.length === 0) {
+            event.preventDefault()
+            sheet.focus()
+            return
+          }
+
+          const firstElement = focusableElements[0]
+          const lastElement = focusableElements[focusableElements.length - 1]
+          const activeElement = document.activeElement
+          if (event.shiftKey) {
+            if (activeElement === firstElement || activeElement === sheet || !sheet.contains(activeElement)) {
+              event.preventDefault()
+              lastElement.focus()
+            }
+            return
+          }
+
+          if (activeElement === lastElement || activeElement === sheet || !sheet.contains(activeElement)) {
+            event.preventDefault()
+            firstElement.focus()
+          }
+        }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="oo-border-divider flex min-w-0 items-center justify-between gap-3 border-b px-3 py-2">
+          <div className="oo-text-label min-w-0 truncate">{t("organizations.membersAndPermissions")}</div>
+          <Button type="button" variant="ghost" size="icon" aria-label={t("common.close")} onClick={onClose}>
+            <XIcon className="size-4" />
+          </Button>
+        </div>
+        <div className="min-h-0 overflow-auto p-3">{children}</div>
+      </aside>
     </div>
   )
 }

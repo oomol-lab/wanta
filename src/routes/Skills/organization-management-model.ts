@@ -10,6 +10,7 @@ import type {
 
 import { branding } from "../../../electron/branding.ts"
 export { organizationCanManage, organizationRole } from "../../lib/organization-permissions.ts"
+import { organizationRole as getOrganizationRole } from "../../lib/organization-permissions.ts"
 import { parseProviderGrants } from "./organization-provider-access.ts"
 
 export type OrganizationRole = "creator" | "member"
@@ -59,6 +60,12 @@ export interface MemberSearchState {
   items: Array<OrganizationUserSearchResult & { displayName: string; fallback: string; userId: string }>
   loading: boolean
   query: string
+}
+
+export interface AccountSummaryLike {
+  avatarUrl?: string
+  id: string
+  name: string
 }
 
 export interface OrganizationManagementSnapshot {
@@ -278,6 +285,54 @@ export function buildMemberViews(
       secondaryLabel: summary ? shortUserId(member.user_id) : member.user_id,
     }
   })
+}
+
+export function buildOrganizationMemberViews({
+  account,
+  members,
+  organization,
+  overview,
+  summaries,
+}: {
+  account?: AccountSummaryLike
+  members: OrganizationMember[]
+  organization: Organization | null
+  overview: OrganizationOverview | null
+  summaries: Record<string, OrganizationUserSummary>
+}): MemberView[] {
+  const nextMembers = [...members]
+  const fallbackSummaries: Record<string, OrganizationUserSummary> = { ...summaries }
+
+  const upsertMember = (userId: string | undefined, role: OrganizationRole): void => {
+    if (!userId) {
+      return
+    }
+    const existingIndex = nextMembers.findIndex((member) => member.user_id === userId)
+    if (existingIndex >= 0) {
+      if (role === "creator" && nextMembers[existingIndex]?.role !== "creator") {
+        nextMembers[existingIndex] = { ...nextMembers[existingIndex], role: "creator" }
+      }
+      return
+    }
+    nextMembers.push({ role, user_id: userId })
+  }
+
+  if (account) {
+    const existingSummary = fallbackSummaries[account.id]
+    fallbackSummaries[account.id] = {
+      ...(account.avatarUrl ? { url: account.avatarUrl } : {}),
+      ...existingSummary,
+      nickname: existingSummary?.nickname ?? account.name,
+      username: existingSummary?.username ?? account.name,
+    }
+  }
+
+  upsertMember(organization?.creator_user_id, "creator")
+  if (account && organization) {
+    upsertMember(account.id, getOrganizationRole(overview, organization) ?? "member")
+  }
+
+  return buildMemberViews(nextMembers, fallbackSummaries)
 }
 
 export function buildGrantViews(

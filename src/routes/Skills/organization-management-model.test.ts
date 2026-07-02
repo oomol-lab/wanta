@@ -11,6 +11,7 @@ import {
   allOrganizations,
   buildGrantViews,
   buildMemberViews,
+  buildOrganizationMemberViews,
   createOrganizationSkillPackageSet,
   maxOrganizationNameLength,
   organizationCanManage,
@@ -138,6 +139,39 @@ test("buildMemberViews and buildGrantViews decorate users and provider labels", 
     ],
     userId: "user-a",
   })
+})
+
+test("buildOrganizationMemberViews falls back to creator and current account", () => {
+  const org = {
+    ...organization("org-a", "creator-a"),
+    role: "member",
+  } satisfies Organization
+  const overview = organizationOverview({
+    accountId: "account-a",
+    created: [],
+    joined: [org],
+  })
+
+  const members = buildOrganizationMemberViews({
+    account: {
+      avatarUrl: "https://avatar.example/me.png",
+      id: "account-a",
+      name: "Current User",
+    },
+    members: [],
+    organization: org,
+    overview,
+    summaries: {},
+  })
+
+  assert.deepEqual(
+    members.map((member) => ({ displayName: member.displayName, role: member.role, user_id: member.user_id })),
+    [
+      { displayName: "creator-a", role: "creator", user_id: "creator-a" },
+      { displayName: "Current User", role: "member", user_id: "account-a" },
+    ],
+  )
+  assert.equal(members[1]?.avatar, "https://avatar.example/me.png")
 })
 
 test("providerOptionsWithSelected keeps selected unknown providers visible", () => {

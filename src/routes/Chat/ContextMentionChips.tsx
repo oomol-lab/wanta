@@ -2,6 +2,7 @@ import type { ChatContextMention } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 
 import { Plug, X } from "lucide-react"
+import { connectionAppDisplayLabel } from "../../../electron/connections/summary.ts"
 import { contextMentionKey } from "./composer-state.ts"
 import { normalizeServiceSlug } from "./tool-display.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
@@ -26,7 +27,11 @@ function connectionAccountLabel(
   mention: Extract<ChatContextMention, { kind: "connection" }>,
   provider: ConnectionProvider | undefined,
 ): string | undefined {
-  return activeAccountCount(provider) > 1 ? mention.accountLabel : undefined
+  if (activeAccountCount(provider) <= 1) {
+    return undefined
+  }
+  const app = provider?.apps.find((candidate) => candidate.id === mention.appId)
+  return app ? connectionAppDisplayLabel(app) : undefined
 }
 
 function contextMentionLabel(mention: ChatContextMention, provider?: ConnectionProvider): string {

@@ -29,6 +29,7 @@ import {
   X,
 } from "lucide-react"
 import * as React from "react"
+import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
 import { ConnectDialog } from "./ConnectDialog.tsx"
 import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./connection-error-display.ts"
 import {
@@ -61,6 +62,7 @@ import {
   SplitViewRoot,
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { isConnectionPollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { resolveConnectionError } from "@/lib/connections-error"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
@@ -198,9 +200,7 @@ function getProviderDescription(provider: ConnectionProviderSummary, t: ReturnTy
       if (provider.appCount > 1) {
         return t("connections.connectionCount", { count: provider.appCount })
       }
-      return provider.accountLabel && provider.accountLabel !== provider.displayName
-        ? provider.accountLabel
-        : getProviderCategoryLabel(provider, t)
+      return provider.accountLabel ?? getProviderCategoryLabel(provider, t)
     case "available":
       return getProviderCategoryLabel(provider, t)
   }
@@ -269,23 +269,22 @@ function formatProviderCategoryLabels(provider: ConnectionProviderSummary, t: Tr
 }
 
 function getProviderMeta(provider: ConnectionProviderSummary, t: ReturnType<typeof useT>): string {
-  if (provider.status === "connected" && provider.appCount > 1) {
+  if (provider.status === "connected" && provider.appCount === 1 && provider.accountLabel) {
+    return provider.accountLabel
+  }
+  if (provider.status === "connected") {
     return t("connections.connectionCount", { count: provider.appCount })
   }
-  return provider.accountLabel ?? getProviderCategoryLabel(provider, t)
+  return getProviderCategoryLabel(provider, t)
 }
 
-function getConnectionAppDisplayName(app: ConnectionAppSummary): string {
-  return app.displayName || app.alias || app.accountLabel || app.providerAccountId || app.id
+function getConnectionAppGeneratedLabel(app: ConnectionAppSummary, index: number, t: ReturnType<typeof useT>): string {
+  const authLabel = app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown")
+  return t("connections.generatedConnectionLabel", { auth: authLabel, index: index + 1 })
 }
 
-function getConnectionAppSecondaryLabel(app: ConnectionAppSummary): string | null {
-  const primary = getConnectionAppDisplayName(app)
-  const account = app.accountLabel || app.providerAccountId
-  if (!account || account === primary) {
-    return null
-  }
-  return account
+function getConnectionAppDisplayLabel(app: ConnectionAppSummary, index: number, t: ReturnType<typeof useT>): string {
+  return connectionAppUiDisplayLabel(app) ?? getConnectionAppGeneratedLabel(app, index, t)
 }
 
 function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQuery: string, t: TranslateFn): boolean {
@@ -301,13 +300,9 @@ function matchesProviderQuery(provider: ConnectionProviderSummary, normalizedQue
         getCategoryDisplayLabel(label, t).toLowerCase().includes(normalizedQuery)
       )
     }) ||
-    provider.accountLabel?.toLowerCase().includes(normalizedQuery) === true ||
     provider.apps.some((app) => {
-      return (
-        getConnectionAppDisplayName(app).toLowerCase().includes(normalizedQuery) ||
-        app.accountLabel?.toLowerCase().includes(normalizedQuery) === true ||
-        app.providerAccountId?.toLowerCase().includes(normalizedQuery) === true
-      )
+      const candidates = [app.displayName, app.alias, app.accountLabel, app.providerAccountId, app.id]
+      return candidates.some((value) => value?.toLowerCase().includes(normalizedQuery))
     })
   )
 }
@@ -852,7 +847,7 @@ function ConnectionListToolbar({
         onChange={(event) => onQueryChange(event.currentTarget.value)}
       />
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
-        <div className="oo-connection-filter-row min-w-0 overflow-x-auto overflow-y-hidden pb-0.5">
+        <div className="oo-connection-filter-row flex min-w-0 items-center overflow-x-auto overflow-y-hidden">
           <ToggleGroup
             type="single"
             variant="outline"
@@ -1257,9 +1252,11 @@ function ProviderDetail({
           <DetailRow
             label={t("connections.account")}
             value={
-              provider.appCount > 1
-                ? t("connections.connectionCount", { count: provider.appCount })
-                : (provider.accountLabel ?? t("connections.notConnected"))
+              provider.appCount === 1 && provider.accountLabel
+                ? provider.accountLabel
+                : provider.appCount > 0
+                  ? t("connections.connectionCount", { count: provider.appCount })
+                  : t("connections.notConnected")
             }
           />
           <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
@@ -1337,7 +1334,7 @@ function ConnectionPanel({
   const usableAuthTypes = authTypes.length > 0 ? authTypes : currentAuthType ? [currentAuthType] : []
   const activeAuthType =
     selectedAuthType && usableAuthTypes.includes(selectedAuthType) ? selectedAuthType : usableAuthTypes[0]
-  const isPolling = polling === provider.service
+  const isPolling = isConnectionPollingTarget(polling, provider.service)
 
   React.useEffect(() => {
     setSelectedAuthType(currentAuthType)
@@ -1408,6 +1405,7 @@ function ConnectionPanel({
           connections={connections}
           onConnect={onConnect}
           onDisconnect={onDisconnect}
+          polling={polling}
           provider={provider}
         />
       ) : null}
@@ -1421,6 +1419,7 @@ function ConnectionAccountsList({
   connections,
   onConnect,
   onDisconnect,
+  polling,
   provider,
 }: {
   busy: UseConnections["busy"]
@@ -1432,6 +1431,7 @@ function ConnectionAccountsList({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  polling: string | null
   provider: ConnectionProviderSummary
 }) {
   const t = useT()
@@ -1443,13 +1443,14 @@ function ConnectionAccountsList({
           {t("connections.connectionCount", { count: provider.apps.length })}
         </span>
       </div>
-      {provider.apps.map((app) => {
+      {provider.apps.map((app, index) => {
+        const isPolling = isConnectionPollingTarget(polling, provider.service, app.id)
         const reconnectAuthType =
           app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
             ? app.authType
             : null
-        const secondaryLabel = getConnectionAppSecondaryLabel(app)
         const authLabel = app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown")
+        const accountLabel = getConnectionAppDisplayLabel(app, index, t)
         return (
           <article
             key={app.id}
@@ -1457,9 +1458,7 @@ function ConnectionAccountsList({
           >
             <div className="grid min-w-0 gap-1">
               <div className="flex min-w-0 flex-wrap items-start gap-1.5">
-                <span className="oo-text-control max-w-full min-w-0 font-medium break-all">
-                  {getConnectionAppDisplayName(app)}
-                </span>
+                <span className="oo-text-control max-w-full min-w-0 font-medium break-all">{accountLabel}</span>
                 <span className="flex shrink-0 flex-wrap items-center gap-1.5">
                   {app.isDefault ? <Badge variant="success">{t("connections.defaultConnection")}</Badge> : null}
                   {app.status === "reauth_required" || app.status === "error" ? (
@@ -1468,8 +1467,6 @@ function ConnectionAccountsList({
                 </span>
               </div>
               <div className="oo-text-micro oo-text-muted flex min-w-0 flex-wrap items-center gap-1.5">
-                {secondaryLabel ? <span className="max-w-full min-w-0 break-all">{secondaryLabel}</span> : null}
-                {secondaryLabel ? <span className="h-3 w-px shrink-0 bg-border" /> : null}
                 <span className="shrink-0">{authLabel}</span>
               </div>
             </div>
@@ -1492,11 +1489,11 @@ function ConnectionAccountsList({
                   variant="outline"
                   size="sm"
                   className={accountActionButtonClassName}
-                  disabled={busy === "connect"}
+                  disabled={isPolling || busy === "connect"}
                   onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
                 >
-                  <KeyRound className="size-3.5" />
-                  {t("connections.reconnect")}
+                  {isPolling ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
+                  {isPolling ? t("connections.oauthWaiting") : t("connections.reconnect")}
                 </Button>
               ) : null}
               {provider.canDisconnect ? (
@@ -1853,7 +1850,14 @@ function DisconnectDialog({
   }
 
   const { app, provider } = target
-  const displayName = app ? `${provider.displayName} · ${getConnectionAppDisplayName(app)}` : provider.displayName
+  const displayName = provider.displayName
+  const appIndex = app
+    ? Math.max(
+        0,
+        provider.apps.findIndex((item) => item.id === app.id),
+      )
+    : 0
+  const accountTypeLabel = app ? getConnectionAppDisplayLabel(app, appIndex, t) : t("connections.connectionAccounts")
 
   return (
     <Dialog
@@ -1877,9 +1881,7 @@ function DisconnectDialog({
         <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} />
         <div className="min-w-0">
           <div className="oo-text-label truncate">{provider.displayName}</div>
-          <div className="oo-text-caption oo-text-muted truncate">
-            {app ? getConnectionAppDisplayName(app) : (provider.accountLabel ?? provider.service)}
-          </div>
+          <div className="oo-text-caption oo-text-muted truncate">{accountTypeLabel}</div>
         </div>
       </div>
     </Dialog>

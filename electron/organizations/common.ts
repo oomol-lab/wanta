@@ -47,6 +47,16 @@ export interface CreateOrganizationRequest {
   orgName: string
 }
 
+export interface UpdateOrganizationRequest {
+  avatar: string
+  orgId: string
+  orgName: string
+}
+
+export interface UploadOrganizationAvatarResponse {
+  avatar: string
+}
+
 export interface OrganizationCacheRequest {
   forceRefresh?: boolean
 }

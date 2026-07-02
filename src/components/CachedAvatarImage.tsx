@@ -8,8 +8,11 @@ import {
   markAvatarImageFailed,
   normalizeAvatarCacheKey,
   readCachedAvatarImage,
+  refreshCachedAvatarImage,
+  shouldFetchAvatarImage,
   shouldSkipAvatarImageLoad,
 } from "@/lib/avatar-image-cache"
+import { onOrganizationChanged } from "@/lib/organization-change-bus"
 import { cn } from "@/lib/utils"
 
 interface CachedAvatarImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> {
@@ -20,7 +23,10 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
   const cacheKey = React.useMemo(() => normalizeAvatarCacheKey(src), [src])
   const [imageState, setImageState] = React.useState<{ cacheKey: string | null; src: string | null }>(() => ({
     cacheKey,
-    src: readCachedAvatarImage(src),
+    src:
+      cacheKey && !shouldFetchAvatarImage(cacheKey) && !shouldSkipAvatarImageLoad(cacheKey)
+        ? cacheKey
+        : readCachedAvatarImage(src),
   }))
   const imageSrc = imageState.cacheKey === cacheKey ? imageState.src : null
   const [visible, setVisible] = React.useState(false)
@@ -31,6 +37,11 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
     setVisible(false)
     if (!cacheKey) {
       setImageState({ cacheKey, src: null })
+      return
+    }
+
+    if (!shouldFetchAvatarImage(cacheKey)) {
+      setImageState({ cacheKey, src: shouldSkipAvatarImageLoad(cacheKey) ? null : cacheKey })
       return
     }
 
@@ -63,6 +74,36 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
       })
     return () => {
       cancelled = true
+    }
+  }, [cacheKey])
+
+  React.useEffect(() => {
+    if (!cacheKey || !shouldFetchAvatarImage(cacheKey)) {
+      return
+    }
+
+    let cancelled = false
+    const unsubscribe = onOrganizationChanged(() => {
+      setVisible(false)
+      setImageState({ cacheKey, src: null })
+      void refreshCachedAvatarImage(cacheKey)
+        .then((nextSrc) => {
+          if (!cancelled) {
+            setVisible(false)
+            setImageState({ cacheKey, src: nextSrc })
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            remoteFallbackRef.current = true
+            setVisible(false)
+            setImageState({ cacheKey, src: cacheKey })
+          }
+        })
+    })
+    return () => {
+      cancelled = true
+      unsubscribe()
     }
   }, [cacheKey])
 

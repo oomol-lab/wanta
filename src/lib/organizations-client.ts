@@ -8,6 +8,8 @@ import type {
   OrganizationProviderOption,
   OrganizationUserSearchResult,
   OrganizationUserSummary,
+  UpdateOrganizationRequest,
+  UploadOrganizationAvatarResponse,
 } from "../../electron/organizations/common.ts"
 
 import { apiBaseUrl, connectorBaseUrl, orgControlBaseUrl } from "@/lib/domain"
@@ -64,6 +66,19 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null
 }
 
+function normalizeAvatarUrl(value: unknown): string {
+  const raw = asString(value)?.trim()
+  if (!raw) {
+    return ""
+  }
+  try {
+    const url = new URL(raw, apiBaseUrl)
+    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : ""
+  } catch {
+    return ""
+  }
+}
+
 function normalizeOrganization(value: unknown): Organization | undefined {
   if (!isPlainObject(value)) {
     return undefined
@@ -79,7 +94,7 @@ function normalizeOrganization(value: unknown): Organization | undefined {
   return {
     id,
     name,
-    avatar: asString(value["avatar"]) ?? "",
+    avatar: normalizeAvatarUrl(value["avatar"]),
     creator_user_id: creatorUserId,
     ...(role === "creator" || role === "member" ? { role } : {}),
     ...(typeof writable === "boolean" ? { writable } : {}),
@@ -197,6 +212,10 @@ function normalizeAppAccess(value: unknown): OrganizationAppAccess {
   return isPlainObject(value) ? (value as OrganizationAppAccess) : {}
 }
 
+function isFormDataBody(body: unknown): body is FormData {
+  return typeof FormData !== "undefined" && body instanceof FormData
+}
+
 function encodePath(value: string): string {
   return encodeURIComponent(value)
 }
@@ -243,7 +262,7 @@ async function requestJson(baseUrl: string, path: string, options: RequestOption
     Accept: "application/json, text/plain, */*",
     ...optionHeaders,
   }
-  if (init.body !== undefined && !headers["content-type"]) {
+  if (init.body !== undefined && !headers["content-type"] && !isFormDataBody(init.body)) {
     headers["content-type"] = "application/json"
   }
   const response = await oomolFetch(new URL(path, baseUrl), {
@@ -304,6 +323,41 @@ export async function createOrganization(req: CreateOrganizationRequest): Promis
   }
   emitOrganizationChanged()
   return organization
+}
+
+export async function updateOrganization(req: UpdateOrganizationRequest): Promise<Organization> {
+  const orgId = requireIdentifier(req.orgId, "Organization id")
+  const orgName = req.orgName.trim()
+  if (!orgName) {
+    throw new Error("Organization name is required.")
+  }
+  const organization = normalizeOrganization(
+    await requestApiJson(`/v1/orgs/${encodePath(orgId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ org_name: orgName, avatar: req.avatar.trim() }),
+    }),
+  )
+  if (!organization) {
+    throw new Error("Organization response is invalid.")
+  }
+  emitOrganizationChanged()
+  return organization
+}
+
+export async function uploadOrganizationAvatar(orgId: string, file: File): Promise<UploadOrganizationAvatarResponse> {
+  const id = requireIdentifier(orgId, "Organization id")
+  const form = new FormData()
+  form.set("file", file)
+  const result = await requestApiJson(`/v1/orgs/${encodePath(id)}/avatar`, {
+    method: "POST",
+    body: form,
+  })
+  const avatar = isPlainObject(result) ? asString(result["avatar"]) : undefined
+  const uploadedAvatar = avatar?.trim()
+  if (!uploadedAvatar) {
+    throw new Error("Organization avatar response is invalid.")
+  }
+  return { avatar: uploadedAvatar }
 }
 
 export async function listOrganizationMembers(orgId: string): Promise<OrganizationMember[]> {

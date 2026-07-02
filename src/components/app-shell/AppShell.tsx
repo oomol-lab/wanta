@@ -22,7 +22,6 @@ import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
-import type { SkillPageTab } from "@/routes/Skills/skill-route-model"
 import type { ChatStatus } from "ai"
 
 import {
@@ -85,7 +84,7 @@ import { groupSidebarSessions, nextActiveSessionIdAfterArchive, projectHasRunnin
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
-import { useChatService, useSkillService } from "@/components/AppContext"
+import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { BrandIcon } from "@/components/BrandIcon"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
@@ -121,7 +120,7 @@ import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { visibleUserText } from "@/routes/Chat/message-text"
-import { getInstallableOrganizationSkills, getOrganizationSkillRuntimeStatus } from "@/routes/Skills/skill-route-model"
+import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 type Route = "archived" | "billing" | "chat" | "connections" | "organizations" | "skills" | "settings"
 type ProjectSelectionSource = "composer" | "sidebar"
@@ -1932,13 +1931,44 @@ function AppUpdateTitlebarEntry() {
 export function AppShell() {
   const t = useT()
   const chatService = useChatService()
-  const skillService = useSkillService()
   const auth = useAuth()
   const [ready, setReady] = React.useState(false)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace)
   const skillInventory = useSkillInventoryResource()
+  const connections = useConnections(organizationWorkspace.connectionWorkspace)
+  const organizationSkillGroupById = React.useMemo(
+    () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
+    [skillInventory.data?.groups],
+  )
+  const enabledOrganizationSkills = React.useMemo(
+    () => organizationSkills.skills.filter((skill) => skill.enabled),
+    [organizationSkills.skills],
+  )
+  const installableOrganizationSkills = React.useMemo(() => {
+    if (!organizationSkills.organizationId || !skillInventory.data) {
+      return []
+    }
+    return getInstallableOrganizationSkills(organizationSkillGroupById, enabledOrganizationSkills)
+  }, [enabledOrganizationSkills, organizationSkillGroupById, organizationSkills.organizationId, skillInventory.data])
+  const organizationSkillPendingInstallCount = skillInventory.data ? installableOrganizationSkills.length : undefined
+  const organizationSkillEntryVisible = Boolean(
+    organizationSkills.organizationId && enabledOrganizationSkills.length > 0,
+  )
+  const organizationSkillShowcaseItems = React.useMemo<ChatOrganizationSkillContext[]>(() => {
+    const showcaseSkills =
+      installableOrganizationSkills.length > 0 ? installableOrganizationSkills : enabledOrganizationSkills
+    return showcaseSkills.map((skill) => ({
+      ...(skill.description ? { description: skill.description } : {}),
+      ...(skill.icon ? { icon: skill.icon } : {}),
+      id: skill.id,
+      name: skill.displayName || skill.skillName,
+      packageName: skill.packageName,
+      skillName: skill.skillName,
+      version: skill.version,
+    }))
+  }, [enabledOrganizationSkills, installableOrganizationSkills])
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -1968,7 +1998,6 @@ export function AppShell() {
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
   const [route, setRoute] = React.useState<Route>(initialRoute)
-  const [skillsFocusRequest, setSkillsFocusRequest] = React.useState<{ nonce: number; tab: SkillPageTab } | null>(null)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
@@ -2011,10 +2040,11 @@ export function AppShell() {
     activeSessionId,
     route === "chat" ? activeSessionId : null,
   )
-  const connections = useConnections(organizationWorkspace.connectionWorkspace)
-  const installedSkillGroupById = React.useMemo(() => {
-    return new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group]))
-  }, [skillInventory.data?.groups])
+  const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
+  const sharedConnectorCount =
+    organizationWorkspace.activeWorkspace.type === "organization"
+      ? connections.summary?.connectedProviderCount
+      : undefined
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
@@ -2059,8 +2089,6 @@ export function AppShell() {
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
-  const organizationSkillInstallInFlightRef = React.useRef(false)
-  const shownOrganizationSkillNoticeKeysRef = React.useRef<Set<string>>(new Set())
   const titleGenerationInFlightBySession = React.useRef<Map<string, string>>(new Map())
   const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
   const titleGenerationRetryAfterBySession = React.useRef<Map<string, { key: string; retryAfter: number }>>(new Map())
@@ -2075,115 +2103,6 @@ export function AppShell() {
     () => (sidebarSegment === "projects" ? projectSessions : taskSessions),
     [projectSessions, sidebarSegment, taskSessions],
   )
-
-  const focusOrganizationSkills = React.useCallback(() => {
-    setRoute("skills")
-    setSkillsFocusRequest({ nonce: Date.now(), tab: "organization" })
-  }, [])
-
-  const installOrganizationSkills = React.useCallback(
-    async (skills: Array<{ packageName: string; skillName: string }>): Promise<void> => {
-      if (organizationSkillInstallInFlightRef.current) {
-        return
-      }
-      organizationSkillInstallInFlightRef.current = true
-      try {
-        let nextInventory = skillInventory.data
-        for (const skill of skills) {
-          nextInventory = await skillService.invoke("installRegistrySkill", {
-            packageName: skill.packageName,
-            skillId: skill.skillName,
-          })
-        }
-        if (nextInventory) {
-          skillInventory.setData(nextInventory)
-        } else {
-          await skillInventory.refresh({ forceRefresh: true, silent: true })
-        }
-        toast.success(t("skills.organizationInstallDone"))
-      } catch (cause) {
-        toast.error(
-          t("skills.organizationInstallFailed", {
-            error: userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t),
-          }),
-        )
-        focusOrganizationSkills()
-      } finally {
-        organizationSkillInstallInFlightRef.current = false
-      }
-    },
-    [focusOrganizationSkills, skillInventory, skillService, t],
-  )
-
-  React.useEffect(() => {
-    if (
-      organizationWorkspace.activeWorkspace.type !== "organization" ||
-      !organizationSkills.hasLoaded ||
-      !skillInventory.data
-    ) {
-      return
-    }
-
-    const organizationId = organizationWorkspace.activeWorkspace.organizationId
-    const enabledSkills = organizationSkills.skills.filter((skill) => skill.enabled)
-    if (enabledSkills.length === 0) {
-      return
-    }
-
-    const installableSkills = getInstallableOrganizationSkills(installedSkillGroupById, enabledSkills)
-    const attentionCount = enabledSkills.filter((skill) => {
-      const state = getOrganizationSkillRuntimeStatus(installedSkillGroupById, skill).state
-      return state !== "installed-same" && state !== "missing" && state !== "external-only"
-    }).length
-    if (installableSkills.length === 0 && attentionCount === 0) {
-      return
-    }
-
-    const stateKey = enabledSkills
-      .map((skill) => {
-        const state = getOrganizationSkillRuntimeStatus(installedSkillGroupById, skill).state
-        return [skill.packageName, skill.skillName, skill.version, state].join(":")
-      })
-      .sort()
-      .join("|")
-    const noticeKey = `${organizationId}:${stateKey}`
-    if (shownOrganizationSkillNoticeKeysRef.current.has(noticeKey)) {
-      return
-    }
-    shownOrganizationSkillNoticeKeysRef.current.add(noticeKey)
-
-    const extra = attentionCount > 0 ? t("skills.organizationInstallNoticeExtra", { count: attentionCount }) : ""
-    toast(
-      installableSkills.length > 0
-        ? t("skills.organizationInstallNoticeTitle", { count: installableSkills.length })
-        : t("skills.organizationInstallReviewTitle", { count: attentionCount }),
-      {
-        description:
-          installableSkills.length > 0
-            ? t("skills.organizationInstallNoticeDescription", { extra })
-            : t("skills.organizationInstallReviewDescription"),
-        action:
-          installableSkills.length > 0
-            ? {
-                label: t("skills.organizationInstallNoticeAction"),
-                onClick: () => void installOrganizationSkills(installableSkills),
-              }
-            : {
-                label: t("skills.organizationInstallNoticeReview"),
-                onClick: focusOrganizationSkills,
-              },
-      },
-    )
-  }, [
-    focusOrganizationSkills,
-    installOrganizationSkills,
-    installedSkillGroupById,
-    organizationSkills.hasLoaded,
-    organizationSkills.skills,
-    organizationWorkspace.activeWorkspace,
-    skillInventory.data,
-    t,
-  ])
 
   React.useEffect(() => {
     let cancelled = false
@@ -2405,7 +2324,6 @@ export function AppShell() {
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
   const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
   const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
-  const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
   const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
@@ -4106,7 +4024,6 @@ export function AppShell() {
               ) : route === "skills" ? (
                 <SkillsRoute
                   connectedProviders={activeProviders}
-                  focusRequest={skillsFocusRequest}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
                 />
@@ -4115,7 +4032,6 @@ export function AppShell() {
                   connectedProviders={activeProviders}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
-                  onOpenOrganizationSkills={focusOrganizationSkills}
                 />
               ) : (
                 <div className="flex h-full min-h-0 overflow-hidden">
@@ -4137,6 +4053,10 @@ export function AppShell() {
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}
+                      sharedConnectorCount={sharedConnectorCount}
+                      organizationSkillEntryVisible={organizationSkillEntryVisible}
+                      organizationSkillShowcaseItems={organizationSkillShowcaseItems}
+                      organizationSkillPendingInstallCount={organizationSkillPendingInstallCount}
                       organizationSkills={organizationSkills.chatContextSkills}
                       providers={activeProviders}
                       queueHeld={activeQueueHeld}

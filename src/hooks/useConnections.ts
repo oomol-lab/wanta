@@ -8,6 +8,7 @@ import type {
   ConnectionWorkspace,
 } from "../../electron/connections/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
+import type { OAuthPendingOperation } from "./connection-oauth-pending.ts"
 
 import * as React from "react"
 import { useChatService } from "../components/AppContext.ts"
@@ -24,6 +25,11 @@ import {
   updateAlias as updateAliasRequest,
 } from "../lib/connections-client.ts"
 import { resolveConnectionError } from "../lib/connections-error.ts"
+import {
+  connectionWorkspaceKey,
+  createConnectionPollingKey,
+  createOAuthPendingKey,
+} from "./connection-oauth-pending.ts"
 
 const POLL_INTERVAL_MS = 2000
 const POLL_TIMEOUT_MS = 5 * 60_000
@@ -52,12 +58,8 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-function workspaceKey(workspace: ConnectionWorkspace): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
-}
-
 function sameWorkspace(workspace: ConnectionWorkspace | null, key: string): boolean {
-  return workspace ? workspaceKey(workspace) === key : key === "pending"
+  return workspace ? connectionWorkspaceKey(workspace) === key : key === "pending"
 }
 
 export interface UseConnections {
@@ -89,6 +91,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const [actionError, setActionError] = React.useState<UserFacingError | null>(null)
   const [summaryError, setSummaryError] = React.useState<UserFacingError | null>(null)
   const pollAbort = React.useRef<PollOperation | null>(null)
+  const oauthPending = React.useRef<OAuthPendingOperation | null>(null)
   const pollSequence = React.useRef(0)
   const actionSequence = React.useRef(0)
   const effectiveWorkspace = React.useRef<ConnectionWorkspace | null>(workspace)
@@ -112,7 +115,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       const requestId = summaryRequestSequence.current + 1
       summaryRequestSequence.current = requestId
       const generation = workspaceGeneration.current
-      const key = workspaceKey(currentWorkspace)
+      const key = connectionWorkspaceKey(currentWorkspace)
       setBusy((current) => current ?? "refresh")
       try {
         const next = await getConnectionSummary(currentWorkspace, request)
@@ -148,6 +151,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       actionSequence.current += 1
       pollSequence.current += 1
       pollAbort.current?.controller.abort()
+      oauthPending.current = null
       pollAbort.current = null
       setPolling(null)
       setBusy(null)
@@ -156,7 +160,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       setSummary(null)
       return
     }
-    const key = workspaceKey(workspace)
+    const key = connectionWorkspaceKey(workspace)
     if (appliedWorkspaceKey.current === key) {
       return
     }
@@ -167,6 +171,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     actionSequence.current += 1
     pollSequence.current += 1
     pollAbort.current?.controller.abort()
+    oauthPending.current = null
     pollAbort.current = null
     setPolling(null)
     const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
@@ -188,7 +193,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     })()
   }, [chatService, isCurrentWorkspace, refresh, workspace])
 
-  React.useEffect(() => () => pollAbort.current?.controller.abort(), [])
+  React.useEffect(
+    () => () => {
+      pollAbort.current?.controller.abort()
+      oauthPending.current = null
+    },
+    [],
+  )
 
   const connect = React.useCallback(
     async (input: ConnectionConnectInput): Promise<boolean> => {
@@ -198,14 +209,22 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         setActionError(resolveConnectionError("Workspace is still loading.", operation))
         return false
       }
+      const duplicateOAuthKey = input.authType === "oauth2" ? createOAuthPendingKey(currentWorkspace, input) : null
+      const pollingKey = input.authType === "oauth2" ? createConnectionPollingKey(input.service, input.appId) : null
+      if (duplicateOAuthKey && oauthPending.current?.key === duplicateOAuthKey) {
+        setActionError(null)
+        setPolling(oauthPending.current.pollingKey)
+        return false
+      }
       const actionId = actionSequence.current + 1
       actionSequence.current = actionId
       summaryRequestSequence.current += 1
       pollSequence.current += 1
       pollAbort.current?.controller.abort()
+      oauthPending.current = null
       pollAbort.current = null
       const generation = workspaceGeneration.current
-      const key = workspaceKey(currentWorkspace)
+      const key = connectionWorkspaceKey(currentWorkspace)
       const isCurrentAction = (): boolean => {
         return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
       }
@@ -230,9 +249,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
       setActionError(null)
-      setPolling(null)
+      setPolling(pollingKey)
       setBusy("connect")
       let activePollId: number | null = null
+      let activeOAuthActionId: number | null = null
       try {
         if (input.authType !== "oauth2") {
           await connectProvider(input, currentWorkspace)
@@ -241,15 +261,29 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
 
         // oauth2：渲染层取授权 URL → 交主进程用系统浏览器打开 → 轮询直到连上。
+        const oauthKey = createOAuthPendingKey(currentWorkspace, input)
+        activeOAuthActionId = actionId
+        oauthPending.current = {
+          actionId,
+          key: oauthKey,
+          pollingKey: pollingKey ?? input.service,
+          service: input.service,
+        }
         const { authorizationUrl } = await startOAuthConnect(input, currentWorkspace)
+        if (!isCurrentAction()) {
+          return false
+        }
         await chatService.invoke("openExternalUrl", { url: authorizationUrl })
+        if (!isCurrentAction()) {
+          return false
+        }
 
         const abort = new AbortController()
         const pollId = pollSequence.current + 1
         pollSequence.current = pollId
         activePollId = pollId
         pollAbort.current = { controller: abort, id: pollId }
-        applyPolling(input.service)
+        applyPolling(pollingKey)
         applyBusy(null)
 
         const startedAt = Date.now()
@@ -281,6 +315,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         if (activePollId !== null && pollAbort.current?.id === activePollId) {
           pollAbort.current = null
         }
+        if (activeOAuthActionId !== null && oauthPending.current?.actionId === activeOAuthActionId) {
+          oauthPending.current = null
+        }
         applyPolling(null)
         applyBusy(null)
       }
@@ -296,12 +333,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return false
       }
       const generation = workspaceGeneration.current
-      const key = workspaceKey(currentWorkspace)
+      const key = connectionWorkspaceKey(currentWorkspace)
       const actionId = actionSequence.current + 1
       actionSequence.current = actionId
       summaryRequestSequence.current += 1
       pollSequence.current += 1
       pollAbort.current?.controller.abort()
+      oauthPending.current = null
       pollAbort.current = null
       const isCurrentAction = (): boolean => {
         return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
@@ -338,12 +376,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return false
       }
       const generation = workspaceGeneration.current
-      const key = workspaceKey(currentWorkspace)
+      const key = connectionWorkspaceKey(currentWorkspace)
       const actionId = actionSequence.current + 1
       actionSequence.current = actionId
       summaryRequestSequence.current += 1
       pollSequence.current += 1
       pollAbort.current?.controller.abort()
+      oauthPending.current = null
       pollAbort.current = null
       const isCurrentAction = (): boolean => {
         return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
@@ -380,12 +419,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return false
       }
       const generation = workspaceGeneration.current
-      const key = workspaceKey(currentWorkspace)
+      const key = connectionWorkspaceKey(currentWorkspace)
       const actionId = actionSequence.current + 1
       actionSequence.current = actionId
       summaryRequestSequence.current += 1
       pollSequence.current += 1
       pollAbort.current?.controller.abort()
+      oauthPending.current = null
       pollAbort.current = null
       const isCurrentAction = (): boolean => {
         return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
@@ -417,12 +457,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return false
       }
       const generation = workspaceGeneration.current
-      const key = workspaceKey(currentWorkspace)
+      const key = connectionWorkspaceKey(currentWorkspace)
       const actionId = actionSequence.current + 1
       actionSequence.current = actionId
       summaryRequestSequence.current += 1
       pollSequence.current += 1
       pollAbort.current?.controller.abort()
+      oauthPending.current = null
       pollAbort.current = null
       const isCurrentAction = (): boolean => {
         return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
@@ -450,6 +491,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     actionSequence.current += 1
     pollSequence.current += 1
     pollAbort.current?.controller.abort()
+    oauthPending.current = null
     pollAbort.current = null
     setPolling(null)
     setBusy(null)

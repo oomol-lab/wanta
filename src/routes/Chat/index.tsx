@@ -29,6 +29,7 @@ import {
   ChevronRight,
   ChevronUp,
   CopyIcon,
+  Package,
   PlugZap,
   ThumbsDown,
   ThumbsUp,
@@ -80,7 +81,6 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
-import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 
 const GeneratedArtifacts = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
@@ -111,6 +111,10 @@ interface ChatAreaProps {
   queuedMessages: QueuedChatMessage[]
   placeholder: string
   contextBar?: React.ReactNode
+  sharedConnectorCount?: number
+  organizationSkillEntryVisible?: boolean
+  organizationSkillPendingInstallCount?: number
+  organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
   organizationSkills?: ChatOrganizationSkillContext[]
   onSend: (
     text: string,
@@ -141,13 +145,11 @@ interface ChatAreaProps {
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const EMPTY_COMPOSER_MAX_WIDTH_CLASS = "min-w-0 max-w-[47.5rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
-const CONNECTOR_SHOWCASE_PROVIDERS = [
-  { names: ["gmail"], label: "Gmail" },
-  { names: ["slack"], label: "Slack" },
-  { names: ["notion"], label: "Notion" },
-  { names: ["github"], label: "GitHub" },
-  { names: ["google drive", "googledrive", "google_drive", "gdrive", "drive"], label: "Google Drive" },
-] as const
+
+interface OrganizationSkillShowcaseItem {
+  id: string
+  name: string
+}
 
 type TurnProcessStatus =
   | "running"
@@ -182,36 +184,6 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = 
     return "stopped"
   }
   return "completed"
-}
-
-function normalizeProviderLookupText(value: string): string {
-  return value.toLowerCase().replace(/[\s_-]+/g, "")
-}
-
-function connectorShowcaseProviders(providers: ConnectionProvider[]): ConnectionProvider[] {
-  return CONNECTOR_SHOWCASE_PROVIDERS.map((target) => {
-    const provider = providers.find((item) => {
-      const service = normalizeProviderLookupText(item.service)
-      const displayName = normalizeProviderLookupText(item.displayName)
-      return target.names.some((name) => {
-        const normalizedName = normalizeProviderLookupText(name)
-        return service === normalizedName || displayName === normalizedName
-      })
-    })
-    return (
-      provider ?? {
-        actionKind: "unavailable",
-        appCount: 0,
-        apps: [],
-        authTypes: [],
-        canDisconnect: false,
-        categoryLabels: [],
-        displayName: target.label,
-        service: normalizeProviderLookupText(target.label),
-        status: "available",
-      }
-    )
-  })
 }
 
 function formatProcessDuration(
@@ -1179,63 +1151,109 @@ const ChatTimeline = React.memo(function ChatTimeline({
 })
 
 function EmptyStateActions({
-  providers,
+  organizationSkillEntryVisible = false,
+  organizationSkillPendingInstallCount,
+  organizationSkillShowcaseItems = [],
+  sharedConnectorCount,
   onOpenConnections,
   onOpenOrganizations,
 }: {
-  providers: ConnectionProvider[]
+  organizationSkillEntryVisible?: boolean
+  organizationSkillPendingInstallCount?: number
+  organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
+  sharedConnectorCount?: number
   onOpenConnections?: () => void
   onOpenOrganizations?: () => void
 }) {
   const t = useT()
-  const showcaseProviders = React.useMemo(() => connectorShowcaseProviders(providers), [providers])
+  const sharedConnectorMeta =
+    typeof sharedConnectorCount === "number"
+      ? t("chat.emptySharedConnectorsMeta", { count: sharedConnectorCount })
+      : t("chat.emptySharedConnectorsMetaFallback")
+  const pendingOrganizationSkillCount = organizationSkillPendingInstallCount ?? organizationSkillShowcaseItems.length
+  const organizationSkillMeta =
+    pendingOrganizationSkillCount > 0
+      ? t("chat.emptyOrganizationSkillsMeta", { count: pendingOrganizationSkillCount })
+      : t("chat.emptyOrganizationSkillsRecommendedMeta", { count: organizationSkillShowcaseItems.length })
+  const organizationSkillAction =
+    pendingOrganizationSkillCount > 0
+      ? t("chat.emptyOrganizationSkillsAction")
+      : t("chat.emptyOrganizationSkillsViewAction")
 
   return (
     <div className="w-full pl-2 text-muted-foreground">
       <div className="grid min-w-0 justify-start gap-1 overflow-hidden">
-        <button
-          type="button"
-          className="group flex min-h-8 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          aria-label={t("chat.emptyConnectorsAria")}
-          onClick={onOpenConnections}
-        >
-          <span
-            className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
-            aria-hidden="true"
-          >
-            <PlugZap className="size-4" />
-          </span>
-          <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyConnectorsAction")}</span>
-          <span className="flex min-w-0 shrink-0 items-center gap-1" aria-hidden="true">
-            {showcaseProviders.map((provider) => (
-              <ProviderIcon
-                key={provider.service}
-                iconUrl={provider.iconUrl}
-                displayName={provider.displayName}
-                size="showcase"
-              />
-            ))}
-          </span>
-          <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
-        </button>
-
-        <button
-          type="button"
-          className="group flex min-h-8 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          aria-label={t("chat.emptyOrganizationsAria")}
+        <EmptyCapabilityAction
+          icon={<Building2 className="size-4" />}
+          title={t("chat.emptySharedConnectorsTitle")}
+          meta={sharedConnectorMeta}
+          actionLabel={t("chat.emptySharedConnectorsAction")}
+          ariaLabel={t("chat.emptyOrganizationsAria")}
           onClick={onOpenOrganizations}
-        >
-          <span
-            className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
-            aria-hidden="true"
-          >
-            <Building2 className="size-4" />
-          </span>
-          <span className="oo-text-control min-w-0 truncate font-medium">{t("chat.emptyOrganizationsAction")}</span>
-          <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
-        </button>
+        />
+        <EmptyCapabilityAction
+          icon={<PlugZap className="size-4" />}
+          title={t("chat.emptyConnectorsTitle")}
+          meta={t("chat.emptyConnectorsMeta")}
+          actionLabel={t("chat.emptyConnectorsAction")}
+          ariaLabel={t("chat.emptyConnectorsAria")}
+          onClick={onOpenConnections}
+        />
+        {organizationSkillEntryVisible ? (
+          <EmptyCapabilityAction
+            icon={<Package className="size-4" />}
+            title={t("chat.emptyOrganizationSkillsTitle")}
+            meta={organizationSkillMeta}
+            actionLabel={organizationSkillAction}
+            ariaLabel={t("chat.emptyOrganizationSkillsAria")}
+            onClick={onOpenOrganizations}
+          />
+        ) : null}
       </div>
     </div>
+  )
+}
+
+function EmptyCapabilityAction({
+  actionLabel,
+  ariaLabel,
+  icon,
+  meta,
+  title,
+  onClick,
+}: {
+  actionLabel: string
+  ariaLabel: string
+  icon: React.ReactNode
+  meta: string
+  title: string
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className="group flex min-h-8 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      aria-label={ariaLabel}
+      onClick={onClick}
+    >
+      <span
+        className="inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground transition-colors group-hover:text-foreground"
+        aria-hidden="true"
+      >
+        {icon}
+      </span>
+      <span className="oo-text-control flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate font-medium">{title}</span>
+        <span className="shrink-0 opacity-60" aria-hidden="true">
+          ·
+        </span>
+        <span className="min-w-0 truncate">{meta}</span>
+      </span>
+      <span className="oo-text-control ml-1 shrink-0 font-medium opacity-80 transition-opacity group-hover:opacity-100">
+        {actionLabel}
+      </span>
+      <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
+    </button>
   )
 }
 
@@ -1257,6 +1275,10 @@ export const ChatArea = React.memo(function ChatArea({
   initialComposerState,
   initialSendPending,
   providers,
+  sharedConnectorCount,
+  organizationSkillEntryVisible,
+  organizationSkillPendingInstallCount,
+  organizationSkillShowcaseItems,
   queueHeld,
   queuedMessages,
   placeholder,
@@ -1353,7 +1375,10 @@ export const ChatArea = React.memo(function ChatArea({
         <div className="flex flex-col gap-3">
           {composer}
           <EmptyStateActions
-            providers={providers}
+            organizationSkillEntryVisible={organizationSkillEntryVisible}
+            organizationSkillPendingInstallCount={organizationSkillPendingInstallCount}
+            organizationSkillShowcaseItems={organizationSkillShowcaseItems}
+            sharedConnectorCount={sharedConnectorCount}
             onOpenConnections={onOpenConnections}
             onOpenOrganizations={onOpenOrganizations}
           />

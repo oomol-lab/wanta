@@ -458,6 +458,7 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /User-selected context for this turn/)
   assert.match(options?.system ?? "", /ecommerce-image-studio/)
   assert.match(options?.system ?? "", /gmail/)
+  assert.doesNotMatch(options?.system ?? "", /account: "work"/)
   assert.match(options?.system ?? "", /consider the selected connection first/)
   assert.match(options?.system ?? "", /Do not use it for unrelated local files/)
   assert.match(options?.system ?? "", /Current local project context/)

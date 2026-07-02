@@ -48,6 +48,8 @@ const t = ((key: string) => translations[key] ?? key) as TranslateFn
 const connectionPaletteCopy = {
   accountActiveHint: "Click right arrow to choose",
   accountCount: (count: number) => `${count} accounts`,
+  accountFallbackLabel: (auth: string, index: number) => `${auth} connection ${index}`,
+  authLabel: (authType: string | null) => (authType === "oauth2" ? "OAuth" : (authType ?? "Unknown auth")),
   connectProvider: t("chat.connectionConnectDescription"),
   defaultAccountDescription: (account: string) => t("chat.connectionDefaultAccountDescription", { account }),
   defaultLabel: "Default",
@@ -336,6 +338,7 @@ describe("composer palette items", () => {
       appId: "app-work",
       canOpenAccounts: true,
       connectionAction: "use",
+      description: "Default · {account}",
       id: "connection-provider:gmail",
       meta: undefined,
       secondaryActionActiveLabel: "Click right arrow to choose",
@@ -351,18 +354,20 @@ describe("composer palette items", () => {
     expect(accountItems[0]).toMatchObject({
       appId: "app-work",
       connectionAction: "use",
-      description: "",
+      description: "OAuth",
       isDefault: true,
       meta: "Default",
       secondaryActionLabel: undefined,
+      title: "work@example.com",
     })
     expect(accountItems[1]).toMatchObject({
       appId: "app-personal",
-      description: "personal@example.com",
+      description: "OAuth",
       isDefault: false,
       secondaryActionIconVisibility: "active",
       secondaryActionLabel: "Set default · Press right arrow",
       secondaryActionTitle: "Set default · Press right arrow",
+      title: "personal",
     })
     expect(accountItems[1]).not.toHaveProperty("secondaryActionActiveLabel")
   })

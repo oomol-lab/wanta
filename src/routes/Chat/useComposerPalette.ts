@@ -37,8 +37,8 @@ interface UseComposerPaletteOptions {
   onAddArtifactAttachment: (item: ArtifactPaletteItem) => void
   onAddContextMention: (mention: ChatContextMention) => void
   onOpenConnectionProvider?: (service: string, displayName: string) => void
+  onRequestSetDefaultConnection?: (item: ConnectionAccountPaletteItem, selectConnection: () => void) => void
   onSelectAttachments: (kind: AttachmentPickerKind) => void
-  onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onViewBilling?: () => void
   skillItems: SkillPaletteItem[]
   slashItems: SlashCommandPaletteItem[]
@@ -75,8 +75,8 @@ export function useComposerPalette({
   onAddArtifactAttachment,
   onAddContextMention,
   onOpenConnectionProvider,
+  onRequestSetDefaultConnection,
   onSelectAttachments,
-  onSetDefaultConnection,
   onViewBilling,
   skillItems,
   slashItems,
@@ -277,22 +277,14 @@ export function useComposerPalette({
     [dispatch, focusDraftAt, onAddContextMention, onOpenConnectionProvider],
   )
 
-  const setDefaultAndApplyConnectionItem = React.useCallback(
-    async (item: ConnectionAccountPaletteItem, currentTrigger: ComposerTrigger) => {
-      if (item.disabled || !onSetDefaultConnection) {
+  const requestSetDefaultConnection = React.useCallback(
+    (item: ConnectionAccountPaletteItem, currentTrigger: ComposerTrigger) => {
+      if (item.disabled || !onRequestSetDefaultConnection) {
         return
       }
-      try {
-        const accepted = await onSetDefaultConnection(item.service, item.appId)
-        if (!accepted) {
-          return
-        }
-        applyConnectionItem(item, currentTrigger)
-      } catch (cause) {
-        console.error("[wanta] set default connection failed", cause)
-      }
+      onRequestSetDefaultConnection(item, () => applyConnectionItem(item, currentTrigger))
     },
-    [applyConnectionItem, onSetDefaultConnection],
+    [applyConnectionItem, onRequestSetDefaultConnection],
   )
 
   const applyAttachmentItem = React.useCallback(
@@ -361,10 +353,10 @@ export function useComposerPalette({
         return
       }
       if (item.kind === "connection-account" && item.secondaryActionLabel && !item.secondaryActionDisabled) {
-        void setDefaultAndApplyConnectionItem(item, activeTrigger)
+        requestSetDefaultConnection(item, activeTrigger)
       }
     },
-    [activeTrigger, openConnectionAccounts, setDefaultAndApplyConnectionItem],
+    [activeTrigger, openConnectionAccounts, requestSetDefaultConnection],
   )
 
   const handleKeyDown = React.useCallback(
@@ -386,6 +378,18 @@ export function useComposerPalette({
         return
       }
       if (
+        event.key === "ArrowRight" &&
+        activeItem?.kind === "connection-account" &&
+        !activeItem.disabled &&
+        activeItem.secondaryActionLabel &&
+        !activeItem.secondaryActionDisabled &&
+        activeTrigger
+      ) {
+        event.preventDefault()
+        requestSetDefaultConnection(activeItem, activeTrigger)
+        return
+      }
+      if (
         event.key === "Enter" &&
         (event.metaKey || event.altKey) &&
         activeItem?.kind === "connection-account" &&
@@ -395,7 +399,7 @@ export function useComposerPalette({
         activeTrigger
       ) {
         event.preventDefault()
-        void setDefaultAndApplyConnectionItem(activeItem, activeTrigger)
+        requestSetDefaultConnection(activeItem, activeTrigger)
         return
       }
       const action = resolveComposerPaletteKeyAction({
@@ -437,7 +441,7 @@ export function useComposerPalette({
       open,
       openConnectionAccounts,
       paletteMode,
-      setDefaultAndApplyConnectionItem,
+      requestSetDefaultConnection,
       triggerKey,
       updatePaletteNavigation,
     ],

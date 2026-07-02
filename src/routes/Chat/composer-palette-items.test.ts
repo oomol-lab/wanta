@@ -37,24 +37,23 @@ const translations: Record<string, string> = {
   "chat.contextAttachFolderDescription": "Choose a folder from disk for this turn",
   "chat.contextGeneratedArtifactDescription": "Reference a generated file from this chat",
   "chat.contextGeneratedImageDescription": "Reference a generated image from this chat",
-  "chat.connectionAccountCount": "{count} accounts ›",
+  "chat.connectionAccountCount": "{count} accounts",
   "chat.connectionConnectDescription": "Connect it to use this connector",
   "chat.connectionDefaultAccountDescription": "Default · {account}",
-  "chat.connectionSetDefaultAndUse": "Set default and use",
+  "chat.connectionSetDefault": "Set default · Press right arrow",
   "chat.connectionUnsupportedDescription": "Connection setup is not supported in Wanta yet",
-  "chat.connectionUseForThisTurn": "Use for this turn",
 }
 
 const t = ((key: string) => translations[key] ?? key) as TranslateFn
 const connectionPaletteCopy = {
-  accountCount: (count: number) => `${count} accounts ›`,
+  accountActiveHint: "Click right arrow to choose",
+  accountCount: (count: number) => `${count} accounts`,
   connectProvider: t("chat.connectionConnectDescription"),
   defaultAccountDescription: (account: string) => t("chat.connectionDefaultAccountDescription", { account }),
   defaultLabel: "Default",
   needsAttention: "Needs attention",
-  setDefaultAndUse: t("chat.connectionSetDefaultAndUse"),
+  setDefault: t("chat.connectionSetDefault"),
   unsupportedProvider: t("chat.connectionUnsupportedDescription"),
-  useForThisTurn: t("chat.connectionUseForThisTurn"),
 }
 
 function runtimeSkillGroup(
@@ -301,6 +300,7 @@ describe("composer palette items", () => {
       apps: [
         {
           accountLabel: "personal@example.com",
+          alias: "personal",
           authType: "oauth2",
           createdAt: 1,
           id: "app-personal",
@@ -337,7 +337,10 @@ describe("composer palette items", () => {
       canOpenAccounts: true,
       connectionAction: "use",
       id: "connection-provider:gmail",
-      secondaryActionLabel: "2 accounts ›",
+      meta: undefined,
+      secondaryActionActiveLabel: "Click right arrow to choose",
+      secondaryActionLabel: "2 accounts",
+      secondaryActionTitle: "2 accounts · Click right arrow to choose",
     })
 
     const accountItems = buildConnectionAccountPaletteItems(provider, connectionPaletteCopy)
@@ -348,14 +351,64 @@ describe("composer palette items", () => {
     expect(accountItems[0]).toMatchObject({
       appId: "app-work",
       connectionAction: "use",
+      description: "",
       isDefault: true,
       meta: "Default",
       secondaryActionLabel: undefined,
     })
     expect(accountItems[1]).toMatchObject({
       appId: "app-personal",
+      description: "personal@example.com",
       isDefault: false,
-      secondaryActionLabel: "Set default and use",
+      secondaryActionIconVisibility: "active",
+      secondaryActionLabel: "Set default · Press right arrow",
+      secondaryActionTitle: "Set default · Press right arrow",
+    })
+    expect(accountItems[1]).not.toHaveProperty("secondaryActionActiveLabel")
+  })
+
+  it("hides account default actions when the set default copy is empty", () => {
+    const provider: ConnectionProvider = {
+      actionKind: "oauth2",
+      appCount: 2,
+      appId: "app-work",
+      appStatus: "active",
+      apps: [
+        {
+          accountLabel: "personal@example.com",
+          authType: "oauth2",
+          createdAt: 1,
+          id: "app-personal",
+          isDefault: false,
+          service: "gmail",
+          status: "active",
+          updatedAt: 1,
+        },
+        {
+          accountLabel: "work@example.com",
+          authType: "oauth2",
+          createdAt: 2,
+          id: "app-work",
+          isDefault: true,
+          service: "gmail",
+          status: "active",
+          updatedAt: 2,
+        },
+      ],
+      authTypes: ["oauth2"],
+      canDisconnect: true,
+      categoryLabels: [],
+      displayName: "Gmail",
+      service: "gmail",
+      status: "connected",
+    }
+
+    const accountItems = buildConnectionAccountPaletteItems(provider, { ...connectionPaletteCopy, setDefault: "" })
+
+    expect(accountItems[1]).toMatchObject({
+      appId: "app-personal",
+      secondaryActionLabel: undefined,
+      secondaryActionTitle: undefined,
     })
   })
 
@@ -475,7 +528,9 @@ describe("composer palette items", () => {
       appId: "app-active",
       connectionAction: "use",
       disabled: false,
-      secondaryActionLabel: "2 accounts ›",
+      secondaryActionActiveLabel: "Click right arrow to choose",
+      secondaryActionLabel: "2 accounts",
+      secondaryActionTitle: "2 accounts · Click right arrow to choose",
     })
   })
 })

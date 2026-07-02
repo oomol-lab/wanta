@@ -1342,7 +1342,7 @@ export function ModelReasoningPicker({
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled}
-        className="h-8 max-w-[12rem] min-w-0 shrink rounded-full px-2"
+        className="h-8 max-w-[15rem] min-w-0 shrink rounded-full px-2"
         onClick={() => setOpen((value) => !value)}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
@@ -1352,7 +1352,11 @@ export function ModelReasoningPicker({
         }}
       >
         <Brain className="size-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-1 text-left">
+          <span className="min-w-0 truncate">{selected.label}</span>
+          <span className="shrink-0 text-muted-foreground">·</span>
+          <span className="shrink-0">{selectedReasoningLabel}</span>
+        </span>
         <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-180")} />
       </Button>
       {rootMenu}

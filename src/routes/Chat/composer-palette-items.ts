@@ -249,13 +249,13 @@ export function buildSkillPaletteItems(
 
 export interface ConnectionPaletteCopy {
   accountCount: (count: number) => string
+  accountActiveHint: string
   connectProvider: string
   defaultAccountDescription: (account: string) => string
   defaultLabel: string
   needsAttention: string
-  setDefaultAndUse: string
+  setDefault: string
   unsupportedProvider: string
-  useForThisTurn: string
 }
 
 function connectionAppDisplayName(app: ConnectionAppSummary): string {
@@ -314,6 +314,7 @@ export function buildConnectionPaletteItems(
           ? "unsupported"
           : "connect"
     const hasMultipleAccounts = connectionAction === "use" && apps.length > 1
+    const accountCountLabel = hasMultipleAccounts ? copy.accountCount(apps.length) : undefined
     const description =
       connectionAction === "use" && accountLabel
         ? copy.defaultAccountDescription(accountLabel)
@@ -337,7 +338,7 @@ export function buildConnectionPaletteItems(
       icon: React.createElement(ProviderIcon, {
         displayName: provider.displayName,
         iconUrl: provider.iconUrl,
-        size: "compact",
+        size: "showcase",
       }),
       id: `connection-provider:${provider.service}`,
       keywords: providerKeywords(provider, apps),
@@ -346,12 +347,14 @@ export function buildConnectionPaletteItems(
         connectionAction === "use" && !hasMultipleAccounts
           ? needsAttention
             ? copy.needsAttention
-            : provider.service
+            : undefined
           : connectionAction === "attention"
             ? copy.needsAttention
             : undefined,
-      secondaryActionLabel: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
-      secondaryActionTitle: hasMultipleAccounts ? copy.accountCount(apps.length) : undefined,
+      secondaryActionActiveLabel: hasMultipleAccounts ? copy.accountActiveHint : undefined,
+      secondaryActionLabel: accountCountLabel,
+      secondaryActionTitle:
+        hasMultipleAccounts && accountCountLabel ? `${accountCountLabel} · ${copy.accountActiveHint}` : undefined,
       provider,
       service: provider.service,
       title: provider.displayName,
@@ -382,8 +385,8 @@ export function buildConnectionAccountPaletteItems(
     })
     .map((app): ConnectionAccountPaletteItem => {
       const title = connectionAppDisplayName(app)
-      const description =
-        app.status === "active" ? (connectionAppSecondaryLabel(app) ?? copy.useForThisTurn) : copy.needsAttention
+      const description = app.status === "active" ? (connectionAppSecondaryLabel(app) ?? "") : copy.needsAttention
+      const canSetDefault = Boolean(copy.setDefault) && !app.isDefault && app.status === "active"
       return {
         accountLabel: title,
         appId: app.id,
@@ -394,7 +397,7 @@ export function buildConnectionAccountPaletteItems(
         icon: React.createElement(ProviderIcon, {
           displayName: provider.displayName,
           iconUrl: provider.iconUrl,
-          size: "compact",
+          size: "showcase",
         }),
         id: `connection-account:${provider.service}:${app.id}`,
         isDefault: app.isDefault,
@@ -402,7 +405,9 @@ export function buildConnectionAccountPaletteItems(
         kind: "connection-account",
         meta: app.isDefault ? copy.defaultLabel : undefined,
         secondaryActionDisabled: app.status !== "active",
-        secondaryActionLabel: app.isDefault || app.status !== "active" ? undefined : copy.setDefaultAndUse,
+        secondaryActionIconVisibility: canSetDefault ? "active" : undefined,
+        secondaryActionLabel: canSetDefault ? copy.setDefault : undefined,
+        secondaryActionTitle: canSetDefault ? copy.setDefault : undefined,
         service: provider.service,
         status: app.status,
         title,

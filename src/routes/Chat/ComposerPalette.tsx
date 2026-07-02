@@ -1,4 +1,4 @@
-import { ChevronLeft } from "lucide-react"
+import { ArrowRight, ChevronLeft } from "lucide-react"
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -10,6 +10,8 @@ export interface ComposerPaletteItem {
   keywords?: string[]
   meta?: string
   secondaryActionDisabled?: boolean
+  secondaryActionActiveLabel?: string
+  secondaryActionIconVisibility?: "active"
   secondaryActionLabel?: string
   secondaryActionTitle?: string
   title: string
@@ -107,12 +109,19 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
       {items.length > 0 ? (
         items.map((item) => {
           const active = item.id === activeId
+          const showSecondaryActiveLabel = active && item.secondaryActionActiveLabel
+          const showSecondaryIcon = item.secondaryActionActiveLabel || item.secondaryActionIconVisibility
+          const secondaryActionTitle =
+            item.secondaryActionTitle ??
+            (item.secondaryActionActiveLabel
+              ? `${item.secondaryActionLabel} · ${item.secondaryActionActiveLabel}`
+              : item.secondaryActionLabel)
           return (
             <div
               key={item.id}
               ref={active ? activeItemRef : undefined}
               className={cn(
-                "flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left outline-none",
+                "group flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left outline-none focus-within:bg-accent focus-within:text-accent-foreground hover:bg-accent hover:text-accent-foreground",
                 active && "bg-accent text-accent-foreground",
                 item.disabled && "cursor-not-allowed opacity-55",
               )}
@@ -122,14 +131,14 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
                 disabled={item.disabled}
                 className={cn(
                   "-mx-2 flex h-full min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left outline-none",
-                  "hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                  "focus-visible:text-accent-foreground",
                   active && "text-accent-foreground",
                   item.disabled && "cursor-not-allowed",
                 )}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onSelect(item)}
               >
-                <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                <span className="flex size-6 shrink-0 items-center justify-center text-muted-foreground">
                   {item.icon}
                 </span>
                 <span className="flex min-w-0 flex-1 items-baseline gap-2">
@@ -142,13 +151,35 @@ export function ComposerPalette<TItem extends ComposerPaletteItem>({
               {item.secondaryActionLabel && onSecondarySelect ? (
                 <button
                   type="button"
-                  title={item.secondaryActionTitle ?? item.secondaryActionLabel}
+                  aria-label={secondaryActionTitle}
+                  title={secondaryActionTitle}
                   disabled={item.secondaryActionDisabled}
-                  className="oo-text-caption-compact ml-1 max-w-32 shrink-0 truncate rounded-md px-2 py-1 text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:bg-background focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  className={cn(
+                    "oo-text-caption-compact group/secondary ml-1 flex shrink-0 items-center gap-1 rounded-md px-2 py-1 whitespace-nowrap text-muted-foreground transition-opacity outline-none hover:text-foreground focus-visible:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+                    item.secondaryActionIconVisibility === "active" &&
+                      !active &&
+                      "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+                  )}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onSecondarySelect(item)}
                 >
-                  {item.secondaryActionLabel}
+                  <span>{item.secondaryActionLabel}</span>
+                  {showSecondaryActiveLabel ? (
+                    <>
+                      <span className="shrink-0">·</span>
+                      <span className="shrink-0">{item.secondaryActionActiveLabel}</span>
+                    </>
+                  ) : null}
+                  {showSecondaryIcon ? (
+                    <ArrowRight
+                      className={cn(
+                        "size-3.5 shrink-0 transition-all group-focus-within:opacity-100 group-hover:opacity-100 group-hover/secondary:translate-x-0.5 group-focus-visible/secondary:translate-x-0.5",
+                        item.secondaryActionIconVisibility === "active" &&
+                          !active &&
+                          "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+                      )}
+                    />
+                  ) : null}
                 </button>
               ) : item.meta ? (
                 <span className="oo-text-caption-compact ml-1 max-w-20 shrink-0 truncate text-muted-foreground">

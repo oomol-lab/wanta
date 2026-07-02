@@ -14,7 +14,7 @@ import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 import type { ChatStatus } from "ai"
 import type { StickToBottomContext } from "use-stick-to-bottom"
 
-import { CheckIcon, ChevronDown, ChevronRight, ChevronUp, CopyIcon, PlugZap, ThumbsDown, ThumbsUp } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
 import * as React from "react"
 import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
@@ -32,6 +32,12 @@ import {
 } from "./chat-turns.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
+import {
+  AssistantMessageActions,
+  ConnectionSuggestionAction,
+  CopyMessageAction,
+  MessageTimestamp,
+} from "./ChatMessageActions.tsx"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import {
@@ -47,15 +53,8 @@ import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool
 import { hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
-import {
-  Message,
-  MessageAction,
-  MessageActions,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message"
+import { Message, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
-import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -317,169 +316,6 @@ function LiveStatusBar({
       <div className="flex min-h-6 min-w-0 items-center">
         <LoadingShimmerText className="min-w-0 truncate">{text}</LoadingShimmerText>
       </div>
-    </div>
-  )
-}
-
-function formatMessageTime(createdAt: number): string {
-  if (!Number.isFinite(createdAt)) {
-    return ""
-  }
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(createdAt))
-}
-
-function MessageTimestamp({ createdAt }: { createdAt: number }) {
-  const label = formatMessageTime(createdAt)
-  if (!label) {
-    return null
-  }
-  return <span className="oo-text-caption text-muted-foreground/80 tabular-nums">{label}</span>
-}
-
-function CopyMessageAction({ text }: { text: string }) {
-  const t = useT()
-  const [copied, setCopied] = React.useState(false)
-  const timeoutRef = React.useRef<number | undefined>(undefined)
-
-  React.useEffect(
-    () => () => {
-      if (timeoutRef.current !== undefined) {
-        window.clearTimeout(timeoutRef.current)
-      }
-    },
-    [],
-  )
-
-  if (!text) {
-    return null
-  }
-
-  const writeClipboard = async (): Promise<boolean> => {
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text)
-        return true
-      } catch {
-        // 继续走 DOM fallback。
-      }
-    }
-
-    const textarea = document.createElement("textarea")
-    textarea.value = text
-    textarea.setAttribute("readonly", "")
-    textarea.style.position = "fixed"
-    textarea.style.top = "-9999px"
-    textarea.style.left = "-9999px"
-    document.body.append(textarea)
-    textarea.select()
-    try {
-      return document.execCommand("copy")
-    } finally {
-      textarea.remove()
-    }
-  }
-
-  const copyToClipboard = async (): Promise<void> => {
-    const didCopy = await writeClipboard()
-    if (!didCopy) {
-      setCopied(false)
-      return
-    }
-    setCopied(true)
-    if (timeoutRef.current !== undefined) {
-      window.clearTimeout(timeoutRef.current)
-    }
-    timeoutRef.current = window.setTimeout(() => setCopied(false), 3000)
-  }
-
-  const Icon = copied ? CheckIcon : CopyIcon
-  const label = copied ? t("chat.copiedMessage") : t("chat.copyMessage")
-
-  return (
-    <MessageAction
-      label={label}
-      tooltip={label}
-      className={cn(copied && "bg-accent text-foreground hover:bg-accent hover:text-foreground")}
-      onClick={() => void copyToClipboard()}
-    >
-      <Icon className="size-3.5" />
-    </MessageAction>
-  )
-}
-
-type MessageRating = "up" | "down"
-
-function MessageFeedbackAction({
-  rating,
-  activeRating,
-  onRatingChange,
-}: {
-  rating: MessageRating
-  activeRating: MessageRating | null
-  onRatingChange: (rating: MessageRating | null) => void
-}) {
-  const t = useT()
-  const active = activeRating === rating
-  const Icon = rating === "up" ? ThumbsUp : ThumbsDown
-  const label = rating === "up" ? t("chat.likeMessage") : t("chat.dislikeMessage")
-
-  return (
-    <MessageAction
-      label={label}
-      tooltip={label}
-      aria-pressed={active}
-      className={cn(active && "oo-message-feedback-action-active")}
-      onClick={() => onRatingChange(active ? null : rating)}
-    >
-      <Icon className={cn("size-3.5", active && "fill-current")} />
-    </MessageAction>
-  )
-}
-
-function AssistantMessageActions({ text, cancelled }: { text: string; cancelled: boolean }) {
-  const t = useT()
-  // TODO(wanta-feedback-api): 接入反馈 API 后，将这里的本地状态同步为服务端的消息反馈结果。
-  const [activeRating, setActiveRating] = React.useState<MessageRating | null>(null)
-
-  if (!text && !cancelled) {
-    return null
-  }
-
-  return (
-    <div className="mt-1">
-      {cancelled ? <div className="oo-text-caption mb-1 text-muted-foreground">{t("chat.userCancelled")}</div> : null}
-      {text ? (
-        <MessageActions className="pointer-events-auto static opacity-100">
-          <CopyMessageAction text={text} />
-          <MessageFeedbackAction rating="up" activeRating={activeRating} onRatingChange={setActiveRating} />
-          <MessageFeedbackAction rating="down" activeRating={activeRating} onRatingChange={setActiveRating} />
-        </MessageActions>
-      ) : null}
-    </div>
-  )
-}
-
-function ConnectionSuggestionAction({
-  authorization,
-  provider,
-  onAuthorize,
-}: {
-  authorization: AuthorizationInfo
-  provider?: ConnectionProvider
-  onAuthorize: (auth: AuthorizationInfo) => void
-}) {
-  const t = useT()
-  if (provider?.status === "connected" && provider.appStatus === "active") {
-    return null
-  }
-  const displayName = provider?.displayName ?? authorization.displayName
-  return (
-    <div className="not-prose mt-3 flex flex-wrap items-center gap-2">
-      <span className="oo-text-caption text-muted-foreground">{t("chat.authNeeded", { name: displayName })}</span>
-      <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5" onClick={() => onAuthorize(authorization)}>
-        <PlugZap className="size-3.5" />
-        {t("chat.authorizeConnection")}
-      </Button>
     </div>
   )
 }

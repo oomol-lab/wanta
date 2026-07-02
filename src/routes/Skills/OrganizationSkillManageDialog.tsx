@@ -24,6 +24,14 @@ import {
   planOrganizationSkillBulkLinks,
   runtimeSkillRemoveBusyKey,
 } from "./organization-management-model.ts"
+import {
+  looksLikeSkillPackageName,
+  mergeMarketPackages,
+  organizationRuntimeStatusLabel,
+  organizationRuntimeStatusTone,
+  organizationSkillMatchesQuery,
+  providerRecommendationMatchesQuery,
+} from "./organization-skill-manage-helpers.ts"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
@@ -77,92 +85,8 @@ import {
 
 type OrganizationSkillManageTab = "configured" | "market" | "recommended"
 
-function looksLikeSkillPackageName(query: string): boolean {
-  const normalized = query.trim()
-  return /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i.test(normalized) && normalized.length >= 3
-}
-
-function mergeMarketPackages(
-  packageInfo: PublicSkillPackage | null,
-  packages: readonly PublicSkillPackage[],
-): PublicSkillPackage[] {
-  const items = packageInfo ? [packageInfo, ...packages] : [...packages]
-  const seen = new Set<string>()
-  return items.filter((item) => {
-    const key = item.name.trim().toLowerCase()
-    if (!key || seen.has(key)) {
-      return false
-    }
-    seen.add(key)
-    return true
-  })
-}
-
-function organizationSkillMatchesQuery(
-  skill: UseOrganizationSkills["skills"][number],
-  normalizedQuery: string,
-): boolean {
-  if (!normalizedQuery) {
-    return true
-  }
-  return [skill.displayName, skill.skillName, skill.packageName, skill.description ?? "", skill.version]
-    .filter(Boolean)
-    .some((value) => String(value).toLowerCase().includes(normalizedQuery))
-}
-
-function providerRecommendationMatchesQuery(
-  recommendation: ProviderSkillRecommendation,
-  normalizedQuery: string,
-): boolean {
-  if (!normalizedQuery) {
-    return true
-  }
-  const skillDescription =
-    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ?? ""
-  return [
-    recommendation.providerDisplayName,
-    recommendation.package.displayName,
-    recommendation.packageName,
-    recommendation.skillId,
-    recommendation.package.description ?? "",
-    skillDescription,
-  ].some((value) => value.toLowerCase().includes(normalizedQuery))
-}
-
 const skillManageMenuLabelClassName = "oo-text-caption-compact px-2 py-1 text-muted-foreground"
 const skillManageMenuIconClassName = "text-muted-foreground"
-
-function organizationRuntimeStatusLabel(
-  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
-  t: ReturnType<typeof useAppI18n>["t"],
-): string {
-  switch (state) {
-    case "installed-same":
-      return t("skills.organizationRuntimeInstalled")
-    case "installed-modified":
-      return t("skills.organizationRuntimeModified")
-    case "installed-version-mismatch":
-      return t("skills.organizationRuntimeVersionMismatch")
-    case "same-id-different-package":
-      return t("skills.organizationRuntimePackageConflict")
-    case "local-conflict":
-    case "unknown-conflict":
-      return t("skills.organizationRuntimeLocalConflict")
-    case "external-only":
-    case "missing":
-      return t("skills.organizationRuntimeMissing")
-  }
-}
-
-function organizationRuntimeStatusTone(
-  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
-): "attention" | "pending" | "ready" {
-  return state === "installed-same"
-    ? "ready"
-    : state === "missing" || state === "external-only"
-      ? "pending"
-      : "attention"
-}
 
 export function OrganizationSkillManageDialog({
   busyAction,

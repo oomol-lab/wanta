@@ -6,6 +6,7 @@ import {
   markAvatarImageFailed,
   normalizeAvatarCacheKey,
   readCachedAvatarImage,
+  refreshCachedAvatarImage,
   shouldFetchAvatarImage,
   shouldSkipAvatarImageLoad,
 } from "./avatar-image-cache.ts"
@@ -79,7 +80,7 @@ test("loadCachedAvatarImage includes credentials for OOMOL-hosted avatars", asyn
     },
   })
 
-  expect(requestInit?.credentials).toBe("include")
+  expect(requestInit).toMatchObject({ cache: "reload", credentials: "include" })
 })
 
 test("markAvatarImageFailed suppresses reloads for a short ttl", () => {
@@ -123,4 +124,31 @@ test("clearAvatarImageCache prevents an in-flight request from repopulating the 
   await expect(request).rejects.toThrow("Avatar cache was cleared.")
   expect(readCachedAvatarImage(avatarUrl)).toBeNull()
   expect(revoked).toEqual(["blob:stale-avatar"])
+})
+
+test("refreshCachedAvatarImage replaces a cached object URL", async () => {
+  const avatarUrl = new URL("/avatar.png", apiBaseUrl).toString()
+  const revoked: string[] = []
+  let objectUrlIndex = 0
+  const createObjectUrl = () => {
+    objectUrlIndex += 1
+    return `blob:avatar-${objectUrlIndex}`
+  }
+  const fetcher = async () => new Response(new Blob(["avatar"], { type: "image/png" }))
+
+  await loadCachedAvatarImage(avatarUrl, {
+    createObjectUrl,
+    fetcher,
+    revokeObjectUrl: (url) => revoked.push(url),
+  })
+  await expect(
+    refreshCachedAvatarImage(avatarUrl, {
+      createObjectUrl,
+      fetcher,
+      revokeObjectUrl: (url) => revoked.push(url),
+    }),
+  ).resolves.toBe("blob:avatar-2")
+
+  expect(readCachedAvatarImage(avatarUrl)).toBe("blob:avatar-2")
+  expect(revoked).toEqual(["blob:avatar-1"])
 })

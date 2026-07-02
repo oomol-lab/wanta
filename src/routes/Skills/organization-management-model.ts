@@ -20,6 +20,7 @@ export type BusyAction =
   | "create"
   | "installSkillBatch"
   | "saveProviderAccess"
+  | "uploadOrganizationAvatar"
   | "updateOrganization"
   | `addSkill:${string}`
   | `installSkill:${string}`

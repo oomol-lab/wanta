@@ -29,6 +29,7 @@ import {
   ChevronsUpDownIcon,
   CrownIcon,
   Link2OffIcon,
+  LoaderCircleIcon,
   MoreHorizontalIcon,
   PackageMinusIcon,
   PackageIcon,
@@ -258,6 +259,35 @@ function publicPackageLinkInput(pkg: PublicSkillPackage, skillName?: string): Or
   }
 }
 
+function mergeOrganizationUpdate(current: Organization, updated: Organization): Organization {
+  return {
+    ...current,
+    ...updated,
+    role: updated.role ?? current.role,
+    writable: updated.writable ?? current.writable,
+  }
+}
+
+function patchOverviewOrganization(overview: OrganizationOverview | null, organization: Organization) {
+  if (!overview) {
+    return null
+  }
+
+  let changed = false
+  const patchList = (items: Organization[]) =>
+    items.map((item) => {
+      if (item.id !== organization.id) {
+        return item
+      }
+      changed = true
+      return mergeOrganizationUpdate(item, organization)
+    })
+
+  const created = patchList(overview.created)
+  const joined = patchList(overview.joined)
+  return changed ? { ...overview, created, joined, updatedAt: new Date().toISOString() } : overview
+}
+
 function runtimeSkillRemoveBusyKey(target: RuntimeSkillRemoveTarget): BusyAction {
   return `removeSkill:${target.packageName ?? ""}:${target.skillName}`
 }
@@ -332,6 +362,7 @@ export function OrganizationManagementRoute({
   const [runtimeSkillRemoveTarget, setRuntimeSkillRemoveTarget] = React.useState<RuntimeSkillRemoveTarget | null>(null)
   const overviewRequestId = React.useRef(0)
   const detailsRequestId = React.useRef(0)
+  const editAvatarUploadVersion = React.useRef(0)
   const detailsOrganizationIdRef = React.useRef<string | null>(initialSnapshot?.detailsOrganizationId ?? null)
   const skipInitialDetailsLoadRef = React.useRef(
     Boolean(initialSnapshot?.detailsOrganizationId && initialSnapshot.detailsOrganizationId === selectedOrganizationId),
@@ -602,6 +633,13 @@ export function OrganizationManagementRoute({
     [activeAccountId],
   )
 
+  const applyOrganizationPatch = React.useCallback((organization: Organization) => {
+    setOverviewState((current) => {
+      const overview = patchOverviewOrganization(current.data, organization)
+      return overview === current.data ? current : { ...current, data: overview, error: null, status: "ready" }
+    })
+  }, [])
+
   React.useEffect(() => {
     const snapshot = readOrganizationManagementSnapshot(activeAccountId)
     if (!activeAccountId) {
@@ -828,7 +866,7 @@ export function OrganizationManagementRoute({
   }, [])
 
   const closeEditOrganization = React.useCallback(() => {
-    if (busyAction === "updateOrganization") {
+    if (busyAction === "updateOrganization" || busyAction === "uploadOrganizationAvatar") {
       return
     }
     setEditOpen(false)
@@ -838,6 +876,43 @@ export function OrganizationManagementRoute({
     setEditAvatarFile(null)
     setEditDuplicated(false)
   }, [busyAction])
+
+  const handleEditAvatarFileChange = React.useCallback(
+    (file: File | null) => {
+      editAvatarUploadVersion.current += 1
+      setEditAvatarFile(file)
+      if (!file) {
+        return
+      }
+      if (!editingOrganization || !organizationCanManage(overviewState.data, editingOrganization)) {
+        setEditAvatarFile(null)
+        return
+      }
+
+      const version = editAvatarUploadVersion.current
+      setBusyAction("uploadOrganizationAvatar")
+      void uploadOrganizationAvatar(editingOrganization.id, file)
+        .then((uploaded) => {
+          if (editAvatarUploadVersion.current !== version) {
+            return
+          }
+          setEditAvatar(uploaded.avatar)
+        })
+        .catch((error) => {
+          if (editAvatarUploadVersion.current !== version) {
+            return
+          }
+          setEditAvatarFile(null)
+          toast.error(errorMessage(error))
+        })
+        .finally(() => {
+          if (editAvatarUploadVersion.current === version) {
+            setBusyAction((current) => (current === "uploadOrganizationAvatar" ? null : current))
+          }
+        })
+    },
+    [editingOrganization, overviewState.data],
+  )
 
   const handleUpdateOrganization = React.useCallback(
     async (event: React.FormEvent) => {
@@ -861,16 +936,13 @@ export function OrganizationManagementRoute({
 
       setBusyAction("updateOrganization")
       try {
-        let avatar = editAvatar.trim()
-        if (editAvatarFile) {
-          const uploaded = await uploadOrganizationAvatar(editingOrganization.id, editAvatarFile)
-          avatar = uploaded.avatar
-        }
+        const avatar = editAvatar.trim()
         const organization = await updateOrganization({
           avatar,
           orgId: editingOrganization.id,
           orgName,
         })
+        applyOrganizationPatch(organization)
         toast.success(t("organizations.updateOrganizationSuccess"))
         setEditOpen(false)
         setEditOrganizationId(null)
@@ -879,6 +951,7 @@ export function OrganizationManagementRoute({
         setEditAvatarFile(null)
         setEditDuplicated(false)
         await loadOrganizations({ forceRefresh: true })
+        applyOrganizationPatch(organization)
         setSelectedOrganizationId(organization.id)
       } catch (error) {
         if (isConflictError(error)) {
@@ -891,7 +964,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [editAvatar, editAvatarFile, editName, editingOrganization, loadOrganizations, overviewState.data, t],
+    [applyOrganizationPatch, editAvatar, editName, editingOrganization, loadOrganizations, overviewState.data, t],
   )
 
   const reloadMembersAndAccess = React.useCallback(async () => {
@@ -1413,8 +1486,9 @@ export function OrganizationManagementRoute({
         nameError={editNameError}
         open={editOpen}
         organization={editingOrganization}
+        avatarUploading={busyAction === "uploadOrganizationAvatar"}
         onAvatarChange={setEditAvatar}
-        onAvatarFileChange={setEditAvatarFile}
+        onAvatarFileChange={handleEditAvatarFileChange}
         onClose={closeEditOrganization}
         onNameChange={(value) => {
           setEditName(value)
@@ -4127,6 +4201,7 @@ function CreateOrganizationDialog({
 function EditOrganizationDialog({
   avatar,
   avatarFile,
+  avatarUploading,
   busy,
   name,
   nameError,
@@ -4140,6 +4215,7 @@ function EditOrganizationDialog({
 }: {
   avatar: string
   avatarFile: File | null
+  avatarUploading: boolean
   busy: boolean
   name: string
   nameError: string | null
@@ -4152,7 +4228,7 @@ function EditOrganizationDialog({
   organization: Organization | null
 }) {
   const { t } = useAppI18n()
-  const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
+  const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy || avatarUploading
   const avatarPreviewUrl = useObjectUrl(avatarFile)
 
   return (
@@ -4167,6 +4243,7 @@ function EditOrganizationDialog({
             {t("common.cancel")}
           </Button>
           <Button type="submit" form="edit-organization-form" disabled={disabled}>
+            {busy ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : null}
             {busy ? t("organizations.savingOrganization") : t("common.save")}
           </Button>
         </>
@@ -4180,6 +4257,7 @@ function EditOrganizationDialog({
           previewUrl={avatarPreviewUrl}
           seed={organization?.id || organization?.name || name}
           title={t("organizations.organizationAvatar")}
+          uploading={avatarUploading}
           onAvatarClear={() => {
             onAvatarChange("")
             onAvatarFileChange(null)
@@ -4234,6 +4312,7 @@ function OrganizationAvatarField({
   previewUrl,
   seed,
   title,
+  uploading = false,
 }: {
   avatar?: string
   file: File | null
@@ -4243,6 +4322,7 @@ function OrganizationAvatarField({
   previewUrl: string
   seed: string
   title: string
+  uploading?: boolean
 }) {
   const { t } = useAppI18n()
   const inputId = React.useId()
@@ -4263,7 +4343,10 @@ function OrganizationAvatarField({
           style={fallbackStyle}
         >
           {imageSrc ? null : <span aria-hidden="true">{organizationInitials(name || "Organization")}</span>}
-          {imageSrc ? <img src={imageSrc} alt="" className="absolute inset-0 size-full object-contain" /> : null}
+          {previewUrl ? <img src={previewUrl} alt="" className="absolute inset-0 size-full object-contain" /> : null}
+          {!previewUrl && avatar ? (
+            <CachedAvatarImage src={avatar} alt="" className="absolute inset-0 size-full object-contain" />
+          ) : null}
         </span>
         <div className="grid min-w-0 flex-1 gap-2">
           <div className="flex min-w-0 flex-wrap gap-2">
@@ -4273,12 +4356,17 @@ function OrganizationAvatarField({
               type="file"
               accept="image/*"
               className="sr-only"
-              onChange={(event) => onFileChange(event.currentTarget.files?.[0] ?? null)}
+              disabled={uploading}
+              onChange={(event) => {
+                onFileChange(event.currentTarget.files?.[0] ?? null)
+                event.currentTarget.value = ""
+              }}
             />
             <Button
               type="button"
               variant="outline"
               size="sm"
+              disabled={uploading}
               onClick={() => {
                 if (fileInputRef.current) {
                   fileInputRef.current.value = ""
@@ -4286,16 +4374,19 @@ function OrganizationAvatarField({
                 }
               }}
             >
-              <UploadIcon className="size-3.5" />
-              {file || avatar
-                ? t("organizations.changeOrganizationAvatar")
-                : t("organizations.uploadOrganizationAvatar")}
+              {uploading ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <UploadIcon className="size-3.5" />}
+              {uploading
+                ? t("organizations.uploadingOrganizationAvatar")
+                : file || avatar
+                  ? t("organizations.changeOrganizationAvatar")
+                  : t("organizations.uploadOrganizationAvatar")}
             </Button>
             {canClear ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
+                disabled={uploading}
                 onClick={() => {
                   onFileChange(null)
                   onAvatarClear?.()

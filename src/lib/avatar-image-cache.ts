@@ -141,6 +141,20 @@ export function dropCachedAvatarImage(
   revokeObjectUrl(cached.objectUrl)
 }
 
+export function refreshCachedAvatarImage(
+  src: string | undefined,
+  options: AvatarImageCacheFetchOptions = {},
+): Promise<string> {
+  const key = normalizeAvatarCacheKey(src)
+  if (!key) {
+    return Promise.reject(new Error("Avatar URL is invalid."))
+  }
+  avatarCacheGeneration += 1
+  avatarInFlight.delete(key)
+  dropCachedAvatarImage(key, options)
+  return loadCachedAvatarImage(key, options)
+}
+
 export async function loadCachedAvatarImage(
   src: string | undefined,
   options: AvatarImageCacheFetchOptions = {},
@@ -169,7 +183,7 @@ export async function loadCachedAvatarImage(
   const fetcher = options.fetcher ?? fetch
   const createObjectUrl = options.createObjectUrl ?? URL.createObjectURL.bind(URL)
   const promise = fetcher(key, {
-    cache: "force-cache",
+    cache: "reload",
     credentials: "include",
     referrerPolicy: "no-referrer",
   })

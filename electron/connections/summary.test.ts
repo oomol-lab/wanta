@@ -125,6 +125,42 @@ test("merge preserves multiple apps for one provider", () => {
   )
 })
 
+test("merge exposes connection account labels for UI distinction", () => {
+  const summary = mergeConnectionSummary({
+    apps: [
+      {
+        alias: "umo-nickname",
+        authType: "oauth2",
+        displayName: "Umo Nickname",
+        id: "app-github",
+        providerAccountId: "github-login",
+        service: "github",
+        status: "active",
+        updatedAt: 10,
+      },
+      {
+        authType: "oauth2",
+        id: "app-gmail",
+        providerAccountId: "user@example.com",
+        service: "gmail",
+        status: "active",
+        updatedAt: 11,
+      },
+    ],
+    providers: [
+      { service: "github", displayName: "GitHub", authTypes: ["oauth2" as const] },
+      { service: "gmail", displayName: "Gmail", authTypes: ["oauth2" as const] },
+    ],
+    usage: emptyUsage,
+  })
+
+  const github = summary.providers.find((provider) => provider.service === "github")
+  const gmail = summary.providers.find((provider) => provider.service === "gmail")
+  assert.equal(github?.accountLabel, "Umo Nickname")
+  assert.equal(gmail?.accountLabel, "user@example.com")
+  assert.equal(summary.apps[0]?.accountLabel, undefined)
+})
+
 test("createEmptyConnectionSummary exposes a signed-out state", () => {
   const summary = createEmptyConnectionSummary("signed-out", "no key")
 

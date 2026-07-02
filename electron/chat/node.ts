@@ -208,7 +208,6 @@ export function buildContextMentionsSystem(mentions: ChatContextMention[] | unde
       const details = [
         `service: ${quoted(connection.service)}`,
         connection.appId ? `appId: ${quoted(connection.appId)}` : "",
-        connection.accountLabel ? `account: ${quoted(connection.accountLabel)}` : "",
       ].filter(Boolean)
       lines.push(`- ${quoted(connection.displayName)}; ${details.join("; ")}`)
     }

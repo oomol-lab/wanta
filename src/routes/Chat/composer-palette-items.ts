@@ -9,6 +9,7 @@ import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 
 import { File, FileImage, Folder, Package, Plug, SlidersHorizontal } from "lucide-react"
 import * as React from "react"
+import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
@@ -250,6 +251,8 @@ export function buildSkillPaletteItems(
 export interface ConnectionPaletteCopy {
   accountCount: (count: number) => string
   accountActiveHint: string
+  accountFallbackLabel: (authLabel: string, index: number) => string
+  authLabel: (authType: ConnectionAppSummary["authType"]) => string
   connectProvider: string
   defaultAccountDescription: (account: string) => string
   defaultLabel: string
@@ -258,20 +261,12 @@ export interface ConnectionPaletteCopy {
   unsupportedProvider: string
 }
 
-function connectionAppDisplayName(app: ConnectionAppSummary): string {
-  return app.displayName || app.alias || app.accountLabel || app.providerAccountId || app.id
-}
-
-function connectionAppSecondaryLabel(app: ConnectionAppSummary): string | undefined {
-  const primary = connectionAppDisplayName(app)
-  const account = app.accountLabel || app.providerAccountId
-  return account && account !== primary ? account : undefined
+function connectionAppDisplayLabel(app: ConnectionAppSummary, index: number, copy: ConnectionPaletteCopy): string {
+  return connectionAppUiDisplayLabel(app) ?? copy.accountFallbackLabel(copy.authLabel(app.authType), index + 1)
 }
 
 function connectionAppSearchText(app: ConnectionAppSummary): string[] {
-  return [app.displayName, app.alias, app.accountLabel, app.providerAccountId, app.id].filter(
-    (value): value is string => Boolean(value),
-  )
+  return [connectionAppUiDisplayLabel(app), app.id].filter((value): value is string => Boolean(value))
 }
 
 function usableConnectionApps(provider: ConnectionProvider): ConnectionAppSummary[] {
@@ -288,12 +283,9 @@ function defaultConnectionApp(provider: ConnectionProvider): ConnectionAppSummar
 }
 
 function providerKeywords(provider: ConnectionProvider, apps: ConnectionAppSummary[]): string[] {
-  return [
-    provider.service,
-    provider.displayName,
-    provider.accountLabel,
-    ...apps.flatMap((app) => connectionAppSearchText(app)),
-  ].filter((value): value is string => Boolean(value))
+  return [provider.service, provider.displayName, ...apps.flatMap((app) => connectionAppSearchText(app))].filter(
+    (value): value is string => Boolean(value),
+  )
 }
 
 export function buildConnectionPaletteItems(
@@ -304,7 +296,8 @@ export function buildConnectionPaletteItems(
   return providers.map((provider): ConnectionProviderPaletteItem => {
     const apps = usableConnectionApps(provider)
     const defaultApp = defaultConnectionApp(provider)
-    const accountLabel = defaultApp ? connectionAppDisplayName(defaultApp) : provider.accountLabel
+    const defaultAppIndex = defaultApp ? apps.findIndex((app) => app.id === defaultApp.id) : -1
+    const accountLabel = defaultApp && defaultAppIndex !== -1 ? connectionAppUiDisplayLabel(defaultApp) : undefined
     const needsAttention = provider.status === "needs_attention"
     const connectionAction = defaultApp
       ? "use"
@@ -318,16 +311,18 @@ export function buildConnectionPaletteItems(
     const description =
       connectionAction === "use" && accountLabel
         ? copy.defaultAccountDescription(accountLabel)
-        : connectionAction === "connect"
-          ? copy.connectProvider
-          : connectionAction === "attention"
-            ? copy.needsAttention
-            : connectionAction === "unsupported"
-              ? copy.unsupportedProvider
-              : fallbackDescription(provider.service)
+        : connectionAction === "use"
+          ? fallbackDescription(provider.service)
+          : connectionAction === "connect"
+            ? copy.connectProvider
+            : connectionAction === "attention"
+              ? copy.needsAttention
+              : connectionAction === "unsupported"
+                ? copy.unsupportedProvider
+                : fallbackDescription(provider.service)
     return {
       accountCount: apps.length,
-      accountLabel,
+      ...(accountLabel ? { accountLabel } : {}),
       appId: defaultApp?.id,
       canOpenAccounts: hasMultipleAccounts,
       connectionAction,
@@ -381,11 +376,12 @@ export function buildConnectionAccountPaletteItems(
       if (left.status !== "active" && right.status === "active") {
         return 1
       }
-      return connectionAppDisplayName(left).localeCompare(connectionAppDisplayName(right))
+      return left.id.localeCompare(right.id)
     })
-    .map((app): ConnectionAccountPaletteItem => {
-      const title = connectionAppDisplayName(app)
-      const description = app.status === "active" ? (connectionAppSecondaryLabel(app) ?? "") : copy.needsAttention
+    .map((app, index): ConnectionAccountPaletteItem => {
+      const accountLabel = connectionAppUiDisplayLabel(app)
+      const title = accountLabel ?? connectionAppDisplayLabel(app, index, copy)
+      const description = app.status === "active" ? copy.authLabel(app.authType) : copy.needsAttention
       const canSetDefault = Boolean(copy.setDefault) && !app.isDefault && app.status === "active"
       return {
         accountLabel: title,

@@ -353,11 +353,11 @@ export async function uploadOrganizationAvatar(orgId: string, file: File): Promi
     body: form,
   })
   const avatar = isPlainObject(result) ? asString(result["avatar"]) : undefined
-  const normalizedAvatar = normalizeAvatarUrl(avatar)
-  if (!normalizedAvatar) {
+  const uploadedAvatar = avatar?.trim()
+  if (!uploadedAvatar) {
     throw new Error("Organization avatar response is invalid.")
   }
-  return { avatar: normalizedAvatar }
+  return { avatar: uploadedAvatar }
 }
 
 export async function listOrganizationMembers(orgId: string): Promise<OrganizationMember[]> {

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { apiBaseUrl } from "./domain.ts"
 import { createOrganization, updateOrganization, uploadOrganizationAvatar } from "./organizations-client.ts"
 
 describe("organizations-client", () => {
@@ -57,14 +56,14 @@ describe("organizations-client", () => {
     expect(headers.get("content-type")).toBeNull()
   })
 
-  it("normalizes bare organization avatar filenames against the API host", async () => {
+  it("keeps bare uploaded organization avatar filenames for the update API", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({ avatar: "019eddb2-7587-7e98-88a6-975dc65b672b.png" }),
     )
     vi.stubGlobal("fetch", fetchMock)
 
     await expect(uploadOrganizationAvatar("org-1", new File(["avatar"], "avatar.png"))).resolves.toEqual({
-      avatar: new URL("/019eddb2-7587-7e98-88a6-975dc65b672b.png", apiBaseUrl).toString(),
+      avatar: "019eddb2-7587-7e98-88a6-975dc65b672b.png",
     })
   })
 })

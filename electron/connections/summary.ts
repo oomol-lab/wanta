@@ -145,8 +145,10 @@ function getManageableApps(apps: ConnectionAppSummary[]): ConnectionAppSummary[]
   return apps.filter(isManageableApp)
 }
 
-function getAppDisplayName(app: ConnectionAppSummary): string {
-  return app.displayName || app.alias || app.accountLabel || app.providerAccountId || app.id
+export function connectionAppDisplayLabel(
+  app: Pick<ConnectionAppSummary, "accountLabel" | "alias" | "displayName" | "providerAccountId">,
+): string | undefined {
+  return app.displayName || app.alias || app.accountLabel || app.providerAccountId
 }
 
 function pickDefaultOrSingleApp(apps: ConnectionAppSummary[]): ConnectionAppSummary | undefined {
@@ -258,7 +260,7 @@ export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
     id,
     service,
     alias: asString(item.alias),
-    accountLabel: asString(item.accountLabel) ?? asString(item.displayName),
+    accountLabel: asString(item.accountLabel),
     authType: normalizeAuthType(item.authType),
     createdAt: asNumber(item.createdAt) ?? 0,
     displayName: asString(item.displayName),
@@ -295,7 +297,7 @@ export function normalizeProvider(
   return {
     service,
     status,
-    accountLabel: app ? getAppDisplayName(app) : undefined,
+    accountLabel: app ? connectionAppDisplayLabel(app) : undefined,
     appId: app?.id,
     appAuthType: app?.authType,
     appStatus: app?.status,

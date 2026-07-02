@@ -55,6 +55,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
+import { authTypeLabel } from "@/routes/Connections/shared"
 
 interface ChatComposerProps {
   error: string | null
@@ -263,6 +264,8 @@ export function ChatComposer({
       buildConnectionPaletteItems(providers, (service) => t("chat.connectionFallbackDescription", { service }), {
         accountActiveHint: t("chat.connectionAccountActiveHint"),
         accountCount: (count) => t("chat.connectionAccountCount", { count }),
+        accountFallbackLabel: (auth, index) => t("connections.generatedConnectionLabel", { auth, index }),
+        authLabel: (authType) => (authType ? authTypeLabel(t, authType) : t("connections.authUnknown")),
         connectProvider: t("chat.connectionConnectDescription"),
         defaultAccountDescription: (account) => t("chat.connectionDefaultAccountDescription", { account }),
         defaultLabel: t("connections.defaultConnection"),

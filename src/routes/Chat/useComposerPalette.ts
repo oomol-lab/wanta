@@ -265,7 +265,6 @@ export function useComposerPalette({
         return
       }
       onAddContextMention({
-        ...(item.accountLabel ? { accountLabel: item.accountLabel } : {}),
         appId: item.appId,
         displayName: item.displayName,
         kind: "connection",

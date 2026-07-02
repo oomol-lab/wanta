@@ -129,7 +129,8 @@ function optionalTokenLimit(value: string): number | undefined {
   if (!trimmed) {
     return undefined
   }
-  return Number(trimmed)
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 const modelDialogControlClass = "h-[var(--oo-control-height)] w-full px-2.5 text-sm"
@@ -164,6 +165,7 @@ export function AddCustomModelDialog({
     providerDefaultReasoningVariants(firstProvider, ""),
   )
   const [saving, setSaving] = React.useState(false)
+  const wasOpenRef = React.useRef(false)
   const supportsImagesId = React.useId()
   const supportsToolCallsId = React.useId()
   const contextWindowId = React.useId()
@@ -176,23 +178,27 @@ export function AddCustomModelDialog({
   const apiRegions = apiEndpoint?.apiRegions ?? []
 
   React.useEffect(() => {
-    if (open) {
-      const initial = providers[0]
-      setProviderId(initial?.id ?? "custom")
-      setBaseUrl(providerBaseUrl(initial))
-      const initialModelName = providerDefaultModelName(initial)
-      setModelName(initialModelName)
-      setApiPlanId(providerDefaultApiPlanId(initial))
-      setApiRegionId(endpointDefaultApiRegionId(providerEndpoint(initial)))
-      setSupportsImages(providerDefaultSupportsImages(initial, initialModelName))
-      setSupportsToolCalls(providerDefaultSupportsToolCalls(initial, initialModelName))
-      setContextWindow(providerDefaultContextWindow(initial, initialModelName))
-      setInputTokenLimit(providerDefaultInputTokenLimit(initial, initialModelName))
-      setMaxOutputTokens(providerDefaultMaxOutputTokens(initial, initialModelName))
-      setReasoningVariants(providerDefaultReasoningVariants(initial, initialModelName))
-      setApiKey("")
-      setSaving(false)
+    const wasOpen = wasOpenRef.current
+    wasOpenRef.current = open
+    if (!open || wasOpen) {
+      return
     }
+
+    const initial = providers[0]
+    setProviderId(initial?.id ?? "custom")
+    setBaseUrl(providerBaseUrl(initial))
+    const initialModelName = providerDefaultModelName(initial)
+    setModelName(initialModelName)
+    setApiPlanId(providerDefaultApiPlanId(initial))
+    setApiRegionId(endpointDefaultApiRegionId(providerEndpoint(initial)))
+    setSupportsImages(providerDefaultSupportsImages(initial, initialModelName))
+    setSupportsToolCalls(providerDefaultSupportsToolCalls(initial, initialModelName))
+    setContextWindow(providerDefaultContextWindow(initial, initialModelName))
+    setInputTokenLimit(providerDefaultInputTokenLimit(initial, initialModelName))
+    setMaxOutputTokens(providerDefaultMaxOutputTokens(initial, initialModelName))
+    setReasoningVariants(providerDefaultReasoningVariants(initial, initialModelName))
+    setApiKey("")
+    setSaving(false)
   }, [open, providers])
 
   const handleProviderChange = (nextId: string): void => {

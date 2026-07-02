@@ -90,14 +90,20 @@ export function AgentModePicker({
 
   const activateMode = React.useCallback(
     (mode: AgentMode | undefined): void => {
-      if (!mode) {
+      if (!mode || disabled) {
         return
       }
       onValueChange(mode)
       closeMenu()
     },
-    [closeMenu, onValueChange],
+    [closeMenu, disabled, onValueChange],
   )
+
+  React.useEffect(() => {
+    if (disabled && open) {
+      closeMenu(false)
+    }
+  }, [closeMenu, disabled, open])
 
   React.useEffect(() => {
     if (!open) {
@@ -213,7 +219,12 @@ export function AgentModePicker({
                   active && "bg-accent font-medium text-accent-foreground",
                   highlighted && "bg-accent text-accent-foreground",
                 )}
-                onMouseEnter={() => setActiveIndex(index)}
+                disabled={disabled}
+                onMouseEnter={() => {
+                  if (!disabled) {
+                    setActiveIndex(index)
+                  }
+                }}
                 onClick={() => activateMode(mode)}
               >
                 <AgentModeIcon mode={mode} />
@@ -239,8 +250,15 @@ export function AgentModePicker({
         aria-haspopup="menu"
         disabled={disabled}
         className="h-8 max-w-full min-w-0 shrink rounded-full px-2"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          if (!disabled) {
+            setOpen((value) => !value)
+          }
+        }}
         onKeyDown={(event) => {
+          if (disabled) {
+            return
+          }
           if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
             event.preventDefault()
             setOpen(true)

@@ -368,7 +368,7 @@ export const zhCNMessages = {
   "chatError.paymentDialog.loading": "读取中…",
   "chatError.paymentDialog.creditsUnavailable": "暂不可用",
   "chatError.paymentDialog.topupOptions": "充值档位",
-  "chatError.paymentDialog.credits": "{count} credits",
+  "chatError.paymentDialog.credits": "{count} 点数",
   "chatError.paymentDialog.topupDescriptions.starter": "适合少量聊天和轻量任务",
   "chatError.paymentDialog.topupDescriptions.boost": "适合日常使用",
   "chatError.paymentDialog.topupDescriptions.reserve": "适合高频使用和较长任务",

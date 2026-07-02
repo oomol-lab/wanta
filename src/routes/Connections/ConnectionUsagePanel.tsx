@@ -65,10 +65,10 @@ export function ProviderUsagePanel({
   }, [provider.service])
 
   React.useEffect(() => {
-    if (isUsageDialogOpen && providerUsage.calls > 0 && !logs && !loading) {
+    if (isUsageDialogOpen && providerUsage.calls > 0 && !logs && !loading && !error) {
       void loadLogs()
     }
-  }, [isUsageDialogOpen, loadLogs, loading, logs, providerUsage.calls])
+  }, [error, isUsageDialogOpen, loadLogs, loading, logs, providerUsage.calls])
 
   const usageTitle =
     providerUsage.calls > 0

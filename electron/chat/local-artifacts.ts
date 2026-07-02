@@ -143,11 +143,12 @@ async function artifactManifestEntry(
   if (!filePath || seen.has(filePath)) {
     return null
   }
+  seen.add(filePath)
   const item = await localArtifactItem(filePath)
   if (!item) {
+    seen.delete(filePath)
     return null
   }
-  seen.add(filePath)
   const order = typeof raw.order === "number" && Number.isFinite(raw.order) ? raw.order : fallbackOrder
   return {
     ...item,

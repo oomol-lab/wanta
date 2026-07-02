@@ -111,15 +111,14 @@ export function useArtifactsPanelState({
       return
     }
     artifactsPanelSidebarRestore.current = null
-    setSidebarCollapsed((current) => {
-      if (current === previousCollapsed) {
-        return current
-      }
-      if (current) {
-        setIsSidebarRestoring(true)
-      }
-      return previousCollapsed
-    })
+    const currentCollapsed = sidebarCollapsedRef.current
+    if (currentCollapsed === previousCollapsed) {
+      return
+    }
+    if (currentCollapsed) {
+      setIsSidebarRestoring(true)
+    }
+    setSidebarCollapsed(previousCollapsed)
   }, [setIsSidebarRestoring, setSidebarCollapsed])
 
   const setArtifactsPanelMaximizedState = React.useCallback(
@@ -261,40 +260,52 @@ export function useArtifactsPanelState({
     }
   }, [artifactsPanelMaximized, artifactsPanelVisible, setArtifactsPanelMaximizedState])
 
-  const handleArtifactsPanelResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (!artifactsPanelVisible) {
-      return
-    }
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    const dragStartWidth = visibleArtifactsPanelWidth
-    const frozenContentWidth = Math.max(
-      dragStartWidth,
-      Number.isFinite(artifactsPanelMaxWidthValue) ? artifactsPanelMaxWidthValue : dragStartWidth,
-    )
-    applyArtifactsPanelShellWidth(dragStartWidth)
-    freezeArtifactsPanelContentWidth(frozenContentWidth)
-    artifactsPanelResizeStart.current = { pointerX: event.clientX, width: dragStartWidth }
-    setIsArtifactsPanelResizing(true)
-  }
+  const handleArtifactsPanelResizeStart = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      if (!artifactsPanelVisible) {
+        return
+      }
+      event.preventDefault()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      const dragStartWidth = visibleArtifactsPanelWidth
+      const frozenContentWidth = Math.max(
+        dragStartWidth,
+        Number.isFinite(artifactsPanelMaxWidthValue) ? artifactsPanelMaxWidthValue : dragStartWidth,
+      )
+      applyArtifactsPanelShellWidth(dragStartWidth)
+      freezeArtifactsPanelContentWidth(frozenContentWidth)
+      artifactsPanelResizeStart.current = { pointerX: event.clientX, width: dragStartWidth }
+      setIsArtifactsPanelResizing(true)
+    },
+    [
+      applyArtifactsPanelShellWidth,
+      artifactsPanelMaxWidthValue,
+      artifactsPanelVisible,
+      freezeArtifactsPanelContentWidth,
+      visibleArtifactsPanelWidth,
+    ],
+  )
 
-  const handleArtifactsPanelResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (!artifactsPanelVisible) {
-      return
-    }
+  const handleArtifactsPanelResizeKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (!artifactsPanelVisible) {
+        return
+      }
 
-    const step = event.shiftKey ? 24 : 12
-    if (event.key === "ArrowLeft") {
-      event.preventDefault()
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width + step))
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault()
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width - step))
-    } else if (event.key === "Home") {
-      event.preventDefault()
-      setArtifactsPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
-    }
-  }
+      const step = event.shiftKey ? 24 : 12
+      if (event.key === "ArrowLeft") {
+        event.preventDefault()
+        setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width + step))
+      } else if (event.key === "ArrowRight") {
+        event.preventDefault()
+        setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width - step))
+      } else if (event.key === "Home") {
+        event.preventDefault()
+        setArtifactsPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
+      }
+    },
+    [artifactsPanelVisible, clampArtifactsPanelWidthToLayout],
+  )
 
   const handleArtifactsReset = React.useCallback(() => {
     panelSelectionModeRef.current = "auto"

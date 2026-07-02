@@ -13,49 +13,33 @@ import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
-import type { ChatQueueMap, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
-import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
-import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 import type { ChatStatus } from "ai"
 
 import { Building2, FolderPlus, Package, PanelRightClose, PanelRightOpen, Plug, SquarePen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
-import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
-  artifactsPanelMaxWidth,
   ARTIFACTS_PANEL_MIN_WIDTH_PX,
-  ARTIFACTS_PANEL_WIDTH_STORAGE_KEY,
   AUTH_RETRY_POLL_INTERVAL_MS,
   AUTH_RETRY_POLL_TIMEOUT_MS,
   buildSessionTitleInput,
   CHAT_CONNECTION_DRAWER_WIDTH,
-  clampArtifactsPanelWidthForLayout,
-  clampSidebarWidth,
-  createQueuedChatMessage,
   EMPTY_CONNECTION_PROVIDERS,
   initialRoute,
-  isSessionTitleAutoRefreshable,
   newSessionComposerDraftKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
-  readStoredArtifactsPanelWidth,
-  readStoredSidebarWidth,
   rememberTurnRetryOptions,
   sessionScopeFromWorkspace,
-  sessionTitleGenerationKey,
-  SESSION_TITLE_RETRY_DELAY_MS,
-  SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX,
   SIDEBAR_MAX_WIDTH_PX,
   SIDEBAR_MIN_WIDTH_PX,
-  SIDEBAR_RESTORE_DELAY_MS,
-  SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./app-shell-model.ts"
 import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
 import {
@@ -77,25 +61,14 @@ import {
   SidebarSegmentControl,
   SidebarTitlebarActions,
 } from "./AppShellSidebar.tsx"
-import {
-  appendQueuedMessage,
-  moveQueuedMessage,
-  removeQueuedMessage,
-  shouldDispatchQueuedMessage,
-} from "./chat-queue.ts"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
-import {
-  projectSidebarCollapsedStorageKey,
-  pruneCollapsedProjectIds,
-  readStoredCollapsedProjectIds,
-  readStoredSidebarCollapsed,
-  readStoredSidebarSegment,
-  setsEqual,
-  writeStoredCollapsedProjectIds,
-  writeStoredSidebarCollapsed,
-  writeStoredSidebarSegment,
-} from "./sidebar-persistence.ts"
+import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { groupSidebarSessions, nextActiveSessionIdAfterArchive, projectHasRunningSession } from "./sidebar-sessions.ts"
+import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
+import { useChatQueueState } from "./use-chat-queue-state.ts"
+import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
+import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
+import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
 import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
@@ -262,14 +235,17 @@ export function AppShell() {
     readStoredSidebarSegment(globalThis.localStorage),
   )
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
-  const [queuedMessagesBySession, setQueuedMessagesBySession] = React.useState<ChatQueueMap>({})
-  const [heldQueuedSessions, setHeldQueuedSessions] = React.useState<Set<string>>(() => new Set())
-  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() =>
-    readStoredSidebarCollapsed(globalThis.localStorage),
-  )
-  const [isSidebarRestoring, setIsSidebarRestoring] = React.useState(false)
-  const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
-  const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
+  const {
+    handleSidebarResizeKeyDown,
+    handleSidebarResizeStart,
+    handleToggleSidebar,
+    isSidebarResizing,
+    isSidebarRestoring,
+    setIsSidebarRestoring,
+    setSidebarCollapsed,
+    sidebarCollapsed,
+    sidebarWidth,
+  } = useSidebarChromeState()
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [composerFocusRequest, setComposerFocusRequest] = React.useState(0)
   const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
@@ -281,17 +257,6 @@ export function AppShell() {
   const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
   const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
-  const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
-  const [turnOutputSelection, setTurnOutputSelection] = React.useState<TurnOutputSelection | null>(null)
-  const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
-  const [artifactsPanelMaximized, setArtifactsPanelMaximized] = React.useState(false)
-  const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
-  const [artifactsPanelMaxWidthState, setArtifactsPanelMaxWidthState] = React.useState<number | null>(null)
-  const [isArtifactsPanelResizing, setIsArtifactsPanelResizing] = React.useState(false)
-  const [collapsedProjectState, setCollapsedProjectState] = React.useState<{
-    ids: Set<string>
-    storageKey: string | null
-  }>({ ids: new Set(), storageKey: null })
 
   const { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
     activeSessionId,
@@ -325,17 +290,7 @@ export function AppShell() {
     sessionId: string
     startedAt: number
   } | null>(null)
-  const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
-  const artifactsPanelResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
-  const artifactsPanelResizeFrame = React.useRef<number | null>(null)
-  const artifactsPanelPendingWidth = React.useRef<number | null>(null)
-  const artifactsPanelLayoutWidth = React.useRef<number | null>(null)
-  const artifactsPanelSidebarRestore = React.useRef<boolean | null>(null)
-  const panelSelectionModeRef = React.useRef<"auto" | "manual">("auto")
-  const sidebarCollapsedRef = React.useRef(sidebarCollapsed)
   const appChromeRef = React.useRef<HTMLDivElement | null>(null)
-  const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
-  const artifactsPanelContentRef = React.useRef<HTMLDivElement | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
   const lastModeBySession = React.useRef<Map<string, AgentMode | undefined>>(new Map())
@@ -343,23 +298,41 @@ export function AppShell() {
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
   const draftProjectFallbacksById = React.useRef<Map<string, SessionProject>>(new Map())
-  const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
-  const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
-  const titleGenerationInFlightBySession = React.useRef<Map<string, string>>(new Map())
-  const lastTitleGenerationKeyBySession = React.useRef<Map<string, string>>(new Map())
-  const titleGenerationRetryAfterBySession = React.useRef<Map<string, { key: string; retryAfter: number }>>(new Map())
-  const autoFallbackTitleBySession = React.useRef<Map<string, string>>(new Map())
-  React.useEffect(() => {
-    sessionsRef.current = sessions
-  }, [sessions])
-  React.useEffect(() => {
-    sidebarCollapsedRef.current = sidebarCollapsed
-  }, [sidebarCollapsed])
   const activeSidebarSessions = React.useMemo(
     () => (sidebarSegment === "projects" ? projectSessions : taskSessions),
     [projectSessions, sidebarSegment, taskSessions],
   )
+  const {
+    artifactSelection,
+    artifactsPanelContentRef,
+    artifactsPanelIsMaximized,
+    artifactsPanelMaxWidthState,
+    artifactsPanelOpen,
+    artifactsPanelShellRef,
+    artifactsPanelVisible,
+    handleArtifactsAvailable,
+    handleArtifactsOpen,
+    handleArtifactsPanelResizeKeyDown,
+    handleArtifactsPanelResizeStart,
+    handleArtifactsReset,
+    handleTurnOutputAvailable,
+    handleTurnOutputOpen,
+    hasPanelSelection,
+    isArtifactsPanelResizing,
+    setArtifactsPanelOpen,
+    setArtifactsPanelMaximizedState,
+    turnOutputSelection,
+    visibleArtifactsPanelWidth,
+  } = useArtifactsPanelState({
+    activeSessionId,
+    appChromeRef,
+    route,
+    setIsSidebarRestoring,
+    setSidebarCollapsed,
+    sidebarCollapsed,
+    sidebarWidth,
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -444,14 +417,6 @@ export function AppShell() {
     setActiveSessionId(null)
     setIsDraftSession(false)
     setPendingChatTransition(null)
-    setQueuedMessagesBySession((current) => {
-      if (!Object.hasOwn(current, activeSessionId)) {
-        return current
-      }
-      const next = { ...current }
-      delete next[activeSessionId]
-      return next
-    })
   }, [activeSessionId, sessions, sessionsLoaded])
 
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
@@ -526,6 +491,20 @@ export function AppShell() {
   }, [connections.summary, send])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const {
+    clearAutoFallbackTitle,
+    getAutoFallbackTitle,
+    isAutoRefreshable,
+    refreshGeneratedTitle,
+    rememberAutoFallbackTitle,
+  } = useSessionTitleGeneration({
+    activeSession,
+    generateTitle,
+    messages,
+    messagesLoaded,
+    rename,
+    sessions,
+  })
   const activeProjectId = React.useMemo(
     () => activeProjectIdForComposer({ activeSession, draftProjectId }),
     [activeSession, draftProjectId],
@@ -566,20 +545,18 @@ export function AppShell() {
     () => projectSidebarGroups.filter((group) => !group.project.pinnedAt),
     [projectSidebarGroups],
   )
-  const projectCollapsedStorageKey = React.useMemo(
-    () => projectSidebarCollapsedStorageKey(auth.state?.account?.id, sessionScope),
-    [auth.state?.account?.id, sessionScope],
-  )
-  const collapsedProjectIds =
-    collapsedProjectState.storageKey === projectCollapsedStorageKey ? collapsedProjectState.ids : new Set<string>()
+  const { collapsedProjectIds, handleProjectSidebarExpandedChange } = useProjectSidebarCollapseState({
+    accountId: auth.state?.account?.id,
+    projects,
+    sessionScope,
+    sessionsLoaded,
+  })
   const activeComposerDraftKey = activeSessionId ?? newSessionComposerDraftKey(sessionScope, activeProjectId)
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
   const renameProjectTarget = projects.find((project) => project.id === renameProjectId) ?? null
   const archiveProjectTarget = projects.find((project) => project.id === archiveProjectId) ?? null
   const removeProjectTarget = projects.find((project) => project.id === removeProjectId) ?? null
-  const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
-  const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
   const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
@@ -633,112 +610,10 @@ export function AppShell() {
                 ? t("archived.title")
                 : (activeSession?.title ?? t("chat.newSession"))
   const titlebarEditable = route === "chat" && Boolean(activeSession)
-  const artifactsPanelMaxWidthValue = artifactsPanelMaxWidthState ?? Number.POSITIVE_INFINITY
-  const clampArtifactsPanelWidthToLayout = React.useCallback(
-    (width: number): number => clampArtifactsPanelWidthForLayout(width, artifactsPanelMaxWidthValue),
-    [artifactsPanelMaxWidthValue],
-  )
 
   React.useEffect(() => {
     writeStoredSidebarSegment(globalThis.localStorage, sidebarSegment)
   }, [sidebarSegment])
-
-  React.useEffect(() => {
-    setCollapsedProjectState({
-      ids: readStoredCollapsedProjectIds(globalThis.localStorage, projectCollapsedStorageKey),
-      storageKey: projectCollapsedStorageKey,
-    })
-  }, [projectCollapsedStorageKey])
-
-  React.useEffect(() => {
-    if (!sessionsLoaded || collapsedProjectState.storageKey !== projectCollapsedStorageKey) {
-      return
-    }
-    const projectIds = new Set(projects.map((project) => project.id))
-    setCollapsedProjectState((current) => {
-      if (current.storageKey !== projectCollapsedStorageKey) {
-        return current
-      }
-      const nextIds = pruneCollapsedProjectIds(current.ids, projectIds)
-      return nextIds === current.ids ? current : { ...current, ids: nextIds }
-    })
-  }, [collapsedProjectState.storageKey, projectCollapsedStorageKey, projects, sessionsLoaded])
-
-  React.useEffect(() => {
-    if (!sessionsLoaded || collapsedProjectState.storageKey !== projectCollapsedStorageKey) {
-      return
-    }
-    writeStoredCollapsedProjectIds(globalThis.localStorage, projectCollapsedStorageKey, collapsedProjectState.ids)
-  }, [collapsedProjectState, projectCollapsedStorageKey, sessionsLoaded])
-
-  const handleProjectSidebarExpandedChange = React.useCallback(
-    (projectId: string, expanded: boolean): void => {
-      setCollapsedProjectState((current) => {
-        if (current.storageKey !== projectCollapsedStorageKey) {
-          return current
-        }
-        const nextIds = new Set(current.ids)
-        if (expanded) {
-          nextIds.delete(projectId)
-        } else {
-          nextIds.add(projectId)
-        }
-        return setsEqual(current.ids, nextIds) ? current : { ...current, ids: nextIds }
-      })
-    },
-    [projectCollapsedStorageKey],
-  )
-
-  const applyArtifactsPanelShellWidth = React.useCallback((width: number): void => {
-    const element = artifactsPanelShellRef.current
-    if (element) {
-      element.style.width = `${width}px`
-    }
-  }, [])
-  const freezeArtifactsPanelContentWidth = React.useCallback((width: number): void => {
-    const element = artifactsPanelContentRef.current
-    if (element) {
-      element.style.width = `${width}px`
-    }
-  }, [])
-  const clearArtifactsPanelContentWidth = React.useCallback((): void => {
-    const element = artifactsPanelContentRef.current
-    if (element) {
-      element.style.removeProperty("width")
-    }
-  }, [])
-  const restoreSidebarAfterArtifactsMaximize = React.useCallback((): void => {
-    const previousCollapsed = artifactsPanelSidebarRestore.current
-    if (previousCollapsed === null) {
-      return
-    }
-    artifactsPanelSidebarRestore.current = null
-    setSidebarCollapsed((current) => {
-      if (current === previousCollapsed) {
-        return current
-      }
-      if (current) {
-        setIsSidebarRestoring(true)
-      }
-      return previousCollapsed
-    })
-  }, [])
-  const setArtifactsPanelMaximizedState = React.useCallback(
-    (maximized: boolean): void => {
-      if (maximized) {
-        if (artifactsPanelSidebarRestore.current === null) {
-          artifactsPanelSidebarRestore.current = sidebarCollapsedRef.current
-        }
-        setSidebarCollapsed(true)
-        setArtifactsPanelMaximized(true)
-        return
-      }
-
-      setArtifactsPanelMaximized(false)
-      restoreSidebarAfterArtifactsMaximize()
-    },
-    [restoreSidebarAfterArtifactsMaximize],
-  )
 
   React.useEffect(() => {
     if (pendingCaughtUp) {
@@ -801,182 +676,10 @@ export function AppShell() {
   }, [sessionScope])
 
   React.useEffect(() => {
-    setArtifactSelection(null)
-    setTurnOutputSelection(null)
-    setArtifactsPanelOpen(false)
-    setArtifactsPanelMaximizedState(false)
-  }, [activeSessionId, setArtifactsPanelMaximizedState])
-
-  React.useEffect(() => {
     if (pendingChatTransition && status === "error") {
       setPendingChatTransition(null)
     }
   }, [pendingChatTransition, status])
-
-  React.useEffect(() => {
-    if (!isSidebarRestoring) {
-      return
-    }
-    const id = window.setTimeout(() => setIsSidebarRestoring(false), SIDEBAR_RESTORE_DELAY_MS)
-    return () => window.clearTimeout(id)
-  }, [isSidebarRestoring])
-
-  React.useEffect(() => {
-    const mediaQuery = window.matchMedia(`(max-width: ${SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX}px)`)
-    const collapseIfNarrow = (matches: boolean): void => {
-      if (matches) {
-        setSidebarCollapsed(true)
-      }
-    }
-
-    collapseIfNarrow(mediaQuery.matches)
-    const onChange = (event: MediaQueryListEvent): void => collapseIfNarrow(event.matches)
-    mediaQuery.addEventListener("change", onChange)
-    return () => mediaQuery.removeEventListener("change", onChange)
-  }, [])
-
-  React.useLayoutEffect(() => {
-    const element = appChromeRef.current
-    if (!element) {
-      return
-    }
-
-    const updateArtifactsPanelBounds = (): void => {
-      const appWidth = element.clientWidth
-      const previousAppWidth = artifactsPanelLayoutWidth.current
-      artifactsPanelLayoutWidth.current = appWidth
-      const maxWidth = artifactsPanelMaxWidth(appWidth, sidebarWidth, sidebarCollapsed)
-      const expandedBy = previousAppWidth === null ? 0 : Math.max(0, appWidth - previousAppWidth)
-      const shouldGrowPanel =
-        expandedBy > 0 &&
-        route === "chat" &&
-        artifactsPanelOpen &&
-        (artifactSelection !== null || turnOutputSelection !== null) &&
-        !isArtifactsPanelResizing
-
-      setArtifactsPanelMaxWidthState(maxWidth)
-      setArtifactsPanelWidth((width) =>
-        clampArtifactsPanelWidthForLayout(width + (shouldGrowPanel ? expandedBy : 0), maxWidth),
-      )
-    }
-
-    updateArtifactsPanelBounds()
-    const observer = new ResizeObserver(updateArtifactsPanelBounds)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [
-    artifactSelection,
-    artifactsPanelOpen,
-    isArtifactsPanelResizing,
-    route,
-    sidebarCollapsed,
-    sidebarWidth,
-    turnOutputSelection,
-  ])
-
-  React.useEffect(() => {
-    try {
-      globalThis.localStorage?.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
-    } catch {
-      // 本地存储不可用时仅保留本次会话宽度。
-    }
-  }, [sidebarWidth])
-
-  React.useEffect(() => {
-    try {
-      globalThis.localStorage?.setItem(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY, String(artifactsPanelWidth))
-    } catch {
-      // 本地存储不可用时仅保留本次会话宽度。
-    }
-  }, [artifactsPanelWidth])
-
-  React.useEffect(() => {
-    if (!isSidebarResizing) {
-      return
-    }
-
-    const handlePointerMove = (event: PointerEvent): void => {
-      const start = sidebarResizeStart.current
-      if (!start) {
-        return
-      }
-      setSidebarWidth(clampSidebarWidth(start.width + event.clientX - start.pointerX))
-    }
-    const handlePointerUp = (): void => {
-      sidebarResizeStart.current = null
-      setIsSidebarResizing(false)
-    }
-
-    window.addEventListener("pointermove", handlePointerMove)
-    window.addEventListener("pointerup", handlePointerUp, { once: true })
-    window.addEventListener("pointercancel", handlePointerUp, { once: true })
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove)
-      window.removeEventListener("pointerup", handlePointerUp)
-      window.removeEventListener("pointercancel", handlePointerUp)
-    }
-  }, [isSidebarResizing])
-
-  React.useEffect(() => {
-    if (!isArtifactsPanelResizing) {
-      return
-    }
-
-    const flushArtifactsPanelWidth = (): void => {
-      artifactsPanelResizeFrame.current = null
-      const width = artifactsPanelPendingWidth.current
-      if (width !== null) {
-        applyArtifactsPanelShellWidth(width)
-      }
-    }
-    const handlePointerMove = (event: PointerEvent): void => {
-      const start = artifactsPanelResizeStart.current
-      if (!start) {
-        return
-      }
-      artifactsPanelPendingWidth.current = clampArtifactsPanelWidthToLayout(
-        start.width + start.pointerX - event.clientX,
-      )
-      if (artifactsPanelResizeFrame.current === null) {
-        artifactsPanelResizeFrame.current = window.requestAnimationFrame(flushArtifactsPanelWidth)
-      }
-    }
-    const handlePointerUp = (): void => {
-      if (artifactsPanelResizeFrame.current !== null) {
-        window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
-        artifactsPanelResizeFrame.current = null
-      }
-      const width = artifactsPanelPendingWidth.current
-      artifactsPanelPendingWidth.current = null
-      if (width !== null) {
-        applyArtifactsPanelShellWidth(width)
-        setArtifactsPanelWidth(width)
-      }
-      clearArtifactsPanelContentWidth()
-      artifactsPanelResizeStart.current = null
-      setIsArtifactsPanelResizing(false)
-    }
-
-    window.addEventListener("pointermove", handlePointerMove)
-    window.addEventListener("pointerup", handlePointerUp, { once: true })
-    window.addEventListener("pointercancel", handlePointerUp, { once: true })
-    return () => {
-      if (artifactsPanelResizeFrame.current !== null) {
-        window.cancelAnimationFrame(artifactsPanelResizeFrame.current)
-        artifactsPanelResizeFrame.current = null
-      }
-      artifactsPanelPendingWidth.current = null
-      clearArtifactsPanelContentWidth()
-      window.removeEventListener("pointermove", handlePointerMove)
-      window.removeEventListener("pointerup", handlePointerUp)
-      window.removeEventListener("pointercancel", handlePointerUp)
-    }
-  }, [
-    applyArtifactsPanelShellWidth,
-    clampArtifactsPanelWidthToLayout,
-    clearArtifactsPanelContentWidth,
-    isArtifactsPanelResizing,
-  ])
 
   const handleComposerStateChange = React.useCallback(
     (state: ComposerState): void => {
@@ -1154,141 +857,6 @@ export function AppShell() {
     setSidebarSegment(session.projectId ? "projects" : "tasks")
   }, [])
 
-  const refreshGeneratedTitle = React.useCallback(
-    async (
-      sessionId: string,
-      input: { text: string; attachmentNames?: string[] },
-      allowPlaceholder: boolean,
-      replaceableTitle?: string,
-    ) => {
-      const generationKey = sessionTitleGenerationKey(input, allowPlaceholder, replaceableTitle)
-      if (
-        titleGenerationInFlightBySession.current.get(sessionId) === generationKey ||
-        lastTitleGenerationKeyBySession.current.get(sessionId) === generationKey
-      ) {
-        return
-      }
-      const retryAfter = titleGenerationRetryAfterBySession.current.get(sessionId)
-      if (retryAfter?.key === generationKey && Date.now() < retryAfter.retryAfter) {
-        return
-      }
-
-      const fallbackTitle = buildFallbackSessionTitle(input)
-      const current = sessionsRef.current.find((session) => session.id === sessionId)
-      if (
-        current &&
-        current.title !== replaceableTitle &&
-        !isSessionTitleAutoRefreshable(current, allowPlaceholder, autoFallbackTitleBySession.current, fallbackTitle)
-      ) {
-        autoFallbackTitleBySession.current.delete(sessionId)
-        titleGenerationRetryAfterBySession.current.delete(sessionId)
-        lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
-        return
-      }
-
-      titleGenerationInFlightBySession.current.set(sessionId, generationKey)
-      const applyFallbackTitle = async (title: string): Promise<void> => {
-        const latest = sessionsRef.current.find((session) => session.id === sessionId)
-        if (!latest || !title) {
-          return
-        }
-        const canRefresh = isSessionTitleAutoRefreshable(
-          latest,
-          allowPlaceholder,
-          autoFallbackTitleBySession.current,
-          fallbackTitle,
-        )
-        if (!canRefresh && title !== latest.title) {
-          return
-        }
-        if (title !== latest.title) {
-          await rename(sessionId, title)
-        }
-        if (canRefresh || title === latest.title) {
-          autoFallbackTitleBySession.current.set(sessionId, title)
-        }
-      }
-      try {
-        const result = await generateTitle(input)
-        const title = result.title
-        const latest = sessionsRef.current.find((session) => session.id === sessionId)
-        const latestTitle = latest?.title ?? replaceableTitle
-        if (
-          latest &&
-          latest.title !== replaceableTitle &&
-          !isSessionTitleAutoRefreshable(latest, allowPlaceholder, autoFallbackTitleBySession.current, fallbackTitle)
-        ) {
-          autoFallbackTitleBySession.current.delete(sessionId)
-          titleGenerationRetryAfterBySession.current.delete(sessionId)
-          lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
-          return
-        }
-
-        if (!result.generated) {
-          if (latestTitle && shouldAutoRefreshSessionTitle(latestTitle, allowPlaceholder)) {
-            await applyFallbackTitle(title || fallbackTitle)
-          }
-          titleGenerationRetryAfterBySession.current.set(sessionId, {
-            key: generationKey,
-            retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
-          })
-          return
-        }
-
-        if (title && title !== latestTitle) {
-          await rename(sessionId, title)
-          autoFallbackTitleBySession.current.delete(sessionId)
-          titleGenerationRetryAfterBySession.current.delete(sessionId)
-          lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
-          return
-        }
-        if (
-          latestTitle &&
-          (shouldAutoRefreshSessionTitle(latestTitle, allowPlaceholder) ||
-            autoFallbackTitleBySession.current.get(sessionId) === latestTitle ||
-            fallbackTitle === latestTitle)
-        ) {
-          autoFallbackTitleBySession.current.delete(sessionId)
-          titleGenerationRetryAfterBySession.current.delete(sessionId)
-          lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
-          return
-        }
-        titleGenerationRetryAfterBySession.current.delete(sessionId)
-        lastTitleGenerationKeyBySession.current.set(sessionId, generationKey)
-      } catch (error) {
-        const latest = sessionsRef.current.find((session) => session.id === sessionId)
-        if (latest && shouldAutoRefreshSessionTitle(latest.title, allowPlaceholder)) {
-          await applyFallbackTitle(fallbackTitle)
-        }
-        titleGenerationRetryAfterBySession.current.set(sessionId, {
-          key: generationKey,
-          retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
-        })
-        console.error("[wanta] generate session title failed", error)
-      } finally {
-        if (titleGenerationInFlightBySession.current.get(sessionId) === generationKey) {
-          titleGenerationInFlightBySession.current.delete(sessionId)
-        }
-      }
-    },
-    [generateTitle, rename],
-  )
-
-  React.useEffect(() => {
-    if (!activeSession || !messagesLoaded || messages.length === 0) {
-      return
-    }
-    const titleInput = buildSessionTitleInput(messages, "", [])
-    if (!titleInput.text && !titleInput.attachmentNames?.length) {
-      return
-    }
-    const fallbackTitle = buildFallbackSessionTitle(titleInput)
-    if (!isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current, fallbackTitle)) {
-      return
-    }
-    void refreshGeneratedTitle(activeSession.id, titleInput, true, activeSession.title)
-  }, [activeSession, messages, messagesLoaded, refreshGeneratedTitle])
-
   const sendNow = React.useCallback(
     async (
       text: string,
@@ -1308,22 +876,11 @@ export function AppShell() {
         let sessionId = activeSessionId
         const titleInput = buildSessionTitleInput(messages, text, attachments)
         const fallbackTitle = buildFallbackSessionTitle(titleInput)
-        const autoFallbackTitle = sessionId ? autoFallbackTitleBySession.current.get(sessionId) : undefined
+        const autoFallbackTitle = sessionId ? getAutoFallbackTitle(sessionId) : undefined
         const allowPlaceholderTitle =
-          !sessionId ||
-          (activeSession
-            ? isSessionTitleAutoRefreshable(activeSession, true, autoFallbackTitleBySession.current, fallbackTitle)
-            : false)
+          !sessionId || (activeSession ? isAutoRefreshable(activeSession, true, fallbackTitle) : false)
         const shouldRefreshTitle =
-          !sessionId ||
-          (activeSession
-            ? isSessionTitleAutoRefreshable(
-                activeSession,
-                allowPlaceholderTitle,
-                autoFallbackTitleBySession.current,
-                fallbackTitle,
-              )
-            : false)
+          !sessionId || (activeSession ? isAutoRefreshable(activeSession, allowPlaceholderTitle, fallbackTitle) : false)
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()
         if (bridgeEmptySend) {
@@ -1349,7 +906,7 @@ export function AppShell() {
             throw error
           }
           sessionId = info.id
-          autoFallbackTitleBySession.current.set(sessionId, fallbackTitle)
+          rememberAutoFallbackTitle(sessionId, fallbackTitle)
           setActiveSessionId(sessionId)
           setIsDraftSession(false)
           setSidebarSegment(info.projectId ? "projects" : "tasks")
@@ -1410,13 +967,45 @@ export function AppShell() {
       activeProject?.id,
       activeProjectContext,
       create,
+      getAutoFallbackTitle,
+      isAutoRefreshable,
       messages,
       messagesLoaded,
       organizationSkills.chatContextSkills,
       refreshGeneratedTitle,
+      rememberAutoFallbackTitle,
       send,
     ],
   )
+
+  const isSendInFlight = React.useCallback((): boolean => sendInFlightRef.current, [])
+  const {
+    activeQueueHeld,
+    activeQueuedMessages,
+    clearQueuedSession,
+    handleQueuedMessageMove,
+    handleQueuedMessageRemove,
+    handleQueuedMessageResume,
+    holdActiveQueueIfQueued,
+    queueActiveMessage,
+    releaseActiveQueue,
+  } = useChatQueueState({
+    activeSessionId,
+    initialSendPending,
+    isSendInFlight,
+    sendQueuedMessage: sendNow,
+    status,
+  })
+
+  React.useEffect(() => {
+    if (!sessionsLoaded || !activeSessionId) {
+      return
+    }
+    if (sessions.some((session) => session.id === activeSessionId)) {
+      return
+    }
+    clearQueuedSession(activeSessionId)
+  }, [activeSessionId, clearQueuedSession, sessions, sessionsLoaded])
 
   const handleSend = React.useCallback(
     async (
@@ -1429,103 +1018,27 @@ export function AppShell() {
     ): Promise<boolean> => {
       const draftKey = activeSessionId ?? activeComposerDraftKey
       if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
-        const queuedMessage = createQueuedChatMessage(
-          activeSessionId,
-          text,
-          attachments,
-          contextMentions,
-          model,
-          reasoningLevel,
-          mode,
-        )
-        setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
+        queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode)
         clearComposerDraft(draftKey)
         return true
       }
       const accepted = await sendNow(text, attachments, contextMentions, model, reasoningLevel, mode)
       if (accepted) {
-        if (activeSessionId) {
-          setHeldQueuedSessions((current) => {
-            if (!current.has(activeSessionId)) {
-              return current
-            }
-            const next = new Set(current)
-            next.delete(activeSessionId)
-            return next
-          })
-        }
+        releaseActiveQueue()
         clearComposerDraft(draftKey)
       }
       return accepted
     },
-    [activeComposerDraftKey, activeSessionId, clearComposerDraft, isSessionRunning, sendNow],
+    [
+      activeComposerDraftKey,
+      activeSessionId,
+      clearComposerDraft,
+      isSessionRunning,
+      queueActiveMessage,
+      releaseActiveQueue,
+      sendNow,
+    ],
   )
-
-  React.useEffect(() => {
-    setHeldQueuedSessions((current) => {
-      let changed = false
-      const next = new Set(current)
-      for (const sessionId of current) {
-        if ((queuedMessagesBySession[sessionId] ?? []).length === 0) {
-          next.delete(sessionId)
-          changed = true
-        }
-      }
-      return changed ? next : current
-    })
-  }, [queuedMessagesBySession])
-
-  React.useEffect(() => {
-    if (!activeSessionId || !shouldDispatchQueuedMessage(status, initialSendPending, activeQueueHeld)) {
-      return
-    }
-    if (dispatchingQueuedSessionsRef.current.has(activeSessionId)) {
-      return
-    }
-    if (sendInFlightRef.current) {
-      return
-    }
-    const queue = queuedMessagesBySession[activeSessionId] ?? []
-    if (queue.length === 0) {
-      return
-    }
-    const message = queue[0] ?? null
-    if (!message) {
-      return
-    }
-    dispatchingQueuedSessionsRef.current.add(activeSessionId)
-    void sendNow(
-      message.text,
-      message.attachments,
-      message.contextMentions ?? [],
-      message.model,
-      message.reasoningLevel,
-      message.mode,
-      () => {
-        setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
-      },
-    )
-      .then((accepted) => {
-        if (!accepted) {
-          setQueuedMessagesBySession((current) =>
-            current[activeSessionId]?.some((item) => item.id === message.id)
-              ? current
-              : appendQueuedMessage(current, message),
-          )
-        }
-      })
-      .catch((cause: unknown) => {
-        setQueuedMessagesBySession((current) =>
-          current[activeSessionId]?.some((item) => item.id === message.id)
-            ? current
-            : appendQueuedMessage(current, message),
-        )
-        console.error("[wanta] dispatch queued message failed", cause)
-      })
-      .finally(() => {
-        dispatchingQueuedSessionsRef.current.delete(activeSessionId)
-      })
-  }, [activeQueueHeld, activeSessionId, initialSendPending, queuedMessagesBySession, sendNow, status])
 
   const handlePinSession = async (session: SessionInfo): Promise<void> => {
     try {
@@ -1692,142 +1205,20 @@ export function AppShell() {
       organizationSkills.chatContextSkills,
     ],
   )
-  const handleToggleSidebar = React.useCallback((): void => {
-    setSidebarCollapsed((collapsed) => {
-      const nextCollapsed = !collapsed
-      if (collapsed) {
-        setIsSidebarRestoring(true)
-      }
-      writeStoredSidebarCollapsed(globalThis.localStorage, nextCollapsed)
-      return nextCollapsed
-    })
-  }, [])
-  const handleSidebarResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (sidebarCollapsed) {
-      return
-    }
-    event.preventDefault()
-    sidebarResizeStart.current = { pointerX: event.clientX, width: sidebarWidth }
-    setIsSidebarResizing(true)
-  }
-  const handleSidebarResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (sidebarCollapsed) {
-      return
-    }
-
-    const step = event.shiftKey ? 24 : 12
-    if (event.key === "ArrowLeft") {
-      event.preventDefault()
-      setSidebarWidth((width) => clampSidebarWidth(width - step))
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault()
-      setSidebarWidth((width) => clampSidebarWidth(width + step))
-    } else if (event.key === "Home") {
-      event.preventDefault()
-      setSidebarWidth(SIDEBAR_MIN_WIDTH_PX)
-    } else if (event.key === "End") {
-      event.preventDefault()
-      setSidebarWidth(SIDEBAR_MAX_WIDTH_PX)
-    }
-  }
-  const handleArtifactsPanelResizeStart = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (!artifactsPanelVisible) {
-      return
-    }
-    event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    const dragStartWidth = visibleArtifactsPanelWidth
-    const frozenContentWidth = Math.max(
-      dragStartWidth,
-      Number.isFinite(artifactsPanelMaxWidthValue) ? artifactsPanelMaxWidthValue : dragStartWidth,
-    )
-    applyArtifactsPanelShellWidth(dragStartWidth)
-    freezeArtifactsPanelContentWidth(frozenContentWidth)
-    artifactsPanelResizeStart.current = { pointerX: event.clientX, width: dragStartWidth }
-    setIsArtifactsPanelResizing(true)
-  }
-  const handleArtifactsPanelResizeKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (!artifactsPanelVisible) {
-      return
-    }
-
-    const step = event.shiftKey ? 24 : 12
-    if (event.key === "ArrowLeft") {
-      event.preventDefault()
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width + step))
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault()
-      setArtifactsPanelWidth((width) => clampArtifactsPanelWidthToLayout(width - step))
-    } else if (event.key === "Home") {
-      event.preventDefault()
-      setArtifactsPanelWidth(ARTIFACTS_PANEL_MIN_WIDTH_PX)
-    }
-  }
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
   const handleRenameSession = (sessionId: string, title: string): void => {
-    autoFallbackTitleBySession.current.delete(sessionId)
+    clearAutoFallbackTitle(sessionId)
     void rename(sessionId, title).catch((cause: unknown) => {
       console.error("[wanta] rename session failed", cause)
       toast.error(t("session.renameFailed"))
     })
   }
-  const handleArtifactsReset = React.useCallback(() => {
-    panelSelectionModeRef.current = "auto"
-    setArtifactSelection(null)
-    setTurnOutputSelection(null)
-    setArtifactsPanelOpen(false)
-    setArtifactsPanelMaximizedState(false)
-  }, [setArtifactsPanelMaximizedState])
-  const handleArtifactsOpen = React.useCallback((selection: ArtifactSelection) => {
-    panelSelectionModeRef.current = "manual"
-    setArtifactSelection(selection)
-    setTurnOutputSelection(null)
-    setArtifactsPanelOpen(true)
-  }, [])
-  const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
-    if (panelSelectionModeRef.current === "manual") {
-      return
-    }
-    setTurnOutputSelection(null)
-    setArtifactSelection((current) => {
-      return current?.messageId === selection.messageId ? current : selection
-    })
-  }, [])
-  const handleTurnOutputOpen = React.useCallback((selection: TurnOutputSelection) => {
-    panelSelectionModeRef.current = "manual"
-    setTurnOutputSelection(selection)
-    setArtifactSelection(null)
-    setArtifactsPanelOpen(true)
-  }, [])
-  const handleTurnOutputAvailable = React.useCallback(
-    (selection: TurnOutputSelection) => {
-      if (panelSelectionModeRef.current === "manual") {
-        return
-      }
-      setTurnOutputSelection((current) => {
-        if (artifactSelection) {
-          return current
-        }
-        return current?.record.messageId === selection.record.messageId ? current : selection
-      })
-    },
-    [artifactSelection],
-  )
   const handleChatStop = React.useCallback(() => {
     if (activeSessionId) {
-      if ((queuedMessagesBySession[activeSessionId] ?? []).length > 0) {
-        setHeldQueuedSessions((current) => {
-          if (current.has(activeSessionId)) {
-            return current
-          }
-          const next = new Set(current)
-          next.add(activeSessionId)
-          return next
-        })
-      }
+      holdActiveQueueIfQueued()
       void stop(activeSessionId)
     }
-  }, [activeSessionId, queuedMessagesBySession, stop])
+  }, [activeSessionId, holdActiveQueueIfQueued, stop])
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {
       switch (command) {
@@ -1869,58 +1260,15 @@ export function AppShell() {
   useAppCommandEvents(runAppCommand)
   useAppCommandShortcuts(runAppCommand)
 
-  const handleQueuedMessageRemove = React.useCallback(
-    (messageId: string) => {
-      if (!activeSessionId) {
-        return
-      }
-      setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, messageId))
-    },
-    [activeSessionId],
-  )
-  const handleQueuedMessageMove = React.useCallback(
-    (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => {
-      if (!activeSessionId) {
-        return
-      }
-      setQueuedMessagesBySession((current) =>
-        moveQueuedMessage(current, activeSessionId, messageId, targetId, placement),
-      )
-    },
-    [activeSessionId],
-  )
-  const handleQueuedMessageResume = React.useCallback(() => {
-    if (!activeSessionId) {
-      return
-    }
-    setHeldQueuedSessions((current) => {
-      if (!current.has(activeSessionId)) {
-        return current
-      }
-      const next = new Set(current)
-      next.delete(activeSessionId)
-      return next
-    })
-  }, [activeSessionId])
   const handleViewBilling = React.useCallback(() => {
     setRoute("billing")
   }, [])
-  const hasPanelSelection = artifactSelection !== null || turnOutputSelection !== null
-  const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasPanelSelection
-  const artifactsPanelIsMaximized = artifactsPanelVisible && artifactsPanelMaximized
-  const visibleArtifactsPanelWidth = clampArtifactsPanelWidthToLayout(artifactsPanelWidth)
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
   const newChatLabel = labelWithShortcut(t("sidebar.newSession"), newChatShortcut)
-
-  React.useEffect(() => {
-    if (!artifactsPanelVisible && artifactsPanelMaximized) {
-      setArtifactsPanelMaximizedState(false)
-    }
-  }, [artifactsPanelMaximized, artifactsPanelVisible, setArtifactsPanelMaximizedState])
 
   if (route === "settings") {
     return (

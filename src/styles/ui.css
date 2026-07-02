@@ -1,0 +1,442 @@
+@layer components {
+  .oo-input-surface {
+    background: var(--oo-input-surface);
+  }
+
+  .oo-prompt-input-surface {
+    border-color: var(--oo-prompt-input-border) !important;
+    background: var(--oo-prompt-input-surface) !important;
+    box-shadow: var(--oo-prompt-input-shadow) !important;
+  }
+
+  .oo-queue-dock {
+    border-color: var(--oo-queue-dock-border);
+    background: var(--oo-queue-dock-surface);
+    box-shadow: var(--oo-queue-dock-shadow);
+  }
+
+  .oo-queue-dock-row:hover {
+    background: var(--oo-queue-dock-hover);
+  }
+
+  .oo-composer-context-tray {
+    --oo-composer-context-tray-surface: color-mix(in oklab, var(--sidebar-accent) 80%, var(--sidebar));
+
+    background: var(--oo-composer-context-tray-surface);
+    box-shadow: var(--oo-prompt-input-shadow);
+  }
+
+  .oo-search-surface {
+    border-color: transparent !important;
+    background: var(--oo-search-surface) !important;
+    box-shadow: inset 0 0 0 1px transparent !important;
+  }
+
+  .oo-search-surface:hover {
+    background: var(--oo-row-hover) !important;
+  }
+
+  .oo-search-surface:focus-visible {
+    border-color: transparent !important;
+    background: var(--oo-search-surface) !important;
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--foreground) 14%, transparent) !important;
+  }
+
+  .oo-search-surface-emphasis {
+    background: var(--oo-search-surface-emphasis) !important;
+  }
+
+  .oo-search-surface-emphasis:focus-visible {
+    background: var(--oo-search-surface-emphasis) !important;
+  }
+
+  .oo-modal-backdrop {
+    background: var(--oo-modal-backdrop);
+  }
+
+  .oo-modal-surface {
+    border-color: var(--oo-overlay-border);
+    background: var(--popover);
+    box-shadow: var(--oo-overlay-inner-ring), var(--oo-overlay-shadow);
+  }
+
+  .oo-session-search-input {
+    border-color: var(--input);
+    background: var(--oo-search-surface);
+    color: var(--foreground);
+  }
+
+  .oo-session-search-input:has([data-slot="input-group-control"]:focus-visible) {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 24%, transparent);
+  }
+
+  .oo-session-search-input [data-slot="input-group-control"]:focus-visible {
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .oo-session-search-result {
+    color: var(--popover-foreground);
+    outline: none;
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .oo-session-search-result:hover,
+  .oo-session-search-result:focus-visible {
+    background: var(--oo-row-hover);
+  }
+
+  .oo-session-search-result[aria-selected="true"] {
+    background: var(--selection-soft);
+    box-shadow: inset 0 0 0 1px var(--selection-ring);
+  }
+
+  .oo-session-search-result:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--control-focus-ring);
+  }
+
+  .oo-border-divider {
+    border-color: var(--oo-divider);
+  }
+
+  .oo-divider {
+    background: var(--oo-divider);
+  }
+
+  .oo-tooltip-content {
+    border: 1px solid var(--oo-overlay-border);
+    background: var(--popover);
+    box-shadow: var(--oo-tooltip-shadow);
+  }
+
+  .oo-content-surface {
+    overflow: hidden;
+    background: var(--oo-content-surface);
+  }
+
+  .oo-connection-filter-row {
+    scrollbar-width: none;
+  }
+
+  .oo-connection-filter-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .oo-entity-icon {
+    display: inline-flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--oo-frame-border);
+    border-radius: var(--radius-sm);
+    background: var(--background);
+  }
+
+  .oo-entity-icon-compact {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--radius-sm);
+  }
+
+  .oo-entity-icon-brand {
+    background: var(--background);
+  }
+
+  .oo-entity-icon-image {
+    display: block;
+    width: 1.375rem;
+    height: 1.375rem;
+    object-fit: contain;
+  }
+
+  .oo-entity-icon-compact .oo-entity-icon-image {
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+
+  .oo-entity-icon-fallback {
+    color: var(--muted-foreground);
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .oo-entity-icon-compact.oo-entity-icon-fallback {
+    font-size: 0.625rem;
+  }
+
+  .oo-error {
+    border: 1px solid var(--oo-danger-border);
+    border-radius: var(--radius-md);
+    background: var(--oo-danger-surface);
+    color: var(--destructive);
+    font-size: var(--oo-font-body);
+    line-height: var(--oo-line-body);
+    padding: 0.75rem;
+  }
+
+  .oo-text-body {
+    font-size: var(--oo-font-body);
+    line-height: var(--oo-line-body);
+  }
+
+  .oo-text-chat {
+    font-size: var(--oo-font-chat);
+    line-height: var(--oo-line-chat);
+  }
+
+  .oo-text-markdown {
+    font-size: var(--oo-font-markdown);
+    line-height: var(--oo-line-markdown);
+  }
+
+  .oo-text-title {
+    font-size: var(--oo-font-body);
+    font-weight: 600;
+    line-height: var(--oo-line-body);
+  }
+
+  .oo-text-dialog-title {
+    font-size: var(--oo-font-dialog-title);
+    font-weight: 600;
+    line-height: var(--oo-line-dialog-title);
+  }
+
+  .oo-text-page-title {
+    font-size: var(--oo-font-page-title);
+    font-weight: 600;
+    line-height: var(--oo-line-page-title);
+  }
+
+  .oo-text-empty-title {
+    font-size: var(--oo-font-empty-title);
+    font-weight: 500;
+    line-height: var(--oo-line-empty-title);
+  }
+
+  .oo-text-label {
+    font-size: var(--oo-font-body);
+    font-weight: 500;
+    line-height: var(--oo-line-body);
+  }
+
+  .oo-text-control {
+    font-size: var(--oo-font-control);
+    line-height: var(--oo-line-control);
+  }
+
+  .oo-text-value {
+    font-size: var(--oo-font-value);
+    font-weight: 600;
+    line-height: var(--oo-line-value);
+  }
+
+  .oo-text-metric {
+    font-size: var(--oo-font-metric);
+    font-weight: 600;
+    line-height: var(--oo-line-metric);
+  }
+
+  .oo-text-metric-large {
+    font-size: var(--oo-font-metric-large);
+    font-weight: 600;
+    line-height: var(--oo-line-metric-large);
+  }
+
+  .oo-text-caption {
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-caption);
+    line-height: var(--oo-line-caption);
+  }
+
+  .oo-text-caption-compact {
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-caption);
+    line-height: var(--oo-line-caption-compact);
+  }
+
+  .oo-text-micro {
+    color: var(--muted-foreground);
+    font-size: var(--oo-font-micro);
+    line-height: var(--oo-line-micro);
+  }
+
+  .oo-text-muted {
+    color: var(--muted-foreground);
+  }
+
+  .oo-text-accent {
+    color: var(--accent-strong);
+  }
+
+  .oo-bg-accent {
+    background: var(--accent-strong);
+  }
+
+  .oo-status-ready {
+    color: var(--success);
+  }
+
+  .oo-status-warning {
+    color: var(--oo-warning-foreground);
+  }
+
+  .oo-status-pending {
+    color: var(--muted-foreground);
+  }
+
+  /* 徽章：状态 / scope / 鉴权类型。柔和底色由对应语义色混合背景得到。 */
+  .oo-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    border-radius: 999px;
+    padding: 0.0625rem 0.5rem;
+    font-size: var(--oo-font-micro);
+    line-height: 1.4;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .oo-badge-muted {
+    background: var(--muted);
+    color: var(--muted-foreground);
+  }
+
+  .oo-badge-success {
+    background: color-mix(in oklab, var(--success) 14%, var(--background));
+    color: var(--success);
+  }
+
+  .oo-badge-warning {
+    background: color-mix(in oklab, var(--warning) 16%, var(--background));
+    color: var(--warning);
+  }
+
+  .oo-badge-info {
+    border-color: var(--oo-info-border);
+    background: var(--oo-info-surface);
+    color: var(--oo-info-foreground);
+  }
+
+  .oo-badge-outline {
+    border: 1px solid var(--oo-divider);
+    color: var(--muted-foreground);
+    padding: 0 0.4375rem;
+  }
+
+  .oo-icon-muted {
+    color: var(--muted-foreground);
+  }
+
+  .oo-icon-accent {
+    color: var(--accent-strong);
+  }
+
+  .oo-unread-dot {
+    background: var(--oo-unread-foreground);
+  }
+
+  .oo-attachment-tile-directory {
+    background: var(--oo-attachment-directory-surface);
+    color: var(--oo-attachment-directory-foreground);
+  }
+
+  .oo-attachment-tile-pdf {
+    background: var(--oo-attachment-pdf-surface);
+    color: var(--oo-attachment-pdf-foreground);
+  }
+
+  .oo-attachment-tile-image {
+    background: var(--oo-attachment-image-surface);
+    color: var(--oo-attachment-image-foreground);
+  }
+
+  .oo-attachment-tile-video {
+    background: var(--oo-attachment-video-surface);
+    color: var(--oo-attachment-video-foreground);
+  }
+
+  .oo-attachment-tile-audio {
+    background: var(--oo-attachment-audio-surface);
+    color: var(--oo-attachment-audio-foreground);
+  }
+
+  .oo-attachment-tile-archive {
+    background: var(--oo-attachment-archive-surface);
+    color: var(--oo-attachment-archive-foreground);
+  }
+
+  .oo-attachment-tile-sheet {
+    background: var(--oo-attachment-sheet-surface);
+    color: var(--oo-attachment-sheet-foreground);
+  }
+
+  .oo-attachment-tile-spreadsheet {
+    background: var(--oo-attachment-sheet-surface);
+    color: var(--oo-attachment-sheet-foreground);
+  }
+
+  .oo-attachment-tile-document {
+    background: var(--oo-attachment-document-surface);
+    color: var(--oo-attachment-document-foreground);
+  }
+
+  .oo-attachment-tile-presentation {
+    background: var(--oo-attachment-presentation-surface);
+    color: var(--oo-attachment-presentation-foreground);
+  }
+
+  .oo-attachment-tile-code {
+    background: var(--oo-attachment-code-surface);
+    color: var(--oo-attachment-code-foreground);
+  }
+
+  .oo-attachment-tile-json,
+  .oo-attachment-tile-markdown,
+  .oo-attachment-tile-text,
+  .oo-attachment-tile-web_page,
+  .oo-attachment-tile-file {
+    background: var(--oo-attachment-file-surface);
+    color: var(--oo-attachment-file-foreground);
+  }
+
+  .oo-artifact-selectable {
+    border-color: var(--oo-artifact-item-border);
+    background: var(--oo-artifact-item-surface);
+    transition:
+      border-color 120ms ease-out,
+      background-color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .oo-artifact-selectable:hover,
+  .oo-artifact-selectable:focus-visible {
+    background: var(--oo-artifact-item-hover);
+  }
+
+  .oo-artifact-selected {
+    border-color: var(--oo-artifact-selected-border);
+    background: var(--oo-artifact-selected-surface);
+    box-shadow: var(--oo-artifact-selected-shadow);
+  }
+
+  .oo-artifact-selected:hover,
+  .oo-artifact-selected:focus-visible {
+    background: var(--oo-artifact-selected-surface);
+  }
+
+  .oo-active-accent:active {
+    background: var(--oo-row-selected);
+    color: var(--foreground);
+  }
+}

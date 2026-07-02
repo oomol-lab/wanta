@@ -1408,6 +1408,7 @@ function ConnectionPanel({
           connections={connections}
           onConnect={onConnect}
           onDisconnect={onDisconnect}
+          polling={polling}
           provider={provider}
         />
       ) : null}
@@ -1421,6 +1422,7 @@ function ConnectionAccountsList({
   connections,
   onConnect,
   onDisconnect,
+  polling,
   provider,
 }: {
   busy: UseConnections["busy"]
@@ -1432,9 +1434,11 @@ function ConnectionAccountsList({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  polling: string | null
   provider: ConnectionProviderSummary
 }) {
   const t = useT()
+  const isPolling = polling === provider.service
   return (
     <div className="grid gap-2">
       <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
@@ -1492,11 +1496,11 @@ function ConnectionAccountsList({
                   variant="outline"
                   size="sm"
                   className={accountActionButtonClassName}
-                  disabled={busy === "connect"}
+                  disabled={isPolling || busy === "connect"}
                   onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
                 >
-                  <KeyRound className="size-3.5" />
-                  {t("connections.reconnect")}
+                  {isPolling ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
+                  {isPolling ? t("connections.oauthWaiting") : t("connections.reconnect")}
                 </Button>
               ) : null}
               {provider.canDisconnect ? (

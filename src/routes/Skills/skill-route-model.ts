@@ -58,6 +58,23 @@ export interface OrganizationSkillRuntimeStatus {
   state: OrganizationSkillRuntimeState
 }
 
+export interface RuntimeSkillRemoveTarget {
+  displayName: string
+  groupId: string
+  packageName?: string
+  skillName: string
+}
+
+export interface RuntimeSkillRemoveTargetInput {
+  displayName?: string
+  packageName?: string
+  skillName: string
+}
+
+export interface RuntimeSkillRemoveTargetOptions {
+  requirePackageMatch?: boolean
+}
+
 export type PublicPackageCatalogAction =
   | { append: boolean; clearItems?: boolean; requestId: number; type: "load-start" }
   | { append: boolean; catalog: PublicSkillPackageCatalog; requestId: number; type: "load-success" }
@@ -414,6 +431,37 @@ export function getInstallableOrganizationSkills<T extends OrganizationSkillRunt
     const status = getOrganizationSkillRuntimeStatus(groupById, skill).state
     return status === "missing" || status === "external-only"
   })
+}
+
+export function getRuntimeSkillRemoveTarget(
+  groupById: ManagedSkillGroupById | undefined,
+  input: RuntimeSkillRemoveTargetInput,
+  options: RuntimeSkillRemoveTargetOptions = {},
+): RuntimeSkillRemoveTarget | null {
+  const skillName = input.skillName.trim()
+  if (!skillName) {
+    return null
+  }
+
+  const group = groupById?.get(skillName)
+  const runtimeHost = group?.runtimeHosts.find((host) => host.status === "installed")
+  if (!group || !runtimeHost) {
+    return null
+  }
+
+  const packageName = input.packageName?.trim() || runtimeHost.packageName || group.packageName
+  const installedPackageName = runtimeHost.packageName ?? group.packageName
+  if (options.requirePackageMatch && packageName && installedPackageName && packageName !== installedPackageName) {
+    return null
+  }
+
+  const displayName = input.displayName?.trim() || group.name || skillName
+  return {
+    displayName,
+    groupId: group.id,
+    ...(packageName ? { packageName } : {}),
+    skillName,
+  }
 }
 
 export function getPublicSkillInstallState(

@@ -19,16 +19,22 @@ import type {
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations"
+import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model"
 
 import {
   Building2Icon,
   CheckIcon,
+  CheckCircle2Icon,
   ChevronDownIcon,
   ChevronsUpDownIcon,
   CrownIcon,
+  Link2OffIcon,
   MoreHorizontalIcon,
+  PackageMinusIcon,
   PackageIcon,
+  PauseCircleIcon,
   PencilIcon,
+  PlayCircleIcon,
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
@@ -69,7 +75,12 @@ import {
 } from "./organization-management-model.ts"
 import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import { useSkillService } from "@/components/AppContext"
-import { useAuthStateResource, useHomeSummaryResource, useSkillInventoryResource } from "@/components/AppDataHooks"
+import {
+  useAuthStateResource,
+  useHomeSummaryResource,
+  useSkillInventoryResource,
+  useSkillVersionReportResource,
+} from "@/components/AppDataHooks"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { SearchField } from "@/components/SearchField"
@@ -136,6 +147,7 @@ import {
   getPublicPackagePrimaryInstallSkill,
   getPublicPackagePrimarySkill,
   getPublicSkillInstallStateLabel,
+  getRuntimeSkillRemoveTarget,
   getSkillRowStatusBadgeClassName,
   initialPublicPackageCatalogState,
   isEmojiIcon,
@@ -244,6 +256,13 @@ function publicPackageLinkInput(pkg: PublicSkillPackage, skillName?: string): Or
   }
 }
 
+function runtimeSkillRemoveBusyKey(target: RuntimeSkillRemoveTarget): BusyAction {
+  return `removeSkill:${target.packageName ?? ""}:${target.skillName}`
+}
+
+const skillManageMenuLabelClassName = "oo-text-caption-compact px-2 py-1 text-muted-foreground"
+const skillManageMenuIconClassName = "text-muted-foreground"
+
 export function OrganizationManagementRoute({
   connectedProviders = [],
   organizationSkills,
@@ -257,6 +276,7 @@ export function OrganizationManagementRoute({
   const skillService = useSkillService()
   const authResource = useAuthStateResource()
   const skillInventory = useSkillInventoryResource()
+  const skillVersionReport = useSkillVersionReportResource()
   const homeSummaryResource = useHomeSummaryResource()
   const activeAccount = authResource.data?.status === "authenticated" ? authResource.data.account : undefined
   const activeAccountId = activeAccount?.id
@@ -301,6 +321,7 @@ export function OrganizationManagementRoute({
     query: "",
   })
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
+  const [runtimeSkillRemoveTarget, setRuntimeSkillRemoveTarget] = React.useState<RuntimeSkillRemoveTarget | null>(null)
   const overviewRequestId = React.useRef(0)
   const detailsRequestId = React.useRef(0)
   const detailsOrganizationIdRef = React.useRef<string | null>(initialSnapshot?.detailsOrganizationId ?? null)
@@ -963,6 +984,30 @@ export function OrganizationManagementRoute({
     [homeSummaryResource, skillInventory, skillService, t],
   )
 
+  const removeRuntimeSkill = React.useCallback(async () => {
+    const target = runtimeSkillRemoveTarget
+    if (!target || busyAction) {
+      return
+    }
+
+    setBusyAction(runtimeSkillRemoveBusyKey(target))
+    try {
+      const nextInventory = await skillService.invoke("deleteSkill", {
+        confirmed: true,
+        skillId: target.groupId,
+      })
+      skillInventory.setData(nextInventory)
+      skillVersionReport.invalidate()
+      homeSummaryResource.invalidate()
+      setRuntimeSkillRemoveTarget(null)
+      toast.success(t("organizations.skillManageRemoveRuntimeSuccess", { name: target.displayName }))
+    } catch (error) {
+      toast.error(t("organizations.skillManageRemoveRuntimeFailed", { error: errorMessage(error) }))
+    } finally {
+      setBusyAction(null)
+    }
+  }, [busyAction, homeSummaryResource, runtimeSkillRemoveTarget, skillInventory, skillService, skillVersionReport, t])
+
   const installRuntimeSkills = React.useCallback(
     async (skills: readonly { packageName: string; skillName: string }[]) => {
       const targets = skills.filter((skill) => skill.packageName.trim() && skill.skillName.trim())
@@ -1183,6 +1228,7 @@ export function OrganizationManagementRoute({
                         onAddMarketPackage={addOrganizationSkillFromPackage}
                         onInstallRuntimeSkill={installRuntimeSkill}
                         onInstallRuntimeSkills={installRuntimeSkills}
+                        onRequestRemoveRuntimeSkill={setRuntimeSkillRemoveTarget}
                       />
                     ) : (
                       <Panel
@@ -1279,6 +1325,16 @@ export function OrganizationManagementRoute({
         onClose={closeProviderAccess}
         onFormChange={setProviderAccessForm}
         onSubmit={handleSaveProviderAccess}
+      />
+      <RuntimeSkillRemoveConfirmDialog
+        busy={runtimeSkillRemoveTarget ? busyAction === runtimeSkillRemoveBusyKey(runtimeSkillRemoveTarget) : false}
+        target={runtimeSkillRemoveTarget}
+        onClose={() => {
+          if (!busyAction?.startsWith("removeSkill:")) {
+            setRuntimeSkillRemoveTarget(null)
+          }
+        }}
+        onConfirm={() => void removeRuntimeSkill()}
       />
     </>
   )
@@ -1493,6 +1549,7 @@ function OrganizationSkillGuidePanel({
   onAddMarketPackage,
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
+  onRequestRemoveRuntimeSkill,
 }: {
   busyAction: BusyAction | null
   groupById: ReadonlyMap<string, ManagedSkillGroup>
@@ -1512,6 +1569,7 @@ function OrganizationSkillGuidePanel({
   ) => Promise<void>
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
+  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
 }) {
   const { t } = useAppI18n()
   const statusLabel = organizationSkillGuideStatus(organizationSkills, t)
@@ -1581,6 +1639,7 @@ function OrganizationSkillGuidePanel({
           onAddMarketPackage={onAddMarketPackage}
           onInstallRuntimeSkill={onInstallRuntimeSkill}
           onInstallRuntimeSkills={onInstallRuntimeSkills}
+          onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
         />
       </div>
     </section>
@@ -1629,6 +1688,7 @@ export function OrganizationSkillManageDialog({
   onInstallRuntimeSkill,
   onInstallRuntimeSkills,
   onOpenAdvanced,
+  onRequestRemoveRuntimeSkill,
   open = true,
   organizationSkills,
   providerRecommendations,
@@ -1652,6 +1712,7 @@ export function OrganizationSkillManageDialog({
   onInstallRuntimeSkill: (skill: { packageName: string; skillName: string }) => void
   onInstallRuntimeSkills: (skills: readonly { packageName: string; skillName: string }[]) => void
   onOpenAdvanced?: () => void
+  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
   open?: boolean
   organizationSkills: UseOrganizationSkills
   providerRecommendations: ProviderSkillRecommendation[]
@@ -1660,6 +1721,9 @@ export function OrganizationSkillManageDialog({
   const { t } = useAppI18n()
   const isActive = variant === "inline" || open
   const [busyConfigId, setBusyConfigId] = React.useState<string | null>(null)
+  const [organizationRemoveTarget, setOrganizationRemoveTarget] = React.useState<
+    UseOrganizationSkills["skills"][number] | null
+  >(null)
   const [activeTab, setActiveTab] = React.useState<OrganizationSkillManageTab>("configured")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [marketCatalog, dispatchMarketCatalog] = React.useReducer(
@@ -1880,18 +1944,16 @@ export function OrganizationSkillManageDialog({
     }
   }
 
-  const removeOrganizationSkill = async (skill: UseOrganizationSkills["skills"][number]): Promise<void> => {
-    if (!organizationSkills.canManage || busyConfigId) {
-      return
-    }
-    const confirmed = window.confirm(t("skills.organizationRemoveConfirm", { name: skill.displayName }))
-    if (!confirmed) {
+  const removeOrganizationSkill = async (): Promise<void> => {
+    const skill = organizationRemoveTarget
+    if (!skill || !organizationSkills.canManage || busyConfigId) {
       return
     }
     setBusyConfigId(skill.id)
     try {
       await organizationSkills.removeSkill(skill.id)
       toast.success(t("skills.organizationSkillRemoved"))
+      setOrganizationRemoveTarget(null)
     } catch (error) {
       toast.error(errorMessage(error))
     } finally {
@@ -1932,11 +1994,7 @@ export function OrganizationSkillManageDialog({
           </div>
         </div>
       ) : organizationSkills.loading && !organizationSkills.hasLoaded ? (
-        <div className="grid content-start gap-2">
-          <Skeleton className="h-16 rounded-md" />
-          <Skeleton className="h-16 rounded-md" />
-          <Skeleton className="h-16 rounded-md" />
-        </div>
+        <OrganizationSkillManageLoadingSkeleton inline={inline} />
       ) : (
         <div className={cn("grid min-h-0 grid-rows-[auto_minmax(0,1fr)]", inline ? "gap-0" : "gap-3")}>
           <div
@@ -2120,6 +2178,7 @@ export function OrganizationSkillManageDialog({
                   <OrganizationSkillManageRow
                     key={skill.id}
                     busy={busyConfigId === skill.id || busyAction === "installSkillBatch"}
+                    busyAction={busyAction}
                     canManage={organizationSkills.canManage}
                     groupById={groupById}
                     installBusy={
@@ -2130,7 +2189,8 @@ export function OrganizationSkillManageDialog({
                     onInstallRuntime={() =>
                       onInstallRuntimeSkill({ packageName: skill.packageName, skillName: skill.skillName })
                     }
-                    onRemove={() => void removeOrganizationSkill(skill)}
+                    onRemove={() => setOrganizationRemoveTarget(skill)}
+                    onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
                     onToggleEnabled={() => void updateOrganizationSkill(skill, { enabled: !skill.enabled })}
                   />
                 ))}
@@ -2159,6 +2219,7 @@ export function OrganizationSkillManageDialog({
                     key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
                     busyAction={busyAction}
                     canManage={organizationSkills.canManage}
+                    groupById={groupById}
                     recommendation={recommendation}
                     onAdd={() => onAddRecommendation(recommendation, { installRuntime: false })}
                     onAddAndInstall={() => onAddRecommendation(recommendation, { installRuntime: true })}
@@ -2168,6 +2229,7 @@ export function OrganizationSkillManageDialog({
                         skillName: recommendation.skillId,
                       })
                     }
+                    onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
                   />
                 ))}
               </div>
@@ -2241,40 +2303,129 @@ export function OrganizationSkillManageDialog({
     </div>
   )
 
+  const removeRecommendationDialog = (
+    <OrganizationRecommendationRemoveConfirmDialog
+      busy={organizationRemoveTarget ? busyConfigId === organizationRemoveTarget.id : false}
+      target={organizationRemoveTarget}
+      onClose={() => {
+        if (!busyConfigId) {
+          setOrganizationRemoveTarget(null)
+        }
+      }}
+      onConfirm={() => void removeOrganizationSkill()}
+    />
+  )
+
   if (variant === "inline") {
-    return content
+    return (
+      <>
+        {content}
+        {removeRecommendationDialog}
+      </>
+    )
   }
 
   return (
-    <Dialog
-      open={open}
-      ariaLabel={t("organizations.skillManageTitle")}
-      title={t("organizations.skillManageTitle")}
-      className="h-[min(44rem,85vh)] max-w-[min(60rem,calc(100vw-2rem))]"
-      closeLabel={t("common.cancel")}
-      footer={
-        <>
-          {onOpenAdvanced ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                onClose()
-                onOpenAdvanced()
-              }}
-            >
-              {t("organizations.skillManageOpenAdvanced")}
+    <>
+      <Dialog
+        open={open}
+        ariaLabel={t("organizations.skillManageTitle")}
+        title={t("organizations.skillManageTitle")}
+        className="h-[min(44rem,85vh)] max-w-[min(60rem,calc(100vw-2rem))]"
+        closeLabel={t("common.cancel")}
+        footer={
+          <>
+            {onOpenAdvanced ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  onClose()
+                  onOpenAdvanced()
+                }}
+              >
+                {t("organizations.skillManageOpenAdvanced")}
+              </Button>
+            ) : null}
+            <Button type="button" onClick={onClose}>
+              {t("organizations.skillManageDone")}
             </Button>
-          ) : null}
-          <Button type="button" onClick={onClose}>
-            {t("organizations.skillManageDone")}
-          </Button>
-        </>
-      }
-      onClose={onClose}
+          </>
+        }
+        onClose={onClose}
+      >
+        {content}
+      </Dialog>
+      {removeRecommendationDialog}
+    </>
+  )
+}
+
+function OrganizationSkillManageLoadingSkeleton({ inline }: { inline: boolean }) {
+  const listClassName = inline
+    ? "min-h-0 overflow-hidden bg-background pb-3"
+    : "min-h-0 overflow-hidden rounded-md border bg-background"
+
+  return (
+    <div
+      className={cn("grid min-h-0 grid-rows-[auto_minmax(0,1fr)]", inline ? "h-full gap-0" : "gap-3")}
+      aria-hidden="true"
     >
-      {content}
-    </Dialog>
+      <div
+        className={cn(
+          "flex min-w-0 flex-wrap items-center justify-between gap-2",
+          inline && "border-b border-[var(--oo-divider)] px-3 py-3",
+        )}
+      >
+        <div className="max-w-full min-w-0 overflow-x-auto">
+          <div className="flex h-[var(--oo-control-height-compact)] w-max min-w-0 items-center overflow-hidden rounded-md bg-muted/45 shadow-xs">
+            <Skeleton className="mx-2 h-3.5 w-20 shrink-0 rounded-sm" />
+            <div className="h-full w-px bg-[var(--oo-divider)]" />
+            <Skeleton className="mx-2 h-3.5 w-16 shrink-0 rounded-sm" />
+            <div className="h-full w-px bg-[var(--oo-divider)]" />
+            <Skeleton className="mx-2 h-3.5 w-14 shrink-0 rounded-sm" />
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:min-w-80 sm:flex-row sm:items-center sm:justify-end">
+          <Skeleton className="h-[var(--oo-control-height-compact)] min-w-0 flex-1 rounded-md sm:max-w-80" />
+          <Skeleton className="h-[var(--oo-control-height-compact)] w-28 shrink-0 rounded-md" />
+        </div>
+      </div>
+      <div className={listClassName}>
+        <OrganizationSkillManageRowSkeleton titleWidth="w-32" descriptionWidth="w-3/4 max-w-md" metaWidth="w-56" />
+        <OrganizationSkillManageRowSkeleton titleWidth="w-40" descriptionWidth="w-5/6 max-w-lg" metaWidth="w-64" />
+        <OrganizationSkillManageRowSkeleton titleWidth="w-28" descriptionWidth="w-2/3 max-w-sm" metaWidth="w-48" />
+      </div>
+    </div>
+  )
+}
+
+function OrganizationSkillManageRowSkeleton({
+  descriptionWidth,
+  metaWidth,
+  titleWidth,
+}: {
+  descriptionWidth: string
+  metaWidth: string
+  titleWidth: string
+}) {
+  return (
+    <div className="grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+      <Skeleton className="size-9 rounded-md" />
+      <div className="grid min-w-0 gap-1.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Skeleton className={cn("h-4 rounded-md", titleWidth)} />
+          <Skeleton className="h-5 w-14 shrink-0 rounded-full" />
+          <Skeleton className="hidden h-5 w-20 shrink-0 rounded-full sm:block" />
+        </div>
+        <Skeleton className={cn("h-3.5 rounded-md", descriptionWidth)} />
+        <Skeleton className={cn("h-3 rounded-md", metaWidth)} />
+      </div>
+      <div className="flex min-w-0 justify-start gap-2 md:justify-end">
+        <Skeleton className="h-[var(--oo-control-height-compact)] w-24 rounded-md" />
+        <Skeleton className="h-[var(--oo-control-height-compact)] w-[var(--oo-control-height-compact)] rounded-md" />
+      </div>
+    </div>
   )
 }
 
@@ -2458,22 +2609,285 @@ function OrganizationSkillMarketRow({
   )
 }
 
+function OrganizationConfiguredSkillActionsMenu({
+  busy,
+  canManage,
+  enabled,
+  onRemove,
+  onRequestRemoveRuntimeSkill,
+  onToggleEnabled,
+  removeBusy,
+  runtimeRemoveTarget,
+}: {
+  busy: boolean
+  canManage: boolean
+  enabled: boolean
+  onRemove: () => void
+  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
+  onToggleEnabled: () => void
+  removeBusy: boolean
+  runtimeRemoveTarget: RuntimeSkillRemoveTarget | null
+}) {
+  const { t } = useAppI18n()
+  const hasRuntimeRemoveAction = Boolean(runtimeRemoveTarget)
+  if (!canManage && !hasRuntimeRemoveAction) {
+    return null
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-[var(--oo-control-height-compact)] px-0"
+          disabled={busy || removeBusy}
+          aria-label={t("organizations.skillManageMoreActions")}
+        >
+          {busy || removeBusy ? (
+            <RefreshCwIcon className="size-3.5 animate-spin" />
+          ) : (
+            <MoreHorizontalIcon className="size-4" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        {canManage ? (
+          <>
+            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
+              {t("organizations.skillManageOrganizationSection")}
+            </DropdownMenuLabel>
+            <DropdownMenuItem onSelect={onToggleEnabled}>
+              {enabled ? (
+                <PauseCircleIcon className={skillManageMenuIconClassName} />
+              ) : (
+                <PlayCircleIcon className={skillManageMenuIconClassName} />
+              )}
+              {enabled
+                ? t("organizations.skillManagePauseRecommendation")
+                : t("organizations.skillManageResumeRecommendation")}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+        {runtimeRemoveTarget ? (
+          <>
+            {canManage ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
+              {t("organizations.skillManageRuntimeSection")}
+            </DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => onRequestRemoveRuntimeSkill(runtimeRemoveTarget)}>
+              <PackageMinusIcon className={skillManageMenuIconClassName} />
+              {t("organizations.skillManageRemoveRuntime")}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+        {canManage ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+              <Link2OffIcon className="size-4" />
+              {t("organizations.skillManageUnrecommend")}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function OrganizationRecommendedSkillActionsMenu({
+  addBusy,
+  busy,
+  canManage,
+  onAdd,
+  onRequestRemoveRuntimeSkill,
+  removeBusy,
+  runtimeRemoveTarget,
+}: {
+  addBusy: boolean
+  busy: boolean
+  canManage: boolean
+  onAdd: () => Promise<void>
+  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
+  removeBusy: boolean
+  runtimeRemoveTarget: RuntimeSkillRemoveTarget | null
+}) {
+  const { t } = useAppI18n()
+  const hasRuntimeRemoveAction = Boolean(runtimeRemoveTarget)
+  if (!canManage && !hasRuntimeRemoveAction) {
+    return null
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-[var(--oo-control-height-compact)] px-0"
+          disabled={busy || addBusy || removeBusy}
+          aria-label={t("organizations.skillManageMoreActions")}
+        >
+          {busy || addBusy || removeBusy ? (
+            <RefreshCwIcon className="size-3.5 animate-spin" />
+          ) : (
+            <MoreHorizontalIcon className="size-4" />
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        {canManage ? (
+          <>
+            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
+              {t("organizations.skillManageOrganizationSection")}
+            </DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => void onAdd()}>
+              <CheckCircle2Icon className={skillManageMenuIconClassName} />
+              {t("organizations.skillManageAddOnly")}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+        {canManage && runtimeRemoveTarget ? <DropdownMenuSeparator /> : null}
+        {runtimeRemoveTarget ? (
+          <>
+            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
+              {t("organizations.skillManageRuntimeSection")}
+            </DropdownMenuLabel>
+            <DropdownMenuItem onSelect={() => onRequestRemoveRuntimeSkill(runtimeRemoveTarget)}>
+              <PackageMinusIcon className={skillManageMenuIconClassName} />
+              {t("organizations.skillManageRemoveRuntime")}
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function RuntimeSkillRemoveConfirmDialog({
+  busy,
+  onClose,
+  onConfirm,
+  target,
+}: {
+  busy: boolean
+  onClose: () => void
+  onConfirm: () => void
+  target: RuntimeSkillRemoveTarget | null
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <ConfirmDialog
+      open={Boolean(target)}
+      onOpenChange={(open) => {
+        if (!open && !busy) {
+          onClose()
+        }
+      }}
+    >
+      <ConfirmDialogContent>
+        <ConfirmDialogHeader>
+          <ConfirmDialogTitle>
+            {target
+              ? t("organizations.skillManageRemoveRuntimeConfirmTitle", { name: target.displayName })
+              : t("organizations.skillManageRemoveRuntime")}
+          </ConfirmDialogTitle>
+          <ConfirmDialogDescription>
+            {t("organizations.skillManageRemoveRuntimeConfirmDescription")}
+          </ConfirmDialogDescription>
+        </ConfirmDialogHeader>
+        <ConfirmDialogFooter>
+          <ConfirmDialogCancel disabled={busy}>{t("common.cancel")}</ConfirmDialogCancel>
+          <ConfirmDialogAction
+            disabled={busy || !target}
+            onClick={(event) => {
+              event.preventDefault()
+              onConfirm()
+            }}
+          >
+            {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+            {t("organizations.skillManageRemoveRuntime")}
+          </ConfirmDialogAction>
+        </ConfirmDialogFooter>
+      </ConfirmDialogContent>
+    </ConfirmDialog>
+  )
+}
+
+function OrganizationRecommendationRemoveConfirmDialog({
+  busy,
+  onClose,
+  onConfirm,
+  target,
+}: {
+  busy: boolean
+  onClose: () => void
+  onConfirm: () => void
+  target: UseOrganizationSkills["skills"][number] | null
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <ConfirmDialog
+      open={Boolean(target)}
+      onOpenChange={(open) => {
+        if (!open && !busy) {
+          onClose()
+        }
+      }}
+    >
+      <ConfirmDialogContent>
+        <ConfirmDialogHeader>
+          <ConfirmDialogTitle>
+            {target
+              ? t("organizations.skillManageUnrecommendConfirmTitle", { name: target.displayName })
+              : t("organizations.skillManageUnrecommend")}
+          </ConfirmDialogTitle>
+          <ConfirmDialogDescription>
+            {t("organizations.skillManageUnrecommendConfirmDescription")}
+          </ConfirmDialogDescription>
+        </ConfirmDialogHeader>
+        <ConfirmDialogFooter>
+          <ConfirmDialogCancel disabled={busy}>{t("common.cancel")}</ConfirmDialogCancel>
+          <ConfirmDialogAction
+            disabled={busy || !target}
+            onClick={(event) => {
+              event.preventDefault()
+              onConfirm()
+            }}
+          >
+            {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+            {t("organizations.skillManageUnrecommend")}
+          </ConfirmDialogAction>
+        </ConfirmDialogFooter>
+      </ConfirmDialogContent>
+    </ConfirmDialog>
+  )
+}
+
 function OrganizationSkillManageRow({
   busy,
+  busyAction,
   canManage,
   groupById,
   installBusy,
   onInstallRuntime,
   onRemove,
+  onRequestRemoveRuntimeSkill,
   onToggleEnabled,
   skill,
 }: {
   busy: boolean
+  busyAction: BusyAction | null
   canManage: boolean
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   installBusy: boolean
   onInstallRuntime: () => void
   onRemove: () => void
+  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
   onToggleEnabled: () => void
   skill: UseOrganizationSkills["skills"][number]
 }) {
@@ -2481,9 +2895,16 @@ function OrganizationSkillManageRow({
   const runtimeStatus = getOrganizationSkillRuntimeStatus(groupById, skill)
   const runtimeTone = organizationRuntimeStatusTone(runtimeStatus.state)
   const runtimeInstallable = runtimeStatus.state === "missing" || runtimeStatus.state === "external-only"
+  const runtimeRemoveTarget = getRuntimeSkillRemoveTarget(groupById, {
+    displayName: skill.displayName,
+    packageName: skill.packageName,
+    skillName: skill.skillName,
+  })
+  const removeBusy = runtimeRemoveTarget ? busyAction === runtimeSkillRemoveBusyKey(runtimeRemoveTarget) : false
+  const menuBusy = Boolean(busyAction && !removeBusy) || busy || installBusy
 
   return (
-    <div className="grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+    <div className="group/skill-row grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <OrganizationSkillIconFrame icon={skill.icon} />
       <div className="grid min-w-0 gap-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2512,17 +2933,16 @@ function OrganizationSkillManageRow({
             {installBusy ? t("skills.registryInstalling") : t("organizations.skillManageInstallRuntime")}
           </Button>
         ) : null}
-        {canManage ? (
-          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onToggleEnabled}>
-            {skill.enabled ? t("skills.organizationDisable") : t("skills.organizationEnable")}
-          </Button>
-        ) : null}
-        {canManage ? (
-          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
-            {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <Trash2Icon className="size-3.5" />}
-            {t("skills.organizationRemove")}
-          </Button>
-        ) : null}
+        <OrganizationConfiguredSkillActionsMenu
+          busy={menuBusy}
+          canManage={canManage}
+          enabled={skill.enabled}
+          removeBusy={removeBusy}
+          runtimeRemoveTarget={runtimeRemoveTarget}
+          onRemove={onRemove}
+          onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
+          onToggleEnabled={onToggleEnabled}
+        />
       </div>
     </div>
   )
@@ -2531,16 +2951,20 @@ function OrganizationSkillManageRow({
 function OrganizationSkillRecommendationRow({
   busyAction,
   canManage,
+  groupById,
   onAdd,
   onAddAndInstall,
   onInstallRuntime,
+  onRequestRemoveRuntimeSkill,
   recommendation,
 }: {
   busyAction: BusyAction | null
   canManage: boolean
+  groupById: ReadonlyMap<string, ManagedSkillGroup>
   onAdd: () => Promise<void>
   onAddAndInstall: () => Promise<void>
   onInstallRuntime: () => void
+  onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
   recommendation: ProviderSkillRecommendation
 }) {
   const { t } = useAppI18n()
@@ -2554,9 +2978,20 @@ function OrganizationSkillRecommendationRow({
   const skillDescription =
     recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ??
     recommendation.package.description
+  const runtimeRemoveTarget = getRuntimeSkillRemoveTarget(
+    groupById,
+    {
+      displayName: recommendation.package.displayName,
+      packageName: recommendation.packageName,
+      skillName: recommendation.skillId,
+    },
+    { requirePackageMatch: true },
+  )
+  const runtimeRemoveBusy = runtimeRemoveTarget ? busyAction === runtimeSkillRemoveBusyKey(runtimeRemoveTarget) : false
+  const menuBusy = Boolean(busyAction && !addBusy && !runtimeRemoveBusy)
 
   return (
-    <div className="grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
+    <div className="group/skill-row grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <OrganizationSkillIconFrame icon={recommendation.package.icon} />
       <div className="grid min-w-0 gap-0.5">
         <div className="oo-text-label min-w-0 truncate text-foreground">{recommendation.package.displayName}</div>
@@ -2571,7 +3006,17 @@ function OrganizationSkillRecommendationRow({
         </div>
       </div>
       <div className="flex min-w-0 flex-wrap justify-start gap-2 md:justify-end">
-        {canInstallRuntime ? (
+        {runtimeRemoveTarget ? (
+          <OrganizationRecommendedSkillActionsMenu
+            addBusy={addBusy}
+            busy={menuBusy}
+            canManage={canManage}
+            removeBusy={runtimeRemoveBusy}
+            runtimeRemoveTarget={runtimeRemoveTarget}
+            onAdd={onAdd}
+            onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
+          />
+        ) : canInstallRuntime ? (
           <div className="inline-flex items-center gap-0">
             <Button
               type="button"

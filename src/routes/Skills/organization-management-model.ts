@@ -23,6 +23,7 @@ export type BusyAction =
   | `addSkill:${string}`
   | `installSkill:${string}`
   | `remove:${string}`
+  | `removeSkill:${string}`
   | `revokeProviderAccess:${string}`
 export type LoadStatus = "idle" | "loading" | "ready" | "error"
 export type ProviderAccessMode = "create" | "edit"

@@ -8,6 +8,7 @@ import {
   getOrganizationSkillRuntimeStatus,
   getPublicPackageInstallState,
   getRuntimeHosts,
+  getRuntimeSkillRemoveTarget,
   initialPublicPackageCatalogState,
   isEmojiIcon,
   publicPackageCatalogReducer,
@@ -182,6 +183,56 @@ test("getInstallableOrganizationSkills only returns runtime-missing skills", () 
     getInstallableOrganizationSkills(groupById, skills).map((skill) => skill.skillName),
     ["missing", "external"],
   )
+})
+
+test("getRuntimeSkillRemoveTarget only returns installed runtime skills", () => {
+  const runtimeSkill = managedSkillGroup("demo", "@alice/demo")
+  const externalHost = {
+    agentId: "claude-code",
+    agentName: "Claude Code",
+    kind: "registry" as const,
+    packageName: "@alice/external",
+    scope: "external" as const,
+    status: "installed" as const,
+  }
+  const externalOnly: ManagedSkillGroup = {
+    ...managedSkillGroup("external", "@alice/external"),
+    externalHosts: [externalHost],
+    hosts: [externalHost],
+    runtimeHosts: [],
+  }
+  const groupById = new Map([
+    ["demo", runtimeSkill],
+    ["external", externalOnly],
+  ])
+
+  assert.deepEqual(getRuntimeSkillRemoveTarget(groupById, { packageName: "@alice/demo", skillName: "demo" }), {
+    displayName: "demo",
+    groupId: "demo",
+    packageName: "@alice/demo",
+    skillName: "demo",
+  })
+  assert.equal(getRuntimeSkillRemoveTarget(groupById, { packageName: "@alice/external", skillName: "external" }), null)
+  assert.equal(getRuntimeSkillRemoveTarget(groupById, { packageName: "@alice/missing", skillName: "missing" }), null)
+})
+
+test("getRuntimeSkillRemoveTarget can require matching package names", () => {
+  const groupById = new Map([["demo", managedSkillGroup("demo", "@other/demo")]])
+
+  assert.equal(
+    getRuntimeSkillRemoveTarget(
+      groupById,
+      { displayName: "Demo", packageName: "@alice/demo", skillName: "demo" },
+      { requirePackageMatch: true },
+    ),
+    null,
+  )
+  assert.deepEqual(getRuntimeSkillRemoveTarget(groupById, { packageName: "@alice/demo", skillName: "demo" }), {
+    displayName: "demo",
+    groupId: "demo",
+    packageName: "@alice/demo",
+    skillName: "demo",
+  })
 })
 
 function publicPackage(name: string): PublicSkillPackage {

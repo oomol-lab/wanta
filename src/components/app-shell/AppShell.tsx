@@ -11,6 +11,7 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
+import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
@@ -29,7 +30,6 @@ import {
   AUTH_RETRY_POLL_INTERVAL_MS,
   AUTH_RETRY_POLL_TIMEOUT_MS,
   buildSessionTitleInput,
-  CHAT_CONNECTION_DRAWER_WIDTH,
   EMPTY_CONNECTION_PROVIDERS,
   initialRoute,
   newSessionComposerDraftKey,
@@ -40,16 +40,10 @@ import {
 } from "./app-shell-model.ts"
 import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
-import {
-  ArchiveProjectDialog,
-  ArchiveSessionDialog,
-  RemoveProjectDialog,
-  RenameProjectDialog,
-  RenameSessionDialog,
-} from "./AppShellDialogs.tsx"
+import { AppShellConnectionDrawer } from "./AppShellConnectionDrawer.tsx"
 import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
 import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
-import { SessionSearchOverlay } from "./AppShellSidebar.tsx"
+import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
@@ -78,17 +72,6 @@ import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/co
 import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 type ProjectSelectionSource = "composer" | "sidebar"
-
-interface ConnectionAuthIntent {
-  action?: string
-  createdAt: number
-  displayName?: string
-  errorCode?: string
-  id: string
-  message?: string
-  service: string
-  source: "chat"
-}
 
 interface ChatConnectionDrawerState {
   authIntent: ConnectionAuthIntent | null
@@ -125,17 +108,6 @@ function releaseTransientFocus(): void {
 
 function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
-}
-
-function ConnectionDrawerLoadingFallback() {
-  return (
-    <div className="h-full min-h-0 px-3 py-3">
-      <section className="grid gap-3 rounded-lg border bg-muted/30 px-3 py-3">
-        <div className="h-4 w-32 rounded-sm bg-muted" />
-        <div className="h-3 w-56 max-w-full rounded-sm bg-muted" />
-      </section>
-    </div>
-  )
 }
 
 export function AppShell() {
@@ -1461,28 +1433,13 @@ export function AppShell() {
                       onViewBilling={handleViewBilling}
                     />
                   </div>
-                  <aside
-                    className={cn(
-                      "oo-border-divider min-h-0 shrink-0 overflow-hidden border-l bg-background transition-[width,opacity,transform] duration-200 ease-out motion-reduce:transition-none",
-                      chatConnectionDrawerVisible
-                        ? "translate-x-0 opacity-100"
-                        : "pointer-events-none translate-x-3 opacity-0",
-                    )}
-                    style={{ width: chatConnectionDrawerVisible ? CHAT_CONNECTION_DRAWER_WIDTH : "0px" }}
-                    aria-hidden={!chatConnectionDrawerVisible}
-                  >
-                    {chatConnectionDrawerVisible ? (
-                      <React.Suspense fallback={<ConnectionDrawerLoadingFallback />}>
-                        <ConnectionsPanel
-                          authIntent={chatConnectionAuthIntent}
-                          connections={connections}
-                          onClose={handleCloseChatConnectionDrawer}
-                          presentation="drawer"
-                          selectedService={chatConnectionSelectedService}
-                        />
-                      </React.Suspense>
-                    ) : null}
-                  </aside>
+                  <AppShellConnectionDrawer
+                    authIntent={chatConnectionAuthIntent}
+                    connections={connections}
+                    selectedService={chatConnectionSelectedService}
+                    visible={chatConnectionDrawerVisible}
+                    onClose={handleCloseChatConnectionDrawer}
+                  />
                 </div>
               )}
             </React.Suspense>
@@ -1506,56 +1463,32 @@ export function AppShell() {
         />
       </div>
 
-      <SessionSearchOverlay
+      <AppShellSessionProjectDialogs
+        archiveConfirming={archiveConfirming}
+        archiveProjectConfirming={archiveProjectConfirming}
+        archiveProjectTarget={archiveProjectTarget}
+        archiveSession={archiveSession}
+        openSearch={searchOpen}
+        removeProjectConfirming={removeProjectConfirming}
+        removeProjectTarget={removeProjectTarget}
+        renameProjectTarget={renameProjectTarget}
+        renameSession={renameSession}
         sessions={sessions}
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSelect={(session) => {
+        onArchiveProject={(project) => void handleArchiveProject(project)}
+        onArchiveSession={(session) => void handleArchiveSession(session)}
+        onCloseArchiveProject={() => setArchiveProjectId(null)}
+        onCloseArchiveSession={() => setArchiveSessionId(null)}
+        onCloseRemoveProject={() => setRemoveProjectId(null)}
+        onCloseRenameProject={() => setRenameProjectId(null)}
+        onCloseRenameSession={() => setRenameSessionId(null)}
+        onCloseSearch={() => setSearchOpen(false)}
+        onRemoveProject={(project) => void handleRemoveProject(project)}
+        onRenameProject={(projectId, name) => void handleRenameProject(projectId, name)}
+        onRenameSession={handleRenameSession}
+        onSearchSelect={(session) => {
           handleSelectSession(session)
           setPendingChatTransition(null)
           setSearchOpen(false)
-        }}
-      />
-      <RenameSessionDialog
-        session={renameSession}
-        open={Boolean(renameSession)}
-        onClose={() => setRenameSessionId(null)}
-        onRename={handleRenameSession}
-      />
-      <RenameProjectDialog
-        project={renameProjectTarget}
-        open={Boolean(renameProjectTarget)}
-        onClose={() => setRenameProjectId(null)}
-        onRename={(projectId, name) => void handleRenameProject(projectId, name)}
-      />
-      <ArchiveSessionDialog
-        confirming={archiveConfirming}
-        open={Boolean(archiveSession)}
-        onClose={() => setArchiveSessionId(null)}
-        onConfirm={() => {
-          if (archiveSession) {
-            void handleArchiveSession(archiveSession)
-          }
-        }}
-      />
-      <ArchiveProjectDialog
-        confirming={archiveProjectConfirming}
-        open={Boolean(archiveProjectTarget)}
-        onClose={() => setArchiveProjectId(null)}
-        onConfirm={() => {
-          if (archiveProjectTarget) {
-            void handleArchiveProject(archiveProjectTarget)
-          }
-        }}
-      />
-      <RemoveProjectDialog
-        confirming={removeProjectConfirming}
-        open={Boolean(removeProjectTarget)}
-        onClose={() => setRemoveProjectId(null)}
-        onConfirm={() => {
-          if (removeProjectTarget) {
-            void handleRemoveProject(removeProjectTarget)
-          }
         }}
       />
     </div>

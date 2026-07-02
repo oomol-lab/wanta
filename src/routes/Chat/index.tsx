@@ -74,6 +74,7 @@ import {
   MessageResponse,
 } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
+import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -1341,11 +1342,12 @@ export const ChatArea = React.memo(function ChatArea({
     <div className="grid min-h-full w-full place-items-center px-4 py-6 sm:px-5 lg:px-8">
       <div
         className={cn(
-          "flex w-full translate-y-[3vh] flex-col gap-5 transition-transform duration-300 ease-out",
+          "flex w-full translate-y-[-2vh] flex-col gap-5 transition-transform duration-300 ease-out",
           EMPTY_COMPOSER_MAX_WIDTH_CLASS,
         )}
       >
         <div className="px-4 pb-1 text-center">
+          <BrandIcon className="mx-auto mb-4 size-[72px]" aria-hidden="true" />
           <h2 className="oo-text-empty-title mx-auto max-w-2xl">{emptyTitle ?? t("chat.emptyTitle")}</h2>
         </div>
         <div className="flex flex-col gap-3">

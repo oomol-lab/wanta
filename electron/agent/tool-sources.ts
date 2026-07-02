@@ -56,11 +56,9 @@ export default tool({
     "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current user has already connected that service). In an organization workspace, connector search cannot check organization-scoped authorization, so results are marked authenticatedReliable false and call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
-    keywords: tool.schema.string().optional().describe("Optional comma-separated keywords to refine the search"),
   },
   async execute(args) {
     const argv = ["connector", "search", args.query, "--json"]
-    if (args.keywords) argv.push("--keywords", args.keywords)
     try {
       const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
       return await normalizeSearchOutput(result.stdout)
@@ -82,13 +80,18 @@ const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 
 export default tool({
   description:
-    "Fetch the contract for one selected OOMOL Link action. Returns a JSON object with description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS call this after selecting a service+action and before call_action, so the call_action params use the real declared field names instead of guesses. Inspecting a schema does not mean you must execute the action; if the schema does not fit the task, choose another path or explain the limitation. The schema is identity-independent and read-only; calling it never sends or changes anything.",
+    "Fetch the contract for one or more selected OOMOL Link actions. Pass an 'actions' array of '<service>.<action>' ids: one id returns a single JSON object, two or more ids return a JSON ARRAY of contracts in the same order you requested. Each contract has description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS inspect an action before call_action, so the call_action params use the real declared field names instead of guesses; when a workflow needs several contracts (for example an async submit/result pair, or a read step feeding a write step) inspect them all in one call. Inspecting a schema does not mean you must execute the action; if a schema does not fit the task, choose another path or explain the limitation. The schema is identity-independent and read-only; calling it never sends or changes anything.",
   args: {
-    service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
-    action: tool.schema.string().describe("Action name, e.g. 'get_item'"),
+    actions: tool.schema
+      .array(tool.schema.string())
+      .describe("One or more action ids in the form '<service>.<action>' (service segment before the first dot, action after it), e.g. ['hackernews.get_item']. When a workflow needs several contracts at once, such as an async submit/result pair or a read step feeding a write step, pass every id in one call, e.g. ['cal.create_schedule','callingly.get_agent_schedule']."),
   },
   async execute(args) {
-    const argv = ["connector", "schema", args.service, "--action", args.action, "--json"]
+    const ids = (args.actions || []).map((id) => String(id).trim()).filter(Boolean)
+    if (ids.length === 0) {
+      return JSON.stringify({ status: "error", message: "Provide at least one action id in the form <service>.<action>." })
+    }
+    const argv = ["connector", "schema", ...ids, "--json"]
     try {
       const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
       return (result.stdout || "").trim() || "{}"

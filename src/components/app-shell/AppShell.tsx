@@ -26,7 +26,6 @@ import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
-  ARTIFACTS_PANEL_MIN_WIDTH_PX,
   AUTH_RETRY_POLL_INTERVAL_MS,
   AUTH_RETRY_POLL_TIMEOUT_MS,
   buildSessionTitleInput,
@@ -42,6 +41,7 @@ import {
   SIDEBAR_MIN_WIDTH_PX,
 } from "./app-shell-model.ts"
 import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
+import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
 import {
   ArchiveProjectDialog,
   ArchiveSessionDialog,
@@ -110,12 +110,6 @@ interface ChatConnectionDrawerState {
   selectedService: string | null
 }
 
-const ArtifactsPanel = React.lazy(() =>
-  import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.ArtifactsPanel })),
-)
-const TurnOutputsPanel = React.lazy(() =>
-  import("@/routes/Chat/TurnOutputs").then((module) => ({ default: module.TurnOutputsPanel })),
-)
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
 )
@@ -1737,66 +1731,21 @@ export function AppShell() {
           </main>
         </div>
 
-        <div
-          ref={artifactsPanelShellRef}
-          className={cn(
-            "oo-artifacts-panel-shell relative min-h-0 overflow-hidden",
-            artifactsPanelIsMaximized ? "min-w-0 flex-1 shrink" : "shrink-0",
-            artifactsPanelIsMaximized && "oo-artifacts-panel-maximized",
-            isArtifactsPanelResizing ? "transition-none" : "transition-[width,opacity,transform] duration-200 ease-out",
-            artifactsPanelVisible ? "translate-x-0 opacity-100" : "pointer-events-none translate-x-3 opacity-0",
-          )}
-          style={{
-            width: artifactsPanelVisible
-              ? artifactsPanelIsMaximized
-                ? undefined
-                : `${visibleArtifactsPanelWidth}px`
-              : "0px",
-          }}
-        >
-          {!artifactsPanelIsMaximized ? (
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={t("aria.resizeArtifactsPanel")}
-              aria-valuemin={ARTIFACTS_PANEL_MIN_WIDTH_PX}
-              aria-valuemax={artifactsPanelMaxWidthState ?? undefined}
-              aria-valuenow={visibleArtifactsPanelWidth}
-              title={t("aria.resizeArtifactsPanel")}
-              tabIndex={artifactsPanelVisible ? 0 : -1}
-              className="oo-artifacts-panel-resize-handle"
-              onPointerDown={handleArtifactsPanelResizeStart}
-              onKeyDown={handleArtifactsPanelResizeKeyDown}
-            />
-          ) : null}
-          <div ref={artifactsPanelContentRef} className="h-full w-full min-w-0">
-            {artifactsPanelVisible ? (
-              <React.Suspense fallback={null}>
-                {turnOutputSelection ? (
-                  <TurnOutputsPanel
-                    maximized={artifactsPanelIsMaximized}
-                    selection={turnOutputSelection}
-                    onCollapse={() => {
-                      setArtifactsPanelOpen(false)
-                      setArtifactsPanelMaximizedState(false)
-                    }}
-                    onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
-                  />
-                ) : (
-                  <ArtifactsPanel
-                    maximized={artifactsPanelIsMaximized}
-                    selection={artifactSelection}
-                    onCollapse={() => {
-                      setArtifactsPanelOpen(false)
-                      setArtifactsPanelMaximizedState(false)
-                    }}
-                    onToggleMaximized={() => setArtifactsPanelMaximizedState(!artifactsPanelIsMaximized)}
-                  />
-                )}
-              </React.Suspense>
-            ) : null}
-          </div>
-        </div>
+        <AppShellArtifactsPanel
+          artifactSelection={artifactSelection}
+          artifactsPanelContentRef={artifactsPanelContentRef}
+          artifactsPanelIsMaximized={artifactsPanelIsMaximized}
+          artifactsPanelMaxWidthState={artifactsPanelMaxWidthState}
+          artifactsPanelShellRef={artifactsPanelShellRef}
+          artifactsPanelVisible={artifactsPanelVisible}
+          handleArtifactsPanelResizeKeyDown={handleArtifactsPanelResizeKeyDown}
+          handleArtifactsPanelResizeStart={handleArtifactsPanelResizeStart}
+          isArtifactsPanelResizing={isArtifactsPanelResizing}
+          setArtifactsPanelMaximizedState={setArtifactsPanelMaximizedState}
+          setArtifactsPanelOpen={setArtifactsPanelOpen}
+          turnOutputSelection={turnOutputSelection}
+          visibleArtifactsPanelWidth={visibleArtifactsPanelWidth}
+        />
       </div>
 
       <SessionSearchOverlay

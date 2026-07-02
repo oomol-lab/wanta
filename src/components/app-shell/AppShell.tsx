@@ -7,18 +7,15 @@ import type {
   ChatContextMention,
   ChatOrganizationSkillContext,
   ChatProjectContext,
-  ChatMessage,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
-import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { GitRepositoryState } from "../../../electron/git/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
+import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
+import type { TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
-import type { ChatQueueMap, QueuedChatMessage, QueuedMessageMovePlacement } from "./chat-queue.ts"
+import type { ChatQueueMap, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
-import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -30,6 +27,36 @@ import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
+import {
+  activeProjectIdForComposer,
+  artifactsPanelMaxWidth,
+  ARTIFACTS_PANEL_MIN_WIDTH_PX,
+  ARTIFACTS_PANEL_WIDTH_STORAGE_KEY,
+  AUTH_RETRY_POLL_INTERVAL_MS,
+  AUTH_RETRY_POLL_TIMEOUT_MS,
+  buildSessionTitleInput,
+  CHAT_CONNECTION_DRAWER_WIDTH,
+  clampArtifactsPanelWidthForLayout,
+  clampSidebarWidth,
+  createQueuedChatMessage,
+  EMPTY_CONNECTION_PROVIDERS,
+  initialRoute,
+  isSessionTitleAutoRefreshable,
+  newSessionComposerDraftKey,
+  NO_DRAFT_PROJECT_ID,
+  projectContextFromProject,
+  readStoredArtifactsPanelWidth,
+  readStoredSidebarWidth,
+  rememberTurnRetryOptions,
+  sessionScopeFromWorkspace,
+  sessionTitleGenerationKey,
+  SESSION_TITLE_RETRY_DELAY_MS,
+  SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX,
+  SIDEBAR_MAX_WIDTH_PX,
+  SIDEBAR_MIN_WIDTH_PX,
+  SIDEBAR_RESTORE_DELAY_MS,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+} from "./app-shell-model.ts"
 import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
 import {
   ArchiveProjectDialog,
@@ -89,7 +116,6 @@ import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-f
 import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
-import { visibleUserText } from "@/routes/Chat/message-text"
 import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 type ProjectSelectionSource = "composer" | "sidebar"
@@ -133,25 +159,6 @@ const SettingsRoute = React.lazy(() =>
 )
 const SkillsRoute = React.lazy(() => import("@/routes/Skills").then((module) => ({ default: module.SkillsRoute })))
 
-const SIDEBAR_RESTORE_DELAY_MS = 260
-const SIDEBAR_AUTO_COLLAPSE_MAX_WIDTH_PX = 720
-const SIDEBAR_DEFAULT_WIDTH_PX = 264
-const SIDEBAR_MIN_WIDTH_PX = 220
-const SIDEBAR_MAX_WIDTH_PX = 420
-const SIDEBAR_WIDTH_STORAGE_KEY = "wanta.sidebarWidth"
-const CHAT_AREA_MIN_WIDTH_PX = 420
-const CHAT_CONNECTION_DRAWER_WIDTH = "min(31.5rem, 38vw)"
-const ARTIFACTS_PANEL_DEFAULT_WIDTH_PX = 300
-const ARTIFACTS_PANEL_MIN_WIDTH_PX = 260
-const ARTIFACTS_PANEL_WIDTH_STORAGE_KEY = "wanta.artifactsPanelWidth"
-const TURN_RETRY_OPTIONS_LIMIT = 48
-const SESSION_TITLE_RETRY_DELAY_MS = 20_000
-const AUTH_RETRY_POLL_INTERVAL_MS = 2_000
-const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
-const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
-const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
-const NO_DRAFT_PROJECT_ID = "__no_project__"
-
 function releaseTransientFocus(): void {
   const blurActiveElement = (): void => {
     const activeElement = document.activeElement
@@ -176,231 +183,6 @@ function ConnectionDrawerLoadingFallback() {
       </section>
     </div>
   )
-}
-
-interface TurnRetryOptions {
-  contextMentions?: ChatContextMention[]
-  organizationSkills?: ChatOrganizationSkillContext[]
-  projectContext?: ChatProjectContext
-  model?: ModelChoice
-  reasoningLevel?: ReasoningLevel
-  mode?: AgentMode
-}
-
-function rememberTurnRetryOptions(
-  store: Map<string, Map<string, TurnRetryOptions>>,
-  sessionId: string,
-  key: string,
-  options: TurnRetryOptions,
-): void {
-  const sessionStore = store.get(sessionId) ?? new Map<string, TurnRetryOptions>()
-  sessionStore.set(key, options)
-  while (sessionStore.size > TURN_RETRY_OPTIONS_LIMIT) {
-    const first = sessionStore.keys().next()
-    if (first.done) {
-      break
-    }
-    sessionStore.delete(first.value)
-  }
-  store.set(sessionId, sessionStore)
-}
-
-function buildSessionTitleInput(
-  messages: ChatMessage[],
-  text: string,
-  attachments: ChatAttachment[],
-): { text: string; attachmentNames?: string[] } {
-  const recentUserMessages = messages
-    .filter((message) => message.role === "user")
-    .map(chatMessageText)
-    .map((messageText) => messageText.trim())
-    .filter(Boolean)
-    .slice(-3)
-  const currentText = text.trim()
-  const titleText = [...recentUserMessages, currentText].filter(Boolean).join("\n\n")
-  const attachmentNames = attachments.map((attachment) => attachment.name.trim()).filter(Boolean)
-  return {
-    text: titleText || attachmentNames.join("\n"),
-    ...(attachmentNames.length > 0 ? { attachmentNames } : {}),
-  }
-}
-
-function sessionTitleGenerationKey(
-  input: { text: string; attachmentNames?: string[] },
-  allowPlaceholder: boolean,
-  replaceableTitle?: string,
-): string {
-  return JSON.stringify({
-    allowPlaceholder,
-    attachmentNames: input.attachmentNames ?? [],
-    replaceableTitle: replaceableTitle ?? "",
-    text: input.text,
-  })
-}
-
-function isSessionTitleAutoRefreshable(
-  session: SessionInfo,
-  allowPlaceholder: boolean,
-  fallbackTitles: Map<string, string>,
-  fallbackTitle?: string,
-): boolean {
-  return (
-    shouldAutoRefreshSessionTitle(session.title, allowPlaceholder) ||
-    fallbackTitles.get(session.id) === session.title ||
-    fallbackTitle === session.title
-  )
-}
-
-function createQueuedChatMessage(
-  sessionId: string,
-  text: string,
-  attachments: ChatAttachment[],
-  contextMentions: ChatContextMention[] | undefined,
-  model?: ModelChoice,
-  reasoningLevel?: ReasoningLevel,
-  mode?: AgentMode,
-): QueuedChatMessage {
-  return {
-    id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    sessionId,
-    text,
-    attachments,
-    ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
-    model,
-    reasoningLevel,
-    mode,
-    createdAt: Date.now(),
-  }
-}
-
-function initialRoute(): Route {
-  const route = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_ROUTE"]
-  return route === "settings" ||
-    route === "connections" ||
-    route === "skills" ||
-    route === "organizations" ||
-    route === "billing" ||
-    route === "archived"
-    ? route
-    : "chat"
-}
-
-function clampSidebarWidth(width: number): number {
-  return Math.min(SIDEBAR_MAX_WIDTH_PX, Math.max(SIDEBAR_MIN_WIDTH_PX, width))
-}
-
-function readStoredSidebarWidth(): number {
-  try {
-    const stored = globalThis.localStorage?.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
-    if (!stored) {
-      return SIDEBAR_DEFAULT_WIDTH_PX
-    }
-    const width = Number.parseInt(stored, 10)
-    return Number.isFinite(width) ? clampSidebarWidth(width) : SIDEBAR_DEFAULT_WIDTH_PX
-  } catch {
-    return SIDEBAR_DEFAULT_WIDTH_PX
-  }
-}
-
-function clampArtifactsPanelWidth(width: number): number {
-  return Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, width)
-}
-
-function artifactsPanelMaxWidth(appWidth: number, sidebarWidth: number, sidebarCollapsed: boolean): number {
-  const sidebarTrackWidth = sidebarCollapsed ? 0 : sidebarWidth
-  const maxWidth = Math.floor(appWidth - sidebarTrackWidth - CHAT_AREA_MIN_WIDTH_PX)
-  return Math.max(ARTIFACTS_PANEL_MIN_WIDTH_PX, maxWidth)
-}
-
-function clampArtifactsPanelWidthForLayout(width: number, maxWidth: number): number {
-  return Math.min(maxWidth, clampArtifactsPanelWidth(width))
-}
-
-function readStoredArtifactsPanelWidth(): number {
-  try {
-    const stored = globalThis.localStorage?.getItem(ARTIFACTS_PANEL_WIDTH_STORAGE_KEY)
-    if (!stored) {
-      return ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
-    }
-    const width = Number.parseInt(stored, 10)
-    return Number.isFinite(width) ? clampArtifactsPanelWidth(width) : ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
-  } catch {
-    return ARTIFACTS_PANEL_DEFAULT_WIDTH_PX
-  }
-}
-
-function chatMessageText(message: ChatMessage): string {
-  const text = message.parts
-    .filter((part) => part.kind === "text")
-    .map((part) => part.text ?? "")
-    .join("")
-  return message.role === "user" ? visibleUserText(text) : text
-}
-
-function sessionScopeFromWorkspace(workspace: WorkspaceSelection): SessionScope | null {
-  if (workspace.type === "personal") {
-    return { type: "personal" }
-  }
-  const organizationId = workspace.organizationId.trim()
-  const organizationName = workspace.organization?.name.trim()
-  if (!organizationId || !organizationName) {
-    return null
-  }
-  return { type: "organization", organizationId, organizationName }
-}
-
-function sessionScopeKey(scope: SessionScope | null): string {
-  if (!scope) {
-    return "workspace-loading"
-  }
-  return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
-}
-
-function projectContextFromProject(
-  project: SessionProject | undefined,
-  gitState?: GitRepositoryState | null,
-): ChatProjectContext | undefined {
-  if (!project) {
-    return undefined
-  }
-  return {
-    id: project.id,
-    name: project.name,
-    path: project.path,
-    ...(gitState?.available && gitState.repositoryRoot
-      ? {
-          git: {
-            repositoryRoot: gitState.repositoryRoot,
-            ...(gitState.currentBranch ? { currentBranch: gitState.currentBranch } : {}),
-            ...(gitState.detachedHead ? { detachedHead: gitState.detachedHead } : {}),
-            dirty: gitState.dirty,
-          },
-        }
-      : {}),
-  }
-}
-
-function activeProjectIdForComposer({
-  activeSession,
-  draftProjectId,
-}: {
-  activeSession?: SessionInfo
-  draftProjectId: string | null
-}): string | undefined {
-  if (activeSession?.projectId) {
-    return activeSession.projectId
-  }
-  if (draftProjectId === NO_DRAFT_PROJECT_ID) {
-    return undefined
-  }
-  if (draftProjectId) {
-    return draftProjectId
-  }
-  return undefined
-}
-
-function newSessionComposerDraftKey(scope: SessionScope | null, projectId: string | undefined): string {
-  return `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(scope)}:${projectId ?? "none"}`
 }
 
 export function AppShell() {

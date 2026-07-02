@@ -39,7 +39,10 @@ function parseServiceFromCommand(command: string): string {
     new RegExp(String.raw`(?:^|\s)(?:oo\s+)?connector\s+(?:schema|run)\s+` + serviceArg),
   )
   if (connectorMatch) {
-    return connectorMatch[1] ?? connectorMatch[2] ?? connectorMatch[3] ?? ""
+    // 1.3.0 `oo connector schema` 用点号 id `<service>.<action>`；只取首个点之前的 service 段。
+    const raw = connectorMatch[1] ?? connectorMatch[2] ?? connectorMatch[3] ?? ""
+    const dot = raw.indexOf(".")
+    return dot > 0 ? raw.slice(0, dot) : raw
   }
   const providerFlagMatch = command.match(new RegExp(String.raw`(?:--provider|--service)\s+` + serviceArg))
   return providerFlagMatch ? (providerFlagMatch[1] ?? providerFlagMatch[2] ?? providerFlagMatch[3] ?? "") : ""
@@ -101,7 +104,15 @@ function bashActionSummary(t: TranslateFn, command: string): string {
 function connectorTarget(input: Record<string, unknown>): string {
   const service = str(input.service)
   const action = str(input.action)
-  return service && action ? `${service} · ${action}` : service || action
+  if (service || action) {
+    return service && action ? `${service} · ${action}` : service || action
+  }
+  // inspect_action 现按点号 id 数组批量取契约（input 为 { actions: [...] }）。
+  const actions = input.actions
+  if (Array.isArray(actions) && actions.length > 0) {
+    return actions.map((id) => String(id)).join(", ")
+  }
+  return ""
 }
 
 function pathInput(input: Record<string, unknown>): string {

@@ -45,13 +45,12 @@ import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
 import {
   ArchiveProjectDialog,
   ArchiveSessionDialog,
-  EditableTitlebarTitle,
   RemoveProjectDialog,
   RenameProjectDialog,
   RenameSessionDialog,
 } from "./AppShellDialogs.tsx"
+import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
 import {
-  AppUpdateTitlebarEntry,
   ProjectSidebarEmptyState,
   ProjectSidebarGroupItem,
   SessionItem,
@@ -69,7 +68,6 @@ import { useChatQueueState } from "./use-chat-queue-state.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
 import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
 import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
-import { BillingUsagePopover } from "@/components/app-shell/BillingUsagePopover"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
@@ -1568,51 +1566,23 @@ export function AppShell() {
             artifactsPanelIsMaximized && "hidden",
           )}
         >
-          <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
-            <div className="oo-titlebar-collapsed-controls shrink-0 items-center gap-3">
-              <div className="oo-titlebar-control-spacer shrink-0" />
-              <SidebarTitlebarActions
-                collapsed={sidebarCollapsed}
-                onToggleCollapsed={handleToggleSidebar}
-                onSearch={handleOpenSearch}
-              />
-            </div>
-            <div
-              className={cn(
-                "oo-main-titlebar-title flex w-full min-w-0 items-center gap-2",
-                isSidebarRestoring && "is-restoring",
-              )}
-            >
-              <EditableTitlebarTitle
-                title={titlebarTitle}
-                editable={titlebarEditable}
-                onRename={(title) => {
-                  if (activeSession) {
-                    handleRenameSession(activeSession.id, title)
-                  }
-                }}
-              />
-            </div>
-            <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
-              <AppUpdateTitlebarEntry />
-              <BillingUsagePopover cacheScope={billingCacheScope} onViewDetails={() => setRoute("billing")} />
-              {showArtifactsToggle ? (
-                <button
-                  type="button"
-                  title={artifactsToggleLabel}
-                  aria-label={artifactsToggleLabel}
-                  aria-pressed={artifactsPanelOpen}
-                  className={cn(
-                    "oo-toolbar-button flex size-8 items-center justify-center rounded-md hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground",
-                    artifactsPanelOpen && "bg-accent text-foreground",
-                  )}
-                  onClick={() => setArtifactsPanelOpen((open) => !open)}
-                >
-                  <ArtifactsToggleIcon className="size-4" />
-                </button>
-              ) : null}
-            </div>
-          </header>
+          <AppShellMainTitlebar
+            activeSession={activeSession ?? null}
+            artifactsPanelOpen={artifactsPanelOpen}
+            artifactsToggleIcon={ArtifactsToggleIcon}
+            artifactsToggleLabel={artifactsToggleLabel}
+            billingCacheScope={billingCacheScope}
+            isSidebarRestoring={isSidebarRestoring}
+            showArtifactsToggle={showArtifactsToggle}
+            sidebarCollapsed={sidebarCollapsed}
+            titlebarEditable={titlebarEditable}
+            titlebarTitle={titlebarTitle}
+            onArtifactsToggle={() => setArtifactsPanelOpen((open) => !open)}
+            onOpenSearch={handleOpenSearch}
+            onRenameSession={handleRenameSession}
+            onToggleSidebar={handleToggleSidebar}
+            onViewBilling={() => setRoute("billing")}
+          />
 
           <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">
             <React.Suspense fallback={<RouteLoadingFallback />}>

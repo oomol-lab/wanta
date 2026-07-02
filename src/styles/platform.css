@@ -1,0 +1,25 @@
+:root[data-platform="win32"],
+:root[data-platform="linux"] {
+  --traffic-light-space: 0px;
+  --sidebar-titlebar-left-space: 20px;
+  --titlebar-control-offset: 8px;
+  --window-control-right-space: 142px;
+  --oo-radius-shell: 0.75rem;
+}
+
+:root[data-platform="browser"] {
+  --traffic-light-space: 0px;
+  --sidebar-titlebar-left-space: 20px;
+  --titlebar-control-offset: 8px;
+  --oo-radius-shell: 0.75rem;
+}
+
+:root[data-dev-window-controls="windows"] {
+  --traffic-light-space: 0px;
+  --sidebar-titlebar-left-space: 20px;
+  --window-control-right-space: 142px;
+}
+
+:root[data-dev-window-controls="macos"] {
+  --traffic-light-space: 78px;
+}

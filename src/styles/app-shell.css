@@ -1,0 +1,409 @@
+@layer components {
+  .oo-app-chrome {
+    position: relative;
+    background: var(--oo-chrome);
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    transition: grid-template-columns 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-app-chrome.oo-sidebar-resizing {
+    cursor: ew-resize;
+    user-select: none;
+  }
+
+  .oo-app-chrome.oo-artifacts-panel-resizing {
+    cursor: ew-resize;
+    user-select: none;
+  }
+
+  .oo-app-chrome.oo-sidebar-resizing,
+  .oo-app-chrome.oo-sidebar-resizing .oo-sidebar-content,
+  .oo-app-chrome.oo-sidebar-resizing .oo-sidebar-nav-item,
+  .oo-app-chrome.oo-sidebar-resizing .oo-sidebar-nav-label {
+    transition: none;
+  }
+
+  .oo-app-chrome.oo-artifacts-panel-resizing .oo-artifacts-panel-shell {
+    transition: none;
+  }
+
+  .oo-app-chrome.oo-artifacts-panel-resizing .oo-artifacts-panel-shell iframe {
+    pointer-events: none;
+  }
+
+  .oo-app-chrome.oo-sidebar-collapsed {
+    grid-template-columns: 0px minmax(0, 1fr);
+  }
+
+  .oo-sidebar {
+    border-color: var(--oo-sidebar-material-border);
+    background: var(--oo-sidebar-material);
+    overflow: hidden;
+    transition:
+      opacity 120ms ease-out,
+      border-color 120ms ease-out;
+  }
+
+  .oo-sidebar-chrome-header {
+    padding-right: 12px;
+    padding-left: var(--sidebar-titlebar-left-space);
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar {
+    border-color: transparent;
+    opacity: 0;
+  }
+
+  .oo-sidebar-content {
+    min-width: var(--sidebar-width);
+    transition:
+      opacity 120ms ease-out,
+      transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar-content {
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  .oo-sidebar-restoring .oo-sidebar-content {
+    pointer-events: none;
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+
+  .oo-sidebar-chrome-brand {
+    display: none;
+    color: color-mix(in oklab, var(--foreground) 84%, transparent);
+  }
+
+  :root[data-platform="win32"] .oo-sidebar-chrome-brand,
+  :root[data-dev-window-controls="windows"] .oo-sidebar-chrome-brand {
+    display: flex;
+  }
+
+  .oo-sidebar-titlebar-actions {
+    -webkit-app-region: no-drag;
+    pointer-events: auto;
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar-titlebar-actions-expanded {
+    display: none;
+  }
+
+  .oo-sidebar-restoring .oo-sidebar-titlebar-actions-expanded {
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  .oo-sidebar-titlebar-button {
+    -webkit-app-region: no-drag;
+    pointer-events: auto;
+    color: color-mix(in oklab, var(--foreground) 62%, transparent);
+    outline: none;
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .oo-sidebar-titlebar-button:hover,
+  .oo-sidebar-titlebar-button:focus-visible {
+    background: var(--sidebar-accent);
+    color: var(--foreground);
+  }
+
+  .oo-sidebar-titlebar-button:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--sidebar-ring);
+  }
+
+  .oo-sidebar-nav-item {
+    color: var(--sidebar-foreground);
+    font-weight: 500;
+    outline: none;
+    overflow: hidden;
+    transition:
+      width 180ms cubic-bezier(0.2, 0, 0, 1),
+      padding 180ms cubic-bezier(0.2, 0, 0, 1),
+      gap 180ms cubic-bezier(0.2, 0, 0, 1),
+      background-color 120ms ease-out,
+      color 120ms ease-out,
+      box-shadow 120ms ease-out;
+  }
+
+  .oo-sidebar-nav-label {
+    display: block;
+    max-width: 100%;
+    transition:
+      max-width 180ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 120ms ease-out,
+      transform 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-sidebar-section-heading.oo-text-caption {
+    color: var(--oo-section-heading-foreground);
+    font-size: var(--oo-font-body);
+    font-weight: 500;
+    line-height: var(--oo-line-body);
+  }
+
+  .oo-sidebar-session-time {
+    min-width: 3rem;
+    color: var(--sidebar-muted-foreground);
+    font-size: var(--oo-font-caption);
+    font-weight: 400;
+    line-height: var(--oo-line-caption);
+  }
+
+  .oo-sidebar-session-activity {
+    color: var(--sidebar-muted-foreground);
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar-nav-label {
+    max-width: 0;
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+
+  .oo-sidebar-nav-item:hover,
+  .oo-sidebar-nav-item:focus-visible {
+    background: var(--sidebar-accent);
+    color: var(--sidebar-accent-foreground);
+  }
+
+  .oo-sidebar-nav-item:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--sidebar-ring);
+  }
+
+  .oo-sidebar-workspace-trigger:focus-visible {
+    box-shadow: none;
+  }
+
+  .oo-sidebar-workspace-trigger:focus-visible:not(:hover):not([data-state="open"]) {
+    background: transparent;
+    color: var(--sidebar-foreground);
+  }
+
+  .oo-sidebar-workspace-trigger[data-state="open"] {
+    background: var(--sidebar-accent);
+    color: var(--sidebar-accent-foreground);
+  }
+
+  .oo-sidebar-nav-item:active {
+    background: var(--sidebar-accent);
+    color: var(--sidebar-accent-foreground);
+  }
+
+  .oo-sidebar-session-scroll {
+    scrollbar-gutter: auto;
+    scrollbar-width: thin;
+  }
+
+  .oo-sidebar-resize-handle {
+    -webkit-app-region: no-drag;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 8px;
+    cursor: ew-resize;
+    touch-action: none;
+    outline: none;
+  }
+
+  .oo-sidebar-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0.75rem;
+    right: 0;
+    bottom: 0.75rem;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background-color 120ms ease-out;
+  }
+
+  .oo-sidebar-resize-handle:hover::after,
+  .oo-sidebar-resize-handle:focus-visible::after,
+  .oo-sidebar-resizing .oo-sidebar-resize-handle::after {
+    background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  }
+
+  .oo-sidebar-collapsed .oo-sidebar-resize-handle,
+  .oo-sidebar-restoring .oo-sidebar-resize-handle {
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .oo-artifacts-panel-resize-handle {
+    -webkit-app-region: no-drag;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: 8px;
+    cursor: ew-resize;
+    touch-action: none;
+    outline: none;
+  }
+
+  .oo-artifacts-panel-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0.75rem;
+    bottom: 0.75rem;
+    left: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background-color 120ms ease-out;
+  }
+
+  .oo-artifacts-panel-resize-handle:hover::after,
+  .oo-artifacts-panel-resize-handle:focus-visible::after,
+  .oo-artifacts-panel-resizing .oo-artifacts-panel-resize-handle::after {
+    background: color-mix(in oklab, var(--foreground) 18%, transparent);
+  }
+
+  .oo-toolbar {
+    background: var(--oo-toolbar);
+    transition: padding-left 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-main-titlebar {
+    gap: 0.75rem;
+    padding-right: 1rem;
+    padding-left: 1rem;
+  }
+
+  .oo-page-titlebar {
+    padding-right: 1rem;
+    padding-left: calc(var(--traffic-light-space) + 1rem);
+  }
+
+  .oo-artifacts-titlebar {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+
+  :root[data-platform="win32"] .oo-main-titlebar,
+  :root[data-platform="linux"] .oo-main-titlebar,
+  :root[data-dev-window-controls="windows"] .oo-main-titlebar {
+    padding-right: calc(var(--window-control-right-space) + 1rem);
+  }
+
+  :root[data-platform="win32"] .oo-page-titlebar,
+  :root[data-platform="linux"] .oo-page-titlebar,
+  :root[data-dev-window-controls="windows"] .oo-page-titlebar {
+    padding-right: calc(var(--window-control-right-space) + 1rem);
+  }
+
+  :root[data-platform="win32"] .oo-artifacts-titlebar,
+  :root[data-platform="linux"] .oo-artifacts-titlebar,
+  :root[data-dev-window-controls="windows"] .oo-artifacts-titlebar {
+    padding-right: calc(var(--window-control-right-space) + 0.75rem);
+  }
+
+  :root[data-platform="darwin"] .oo-artifacts-panel-maximized .oo-artifacts-titlebar,
+  :root[data-dev-window-controls="macos"] .oo-artifacts-panel-maximized .oo-artifacts-titlebar {
+    padding-left: calc(var(--traffic-light-space) + 0.75rem);
+  }
+
+  .oo-titlebar-collapsed-controls {
+    -webkit-app-region: no-drag;
+    pointer-events: auto;
+    display: none;
+  }
+
+  .oo-sidebar-collapsed .oo-titlebar-collapsed-controls {
+    display: flex;
+  }
+
+  .oo-titlebar-control-spacer {
+    width: 0;
+    transition: width 180ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .oo-sidebar-collapsed .oo-titlebar-control-spacer {
+    width: max(0px, calc(var(--traffic-light-space) - 20px));
+  }
+
+  .oo-main-titlebar-title {
+    max-width: min(30ch, 38vw);
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 80ms ease-out 80ms;
+  }
+
+  .oo-main-titlebar-title.is-restoring {
+    opacity: 0;
+    visibility: hidden;
+    transition-delay: 0ms;
+  }
+
+  .oo-toolbar-button {
+    color: var(--muted-foreground);
+  }
+
+  .oo-toolbar-title {
+    display: block;
+    max-width: 100%;
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  }
+
+  .oo-toolbar-button:hover,
+  .oo-toolbar-button:focus-visible {
+    color: var(--foreground);
+  }
+
+  .oo-titlebar::before,
+  .oo-titlebar::after {
+    pointer-events: none;
+  }
+
+  :root[data-dev-window-controls="macos"] .oo-app-chrome::before,
+  :root[data-dev-window-controls="macos"] .oo-bare-titlebar::before {
+    content: "";
+    position: absolute;
+    top: var(--traffic-light-top);
+    left: var(--traffic-light-left);
+    z-index: 60;
+    pointer-events: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: var(--destructive);
+    box-shadow:
+      20px 0 0 var(--warning),
+      40px 0 0 var(--success);
+  }
+
+  :root[data-dev-window-controls="windows"] .oo-titlebar::after {
+    content: "-  [ ]  x";
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: grid;
+    width: var(--window-control-right-space);
+    height: var(--app-titlebar-height);
+    place-items: center;
+    color: color-mix(in oklab, var(--foreground) 58%, transparent);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 8px;
+  }
+
+  .oo-titlebar-menu {
+    color: var(--muted-foreground);
+  }
+
+  .oo-titlebar-menu:hover,
+  .oo-titlebar-menu:focus-visible {
+    color: var(--foreground);
+  }
+}

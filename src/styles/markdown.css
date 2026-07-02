@@ -1,0 +1,670 @@
+@layer components {
+  .oo-markdown,
+  .oo-message-response {
+    font-size: var(--oo-font-markdown);
+    font-weight: 500;
+    line-height: var(--oo-line-markdown);
+    overflow-wrap: anywhere;
+  }
+
+  .oo-markdown > :first-child,
+  .oo-message-response > :first-child {
+    margin-top: 0;
+  }
+
+  .oo-markdown > :last-child,
+  .oo-message-response > :last-child {
+    margin-bottom: 0;
+  }
+
+  .oo-markdown p,
+  .oo-markdown ul,
+  .oo-markdown ol,
+  .oo-markdown pre,
+  .oo-markdown blockquote,
+  .oo-markdown table,
+  .oo-message-response p,
+  .oo-message-response ul,
+  .oo-message-response ol,
+  .oo-message-response pre,
+  .oo-message-response blockquote,
+  .oo-message-response table {
+    margin: 0.5rem 0;
+  }
+
+  .oo-markdown h1,
+  .oo-markdown h2,
+  .oo-markdown h3,
+  .oo-markdown h4,
+  .oo-markdown h5,
+  .oo-markdown h6,
+  .oo-message-response h1,
+  .oo-message-response h2,
+  .oo-message-response h3,
+  .oo-message-response h4,
+  .oo-message-response h5,
+  .oo-message-response h6 {
+    margin: 1rem 0 0.5rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .oo-markdown h1,
+  .oo-message-response h1 {
+    font-size: 1.4em;
+  }
+  .oo-markdown h2,
+  .oo-message-response h2 {
+    font-size: 1.25em;
+  }
+  .oo-markdown h3,
+  .oo-message-response h3 {
+    font-size: 1.1em;
+  }
+  .oo-markdown h4,
+  .oo-markdown h5,
+  .oo-markdown h6,
+  .oo-message-response h4,
+  .oo-message-response h5,
+  .oo-message-response h6 {
+    font-size: 1em;
+  }
+
+  .oo-markdown a,
+  .oo-message-response a {
+    color: var(--accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .oo-markdown a:hover,
+  .oo-message-response a:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  .oo-markdown strong,
+  .oo-message-response strong {
+    font-weight: 600;
+  }
+
+  .oo-markdown em,
+  .oo-message-response em {
+    font-style: italic;
+  }
+
+  .oo-markdown ul,
+  .oo-markdown ol,
+  .oo-message-response ul,
+  .oo-message-response ol {
+    padding-left: 1.4em;
+  }
+
+  .oo-markdown ul,
+  .oo-message-response ul {
+    list-style: disc;
+  }
+
+  .oo-markdown ol,
+  .oo-message-response ol {
+    list-style: decimal;
+  }
+
+  .oo-markdown li,
+  .oo-message-response li {
+    margin: 0.2em 0;
+  }
+
+  .oo-markdown li > ul,
+  .oo-markdown li > ol,
+  .oo-message-response li > ul,
+  .oo-message-response li > ol {
+    margin: 0.2em 0;
+  }
+
+  .oo-markdown code,
+  .oo-message-response code {
+    border-radius: 4px;
+    background: var(--muted);
+    padding: 0.1em 0.35em;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.875em;
+  }
+
+  .oo-markdown pre,
+  .oo-message-response pre {
+    overflow-x: auto;
+    border: 1px solid var(--oo-divider);
+    border-radius: 8px;
+    background: var(--muted);
+    padding: 0.75rem;
+  }
+
+  .oo-markdown pre code,
+  .oo-message-response pre code {
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    font-size: 0.85em;
+  }
+
+  .oo-message-response [data-streamdown="inline-code"] {
+    overflow-wrap: anywhere;
+  }
+
+  .oo-message-response .oo-markdown-path-token {
+    display: inline-flex;
+    max-width: min(100%, 38rem);
+    min-height: 1.75rem;
+    align-items: center;
+    gap: 0.45rem;
+    vertical-align: middle;
+    border: 1px solid var(--oo-divider);
+    border-radius: 8px;
+    background: var(--background);
+    padding: 0.2rem 0.55rem;
+    color: var(--foreground);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.875em;
+    line-height: 1.3;
+    overflow: hidden;
+    text-align: left;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: default;
+    appearance: none;
+  }
+
+  .oo-message-response .oo-markdown-path-token:hover {
+    background: var(--accent);
+  }
+
+  .oo-message-response .oo-markdown-path-token:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .oo-message-response .oo-markdown-path-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .oo-markdown-path-tooltip {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    max-width: min(34rem, calc(100vw - 2rem));
+    border: 1px solid var(--oo-overlay-border);
+    background: var(--oo-path-tooltip-surface);
+    color: var(--oo-path-tooltip-foreground);
+    box-shadow: var(--oo-tooltip-shadow);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    line-height: 1.35;
+    text-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .oo-markdown-path-tooltip > svg {
+    background: var(--oo-path-tooltip-surface);
+    fill: var(--oo-path-tooltip-surface);
+  }
+
+  .oo-markdown-path-tooltip-text {
+    min-width: 0;
+  }
+
+  .oo-markdown-path-tooltip-copy {
+    display: inline-flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--muted-foreground);
+  }
+
+  .oo-markdown-path-tooltip-copy:hover,
+  .oo-markdown-path-tooltip-copy.is-copied {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+
+  .oo-markdown-path-tooltip-copy:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .oo-markdown-path-tooltip-copy svg {
+    background: transparent;
+    fill: none;
+  }
+
+  .oo-message-feedback-action-active {
+    background: transparent !important;
+    color: var(--oo-feedback-active-foreground);
+  }
+
+  .oo-message-feedback-action-active:hover {
+    background: transparent !important;
+    color: var(--oo-feedback-active-foreground);
+  }
+
+  .oo-message-response [data-streamdown="code-block"] {
+    margin: 0.75rem 0;
+    gap: 0;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    background: var(--background);
+    padding: 0;
+  }
+
+  .oo-message-response [data-streamdown="code-block-header"] {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--muted) 80%, transparent);
+    padding: 0.5rem 0.75rem;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .oo-message-response [data-streamdown="code-block-header"] span {
+    margin-left: 0;
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .oo-message-response [data-streamdown="code-block-actions"] {
+    gap: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    backdrop-filter: none;
+  }
+
+  .oo-message-response [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+    position: relative;
+    top: auto;
+    height: 2rem;
+    margin-top: -2.25rem;
+    padding-right: 0.75rem;
+  }
+
+  .oo-message-response [data-streamdown="code-block-actions"] button,
+  .oo-message-response [data-streamdown="code-block-actions"] a {
+    display: inline-flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--muted-foreground);
+  }
+
+  .oo-message-response [data-streamdown="code-block-actions"] button:hover,
+  .oo-message-response [data-streamdown="code-block-actions"] a:hover {
+    background: color-mix(in oklab, var(--foreground) 8%, transparent);
+    color: var(--foreground);
+  }
+
+  .oo-message-response [data-streamdown="code-block-actions"] button:focus-visible,
+  .oo-message-response [data-streamdown="code-block-actions"] a:focus-visible {
+    outline: 2px solid var(--control-focus-ring);
+    outline-offset: 1px;
+  }
+
+  .oo-message-response [data-streamdown="code-block-actions"] svg {
+    width: 1rem;
+    height: 1rem;
+    background: transparent;
+    fill: none;
+  }
+
+  .oo-message-response [data-streamdown="code-block-body"] {
+    overflow-x: auto;
+    border: 0;
+    border-radius: 0;
+    background: var(--background);
+    padding: 0.875rem 1rem;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .oo-message-response [data-streamdown="code-block-body"] pre {
+    margin: 0;
+    background: transparent;
+  }
+
+  .oo-message-response [data-streamdown="code-block-body"] code {
+    background: transparent;
+    padding: 0;
+  }
+
+  .oo-message-response [data-streamdown="code-block-body"] code > span {
+    display: block;
+  }
+
+  .oo-message-response [data-language] pre {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 1rem;
+  }
+
+  .oo-message-response [data-language] code {
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  .oo-artifact-code-preview > [data-language] {
+    min-height: 100%;
+  }
+
+  .oo-artifact-code-preview > [data-language] > div:last-child {
+    min-height: calc(100% - 2rem);
+  }
+
+  .oo-artifact-code-preview pre {
+    min-height: 100%;
+  }
+
+  .oo-docx-preview {
+    color: #111827;
+  }
+
+  .oo-docx-preview .oo-docx-preview-doc-wrapper {
+    width: max-content;
+    min-width: 100%;
+    background: transparent !important;
+    padding: 0 !important;
+    overflow: visible;
+  }
+
+  .oo-docx-preview .oo-docx-preview-doc-wrapper > section.oo-docx-preview-doc {
+    box-sizing: border-box;
+    margin-right: auto !important;
+    margin-bottom: 1rem !important;
+    margin-left: auto !important;
+    background: white !important;
+    box-shadow: 0 10px 30px rgb(15 23 42 / 0.12) !important;
+  }
+
+  .oo-markdown blockquote {
+    border-left: 3px solid var(--oo-divider);
+    padding-left: 0.75rem;
+    color: var(--muted-foreground);
+  }
+
+  .oo-markdown hr {
+    margin: 1rem 0;
+    border: 0;
+    border-top: 1px solid var(--oo-divider);
+  }
+
+  .oo-markdown table {
+    display: table;
+    table-layout: fixed;
+    width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+  }
+
+  .oo-markdown th,
+  .oo-markdown td {
+    border: 1px solid var(--oo-divider);
+    padding: 0.35rem 0.6rem;
+    text-align: left;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .oo-markdown th {
+    background: var(--muted);
+    font-weight: 600;
+  }
+
+  /* Markdown 图片专用渲染器样式：不要挂到 .oo-markdown 或通用 img，避免影响表格/其它 Markdown。 */
+  .oo-markdown-image-preview {
+    position: relative;
+    display: block;
+    width: fit-content;
+    max-width: min(100%, 20rem);
+    margin: 0.75rem 0;
+    overflow: hidden;
+    border-radius: 8px;
+    line-height: 0;
+  }
+
+  .oo-markdown-image-preview img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: min(100%, 20rem);
+    max-height: min(58vh, 28rem);
+    object-fit: contain;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+  }
+
+  .oo-markdown-image-open {
+    display: block;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: zoom-in;
+    line-height: 0;
+    text-align: left;
+  }
+
+  .oo-markdown-image-open:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  .oo-markdown-image-actions {
+    position: absolute;
+    bottom: 0.75rem;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: translateX(-50%);
+    border: 1px solid color-mix(in oklab, var(--oo-divider) 82%, transparent);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--background) 86%, transparent);
+    padding: 0.25rem;
+    box-shadow: 0 6px 18px color-mix(in oklab, black 18%, transparent);
+    opacity: 0;
+    backdrop-filter: blur(10px);
+    pointer-events: none;
+    transition: opacity 120ms ease-out;
+  }
+
+  .oo-markdown-image-preview:hover .oo-markdown-image-actions,
+  .oo-markdown-image-preview:focus-within .oo-markdown-image-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .oo-markdown-image-action {
+    display: flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--muted-foreground);
+    text-decoration: none;
+  }
+
+  .oo-markdown-image-action:hover {
+    background: var(--accent);
+    color: var(--foreground);
+    text-decoration: none;
+  }
+
+  .oo-markdown-image-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    overflow: hidden;
+    background: rgb(0 0 0 / 74%);
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-markdown-image-viewer-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-markdown-image-viewer-stage.is-dragging {
+    cursor: grabbing;
+  }
+
+  .oo-markdown-image-viewer-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .oo-markdown-image-viewer-offset {
+    will-change: transform;
+  }
+
+  .oo-markdown-image-viewer-image {
+    display: block;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    object-fit: contain;
+    pointer-events: none;
+    transform-origin: center;
+    user-select: none;
+    will-change: transform;
+  }
+
+  .oo-markdown-image-viewer-actions {
+    position: absolute;
+    top: 1.25rem;
+    right: 1.25rem;
+    /* 高于可拖拽舞台，确保按钮接收点击而不是触发图片拖动。 */
+    z-index: 3;
+    display: flex;
+    gap: 0.5rem;
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
+  }
+
+  :root[data-platform="win32"] .oo-markdown-image-viewer-actions,
+  :root[data-platform="linux"] .oo-markdown-image-viewer-actions,
+  :root[data-dev-window-controls="windows"] .oo-markdown-image-viewer-actions {
+    right: calc(var(--window-control-right-space) + 1.25rem);
+  }
+
+  .oo-markdown-image-viewer-action {
+    display: flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in oklab, white 92%, transparent);
+    color: oklch(0.18 0.005 260);
+    text-decoration: none;
+    box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    transition:
+      background 120ms ease-out,
+      transform 120ms ease-out;
+  }
+
+  .oo-markdown-image-viewer-action:hover {
+    background: white;
+    color: oklch(0.14 0.006 260);
+    text-decoration: none;
+    transform: translateY(-1px);
+  }
+
+  .oo-markdown-image-viewer-action:focus-visible,
+  .oo-markdown-image-viewer-zoom-button:focus-visible {
+    outline: 2px solid white;
+    outline-offset: 2px;
+  }
+
+  .oo-markdown-image-viewer-zoom {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 50%;
+    /* 高于可拖拽舞台，确保缩放控件接收点击而不是触发图片拖动。 */
+    z-index: 3;
+    display: flex;
+    height: 2.625rem;
+    align-items: center;
+    gap: 0.5rem;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: color-mix(in oklab, white 92%, transparent);
+    padding: 0.25rem;
+    color: oklch(0.18 0.005 260);
+    box-shadow: 0 8px 20px rgb(0 0 0 / 20%);
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-markdown-image-viewer-zoom-button {
+    display: flex;
+    width: 2.125rem;
+    height: 2.125rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: color-mix(in oklab, black 8%, transparent);
+    color: currentcolor;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+
+  .oo-markdown-image-viewer-zoom-button:hover {
+    background: color-mix(in oklab, black 14%, transparent);
+  }
+
+  .oo-markdown-image-viewer-zoom-button:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  .oo-markdown-image-viewer-percent {
+    min-width: 2.875rem;
+    text-align: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+}

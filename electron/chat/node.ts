@@ -11,18 +11,11 @@ import type {
   AuthorizationInfo,
   ChatMessage,
   ChatService,
-  ChatContextMention,
-  ChatOrganizationSkillContext,
   ChatProjectContext,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
-  LocalArtifactDisplayMode,
-  LocalArtifactEntry,
-  LocalArtifactEntryRole,
   LocalArtifactGroup,
-  LocalArtifactItem,
   LocalArtifactPack,
-  LocalArtifactPackKind,
   MessageErrorEvent,
   OpenExternalUrlRequest,
   OpenLocalPathRequest,
@@ -37,95 +30,43 @@ import type {
   TurnOutputRequest,
 } from "./common.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
-import type {
-  StoredTurnOutputFile,
-  StoredTurnOutputRecord,
-  TurnOutputRecords,
-  TurnOutputStore,
-} from "./turn-outputs.ts"
+import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from "./turn-outputs.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
-import { open, readdir, readFile, realpath, stat } from "node:fs/promises"
 import os from "node:os"
-import path from "node:path"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
-import { buildUnifiedDiff, captureGitTurnBaseline, collectGitTurnDiffs } from "../git/turn-diff.ts"
+import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
-import {
-  archivePreview,
-  binaryDataPreview,
-  isBinaryDataPreviewArtifact,
-  isRtfArtifact,
-  isXlsxArtifact,
-  richPreviewMaxBytes,
-  rtfToPlainText,
-  spreadsheetPreview,
-} from "./artifact-preview.ts"
 import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
-import {
-  extractLocalPathCandidates,
-  imageMimeFromPath,
-  isBroadLocalArtifactPath,
-  mimeFromPath,
-  normalizeLocalPathCandidate,
-} from "./artifacts.ts"
+import { extractLocalPathCandidates, isBroadLocalArtifactPath, normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./authorization.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
+import {
+  buildContextMentionsSystem as buildContextMentionsSystemPrompt,
+  buildOrganizationSkillsSystem,
+  buildProjectContextSystem,
+  mergeSystemPrompts,
+} from "./context-system.ts"
 import { normalizeChatError } from "./error.ts"
+import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
+import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
+import {
+  intermediateArtifactProcessFiles,
+  isPathInside,
+  normalizeProjectPath,
+  processOutputFiles,
+  projectOutputFiles,
+  summarizeTurnFiles,
+} from "./turn-output-files.ts"
 import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 
-const attachmentPreviewMaxBytes = 16 * 1024 * 1024
-const artifactTextPreviewMaxBytes = 512 * 1024
-const artifactManifestFileName = ".wanta-artifact.json"
+export { buildContextMentionsSystem } from "./context-system.ts"
+
 const userStopAbortWindowMs = 30_000
 const defaultMaxDirectoryItems = 80
-const maxProcessFiles = 200
-const intermediateCodeExtensions = new Set([
-  ".bash",
-  ".c",
-  ".cc",
-  ".cjs",
-  ".cpp",
-  ".cs",
-  ".css",
-  ".cxx",
-  ".dart",
-  ".fish",
-  ".go",
-  ".h",
-  ".hpp",
-  ".html",
-  ".htm",
-  ".java",
-  ".js",
-  ".jsx",
-  ".kt",
-  ".kts",
-  ".less",
-  ".lua",
-  ".mjs",
-  ".php",
-  ".pl",
-  ".py",
-  ".r",
-  ".rb",
-  ".rs",
-  ".sass",
-  ".scala",
-  ".scss",
-  ".sh",
-  ".svelte",
-  ".swift",
-  ".ts",
-  ".tsx",
-  ".vue",
-  ".zsh",
-])
-const codeRequestPattern =
-  /\b(api|app|cli|code|component|css|html|javascript|js|node|program|python|react|script|typescript|ts|website)\b|代码|脚本|程序|网页|网站|应用|组件|前端|后端|接口|库|插件|扩展|源码|项目/i
 
 interface ActiveTurnOutput {
   artifactRoot: string
@@ -173,113 +114,6 @@ function messageErrorSignature(message: string): string {
   return message.trim() || message
 }
 
-function quoted(value: string): string {
-  return JSON.stringify(value)
-}
-
-export function buildContextMentionsSystem(mentions: ChatContextMention[] | undefined): string | undefined {
-  if (!mentions || mentions.length === 0) {
-    return undefined
-  }
-  const skills = mentions.filter(
-    (mention): mention is Extract<ChatContextMention, { kind: "skill" }> => mention.kind === "skill",
-  )
-  const connections = mentions.filter(
-    (mention): mention is Extract<ChatContextMention, { kind: "connection" }> => mention.kind === "connection",
-  )
-  const lines = [
-    "User-selected context for this turn:",
-    "- Treat these selections as explicit intent hints from the user, not as mandatory tool calls.",
-    "- Use them only when they are relevant to the user's actual request.",
-  ]
-  if (skills.length > 0) {
-    lines.push("Selected skills:")
-    for (const skill of skills) {
-      const detail = skill.description ? `; description: ${quoted(skill.description)}` : ""
-      lines.push(`- ${quoted(skill.name)}; id: ${quoted(skill.id)}${detail}`)
-    }
-    lines.push(
-      "The user explicitly selected these skills for this turn. If a selected skill matches the task, load and follow it before acting. If it is clearly unrelated, ignore it and proceed normally. Mention that you used it only when useful to the user.",
-    )
-  }
-  if (connections.length > 0) {
-    lines.push("Selected connections:")
-    for (const connection of connections) {
-      const details = [
-        `service: ${quoted(connection.service)}`,
-        connection.appId ? `appId: ${quoted(connection.appId)}` : "",
-      ].filter(Boolean)
-      lines.push(`- ${quoted(connection.displayName)}; ${details.join("; ")}`)
-    }
-    lines.push(
-      "If, after reading the user's request, a Link action is needed, consider the selected connection first. Do not use it for unrelated local files, direct answers, concrete URLs, or general browsing. Still inspect the action schema before calling connector tools.",
-    )
-  }
-  return lines.join("\n")
-}
-
-export function buildOrganizationSkillsSystem(skills: ChatOrganizationSkillContext[] | undefined): string | undefined {
-  const enabledSkills = (skills ?? []).filter((skill) => skill.id.trim() && skill.name.trim())
-  if (enabledSkills.length === 0) {
-    return undefined
-  }
-
-  const lines = [
-    "Organization-configured skills for the active workspace:",
-    "- Treat these skills as workspace guidance, not mandatory tool calls.",
-    "- Use them only when they are relevant to the user's actual task.",
-    "- If the user selected a different explicit context for this turn, prefer the explicit user selection.",
-  ]
-  for (const skill of enabledSkills) {
-    const details = [
-      `id: ${quoted(skill.id)}`,
-      skill.packageName ? `package: ${quoted(skill.packageName)}` : "",
-      skill.version ? `version: ${quoted(skill.version)}` : "",
-      skill.description ? `description: ${quoted(skill.description)}` : "",
-    ].filter(Boolean)
-    lines.push(`- ${quoted(skill.name)}; ${details.join("; ")}`)
-  }
-  return lines.join("\n")
-}
-
-export function buildProjectContextSystem(project: ChatProjectContext | undefined): string | undefined {
-  const projectPath = project?.path.trim()
-  if (!project || !project.id.trim() || !project.name.trim() || !projectPath) {
-    return undefined
-  }
-  const lines = [
-    "Current local project context:",
-    `- Project name: ${quoted(project.name)}`,
-    `- Project directory: ${quoted(projectPath)}`,
-    "- Treat this directory as the active project when the user's request involves code, files, repository state, local analysis, or file organization.",
-    "- The shell and file tool cwd may still be Wanta's private scratch workspace; use this project directory as an absolute path instead of assuming cwd.",
-    "- Do not mention the full project directory to the user unless they ask for the path or the path is necessary for the task outcome.",
-    "- For edits to existing project files, modify files in place under this directory. Use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
-  ]
-  if (project.git?.repositoryRoot) {
-    lines.push(`- Git repository root: ${quoted(project.git.repositoryRoot)}`)
-    if (project.git.currentBranch) {
-      lines.push(`- Current Git branch: ${quoted(project.git.currentBranch)}`)
-    } else if (project.git.detachedHead) {
-      lines.push(`- Git is in detached HEAD at ${quoted(project.git.detachedHead)}`)
-    }
-    if (project.git.dirty) {
-      lines.push(
-        "- The Git worktree has uncommitted changes; inspect status before branch changes or destructive edits.",
-      )
-    }
-  }
-  return lines.join("\n")
-}
-
-function mergeSystemPrompts(...parts: Array<string | undefined>): string | undefined {
-  const merged = parts
-    .map((part) => part?.trim())
-    .filter((part): part is string => Boolean(part))
-    .join("\n\n")
-  return merged || undefined
-}
-
 interface ChatServiceDeps {
   artifactRootStore?: ArtifactRootStore
   authorizationOverlayStore?: AuthorizationOverlayStore
@@ -309,443 +143,6 @@ export function isAbortErrorMessage(message: string): boolean {
     normalized === "this operation was aborted" ||
     normalized.includes("operation was aborted")
   )
-}
-
-function attachmentPreviewMime(req: AttachmentPreviewRequest): string | null {
-  if (req.mime.toLowerCase().startsWith("image/")) {
-    return req.mime
-  }
-  return imageMimeFromPath(req.path)
-}
-
-function isTextArtifactMime(mime: string): boolean {
-  return (
-    mime.startsWith("text/") ||
-    mime === "application/json" ||
-    mime === "application/javascript" ||
-    mime === "application/x-javascript" ||
-    mime === "application/xml" ||
-    mime === "application/yaml" ||
-    mime === "application/x-yaml"
-  )
-}
-
-function isProbablyBinary(bytes: Buffer): boolean {
-  return bytes.includes(0)
-}
-
-async function readTextPreview(filePath: string, size: number): Promise<{ text: string; truncated: boolean } | null> {
-  const length = Math.min(size, artifactTextPreviewMaxBytes)
-  if (length <= 0) {
-    return { text: "", truncated: false }
-  }
-  const file = await open(filePath, "r")
-  try {
-    const bytes = Buffer.alloc(length)
-    const { bytesRead } = await file.read(bytes, 0, length, 0)
-    const chunk = bytes.subarray(0, bytesRead)
-    if (isProbablyBinary(chunk)) {
-      return null
-    }
-    return {
-      text: chunk.toString("utf8"),
-      truncated: size > bytesRead,
-    }
-  } finally {
-    await file.close()
-  }
-}
-
-function localArtifactName(filePath: string): string {
-  return path.basename(filePath.replace(/[\\/]+$/, "")) || filePath
-}
-
-function turnOutputFileName(filePath: string): string {
-  return path.basename(filePath.replace(/[\\/]+$/, "")) || filePath
-}
-
-function fileExtension(filePath: string): string {
-  const name = turnOutputFileName(filePath)
-  const index = name.lastIndexOf(".")
-  return index === -1 ? "" : name.slice(index).toLowerCase()
-}
-
-function sourceRequestsCode(requestText: string): boolean {
-  return codeRequestPattern.test(requestText)
-}
-
-function normalizeProjectPath(projectPath: string): string {
-  return projectPath.trim().replace(/[\\/]+$/, "")
-}
-
-function isPathInside(root: string, target: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(target))
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
-}
-
-function summarizeTurnFiles(files: StoredTurnOutputFile[], artifactCount: number): StoredTurnOutputRecord["summary"] {
-  return {
-    artifactCount,
-    processFileCount: files.filter((file) => file.role === "process").length,
-    changedFileCount: files.filter((file) => file.role === "project_change").length,
-    additions: files.reduce((sum, file) => sum + file.additions, 0),
-    deletions: files.reduce((sum, file) => sum + file.deletions, 0),
-  }
-}
-
-async function listProcessFiles(rootDir: string): Promise<string[]> {
-  const root = path.resolve(rootDir)
-  const found: string[] = []
-  async function visit(dir: string): Promise<void> {
-    if (found.length >= maxProcessFiles) {
-      return
-    }
-    let entries
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
-      if (found.length >= maxProcessFiles || entry.name === ".DS_Store") {
-        continue
-      }
-      const absolute = path.join(dir, entry.name)
-      if (!isPathInside(root, absolute)) {
-        continue
-      }
-      if (entry.isDirectory()) {
-        await visit(absolute)
-        continue
-      }
-      if (entry.isFile()) {
-        found.push(path.relative(root, absolute))
-      }
-    }
-  }
-  await visit(root)
-  return found
-}
-
-async function processFileEntry(rootDir: string, relativePath: string): Promise<StoredTurnOutputFile | null> {
-  const absolutePath = path.join(rootDir, relativePath)
-  const item = await localArtifactItem(absolutePath)
-  if (!item || item.kind !== "file") {
-    return null
-  }
-  const preview = await readTextPreview(absolutePath, item.size ?? 0).catch(() => null)
-  const diff = preview
-    ? buildUnifiedDiff(relativePath, "", preview.text, item.mime)
-    : ({
-        kind: item.size && item.size > artifactTextPreviewMaxBytes ? "too_large" : "binary",
-        path: relativePath,
-        mime: item.mime,
-        additions: 0,
-        deletions: 0,
-        ...(item.size && item.size > artifactTextPreviewMaxBytes ? { truncated: true } : {}),
-      } satisfies TurnFileDiffResult)
-  return {
-    path: absolutePath,
-    name: turnOutputFileName(relativePath),
-    role: "process",
-    changeKind: "added",
-    mime: item.mime,
-    additions: diff.additions,
-    deletions: diff.deletions,
-    ...(diff.kind === "binary" ? { binary: true } : {}),
-    ...(item.size !== undefined ? { size: item.size } : {}),
-    ...(diff.truncated ? { truncated: true } : {}),
-    diff: { ...diff, path: absolutePath },
-  }
-}
-
-async function processOutputFiles(processRoot: string): Promise<StoredTurnOutputFile[]> {
-  const entries = await Promise.all(
-    (await listProcessFiles(processRoot)).map((relativePath) => processFileEntry(processRoot, relativePath)),
-  )
-  return entries.filter((entry): entry is StoredTurnOutputFile => Boolean(entry))
-}
-
-function artifactPackVisiblePaths(pack: LocalArtifactPack | null): Set<string> {
-  if (!pack) {
-    return new Set()
-  }
-  return new Set(
-    [...pack.items, ...pack.supporting.filter((item) => item.role !== "metadata")].map((item) => item.path),
-  )
-}
-
-async function intermediateArtifactProcessFiles(
-  artifactRoot: string,
-  requestText: string,
-): Promise<StoredTurnOutputFile[]> {
-  if (sourceRequestsCode(requestText)) {
-    return []
-  }
-  const pack = await readArtifactPack(artifactRoot)
-  const visiblePaths = artifactPackVisiblePaths(pack)
-  const relativePaths = (await listProcessFiles(artifactRoot)).filter((relativePath) => {
-    const absolutePath = path.join(artifactRoot, relativePath)
-    return !visiblePaths.has(absolutePath) && intermediateCodeExtensions.has(fileExtension(relativePath))
-  })
-  const entries = await Promise.all(relativePaths.map((relativePath) => processFileEntry(artifactRoot, relativePath)))
-  return entries.filter((entry): entry is StoredTurnOutputFile => Boolean(entry))
-}
-
-async function localArtifactItem(filePath: string): Promise<LocalArtifactItem | null> {
-  try {
-    const info = await stat(filePath)
-    const kind = info.isDirectory() ? "directory" : "file"
-    return {
-      path: filePath,
-      name: localArtifactName(filePath),
-      kind,
-      mime: kind === "directory" ? "inode/directory" : mimeFromPath(filePath),
-      ...(kind === "file" ? { size: info.size } : {}),
-      modifiedAt: info.mtimeMs,
-    }
-  } catch {
-    return null
-  }
-}
-
-async function directoryArtifacts(dirPath: string, maxItems: number): Promise<LocalArtifactGroup | null> {
-  const root = await localArtifactItem(dirPath)
-  if (!root || root.kind !== "directory") {
-    return null
-  }
-  let entries
-  try {
-    entries = await readdir(dirPath, { withFileTypes: true })
-  } catch {
-    return { root, items: [], totalItems: 0, truncated: false }
-  }
-  const sorted = entries
-    .filter((entry) => !entry.name.startsWith("."))
-    .sort((a, b) => {
-      if (a.isDirectory() !== b.isDirectory()) {
-        return a.isDirectory() ? -1 : 1
-      }
-      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-    })
-  const selected = sorted.slice(0, maxItems)
-  const items = (await Promise.all(selected.map((entry) => localArtifactItem(path.join(dirPath, entry.name))))).filter(
-    (item): item is LocalArtifactItem => Boolean(item),
-  )
-  return {
-    root,
-    items,
-    totalItems: sorted.length,
-    truncated: sorted.length > selected.length,
-  }
-}
-
-async function fileArtifact(filePath: string): Promise<LocalArtifactGroup | null> {
-  const item = await localArtifactItem(filePath)
-  if (!item || item.kind !== "file") {
-    return null
-  }
-  return { items: [item], totalItems: 1, truncated: false }
-}
-
-const artifactPackKinds = new Set<LocalArtifactPackKind>([
-  "image_set",
-  "document",
-  "spreadsheet",
-  "presentation",
-  "web_page",
-  "code_project",
-  "archive",
-  "mixed",
-])
-const artifactDisplayModes = new Set<LocalArtifactDisplayMode>([
-  "gallery",
-  "document",
-  "table",
-  "project",
-  "file_list",
-  "single",
-])
-const artifactEntryRoles = new Set<LocalArtifactEntryRole>(["primary", "supporting", "summary", "metadata"])
-
-interface ArtifactManifestItem {
-  path?: unknown
-  title?: unknown
-  description?: unknown
-  role?: unknown
-  order?: unknown
-}
-
-interface ArtifactManifest {
-  title?: unknown
-  kind?: unknown
-  display?: unknown
-  summary?: unknown
-  primary?: unknown
-  items?: unknown
-  supporting?: unknown
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function normalizeArtifactPackKind(value: unknown): LocalArtifactPackKind {
-  return typeof value === "string" && artifactPackKinds.has(value as LocalArtifactPackKind)
-    ? (value as LocalArtifactPackKind)
-    : "mixed"
-}
-
-function normalizeArtifactDisplayMode(value: unknown): LocalArtifactDisplayMode {
-  return typeof value === "string" && artifactDisplayModes.has(value as LocalArtifactDisplayMode)
-    ? (value as LocalArtifactDisplayMode)
-    : "file_list"
-}
-
-function normalizeArtifactEntryRole(value: unknown, fallback: LocalArtifactEntryRole): LocalArtifactEntryRole {
-  return typeof value === "string" && artifactEntryRoles.has(value as LocalArtifactEntryRole)
-    ? (value as LocalArtifactEntryRole)
-    : fallback
-}
-
-function manifestItems(value: unknown): ArtifactManifestItem[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value.filter((item): item is ArtifactManifestItem => Boolean(item && typeof item === "object"))
-}
-
-function primaryPathItems(value: unknown): ArtifactManifestItem[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map((item, index) => ({ path: item, role: "primary", order: index + 1 }))
-}
-
-async function resolveArtifactManifestPath(rootDir: string, value: unknown): Promise<string | null> {
-  const relativePath = optionalString(value)
-  if (!relativePath || path.isAbsolute(relativePath) || relativePath.startsWith("~")) {
-    return null
-  }
-  const root = path.resolve(rootDir)
-  const resolved = path.resolve(root, relativePath)
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
-    return null
-  }
-  try {
-    const [realRoot, realResolved] = await Promise.all([realpath(root), realpath(resolved)])
-    if (realResolved !== realRoot && !realResolved.startsWith(`${realRoot}${path.sep}`)) {
-      return null
-    }
-  } catch {
-    return null
-  }
-  return resolved
-}
-
-async function artifactManifestEntry(
-  rootDir: string,
-  raw: ArtifactManifestItem,
-  fallbackRole: LocalArtifactEntryRole,
-  fallbackOrder: number,
-  seen: Set<string>,
-): Promise<LocalArtifactEntry | null> {
-  const filePath = await resolveArtifactManifestPath(rootDir, raw.path)
-  if (!filePath || seen.has(filePath)) {
-    return null
-  }
-  const item = await localArtifactItem(filePath)
-  if (!item) {
-    return null
-  }
-  seen.add(filePath)
-  const order = typeof raw.order === "number" && Number.isFinite(raw.order) ? raw.order : fallbackOrder
-  return {
-    ...item,
-    role: normalizeArtifactEntryRole(raw.role, fallbackRole),
-    order,
-    ...(optionalString(raw.title) ? { title: optionalString(raw.title) } : {}),
-    ...(optionalString(raw.description) ? { description: optionalString(raw.description) } : {}),
-  }
-}
-
-function artifactPackVisibleCount(primaryItems: LocalArtifactEntry[], supportingItems: LocalArtifactEntry[]): number {
-  const supportingVisibleCount = supportingItems.filter((item) => item.role !== "metadata").length
-  return primaryItems.length + supportingVisibleCount
-}
-
-function normalizeArtifactManifestEntries(
-  primaryItems: LocalArtifactEntry[],
-  supportingItems: LocalArtifactEntry[],
-): { primaryItems: LocalArtifactEntry[]; supportingItems: LocalArtifactEntry[] } {
-  if (primaryItems.length > 0) {
-    return { primaryItems, supportingItems }
-  }
-  const visibleSupportingItems = supportingItems.filter((item) => item.role !== "metadata")
-  if (visibleSupportingItems.length !== 1) {
-    return { primaryItems, supportingItems }
-  }
-  const promoted = { ...visibleSupportingItems[0], role: "primary" as const, order: 1 }
-  return {
-    primaryItems: [promoted],
-    supportingItems: supportingItems.filter((item) => item.path !== promoted.path),
-  }
-}
-
-async function readArtifactPack(rootDir: string): Promise<LocalArtifactPack | null> {
-  const root = await localArtifactItem(rootDir)
-  if (!root || root.kind !== "directory") {
-    return null
-  }
-  let manifest: ArtifactManifest
-  try {
-    manifest = JSON.parse(await readFile(path.join(rootDir, artifactManifestFileName), "utf-8")) as ArtifactManifest
-  } catch {
-    return null
-  }
-  if (!manifest || typeof manifest !== "object") {
-    return null
-  }
-  const seen = new Set<string>()
-  const primaryRawItems = manifestItems(manifest.items)
-  const fallbackPrimaryItems = primaryRawItems.length > 0 ? [] : primaryPathItems(manifest.primary)
-  const supportingRawItems = manifestItems(manifest.supporting)
-  const resolvedItems = await Promise.all(
-    [...primaryRawItems, ...fallbackPrimaryItems].map((item, index) =>
-      artifactManifestEntry(rootDir, item, "primary", index + 1, seen),
-    ),
-  )
-  const primaryItems = resolvedItems
-    .filter((item): item is LocalArtifactEntry => Boolean(item))
-    .filter((item) => item.role === "primary")
-    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, undefined, { numeric: true }))
-  const secondaryFromItems = resolvedItems
-    .filter((item): item is LocalArtifactEntry => Boolean(item))
-    .filter((item) => item.role !== "primary")
-  const resolvedSupporting = await Promise.all(
-    supportingRawItems.map((item, index) => artifactManifestEntry(rootDir, item, "supporting", index + 1, seen)),
-  )
-  const supportingItems = [
-    ...secondaryFromItems,
-    ...resolvedSupporting.filter((item): item is LocalArtifactEntry => Boolean(item)),
-  ].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, undefined, { numeric: true }))
-  const normalized = normalizeArtifactManifestEntries(primaryItems, supportingItems)
-  if (normalized.primaryItems.length === 0 && normalized.supportingItems.length === 0) {
-    return null
-  }
-  return {
-    root,
-    title: optionalString(manifest.title) ?? root.name,
-    kind: normalizeArtifactPackKind(manifest.kind),
-    display: normalizeArtifactDisplayMode(manifest.display),
-    ...(optionalString(manifest.summary) ? { summary: optionalString(manifest.summary) } : {}),
-    items: normalized.primaryItems,
-    supporting: normalized.supportingItems,
-    totalItems: artifactPackVisibleCount(normalized.primaryItems, normalized.supportingItems),
-    truncated: false,
-  }
 }
 
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
@@ -1152,7 +549,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         signal: generation.controller.signal,
         system: mergeSystemPrompts(
           buildOrganizationSkillsSystem(req.organizationSkills),
-          buildContextMentionsSystem(req.contextMentions),
+          buildContextMentionsSystemPrompt(req.contextMentions),
           buildProjectContextSystem(req.projectContext),
         ),
       })
@@ -1330,7 +727,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       directoryArtifacts(active.artifactRoot, defaultMaxDirectoryItems),
       processOutputFiles(active.processRoot),
       intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
-      this.projectOutputFiles(active.projectBaseline, active.projectRoot),
+      projectOutputFiles(active.projectBaseline, active.projectRoot),
     ])
     const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
     if (files.length === 0 && !artifactGroup?.items.length) {
@@ -1351,173 +748,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch(() => undefined)
   }
 
-  private async projectOutputFiles(
-    baseline: GitTurnBaseline | undefined,
-    projectRoot: string | undefined,
-  ): Promise<StoredTurnOutputFile[]> {
-    if (!baseline || !projectRoot) {
-      return []
-    }
-    const diffs = await collectGitTurnDiffs(baseline, mimeFromPath).catch((error: unknown) => {
-      console.warn("[wanta] failed to collect project diff", error)
-      return []
-    })
-    return diffs.map((item): StoredTurnOutputFile => {
-      const absolutePath = path.join(projectRoot, item.path)
-      return {
-        path: absolutePath,
-        name: turnOutputFileName(item.path),
-        role: "project_change",
-        changeKind: item.changeKind,
-        mime: item.diff.mime,
-        additions: item.diff.additions,
-        deletions: item.diff.deletions,
-        ...(item.diff.kind === "binary" ? { binary: true } : {}),
-        ...(item.size !== undefined ? { size: item.size } : {}),
-        ...(item.diff.truncated ? { truncated: true } : {}),
-        diff: { ...item.diff, path: absolutePath },
-      }
-    })
-  }
-
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
-    const mime = attachmentPreviewMime(req)
-    if (!mime) {
-      return { dataUrl: null }
-    }
-    try {
-      const info = await stat(req.path)
-      if (!info.isFile() || info.size > attachmentPreviewMaxBytes) {
-        return { dataUrl: null }
-      }
-      const bytes = await readFile(req.path)
-      return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}` }
-    } catch (error) {
-      console.error("[wanta] getAttachmentPreview failed", { path: req.path, error: errorMessage(error) })
-      return { dataUrl: null }
-    }
+    return attachmentPreview(req)
   }
 
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
-    const item = await localArtifactItem(req.path)
-    if (!item || item.kind !== "file") {
-      return { kind: "unsupported", mime: "application/octet-stream", reason: "missing" }
-    }
-
-    const size = item.size ?? 0
-    if (item.mime.toLowerCase().startsWith("image/")) {
-      if (size > attachmentPreviewMaxBytes) {
-        return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
-      }
-      try {
-        const bytes = await readFile(item.path)
-        return {
-          kind: "image",
-          mime: item.mime,
-          size,
-          dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
-        }
-      } catch (error) {
-        console.error("[wanta] getLocalArtifactPreview image failed", { path: req.path, error: errorMessage(error) })
-        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-      }
-    }
-
-    if (item.mime.toLowerCase().startsWith("audio/") || item.mime.toLowerCase().startsWith("video/")) {
-      if (size > attachmentPreviewMaxBytes) {
-        return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
-      }
-      try {
-        const bytes = await readFile(item.path)
-        return {
-          kind: "media",
-          mime: item.mime,
-          size,
-          dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
-        }
-      } catch (error) {
-        console.error("[wanta] getLocalArtifactPreview media failed", { path: req.path, error: errorMessage(error) })
-        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-      }
-    }
-
-    if (isXlsxArtifact(item.path, item.mime)) {
-      try {
-        return await spreadsheetPreview(item.path, item.mime, size)
-      } catch (error) {
-        console.error("[wanta] getLocalArtifactPreview spreadsheet failed", {
-          path: req.path,
-          error: errorMessage(error),
-        })
-        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-      }
-    }
-
-    const archive = await archivePreview(item.path, item.mime, size).catch((error: unknown) => {
-      console.error("[wanta] getLocalArtifactPreview archive failed", { path: req.path, error: errorMessage(error) })
-      return { kind: "unsupported" as const, mime: item.mime, size, reason: "read_failed" as const }
-    })
-    if (archive) {
-      return archive
-    }
-
-    if (isRtfArtifact(item.path, item.mime)) {
-      try {
-        const preview = await readTextPreview(item.path, size)
-        if (!preview) {
-          return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-        }
-        return {
-          kind: "text",
-          mime: item.mime,
-          size,
-          text: rtfToPlainText(preview.text),
-          truncated: preview.truncated,
-        }
-      } catch (error) {
-        console.error("[wanta] getLocalArtifactPreview rtf failed", { path: req.path, error: errorMessage(error) })
-        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-      }
-    }
-
-    if (isBinaryDataPreviewArtifact(item.path, item.mime) && size <= richPreviewMaxBytes) {
-      try {
-        const bytes = await readFile(item.path)
-        const richPreview = binaryDataPreview(item.path, item.mime, size, bytes)
-        if (richPreview) {
-          return richPreview
-        }
-      } catch (error) {
-        console.error("[wanta] getLocalArtifactPreview rich file failed", {
-          path: req.path,
-          error: errorMessage(error),
-        })
-        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-      }
-    } else if (isBinaryDataPreviewArtifact(item.path, item.mime)) {
-      return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
-    }
-
-    if (!isTextArtifactMime(item.mime)) {
-      return { kind: "unsupported", mime: item.mime, size, reason: "unsupported_type" }
-    }
-
-    try {
-      const preview = await readTextPreview(item.path, size)
-      if (!preview) {
-        return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-      }
-      return {
-        kind: "text",
-        mime: item.mime,
-        size,
-        text: preview.text,
-        truncated: preview.truncated,
-      }
-    } catch (error) {
-      console.error("[wanta] getLocalArtifactPreview text failed", { path: req.path, error: errorMessage(error) })
-      return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
-    }
+    return localArtifactPreview(req)
   }
 
   public async getTurnOutput(req: TurnOutputRequest): Promise<TurnOutputRecord | null> {

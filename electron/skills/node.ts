@@ -1,4 +1,3 @@
-import type { SupportedAgent } from "../agents/catalog.ts"
 import type { AuthManager } from "../auth/node.ts"
 import type { OoCommandResult } from "../oo-command.ts"
 import type {
@@ -14,7 +13,6 @@ import type {
   SkillDocumentRequest,
   SkillInventoryChangedEvent,
   SkillInventory,
-  SkillCliVersionCheck,
   SkillCliChangedEvent,
   SkillService,
   SkillSummary,
@@ -22,47 +20,50 @@ import type {
   UpdateRegistrySkillRequest,
 } from "./common.ts"
 import type { DefaultRegistrySkillSpec } from "./default-registry-skills.ts"
-import type { InstalledSkill } from "./types.ts"
 import type { IConnectionService } from "@oomol/connection"
 import type { FSWatcher } from "node:fs"
 
 import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
 import { watch } from "node:fs"
-import { access, cp, mkdir, readFile, realpath, rename, rm } from "node:fs/promises"
+import { access, readFile, realpath, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { buildOoEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
 import { logDiagnosticOnChange } from "../diagnostics-log.ts"
 import { ooEndpoint } from "../domain.ts"
-import { normalizeOoCliVersion, runOoCommand } from "../oo-command.ts"
+import { runOoCommand } from "../oo-command.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
   assertSkillOperationSucceeded,
   createDeleteSkillArgs,
-  createCliCheckUpdateArgs,
   createCliUpdateArgs,
-  createFailedRegistrySkillVersionCheck,
-  createFailedSkillVersionCheck,
   createInstallRegistrySkillArgs,
   createPublishSkillArgs,
-  createRegistrySkillCheckUpdateArgs,
-  createRegistrySkillVersionCheckFromUpdateResult,
   createSkillSearchArgs,
   createUpdateRegistrySkillArgs,
-  normalizeCliCheckUpdateResult,
-  normalizeRegistrySkillCheckUpdateResults,
   normalizeSkillSearchResults,
 } from "./actions.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
-import { metadataFileName } from "./constants.ts"
 import {
   DefaultSkillInstallStore,
   readDefaultSkillInstallRecord,
   upsertDefaultSkillInstallRecord,
 } from "./default-install-store.ts"
+import {
+  isRuntimeSkillInstalled,
+  normalizeDefaultRegistrySkillRequest,
+  runtimeErrorMessage,
+} from "./default-registry-install.ts"
 import { defaultRegistrySkills } from "./default-registry-skills.ts"
+import {
+  assertCanReplaceSharedSkillTarget,
+  normalizeSkillId,
+  readDeletableSkillTargetPaths,
+  replaceDirectory,
+} from "./file-operations.ts"
+import { mergeInstalledSkillSnapshots, readSkillCoverageAgents } from "./inventory-snapshot.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
 import {
   areManifestStoresEqual,
@@ -73,8 +74,10 @@ import {
 } from "./manifest.ts"
 import { resolveSharedAgentSkillRoot } from "./paths.ts"
 import { assertSafeResetPaths } from "./reset.ts"
-import { wantaRuntimeAgent, scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
+import { scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
 import { resolveUsableRegistrySkillSourcePath } from "./source.ts"
+import { createVersionReportCacheKey } from "./version-report-cache.ts"
+import { readSkillVersionReport } from "./version-report.ts"
 
 interface SkillVersionAuthSnapshot {
   cacheKey: string
@@ -83,11 +86,6 @@ interface SkillVersionAuthSnapshot {
 interface SkillServiceOptions {
   onRuntimeSkillsChanged?: (reason: string) => void
 }
-
-type RunSkillOoCommand = (
-  args: string[],
-  options: Omit<Parameters<typeof runOoCommand>[1], "env">,
-) => Promise<OoCommandResult>
 
 export class SkillServiceImpl extends ConnectionService<SkillService> implements IConnectionService<SkillService> {
   private readonly authService: AuthManager
@@ -345,7 +343,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return this.versionReportInFlight.promise
     }
 
-    const promise = this.readSkillVersionReport(inventory)
+    const promise = readSkillVersionReport(inventory, (args, options) => this.runOoCommand(args, options))
     this.versionReportInFlight = { generation: cacheGeneration, key: cacheKey, promise }
 
     try {
@@ -708,124 +706,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  private async readCliVersionCheck(currentVersion?: string): Promise<SkillCliVersionCheck> {
-    const result = await this.runOoCommand(createCliCheckUpdateArgs(), {
-      owner: "skill-service",
-      rejectOnFailure: false,
-    })
-
-    if (!result.ok) {
-      return {
-        command: createCliCheckUpdateArgs(),
-        currentVersion,
-        error: result.message ?? result.stderr,
-        raw: result.stdout || result.stderr,
-        status: "failed" as const,
-      }
-    }
-
-    try {
-      return normalizeCliCheckUpdateResult(result.stdout, currentVersion)
-    } catch (cause) {
-      return {
-        command: createCliCheckUpdateArgs(),
-        currentVersion,
-        error: cause instanceof Error ? cause.message : String(cause),
-        raw: result.stdout || result.stderr,
-        status: "failed",
-      }
-    }
-  }
-
-  private async readSkillVersionReport(inventory: SkillInventory): Promise<SkillVersionReport> {
-    const installedGroups = inventory.groups.filter((group) => group.hosts.some((host) => host.status === "installed"))
-    const shouldCheckRegistrySkills = installedGroups.some(
-      (group) => group.kind === "registry" && Boolean(group.packageName),
-    )
-    const registryCheckCommand = createRegistrySkillCheckUpdateArgs()
-    const currentCliVersion = await readCurrentOoCliVersion((args, options) => this.runOoCommand(args, options))
-    const [cli, registryChecksResult] = await Promise.all([
-      this.readCliVersionCheck(currentCliVersion),
-      shouldCheckRegistrySkills
-        ? this.readRegistrySkillVersionChecks()
-        : Promise.resolve({
-            ok: true as const,
-            command: registryCheckCommand,
-            results: [] as ReturnType<typeof normalizeRegistrySkillCheckUpdateResults>,
-          }),
-    ])
-    const checks = await Promise.all(
-      installedGroups.map(async (group) => {
-        if (group.kind === "registry") {
-          if (!group.packageName) {
-            return createFailedSkillVersionCheck(group, "Registry Skill is missing packageName.")
-          }
-
-          if (!registryChecksResult.ok) {
-            return createFailedRegistrySkillVersionCheck(
-              group,
-              registryChecksResult.error,
-              registryChecksResult.command,
-            )
-          }
-
-          return createRegistrySkillVersionCheckFromUpdateResult(
-            group,
-            registryChecksResult.results,
-            registryChecksResult.command,
-          )
-        }
-
-        return {
-          currentVersion: group.version,
-          id: group.id,
-          kind: group.kind,
-          name: group.name,
-          packageName: group.packageName,
-          skillId: group.id,
-          status: "not-checkable" as const,
-        }
-      }),
-    )
-    const summary = {
-      cliUpdates: cli.status === "update-available" ? 1 : 0,
-      errors: checks.filter((check) => check.status === "failed").length + (cli.status === "failed" ? 1 : 0),
-      registrySkillUpdates: checks.filter((check) => check.kind === "registry" && check.status === "update-available")
-        .length,
-      totalUpdates: 0,
-    }
-    summary.totalUpdates = summary.cliUpdates + summary.registrySkillUpdates
-    const report: SkillVersionReport = {
-      checkedAt: new Date().toISOString(),
-      cli,
-      skills: checks,
-      summary,
-    }
-
-    return report
-  }
-
-  private async readRegistrySkillVersionChecks(): Promise<
-    | { ok: true; command: string[]; results: ReturnType<typeof normalizeRegistrySkillCheckUpdateResults> }
-    | { ok: false; command: string[]; error: string }
-  > {
-    const command = createRegistrySkillCheckUpdateArgs()
-    const result = await this.runOoCommand(command, {
-      owner: "skill-service",
-      rejectOnFailure: false,
-    })
-
-    if (!result.ok) {
-      return { ok: false, command, error: result.message ?? result.stderr }
-    }
-
-    try {
-      return { ok: true, command, results: normalizeRegistrySkillCheckUpdateResults(result.stdout) }
-    } catch (cause) {
-      return { ok: false, command, error: cause instanceof Error ? cause.message : String(cause) }
-    }
-  }
-
   private async readSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
     const startedAtMs = Date.now()
     const manifestPath = this.getManifestPath()
@@ -932,19 +812,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 }
 
-async function readCurrentOoCliVersion(runCommand: RunSkillOoCommand): Promise<string | undefined> {
-  const result = await runCommand(["version", "--json"], {
-    owner: "skill-service",
-    rejectOnFailure: false,
-  })
-
-  if (!result.ok) {
-    return undefined
-  }
-
-  return normalizeOoCliVersion(result.stdout || result.stderr)
-}
-
 function assertOoSkillOperationResult(
   result: OoCommandResult,
   expectedCommand: Parameters<typeof assertSkillOperationSucceeded>[1],
@@ -961,200 +828,5 @@ function assertOoSkillOperationResult(
     }
 
     throw cause
-  }
-}
-
-function normalizeDefaultRegistrySkillRequest(spec: DefaultRegistrySkillSpec): InstallRegistrySkillRequest {
-  const packageName = spec.packageName.trim()
-  if (!packageName) {
-    throw new Error("Default registry Skill packageName is empty.")
-  }
-
-  return {
-    packageName,
-    skillId: normalizeSkillId(spec.skillId),
-  }
-}
-
-function isRuntimeSkillInstalled(inventory: SkillInventory, skillId: string): boolean {
-  const normalizedSkillId = normalizeSkillId(skillId)
-  const group = inventory.groups.find((item) => item.id === normalizedSkillId)
-  return group?.runtimeHosts.some((host) => host.status === "installed") ?? false
-}
-
-function runtimeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function createVersionReportCacheKey(inventory: SkillInventory): string {
-  return inventory.groups
-    .flatMap((group) => {
-      return group.hosts.map((host) => {
-        return [
-          group.id,
-          group.kind,
-          group.packageName ?? "",
-          group.version ?? "",
-          host.agentId,
-          host.status,
-          host.controlState ?? "",
-          host.version ?? "",
-        ].join(":")
-      })
-    })
-    .sort()
-    .join("|")
-}
-
-function normalizeSkillId(skillId: string): string {
-  const normalizedSkillId = skillId.trim()
-
-  if (
-    !normalizedSkillId ||
-    normalizedSkillId.includes("/") ||
-    normalizedSkillId.includes("\\") ||
-    normalizedSkillId === "." ||
-    normalizedSkillId === ".."
-  ) {
-    throw new Error(`Invalid Skill name: ${skillId}`)
-  }
-
-  return normalizedSkillId
-}
-
-function readDeletableSkillTargetPaths(group: ManagedSkillGroup, skillRoots: string[]): string[] {
-  const normalizedSkillId = normalizeSkillId(group.id)
-  const normalizedSkillRoots = skillRoots.map((skillRoot) => path.resolve(skillRoot))
-  const targetPaths = new Set<string>()
-
-  for (const host of group.hosts) {
-    const targetPath = host.path ? path.resolve(host.path) : undefined
-    if (!targetPath || host.status !== "installed") {
-      continue
-    }
-
-    if (path.basename(targetPath) !== normalizedSkillId) {
-      continue
-    }
-
-    if (!normalizedSkillRoots.some((skillRoot) => isPathInside(skillRoot, targetPath))) {
-      continue
-    }
-
-    targetPaths.add(targetPath)
-  }
-
-  return Array.from(targetPaths)
-}
-
-function isPathInside(parentPath: string, childPath: string): boolean {
-  const relativePath = path.relative(parentPath, childPath)
-  return Boolean(relativePath) && !relativePath.startsWith("..") && !path.isAbsolute(relativePath)
-}
-
-async function localPathExists(pathname: string): Promise<boolean> {
-  try {
-    await access(pathname)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function assertCanReplaceSharedSkillTarget(targetPath: string, options: { force: boolean }): Promise<void> {
-  if (!(await localPathExists(targetPath))) {
-    return
-  }
-
-  if (options.force) {
-    return
-  }
-
-  if (await localPathExists(path.join(targetPath, metadataFileName))) {
-    return
-  }
-
-  throw new Error("A local Skill with the same name already exists in the shared Agent Skills directory.")
-}
-
-function readSkillCoverageAgents(installedSkills: readonly InstalledSkill[]): SupportedAgent[] {
-  const externalAgentsById = new Map<string, SupportedAgent>()
-
-  for (const skill of installedSkills) {
-    if (skill.agent.id !== wantaRuntimeAgent.id) {
-      externalAgentsById.set(skill.agent.id, skill.agent)
-    }
-  }
-
-  return [
-    wantaRuntimeAgent,
-    ...Array.from(externalAgentsById.values()).sort((left, right) => left.name.localeCompare(right.name)),
-  ]
-}
-
-function mergeInstalledSkillSnapshots(
-  wantaInstalledSkills: InstalledSkill[],
-  externalInstalledSkills: InstalledSkill[],
-): InstalledSkill[] {
-  const merged = new Map<string, InstalledSkill>()
-
-  for (const skill of externalInstalledSkills) {
-    merged.set(skill.path, skill)
-  }
-  for (const skill of wantaInstalledSkills) {
-    merged.set(skill.path, skill)
-  }
-
-  return Array.from(merged.values())
-}
-
-async function replaceDirectory(sourcePath: string, targetPath: string): Promise<void> {
-  const parentPath = path.dirname(targetPath)
-  const targetName = path.basename(targetPath)
-  const operationId = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  const tempPath = path.join(parentPath, `.${targetName}.tmp-${operationId}`)
-  const backupPath = path.join(parentPath, `.${targetName}.backup-${operationId}`)
-  let hasBackup = false
-  let preserveBackup = false
-
-  await mkdir(parentPath, { recursive: true })
-  await rm(tempPath, { force: true, recursive: true })
-  await rm(backupPath, { force: true, recursive: true })
-
-  try {
-    await cp(sourcePath, tempPath, { recursive: true })
-
-    if (await localPathExists(targetPath)) {
-      await rename(targetPath, backupPath)
-      hasBackup = true
-    }
-
-    try {
-      await rename(tempPath, targetPath)
-    } catch (cause) {
-      if (hasBackup) {
-        try {
-          await rename(backupPath, targetPath)
-          hasBackup = false
-        } catch (rollbackError) {
-          preserveBackup = true
-          console.warn("[wanta] replaceDirectory rollback failed; backup preserved", {
-            backupPath,
-            error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
-          })
-        }
-      }
-      throw cause
-    }
-
-    if (hasBackup) {
-      await rm(backupPath, { force: true, recursive: true })
-      hasBackup = false
-    }
-  } finally {
-    await rm(tempPath, { force: true, recursive: true }).catch(() => undefined)
-    if (hasBackup && !preserveBackup) {
-      await rm(backupPath, { force: true, recursive: true }).catch(() => undefined)
-    }
   }
 }

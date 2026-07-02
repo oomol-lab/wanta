@@ -1,0 +1,104 @@
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+
+    background: transparent;
+    margin: 0;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    user-select: none;
+  }
+
+  :root[data-window="tray"],
+  :root[data-window="tray"] body,
+  :root[data-window="tray"] #root {
+    background: transparent;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  button,
+  [role="button"],
+  summary {
+    cursor: default;
+  }
+
+  a[href] {
+    cursor: pointer;
+  }
+
+  input,
+  [data-slot="input"],
+  textarea,
+  code,
+  pre,
+  .oo-markdown,
+  [data-selectable="true"] {
+    user-select: text;
+  }
+
+  ::selection {
+    background: var(--text-selection-background);
+    color: var(--text-selection-foreground);
+  }
+
+  input:focus-visible,
+  [data-slot="input"]:focus-visible,
+  textarea:focus-visible {
+    border-color: var(--input-focus-ring);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--input-focus-ring) 26%, transparent);
+  }
+
+  ::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: transparent;
+    border: var(--scrollbar-inset) solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+    transition: background-color 140ms ease-out;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  * {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+
+  .is-scrolling::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    background-clip: content-box;
+  }
+
+  .is-scrolling {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  .is-scrolling::-webkit-scrollbar-thumb:active {
+    background: var(--scrollbar-thumb-active);
+    background-clip: content-box;
+  }
+
+  .oo-scrollbar-gutter-auto {
+    scrollbar-gutter: auto !important;
+  }
+}

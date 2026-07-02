@@ -14,12 +14,10 @@ import type {
 
 import { apiBaseUrl, connectorBaseUrl, orgControlBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
-import { emitOrganizationChanged } from "@/lib/organization-change-bus"
 
 // 组织面板/管理 UI 的全部网络读写在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
 // OrganizationsServiceImpl 代发的请求（且其鉴权本就是读会话 cookie）。凭证经 httpOnly 会话 cookie
-// 自动附带（oomolFetch 内 credentials:"include"），token 不进渲染层（守 R4）；域名从 @/lib/domain
-// 派生（守 R2）。变更类操作成功后 emitOrganizationChanged() 通知其他组件刷新（替代原 RPC 广播）。
+// 自动附带（oomolFetch 内 credentials:"include"），token 不进渲染层（守 R4）；域名从 @/lib/domain 派生（守 R2）。
 
 interface OrganizationsEnvelope {
   organizations?: unknown
@@ -321,7 +319,6 @@ export async function createOrganization(req: CreateOrganizationRequest): Promis
   if (!organization) {
     throw new Error("Organization response is invalid.")
   }
-  emitOrganizationChanged()
   return organization
 }
 
@@ -340,7 +337,6 @@ export async function updateOrganization(req: UpdateOrganizationRequest): Promis
   if (!organization) {
     throw new Error("Organization response is invalid.")
   }
-  emitOrganizationChanged()
   return organization
 }
 
@@ -398,7 +394,6 @@ export async function addOrganizationMember(req: OrganizationMemberRequest): Pro
     body: JSON.stringify({ user_id: userId, role: "member" }),
     noResult: true,
   })
-  emitOrganizationChanged()
 }
 
 export async function removeOrganizationMember(req: OrganizationMemberRequest): Promise<void> {
@@ -408,7 +403,6 @@ export async function removeOrganizationMember(req: OrganizationMemberRequest): 
     method: "DELETE",
     noResult: true,
   })
-  emitOrganizationChanged()
 }
 
 export async function getOrganizationAppAccess(orgId: string): Promise<OrganizationAppAccess> {
@@ -427,7 +421,6 @@ export async function updateOrganizationAppAccess(
       body: JSON.stringify(access),
     }),
   )
-  emitOrganizationChanged()
   return updated
 }
 

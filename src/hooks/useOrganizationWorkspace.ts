@@ -4,7 +4,8 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
 import { branding } from "../../electron/branding.ts"
-import { onOrganizationChanged } from "../lib/organization-change-bus.ts"
+import { dropCachedAvatarImage } from "../lib/avatar-image-cache.ts"
+import { applyOrganizationPatchesToOverview, upsertOverviewOrganization } from "../lib/organization-overview.ts"
 import { organizationCanManage, organizationRole } from "../lib/organization-permissions.ts"
 import { getOrganizationOverview } from "../lib/organizations-client.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
@@ -16,6 +17,7 @@ export type WorkspaceSelection =
   | {
       canManage: boolean
       organization: Organization | null
+      avatarPreviewUrl?: string
       organizationId: string
       role: OrganizationRole | null
       type: "organization"
@@ -30,13 +32,20 @@ export interface UseOrganizationWorkspace {
   hasLoaded: boolean
   loading: boolean
   organizations: Organization[]
+  organizationAvatarPreviewUrls: Record<string, string>
+  clearOrganizationAvatarPreview: (organizationId: string) => void
   refresh: (options?: OrganizationWorkspaceRefreshOptions) => Promise<void>
   selectOrganization: (organizationId: string) => void
   selectPersonal: () => void
+  upsertOrganization: (organization: Organization, options?: OrganizationWorkspaceUpsertOptions) => void
 }
 
 export interface OrganizationWorkspaceRefreshOptions {
   forceRefresh?: boolean
+}
+
+export interface OrganizationWorkspaceUpsertOptions {
+  avatarFile?: File | null
 }
 
 interface WorkspaceOverviewCacheEntry {
@@ -50,11 +59,18 @@ interface WorkspaceOverviewInFlightEntry {
   promise: Promise<OrganizationOverview>
 }
 
+interface PendingWorkspaceOrganizationPatch {
+  organization: Organization
+  patchedAt: number
+}
+
 const selectedWorkspaceStorageKeyPrefix = `${branding.storageKeyPrefix}:active-workspace:`
 const legacySelectedWorkspaceStorageKeyPrefix = "lumo:active-workspace:"
 const workspaceOverviewCacheMs = 30_000
+const workspaceOverviewPatchTtlMs = 120_000
 let workspaceOverviewCache: WorkspaceOverviewCacheEntry | null = null
 let workspaceOverviewInFlight: WorkspaceOverviewInFlightEntry | null = null
+const pendingWorkspaceOrganizationPatches = new Map<string, PendingWorkspaceOrganizationPatch>()
 
 function selectedWorkspaceStorageKey(accountId: string): string {
   return `${selectedWorkspaceStorageKeyPrefix}${accountId}`
@@ -124,6 +140,27 @@ function uniqueOrganizations(overview: OrganizationOverview | null): Organizatio
   })
 }
 
+function rememberWorkspaceOrganizationPatch(organization: Organization): void {
+  pendingWorkspaceOrganizationPatches.set(organization.id, { organization, patchedAt: Date.now() })
+}
+
+function activeWorkspaceOrganizationPatches(now = Date.now()): Organization[] {
+  const patches: Organization[] = []
+  for (const [organizationId, patch] of pendingWorkspaceOrganizationPatches) {
+    if (now - patch.patchedAt > workspaceOverviewPatchTtlMs) {
+      pendingWorkspaceOrganizationPatches.delete(organizationId)
+      continue
+    }
+    patches.push(patch.organization)
+  }
+  return patches
+}
+
+function applyPendingWorkspaceOrganizationPatches(overview: OrganizationOverview): OrganizationOverview {
+  const patches = activeWorkspaceOrganizationPatches()
+  return patches.length > 0 ? applyOrganizationPatchesToOverview(overview, patches) : overview
+}
+
 function workspaceError(cause: unknown, hasLoaded: boolean): UserFacingError {
   const error = resolveUserFacingError(cause, { area: "generic" })
   return {
@@ -174,9 +211,11 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
   )
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
+  const [organizationAvatarPreviewUrls, setOrganizationAvatarPreviewUrls] = React.useState<Record<string, string>>({})
   const requestIdRef = React.useRef(0)
   const loadedAccountIdRef = React.useRef<string | undefined>(undefined)
   const overviewRef = React.useRef<OrganizationOverview | null>(null)
+  const organizationAvatarPreviewUrlsRef = React.useRef(new Map<string, string>())
 
   React.useEffect(() => {
     if (loadedAccountIdRef.current === accountId) {
@@ -205,7 +244,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       const hadOverview = overviewRef.current !== null
       setLoading(true)
       try {
-        const next = await readCachedWorkspaceOverview(accountId, options)
+        const next = applyPendingWorkspaceOrganizationPatches(await readCachedWorkspaceOverview(accountId, options))
         if (requestIdRef.current !== requestId) {
           return
         }
@@ -233,14 +272,64 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     [accountId],
   )
 
-  React.useEffect(() => {
-    void refresh()
-  }, [refresh])
+  const clearOrganizationAvatarPreview = React.useCallback((organizationId: string): void => {
+    const currentPreviewUrl = organizationAvatarPreviewUrlsRef.current.get(organizationId)
+    if (!currentPreviewUrl) {
+      return
+    }
+    URL.revokeObjectURL(currentPreviewUrl)
+    organizationAvatarPreviewUrlsRef.current.delete(organizationId)
+    setOrganizationAvatarPreviewUrls(Object.fromEntries(organizationAvatarPreviewUrlsRef.current))
+  }, [])
+
+  const setOrganizationAvatarPreview = React.useCallback((organizationId: string, file: File | null): void => {
+    const currentPreviewUrl = organizationAvatarPreviewUrlsRef.current.get(organizationId)
+    if (currentPreviewUrl) {
+      URL.revokeObjectURL(currentPreviewUrl)
+      organizationAvatarPreviewUrlsRef.current.delete(organizationId)
+    }
+    if (file) {
+      organizationAvatarPreviewUrlsRef.current.set(organizationId, URL.createObjectURL(file))
+    }
+    setOrganizationAvatarPreviewUrls(Object.fromEntries(organizationAvatarPreviewUrlsRef.current))
+  }, [])
+
+  const upsertOrganization = React.useCallback(
+    (organization: Organization, options: OrganizationWorkspaceUpsertOptions = {}): void => {
+      if (!accountId) {
+        return
+      }
+      rememberWorkspaceOrganizationPatch(organization)
+      if ("avatarFile" in options) {
+        dropCachedAvatarImage(organization.avatar)
+        setOrganizationAvatarPreview(organization.id, options.avatarFile ?? null)
+      }
+      setOverview((current) => {
+        const next = upsertOverviewOrganization(current, organization)
+        if (!next) {
+          return current
+        }
+        overviewRef.current = next
+        if (workspaceOverviewCache?.accountId === accountId) {
+          workspaceOverviewCache = { ...workspaceOverviewCache, fetchedAt: Date.now(), overview: next }
+        }
+        return next
+      })
+    },
+    [accountId, setOrganizationAvatarPreview],
+  )
 
   React.useEffect(() => {
-    return onOrganizationChanged(() => {
-      void refresh({ forceRefresh: true })
-    })
+    return () => {
+      for (const previewUrl of organizationAvatarPreviewUrlsRef.current.values()) {
+        URL.revokeObjectURL(previewUrl)
+      }
+      organizationAvatarPreviewUrlsRef.current.clear()
+    }
+  }, [])
+
+  React.useEffect(() => {
+    void refresh()
   }, [refresh])
 
   const organizations = React.useMemo(() => uniqueOrganizations(overview), [overview])
@@ -253,12 +342,13 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     }
     return {
       type: "organization",
+      avatarPreviewUrl: organizationAvatarPreviewUrls[selectedOrganizationId],
       organizationId: selectedOrganizationId,
       organization: selectedOrganization,
       role: organizationRole(overview, selectedOrganization),
       canManage: organizationCanManage(overview, selectedOrganization),
     }
-  }, [overview, selectedOrganization, selectedOrganizationId])
+  }, [organizationAvatarPreviewUrls, overview, selectedOrganization, selectedOrganizationId])
   const connectionWorkspace = React.useMemo<ConnectionWorkspace | null>(() => {
     if (!selectedOrganizationId) {
       return { type: "personal" }
@@ -297,8 +387,11 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     hasLoaded: overview !== null,
     loading,
     organizations,
+    organizationAvatarPreviewUrls,
+    clearOrganizationAvatarPreview,
     refresh,
     selectOrganization,
     selectPersonal,
+    upsertOrganization,
   }
 }

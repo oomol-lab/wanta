@@ -7,6 +7,7 @@ import type {
   OrganizationUserSearchResult,
   OrganizationUserSummary,
 } from "../../../electron/organizations/common.ts"
+import type { RuntimeSkillRemoveTarget } from "./skill-route-model.ts"
 
 import { branding } from "../../../electron/branding.ts"
 export { organizationCanManage, organizationRole } from "../../lib/organization-permissions.ts"
@@ -84,6 +85,12 @@ export interface OrganizationManagementSnapshot {
 
 export interface OrganizationSkillPackageItem {
   packageName: string
+}
+
+export interface OrganizationSkillLinkInput {
+  packageName: string
+  skillName: string
+  version: string
 }
 
 export interface OrganizationSkillBulkPlan<T extends OrganizationSkillPackageItem> {
@@ -221,6 +228,10 @@ export function createOrganizationSkillPackageSet(
 export function organizationSkillPackageLinked(linkedPackageKeys: ReadonlySet<string>, packageName: string): boolean {
   const key = organizationSkillPackageKey(packageName)
   return Boolean(key) && linkedPackageKeys.has(key)
+}
+
+export function runtimeSkillRemoveBusyKey(target: RuntimeSkillRemoveTarget): BusyAction {
+  return `removeSkill:${target.packageName ?? ""}:${target.skillName}`
 }
 
 export function planOrganizationSkillBulkLinks<T extends OrganizationSkillPackageItem>(

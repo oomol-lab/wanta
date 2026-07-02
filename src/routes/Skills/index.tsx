@@ -1,7 +1,6 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup, PublicSkillPackage, SkillVersionReport } from "../../../electron/skills/common.ts"
-import type { BusyAction } from "./organization-management-model.ts"
-import type { OrganizationSkillLinkInput } from "./OrganizationManagement.tsx"
+import type { BusyAction, OrganizationSkillLinkInput } from "./organization-management-model.ts"
 import type { ProviderSkillRecommendation } from "./provider-skill-recommendations.ts"
 import type {
   DiscoverSkillFilter,

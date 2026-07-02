@@ -33,7 +33,9 @@ import {
   ChevronRight,
   ChevronsUpDown,
   Download,
+  Ellipsis,
   Folder,
+  FolderOpen,
   FolderPlus,
   LogOut,
   LoaderCircle,
@@ -43,6 +45,7 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
   Pin,
   PinOff,
   Plug,
@@ -50,6 +53,7 @@ import {
   Search,
   Settings,
   SquarePen,
+  Trash2,
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
@@ -89,6 +93,13 @@ import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
@@ -366,10 +377,19 @@ function activeProjectIdForComposer({
   return undefined
 }
 
+function newSessionComposerDraftKey(scope: SessionScope | null, projectId: string | undefined): string {
+  return `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(scope)}:${projectId ?? "none"}`
+}
+
 function buildProjectSidebarGroups(projects: SessionProject[], sessions: SessionInfo[]): ProjectSidebarGroup[] {
+  const projectById = new Map(projects.map((project) => [project.id, project]))
   const sessionsByProject = new Map<string, SessionInfo[]>()
   for (const session of sessions) {
-    if (!session.projectId || session.pinnedAt || session.archivedAt) {
+    if (!session.projectId || session.archivedAt) {
+      continue
+    }
+    const project = projectById.get(session.projectId)
+    if (!project || (session.pinnedAt && !project.pinnedAt)) {
       continue
     }
     const current = sessionsByProject.get(session.projectId) ?? []
@@ -390,7 +410,10 @@ function buildProjectSidebarGroups(projects: SessionProject[], sessions: Session
         updatedAt,
       }
     })
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .sort((a, b) => {
+      const pinnedDiff = (b.project.pinnedAt ?? 0) - (a.project.pinnedAt ?? 0)
+      return pinnedDiff || b.updatedAt - a.updatedAt
+    })
 }
 
 function WorkspaceAvatar({
@@ -891,6 +914,169 @@ function ArchiveSessionDialog({
   )
 }
 
+function RenameProjectDialog({
+  project,
+  open,
+  onClose,
+  onRename,
+}: {
+  project: SessionProject | null
+  open: boolean
+  onClose: () => void
+  onRename: (projectId: string, name: string) => void
+}) {
+  const t = useT()
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+  const formId = React.useId()
+  const [draft, setDraft] = React.useState("")
+  const trimmedDraft = draft.trim()
+  const canSave = Boolean(project && trimmedDraft)
+
+  React.useEffect(() => {
+    if (!open || !project) {
+      return
+    }
+    setDraft(project.name)
+  }, [open, project])
+
+  if (!open || !project) {
+    return null
+  }
+
+  const save = (): void => {
+    if (!canSave) {
+      return
+    }
+    const nextName = trimTitleToColumns(trimmedDraft)
+    if (nextName !== project.name) {
+      onRename(project.id, nextName)
+    }
+    onClose()
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      closeLabel={t("common.close")}
+      title={t("project.renameTitle")}
+      description={t("project.renameDescription")}
+      className="max-w-[440px]"
+      initialFocus={() => {
+        const input = inputRef.current
+        input?.select()
+        return input
+      }}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" form={formId} disabled={!canSave}>
+            {t("common.save")}
+          </Button>
+        </>
+      }
+    >
+      <form
+        id={formId}
+        onSubmit={(event) => {
+          event.preventDefault()
+          save()
+        }}
+      >
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          aria-label={t("project.renameInputLabel")}
+          className="oo-text-value block h-8 w-full min-w-0 border-0 bg-transparent p-0 text-foreground shadow-none ring-0 outline-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus:border-0 focus:ring-0 focus:outline-none focus-visible:outline-none"
+        />
+      </form>
+    </Dialog>
+  )
+}
+
+function ArchiveProjectDialog({
+  confirming,
+  open,
+  onClose,
+  onConfirm,
+}: {
+  confirming: boolean
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const t = useT()
+
+  return (
+    <Dialog
+      open={open}
+      onClose={() => {
+        if (!confirming) {
+          onClose()
+        }
+      }}
+      closeLabel={t("common.cancel")}
+      title={t("project.archiveConfirmTitle")}
+      footer={
+        <>
+          <Button type="button" variant="outline" disabled={confirming} onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" disabled={confirming} onClick={onConfirm}>
+            {confirming ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+            {confirming ? t("project.archiveConfirming") : t("project.archiveConfirmAction")}
+          </Button>
+        </>
+      }
+    >
+      <p className="oo-text-body text-muted-foreground">{t("project.archiveConfirmDescription")}</p>
+    </Dialog>
+  )
+}
+
+function RemoveProjectDialog({
+  confirming,
+  open,
+  onClose,
+  onConfirm,
+}: {
+  confirming: boolean
+  open: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const t = useT()
+
+  return (
+    <Dialog
+      open={open}
+      onClose={() => {
+        if (!confirming) {
+          onClose()
+        }
+      }}
+      closeLabel={t("common.cancel")}
+      title={t("project.removeConfirmTitle")}
+      footer={
+        <>
+          <Button type="button" variant="outline" disabled={confirming} onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" variant="destructive" disabled={confirming} onClick={onConfirm}>
+            {confirming ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+            {confirming ? t("project.removeConfirming") : t("project.removeConfirmAction")}
+          </Button>
+        </>
+      }
+    >
+      <p className="oo-text-body text-muted-foreground">{t("project.removeConfirmDescription")}</p>
+    </Dialog>
+  )
+}
+
 function EditableTitlebarTitle({
   title,
   editable,
@@ -1248,11 +1434,16 @@ function ProjectSidebarGroupItem({
   now,
   running,
   onArchiveSession,
+  onArchiveProject,
   onExpandedChange,
+  onPinProject,
+  onRemoveProject,
+  onRenameProject,
   onNewSession,
   onPinSession,
   onRenameSession,
   onSelectSession,
+  onShowProjectInFolder,
 }: {
   activeSessionId: string | null
   expanded: boolean
@@ -1262,16 +1453,22 @@ function ProjectSidebarGroupItem({
   now: number
   running: boolean
   onArchiveSession: (session: SessionInfo) => void
+  onArchiveProject: (project: SessionProject) => void
   onExpandedChange: (expanded: boolean) => void
   onNewSession: (project: SessionProject) => void
+  onPinProject: (project: SessionProject) => void
+  onRemoveProject: (project: SessionProject) => void
+  onRenameProject: (project: SessionProject) => void
   onPinSession: (session: SessionInfo) => void
   onRenameSession: (session: SessionInfo) => void
   onSelectSession: (session: SessionInfo) => void
+  onShowProjectInFolder: (project: SessionProject) => void
 }) {
   const t = useT()
   const hasSessions = group.sessions.length > 0
   const toggleLabel = expanded ? t("project.collapse") : t("project.expand")
   const projectTitle = t("project.newTask")
+  const pinned = Boolean(group.project.pinnedAt)
   const showCollapsedRunning = !expanded && running
   const toggleTitle = showCollapsedRunning
     ? `${toggleLabel}: ${group.project.name} · ${t("aria.sessionRunning")}`
@@ -1300,23 +1497,58 @@ function ProjectSidebarGroupItem({
             )}
           </span>
         </button>
-        <span className="relative flex size-5 shrink-0 items-center justify-center">
+        <div className="ml-1 flex shrink-0 items-center gap-0.5">
           {showCollapsedRunning ? (
             <LoaderCircle
-              className="absolute size-3.5 animate-spin text-sidebar-foreground/70 opacity-100 transition-opacity group-hover:opacity-0"
+              className="size-3.5 animate-spin text-sidebar-foreground/70 opacity-100 transition-opacity group-focus-within:hidden group-hover:hidden"
               aria-hidden="true"
             />
           ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title={t("project.moreActions")}
+                aria-label={t("project.moreActions")}
+                className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground data-[state=open]:opacity-100"
+              >
+                <Ellipsis className="size-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44">
+              <DropdownMenuItem onSelect={() => onPinProject(group.project)}>
+                {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                <span>{pinned ? t("project.unpin") : t("project.pin")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onShowProjectInFolder(group.project)}>
+                <FolderOpen className="size-4" />
+                <span>{t("project.showInFinder")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onRenameProject(group.project)}>
+                <Pencil className="size-4" />
+                <span>{t("project.rename")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onArchiveProject(group.project)}>
+                <Archive className="size-4" />
+                <span>{t("project.archive")}</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={() => onRemoveProject(group.project)}>
+                <Trash2 className="size-4" />
+                <span>{t("project.remove")}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             type="button"
             title={projectTitle}
             aria-label={projectTitle}
-            className="pointer-events-none absolute flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
+            className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
             onClick={() => onNewSession(group.project)}
           >
             <SquarePen className="size-3.5" />
           </button>
-        </span>
+        </div>
       </div>
       {expanded ? (
         <div className="grid gap-0.5">
@@ -1722,6 +1954,10 @@ export function AppShell() {
     create,
     createProject,
     assignSessionProject,
+    renameProject: renameProjectAction,
+    pinProject: pinProjectAction,
+    archiveProject: archiveProjectAction,
+    removeProject: removeProjectAction,
     generateTitle,
     rename,
     pin,
@@ -1753,6 +1989,11 @@ export function AppShell() {
   const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
   const [archiveSessionId, setArchiveSessionId] = React.useState<string | null>(null)
   const [archiveConfirming, setArchiveConfirming] = React.useState(false)
+  const [renameProjectId, setRenameProjectId] = React.useState<string | null>(null)
+  const [archiveProjectId, setArchiveProjectId] = React.useState<string | null>(null)
+  const [removeProjectId, setRemoveProjectId] = React.useState<string | null>(null)
+  const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
+  const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [turnOutputSelection, setTurnOutputSelection] = React.useState<TurnOutputSelection | null>(null)
@@ -1814,6 +2055,7 @@ export function AppShell() {
   const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
+  const draftProjectFallbacksById = React.useRef<Map<string, SessionProject>>(new Map())
   const sessionsRef = React.useRef<SessionInfo[]>([])
   const sendInFlightRef = React.useRef(false)
   const dispatchingQueuedSessionsRef = React.useRef<Set<string>>(new Set())
@@ -2113,7 +2355,13 @@ export function AppShell() {
     [activeSession, draftProjectId],
   )
   const activeProject = React.useMemo(() => {
-    return activeProjectId ? projects.find((project) => project.id === activeProjectId) : undefined
+    if (!activeProjectId) {
+      return undefined
+    }
+    return (
+      projects.find((project) => project.id === activeProjectId) ??
+      draftProjectFallbacksById.current.get(activeProjectId)
+    )
   }, [activeProjectId, projects])
   const projectGit = useProjectGit(activeProject)
   const activeProjectContext = React.useMemo(
@@ -2121,16 +2369,26 @@ export function AppShell() {
     [activeProject, projectGit.state],
   )
   const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(taskSessions), [taskSessions])
-  const projectPinnedSessions = React.useMemo(
-    () =>
-      projectSessions
-        .filter((session) => session.projectId && session.pinnedAt && !session.archivedAt)
-        .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0)),
-    [projectSessions],
-  )
+  const projectPinnedSessions = React.useMemo(() => {
+    const pinnedProjectIds = new Set(projects.filter((project) => project.pinnedAt).map((project) => project.id))
+    return projectSessions
+      .filter(
+        (session) =>
+          session.projectId && !pinnedProjectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
+      )
+      .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
+  }, [projectSessions, projects])
   const projectSidebarGroups = React.useMemo(
     () => buildProjectSidebarGroups(projects, projectSessions),
     [projectSessions, projects],
+  )
+  const projectPinnedGroups = React.useMemo(
+    () => projectSidebarGroups.filter((group) => group.project.pinnedAt),
+    [projectSidebarGroups],
+  )
+  const projectRegularGroups = React.useMemo(
+    () => projectSidebarGroups.filter((group) => !group.project.pinnedAt),
+    [projectSidebarGroups],
   )
   const projectCollapsedStorageKey = React.useMemo(
     () => projectSidebarCollapsedStorageKey(auth.state?.account?.id, sessionScope),
@@ -2138,10 +2396,12 @@ export function AppShell() {
   )
   const collapsedProjectIds =
     collapsedProjectState.storageKey === projectCollapsedStorageKey ? collapsedProjectState.ids : new Set<string>()
-  const activeComposerDraftKey =
-    activeSessionId ?? `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(sessionScope)}:${activeProjectId ?? "none"}`
+  const activeComposerDraftKey = activeSessionId ?? newSessionComposerDraftKey(sessionScope, activeProjectId)
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
+  const renameProjectTarget = projects.find((project) => project.id === renameProjectId) ?? null
+  const archiveProjectTarget = projects.find((project) => project.id === archiveProjectId) ?? null
+  const removeProjectTarget = projects.find((project) => project.id === removeProjectId) ?? null
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
   const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
   const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
@@ -2168,8 +2428,9 @@ export function AppShell() {
       !sessionsLoaded ||
       needsDefaultSessionSelection ||
       Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition))
-  const showChatEmptyState = ready && sessionsLoaded && !activeSessionId && !pendingChatTransition
-  const showComposerProjectContext = sidebarSegment === "projects"
+  const showChatEmptyState =
+    ready && sessionsLoaded && !pendingChatTransition && (!activeSessionId || (messagesLoaded && messages.length === 0))
+  const showComposerProjectContext = route === "chat"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
@@ -2317,20 +2578,52 @@ export function AppShell() {
   }, [renameSession, renameSessionId])
 
   React.useEffect(() => {
+    if (renameProjectId && !renameProjectTarget) {
+      setRenameProjectId(null)
+    }
+  }, [renameProjectId, renameProjectTarget])
+
+  React.useEffect(() => {
     if (archiveSessionId && !archiveSession) {
       setArchiveSessionId(null)
     }
   }, [archiveSession, archiveSessionId])
 
   React.useEffect(() => {
+    if (archiveProjectId && !archiveProjectTarget) {
+      setArchiveProjectId(null)
+    }
+  }, [archiveProjectId, archiveProjectTarget])
+
+  React.useEffect(() => {
+    if (removeProjectId && !removeProjectTarget) {
+      setRemoveProjectId(null)
+    }
+  }, [removeProjectId, removeProjectTarget])
+
+  React.useEffect(() => {
     if (
       draftProjectId &&
       draftProjectId !== NO_DRAFT_PROJECT_ID &&
-      !projects.some((project) => project.id === draftProjectId)
+      !projects.some((project) => project.id === draftProjectId) &&
+      !draftProjectFallbacksById.current.has(draftProjectId)
     ) {
       setDraftProjectId(null)
     }
   }, [draftProjectId, projects])
+
+  React.useEffect(() => {
+    if (!draftProjectId || draftProjectId === NO_DRAFT_PROJECT_ID) {
+      return
+    }
+    if (projects.some((project) => project.id === draftProjectId)) {
+      draftProjectFallbacksById.current.delete(draftProjectId)
+    }
+  }, [draftProjectId, projects])
+
+  React.useEffect(() => {
+    draftProjectFallbacksById.current.clear()
+  }, [sessionScope])
 
   React.useEffect(() => {
     setArtifactSelection(null)
@@ -2586,6 +2879,7 @@ export function AppShell() {
   }, [])
 
   const handleOpenProjectDraft = React.useCallback((project: SessionProject): void => {
+    draftProjectFallbacksById.current.set(project.id, project)
     setActiveSessionId(null)
     setIsDraftSession(true)
     setDraftProjectId(project.id)
@@ -2609,16 +2903,32 @@ export function AppShell() {
         }
         return
       }
+      const currentDraft = composerDraftsByKey.current.get(activeComposerDraftKey)
+      const nextDraftKey = newSessionComposerDraftKey(sessionScope, projectId)
+      if (currentDraft && nextDraftKey !== activeComposerDraftKey) {
+        composerDraftsByKey.current.set(nextDraftKey, currentDraft)
+        clearComposerDraft(activeComposerDraftKey)
+      }
       setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
       setIsDraftSession(true)
       setRoute("chat")
       setSidebarSegment(projectId ? "projects" : "tasks")
     },
-    [activeSessionId, assignSessionProject, isDraftSession, refreshSessions, t],
+    [
+      activeComposerDraftKey,
+      activeSessionId,
+      assignSessionProject,
+      clearComposerDraft,
+      isDraftSession,
+      refreshSessions,
+      sessionScope,
+      t,
+    ],
   )
 
   const handleCreatedProject = React.useCallback(
     async (project: SessionProject, source: ProjectSelectionSource): Promise<void> => {
+      draftProjectFallbacksById.current.set(project.id, project)
       if (source === "composer") {
         await handleSelectComposerProject(project.id)
         return
@@ -2867,6 +3177,7 @@ export function AppShell() {
           autoFallbackTitleBySession.current.set(sessionId, fallbackTitle)
           setActiveSessionId(sessionId)
           setIsDraftSession(false)
+          setSidebarSegment(info.projectId ? "projects" : "tasks")
           setPendingChatTransition((pending) =>
             pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
           )
@@ -3079,6 +3390,77 @@ export function AppShell() {
       setRoute("chat")
     }
     setArchiveSessionId(null)
+  }
+
+  const handlePinProject = async (project: SessionProject): Promise<void> => {
+    try {
+      await pinProjectAction(project.id, !project.pinnedAt)
+    } catch (cause) {
+      const notice = resolveUserFacingError(cause, { area: "session" })
+      toast.error(userFacingErrorDescription(notice, t))
+    }
+  }
+
+  const handleRenameProject = async (projectId: string, name: string): Promise<void> => {
+    try {
+      await renameProjectAction(projectId, name)
+    } catch (cause) {
+      const notice = resolveUserFacingError(cause, { area: "session" })
+      toast.error(userFacingErrorDescription(notice, t))
+    }
+  }
+
+  const handleShowProjectInFolder = (project: SessionProject): void => {
+    void chatService.invoke("showLocalPathInFolder", { path: project.path }).catch((cause: unknown) => {
+      const notice = resolveUserFacingError(cause, { area: "artifact" })
+      toast.error(userFacingErrorDescription(notice, t))
+    })
+  }
+
+  const clearActiveProjectIfNeeded = React.useCallback(
+    (projectId: string): void => {
+      if (activeProjectId !== projectId) {
+        return
+      }
+      if (activeSessionId) {
+        setActiveSessionId(null)
+      }
+      setIsDraftSession(true)
+      setDraftProjectId(NO_DRAFT_PROJECT_ID)
+      setPendingChatTransition(null)
+      setRoute("chat")
+    },
+    [activeProjectId, activeSessionId],
+  )
+
+  const handleArchiveProject = async (project: SessionProject): Promise<void> => {
+    setArchiveProjectConfirming(true)
+    try {
+      await archiveProjectAction(project.id)
+      clearActiveProjectIfNeeded(project.id)
+    } catch (cause) {
+      const notice = resolveUserFacingError(cause, { area: "session" })
+      toast.error(userFacingErrorDescription(notice, t))
+      return
+    } finally {
+      setArchiveProjectConfirming(false)
+    }
+    setArchiveProjectId(null)
+  }
+
+  const handleRemoveProject = async (project: SessionProject): Promise<void> => {
+    setRemoveProjectConfirming(true)
+    try {
+      await removeProjectAction(project.id)
+      clearActiveProjectIfNeeded(project.id)
+    } catch (cause) {
+      const notice = resolveUserFacingError(cause, { area: "session" })
+      toast.error(userFacingErrorDescription(notice, t))
+      return
+    } finally {
+      setRemoveProjectConfirming(false)
+    }
+    setRemoveProjectId(null)
   }
 
   const handleAuthorize = React.useCallback(
@@ -3491,11 +3873,36 @@ export function AppShell() {
               ) : sidebarSegment === "projects" ? (
                 projectSidebarGroups.length > 0 ? (
                   <div className="grid gap-2">
-                    {projectPinnedSessions.length > 0 ? (
-                      <div className="grid gap-0.5">
+                    {projectPinnedGroups.length > 0 || projectPinnedSessions.length > 0 ? (
+                      <div className="grid gap-1">
                         <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-1">
                           {t("sidebar.pinned")}
                         </div>
+                        {projectPinnedGroups.map((group) => (
+                          <ProjectSidebarGroupItem
+                            key={group.project.id}
+                            group={group}
+                            activeSessionId={route === "chat" ? activeSessionId : null}
+                            expanded={!collapsedProjectIds.has(group.project.id)}
+                            hasUnreadSession={hasUnreadSession}
+                            isSessionRunning={isSessionRunning}
+                            now={relativeTimeNow}
+                            running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
+                            onExpandedChange={(expanded) =>
+                              handleProjectSidebarExpandedChange(group.project.id, expanded)
+                            }
+                            onNewSession={handleOpenProjectDraft}
+                            onPinProject={(project) => void handlePinProject(project)}
+                            onShowProjectInFolder={handleShowProjectInFolder}
+                            onRenameProject={(project) => setRenameProjectId(project.id)}
+                            onArchiveProject={(project) => setArchiveProjectId(project.id)}
+                            onRemoveProject={(project) => setRemoveProjectId(project.id)}
+                            onSelectSession={handleSelectSession}
+                            onRenameSession={(session) => setRenameSessionId(session.id)}
+                            onPinSession={(session) => void handlePinSession(session)}
+                            onArchiveSession={handleArchiveSessionRequest}
+                          />
+                        ))}
                         {projectPinnedSessions.map((session) => (
                           <SessionItem
                             key={session.id}
@@ -3512,43 +3919,50 @@ export function AppShell() {
                         ))}
                       </div>
                     ) : null}
-                    <div className="grid gap-1">
-                      <div className="group flex items-center justify-between px-3 pt-1">
-                        <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.projects")}</div>
-                        <button
-                          type="button"
-                          title={t("project.selectFolder")}
-                          aria-label={t("project.selectFolder")}
-                          className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
-                          onClick={(event) => {
-                            event.currentTarget.blur()
-                            void handleSelectProjectFolder()
-                          }}
-                        >
-                          <FolderPlus className="size-3.5" />
-                        </button>
+                    {projectRegularGroups.length > 0 ? (
+                      <div className="grid gap-1">
+                        <div className="group flex items-center justify-between px-3 pt-1">
+                          <div className="oo-sidebar-section-heading oo-text-caption">{t("sidebar.projects")}</div>
+                          <button
+                            type="button"
+                            title={t("project.selectFolder")}
+                            aria-label={t("project.selectFolder")}
+                            className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
+                            onClick={(event) => {
+                              event.currentTarget.blur()
+                              void handleSelectProjectFolder()
+                            }}
+                          >
+                            <FolderPlus className="size-3.5" />
+                          </button>
+                        </div>
+                        {projectRegularGroups.map((group) => (
+                          <ProjectSidebarGroupItem
+                            key={group.project.id}
+                            group={group}
+                            activeSessionId={route === "chat" ? activeSessionId : null}
+                            expanded={!collapsedProjectIds.has(group.project.id)}
+                            hasUnreadSession={hasUnreadSession}
+                            isSessionRunning={isSessionRunning}
+                            now={relativeTimeNow}
+                            running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
+                            onExpandedChange={(expanded) =>
+                              handleProjectSidebarExpandedChange(group.project.id, expanded)
+                            }
+                            onNewSession={handleOpenProjectDraft}
+                            onPinProject={(project) => void handlePinProject(project)}
+                            onShowProjectInFolder={handleShowProjectInFolder}
+                            onRenameProject={(project) => setRenameProjectId(project.id)}
+                            onArchiveProject={(project) => setArchiveProjectId(project.id)}
+                            onRemoveProject={(project) => setRemoveProjectId(project.id)}
+                            onSelectSession={handleSelectSession}
+                            onRenameSession={(session) => setRenameSessionId(session.id)}
+                            onPinSession={(session) => void handlePinSession(session)}
+                            onArchiveSession={handleArchiveSessionRequest}
+                          />
+                        ))}
                       </div>
-                      {projectSidebarGroups.map((group) => (
-                        <ProjectSidebarGroupItem
-                          key={group.project.id}
-                          group={group}
-                          activeSessionId={route === "chat" ? activeSessionId : null}
-                          expanded={!collapsedProjectIds.has(group.project.id)}
-                          hasUnreadSession={hasUnreadSession}
-                          isSessionRunning={isSessionRunning}
-                          now={relativeTimeNow}
-                          running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
-                          onExpandedChange={(expanded) =>
-                            handleProjectSidebarExpandedChange(group.project.id, expanded)
-                          }
-                          onNewSession={handleOpenProjectDraft}
-                          onSelectSession={handleSelectSession}
-                          onRenameSession={(session) => setRenameSessionId(session.id)}
-                          onPinSession={(session) => void handlePinSession(session)}
-                          onArchiveSession={handleArchiveSessionRequest}
-                        />
-                      ))}
-                    </div>
+                    ) : null}
                   </div>
                 ) : (
                   <ProjectSidebarEmptyState onSelectFolder={() => void handleSelectProjectFolder()} />
@@ -3876,6 +4290,12 @@ export function AppShell() {
         onClose={() => setRenameSessionId(null)}
         onRename={handleRenameSession}
       />
+      <RenameProjectDialog
+        project={renameProjectTarget}
+        open={Boolean(renameProjectTarget)}
+        onClose={() => setRenameProjectId(null)}
+        onRename={(projectId, name) => void handleRenameProject(projectId, name)}
+      />
       <ArchiveSessionDialog
         confirming={archiveConfirming}
         open={Boolean(archiveSession)}
@@ -3883,6 +4303,26 @@ export function AppShell() {
         onConfirm={() => {
           if (archiveSession) {
             void handleArchiveSession(archiveSession)
+          }
+        }}
+      />
+      <ArchiveProjectDialog
+        confirming={archiveProjectConfirming}
+        open={Boolean(archiveProjectTarget)}
+        onClose={() => setArchiveProjectId(null)}
+        onConfirm={() => {
+          if (archiveProjectTarget) {
+            void handleArchiveProject(archiveProjectTarget)
+          }
+        }}
+      />
+      <RemoveProjectDialog
+        confirming={removeProjectConfirming}
+        open={Boolean(removeProjectTarget)}
+        onClose={() => setRemoveProjectId(null)}
+        onConfirm={() => {
+          if (removeProjectTarget) {
+            void handleRemoveProject(removeProjectTarget)
           }
         }}
       />

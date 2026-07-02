@@ -31,6 +31,7 @@ export interface SessionProject {
   createdAt: number
   updatedAt: number
   scope?: SessionScope
+  pinnedAt?: number
   archivedAt?: number
 }
 
@@ -77,6 +78,9 @@ export const SessionService = serviceName("session-service") as ServiceName<{
     create(req?: CreateSessionRequest): Promise<SessionInfo>
     createProject(req: CreateProjectRequest): Promise<SessionProject>
     assignSessionProject(req: AssignSessionProjectRequest): Promise<void>
+    renameProject(req: { id: string; name: string }): Promise<void>
+    pinProject(req: { id: string; pinned: boolean }): Promise<void>
+    archiveProject(id: string): Promise<void>
     removeProject(id: string): Promise<void>
     generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult>
     rename(req: { id: string; title: string }): Promise<void>

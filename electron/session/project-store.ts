@@ -54,6 +54,7 @@ function normalizeProject(id: string, value: unknown): SessionProject | null {
     createdAt,
     updatedAt,
     ...(scope ? { scope } : {}),
+    ...(validTimestamp(source.pinnedAt) ? { pinnedAt: source.pinnedAt } : {}),
     ...(validTimestamp(source.archivedAt) ? { archivedAt: source.archivedAt } : {}),
   }
 }

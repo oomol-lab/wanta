@@ -160,7 +160,10 @@ export class SessionServiceImpl
     return [...this.projects.values()]
       .filter((project) => !project.archivedAt)
       .filter((project) => sessionScopeMatches(project.scope, requestedScope))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort((a, b) => {
+        const pinnedDiff = (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0)
+        return pinnedDiff || b.updatedAt - a.updatedAt
+      })
   }
 
   public async create(req?: CreateSessionRequest | string): Promise<SessionInfo> {
@@ -240,6 +243,88 @@ export class SessionServiceImpl
     }
     this.setMetadataEntry(req.sessionId, next)
     await this.persistMetadata()
+    void this.broadcastChanged().catch(() => undefined)
+  }
+
+  public async renameProject(req: { id: string; name: string }): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    const name = req.name.trim()
+    if (!name) {
+      throw new Error("Project name is required")
+    }
+    await this.ensureProjectsLoaded()
+    const current = this.projects.get(req.id)
+    if (!current || current.archivedAt) {
+      return
+    }
+    this.projects.set(req.id, { ...current, name, updatedAt: Date.now() })
+    await this.persistProjects()
+    void this.broadcastChanged().catch(() => undefined)
+  }
+
+  public async pinProject(req: { id: string; pinned: boolean }): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureProjectsLoaded()
+    const current = this.projects.get(req.id)
+    if (!current || current.archivedAt) {
+      return
+    }
+    const next = { ...current }
+    if (req.pinned) {
+      next.pinnedAt = Date.now()
+    } else {
+      delete next.pinnedAt
+    }
+    this.projects.set(req.id, next)
+    await this.persistProjects()
+    void this.broadcastChanged().catch(() => undefined)
+  }
+
+  public async archiveProject(id: string): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
+    const current = this.projects.get(id)
+    if (!current || current.archivedAt) {
+      return
+    }
+    const now = Date.now()
+    const previousProject = current
+    const previousMetadata = new Map<string, SessionMetadata>()
+    const nextProject = { ...current, archivedAt: now }
+    delete nextProject.pinnedAt
+    this.projects.set(id, nextProject)
+    for (const [sessionId, metadata] of this.sessionMetadata.entries()) {
+      if (metadata.projectId !== id) {
+        continue
+      }
+      previousMetadata.set(sessionId, metadata)
+      const nextMetadata = { ...metadata, archivedAt: now }
+      delete nextMetadata.pinnedAt
+      this.setMetadataEntry(sessionId, nextMetadata)
+    }
+    try {
+      await this.persistProjects()
+      await this.persistMetadata()
+    } catch (error) {
+      this.projects.set(id, previousProject)
+      for (const [sessionId, metadata] of previousMetadata) {
+        this.setMetadataEntry(sessionId, metadata)
+      }
+      try {
+        await this.persistProjects()
+        await this.persistMetadata()
+      } catch {
+        // 回滚落盘是 best-effort；仍向调用方暴露原始持久化错误。
+      }
+      throw error
+    }
     void this.broadcastChanged().catch(() => undefined)
   }
 

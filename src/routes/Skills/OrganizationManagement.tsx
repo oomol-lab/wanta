@@ -40,6 +40,7 @@ import {
   SearchIcon,
   ShieldCheckIcon,
   Trash2Icon,
+  UploadIcon,
   UsersIcon,
   XIcon,
 } from "lucide-react"
@@ -56,7 +57,6 @@ import {
   isConflictError,
   loadState,
   loadingState,
-  maxOrganizationAvatarLength,
   maxOrganizationNameLength,
   minimumMemberSearchLength,
   organizationCanManage,
@@ -130,6 +130,8 @@ import {
   removeOrganizationMember,
   searchUsers,
   updateOrganizationAppAccess,
+  updateOrganization,
+  uploadOrganizationAvatar,
 } from "@/lib/organizations-client"
 import {
   listPublicSkillPackages,
@@ -308,8 +310,14 @@ export function OrganizationManagementRoute({
   const [busyAction, setBusyAction] = React.useState<BusyAction | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [createName, setCreateName] = React.useState("")
-  const [createAvatar, setCreateAvatar] = React.useState("")
+  const [createAvatarFile, setCreateAvatarFile] = React.useState<File | null>(null)
   const [createDuplicated, setCreateDuplicated] = React.useState(false)
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editOrganizationId, setEditOrganizationId] = React.useState<string | null>(null)
+  const [editName, setEditName] = React.useState("")
+  const [editAvatar, setEditAvatar] = React.useState("")
+  const [editAvatarFile, setEditAvatarFile] = React.useState<File | null>(null)
+  const [editDuplicated, setEditDuplicated] = React.useState(false)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
   const [memberInput, setMemberInput] = React.useState("")
@@ -336,6 +344,9 @@ export function OrganizationManagementRoute({
   const selectedOrganization = React.useMemo(() => {
     return selectedOrganizationId ? (organizations.find((item) => item.id === selectedOrganizationId) ?? null) : null
   }, [organizations, selectedOrganizationId])
+  const editingOrganization = React.useMemo(() => {
+    return editOrganizationId ? (organizations.find((item) => item.id === editOrganizationId) ?? null) : null
+  }, [editOrganizationId, organizations])
   const selectedOrganizationSkills =
     selectedOrganization && organizationSkills?.organizationId === selectedOrganization.id ? organizationSkills : null
   const skillGroupById = React.useMemo(
@@ -400,6 +411,22 @@ export function OrganizationManagementRoute({
         return createDuplicated ? t("organizations.organizationNameDuplicated") : null
     }
   }, [createDuplicated, createName, t])
+
+  const editNameError = React.useMemo(() => {
+    if (!editName) {
+      return null
+    }
+    switch (organizationNameValidation(editName.trim())) {
+      case "empty":
+        return t("organizations.organizationNameRequired")
+      case "invalid":
+        return t("organizations.organizationNameInvalid")
+      case "too-long":
+        return t("organizations.organizationNameTooLong", { max: maxOrganizationNameLength })
+      case "valid":
+        return editDuplicated ? t("organizations.organizationNameDuplicated") : null
+    }
+  }, [editDuplicated, editName, t])
 
   const resetOrganizationState = React.useCallback((accountId: string | null) => {
     resetAccountIdRef.current = accountId
@@ -760,14 +787,19 @@ export function OrganizationManagementRoute({
 
       setBusyAction("create")
       try {
-        const organization = await createOrganization({
-          orgName,
-          ...(createAvatar.trim() ? { avatar: createAvatar.trim() } : {}),
-        })
+        let organization = await createOrganization({ orgName })
+        if (createAvatarFile) {
+          const { avatar } = await uploadOrganizationAvatar(organization.id, createAvatarFile)
+          organization = await updateOrganization({
+            avatar,
+            orgId: organization.id,
+            orgName: organization.name,
+          })
+        }
         toast.success(t("organizations.createOrganizationSuccess"))
         setCreateOpen(false)
         setCreateName("")
-        setCreateAvatar("")
+        setCreateAvatarFile(null)
         setCreateDuplicated(false)
         await loadOrganizations({ forceRefresh: true })
         setSelectedOrganizationId(organization.id)
@@ -783,7 +815,83 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [createAvatar, createName, loadOrganizations, selectOrganizationWorkspace, t],
+    [createAvatarFile, createName, loadOrganizations, selectOrganizationWorkspace, t],
+  )
+
+  const openEditOrganization = React.useCallback((organization: Organization) => {
+    setEditOrganizationId(organization.id)
+    setEditName(organization.name)
+    setEditAvatar(organization.avatar)
+    setEditAvatarFile(null)
+    setEditDuplicated(false)
+    setEditOpen(true)
+  }, [])
+
+  const closeEditOrganization = React.useCallback(() => {
+    if (busyAction === "updateOrganization") {
+      return
+    }
+    setEditOpen(false)
+    setEditOrganizationId(null)
+    setEditName("")
+    setEditAvatar("")
+    setEditAvatarFile(null)
+    setEditDuplicated(false)
+  }, [busyAction])
+
+  const handleUpdateOrganization = React.useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault()
+      if (!editingOrganization || !organizationCanManage(overviewState.data, editingOrganization)) {
+        return
+      }
+
+      const orgName = editName.trim()
+      const validation = organizationNameValidation(orgName)
+      if (validation !== "valid") {
+        toast.error(
+          validation === "empty"
+            ? t("organizations.organizationNameRequired")
+            : validation === "invalid"
+              ? t("organizations.organizationNameInvalid")
+              : t("organizations.organizationNameTooLong", { max: maxOrganizationNameLength }),
+        )
+        return
+      }
+
+      setBusyAction("updateOrganization")
+      try {
+        let avatar = editAvatar.trim()
+        if (editAvatarFile) {
+          const uploaded = await uploadOrganizationAvatar(editingOrganization.id, editAvatarFile)
+          avatar = uploaded.avatar
+        }
+        const organization = await updateOrganization({
+          avatar,
+          orgId: editingOrganization.id,
+          orgName,
+        })
+        toast.success(t("organizations.updateOrganizationSuccess"))
+        setEditOpen(false)
+        setEditOrganizationId(null)
+        setEditName("")
+        setEditAvatar("")
+        setEditAvatarFile(null)
+        setEditDuplicated(false)
+        await loadOrganizations({ forceRefresh: true })
+        setSelectedOrganizationId(organization.id)
+      } catch (error) {
+        if (isConflictError(error)) {
+          setEditDuplicated(true)
+          toast.error(t("organizations.organizationNameDuplicated"))
+        } else {
+          toast.error(errorMessage(error))
+        }
+      } finally {
+        setBusyAction(null)
+      }
+    },
+    [editAvatar, editAvatarFile, editName, editingOrganization, loadOrganizations, overviewState.data, t],
   )
 
   const reloadMembersAndAccess = React.useCallback(async () => {
@@ -1211,6 +1319,7 @@ export function OrganizationManagementRoute({
                   selectedOrganization={selectedOrganization}
                   selectedOrganizationId={selectedOrganizationId}
                   onCreate={() => setCreateOpen(true)}
+                  onEdit={openEditOrganization}
                   onOpenMembers={() => setMembersPanelOpen(true)}
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
@@ -1278,15 +1387,16 @@ export function OrganizationManagementRoute({
         )}
       </div>
       <CreateOrganizationDialog
-        avatar={createAvatar}
+        avatarFile={createAvatarFile}
         busy={busyAction === "create"}
         name={createName}
         nameError={createNameError}
         open={createOpen}
-        onAvatarChange={setCreateAvatar}
+        onAvatarFileChange={setCreateAvatarFile}
         onClose={() => {
           if (busyAction !== "create") {
             setCreateOpen(false)
+            setCreateAvatarFile(null)
           }
         }}
         onNameChange={(value) => {
@@ -1294,6 +1404,23 @@ export function OrganizationManagementRoute({
           setCreateDuplicated(false)
         }}
         onSubmit={handleCreateOrganization}
+      />
+      <EditOrganizationDialog
+        avatar={editAvatar}
+        avatarFile={editAvatarFile}
+        busy={busyAction === "updateOrganization"}
+        name={editName}
+        nameError={editNameError}
+        open={editOpen}
+        organization={editingOrganization}
+        onAvatarChange={setEditAvatar}
+        onAvatarFileChange={setEditAvatarFile}
+        onClose={closeEditOrganization}
+        onNameChange={(value) => {
+          setEditName(value)
+          setEditDuplicated(false)
+        }}
+        onSubmit={handleUpdateOrganization}
       />
       <AddMemberDialog
         busy={busyAction === "add"}
@@ -1348,6 +1475,7 @@ function OrganizationSwitcherPanel({
   members,
   membersLoading,
   onCreate,
+  onEdit,
   onOpenMembers,
   onSelect,
   onSelectPersonal,
@@ -1363,6 +1491,7 @@ function OrganizationSwitcherPanel({
   members: MemberView[]
   membersLoading: boolean
   onCreate: () => void
+  onEdit: (organization: Organization) => void
   onOpenMembers: () => void
   onSelect: (organizationId: string) => void
   onSelectPersonal: () => void
@@ -1434,10 +1563,24 @@ function OrganizationSwitcherPanel({
         </div>
 
         <div className="grid min-w-0 gap-2 sm:min-w-fit sm:shrink-0 sm:justify-items-end">
-          <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onCreate}>
-            <PlusIcon className="size-3.5" />
-            {t("organizations.createOrganization")}
-          </Button>
+          <div className="flex min-w-0 flex-wrap justify-end gap-2">
+            {selectedOrganization && canManage ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                onClick={() => onEdit(selectedOrganization)}
+              >
+                <PencilIcon className="size-3.5" />
+                {t("organizations.editOrganization")}
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onCreate}>
+              <PlusIcon className="size-3.5" />
+              {t("organizations.createOrganization")}
+            </Button>
+          </div>
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 sm:justify-end">
             <span className="oo-text-body shrink-0 text-muted-foreground">{countLabel}</span>
             <DropdownMenu>
@@ -3908,21 +4051,21 @@ function ProviderAccessActions({
 }
 
 function CreateOrganizationDialog({
-  avatar,
+  avatarFile,
   busy,
   name,
   nameError,
-  onAvatarChange,
+  onAvatarFileChange,
   onClose,
   onNameChange,
   onSubmit,
   open,
 }: {
-  avatar: string
+  avatarFile: File | null
   busy: boolean
   name: string
   nameError: string | null
-  onAvatarChange: (value: string) => void
+  onAvatarFileChange: (file: File | null) => void
   onClose: () => void
   onNameChange: (value: string) => void
   onSubmit: (event: React.FormEvent) => void
@@ -3930,6 +4073,7 @@ function CreateOrganizationDialog({
 }) {
   const { t } = useAppI18n()
   const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
+  const avatarPreviewUrl = useObjectUrl(avatarFile)
 
   return (
     <Dialog
@@ -3949,6 +4093,14 @@ function CreateOrganizationDialog({
       }
     >
       <form id="create-organization-form" className="grid gap-4" onSubmit={onSubmit}>
+        <OrganizationAvatarField
+          file={avatarFile}
+          name={name}
+          previewUrl={avatarPreviewUrl}
+          seed={name}
+          title={t("organizations.organizationAvatar")}
+          onFileChange={onAvatarFileChange}
+        />
         <div className="grid gap-2">
           <Label htmlFor="organization-name">{t("organizations.organizationName")}</Label>
           <Input
@@ -3967,18 +4119,202 @@ function CreateOrganizationDialog({
             </p>
           )}
         </div>
+      </form>
+    </Dialog>
+  )
+}
+
+function EditOrganizationDialog({
+  avatar,
+  avatarFile,
+  busy,
+  name,
+  nameError,
+  onAvatarChange,
+  onAvatarFileChange,
+  onClose,
+  onNameChange,
+  onSubmit,
+  open,
+  organization,
+}: {
+  avatar: string
+  avatarFile: File | null
+  busy: boolean
+  name: string
+  nameError: string | null
+  onAvatarChange: (value: string) => void
+  onAvatarFileChange: (file: File | null) => void
+  onClose: () => void
+  onNameChange: (value: string) => void
+  onSubmit: (event: React.FormEvent) => void
+  open: boolean
+  organization: Organization | null
+}) {
+  const { t } = useAppI18n()
+  const disabled = organizationNameValidation(name.trim()) !== "valid" || Boolean(nameError) || busy
+  const avatarPreviewUrl = useObjectUrl(avatarFile)
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t("organizations.editOrganization")}
+      description={t("organizations.editOrganizationDescription")}
+      footer={
+        <>
+          <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" form="edit-organization-form" disabled={disabled}>
+            {busy ? t("organizations.savingOrganization") : t("common.save")}
+          </Button>
+        </>
+      }
+    >
+      <form id="edit-organization-form" className="grid gap-4" onSubmit={onSubmit}>
+        <OrganizationAvatarField
+          avatar={avatar}
+          file={avatarFile}
+          name={name || organization?.name || ""}
+          previewUrl={avatarPreviewUrl}
+          seed={organization?.id || organization?.name || name}
+          title={t("organizations.organizationAvatar")}
+          onAvatarClear={() => {
+            onAvatarChange("")
+            onAvatarFileChange(null)
+          }}
+          onFileChange={onAvatarFileChange}
+        />
         <div className="grid gap-2">
-          <Label htmlFor="organization-avatar">{t("organizations.organizationAvatar")}</Label>
+          <Label htmlFor="edit-organization-name">{t("organizations.organizationName")}</Label>
           <Input
-            id="organization-avatar"
-            value={avatar}
-            maxLength={maxOrganizationAvatarLength}
-            placeholder={t("organizations.organizationAvatarPlaceholder")}
-            onChange={(event) => onAvatarChange(event.currentTarget.value)}
+            id="edit-organization-name"
+            value={name}
+            maxLength={maxOrganizationNameLength}
+            aria-invalid={Boolean(nameError)}
+            autoFocus
+            onChange={(event) => onNameChange(event.currentTarget.value)}
           />
+          {nameError ? (
+            <p className="oo-text-caption-compact text-destructive">{nameError}</p>
+          ) : (
+            <p className="oo-text-caption-compact text-muted-foreground">
+              {t("organizations.organizationNameDescription")}
+            </p>
+          )}
         </div>
       </form>
     </Dialog>
+  )
+}
+
+function useObjectUrl(file: File | null): string {
+  const [url, setUrl] = React.useState("")
+
+  React.useEffect(() => {
+    if (!file) {
+      setUrl("")
+      return
+    }
+    const objectUrl = URL.createObjectURL(file)
+    setUrl(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [file])
+
+  return url
+}
+
+function OrganizationAvatarField({
+  avatar = "",
+  file,
+  name,
+  onAvatarClear,
+  onFileChange,
+  previewUrl,
+  seed,
+  title,
+}: {
+  avatar?: string
+  file: File | null
+  name: string
+  onAvatarClear?: () => void
+  onFileChange: (file: File | null) => void
+  previewUrl: string
+  seed: string
+  title: string
+}) {
+  const { t } = useAppI18n()
+  const inputId = React.useId()
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const imageSrc = previewUrl || avatar
+  const canClear = Boolean(file || avatar)
+  const fallbackStyle = imageSrc ? undefined : organizationAvatarStyle(seed || name || "organization")
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={inputId}>{title}</Label>
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={cn(
+            "relative flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-md text-lg font-medium",
+            imageSrc ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
+          )}
+          style={fallbackStyle}
+        >
+          {imageSrc ? null : <span aria-hidden="true">{organizationInitials(name || "Organization")}</span>}
+          {imageSrc ? <img src={imageSrc} alt="" className="absolute inset-0 size-full object-contain" /> : null}
+        </span>
+        <div className="grid min-w-0 flex-1 gap-2">
+          <div className="flex min-w-0 flex-wrap gap-2">
+            <input
+              ref={fileInputRef}
+              id={inputId}
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(event) => onFileChange(event.currentTarget.files?.[0] ?? null)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.value = ""
+                  fileInputRef.current.click()
+                }
+              }}
+            >
+              <UploadIcon className="size-3.5" />
+              {file || avatar
+                ? t("organizations.changeOrganizationAvatar")
+                : t("organizations.uploadOrganizationAvatar")}
+            </Button>
+            {canClear ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onFileChange(null)
+                  onAvatarClear?.()
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = ""
+                  }
+                }}
+              >
+                <XIcon className="size-3.5" />
+                {t("organizations.removeOrganizationAvatar")}
+              </Button>
+            ) : null}
+          </div>
+          <p className="oo-text-caption-compact truncate text-muted-foreground">
+            {file ? file.name : t("organizations.organizationAvatarUploadHint")}
+          </p>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -4295,16 +4631,19 @@ function Panel({
 }
 
 function OrganizationAvatar({ className, organization }: { className?: string; organization: Organization }) {
+  const hasAvatar = Boolean(organization.avatar)
+
   return (
     <span
       className={cn(
-        "relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--oo-frame-border)] bg-background text-xs font-medium text-foreground",
+        "relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md text-xs font-medium",
+        hasAvatar ? "bg-transparent text-transparent" : "border border-[var(--oo-frame-border)] text-foreground",
         className,
       )}
-      style={organizationAvatarStyle(organization.id || organization.name)}
+      style={hasAvatar ? undefined : organizationAvatarStyle(organization.id || organization.name)}
     >
-      <span aria-hidden="true">{organizationInitials(organization.name)}</span>
-      <CachedAvatarImage src={organization.avatar} alt="" className="absolute inset-0 size-full object-cover" />
+      {hasAvatar ? null : <span aria-hidden="true">{organizationInitials(organization.name)}</span>}
+      <CachedAvatarImage src={organization.avatar} alt="" className="absolute inset-0 size-full object-contain" />
     </span>
   )
 }

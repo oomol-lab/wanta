@@ -8,11 +8,9 @@ import {
   markAvatarImageFailed,
   normalizeAvatarCacheKey,
   readCachedAvatarImage,
-  refreshCachedAvatarImage,
   shouldFetchAvatarImage,
   shouldSkipAvatarImageLoad,
 } from "@/lib/avatar-image-cache"
-import { onOrganizationChanged } from "@/lib/organization-change-bus"
 import { cn } from "@/lib/utils"
 
 interface CachedAvatarImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> {
@@ -74,36 +72,6 @@ export function CachedAvatarImage({ className, onError, onLoad, src, style, ...p
       })
     return () => {
       cancelled = true
-    }
-  }, [cacheKey])
-
-  React.useEffect(() => {
-    if (!cacheKey || !shouldFetchAvatarImage(cacheKey)) {
-      return
-    }
-
-    let cancelled = false
-    const unsubscribe = onOrganizationChanged(() => {
-      setVisible(false)
-      setImageState({ cacheKey, src: null })
-      void refreshCachedAvatarImage(cacheKey)
-        .then((nextSrc) => {
-          if (!cancelled) {
-            setVisible(false)
-            setImageState({ cacheKey, src: nextSrc })
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            remoteFallbackRef.current = true
-            setVisible(false)
-            setImageState({ cacheKey, src: cacheKey })
-          }
-        })
-    })
-    return () => {
-      cancelled = true
-      unsubscribe()
     }
   }, [cacheKey])
 

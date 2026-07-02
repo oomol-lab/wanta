@@ -57,7 +57,7 @@ import { RuntimeSkillRemoveConfirmDialog } from "./OrganizationSkillManageDialog
 import { useAuthStateResource, useSkillInventoryResource } from "@/components/AppDataHooks"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
-import { onOrganizationChanged } from "@/lib/organization-change-bus"
+import { upsertOverviewOrganization } from "@/lib/organization-overview"
 import {
   addOrganizationMember,
   createOrganization,
@@ -73,7 +73,6 @@ import {
 } from "@/lib/organizations-client"
 import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
 import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
-import { useOrganizationAvatarPreviews } from "@/routes/Skills/use-organization-avatar-previews"
 import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-member-search"
 import { useOrganizationSkillActions } from "@/routes/Skills/use-organization-skill-actions"
 
@@ -84,35 +83,6 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
     (value) => ({ ok: true, value }),
     (error: unknown) => ({ error, ok: false }),
   )
-}
-
-function mergeOrganizationUpdate(current: Organization, updated: Organization): Organization {
-  return {
-    ...current,
-    ...updated,
-    role: updated.role ?? current.role,
-    writable: updated.writable ?? current.writable,
-  }
-}
-
-function patchOverviewOrganization(overview: OrganizationOverview | null, organization: Organization) {
-  if (!overview) {
-    return null
-  }
-
-  let changed = false
-  const patchList = (items: Organization[]) =>
-    items.map((item) => {
-      if (item.id !== organization.id) {
-        return item
-      }
-      changed = true
-      return mergeOrganizationUpdate(item, organization)
-    })
-
-  const created = patchList(overview.created)
-  const joined = patchList(overview.joined)
-  return changed ? { ...overview, created, joined, updatedAt: new Date().toISOString() } : overview
 }
 
 export function OrganizationManagementRoute({
@@ -177,7 +147,8 @@ export function OrganizationManagementRoute({
   )
   const skipInitialOrganizationsLoadRef = React.useRef(Boolean(initialSnapshot))
   const resetAccountIdRef = React.useRef<string | null>(null)
-  const { avatarPreviewUrls, setOrganizationAvatarPreview } = useOrganizationAvatarPreviews()
+  const avatarPreviewUrls = workspace?.organizationAvatarPreviewUrls ?? {}
+  const clearOrganizationAvatarPreview = workspace?.clearOrganizationAvatarPreview ?? (() => undefined)
   const {
     memberInput,
     memberSearch,
@@ -465,10 +436,18 @@ export function OrganizationManagementRoute({
 
   const applyOrganizationPatch = React.useCallback((organization: Organization) => {
     setOverviewState((current) => {
-      const overview = patchOverviewOrganization(current.data, organization)
+      const overview = upsertOverviewOrganization(current.data, organization)
       return overview === current.data ? current : { ...current, data: overview, error: null, status: "ready" }
     })
   }, [])
+
+  const applySavedOrganization = React.useCallback(
+    (organization: Organization, options?: { avatarFile?: File | null }) => {
+      workspace?.upsertOrganization(organization, options)
+      applyOrganizationPatch(organization)
+    },
+    [applyOrganizationPatch, workspace],
+  )
 
   React.useEffect(() => {
     const snapshot = readOrganizationManagementSnapshot(activeAccountId)
@@ -549,12 +528,6 @@ export function OrganizationManagementRoute({
   }, [loadOrganizations])
 
   React.useEffect(() => {
-    return onOrganizationChanged(() => {
-      void loadOrganizations()
-    })
-  }, [loadOrganizations])
-
-  React.useEffect(() => {
     if (!hasWorkspaceController) {
       return
     }
@@ -623,7 +596,9 @@ export function OrganizationManagementRoute({
             orgId: organization.id,
             orgName: organization.name,
           })
-          setOrganizationAvatarPreview(organization.id, createAvatarFile)
+          applySavedOrganization(organization, { avatarFile: createAvatarFile })
+        } else {
+          applySavedOrganization(organization)
         }
         toast.success(t("organizations.createOrganizationSuccess"))
         setCreateOpen(false)
@@ -644,7 +619,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [createAvatarFile, createName, loadOrganizations, selectOrganizationWorkspace, setOrganizationAvatarPreview, t],
+    [applySavedOrganization, createAvatarFile, createName, loadOrganizations, selectOrganizationWorkspace, t],
   )
 
   const openEditOrganization = React.useCallback((organization: Organization) => {
@@ -733,8 +708,11 @@ export function OrganizationManagementRoute({
           orgId: editingOrganization.id,
           orgName,
         })
-        setOrganizationAvatarPreview(organization.id, editAvatarFile)
-        applyOrganizationPatch(organization)
+        if (editAvatarFile || avatar !== editingOrganization.avatar) {
+          applySavedOrganization(organization, { avatarFile: editAvatarFile })
+        } else {
+          applySavedOrganization(organization)
+        }
         toast.success(t("organizations.updateOrganizationSuccess"))
         setEditOpen(false)
         setEditOrganizationId(null)
@@ -743,7 +721,7 @@ export function OrganizationManagementRoute({
         setEditAvatarFile(null)
         setEditDuplicated(false)
         await loadOrganizations({ forceRefresh: true })
-        applyOrganizationPatch(organization)
+        applySavedOrganization(organization)
         setSelectedOrganizationId(organization.id)
       } catch (error) {
         if (isConflictError(error)) {
@@ -757,14 +735,13 @@ export function OrganizationManagementRoute({
       }
     },
     [
-      applyOrganizationPatch,
+      applySavedOrganization,
       editAvatar,
       editAvatarFile,
       editName,
       editingOrganization,
       loadOrganizations,
       overviewState.data,
-      setOrganizationAvatarPreview,
       t,
     ],
   )
@@ -978,7 +955,7 @@ export function OrganizationManagementRoute({
                   onCreate={() => setCreateOpen(true)}
                   onEdit={openEditOrganization}
                   onOpenMembers={() => setMembersPanelOpen(true)}
-                  onRemoteAvatarLoad={setOrganizationAvatarPreview}
+                  onRemoteAvatarLoad={clearOrganizationAvatarPreview}
                   onSelect={handleSelectOrganizationWorkspace}
                   onSelectPersonal={handleSelectPersonalWorkspace}
                 />
@@ -1014,7 +991,7 @@ export function OrganizationManagementRoute({
                     avatarPreviewUrls={avatarPreviewUrls}
                     overview={overviewState.data}
                     onCreate={() => setCreateOpen(true)}
-                    onRemoteAvatarLoad={setOrganizationAvatarPreview}
+                    onRemoteAvatarLoad={clearOrganizationAvatarPreview}
                     onSelectOrganization={handleSelectOrganizationWorkspace}
                   />
                 )}

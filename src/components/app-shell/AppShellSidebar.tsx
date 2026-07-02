@@ -74,7 +74,10 @@ function WorkspaceAvatar({
   className?: string
   workspace: WorkspaceSelection
 }) {
-  const avatarUrl = workspace.type === "organization" ? workspace.organization?.avatar : accountAvatarUrl
+  const avatarUrl =
+    workspace.type === "organization"
+      ? (workspace.avatarPreviewUrl ?? workspace.organization?.avatar)
+      : accountAvatarUrl
   const fallback =
     workspace.type === "organization"
       ? organizationInitials(workspace.organization?.name ?? workspace.organizationId)

@@ -4,6 +4,7 @@ import {
   CheckIcon,
   CreditCardIcon,
   ExternalLinkIcon,
+  GiftIcon,
   LogInIcon,
   MinusIcon,
   PlusIcon,
@@ -81,6 +82,8 @@ interface SubscriptionPlan {
 interface WantaPlan {
   plan: WantaSubscriptionPlan
   titleKey: "billing.wantaPlusPlanTitle" | "billing.wantaProPlanTitle"
+  discountPriceKey: "billing.wantaPlusPlanDiscountPrice" | "billing.wantaProPlanDiscountPrice"
+  originalPriceKey: "billing.wantaPlusPlanOriginalPrice" | "billing.wantaProPlanOriginalPrice"
   summaryKey: "billing.purchaseDialog.wantaPlusSummary" | "billing.purchaseDialog.wantaProSummary"
 }
 
@@ -126,11 +129,15 @@ const wantaPlans: WantaPlan[] = [
   {
     plan: "wanta_plus",
     titleKey: "billing.wantaPlusPlanTitle",
+    discountPriceKey: "billing.wantaPlusPlanDiscountPrice",
+    originalPriceKey: "billing.wantaPlusPlanOriginalPrice",
     summaryKey: "billing.purchaseDialog.wantaPlusSummary",
   },
   {
     plan: "wanta_pro",
     titleKey: "billing.wantaProPlanTitle",
+    discountPriceKey: "billing.wantaProPlanDiscountPrice",
+    originalPriceKey: "billing.wantaProPlanOriginalPrice",
     summaryKey: "billing.purchaseDialog.wantaProSummary",
   },
 ]
@@ -367,6 +374,7 @@ export function CreditPurchaseModal({
               title={t("billing.purchaseDialog.wantaTitle")}
               description={t("billing.purchaseDialog.wantaDescription")}
             />
+            <WantaPromotionNotice />
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.72fr)]">
               <div className="grid gap-3 md:grid-cols-2">
                 {wantaPlans.map((plan) => {
@@ -383,6 +391,11 @@ export function CreditPurchaseModal({
                           <Badge variant="secondary">{t("billing.subscriptions.currentSubscriptionButton")}</Badge>
                         ) : null}
                       </div>
+                      <WantaPlanPrice
+                        current={t(plan.discountPriceKey)}
+                        original={t(plan.originalPriceKey)}
+                        unit={t("billing.subscriptions.priceUnit")}
+                      />
                       <div className="grid gap-2">
                         {(
                           [
@@ -583,6 +596,31 @@ export function CreditPurchaseModal({
         ) : null}
       </div>
     </Dialog>
+  )
+}
+
+function WantaPromotionNotice() {
+  const t = useT()
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-[var(--oo-success-border)] bg-[var(--oo-success-surface)] px-4 py-3 text-foreground">
+      <GiftIcon className="mt-0.5 size-4 shrink-0 text-[var(--oo-success-foreground)]" />
+      <div className="min-w-0">
+        <div className="oo-text-title">{t("billing.wantaPromotionTitle")}</div>
+        <p className="oo-text-body mt-1 text-muted-foreground">{t("billing.wantaPromotionDescription")}</p>
+      </div>
+    </div>
+  )
+}
+
+function WantaPlanPrice({ current, original, unit }: { current: string; original: string; unit: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className="inline-flex items-baseline">
+        <span className="text-3xl leading-none font-semibold text-foreground tabular-nums">{current}</span>
+        <span className="oo-text-body ml-1 text-muted-foreground">{unit}</span>
+      </span>
+      <span className="oo-text-body text-muted-foreground tabular-nums line-through">{original}</span>
+    </div>
   )
 }
 

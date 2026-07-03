@@ -63,6 +63,7 @@ import {
   createOrganization,
   getOrganizationAppAccess,
   getOrganizationOverview,
+  isOrganizationMemberLimitError,
   listOrganizationMembers,
   listOrganizationProviderOptions,
   listUserSummaries,
@@ -799,7 +800,11 @@ export function OrganizationManagementRoute({
       } catch (error) {
         const message = errorMessage(error)
         setAddMemberError(
-          message.toLowerCase().includes("user does not exist") ? t("organizations.addMemberUserNotFound") : message,
+          isOrganizationMemberLimitError(error)
+            ? t("organizations.addMemberLimitExceeded")
+            : message.toLowerCase().includes("user does not exist")
+              ? t("organizations.addMemberUserNotFound")
+              : message,
         )
       } finally {
         setBusyAction(null)

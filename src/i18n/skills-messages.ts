@@ -80,6 +80,7 @@ export const skillsMessages = {
     "organizations.addMemberSuccess": "成员已添加",
     "organizations.addMemberSelectRequired": "请先从搜索结果中选择一个成员。",
     "organizations.addMemberUserNotFound": "未找到这个用户，请检查用户 ID 是否正确。",
+    "organizations.addMemberLimitExceeded": "当前组织的成员席位已满。请升级 Wanta 计划，或移除不再使用的成员后再添加。",
     "organizations.memberIdentifier": "用户",
     "organizations.userSearchPlaceholder": "搜索用户名或输入用户 ID",
     "organizations.searchUsersInitial": "输入至少 2 个字符搜索用户",
@@ -502,6 +503,8 @@ export const skillsMessages = {
     "organizations.addMemberSuccess": "Member added",
     "organizations.addMemberSelectRequired": "Select a member from the search results first.",
     "organizations.addMemberUserNotFound": "User not found. Check the user ID and try again.",
+    "organizations.addMemberLimitExceeded":
+      "This organization has reached its member seat limit. Upgrade the Wanta plan or remove an inactive member before adding someone new.",
     "organizations.memberIdentifier": "User",
     "organizations.userSearchPlaceholder": "Search username or enter user ID",
     "organizations.searchUsersInitial": "Enter at least 2 characters to search users",

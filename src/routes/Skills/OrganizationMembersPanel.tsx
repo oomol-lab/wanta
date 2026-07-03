@@ -1,7 +1,16 @@
 import type { Organization, OrganizationMember } from "../../../electron/organizations/common.ts"
 import type { BusyAction, MemberView, ProviderGrantView } from "./organization-management-model.ts"
 
-import { CrownIcon, PencilIcon, PlusIcon, RefreshCwIcon, ShieldCheckIcon, Trash2Icon, UsersIcon } from "lucide-react"
+import {
+  CrownIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  ShieldCheckIcon,
+  Trash2Icon,
+  UsersIcon,
+} from "lucide-react"
 import * as React from "react"
 import { userFallback } from "./organization-management-model.ts"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
@@ -18,6 +27,7 @@ import {
   ConfirmDialogTitle,
   ConfirmDialogTrigger,
 } from "@/components/ui/confirm-dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { organizationAvatarStyle, organizationInitials } from "@/hooks/useOrganizationWorkspace"
@@ -35,11 +45,13 @@ export function OrganizationMemberAccessButton({
   canManage,
   members,
   membersLoading,
+  onAddMember,
   onOpen,
 }: {
   canManage: boolean
   members: MemberView[]
   membersLoading: boolean
+  onAddMember?: () => void
   onOpen: () => void
 }) {
   const { t } = useAppI18n()
@@ -47,31 +59,44 @@ export function OrganizationMemberAccessButton({
   const countLabel = membersLoading
     ? t("organizations.memberCountLoading")
     : t("organizations.memberCountCompact", { count: members.length })
+  const onlyCreatorVisible =
+    canManage && !membersLoading && members.length <= 1 && members.every((member) => member.role === "creator")
+  const summaryLabel = onlyCreatorVisible ? t("organizations.noOtherMembers") : label
 
   return (
-    <button
-      type="button"
-      className="group -ml-1 flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-      aria-label={`${label}，${countLabel}`}
-      onClick={onOpen}
-    >
-      {membersLoading ? (
-        <MemberAvatarStackSkeleton />
-      ) : members.length > 0 ? (
-        <MemberAvatarStack members={members} />
-      ) : (
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <UsersIcon className="size-3.5" />
+    <div className="-ml-1 flex min-w-0 flex-wrap items-center gap-2">
+      <button
+        type="button"
+        className="group flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        aria-label={t("organizations.memberAccessAriaLabel", { count: countLabel, label })}
+        onClick={onOpen}
+      >
+        {membersLoading ? (
+          <MemberAvatarStackSkeleton />
+        ) : members.length > 0 ? (
+          <MemberAvatarStack members={members} />
+        ) : (
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <UsersIcon className="size-3.5" />
+          </span>
+        )}
+        <span className="flex min-w-0 items-center gap-1.5">
+          {canManage ? (
+            <CrownIcon className="size-3.5 shrink-0 text-[var(--oo-warning-foreground)]" aria-hidden="true" />
+          ) : null}
+          <span className="oo-text-caption-compact shrink-0 font-medium text-foreground">{summaryLabel}</span>
+          {onlyCreatorVisible ? null : (
+            <span className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">{countLabel}</span>
+          )}
         </span>
-      )}
-      <span className="flex min-w-0 items-center gap-1.5">
-        {canManage ? (
-          <CrownIcon className="size-3.5 shrink-0 text-[var(--oo-warning-foreground)]" aria-hidden="true" />
-        ) : null}
-        <span className="oo-text-caption-compact shrink-0 font-medium text-foreground">{label}</span>
-        <span className="oo-text-caption-compact min-w-0 truncate text-muted-foreground">{countLabel}</span>
-      </span>
-    </button>
+      </button>
+      {canManage && onAddMember ? (
+        <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={onAddMember}>
+          <PlusIcon className="size-3.5" />
+          {t("organizations.addMember")}
+        </Button>
+      ) : null}
+    </div>
   )
 }
 function MemberAvatarStack({ members }: { members: MemberView[] }) {
@@ -276,36 +301,80 @@ function MembersTable({
   showProviderAccess: boolean
 }) {
   const { t } = useAppI18n()
+  const [removeTarget, setRemoveTarget] = React.useState<MemberView | null>(null)
+  const removeTargetBusy = removeTarget ? busyAction === `remove:${removeTarget.user_id}` : false
+  const removeConfirmDialog = (
+    <ConfirmDialog
+      open={Boolean(removeTarget)}
+      onOpenChange={(open) => {
+        if (!open && !removeTargetBusy) {
+          setRemoveTarget(null)
+        }
+      }}
+    >
+      <ConfirmDialogContent>
+        <ConfirmDialogHeader>
+          <ConfirmDialogTitle>{t("organizations.removeMemberConfirmTitle")}</ConfirmDialogTitle>
+          <ConfirmDialogDescription>
+            {removeTarget
+              ? t("organizations.removeMemberConfirmDescription", { name: removeTarget.displayName })
+              : null}
+          </ConfirmDialogDescription>
+        </ConfirmDialogHeader>
+        <ConfirmDialogFooter>
+          <ConfirmDialogCancel disabled={removeTargetBusy}>{t("common.cancel")}</ConfirmDialogCancel>
+          <ConfirmDialogAction
+            disabled={removeTargetBusy || !removeTarget}
+            onClick={() => {
+              if (removeTarget) {
+                onRemoveMember(removeTarget)
+                setRemoveTarget(null)
+              }
+            }}
+          >
+            {t("organizations.removeMember")}
+          </ConfirmDialogAction>
+        </ConfirmDialogFooter>
+      </ConfirmDialogContent>
+    </ConfirmDialog>
+  )
+
   if (compact) {
     return (
-      <div className="divide-y">
-        {members.map((member) => {
-          const grant = grantsByUserId.get(member.user_id) ?? null
-          const removeBusy = busyAction === `remove:${member.user_id}`
-          return (
-            <div key={member.user_id} className="grid min-w-0 gap-2 px-3 py-3">
-              <div className="flex min-w-0 items-start gap-2.5">
-                <UserAvatar avatar={member.avatar} fallback={member.fallback} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <div className="oo-text-label min-w-0 truncate">{member.displayName}</div>
-                    <Badge variant="secondary" className="shrink-0">
-                      {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                    </Badge>
+      <>
+        <div className="divide-y">
+          {members.map((member) => {
+            const grant = grantsByUserId.get(member.user_id) ?? null
+            const canRemove = canManage && member.role !== "creator"
+            return (
+              <div key={member.user_id} className="grid min-w-0 gap-2 px-3 py-3">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <UserAvatar avatar={member.avatar} fallback={member.fallback} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <div className="oo-text-label min-w-0 truncate">{member.displayName}</div>
+                      <Badge variant="secondary" className="shrink-0">
+                        {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                      </Badge>
+                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
+                          {member.secondaryLabel}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent className="font-mono break-all">{member.user_id}</TooltipContent>
+                    </Tooltip>
                   </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
-                        {member.secondaryLabel}
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent className="font-mono break-all">{member.user_id}</TooltipContent>
-                  </Tooltip>
+                  {canRemove ? (
+                    <MemberActionsMenu
+                      disabled={busyAction === `remove:${member.user_id}`}
+                      onRemove={() => setRemoveTarget(member)}
+                    />
+                  ) : null}
                 </div>
-              </div>
-              {canManage && member.role !== "creator" ? (
-                <div className="grid min-w-0 gap-2 pl-10">
-                  {showProviderAccess ? (
+                {canRemove && showProviderAccess ? (
+                  <div className="grid min-w-0 gap-2 pl-10">
                     <div className="min-w-0">
                       <ProviderAccessSummary
                         compact
@@ -319,9 +388,7 @@ function MembersTable({
                         }
                       />
                     </div>
-                  ) : null}
-                  <div className="flex min-w-0 flex-wrap gap-2">
-                    {showProviderAccess ? (
+                    <div className="flex min-w-0 flex-wrap gap-2">
                       <ProviderAccessActions
                         compact
                         busyAction={busyAction}
@@ -332,41 +399,15 @@ function MembersTable({
                         onGrant={onGrantProviderAccess}
                         onRevoke={onRevokeProviderAccess}
                       />
-                    ) : null}
-                    <ConfirmDialog>
-                      <ConfirmDialogTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={removeBusy}
-                          aria-label={t("organizations.removeMember")}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </ConfirmDialogTrigger>
-                      <ConfirmDialogContent>
-                        <ConfirmDialogHeader>
-                          <ConfirmDialogTitle>{t("organizations.removeMemberConfirmTitle")}</ConfirmDialogTitle>
-                          <ConfirmDialogDescription>
-                            {t("organizations.removeMemberConfirmDescription", { name: member.displayName })}
-                          </ConfirmDialogDescription>
-                        </ConfirmDialogHeader>
-                        <ConfirmDialogFooter>
-                          <ConfirmDialogCancel>{t("common.cancel")}</ConfirmDialogCancel>
-                          <ConfirmDialogAction onClick={() => onRemoveMember(member)}>
-                            {t("organizations.removeMember")}
-                          </ConfirmDialogAction>
-                        </ConfirmDialogFooter>
-                      </ConfirmDialogContent>
-                    </ConfirmDialog>
+                    </div>
                   </div>
-                </div>
-              ) : null}
-            </div>
-          )
-        })}
-      </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+        {removeConfirmDialog}
+      </>
     )
   }
 
@@ -379,111 +420,118 @@ function MembersTable({
   const minWidthClassName = canManage && showProviderAccess ? "min-w-[44rem]" : "min-w-[32rem]"
 
   return (
-    <div className="min-w-0 overflow-x-auto">
-      <div className={minWidthClassName}>
-        <div
-          className={cn(
-            "oo-text-caption-compact grid gap-3 border-b bg-muted/30 px-3 py-2 font-medium text-muted-foreground",
-            gridClassName,
-          )}
-        >
-          <div>{t("organizations.member")}</div>
-          <div>{t("organizations.role")}</div>
-          {canManage && showProviderAccess ? <div>{t("organizations.usableConnections")}</div> : null}
-          {canManage ? <div className="text-right">{t("organizations.actions")}</div> : null}
-        </div>
-        <div className="divide-y">
-          {members.map((member) => {
-            const grant = grantsByUserId.get(member.user_id) ?? null
-            const removeBusy = busyAction === `remove:${member.user_id}`
-            return (
-              <div key={member.user_id} className={cn("grid items-center gap-3 px-3 py-3", gridClassName)}>
-                <div className="flex min-w-0 items-center gap-3">
-                  <UserAvatar avatar={member.avatar} fallback={member.fallback} />
-                  <div className="min-w-0">
-                    <div className="oo-text-label truncate">{member.displayName}</div>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
-                          {member.secondaryLabel}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent className="font-mono break-all">{member.user_id}</TooltipContent>
-                    </Tooltip>
+    <>
+      <div className="min-w-0 overflow-x-auto">
+        <div className={minWidthClassName}>
+          <div
+            className={cn(
+              "oo-text-caption-compact grid gap-3 border-b bg-muted/30 px-3 py-2 font-medium text-muted-foreground",
+              gridClassName,
+            )}
+          >
+            <div>{t("organizations.member")}</div>
+            <div>{t("organizations.role")}</div>
+            {canManage && showProviderAccess ? <div>{t("organizations.usableConnections")}</div> : null}
+            {canManage ? <div className="text-right">{t("organizations.actions")}</div> : null}
+          </div>
+          <div className="divide-y">
+            {members.map((member) => {
+              const grant = grantsByUserId.get(member.user_id) ?? null
+              const canRemove = canManage && member.role !== "creator"
+              return (
+                <div key={member.user_id} className={cn("grid items-center gap-3 px-3 py-3", gridClassName)}>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <UserAvatar avatar={member.avatar} fallback={member.fallback} />
+                    <div className="min-w-0">
+                      <div className="oo-text-label truncate">{member.displayName}</div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
+                            {member.secondaryLabel}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="font-mono break-all">{member.user_id}</TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
-                </div>
-                <div>
-                  <Badge variant="secondary">
-                    {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                  </Badge>
-                </div>
-                {canManage && showProviderAccess ? (
                   <div>
-                    {member.role === "creator" ? (
-                      <Badge variant="secondary">{t("organizations.creatorDefaultAccess")}</Badge>
-                    ) : (
-                      <ProviderAccessSummary
-                        allProvidersLabel={t("organizations.allProviders")}
-                        grant={grant}
-                        loading={appAccessLoading}
-                        notAuthorizedLabel={
-                          providerAccessError
-                            ? t("organizations.providerAccessUnavailable")
-                            : t("organizations.notAuthorized")
-                        }
-                      />
-                    )}
+                    <Badge variant="secondary">
+                      {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                    </Badge>
                   </div>
-                ) : null}
-                {canManage ? (
-                  <div className="flex justify-end gap-2">
-                    {member.role === "creator" ? (
-                      <span className="oo-text-body text-muted-foreground">{t("organizations.creatorProtected")}</span>
-                    ) : (
-                      <>
-                        {showProviderAccess ? (
-                          <ProviderAccessActions
-                            busyAction={busyAction}
-                            disabled={appAccessLoading || Boolean(providerAccessError)}
-                            grant={grant}
-                            memberId={member.user_id}
-                            onEdit={onEditProviderAccess}
-                            onGrant={onGrantProviderAccess}
-                            onRevoke={onRevokeProviderAccess}
+                  {canManage && showProviderAccess ? (
+                    <div>
+                      {member.role === "creator" ? (
+                        <Badge variant="secondary">{t("organizations.creatorDefaultAccess")}</Badge>
+                      ) : (
+                        <ProviderAccessSummary
+                          allProvidersLabel={t("organizations.allProviders")}
+                          grant={grant}
+                          loading={appAccessLoading}
+                          notAuthorizedLabel={
+                            providerAccessError
+                              ? t("organizations.providerAccessUnavailable")
+                              : t("organizations.notAuthorized")
+                          }
+                        />
+                      )}
+                    </div>
+                  ) : null}
+                  {canManage ? (
+                    <div className="flex justify-end gap-2">
+                      {member.role === "creator" ? (
+                        <span className="oo-text-body text-muted-foreground">
+                          {t("organizations.creatorProtected")}
+                        </span>
+                      ) : (
+                        <>
+                          {showProviderAccess ? (
+                            <ProviderAccessActions
+                              busyAction={busyAction}
+                              disabled={appAccessLoading || Boolean(providerAccessError)}
+                              grant={grant}
+                              memberId={member.user_id}
+                              onEdit={onEditProviderAccess}
+                              onGrant={onGrantProviderAccess}
+                              onRevoke={onRevokeProviderAccess}
+                            />
+                          ) : null}
+                          <MemberActionsMenu
+                            disabled={!canRemove || busyAction === `remove:${member.user_id}`}
+                            onRemove={() => setRemoveTarget(member)}
                           />
-                        ) : null}
-                        <ConfirmDialog>
-                          <ConfirmDialogTrigger asChild>
-                            <Button type="button" variant="outline" size="sm" disabled={removeBusy}>
-                              <Trash2Icon className="size-4" />
-                              {t("organizations.removeMember")}
-                            </Button>
-                          </ConfirmDialogTrigger>
-                          <ConfirmDialogContent>
-                            <ConfirmDialogHeader>
-                              <ConfirmDialogTitle>{t("organizations.removeMemberConfirmTitle")}</ConfirmDialogTitle>
-                              <ConfirmDialogDescription>
-                                {t("organizations.removeMemberConfirmDescription", { name: member.displayName })}
-                              </ConfirmDialogDescription>
-                            </ConfirmDialogHeader>
-                            <ConfirmDialogFooter>
-                              <ConfirmDialogCancel>{t("common.cancel")}</ConfirmDialogCancel>
-                              <ConfirmDialogAction onClick={() => onRemoveMember(member)}>
-                                {t("organizations.removeMember")}
-                              </ConfirmDialogAction>
-                            </ConfirmDialogFooter>
-                          </ConfirmDialogContent>
-                        </ConfirmDialog>
-                      </>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
+                        </>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
-    </div>
+      {removeConfirmDialog}
+    </>
+  )
+}
+
+function MemberActionsMenu({ disabled, onRemove }: { disabled: boolean; onRemove: () => void }) {
+  const { t } = useAppI18n()
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="ghost" size="icon" disabled={disabled} aria-label={t("organizations.actions")}>
+          <MoreHorizontalIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6} className="w-36">
+        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
+          <Trash2Icon className="size-4" />
+          {t("organizations.removeMember")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

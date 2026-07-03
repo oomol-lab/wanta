@@ -72,6 +72,9 @@ export function SkillPageHeader({
         ]
       : [
           { label: t("skills.installedFilter.all"), value: "all" },
+          { label: t("skills.installedFilter.wanta"), value: "wanta" },
+          { label: t("skills.installedFilter.codex"), value: "codex" },
+          { label: t("skills.installedFilter.claudeCode"), value: "claude-code" },
           { label: t("skills.installedFilter.updates"), value: "updates" },
           { label: t("skills.installedFilter.local"), value: "local" },
         ]
@@ -190,7 +193,7 @@ function SkillFilterDropdown({ ariaLabel, onValueChange, options, value }: Skill
           <AppIcons.status.disclosure className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={6} className="w-36">
+      <DropdownMenuContent align="end" sideOffset={6} className="w-44">
         {options.map((option) => {
           const selected = option.value === value
 

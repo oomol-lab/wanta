@@ -954,6 +954,7 @@ export function OrganizationManagementRoute({
                   selectedOrganizationId={selectedOrganizationId}
                   onCreate={() => setCreateOpen(true)}
                   onEdit={openEditOrganization}
+                  onAddMember={() => setAddMemberOpen(true)}
                   onOpenMembers={() => setMembersPanelOpen(true)}
                   onRemoteAvatarLoad={clearOrganizationAvatarPreview}
                   onSelect={handleSelectOrganizationWorkspace}

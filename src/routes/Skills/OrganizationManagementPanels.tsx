@@ -51,6 +51,7 @@ export function OrganizationSwitcherPanel({
   membersLoading,
   onCreate,
   onEdit,
+  onAddMember,
   onOpenMembers,
   onRemoteAvatarLoad,
   onSelect,
@@ -69,6 +70,7 @@ export function OrganizationSwitcherPanel({
   membersLoading: boolean
   onCreate: () => void
   onEdit: (organization: Organization) => void
+  onAddMember: () => void
   onOpenMembers: () => void
   onRemoteAvatarLoad: (organizationId: string, file: File | null) => void
   onSelect: (organizationId: string) => void
@@ -135,6 +137,7 @@ export function OrganizationSwitcherPanel({
                 canManage={canManage}
                 members={members}
                 membersLoading={membersLoading}
+                onAddMember={onAddMember}
                 onOpen={onOpenMembers}
               />
             ) : (

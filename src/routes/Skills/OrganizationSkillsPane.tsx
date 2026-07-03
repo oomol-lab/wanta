@@ -14,6 +14,7 @@ import {
   getPublicSkillInstallStateLabel,
   getSkillRowStatusBadgeClassName,
 } from "./skill-route-model.ts"
+import { SkillListRow } from "./SkillListRow.tsx"
 import { SkillIconFrame, SkillManagementSheet } from "./SkillUiParts.tsx"
 import { AppIcons } from "@/components/AppIcons"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -184,11 +185,7 @@ export function OrganizationSkillsPane({
             </div>
           ) : null}
           {selectedOrganizationSkills.loading && !selectedOrganizationSkills.hasLoaded ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <Skeleton key={index} className="h-44 rounded-md" />
-              ))}
-            </div>
+            <OrganizationSkillListSkeleton />
           ) : filteredOrganizationItems.length === 0 ? (
             <OrganizationRecommendationEmptyState
               description={
@@ -207,7 +204,7 @@ export function OrganizationSkillsPane({
               }
             />
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+            <div className="overflow-hidden rounded-md border bg-background">
               {filteredOrganizationItems.map((item) =>
                 item.type === "configured" ? (
                   <OrganizationConfiguredSkillCard
@@ -247,11 +244,7 @@ export function OrganizationSkillsPane({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <Skeleton key={index} className="h-44 rounded-md" />
-          ))}
-        </div>
+        <OrganizationSkillListSkeleton />
       )}
       {selectedOrganizationItem ? (
         <SkillManagementSheet
@@ -277,6 +270,32 @@ export function OrganizationSkillsPane({
           />
         </SkillManagementSheet>
       ) : null}
+    </div>
+  )
+}
+
+function OrganizationSkillListSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-md border bg-background">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div
+          key={index}
+          className="grid min-w-0 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+        >
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+            <Skeleton className="size-9 rounded-md" />
+            <div className="grid min-w-0 gap-1.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <Skeleton className="h-4 w-36 rounded-md" />
+                <Skeleton className="h-5 w-20 rounded-md" />
+              </div>
+              <Skeleton className="h-3.5 w-64 max-w-full rounded-md" />
+              <Skeleton className="h-3 w-80 max-w-full rounded-md" />
+            </div>
+          </div>
+          <Skeleton className="h-[var(--oo-control-height-compact)] w-24 rounded-md" />
+        </div>
+      ))}
     </div>
   )
 }
@@ -448,38 +467,19 @@ function OrganizationConfiguredSkillCard({
   const managedSkillOpenable = canOpenManagedOrganizationSkill(runtimeStatus.state)
 
   return (
-    <div
-      className={cn(
-        "grid min-h-44 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-md border bg-card text-card-foreground transition-colors hover:bg-[var(--oo-row-hover)]",
-        selected && "border-[var(--accent-ring)] bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
-      )}
-    >
-      <button
-        type="button"
-        className="grid min-w-0 gap-2 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
-        onClick={onSelect}
-      >
-        <div className="flex min-w-0 items-start gap-3">
-          <SkillIconFrame icon={skill.icon} />
-          <div className="grid min-w-0 gap-1">
-            <div className="oo-text-label min-w-0 truncate">{skill.displayName}</div>
-            <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={skill.packageName}>
-              {skill.packageName}
-            </div>
-          </div>
-        </div>
-        {skill.description ? (
-          <p className="oo-text-caption line-clamp-2 text-foreground/75">{skill.description}</p>
-        ) : null}
-        <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={`${skill.skillName} · ${skill.version}`}>
-          {skill.skillName} · {skill.version}
-        </div>
-      </button>
-      <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
-        <div className="min-w-0">
+    <SkillListRow
+      icon={<SkillIconFrame icon={skill.icon} className="size-9" iconClassName="size-4.5" />}
+      selected={selected}
+      title={skill.displayName}
+      subtitle={
+        <span className="min-w-0 truncate" title={skill.packageName}>
+          {skill.packageName}
+        </span>
+      }
+      description={skill.description}
+      badges={
+        <>
           <Badge variant="secondary">{t("organizations.skillManageConfigured")}</Badge>
-        </div>
-        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
           {!skill.enabled ? (
             <Badge variant="outline">{t("skills.organizationDisabled")}</Badge>
           ) : shouldShowOrganizationRuntimeStatusOnCard(runtimeStatus.state) ? (
@@ -487,6 +487,15 @@ function OrganizationConfiguredSkillCard({
               {organizationRuntimeStatusLabel(runtimeStatus.state, t)}
             </Badge>
           ) : null}
+        </>
+      }
+      meta={
+        <div className="min-w-0 truncate" title={`${skill.skillName} · ${skill.version}`}>
+          {skill.skillName} · {skill.version}
+        </div>
+      }
+      actions={
+        <>
           {runtimeInstallable ? (
             <Button type="button" variant="ghost" size="sm" disabled={installBusy} onClick={onInstallRuntime}>
               {installBusy ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
@@ -498,9 +507,10 @@ function OrganizationConfiguredSkillCard({
               {t("skills.installedManage")}
             </Button>
           ) : null}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      onSelect={onSelect}
+    />
   )
 }
 
@@ -521,7 +531,9 @@ function OrganizationRecommendedSkillCard({
 }) {
   const { t } = useAppI18n()
   const canInstallRuntime =
-    recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+    recommendation.installState === "installable" ||
+    recommendation.installState === "partially-installed" ||
+    recommendation.installState === "external-installed"
   const addBusyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
   const installBusyKey = `installSkill:${recommendation.packageName}:${recommendation.skillId}`
   const installBusy = busyAction === installBusyKey || busyAction === "installSkillBatch"
@@ -532,44 +544,31 @@ function OrganizationRecommendedSkillCard({
   const canOpenManage = recommendation.installState === "installed" || recommendation.installState === "name-conflict"
 
   return (
-    <div
-      className={cn(
-        "grid min-h-44 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-md border bg-card text-card-foreground transition-colors hover:bg-[var(--oo-row-hover)]",
-        selected && "border-[var(--accent-ring)] bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
-      )}
-    >
-      <button
-        type="button"
-        className="grid min-w-0 gap-2 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
-        onClick={onSelect}
-      >
-        <div className="flex min-w-0 items-start gap-3">
-          <SkillIconFrame icon={recommendation.package.icon} />
-          <div className="grid min-w-0 gap-1">
-            <div className="oo-text-label min-w-0 truncate">{recommendation.package.displayName}</div>
-            <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={recommendation.packageName}>
-              {recommendation.providerDisplayName}
-            </div>
-          </div>
-        </div>
-        {skillDescription ? (
-          <p className="oo-text-caption line-clamp-2 text-foreground/75">{skillDescription}</p>
-        ) : null}
-        <div
-          className="oo-text-caption oo-text-muted min-w-0 truncate"
-          title={`${recommendation.packageName} · ${recommendation.skillId}`}
-        >
-          {recommendation.packageName} · {recommendation.skillId}
-        </div>
-      </button>
-      <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
-        <div className="min-w-0">
+    <SkillListRow
+      icon={<SkillIconFrame icon={recommendation.package.icon} className="size-9" iconClassName="size-4.5" />}
+      selected={selected}
+      title={recommendation.package.displayName}
+      subtitle={
+        <span className="min-w-0 truncate" title={recommendation.packageName}>
+          {recommendation.providerDisplayName}
+        </span>
+      }
+      description={skillDescription}
+      badges={
+        <>
           <Badge variant="secondary">{t("organizations.skillManageRecommended")}</Badge>
-        </div>
-        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
           {recommendation.installState === "name-conflict" || recommendation.installState === "unavailable" ? (
             <Badge variant="outline">{getPublicSkillInstallStateLabel(recommendation.installState, t)}</Badge>
           ) : null}
+        </>
+      }
+      meta={
+        <div className="min-w-0 truncate" title={`${recommendation.packageName} · ${recommendation.skillId}`}>
+          {recommendation.packageName} · {recommendation.skillId}
+        </div>
+      }
+      actions={
+        <>
           {canInstallRuntime ? (
             <Button
               type="button"
@@ -587,9 +586,10 @@ function OrganizationRecommendedSkillCard({
               {t("skills.installedManage")}
             </Button>
           ) : null}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+      onSelect={onSelect}
+    />
   )
 }
 
@@ -698,7 +698,9 @@ function OrganizationConfiguredSkillDetail({
             {skill.version ? <Badge variant="outline">{skill.version}</Badge> : null}
           </div>
           {skill.description ? (
-            <CardDescription className="min-w-0 break-words text-foreground/80">{skill.description}</CardDescription>
+            <CardDescription className="line-clamp-6 min-w-0 break-words text-foreground/80">
+              {skill.description}
+            </CardDescription>
           ) : null}
           <div className="flex min-w-0 flex-wrap gap-1">
             {runtimeInstallable ? (
@@ -773,7 +775,9 @@ function OrganizationRecommendedSkillDetail({
 }) {
   const { t } = useAppI18n()
   const canInstallRuntime =
-    recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+    recommendation.installState === "installable" ||
+    recommendation.installState === "partially-installed" ||
+    recommendation.installState === "external-installed"
   const installBusy =
     busyAction === `installSkill:${recommendation.packageName}:${recommendation.skillId}` ||
     busyAction === "installSkillBatch"
@@ -805,7 +809,9 @@ function OrganizationRecommendedSkillDetail({
             <Badge variant="outline">{recommendation.package.version}</Badge>
           </div>
           {skillDescription ? (
-            <CardDescription className="min-w-0 break-words text-foreground/80">{skillDescription}</CardDescription>
+            <CardDescription className="line-clamp-6 min-w-0 break-words text-foreground/80">
+              {skillDescription}
+            </CardDescription>
           ) : null}
           <div className="flex min-w-0 flex-wrap gap-1">
             {canInstallRuntime ? (

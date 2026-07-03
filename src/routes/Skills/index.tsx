@@ -147,14 +147,15 @@ export function SkillsRoute({
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
   const myPublishedPackageRequestIdRef = React.useRef(0)
-  const { isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } = useSkillObjectActions({
-    onDeleted: (nextInventory) => {
-      const nextSelectedSkill = nextInventory.groups.find(isInstalledSkillGroup)
-      setSelectedSkillId(nextSelectedSkill?.id ?? null)
-      setNarrowPane("list")
-      homeSummaryResource.invalidate()
-    },
-  })
+  const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
+    useSkillObjectActions({
+      onDeleted: (nextInventory) => {
+        const nextSelectedSkill = nextInventory.groups.find(isInstalledSkillGroup)
+        setSelectedSkillId(nextSelectedSkill?.id ?? null)
+        setNarrowPane("list")
+        homeSummaryResource.invalidate()
+      },
+    })
 
   React.useEffect(() => {
     if (!selectedSkillId && inventory?.groups[0]) {
@@ -638,6 +639,7 @@ export function SkillsRoute({
   const isPublicPackageReplacing =
     activePackageCatalog.status === "loading" || activePackageCatalog.status === "refreshing"
   const detailContentProps: SkillDetailContentProps = {
+    copySkillPath,
     inventoryInitialLoading: inventoryResource.isInitialLoading,
     isRemovingSkill,
     openSkillFolder,

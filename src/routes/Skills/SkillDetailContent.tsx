@@ -1,4 +1,8 @@
-import type { ManagedSkillGroup, SkillVersionReport } from "../../../electron/skills/common.ts"
+import type {
+  ManagedSkillGroup,
+  ManagedSkillHostCoverage,
+  SkillVersionReport,
+} from "../../../electron/skills/common.ts"
 import type { SkillDocumentViewMode } from "./skill-route-model.ts"
 import type { ObjectStatusTone } from "@/components/ObjectRow"
 
@@ -8,6 +12,7 @@ import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupRowPackageLine,
   getGroupStatus,
+  getHostStatus,
   getLocalSkillPublishPath,
   getRuntimeHosts,
   getSkillDocumentRootPath,
@@ -20,6 +25,7 @@ import {
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
+import { AgentIcon } from "@/components/AgentIcon"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { useSkillService } from "@/components/AppContext"
 import { AppIcons } from "@/components/AppIcons"
@@ -136,6 +142,7 @@ function SkillDetailSkeleton() {
 }
 
 export interface SkillDetailContentProps {
+  copySkillPath: (pathname: string) => void
   inventoryInitialLoading: boolean
   isRemovingSkill: boolean
   openSkillFolder: (pathname: string) => void
@@ -151,6 +158,7 @@ export interface SkillDetailContentProps {
 }
 
 export function SkillDetailContent({
+  copySkillPath,
   inventoryInitialLoading,
   isRemovingSkill,
   openSkillFolder,
@@ -174,6 +182,7 @@ export function SkillDetailContent({
     return (
       <SkillPeek
         openSkillFolder={openSkillFolder}
+        copySkillPath={copySkillPath}
         planError={selectedPlanError}
         publishSkill={publishSkill}
         publishingSkillId={publishingSkillId}
@@ -192,6 +201,7 @@ export function SkillDetailContent({
 }
 
 interface SkillPeekProps {
+  copySkillPath: (pathname: string) => void
   isRemovingSkill: boolean
   openSkillFolder: (pathname: string) => void
   planError: string | null
@@ -206,6 +216,7 @@ interface SkillPeekProps {
 }
 
 function SkillPeek({
+  copySkillPath,
   isRemovingSkill,
   openSkillFolder,
   planError,
@@ -221,6 +232,7 @@ function SkillPeek({
   const { t } = useAppI18n()
   const skillService = useSkillService()
   const runtimeHosts = getRuntimeHosts(selectedSkill)
+  const installedHosts = selectedSkill.hosts.filter((host) => host.status === "installed")
   const skillDocumentRootPath = getSkillDocumentRootPath(selectedSkill)
   const hasPublishedUpdate = hasSkillUpdateAvailable(selectedVersionCheck)
   const canUpdatePublishedSkill = hasPublishedUpdate && shouldUpdatePublishedSkill(selectedSkill)
@@ -304,7 +316,7 @@ function SkillPeek({
   }, [skillDocumentRootPath, skillService, t])
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
+    <div className="flex min-w-0 flex-col gap-3">
       <InspectorCard className="shrink-0">
         <CardHeader className="grid gap-1 px-3 py-0">
           <CardTitle ref={headingRef} className="oo-text-label min-w-0 truncate outline-none" tabIndex={-1}>
@@ -347,7 +359,7 @@ function SkillPeek({
             {!packageLine && selectedSkill.version ? <Badge variant="outline">{selectedSkill.version}</Badge> : null}
           </div>
           {selectedSkill.description ? (
-            <CardDescription className="min-w-0 break-words text-foreground/80">
+            <CardDescription className="line-clamp-6 min-w-0 break-words text-foreground/80">
               {selectedSkill.description}
             </CardDescription>
           ) : null}
@@ -451,7 +463,28 @@ function SkillPeek({
         </CardContent>
       </InspectorCard>
 
-      <InspectorInsetCard className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3">
+      {installedHosts.length > 0 ? (
+        <InspectorInsetCard className="shrink-0 gap-2 px-3 py-3">
+          <div className="grid min-w-0 gap-1">
+            <div className="oo-text-label min-w-0 truncate">{t("skills.installedLocationsTitle")}</div>
+            <CardDescription className="oo-text-caption-compact">
+              {t("skills.installedLocationsHelper")}
+            </CardDescription>
+          </div>
+          <div className="grid max-h-56 gap-1.5 overflow-auto pr-1">
+            {installedHosts.map((host) => (
+              <SkillInstallLocationRow
+                key={`${host.agentId}:${host.scope}:${host.path ?? host.sourcePath ?? host.agentName}`}
+                host={host}
+                copySkillPath={copySkillPath}
+                openSkillFolder={openSkillFolder}
+              />
+            ))}
+          </div>
+        </InspectorInsetCard>
+      ) : null}
+
+      <InspectorInsetCard className="flex flex-col gap-2 px-3 py-3">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="oo-text-label min-w-0 truncate">{t("skills.documentTitle")}</div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
@@ -482,9 +515,9 @@ function SkillPeek({
             </Button>
           </div>
         </div>
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0">
           {isSkillDocumentLoading ? (
-            <div className="grid h-full min-h-32 content-start gap-2 rounded-md border bg-background p-2.5">
+            <div className="grid min-h-32 content-start gap-2 rounded-md border bg-background p-2.5">
               <SkeletonText className="w-5/6" />
               <SkeletonText className="w-4/6" />
               <SkeletonText className="w-3/4" />
@@ -492,7 +525,7 @@ function SkillPeek({
           ) : skillDocumentError ? (
             <ErrorNotice error={resolveUserFacingError(skillDocumentError, { area: "skills" })} compact />
           ) : skillDocument ? (
-            <div className="h-full min-h-32 overflow-auto rounded-md border bg-background p-3">
+            <div className="max-h-96 min-h-32 overflow-auto rounded-md border bg-background p-3">
               {skillDocumentViewMode === "preview" ? (
                 <MessageResponse className="max-w-none text-foreground/85">{previewDocumentContent}</MessageResponse>
               ) : (
@@ -533,6 +566,68 @@ function SkillPeek({
             </Button>
           </div>
         </InspectorInsetCard>
+      ) : null}
+    </div>
+  )
+}
+
+function SkillInstallLocationRow({
+  copySkillPath,
+  host,
+  openSkillFolder,
+}: {
+  copySkillPath: (pathname: string) => void
+  host: ManagedSkillHostCoverage
+  openSkillFolder: (pathname: string) => void
+}) {
+  const { t } = useAppI18n()
+  const status = getHostStatus(host, t)
+  const pathname = host.path ?? host.sourcePath
+
+  return (
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border bg-background px-2.5 py-2">
+      <AgentIcon host={host.agentName} />
+      <div className="grid min-w-0 gap-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="oo-text-caption-compact min-w-0 truncate font-medium">{host.agentName}</div>
+          {status.label ? (
+            <Badge
+              className={cn("oo-text-micro h-5 px-1.5", getStatusBadgeClassName(status.tone))}
+              variant={status.variant}
+            >
+              {status.label}
+            </Badge>
+          ) : null}
+        </div>
+        {pathname ? (
+          <div className="oo-text-micro min-w-0 truncate text-muted-foreground" title={pathname}>
+            {pathname}
+          </div>
+        ) : null}
+      </div>
+      {pathname ? (
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={t("skills.copyPath")}
+            onClick={() => copySkillPath(pathname)}
+          >
+            <AppIcons.action.copy className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            aria-label={t("skills.openFolder")}
+            onClick={() => openSkillFolder(pathname)}
+          >
+            <AppIcons.action.openFolder className="size-3.5" />
+          </Button>
+        </div>
       ) : null}
     </div>
   )

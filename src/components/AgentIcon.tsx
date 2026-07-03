@@ -1,3 +1,4 @@
+import wantaLogo from "../../resources/branding/logo.png"
 import claudeCodeIcon from "@/assets/agent-icons/claude-code-color.svg"
 import codexIcon from "@/assets/agent-icons/codex-color.svg"
 import hermesAgentDarkIcon from "@/assets/agent-icons/hermes-agent-dark.svg"
@@ -39,6 +40,9 @@ export function AgentIcon({ className, host }: AgentIconProps) {
 }
 
 function getAgentIcon(normalizedHost: string): AgentIconAsset | undefined {
+  if (normalizedHost.includes("wanta")) {
+    return { agent: "wanta", src: wantaLogo }
+  }
   if (normalizedHost.includes("claude")) {
     return { agent: "claude-code", src: claudeCodeIcon }
   }

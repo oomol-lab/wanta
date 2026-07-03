@@ -182,7 +182,7 @@ function InstalledSkillRow({
         ? "pending"
         : "ready"
   const badgeClassName =
-    isPublishable && !hasUpdate && !hasAttention
+    isPublishable && !hasUpdate && !hasAttention && (hasRuntimeHost || !hasExternalHost)
       ? publishableSkillBadgeClassName
       : getSkillRowStatusBadgeClassName(badgeTone)
   const packageLine = getGroupRowPackageLine(group) ?? getSkillKindLabel(group.kind, t)

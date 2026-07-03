@@ -204,7 +204,7 @@ export function getRuntimeHosts(group: ManagedSkillGroup): ManagedSkillHostCover
 }
 
 export function getInstalledPlatformHosts(group: ManagedSkillGroup): ManagedSkillHostCoverage[] {
-  return group.hosts.filter((host) => host.status === "installed")
+  return getInstalledSkillHosts(group)
 }
 
 export function hasInstalledHostForAgent(group: ManagedSkillGroup, agentId: string): boolean {

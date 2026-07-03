@@ -68,7 +68,7 @@ export function OrganizationMemberAccessButton({
       <button
         type="button"
         className="group flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-        aria-label={`${label}，${countLabel}`}
+        aria-label={t("organizations.memberAccessAriaLabel", { count: countLabel, label })}
         onClick={onOpen}
       >
         {membersLoading ? (

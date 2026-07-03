@@ -10,6 +10,7 @@ import {
   getPublicPackageMetaLine,
   getPublicPackagePrimaryInstallSkill,
   getPublicPackagePrimarySkill,
+  getPublicSkillInstallActionLabel,
   getPublicSkillInstallKey,
   getPublicSkillInstallStateLabel,
   isNearScrollBottom,
@@ -295,11 +296,7 @@ function PublicSkillPackageRow({
             onClick={() => onInstall(primaryInstallSkill?.name)}
           >
             {isInstalling ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.installPackage />}
-            {isInstalling
-              ? t("skills.registryInstalling")
-              : state === "partially-installed"
-                ? t("skills.discoverInstallMissing")
-                : t("organizations.skillManageInstallRuntime")}
+            {isInstalling ? t("skills.registryInstalling") : getPublicSkillInstallActionLabel(state, t)}
           </Button>
         ) : null
       }

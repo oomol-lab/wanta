@@ -98,6 +98,25 @@ test("external installed public skills remain installable into Wanta", () => {
   assert.equal(getPublicPackageInstallState(groupById, pkg), "external-installed")
 })
 
+test("mixed installed and external public skills remain installable into Wanta", () => {
+  const pkg = {
+    ...publicPackage("demo"),
+    name: "@alice/demo",
+    skills: [
+      { name: "runtime", title: "Runtime" },
+      { name: "external", title: "External" },
+    ],
+  }
+  const groupById = new Map([
+    ["runtime", managedSkillGroup("runtime", "@alice/demo")],
+    ["external", externalManagedSkillGroup("external", "@alice/demo", "codex", "Codex")],
+  ])
+
+  assert.equal(getPublicSkillInstallState(groupById, pkg, "runtime"), "installed")
+  assert.equal(getPublicSkillInstallState(groupById, pkg, "external"), "external-installed")
+  assert.equal(getPublicPackageInstallState(groupById, pkg), "external-installed")
+})
+
 test("matchesInstalledSkillFilter can filter by Wanta, Codex, and Claude Code hosts", () => {
   const runtimeGroup = managedSkillGroup("runtime", "@alice/runtime")
   const codexGroup = externalManagedSkillGroup("codex-only", "@alice/codex-only", "codex", "Codex")

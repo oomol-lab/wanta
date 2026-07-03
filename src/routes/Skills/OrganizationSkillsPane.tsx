@@ -775,7 +775,9 @@ function OrganizationRecommendedSkillDetail({
 }) {
   const { t } = useAppI18n()
   const canInstallRuntime =
-    recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+    recommendation.installState === "installable" ||
+    recommendation.installState === "partially-installed" ||
+    recommendation.installState === "external-installed"
   const installBusy =
     busyAction === `installSkill:${recommendation.packageName}:${recommendation.skillId}` ||
     busyAction === "installSkillBatch"

@@ -474,7 +474,7 @@ function SkillPeek({
           <div className="grid max-h-56 gap-1.5 overflow-auto pr-1">
             {installedHosts.map((host) => (
               <SkillInstallLocationRow
-                key={`${host.agentId}:${host.path ?? host.sourcePath ?? host.agentName}`}
+                key={`${host.agentId}:${host.scope}:${host.path ?? host.sourcePath ?? host.agentName}`}
                 host={host}
                 copySkillPath={copySkillPath}
                 openSkillFolder={openSkillFolder}

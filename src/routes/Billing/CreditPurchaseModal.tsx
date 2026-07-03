@@ -28,8 +28,7 @@ import {
   subscriptionCheckoutUrl,
   subscriptionPortalUrl,
   topUpCheckoutUrl,
-  wantaSubscriptionCheckoutUrl,
-  wantaSubscriptionPortalUrl,
+  updateWantaSubscription,
 } from "@/lib/billing-client"
 import { cn } from "@/lib/utils"
 
@@ -189,12 +188,8 @@ export function CreditPurchaseModal({
   const [subscriptionLoading, setSubscriptionLoading] = React.useState<SubscriptionPlanTag | null>(null)
   const [wantaLoading, setWantaLoading] = React.useState<WantaSubscriptionPlan | "seats" | null>(null)
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
-  const minimumBillableSeats = React.useMemo(
-    () => normalizeSeats(effectiveBillingContext.memberCount),
-    [effectiveBillingContext.memberCount],
-  )
-  const [billableSeats, setBillableSeats] = React.useState(minimumBillableSeats)
-  const checkoutBillableSeats = Math.max(minimumBillableSeats, billableSeats)
+  const currentAdditionalSeats = overview.data?.subscription?.wanta?.additionalSeats ?? 0
+  const [additionalSeats, setAdditionalSeats] = React.useState(currentAdditionalSeats)
 
   const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit) : "--"
   const currentPlans = React.useMemo(
@@ -207,23 +202,22 @@ export function CreditPurchaseModal({
 
   React.useEffect(() => {
     if (open) {
-      setBillableSeats(minimumBillableSeats)
+      setAdditionalSeats(currentAdditionalSeats)
     }
-  }, [minimumBillableSeats, open])
+  }, [currentAdditionalSeats, open])
 
   const handleWantaSubscription = React.useCallback(
-    async (plan: WantaSubscriptionPlan, isCurrent: boolean) => {
+    async (plan: WantaSubscriptionPlan) => {
       setWantaLoading(plan)
       try {
         const url = pendingWantaPaymentUrl
           ? pendingWantaPaymentUrl
-          : hasWantaSubscription && !isCurrent
-            ? await wantaSubscriptionPortalUrl()
-            : wantaSubscriptionCheckoutUrl({
-                billableSeats: checkoutBillableSeats,
-                organizationId: effectiveBillingContext.organizationId,
-                plan,
-              })
+          : (await updateWantaSubscription({ plan })).paymentURL?.trim()
+        if (!url) {
+          toast.success(t("billing.wantaSubscriptionUpdated"))
+          void overview.refresh({ force: true })
+          return
+        }
         await chatService.invoke("openExternalUrl", { url })
         onCheckoutOpened?.()
       } catch {
@@ -232,15 +226,7 @@ export function CreditPurchaseModal({
         setWantaLoading(null)
       }
     },
-    [
-      checkoutBillableSeats,
-      effectiveBillingContext.organizationId,
-      chatService,
-      hasWantaSubscription,
-      onCheckoutOpened,
-      pendingWantaPaymentUrl,
-      t,
-    ],
+    [chatService, onCheckoutOpened, overview, pendingWantaPaymentUrl, t],
   )
 
   const handleWantaSeats = React.useCallback(async () => {
@@ -248,12 +234,12 @@ export function CreditPurchaseModal({
     try {
       const url = pendingWantaPaymentUrl
         ? pendingWantaPaymentUrl
-        : hasWantaSubscription
-          ? await wantaSubscriptionPortalUrl()
-          : wantaSubscriptionCheckoutUrl({
-              billableSeats: checkoutBillableSeats,
-              organizationId: effectiveBillingContext.organizationId,
-            })
+        : (await updateWantaSubscription({ additional_seats: additionalSeats })).paymentURL?.trim()
+      if (!url) {
+        toast.success(t("billing.wantaSubscriptionUpdated"))
+        void overview.refresh({ force: true })
+        return
+      }
       await chatService.invoke("openExternalUrl", { url })
       onCheckoutOpened?.()
     } catch {
@@ -261,15 +247,7 @@ export function CreditPurchaseModal({
     } finally {
       setWantaLoading(null)
     }
-  }, [
-    checkoutBillableSeats,
-    effectiveBillingContext.organizationId,
-    chatService,
-    hasWantaSubscription,
-    onCheckoutOpened,
-    pendingWantaPaymentUrl,
-    t,
-  ])
+  }, [additionalSeats, chatService, onCheckoutOpened, overview, pendingWantaPaymentUrl, t])
 
   const handleSubscription = React.useCallback(
     async (plan: SubscriptionPlanTag, isCurrent: boolean) => {
@@ -418,7 +396,7 @@ export function CreditPurchaseModal({
                           wantaLoading !== null
                         }
                         variant={isCurrent ? "outline" : "default"}
-                        onClick={() => void handleWantaSubscription(plan.plan, isCurrent)}
+                        onClick={() => void handleWantaSubscription(plan.plan)}
                       >
                         {actionLoading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
                         {pendingWantaPaymentUrl
@@ -457,32 +435,26 @@ export function CreditPurchaseModal({
                       type="button"
                       variant="outline"
                       size="icon"
-                      disabled={
-                        !effectiveBillingContext.canManage ||
-                        billableSeats <= minimumBillableSeats ||
-                        wantaLoading !== null
-                      }
-                      onClick={() => setBillableSeats((count) => Math.max(minimumBillableSeats, count - 1))}
+                      disabled={!effectiveBillingContext.canManage || additionalSeats <= 0 || wantaLoading !== null}
+                      onClick={() => setAdditionalSeats((count) => Math.max(0, count - 1))}
                     >
                       <MinusIcon className="size-4" />
                     </Button>
                     <Input
                       className="w-24 text-center tabular-nums"
                       disabled={!effectiveBillingContext.canManage || wantaLoading !== null}
-                      min={minimumBillableSeats}
+                      min={0}
                       step={1}
                       type="number"
-                      value={billableSeats}
-                      onChange={(event) =>
-                        setBillableSeats(normalizeSeats(event.currentTarget.value, minimumBillableSeats))
-                      }
+                      value={additionalSeats}
+                      onChange={(event) => setAdditionalSeats(normalizeSeats(event.currentTarget.value, 0))}
                     />
                     <Button
                       type="button"
                       variant="outline"
                       size="icon"
                       disabled={!effectiveBillingContext.canManage || wantaLoading !== null}
-                      onClick={() => setBillableSeats((count) => count + 1)}
+                      onClick={() => setAdditionalSeats((count) => count + 1)}
                     >
                       <PlusIcon className="size-4" />
                     </Button>
@@ -494,7 +466,11 @@ export function CreditPurchaseModal({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!effectiveBillingContext.canManage || wantaLoading !== null}
+                  disabled={
+                    !effectiveBillingContext.canManage ||
+                    wantaLoading !== null ||
+                    (!pendingWantaPaymentUrl && additionalSeats === currentAdditionalSeats)
+                  }
                   onClick={() => void handleWantaSeats()}
                 >
                   {wantaLoading === "seats" ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}

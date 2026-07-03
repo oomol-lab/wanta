@@ -11,6 +11,8 @@ import type {
   SubscriptionPlanTag,
   SubscriptionSchedule,
   SubscriptionStatus,
+  WantaSubscriptionChangePayload,
+  WantaSubscriptionUpdateResult,
   WantaPendingPaymentResult,
   WantaSubscriptionPlan,
 } from "../../electron/chat/common.ts"
@@ -153,6 +155,37 @@ function readWantaPendingPayment(payload: unknown): WantaPendingPaymentResult | 
     currency: readStringField(record, ["currency"]),
     pendingUpdate: readBooleanField(record, ["pendingUpdate", "pending_update"]),
     pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
+  }
+}
+
+function readWantaSubscriptionUpdate(payload: unknown): WantaSubscriptionUpdateResult {
+  const source = unwrapConsoleData<unknown>(payload)
+  if (!source || typeof source !== "object") {
+    throw new Error("Wanta subscription response is invalid.")
+  }
+  const record = source as Record<string, unknown>
+  return {
+    subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]) ?? "",
+    status: readStringField(record, ["status"]) ?? "",
+    plan: isWantaSubscriptionPlan(record["plan"]) ? record["plan"] : null,
+    additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
+    targetPlan: isWantaSubscriptionPlan(record["targetPlan"])
+      ? record["targetPlan"]
+      : isWantaSubscriptionPlan(record["target_plan"])
+        ? record["target_plan"]
+        : null,
+    targetAdditionalSeats: readIntegerField(record, ["targetAdditionalSeats", "target_additional_seats"]),
+    currentPeriodEnd: readTimestampField(record, ["currentPeriodEnd", "current_period_end"]) ?? 0,
+    latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
+    paymentRequired: readBooleanField(record, ["paymentRequired", "payment_required"]),
+    paymentURL: readStringField(record, ["paymentURL", "paymentUrl", "payment_url"]),
+    invoiceStatus: readStringField(record, ["invoiceStatus", "invoice_status"]),
+    amountRemaining: readOptionalNumberField(record, ["amountRemaining", "amount_remaining"]),
+    currency: readStringField(record, ["currency"]),
+    pendingUpdate: readBooleanField(record, ["pendingUpdate", "pending_update"]),
+    pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
+    scheduledUpdate: readBooleanField(record, ["scheduledUpdate", "scheduled_update"]),
+    scheduledEffectiveAt: readOptionalTimestampField(record, ["scheduledEffectiveAt", "scheduled_effective_at"]),
   }
 }
 
@@ -628,6 +661,20 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
   }
 }
 
+export async function updateWantaSubscription(
+  payload: WantaSubscriptionChangePayload,
+): Promise<WantaSubscriptionUpdateResult> {
+  const url = new URL("/api/user/subscriptions/wanta", consoleServerBaseUrl)
+  return readWantaSubscriptionUpdate(
+    await oomolFetchJson<unknown>(url, {
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      timeoutMs: billingRequestTimeoutMs,
+    }),
+  )
+}
+
 export function billingPageUrl(target: BillingPageTarget): string {
   return billingUrl(target)
 }
@@ -654,33 +701,6 @@ export function subscriptionCheckoutUrl(plan: SubscriptionPlanTag, userId?: stri
   url.searchParams.set("plan", plan)
   if (userId) {
     url.searchParams.set("user_id", userId)
-  }
-  return ensureHttpUrl(url.toString())
-}
-
-/** Wanta 订阅结账页：前端使用总席位心智，兼容当前 console 的 additional_seats 参数。 */
-export function wantaSubscriptionCheckoutUrl({
-  billableSeats,
-  organizationId,
-  plan,
-}: {
-  billableSeats: number
-  organizationId?: string
-  plan?: WantaSubscriptionPlan
-}): string {
-  const url = new URL("/api/user/subscriptions/wanta/page", consoleServerBaseUrl)
-  url.searchParams.set("client_platform", "chat-web")
-  url.searchParams.set("redirect", checkoutReturnUrl())
-  url.searchParams.set("source_page", checkoutReturnUrl())
-  if (plan) {
-    url.searchParams.set("plan", plan)
-  }
-  if (organizationId) {
-    url.searchParams.set("org_id", organizationId)
-  }
-  if (billableSeats > 0) {
-    url.searchParams.set("additional_seats", String(Math.floor(billableSeats)))
-    url.searchParams.set("billable_seats", String(Math.floor(billableSeats)))
   }
   return ensureHttpUrl(url.toString())
 }

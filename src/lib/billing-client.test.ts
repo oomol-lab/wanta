@@ -9,7 +9,7 @@ import {
   subscriptionCheckoutUrl,
   subscriptionPortalUrl,
   topUpCheckoutUrl,
-  wantaSubscriptionCheckoutUrl,
+  updateWantaSubscription,
   wantaSubscriptionPortalUrl,
 } from "./billing-client.ts"
 import { OomolHttpError } from "./oomol-http.ts"
@@ -107,22 +107,56 @@ describe("billing-client", () => {
     expect(requestedUrls[0]?.searchParams.get("product")).toBe("ai")
   })
 
-  it("builds the Wanta subscription page URL with organization and seat context", () => {
-    const url = new URL(
-      wantaSubscriptionCheckoutUrl({
-        billableSeats: 8,
-        organizationId: "org-1",
-        plan: "wanta_pro",
-      }),
-    )
+  it("posts Wanta plan changes without seat fields", async () => {
+    let requestBody = ""
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta")
+      requestBody = String(init?.body ?? "")
+      return Response.json({
+        data: {
+          additionalSeats: 0,
+          currentPeriodEnd: 0,
+          paymentURL: "https://console.example.com/wanta-checkout",
+          plan: "wanta_plus",
+          status: "active",
+          subscriptionID: "sub-1",
+          targetAdditionalSeats: 0,
+          targetPlan: "wanta_plus",
+        },
+        success: true,
+      })
+    })
 
-    expect(url.pathname).toBe("/api/user/subscriptions/wanta/page")
-    expect(url.searchParams.get("client_platform")).toBe("chat-web")
-    expect(url.searchParams.get("plan")).toBe("wanta_pro")
-    expect(url.searchParams.get("org_id")).toBe("org-1")
-    expect(url.searchParams.get("additional_seats")).toBe("8")
-    expect(url.searchParams.get("billable_seats")).toBe("8")
-    expect(new URL(url.searchParams.get("redirect") ?? "").pathname).toBe("/billing")
+    const result = await updateWantaSubscription({ plan: "wanta_plus" })
+
+    expect(JSON.parse(requestBody)).toEqual({ plan: "wanta_plus" })
+    expect(result.paymentURL).toBe("https://console.example.com/wanta-checkout")
+  })
+
+  it("posts Wanta seat changes without plan fields", async () => {
+    let requestBody = ""
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta")
+      requestBody = String(init?.body ?? "")
+      return Response.json({
+        data: {
+          additionalSeats: 1,
+          currentPeriodEnd: 0,
+          paymentURL: "https://console.example.com/wanta-seat-checkout",
+          plan: null,
+          status: "active",
+          subscriptionID: "sub-1",
+          targetAdditionalSeats: 1,
+          targetPlan: null,
+        },
+        success: true,
+      })
+    })
+
+    const result = await updateWantaSubscription({ additional_seats: 1 })
+
+    expect(JSON.parse(requestBody)).toEqual({ additional_seats: 1 })
+    expect(result.paymentURL).toBe("https://console.example.com/wanta-seat-checkout")
   })
 
   it("keeps the Wanta stripe portal endpoint contract", async () => {

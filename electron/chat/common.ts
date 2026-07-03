@@ -541,15 +541,49 @@ export interface SubscriptionStatus {
   plan: string | null
   features: string[]
   platforms: Record<string, string[]>
+  wanta?: WantaAdditionalSeatsData
 }
 
 export interface SubscriptionSchedule {
   plan: string
   scheduled: boolean
   reason?: "cancel" | "update"
-  targetPlan?: string
+  targetPlan?: string | null
+  targetAdditionalSeats?: number | null
   cancelAt?: number
   currentPeriodEnd?: number
+  scheduledEffectiveAt?: number | null
+}
+
+export interface WantaAdditionalSeatsData {
+  additionalSeats: number
+  updatedAt: number | null
+  cached: boolean
+}
+
+export type WantaSubscriptionChangePayload = {
+  additional_seats?: number
+  plan?: WantaSubscriptionPlan | null
+}
+
+export interface WantaSubscriptionUpdateResult {
+  subscriptionID: string
+  status: string
+  plan: WantaSubscriptionPlan | null
+  additionalSeats: number
+  targetPlan: WantaSubscriptionPlan | null
+  targetAdditionalSeats: number
+  currentPeriodEnd: number
+  latestInvoiceID: string | null
+  paymentRequired: boolean
+  paymentURL: string | null
+  invoiceStatus: string | null
+  amountRemaining: number | null
+  currency: string | null
+  pendingUpdate: boolean
+  pendingUpdateExpiresAt: number | null
+  scheduledUpdate: boolean
+  scheduledEffectiveAt: number | null
 }
 
 export interface WantaPendingPaymentResult {

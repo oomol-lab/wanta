@@ -53,4 +53,16 @@ describe("resolveUserFacingError", () => {
       titleKey: "error.connections.title",
     })
   })
+
+  it("preserves a short message while keeping extended diagnostics copyable", () => {
+    const error = Object.assign(new Error("Package version already exists."), {
+      diagnostics: "command: oo skills publish /tmp/demo\nstderr: Package version already exists.",
+    })
+
+    expect(resolveUserFacingError(error, { area: "skills", preserveMessage: true })).toMatchObject({
+      descriptionText: "Package version already exists.",
+      diagnostics: "command: oo skills publish /tmp/demo\nstderr: Package version already exists.",
+      kind: "operation_failed",
+    })
+  })
 })

@@ -11,6 +11,7 @@ import {
   createRegistrySkillVersionCheck,
   createRegistrySkillCheckUpdateArgs,
   createRegistrySkillVersionCheckFromUpdateResult,
+  createSkillPublishErrorMessage,
   normalizePublicSkillPackageCatalog,
   normalizeRegistrySkillPackageInfo,
   createSkillSearchArgs,
@@ -346,6 +347,34 @@ test("createPublishSkillArgs publishes a Skill path non-interactively", () => {
     "--visibility",
     "public",
   ])
+})
+
+test("createSkillPublishErrorMessage prefers publish stderr details", () => {
+  assert.equal(
+    createSkillPublishErrorMessage({
+      message: "Command failed",
+      stderr: "Package version already exists.",
+      stdout: "ignored",
+    }),
+    "Package version already exists.",
+  )
+})
+
+test("createSkillPublishErrorMessage extracts json failure messages", () => {
+  assert.equal(
+    createSkillPublishErrorMessage({
+      stderr: JSON.stringify({ error: { message: "Package name is invalid." } }),
+      stdout: "",
+    }),
+    "Package name is invalid.",
+  )
+  assert.equal(
+    createSkillPublishErrorMessage({
+      stderr: "",
+      stdout: JSON.stringify({ errors: [{ message: "Missing SKILL.md." }] }),
+    }),
+    "Missing SKILL.md.",
+  )
 })
 
 test("createRegistrySkillVersionCheck detects exact package update", () => {

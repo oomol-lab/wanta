@@ -39,6 +39,7 @@ export interface ConnectionProviderSummary {
   connectedUpdatedAt?: number
   displayName: string
   iconUrl?: string
+  oauthClientConfig?: ConnectionProviderOAuthClientConfigSummary | null
   service: string
   status: ConnectionProviderStatus
 }
@@ -107,6 +108,53 @@ export interface ConnectionCredentialField {
 
 export type ConnectionField = ConnectionCredentialField
 
+export type ConnectionOAuthClientConfigPolicy = "default_only" | "user_required"
+export type ConnectionOAuthClientConfigNextConnectSource = "custom" | "default" | "unconfigured"
+export type ConnectionOAuthTokenEndpointAuthMethod = "client_secret_basic" | "client_secret_post" | "none"
+
+export interface ConnectionOAuthClientConfigFieldDefinition {
+  connectOnly?: boolean
+  defaultValue?: string | string[]
+  description?: string
+  inputType: "password" | "string_array" | "text" | "textarea"
+  key: string
+  label: string
+  location: "extra" | "secretExtra"
+  placeholder?: string
+  required: boolean
+  secret: boolean
+}
+
+export interface ConnectionProviderOAuthClientConfigSummary {
+  clientConfigFields: ConnectionOAuthClientConfigFieldDefinition[]
+  clientConfigPolicy: ConnectionOAuthClientConfigPolicy
+  configured: boolean
+  nextConnectSource: ConnectionOAuthClientConfigNextConnectSource
+  oauthScopes: string[]
+  service: string
+  tokenEndpointAuthMethod: ConnectionOAuthTokenEndpointAuthMethod
+}
+
+export interface ConnectionUserOAuthClientConfigSummary {
+  clientConfigFields: ConnectionOAuthClientConfigFieldDefinition[]
+  clientConfigPolicy: ConnectionOAuthClientConfigPolicy
+  clientId: string | null
+  configured: boolean
+  expectedRedirectUri: string | null
+  extra?: Record<string, unknown>
+  hasSecretExtra?: Record<string, boolean>
+  nextConnectSource: ConnectionOAuthClientConfigNextConnectSource
+  service: string
+  tokenEndpointAuthMethod: ConnectionOAuthTokenEndpointAuthMethod
+}
+
+export interface UpsertConnectionOAuthClientConfigPayload {
+  clientId: string
+  clientSecret?: string
+  extra?: Record<string, unknown>
+  secretExtra?: Record<string, string>
+}
+
 export interface ConnectionApiKeyConfig {
   description?: string
   extraFields: ConnectionCredentialField[]
@@ -134,6 +182,7 @@ export interface ConnectionProviderDetail extends ConnectionProviderSummary {
   customCredentialConfig: ConnectionCustomCredentialConfig | null
   federatedCredentialConfig: ConnectionFederatedConfig | null
   homepageUrl?: string
+  oauthClientConfig: ConnectionProviderOAuthClientConfigSummary | null
 }
 
 export interface ConnectionSummary {
@@ -156,7 +205,13 @@ export interface ConnectionSummaryRequest {
 }
 
 export type ConnectionConnectInput =
-  | { authType: "oauth2"; service: string; appId?: string }
+  | {
+      appId?: string
+      authType: "oauth2"
+      extra?: Record<string, unknown>
+      secretExtra?: Record<string, string>
+      service: string
+    }
   | {
       apiKey: string
       appId?: string

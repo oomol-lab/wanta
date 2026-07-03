@@ -4,7 +4,9 @@ import type {
   ConnectionExecutionLogSummary,
   ConnectionProviderDetail,
   ConnectionSummary,
+  ConnectionUserOAuthClientConfigSummary,
   ConnectionWorkspace,
+  UpsertConnectionOAuthClientConfigPayload,
 } from "../../electron/connections/common.ts"
 import type { RawApp, RawAppListMeta, RawProvider } from "../../electron/connections/summary.ts"
 
@@ -20,6 +22,7 @@ import {
   mergeConnectionSummary,
   normalizeApiKeyConfig,
   normalizeCustomCredentialConfig,
+  normalizeOAuthClientConfig,
   normalizeProvider,
 } from "../../electron/connections/summary.ts"
 import { normalizeUsageSummary } from "../../electron/connections/usage.ts"
@@ -56,10 +59,16 @@ interface ConnectorCacheEntry {
 
 const connectorGetCache = new Map<string, ConnectorCacheEntry>()
 const connectorGetInFlight = new Map<string, Promise<{ data: unknown; meta: unknown }>>()
+const oauthConnectInFlight = new Map<string, Promise<OAuthConnectStart>>()
 
-export function clearConnectorCache(): void {
+function clearConnectorReadCache(): void {
   connectorGetCache.clear()
   connectorGetInFlight.clear()
+}
+
+export function clearConnectorCache(): void {
+  clearConnectorReadCache()
+  oauthConnectInFlight.clear()
 }
 
 function asString(value: unknown): string | undefined {
@@ -133,6 +142,27 @@ async function requestConnector<T>(
   const headers: Record<string, string> = {
     "content-type": "application/json",
     ...workspaceHeaders(workspace),
+    ...init.headers,
+  }
+  const response = await oomolFetch(`${connectorBaseUrl}${path}`, {
+    ...init,
+    headers,
+    timeoutMs: connectorRequestTimeoutMs,
+  })
+  const payload = await readConnectorPayload(response)
+  if (!response.ok) {
+    throw new Error(`Connector ${path} failed: ${extractEnvelopeMessage(payload) ?? `HTTP ${response.status}`}`)
+  }
+  return unwrapConnectorEnvelope<T>(payload)
+}
+
+/** 用户级连接器请求：OAuth client config 不随组织 workspace 变化。 */
+async function requestConnectorGlobal<T>(
+  path: string,
+  init: Omit<RequestInit, "headers"> & { headers?: Record<string, string> } = {},
+): Promise<{ data: T; meta: unknown }> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
     ...init.headers,
   }
   const response = await oomolFetch(`${connectorBaseUrl}${path}`, {
@@ -272,6 +302,8 @@ export async function getConnectionProviderDetail(
     customCredentialConfig: normalizeCustomCredentialConfig(providerResult.data.customCredentialConfig),
     federatedCredentialConfig: null,
     homepageUrl: asString(providerResult.data.homepageUrl),
+    oauthClientConfig:
+      provider.oauthClientConfig ?? normalizeOAuthClientConfig(providerResult.data.oauthClientConfig, service),
   }
 }
 
@@ -302,8 +334,32 @@ export interface OAuthConnectStart {
   authorizationUrl: string
 }
 
+function oauthConnectInFlightKey(
+  input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
+  workspace: ConnectionWorkspace,
+): string {
+  // connector 会按同一 owner + service 让旧 state 失效；并发 POST 也按 service 粒度合并。
+  return `${connectionWorkspaceKey(workspace)}\0${input.service}`
+}
+
 /** oauth2 连接：POST 取授权 URL（渲染层随后经 openExternalUrl IPC 交系统浏览器打开）。 */
 export async function startOAuthConnect(
+  input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
+  workspace: ConnectionWorkspace,
+): Promise<OAuthConnectStart> {
+  const inFlightKey = oauthConnectInFlightKey(input, workspace)
+  const inFlight = oauthConnectInFlight.get(inFlightKey)
+  if (inFlight) {
+    return inFlight
+  }
+  const request = requestOAuthConnect(input, workspace).finally(() => {
+    oauthConnectInFlight.delete(inFlightKey)
+  })
+  oauthConnectInFlight.set(inFlightKey, request)
+  return request
+}
+
+async function requestOAuthConnect(
   input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
   workspace: ConnectionWorkspace,
 ): Promise<OAuthConnectStart> {
@@ -311,14 +367,49 @@ export async function startOAuthConnect(
   const path = input.appId ? `/v1/apps/by-id/${encodeURIComponent(input.appId)}/connect` : `/v1/apps/${service}/connect`
   const result = await requestConnector<{ authorizationUrl?: unknown }>(path, workspace, {
     method: "POST",
-    body: JSON.stringify({ returnUri: createConnectorOAuthReturnUri(consoleBaseUrl, connectorOAuthReturnProtocol()) }),
+    body: JSON.stringify({
+      returnUri: createConnectorOAuthReturnUri(consoleBaseUrl, connectorOAuthReturnProtocol()),
+      extra: input.extra,
+      secretExtra: input.secretExtra,
+    }),
   })
   const authorizationUrl = asString(result.data.authorizationUrl)
   if (!authorizationUrl) {
     throw new Error("Connector connect request did not return an authorization URL")
   }
-  clearConnectorCache()
+  clearConnectorReadCache()
   return { authorizationUrl: parseConnectorAuthorizationUrl(authorizationUrl).toString() }
+}
+
+export async function listOAuthClientConfigs(): Promise<ConnectionUserOAuthClientConfigSummary[]> {
+  const result = await requestConnectorGlobal<ConnectionUserOAuthClientConfigSummary[]>("/v1/oauth-client-configs", {
+    method: "GET",
+  })
+  return result.data
+}
+
+export async function getOAuthClientConfig(service: string): Promise<ConnectionUserOAuthClientConfigSummary | null> {
+  const normalizedService = service.trim()
+  if (!normalizedService) {
+    return null
+  }
+  const configs = await listOAuthClientConfigs()
+  return configs.find((config) => config.service === normalizedService) ?? null
+}
+
+export async function upsertOAuthClientConfig(
+  service: string,
+  payload: UpsertConnectionOAuthClientConfigPayload,
+): Promise<ConnectionUserOAuthClientConfigSummary> {
+  const result = await requestConnectorGlobal<ConnectionUserOAuthClientConfigSummary>(
+    `/v1/oauth-client-configs/${encodeURIComponent(service)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+  )
+  clearConnectorReadCache()
+  return result.data
 }
 
 /** 非 oauth 连接（api_key / custom_credential / federated / no_auth）：POST 即完成。 */
@@ -363,17 +454,17 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
       throw new Error("Use startOAuthConnect for oauth2 providers.")
     }
   }
-  clearConnectorCache()
+  clearConnectorReadCache()
 }
 
 export async function disconnectProvider(service: string, workspace: ConnectionWorkspace): Promise<void> {
   await requestConnector(`/v1/apps/${encodeURIComponent(service)}`, workspace, { method: "DELETE" })
-  clearConnectorCache()
+  clearConnectorReadCache()
 }
 
 export async function disconnectAccount(appId: string, workspace: ConnectionWorkspace): Promise<void> {
   await requestConnector(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace, { method: "DELETE" })
-  clearConnectorCache()
+  clearConnectorReadCache()
 }
 
 export async function updateAlias(appId: string, alias: string, workspace: ConnectionWorkspace): Promise<void> {
@@ -381,7 +472,7 @@ export async function updateAlias(appId: string, alias: string, workspace: Conne
     method: "PATCH",
     body: JSON.stringify({ alias: alias.trim() === "" ? null : alias.trim() }),
   })
-  clearConnectorCache()
+  clearConnectorReadCache()
 }
 
 export async function setDefaultAccount(service: string, appId: string, workspace: ConnectionWorkspace): Promise<void> {
@@ -389,5 +480,5 @@ export async function setDefaultAccount(service: string, appId: string, workspac
     method: "PUT",
     body: JSON.stringify({ appId }),
   })
-  clearConnectorCache()
+  clearConnectorReadCache()
 }

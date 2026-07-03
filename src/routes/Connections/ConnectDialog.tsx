@@ -2,11 +2,25 @@ import type {
   ConnectionAuthType,
   ConnectionConnectInput,
   ConnectionCredentialField,
+  ConnectionOAuthClientConfigFieldDefinition,
   ConnectionProviderDetail,
+  ConnectionUserOAuthClientConfigSummary,
 } from "../../../electron/connections/common.ts"
+import type { OAuthClientConfigDraft, OAuthClientConfigFieldDraftValue } from "./oauth-client-config.ts"
+import type { TranslateFn } from "@/i18n/i18n"
 
-import { KeyRound } from "lucide-react"
+import { Copy, KeyRound, Save } from "lucide-react"
 import * as React from "react"
+import {
+  buildOAuthClientConfigPayload,
+  buildOAuthConnectPayload,
+  buildOAuthConnectViewModel,
+  createOAuthClientConfigDraft,
+  getOAuthClientConfigFieldDefinitions,
+  resolveProviderOAuthClientConfig,
+  validateOAuthFields,
+  validateOAuthPersistentFields,
+} from "./oauth-client-config.ts"
 import { Loader } from "@/components/ai-elements/loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,12 +29,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useT } from "@/i18n/i18n"
+import { writeClipboardText } from "@/lib/clipboard"
+import { upsertOAuthClientConfig } from "@/lib/connections-client"
 
 const URL_RE = /(https?:\/\/[^\s）)]+)/g
 const IS_URL = /^https?:\/\//
 const PRIMARY_KEY = "__primary__"
 
 type CredentialMode = "api_key" | "custom_credential" | "federated"
+type DialogAuthMode = CredentialMode | "oauth2"
 
 function LinkifiedText({ text, onOpenUrl }: { text: string; onOpenUrl: (url: string) => void }) {
   const parts = text.split(URL_RE)
@@ -41,6 +58,96 @@ function LinkifiedText({ text, onOpenUrl }: { text: string; onOpenUrl: (url: str
         ),
       )}
     </>
+  )
+}
+
+function Notice({ children }: { children: React.ReactNode }) {
+  return <div className="oo-text-caption rounded-md border bg-muted/40 px-3 py-2">{children}</div>
+}
+
+function oauthBlockedReasonLabel(reason: string, t: TranslateFn): string {
+  if (reason === "oauth-client-config-required") {
+    return t("connections.oauthClientRequired")
+  }
+  return t("connections.oauthServiceUnavailable")
+}
+
+function ReadOnlyField({ description, label, value }: { description?: string; label: string; value: string }) {
+  const t = useT()
+  return (
+    <div className="grid gap-1.5">
+      <Label className="oo-text-label">{label}</Label>
+      <div className="flex min-w-0 items-center gap-2">
+        <Input readOnly value={value} className="font-mono text-xs" />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="size-9 shrink-0"
+          aria-label={t("connections.copy")}
+          title={t("connections.copy")}
+          onClick={() => void writeClipboardText(value)}
+        >
+          <Copy className="size-4" />
+        </Button>
+      </div>
+      {description ? <span className="oo-text-caption">{description}</span> : null}
+    </div>
+  )
+}
+
+function OAuthClientField({
+  draft,
+  field,
+  hasStoredSecret,
+  onDraftChange,
+}: {
+  draft: OAuthClientConfigDraft
+  field: ConnectionOAuthClientConfigFieldDefinition
+  hasStoredSecret: boolean
+  onDraftChange: (draft: OAuthClientConfigDraft) => void
+}) {
+  const t = useT()
+  const record = field.location === "extra" ? draft.extra : draft.secretExtra
+  const rawValue = record[field.key]
+  const value = Array.isArray(rawValue) ? rawValue.join("\n") : (rawValue ?? "")
+  const updateValue = (nextValue: string): void => {
+    const nextRecord = {
+      ...record,
+      [field.key]: field.inputType === "string_array" ? nextValue.split("\n") : nextValue,
+    } satisfies Record<string, OAuthClientConfigFieldDraftValue>
+    onDraftChange(field.location === "extra" ? { ...draft, extra: nextRecord } : { ...draft, secretExtra: nextRecord })
+  }
+  const multiline = field.inputType === "textarea" || field.inputType === "string_array"
+
+  return (
+    <div className="grid gap-1.5">
+      <Label className="oo-text-label flex items-center gap-1.5">
+        {field.label}
+        {field.required ? <span className="text-destructive">*</span> : null}
+        {field.secret ? <Badge variant="outline">secret</Badge> : null}
+      </Label>
+      {multiline ? (
+        <Textarea
+          value={value}
+          placeholder={field.placeholder}
+          className="min-h-24"
+          onChange={(event) => updateValue(event.target.value)}
+        />
+      ) : (
+        <Input
+          type={field.inputType === "password" ? "password" : "text"}
+          value={value}
+          placeholder={field.placeholder}
+          onChange={(event) => updateValue(event.target.value)}
+        />
+      )}
+      {field.description || hasStoredSecret ? (
+        <span className="oo-text-caption">
+          {[field.description, hasStoredSecret ? t("connections.savedCredentialValue") : ""].filter(Boolean).join(" ")}
+        </span>
+      ) : null}
+    </div>
   )
 }
 
@@ -83,12 +190,17 @@ function isCredentialMode(authType: ConnectionAuthType): authType is CredentialM
   return authType === "api_key" || authType === "custom_credential" || authType === "federated"
 }
 
+function isDialogAuthMode(authType: ConnectionAuthType): authType is DialogAuthMode {
+  return authType === "oauth2" || isCredentialMode(authType)
+}
+
 export interface ConnectDialogProps {
   open: boolean
   detail: ConnectionProviderDetail | null
-  authType: CredentialMode | null
+  authType: DialogAuthMode | null
   busy: boolean
   appId?: string
+  oauthClientConfig?: ConnectionUserOAuthClientConfigSummary | null
   onClose: () => void
   onSubmit: (input: ConnectionConnectInput) => void
   onOpenUrl: (url: string) => void
@@ -100,6 +212,7 @@ export function ConnectDialog({
   authType,
   busy,
   appId,
+  oauthClientConfig,
   onClose,
   onSubmit,
   onOpenUrl,
@@ -107,16 +220,216 @@ export function ConnectDialog({
   const t = useT()
   const [values, setValues] = React.useState<Record<string, string>>({})
   const [note, setNote] = React.useState("")
+  const [savedOAuthClientConfig, setSavedOAuthClientConfig] =
+    React.useState<ConnectionUserOAuthClientConfigSummary | null>(oauthClientConfig ?? null)
+  const [oauthDraft, setOAuthDraft] = React.useState<OAuthClientConfigDraft>(() =>
+    createOAuthClientConfigDraft({
+      providerOAuthClientConfig: detail?.oauthClientConfig,
+      userOAuthClientConfig: oauthClientConfig,
+    }),
+  )
+  const [oauthBaselineDraft, setOAuthBaselineDraft] = React.useState<OAuthClientConfigDraft>(() =>
+    createOAuthClientConfigDraft({
+      providerOAuthClientConfig: detail?.oauthClientConfig,
+      userOAuthClientConfig: oauthClientConfig,
+    }),
+  )
+  const [oauthBusy, setOAuthBusy] = React.useState<"save" | null>(null)
+  const [formError, setFormError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (open) {
       setValues({})
       setNote("")
+      setFormError(null)
     }
   }, [open, detail?.service, authType])
 
-  if (!detail || !authType || !isCredentialMode(authType)) {
+  React.useEffect(() => {
+    if (!open || authType !== "oauth2") {
+      return
+    }
+    setSavedOAuthClientConfig(oauthClientConfig ?? null)
+    const nextDraft = createOAuthClientConfigDraft({
+      providerOAuthClientConfig: detail?.oauthClientConfig,
+      userOAuthClientConfig: oauthClientConfig,
+    })
+    setOAuthDraft(nextDraft)
+    setOAuthBaselineDraft(nextDraft)
+    setOAuthBusy(null)
+    setFormError(null)
+  }, [authType, detail?.oauthClientConfig, detail?.service, oauthClientConfig, open])
+
+  if (!detail || !authType || !isDialogAuthMode(authType)) {
     return null
+  }
+
+  if (authType === "oauth2") {
+    const resolvedProviderOAuthConfig = resolveProviderOAuthClientConfig(
+      detail.oauthClientConfig,
+      savedOAuthClientConfig,
+    )
+    const fieldDefinitions = getOAuthClientConfigFieldDefinitions(resolvedProviderOAuthConfig, savedOAuthClientConfig)
+    const viewModel = buildOAuthConnectViewModel({
+      baselineDraft: oauthBaselineDraft,
+      currentDraft: oauthDraft,
+      providerOAuthClientConfig: detail.oauthClientConfig,
+      userOAuthClientConfig: savedOAuthClientConfig,
+    })
+    const connectPayload = buildOAuthConnectPayload({ draft: oauthDraft, fieldDefinitions })
+    const missingConnectFields = !validateOAuthFields(viewModel.connectOnlyFields, oauthDraft)
+    const connectDisabled = busy || oauthBusy !== null || !viewModel.canConnect || missingConnectFields
+
+    const saveOAuth = async (): Promise<void> => {
+      if (!validateOAuthPersistentFields(viewModel, oauthDraft, savedOAuthClientConfig)) {
+        setFormError(t("connections.fillRequiredFields"))
+        return
+      }
+
+      setOAuthBusy("save")
+      setFormError(null)
+      try {
+        const savedConfig = await upsertOAuthClientConfig(
+          detail.service,
+          buildOAuthClientConfigPayload({
+            draft: oauthDraft,
+            fieldDefinitions,
+            tokenEndpointAuthMethod: resolvedProviderOAuthConfig?.tokenEndpointAuthMethod,
+          }),
+        )
+        const nextDraft = createOAuthClientConfigDraft({
+          providerOAuthClientConfig: detail.oauthClientConfig,
+          userOAuthClientConfig: savedConfig,
+          previousDraft: oauthDraft,
+        })
+        setSavedOAuthClientConfig(savedConfig)
+        setOAuthDraft(nextDraft)
+        setOAuthBaselineDraft(nextDraft)
+      } catch (error) {
+        setFormError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setOAuthBusy(null)
+      }
+    }
+
+    const submitOAuth = (): void => {
+      if (connectDisabled) {
+        if (missingConnectFields) {
+          setFormError(t("connections.fillRequiredFields"))
+        }
+        return
+      }
+      setFormError(null)
+      onSubmit({
+        appId,
+        authType: "oauth2",
+        service: detail.service,
+        extra: connectPayload.extra,
+        secretExtra: connectPayload.secretExtra,
+      })
+    }
+
+    return (
+      <Dialog
+        open={open}
+        onClose={onClose}
+        closeLabel={t("common.cancel")}
+        title={t("connections.connectTitle", { name: detail.displayName })}
+        className="max-w-2xl"
+        footer={
+          <>
+            <Button variant="outline" onClick={onClose}>
+              {t("common.cancel")}
+            </Button>
+            <Button className="gap-1.5" disabled={connectDisabled} onClick={submitOAuth}>
+              {busy ? <Loader size={16} /> : <KeyRound className="size-4" />}
+              {appId ? t("connections.reconnect") : t("connections.connect")}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-4">
+          {viewModel.blockedReason ? <Notice>{oauthBlockedReasonLabel(viewModel.blockedReason, t)}</Notice> : null}
+          {viewModel.persistentDirty ? <Notice>{t("connections.saveOAuthBeforeConnect")}</Notice> : null}
+          {viewModel.showPersistentSection ? (
+            <section className="grid gap-3 rounded-lg border p-3">
+              <h3 className="oo-text-label">{t("connections.oauthClientConfig")}</h3>
+              {savedOAuthClientConfig?.expectedRedirectUri ? (
+                <ReadOnlyField
+                  description={t("connections.redirectUriHelp")}
+                  label={t("connections.redirectUri")}
+                  value={savedOAuthClientConfig.expectedRedirectUri}
+                />
+              ) : null}
+              <div className="grid gap-1.5">
+                <Label className="oo-text-label">
+                  {t("connections.clientId")}
+                  <span className="text-destructive"> *</span>
+                </Label>
+                <Input
+                  value={oauthDraft.clientId}
+                  onChange={(event) => setOAuthDraft({ ...oauthDraft, clientId: event.target.value })}
+                />
+              </div>
+              {viewModel.requiresClientSecret ? (
+                <div className="grid gap-1.5">
+                  <Label className="oo-text-label">
+                    {t("connections.clientSecret")}
+                    <span className="text-destructive"> *</span>
+                  </Label>
+                  <Input
+                    type="password"
+                    value={oauthDraft.clientSecret}
+                    onChange={(event) => setOAuthDraft({ ...oauthDraft, clientSecret: event.target.value })}
+                  />
+                  {savedOAuthClientConfig?.clientId ? (
+                    <span className="oo-text-caption">{t("connections.clientSecretHint")}</span>
+                  ) : null}
+                </div>
+              ) : (
+                <Notice>{t("connections.publicOAuthClient")}</Notice>
+              )}
+              {viewModel.persistentFields.map((field) => (
+                <OAuthClientField
+                  key={`${field.location}-${field.key}`}
+                  draft={oauthDraft}
+                  field={field}
+                  hasStoredSecret={Boolean(savedOAuthClientConfig?.hasSecretExtra?.[field.key])}
+                  onDraftChange={setOAuthDraft}
+                />
+              ))}
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={oauthBusy !== null}
+                  onClick={saveOAuth}
+                >
+                  {oauthBusy === "save" ? <Loader size={16} /> : <Save className="size-4" />}
+                  {t("connections.saveOAuthClient")}
+                </Button>
+              </div>
+            </section>
+          ) : null}
+          {viewModel.showConnectOnlySection ? (
+            <section className="grid gap-3 rounded-lg border p-3">
+              <h3 className="oo-text-label">{t("connections.connectOptions")}</h3>
+              {viewModel.connectOnlyFields.map((field) => (
+                <OAuthClientField
+                  key={`${field.location}-${field.key}`}
+                  draft={oauthDraft}
+                  field={field}
+                  hasStoredSecret={false}
+                  onDraftChange={setOAuthDraft}
+                />
+              ))}
+            </section>
+          ) : null}
+          {formError ? <div className="oo-text-caption text-destructive">{formError}</div> : null}
+        </div>
+      </Dialog>
+    )
   }
 
   const { primary, fields } = getCredentialFields(detail, authType)

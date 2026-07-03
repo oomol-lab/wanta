@@ -29,7 +29,7 @@ import { Loader } from "@/components/ai-elements/loader"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { isConnectionPollingTarget } from "@/hooks/connection-oauth-pending"
+import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -273,7 +273,7 @@ function ConnectionPanel({
   const usableAuthTypes = authTypes.length > 0 ? authTypes : currentAuthType ? [currentAuthType] : []
   const activeAuthType =
     selectedAuthType && usableAuthTypes.includes(selectedAuthType) ? selectedAuthType : usableAuthTypes[0]
-  const isPolling = isConnectionPollingTarget(polling, provider.service)
+  const isPolling = isConnectionServicePollingTarget(polling, provider.service)
 
   React.useEffect(() => {
     setSelectedAuthType(currentAuthType)

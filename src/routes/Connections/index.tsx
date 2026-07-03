@@ -14,6 +14,7 @@ import { ArrowLeft, ChevronDown, X } from "lucide-react"
 import * as React from "react"
 import { ConnectDialog } from "./ConnectDialog.tsx"
 import { getConnectionDetailErrorNotice, getConnectionListErrorNotice } from "./connection-error-display.ts"
+import { compareConnectionProvidersByRecommendation } from "./connection-provider-ranking.ts"
 import {
   buildCategoryFilters,
   categoryFilterLimit,
@@ -128,7 +129,9 @@ export function ConnectionsPanel({
     [activeFilter, providers],
   )
   const filteredProviders = React.useMemo(() => {
-    return catalogProviders.filter((provider) => matchesProviderQuery(provider, normalizedQuery, t))
+    return catalogProviders
+      .filter((provider) => matchesProviderQuery(provider, normalizedQuery, t))
+      .sort(compareConnectionProvidersByRecommendation)
   }, [catalogProviders, normalizedQuery, t])
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)

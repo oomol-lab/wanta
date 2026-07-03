@@ -472,13 +472,13 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         setActivity(e.sessionId, e)
       }),
       chatService.serverEvents.on("agentConnectionChanged", (e) => {
-        if (e.status === "reconnecting" || e.status === "runtime_restarting") {
+        if (e.status === "reconnecting" || e.status === "runtime_restarting" || e.status === "reconnected") {
           setStatus(e.sessionId, "streaming")
           setActivity(e.sessionId, undefined)
           patch(e.sessionId, (msgs) => setConnectionStatusPart(msgs, e))
           return
         }
-        if (e.status === "runtime_recovered" || e.status === "runtime_failed") {
+        if (e.status === "failed" || e.status === "runtime_recovered" || e.status === "runtime_failed") {
           patch(e.sessionId, (msgs) => setConnectionStatusPart(msgs, e))
         }
         if (e.status === "failed" || e.status === "runtime_recovered" || e.status === "runtime_failed") {

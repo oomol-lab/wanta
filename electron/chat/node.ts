@@ -371,11 +371,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     const terminalMessage =
       status.status === "failed"
-        ? "OpenCode connection was interrupted. Please retry."
+        ? "CHAT_COMPLETION_INTERRUPTED: OpenCode event stream reconnection failed."
         : status.status === "runtime_recovered"
-          ? "OpenCode runtime restarted. Please retry this message."
+          ? "CHAT_COMPLETION_INTERRUPTED: OpenCode runtime restarted before this turn completed."
           : status.status === "runtime_failed"
-            ? "OpenCode runtime could not restart. Please sign out and in again."
+            ? "CHAT_COMPLETION_INTERRUPTED: OpenCode runtime could not restart."
             : null
     for (const sessionId of sessionIds) {
       const messageId = this.activeAssistantMessages.get(sessionId)

@@ -161,7 +161,7 @@ export function setConnectionStatusPart(msgs: ChatMessage[], event: AgentConnect
         return "connectionFailed"
     }
   })()
-  const messageId = event.messageId ?? latestAssistantMessageId(msgs) ?? `local-assistant-status-${Date.now()}`
+  const messageId = event.messageId ?? `local-assistant-status-${event.createdAt}`
   const part: ChatMessagePart = {
     kind: "status",
     partId: `connection-${event.status}-${event.attempt ?? 0}-${event.createdAt}`,

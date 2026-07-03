@@ -145,10 +145,13 @@ export interface SkillDetailContentProps {
   copySkillPath: (pathname: string) => void
   inventoryInitialLoading: boolean
   isRemovingSkill: boolean
+  isSkillLinkedToOrganization: boolean
   openSkillFolder: (pathname: string) => void
-  publishSkill: (skill: ManagedSkillGroup) => Promise<void>
+  publishSkill: (skill: ManagedSkillGroup) => void
   publishingSkillId: string | null
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
+  requestOrganizationLink: (skill: ManagedSkillGroup) => void
+  showOrganizationLinkAction: boolean
   selectedPlanError: unknown
   selectedSkill: ManagedSkillGroup | undefined
   selectedStatus: ReturnType<typeof getGroupStatus> | null
@@ -161,13 +164,16 @@ export function SkillDetailContent({
   copySkillPath,
   inventoryInitialLoading,
   isRemovingSkill,
+  isSkillLinkedToOrganization,
   openSkillFolder,
   publishSkill,
   publishingSkillId,
   requestRemoveSkill,
+  requestOrganizationLink,
   selectedPlanError,
   selectedSkill,
   selectedStatus,
+  showOrganizationLinkAction,
   selectedVersionCheck,
   updateRegistrySkill,
   updatingRegistrySkillId,
@@ -187,9 +193,12 @@ export function SkillDetailContent({
         publishSkill={publishSkill}
         publishingSkillId={publishingSkillId}
         isRemovingSkill={isRemovingSkill}
+        isSkillLinkedToOrganization={isSkillLinkedToOrganization}
         requestRemoveSkill={requestRemoveSkill}
+        requestOrganizationLink={requestOrganizationLink}
         selectedSkill={selectedSkill}
         selectedStatus={selectedStatus}
+        showOrganizationLinkAction={showOrganizationLinkAction}
         selectedVersionCheck={selectedVersionCheck}
         updateRegistrySkill={updateRegistrySkill}
         updatingRegistrySkillId={updatingRegistrySkillId}
@@ -205,11 +214,14 @@ interface SkillPeekProps {
   isRemovingSkill: boolean
   openSkillFolder: (pathname: string) => void
   planError: unknown
-  publishSkill: (skill: ManagedSkillGroup) => Promise<void>
+  publishSkill: (skill: ManagedSkillGroup) => void
   publishingSkillId: string | null
+  isSkillLinkedToOrganization: boolean
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
+  requestOrganizationLink: (skill: ManagedSkillGroup) => void
   selectedSkill: ManagedSkillGroup
   selectedStatus: ReturnType<typeof getGroupStatus>
+  showOrganizationLinkAction: boolean
   selectedVersionCheck?: SkillVersionReport["skills"][number]
   updateRegistrySkill: (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => void
   updatingRegistrySkillId: string | null
@@ -222,9 +234,12 @@ function SkillPeek({
   planError,
   publishSkill,
   publishingSkillId,
+  isSkillLinkedToOrganization,
   requestRemoveSkill,
+  requestOrganizationLink,
   selectedSkill,
   selectedStatus,
+  showOrganizationLinkAction,
   selectedVersionCheck,
   updateRegistrySkill,
   updatingRegistrySkillId,
@@ -404,7 +419,7 @@ function SkillPeek({
                     variant="outline"
                     size="sm"
                     disabled={isPublishingSkill}
-                    onClick={() => void publishSkill(selectedSkill)}
+                    onClick={() => publishSkill(selectedSkill)}
                   >
                     {isPublishingSkill ? <AppIcons.status.loading className="animate-spin" /> : null}
                     {isPublishingSkill ? t("skills.publishing") : t("skills.publishToMarket")}
@@ -437,7 +452,7 @@ function SkillPeek({
                 variant="outline"
                 size="sm"
                 disabled={isPublishingSkill}
-                onClick={() => void publishSkill(selectedSkill)}
+                onClick={() => publishSkill(selectedSkill)}
               >
                 {isPublishingSkill ? <AppIcons.status.loading className="animate-spin" /> : <AppIcons.action.publish />}
                 {isPublishingSkill
@@ -445,6 +460,12 @@ function SkillPeek({
                   : selectedSkill.packageName?.trim()
                     ? t("skills.republishToMarket")
                     : t("skills.publishToMarket")}
+              </Button>
+            ) : null}
+            {showOrganizationLinkAction && selectedSkill.packageName?.trim() ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => requestOrganizationLink(selectedSkill)}>
+                <AppIcons.action.share />
+                {isSkillLinkedToOrganization ? t("skills.organizationManageLink") : t("skills.organizationLink")}
               </Button>
             ) : null}
             <Button

@@ -682,12 +682,11 @@ export function createUpdateRegistrySkillArgs(request: { packageName?: string; s
   return args
 }
 
-export function createPublishSkillArgs(request: { path: string; visibility?: "public" }): string[] {
+export function createPublishSkillArgs(request: { path: string; visibility?: "private" | "public" }): string[] {
   const args = ["skills", "publish", asRequiredCommandValue(request.path, "path"), "-y"]
+  const visibility = request.visibility ?? "private"
 
-  if (request.visibility) {
-    args.push("--visibility", request.visibility)
-  }
+  args.push("--visibility", visibility)
 
   return args
 }
@@ -704,6 +703,14 @@ export function createSkillPublishErrorMessage(result: SkillPublishFailureOutput
     asText(result.message) ??
     "Skill publish failed."
   )
+}
+
+export function readSkillPublishRequiredScope(result: SkillPublishFailureOutput): string | undefined {
+  const output = [result.stderr, result.stdout, result.message]
+    .filter((item): item is string => Boolean(item))
+    .join("\n")
+  const match = /scope\s+\\?"(@[^"\\]+)\\?"\s+must equal to\s+\\?"(@[^"\\]+)\\?"/.exec(output)
+  return match?.[2]
 }
 
 export function assertSkillOperationSucceeded(stdout: string, expectedCommand: SkillOperationCommand): void {

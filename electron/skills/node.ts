@@ -45,6 +45,7 @@ import {
   createSkillSearchArgs,
   createUpdateRegistrySkillArgs,
   normalizeSkillSearchResults,
+  readSkillPublishRequiredScope,
 } from "./actions.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
 import {
@@ -269,15 +270,28 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
     const skillPath = await this.resolveAllowedSkillPath(request.path)
-    await ensureSkillPublishMetadata({
+    let metadata = await ensureSkillPublishMetadata({
       accountName: this.authService.activeAccount()?.name,
       skillPath,
     })
-    const args = createPublishSkillArgs({ ...request, path: skillPath })
-    const result = await this.runOoCommand(args, {
+    let args = createPublishSkillArgs({ ...request, path: skillPath })
+    let result = await this.runOoCommand(args, {
       owner: "skill-service",
       rejectOnFailure: false,
     })
+    const requiredScope = readSkillPublishRequiredScope(result)
+    if (!result.ok && requiredScope) {
+      metadata = await ensureSkillPublishMetadata({
+        accountName: this.authService.activeAccount()?.name,
+        packageScope: requiredScope,
+        skillPath,
+      })
+      args = createPublishSkillArgs({ ...request, path: skillPath })
+      result = await this.runOoCommand(args, {
+        owner: "skill-service",
+        rejectOnFailure: false,
+      })
+    }
     assertOoSkillPublishResult(result, args)
     this.invalidateVersionReport()
     this.notifyRuntimeSkillsChanged("publish-skill")
@@ -285,6 +299,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return {
       inventory: await this.readAndPublishSkillInventory(),
       message: result.stdout.trim(),
+      packageName: metadata.packageName,
+      version: metadata.version,
     }
   }
 

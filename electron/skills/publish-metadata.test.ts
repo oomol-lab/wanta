@@ -40,12 +40,12 @@ test("ensureSkillPublishMetadataContent adds packageName and version under metad
   )
 })
 
-test("ensureSkillPublishMetadataContent keeps existing publish metadata", () => {
+test("ensureSkillPublishMetadataContent keeps existing publish metadata for the current account", () => {
   const content = [
     "---",
     "name: demo",
     "metadata:",
-    "  packageName: '@alice/demo'",
+    "  packageName: '@shaun/demo'",
     "  version: 0.2.0",
     "---",
     "# Demo",
@@ -54,10 +54,49 @@ test("ensureSkillPublishMetadataContent keeps existing publish metadata", () => 
 
   assert.deepEqual(ensureSkillPublishMetadataContent(content, { accountName: "Shaun", fallbackSkillName: "demo" }), {
     content,
-    packageName: "@alice/demo",
+    packageName: "@shaun/demo",
     updated: false,
     version: "0.2.0",
   })
+})
+
+test("ensureSkillPublishMetadataContent rewrites a foreign package scope to the current account", () => {
+  const result = ensureSkillPublishMetadataContent(
+    [
+      "---",
+      "name: mineru-document-extraction",
+      "metadata:",
+      "  packageName: '@shaun/mineru-document-extraction'",
+      "  version: 0.0.1",
+      "---",
+      "# MinerU",
+      "",
+    ].join("\n"),
+    { accountName: "alwaysmavs", fallbackSkillName: "mineru-document-extraction" },
+  )
+
+  assert.equal(result.packageName, "@alwaysmavs/mineru-document-extraction")
+  assert.equal(result.updated, true)
+  assert.match(result.content, /packageName: '@alwaysmavs\/mineru-document-extraction'/)
+})
+
+test("ensureSkillPublishMetadataContent can use an explicit registry package scope", () => {
+  const result = ensureSkillPublishMetadataContent(
+    [
+      "---",
+      "name: guizang-ppt-skill",
+      "metadata:",
+      "  packageName: '@shaun/guizang-ppt-skill'",
+      "  version: 0.0.1",
+      "---",
+      "# PPT",
+      "",
+    ].join("\n"),
+    { accountName: "Shaun", fallbackSkillName: "guizang-ppt-skill", packageScope: "@alwaysmavs" },
+  )
+
+  assert.equal(result.packageName, "@alwaysmavs/guizang-ppt-skill")
+  assert.equal(result.updated, true)
 })
 
 test("ensureSkillPublishMetadata writes SKILL.md metadata", async () => {

@@ -1,5 +1,5 @@
 import type { ChatEmit } from "../agent/event-translator.ts"
-import type { AgentManager } from "../agent/manager.ts"
+import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
 import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
@@ -158,6 +158,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeTurnOutputs = new Map<string, ActiveTurnOutput>()
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
+  private connectionFailedSessions = new Set<string>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private artifactRoots: ArtifactRoots = new Map()
@@ -194,6 +195,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeTurnOutputs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
+    this.connectionFailedSessions.clear()
     this.artifactRoots.clear()
     this.artifactRootsLoaded = false
     this.artifactRootsLoadPromise = null
@@ -229,8 +231,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     this.bridged = true
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+    const handleConnectionStatus = (status: AgentEventConnectionStatus): void => {
+      this.handleAgentConnectionStatus(emit, status)
+    }
     this.agent.subscribe((event) => {
       for (const translated of translateOpencodeEvent(event)) {
+        if (translated.data.sessionId && this.connectionFailedSessions.has(translated.data.sessionId)) {
+          continue
+        }
         if (
           translated.event === "agentError" &&
           translated.data.sessionId &&
@@ -338,7 +346,64 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         void emit(translated.event, translated.data)
       }
-    })
+    }, handleConnectionStatus)
+  }
+
+  private handleAgentConnectionStatus(
+    emit: (event: string, data: unknown) => Promise<void>,
+    status: AgentEventConnectionStatus,
+  ): void {
+    if (status.status === "runtime_restarting") {
+      this.setAgentStatus({ status: "starting" })
+    } else if (status.status === "runtime_recovered") {
+      this.setAgentStatus({ status: "ready" })
+    } else if (status.status === "runtime_failed") {
+      this.setAgentStatus({ status: "error", message: status.message ?? "OpenCode runtime failed to restart." })
+    }
+    const sessionIds = new Set<string>([
+      ...this.sessionGenerations.keys(),
+      ...this.activeAssistantMessages.keys(),
+      ...this.pendingArtifactDirs.keys(),
+      ...this.pendingProcessDirs.keys(),
+    ])
+    if (sessionIds.size === 0) {
+      return
+    }
+    const terminalMessage =
+      status.status === "failed"
+        ? "OpenCode connection was interrupted. Please retry."
+        : status.status === "runtime_recovered"
+          ? "OpenCode runtime restarted. Please retry this message."
+          : status.status === "runtime_failed"
+            ? "OpenCode runtime could not restart. Please sign out and in again."
+            : null
+    for (const sessionId of sessionIds) {
+      const messageId = this.activeAssistantMessages.get(sessionId)
+      void emit("agentConnectionChanged", {
+        sessionId,
+        ...(messageId ? { messageId } : {}),
+        status: status.status,
+        ...(status.attempt ? { attempt: status.attempt } : {}),
+        ...(status.maxAttempts ? { maxAttempts: status.maxAttempts } : {}),
+        ...(status.message ? { message: status.message } : {}),
+        createdAt: Date.now(),
+      })
+      if (!terminalMessage) {
+        continue
+      }
+      this.connectionFailedSessions.add(sessionId)
+      void this.finalizeTurnOutput(sessionId, messageId)
+        .catch((error: unknown) => {
+          console.warn("[wanta] failed to finalize disconnected turn output", error)
+        })
+        .finally(() => {
+          this.clearSessionGeneration(sessionId)
+          this.activeAssistantMessages.delete(sessionId)
+          this.activeToolParts.delete(sessionId)
+          this.emitSessionActivity(sessionId)
+          this.emitMessageError(emit, sessionId, terminalMessage, messageId)
+        })
+    }
   }
 
   private enqueuePendingArtifactDir(sessionId: string, artifactDir: string): void {
@@ -510,6 +575,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     const generation = this.beginSessionGeneration(req.sessionId)
     this.userStoppedSessions.delete(req.sessionId)
+    this.connectionFailedSessions.delete(req.sessionId)
     this.clearMessageErrorSignatures(req.sessionId)
     this.emitSessionActivity(req.sessionId)
     let artifactDir: string

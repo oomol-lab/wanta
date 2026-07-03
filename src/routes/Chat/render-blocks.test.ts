@@ -26,6 +26,10 @@ function reasoningPart(partId: string, text: string): ChatMessagePart {
   return { kind: "reasoning", partId, text }
 }
 
+function statusPart(partId: string): ChatMessagePart {
+  return { kind: "status", partId, statusType: "reconnecting", attempt: 2, maxAttempts: 5 }
+}
+
 describe("renderBlocks", () => {
   it("ignores whitespace-only text parts so adjacent tools stay grouped", () => {
     const firstTool = toolPart("tool-1")
@@ -69,6 +73,20 @@ describe("renderBlocks", () => {
     expect(blocks).toEqual([
       { kind: "tools", key: "tool-1", parts: [firstTool] },
       { kind: "error", part: error },
+      { kind: "tools", key: "tool-2", parts: [secondTool] },
+    ])
+  })
+
+  it("keeps connection status notices as standalone separators", () => {
+    const firstTool = toolPart("tool-1")
+    const status = statusPart("status-1")
+    const secondTool = toolPart("tool-2")
+
+    const blocks = renderBlocks([firstTool, status, secondTool])
+
+    expect(blocks).toEqual([
+      { kind: "tools", key: "tool-1", parts: [firstTool] },
+      { kind: "status", part: status },
       { kind: "tools", key: "tool-2", parts: [secondTool] },
     ])
   })

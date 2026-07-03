@@ -81,6 +81,14 @@ export interface PromptStreamingOptions {
   signal?: AbortSignal
 }
 
+export type AgentEventConnectionStatus =
+  | { status: "reconnecting"; attempt: number; maxAttempts: number; message?: string }
+  | { status: "reconnected"; attempt: number; maxAttempts: number; message?: string }
+  | { status: "failed"; attempt: number; maxAttempts: number; message?: string }
+  | { status: "runtime_restarting"; attempt: number; maxAttempts: number; message?: string }
+  | { status: "runtime_recovered"; attempt: number; maxAttempts: number; message?: string }
+  | { status: "runtime_failed"; attempt: number; maxAttempts: number; message?: string }
+
 export interface RawSession {
   id: string
   title?: string
@@ -113,6 +121,15 @@ const sessionTitleSystemPrompt = [
   'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
 ].join("\n")
 const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
+const eventStreamMaxReconnectAttempts = 5
+const runtimeRestartMaxAttempts = 5
+const runtimeRestartInitialDelayMs = 1_000
+const runtimeRestartMaxDelayMs = 10_000
+
+interface AgentEventSubscriber {
+  onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void
+  onConnectionStatus?: (status: AgentEventConnectionStatus) => void
+}
 
 function toSessionInfo(session: RawSession): SessionInfo {
   return {
@@ -131,6 +148,10 @@ export function isUserVisibleSession(session: RawSession): boolean {
 export class AgentManager {
   private options: AgentManagerOptions
   private sidecar: OpencodeSidecar | null = null
+  private eventStreamAbort: AbortController | null = null
+  private eventSubscriber: AgentEventSubscriber | null = null
+  private disposed = false
+  private runtimeRecovery: Promise<void> | null = null
   private started = false
   private eventLoopStopped = false
   private organizationName: string | undefined
@@ -178,16 +199,27 @@ export class AgentManager {
   }
 
   public async start(): Promise<void> {
-    const { authToken, opencodeBinPath, ooBinPath, bundledSkillsDir, rootDir, disableServerAuth, customModels } =
-      this.options
+    this.disposed = false
+    await this.prepareWorkspace()
+    await this.startSidecar()
+  }
+
+  private async prepareWorkspace(): Promise<void> {
+    const { bundledSkillsDir, rootDir } = this.options
     const workspaceDir = path.join(rootDir, "workspace")
-    const isolationDir = path.join(rootDir, "isolation")
-    const storeDir = path.join(rootDir, "oo-store")
     const organizationScopePath = path.join(rootDir, "organization-scope.json")
 
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir)
     this.organizationScopePath = organizationScopePath
     await this.writeOrganizationScope()
+  }
+
+  private async startSidecar(): Promise<void> {
+    const { authToken, opencodeBinPath, ooBinPath, rootDir, disableServerAuth, customModels } = this.options
+    const workspaceDir = path.join(rootDir, "workspace")
+    const isolationDir = path.join(rootDir, "isolation")
+    const storeDir = path.join(rootDir, "oo-store")
+    const organizationScopePath = this.organizationScopePath ?? path.join(rootDir, "organization-scope.json")
 
     const config = buildOpencodeConfig({ authToken, customModels })
     const ooEnv = buildOoEnv({
@@ -211,6 +243,7 @@ export class AgentManager {
       env,
       isolationDir,
       serverPassword: disableServerAuth ? undefined : randomBytes(24).toString("hex"),
+      onExit: (info) => this.handleSidecarExit(info),
     })
     // 仅在 sidecar 完全就绪后才赋值并标记 ready，避免 client 在启动期被访问。
     await sidecar.start()
@@ -218,31 +251,151 @@ export class AgentManager {
     this.started = true
   }
 
+  private handleSidecarExit(info: { code?: number | null; error?: Error; signal?: NodeJS.Signals | null }): void {
+    if (this.disposed) {
+      return
+    }
+    this.started = false
+    this.sidecar = null
+    this.eventStreamAbort?.abort()
+    this.eventStreamAbort = null
+    const message = info.error
+      ? info.error.message
+      : `opencode serve exited${info.code === undefined ? "" : ` with code ${info.code}`}${
+          info.signal ? ` (${info.signal})` : ""
+        }`
+    console.warn("[wanta] opencode sidecar exited unexpectedly:", message)
+    this.runtimeRecovery ??= this.recoverRuntime(message).finally(() => {
+      this.runtimeRecovery = null
+    })
+  }
+
+  private async recoverRuntime(reason: string): Promise<void> {
+    let lastMessage = reason
+    for (let attempt = 1; attempt <= runtimeRestartMaxAttempts; attempt += 1) {
+      if (this.disposed) {
+        return
+      }
+      this.eventSubscriber?.onConnectionStatus?.({
+        status: "runtime_restarting",
+        attempt,
+        maxAttempts: runtimeRestartMaxAttempts,
+        message: lastMessage,
+      })
+      try {
+        await this.prepareWorkspace()
+        await this.startSidecar()
+        this.eventSubscriber?.onConnectionStatus?.({
+          status: "runtime_recovered",
+          attempt,
+          maxAttempts: runtimeRestartMaxAttempts,
+        })
+        this.restartEventLoop()
+        return
+      } catch (error) {
+        lastMessage = error instanceof Error ? error.message : String(error)
+        console.warn("[wanta] opencode sidecar restart failed:", { attempt, error })
+        if (attempt < runtimeRestartMaxAttempts) {
+          await sleep(Math.min(runtimeRestartInitialDelayMs * 2 ** (attempt - 1), runtimeRestartMaxDelayMs))
+        }
+      }
+    }
+    this.eventSubscriber?.onConnectionStatus?.({
+      status: "runtime_failed",
+      attempt: runtimeRestartMaxAttempts,
+      maxAttempts: runtimeRestartMaxAttempts,
+      message: lastMessage,
+    })
+  }
+
   /** 订阅 OpenCode 全局 SSE 事件流。回调收到原始 OpenCode 事件 {type, properties}。返回停止函数。 */
-  public subscribe(onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void): () => void {
+  public subscribe(
+    onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void,
+    onConnectionStatus?: (status: AgentEventConnectionStatus) => void,
+  ): () => void {
     this.eventLoopStopped = false
-    void this.runEventLoop(onEvent)
+    this.eventSubscriber = { onEvent, onConnectionStatus }
+    this.restartEventLoop()
     return () => {
       this.eventLoopStopped = true
+      this.eventSubscriber = null
+      this.eventStreamAbort?.abort()
+      this.eventStreamAbort = null
     }
   }
 
-  private async runEventLoop(
-    onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void,
-  ): Promise<void> {
+  private restartEventLoop(): void {
+    const subscriber = this.eventSubscriber
+    if (!subscriber || this.eventLoopStopped || !this.started || this.disposed) {
+      return
+    }
+    this.eventStreamAbort?.abort()
+    const controller = new AbortController()
+    this.eventStreamAbort = controller
+    void this.runEventLoop(subscriber, controller)
+  }
+
+  private async runEventLoop(subscriber: AgentEventSubscriber, controller: AbortController): Promise<void> {
+    let reconnectFailures = 0
+    let reconnecting = false
+    let reconnectFailedAnnounced = false
     try {
-      const subscription = await this.client.event.subscribe()
+      const subscription = await this.client.event.subscribe(undefined, {
+        signal: controller.signal,
+        onSseError: (error) => {
+          if (this.eventLoopStopped || controller.signal.aborted) {
+            return
+          }
+          reconnectFailures += 1
+          reconnecting = true
+          const message = error instanceof Error ? error.message : String(error)
+          if (reconnectFailures <= eventStreamMaxReconnectAttempts) {
+            subscriber.onConnectionStatus?.({
+              status: "reconnecting",
+              attempt: reconnectFailures,
+              maxAttempts: eventStreamMaxReconnectAttempts,
+              message,
+            })
+          }
+          if (reconnectFailures >= eventStreamMaxReconnectAttempts && !reconnectFailedAnnounced) {
+            reconnectFailedAnnounced = true
+            subscriber.onConnectionStatus?.({
+              status: "failed",
+              attempt: reconnectFailures,
+              maxAttempts: eventStreamMaxReconnectAttempts,
+              message,
+            })
+          }
+        },
+        onSseEvent: () => {
+          if ((!reconnecting && !reconnectFailedAnnounced) || this.eventLoopStopped || controller.signal.aborted) {
+            return
+          }
+          subscriber.onConnectionStatus?.({
+            status: "reconnected",
+            attempt: reconnectFailures,
+            maxAttempts: eventStreamMaxReconnectAttempts,
+          })
+          reconnectFailures = 0
+          reconnecting = false
+          reconnectFailedAnnounced = false
+        },
+      })
       const stream = (subscription as { stream: AsyncIterable<{ type: string; properties?: Record<string, unknown> }> })
         .stream
       for await (const event of stream) {
         if (this.eventLoopStopped) {
           break
         }
-        onEvent(event)
+        subscriber.onEvent(event)
       }
     } catch (error) {
       if (!this.eventLoopStopped) {
         console.error("[wanta] opencode event stream ended:", error)
+      }
+    } finally {
+      if (this.eventStreamAbort === controller) {
+        this.eventStreamAbort = null
       }
     }
   }
@@ -488,7 +641,11 @@ export class AgentManager {
   }
 
   public dispose(): void {
+    this.disposed = true
     this.eventLoopStopped = true
+    this.eventStreamAbort?.abort()
+    this.eventStreamAbort = null
+    this.eventSubscriber = null
     this.started = false
     this.sidecar?.dispose()
     this.sidecar = null
@@ -570,6 +727,13 @@ function signalWithTimeout(
       signal?.removeEventListener("abort", abort)
     },
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
 }
 
 function buildArtifactSystem(artifactDir: string | undefined): string | undefined {

@@ -334,6 +334,29 @@ function activityText(t: TranslateFn, activity: AssistantActivityEvent | null): 
   }
 }
 
+function statusPartText(t: TranslateFn, part: ChatMessagePart): string {
+  switch (part.statusType) {
+    case "reconnecting":
+      return part.attempt && part.maxAttempts
+        ? t("chat.connectionReconnectingWithAttempt", { attempt: part.attempt, maxAttempts: part.maxAttempts })
+        : t("chat.connectionReconnecting")
+    case "reconnected":
+      return t("chat.connectionReconnected")
+    case "connectionFailed":
+      return t("chat.connectionFailed")
+    case "runtimeRestarting":
+      return part.attempt && part.maxAttempts
+        ? t("chat.runtimeRestartingWithAttempt", { attempt: part.attempt, maxAttempts: part.maxAttempts })
+        : t("chat.runtimeRestarting")
+    case "runtimeRecovered":
+      return t("chat.runtimeRecovered")
+    case "runtimeFailed":
+      return t("chat.runtimeFailed")
+    default:
+      return part.text ?? ""
+  }
+}
+
 type AssistantBlockType = ReturnType<typeof renderBlocks>[number]
 
 function assistantBlockClassName(blocks: AssistantBlockType[], index: number): string | undefined {
@@ -391,6 +414,8 @@ function AssistantBlock({
           message={block.part.errorText ?? block.part.error ?? t("chatError.failed.description")}
           onViewBilling={onViewBilling}
         />
+      ) : block.kind === "status" ? (
+        <div className="text-sm leading-6 font-medium text-muted-foreground/80">{statusPartText(t, block.part)}</div>
       ) : (
         <div className="space-y-0.5">
           {block.parts.map((part) => {

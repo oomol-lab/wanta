@@ -1,6 +1,7 @@
 import type {
   ChatAttachment,
   ChatContextMention,
+  AgentConnectionChangedEvent,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
@@ -141,6 +142,38 @@ export function setErrorPart(msgs: ChatMessage[], event: MessageErrorEvent): Cha
       ),
     }
   })
+}
+
+export function setConnectionStatusPart(msgs: ChatMessage[], event: AgentConnectionChangedEvent): ChatMessage[] {
+  const statusType = (() => {
+    switch (event.status) {
+      case "reconnecting":
+        return "reconnecting"
+      case "reconnected":
+        return "reconnected"
+      case "runtime_restarting":
+        return "runtimeRestarting"
+      case "runtime_recovered":
+        return "runtimeRecovered"
+      case "runtime_failed":
+        return "runtimeFailed"
+      case "failed":
+        return "connectionFailed"
+    }
+  })()
+  const messageId = event.messageId ?? latestAssistantMessageId(msgs) ?? `local-assistant-status-${Date.now()}`
+  const part: ChatMessagePart = {
+    kind: "status",
+    partId: `connection-${event.status}-${event.attempt ?? 0}-${event.createdAt}`,
+    statusType,
+    ...(event.attempt ? { attempt: event.attempt } : {}),
+    ...(event.maxAttempts ? { maxAttempts: event.maxAttempts } : {}),
+    ...(event.message ? { text: event.message } : {}),
+  }
+  const ensured = ensureMessage(msgs, messageId, "assistant")
+  return ensured.map((message) =>
+    message.id === messageId ? { ...message, parts: upsertPart(message.parts, part) } : message,
+  )
 }
 
 function shouldCancelToolPart(part: ChatMessagePart): boolean {

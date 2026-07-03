@@ -122,6 +122,15 @@ export interface MessageErrorEvent {
 export interface GenerationStoppedEvent {
   sessionId: string
 }
+export interface AgentConnectionChangedEvent {
+  sessionId: string
+  messageId?: string
+  status: "reconnecting" | "reconnected" | "failed" | "runtime_restarting" | "runtime_recovered" | "runtime_failed"
+  attempt?: number
+  maxAttempts?: number
+  message?: string
+  createdAt: number
+}
 export interface AgentErrorEvent {
   sessionId?: string
   message: string
@@ -138,9 +147,18 @@ export interface AgentStatusChangedEvent {
 
 // ── 规范化消息（切换会话时加载历史用）──
 export interface ChatMessagePart {
-  kind: "text" | "reasoning" | "tool" | "attachment" | "error"
+  kind: "text" | "reasoning" | "tool" | "attachment" | "error" | "status"
   partId: string
   text?: string
+  statusType?:
+    | "reconnecting"
+    | "reconnected"
+    | "connectionFailed"
+    | "runtimeRestarting"
+    | "runtimeRecovered"
+    | "runtimeFailed"
+  attempt?: number
+  maxAttempts?: number
   errorText?: string
   errorKind?: ChatErrorKind
   errorCode?: string
@@ -587,6 +605,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
+    agentConnectionChanged: AgentConnectionChangedEvent
     agentError: AgentErrorEvent
     agentStatusChanged: AgentStatusChangedEvent
   }

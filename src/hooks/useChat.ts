@@ -30,6 +30,7 @@ import {
   markSessionViewed,
   mergeFetchedMessages,
   removePart,
+  setConnectionStatusPart,
   setAttachmentPart,
   setErrorPart,
   setMessageArtifactRoot,
@@ -469,6 +470,23 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("assistantActivity", (e) => {
         setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, e)
+      }),
+      chatService.serverEvents.on("agentConnectionChanged", (e) => {
+        if (e.status === "reconnecting" || e.status === "runtime_restarting" || e.status === "reconnected") {
+          setStatus(e.sessionId, "streaming")
+          setActivity(e.sessionId, undefined)
+          patch(e.sessionId, (msgs) => setConnectionStatusPart(msgs, e))
+          return
+        }
+        if (e.status === "failed" || e.status === "runtime_recovered" || e.status === "runtime_failed") {
+          patch(e.sessionId, (msgs) => setConnectionStatusPart(msgs, e))
+        }
+        if (e.status === "failed" || e.status === "runtime_recovered" || e.status === "runtime_failed") {
+          setStatus(e.sessionId, "error")
+          setActivity(e.sessionId, undefined)
+          return
+        }
+        setActivity(e.sessionId, undefined)
       }),
       chatService.serverEvents.on("messagePartRemoved", (e) => {
         flushPendingTextDeltas()

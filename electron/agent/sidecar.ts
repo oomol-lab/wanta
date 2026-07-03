@@ -19,8 +19,16 @@ export interface SidecarOptions {
   isolationDir: string
   /** 可选 Basic Auth 口令（OPENCODE_SERVER_PASSWORD），用户名固定 opencode。 */
   serverPassword?: string
+  /** sidecar ready 后意外退出时通知上层做恢复；dispose 主动结束不会触发。 */
+  onExit?: (info: SidecarExitInfo) => void
   hostname?: string
   startupTimeoutMs?: number
+}
+
+export interface SidecarExitInfo {
+  code?: number | null
+  error?: Error
+  signal?: NodeJS.Signals | null
 }
 
 /** OpenCode 本地 sidecar：spawn `opencode serve`、解析 URL、提供 SDK client、随 app 退出回收。 */
@@ -29,6 +37,7 @@ export class OpencodeSidecar {
   private proc: ChildProcessWithoutNullStreams | null = null
   private opencodeClient: OpencodeClient | null = null
   private serverUrl = ""
+  private disposed = false
 
   public constructor(options: SidecarOptions) {
     this.options = options
@@ -46,6 +55,7 @@ export class OpencodeSidecar {
   }
 
   public async start(): Promise<void> {
+    this.disposed = false
     const { opencodeBinPath, workspaceDir, config, env, isolationDir, serverPassword } = this.options
     const hostname = this.options.hostname ?? "127.0.0.1"
     const timeoutMs = this.options.startupTimeoutMs ?? 30_000
@@ -115,6 +125,16 @@ export class OpencodeSidecar {
     })
 
     this.serverUrl = url
+    proc.once("exit", (code, signal) => {
+      if (!this.disposed) {
+        this.options.onExit?.({ code, signal })
+      }
+    })
+    proc.once("error", (error) => {
+      if (!this.disposed) {
+        this.options.onExit?.({ error })
+      }
+    })
     const headers: Record<string, string> = {}
     if (serverPassword) {
       const token = Buffer.from(`opencode:${serverPassword}`).toString("base64")
@@ -124,6 +144,7 @@ export class OpencodeSidecar {
   }
 
   public dispose(): void {
+    this.disposed = true
     if (this.proc) {
       this.proc.kill("SIGTERM")
       this.proc = null

@@ -11,6 +11,7 @@ import {
   markSessionCompletedUnread,
   markSessionViewed,
   mergeFetchedMessages,
+  setConnectionStatusPart,
   setErrorPart,
   visibleChatError,
 } from "./chat-message-state.ts"
@@ -145,6 +146,32 @@ describe("chat message identity reconciliation", () => {
         errorKind: "unknown",
       },
     ])
+  })
+
+  it("does not attach connection status without message id to historical assistant replies", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ kind: "text", partId: "text-1", text: "Done" }],
+        createdAt: 1,
+      },
+    ]
+
+    const updated = setConnectionStatusPart(current, {
+      sessionId: "s1",
+      status: "failed",
+      attempt: 5,
+      maxAttempts: 5,
+      createdAt: 100,
+    })
+
+    expect(updated[0]).toEqual(current[0])
+    expect(updated[1]).toMatchObject({
+      id: "local-assistant-status-100",
+      role: "assistant",
+      parts: [{ kind: "status", partId: "connection-failed-5-100", statusType: "connectionFailed" }],
+    })
   })
 
   it("preserves local error parts when full history reloads", () => {

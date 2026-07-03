@@ -847,6 +847,7 @@ export function SkillsRoute({
         onClose={() => {
           if (!publishingSkillId) {
             setPublishDialogSkill(null)
+            setPlanError(null)
           }
         }}
         onLinkOrganization={linkPublishedSkillToOrganization}

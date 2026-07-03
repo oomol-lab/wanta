@@ -180,10 +180,11 @@ test("merge normalizes OAuth client config metadata for setup dialogs", () => {
             {
               key: "appBearerToken",
               label: "App Bearer Token",
-              inputType: "password",
+              inputType: "text",
               required: false,
-              secret: true,
+              secret: false,
               location: "secretExtra",
+              defaultValue: ["keep", 1, "safe"],
             },
           ],
         },
@@ -198,6 +199,8 @@ test("merge normalizes OAuth client config metadata for setup dialogs", () => {
   assert.equal(twitter?.oauthClientConfig?.tokenEndpointAuthMethod, "client_secret_basic")
   assert.deepEqual(twitter?.oauthClientConfig?.oauthScopes, ["tweet.read", "users.read"])
   assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.location, "secretExtra")
+  assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.secret, true)
+  assert.deepEqual(twitter?.oauthClientConfig?.clientConfigFields[0]?.defaultValue, ["keep", "safe"])
 })
 
 test("createEmptyConnectionSummary exposes a signed-out state", () => {

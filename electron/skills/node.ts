@@ -20,6 +20,7 @@ import type {
   UpdateRegistrySkillRequest,
 } from "./common.ts"
 import type { DefaultRegistrySkillSpec } from "./default-registry-skills.ts"
+import type { EnsureSkillPublishMetadataResult } from "./publish-metadata.ts"
 import type { IConnectionService } from "@oomol/connection"
 import type { FSWatcher } from "node:fs"
 
@@ -268,29 +269,34 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
-    const skillPath = await this.resolveAllowedSkillPath(request.path)
-    let metadata = await ensureSkillPublishMetadata({
+  private async attemptPublishSkill(input: {
+    packageScope?: string
+    request: PublishSkillRequest
+    skillPath: string
+  }): Promise<{ args: string[]; metadata: EnsureSkillPublishMetadataResult; result: OoCommandResult }> {
+    const metadata = await ensureSkillPublishMetadata({
       accountName: this.authService.activeAccount()?.name,
-      skillPath,
+      packageScope: input.packageScope,
+      skillPath: input.skillPath,
     })
-    let args = createPublishSkillArgs({ ...request, path: skillPath })
-    let result = await this.runOoCommand(args, {
+    const args = createPublishSkillArgs({ ...input.request, path: input.skillPath })
+    const result = await this.runOoCommand(args, {
       owner: "skill-service",
       rejectOnFailure: false,
     })
+    return { args, metadata, result }
+  }
+
+  public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
+    const skillPath = await this.resolveAllowedSkillPath(request.path)
+    let { args, metadata, result } = await this.attemptPublishSkill({ request, skillPath })
     const requiredScope = readSkillPublishRequiredScope(result)
     if (!result.ok && requiredScope) {
-      metadata = await ensureSkillPublishMetadata({
-        accountName: this.authService.activeAccount()?.name,
+      ;({ args, metadata, result } = await this.attemptPublishSkill({
         packageScope: requiredScope,
+        request,
         skillPath,
-      })
-      args = createPublishSkillArgs({ ...request, path: skillPath })
-      result = await this.runOoCommand(args, {
-        owner: "skill-service",
-        rejectOnFailure: false,
-      })
+      }))
     }
     assertOoSkillPublishResult(result, args)
     this.invalidateVersionReport()

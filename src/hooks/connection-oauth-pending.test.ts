@@ -47,10 +47,13 @@ describe("connection OAuth pending key", () => {
     clearOAuthPendingOperations(storage)
   })
 
-  it("deduplicates OAuth requests by workspace and service", () => {
+  it("deduplicates OAuth requests by workspace, service, and target app", () => {
     const workspace = { type: "personal" } as const
 
-    expect(createOAuthPendingKey(workspace, { authType: "oauth2", service: "gmail" })).toBe(
+    expect(createOAuthPendingKey(workspace, { appId: "app-1", authType: "oauth2", service: "gmail" })).toBe(
+      createOAuthPendingKey(workspace, { appId: "app-1", authType: "oauth2", service: "gmail" }),
+    )
+    expect(createOAuthPendingKey(workspace, { authType: "oauth2", service: "gmail" })).not.toBe(
       createOAuthPendingKey(workspace, { appId: "app-1", authType: "oauth2", service: "gmail" }),
     )
   })
@@ -85,6 +88,7 @@ describe("connection OAuth pending key", () => {
       { appId: "app-1", authType: "oauth2", service: "gmail" },
       7,
       1_000,
+      ["app-0"],
     )
 
     rememberOAuthPendingOperation(operation, storage)
@@ -92,6 +96,7 @@ describe("connection OAuth pending key", () => {
     expect(readOAuthPendingOperation(operation.key, operation.expiresAt - 1, storage)).toMatchObject({
       actionId: 7,
       appId: "app-1",
+      existingActiveAppIds: ["app-0"],
       pollingKey: "gmail\0app-1",
       service: "gmail",
       workspaceKey: "personal",

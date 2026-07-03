@@ -1,10 +1,15 @@
-import type { ConnectionProviderOAuthClientConfigSummary } from "../../../electron/connections/common.ts"
+import type {
+  ConnectionOAuthClientConfigFieldDefinition,
+  ConnectionProviderOAuthClientConfigSummary,
+} from "../../../electron/connections/common.ts"
 
 import { describe, expect, it } from "vitest"
 import {
   buildOAuthClientConfigPayload,
   buildOAuthConnectPayload,
+  buildOAuthConnectViewModel,
   shouldOpenOAuthClientDialog,
+  validateOAuthPersistentFields,
 } from "./oauth-client-config.ts"
 
 const twitterOAuthConfig: ConnectionProviderOAuthClientConfigSummary = {
@@ -111,5 +116,45 @@ describe("oauth-client-config", () => {
     expect(connectPayload).toEqual({
       secretExtra: { sessionCode: "session-token" },
     })
+  })
+
+  it("allows resaving persisted required secret extra fields without retyping them", () => {
+    const userOAuthClientConfig = {
+      ...twitterOAuthConfig,
+      clientId: "client-id",
+      configured: true,
+      expectedRedirectUri: "wanta-local://signin",
+      hasSecretExtra: { appBearerToken: true },
+      nextConnectSource: "custom" as const,
+    }
+    const providerOAuthClientConfig = {
+      ...twitterOAuthConfig,
+      clientConfigFields: [
+        ...twitterOAuthConfig.clientConfigFields,
+        {
+          key: "appBearerToken",
+          label: "App Bearer Token",
+          inputType: "password",
+          location: "secretExtra",
+          required: true,
+          secret: true,
+        } satisfies ConnectionOAuthClientConfigFieldDefinition,
+      ],
+      configured: true,
+      nextConnectSource: "custom" as const,
+    }
+    const draft = {
+      clientId: "client-id",
+      clientSecret: "",
+      extra: { persistentScopes: ["tweet.read"] },
+      secretExtra: { appBearerToken: "", sessionCode: "" },
+    }
+    const viewModel = buildOAuthConnectViewModel({
+      currentDraft: draft,
+      providerOAuthClientConfig,
+      userOAuthClientConfig,
+    })
+
+    expect(validateOAuthPersistentFields(viewModel, draft, userOAuthClientConfig)).toBe(true)
   })
 })

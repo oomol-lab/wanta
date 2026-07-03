@@ -462,7 +462,7 @@ function SkillPeek({
                     : t("skills.publishToMarket")}
               </Button>
             ) : null}
-            {showOrganizationLinkAction && selectedSkill.packageName?.trim() ? (
+            {showOrganizationLinkAction && selectedSkill.packageName?.trim() && selectedSkill.version?.trim() ? (
               <Button type="button" variant="outline" size="sm" onClick={() => requestOrganizationLink(selectedSkill)}>
                 <AppIcons.action.share />
                 {isSkillLinkedToOrganization ? t("skills.organizationManageLink") : t("skills.organizationLink")}

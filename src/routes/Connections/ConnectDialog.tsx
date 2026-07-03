@@ -31,6 +31,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
 import { upsertOAuthClientConfig } from "@/lib/connections-client"
+import { resolveConnectionError } from "@/lib/connections-error"
+import { userFacingErrorDescription } from "@/lib/user-facing-error"
 
 const URL_RE = /(https?:\/\/[^\s）)]+)/g
 const IS_URL = /^https?:\/\//
@@ -306,7 +308,7 @@ export function ConnectDialog({
         setOAuthDraft(nextDraft)
         setOAuthBaselineDraft(nextDraft)
       } catch (error) {
-        setFormError(error instanceof Error ? error.message : String(error))
+        setFormError(userFacingErrorDescription(resolveConnectionError(error, "connect"), t))
       } finally {
         setOAuthBusy(null)
       }

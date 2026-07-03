@@ -214,19 +214,24 @@ export function validateOAuthPersistentFields(
   ) {
     return false
   }
-  return validateOAuthFields(viewModel.persistentFields, draft)
+  return validateOAuthFields(viewModel.persistentFields, draft, userOAuthClientConfig?.hasSecretExtra)
 }
 
 export function validateOAuthFields(
   fields: ConnectionOAuthClientConfigFieldDefinition[],
   draft: OAuthClientConfigDraft,
+  savedSecretExtra: Record<string, boolean> = {},
 ): boolean {
   return fields.every((field) => {
     if (!field.required) {
       return true
     }
     const record = field.location === "extra" ? draft.extra : draft.secretExtra
-    return getOAuthClientConfigRequiredRuleValue(field, record[field.key]).length > 0
+    const value = getOAuthClientConfigRequiredRuleValue(field, record[field.key])
+    if (field.location === "secretExtra" && savedSecretExtra[field.key] && value.length === 0) {
+      return true
+    }
+    return value.length > 0
   })
 }
 

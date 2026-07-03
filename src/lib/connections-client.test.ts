@@ -71,7 +71,7 @@ describe("connections-client", () => {
     expect(body.secretExtra).toEqual({ appBearerToken: "secret" })
   })
 
-  it("deduplicates concurrent OAuth start requests by workspace and service", async () => {
+  it("deduplicates identical concurrent OAuth start requests", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({ data: { authorizationUrl: "https://accounts.example.com/oauth" } }),
     )
@@ -79,11 +79,27 @@ describe("connections-client", () => {
 
     const [first, second] = await Promise.all([
       startOAuthConnect({ authType: "oauth2", service: "gmail" }, { type: "personal" }),
-      startOAuthConnect({ appId: "app-1", authType: "oauth2", service: "gmail" }, { type: "personal" }),
+      startOAuthConnect({ authType: "oauth2", service: "gmail" }, { type: "personal" }),
     ])
 
     expect(first).toEqual(second)
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/gmail/connect")
+  })
+
+  it("keeps OAuth start requests with different app IDs separate", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ data: { authorizationUrl: "https://accounts.example.com/oauth" } }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await Promise.all([
+      startOAuthConnect({ appId: "app-1", authType: "oauth2", service: "gmail" }, { type: "personal" }),
+      startOAuthConnect({ appId: "app-2", authType: "oauth2", service: "gmail" }, { type: "personal" }),
+    ])
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect")
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v1/apps/by-id/app-2/connect")
   })
 })

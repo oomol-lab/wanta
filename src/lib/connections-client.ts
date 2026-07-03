@@ -338,8 +338,14 @@ function oauthConnectInFlightKey(
   input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
   workspace: ConnectionWorkspace,
 ): string {
-  // connector 会按同一 owner + service 让旧 state 失效；并发 POST 也按 service 粒度合并。
-  return `${connectionWorkspaceKey(workspace)}\0${input.service}`
+  // 只有完整请求相同才合并，避免重连或 connect-only 字段串用授权 URL。
+  return JSON.stringify({
+    appId: input.appId ?? null,
+    extra: input.extra ?? null,
+    secretExtra: input.secretExtra ?? null,
+    service: input.service,
+    workspace: connectionWorkspaceKey(workspace),
+  })
 }
 
 /** oauth2 连接：POST 取授权 URL（渲染层随后经 openExternalUrl IPC 交系统浏览器打开）。 */

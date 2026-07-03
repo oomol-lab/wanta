@@ -349,29 +349,15 @@ export function AddMemberDialog({
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
     switch (event.key) {
       case "ArrowDown":
-      case "ArrowRight":
         if (hasSearchResults) {
           event.preventDefault()
           onMoveActiveUser(1)
         }
         return
       case "ArrowUp":
-      case "ArrowLeft":
         if (hasSearchResults) {
           event.preventDefault()
           onMoveActiveUser(-1)
-        }
-        return
-      case "Home":
-        if (hasSearchResults) {
-          event.preventDefault()
-          onMoveActiveUser("first")
-        }
-        return
-      case "End":
-        if (hasSearchResults) {
-          event.preventDefault()
-          onMoveActiveUser("last")
         }
         return
       case "Escape":
@@ -478,6 +464,7 @@ function MemberSearchResults({
             const current = user.userId === (selectedUserId ?? activeUserId)
             return (
               <button
+                tabIndex={-1}
                 ref={(element) => {
                   if (element) {
                     itemRefs.current.set(user.userId, element)

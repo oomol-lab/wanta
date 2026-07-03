@@ -19,7 +19,6 @@ import {
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
-  isProviderConnectionActive,
   setDefaultAccount as setDefaultAccountRequest,
   startOAuthConnect,
   updateAlias as updateAliasRequest,
@@ -63,6 +62,26 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 
 function sameWorkspace(workspace: ConnectionWorkspace | null, key: string): boolean {
   return workspace ? connectionWorkspaceKey(workspace) === key : key === "pending"
+}
+
+function activeAppIdsForService(summary: ConnectionSummary | null, service: string): string[] {
+  return (
+    summary?.apps
+      .filter((app) => app.service === service && app.status === "active")
+      .map((app) => app.id)
+      .filter(Boolean) ?? []
+  )
+}
+
+function isOAuthOperationConnected(next: ConnectionSummary, operation: OAuthPendingOperation): boolean {
+  const activeAppIds = activeAppIdsForService(next, operation.service)
+  if (operation.appId) {
+    return activeAppIds.includes(operation.appId)
+  }
+  if (operation.existingActiveAppIds) {
+    return activeAppIds.some((appId) => !operation.existingActiveAppIds?.includes(appId))
+  }
+  return activeAppIds.length > 0
 }
 
 export interface UseConnections {
@@ -188,15 +207,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           if (!isCurrentOAuth()) {
             return false
           }
-          const connected = await isProviderConnectionActive(operation.service, currentWorkspace)
+          const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
           if (!isCurrentOAuth()) {
             return false
           }
-          if (connected) {
-            const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
-            if (!isCurrentOAuth()) {
-              return false
-            }
+          if (isOAuthOperationConnected(next, operation)) {
             setSummary(next)
             setActionError(null)
             clearActiveOAuthPending(operation)
@@ -320,8 +335,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
 
       if (input.authType === "oauth2") {
         const duplicateOAuthKey = createOAuthPendingKey(currentWorkspace, input)
-        const pending =
-          readOAuthPendingOperation(duplicateOAuthKey) ?? readOAuthPendingOperationsForWorkspace(currentWorkspace)[0]
+        const pending = readOAuthPendingOperation(duplicateOAuthKey)
         if (pending) {
           const active =
             oauthPending.current?.key === pending.key ? oauthPending.current : activateOAuthPending(pending)
@@ -364,6 +378,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       }
       setActionError(null)
       setBusy("connect")
+      let startedOAuthPending: OAuthPendingOperation | null = null
       try {
         if (input.authType !== "oauth2") {
           await connectProvider(input, currentWorkspace)
@@ -372,7 +387,19 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
 
         // oauth2：渲染层取授权 URL → 交主进程用系统浏览器打开 → 轮询直到连上。
-        const pending = createOAuthPendingOperation(currentWorkspace, input, actionId)
+        const baselineSummary = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+        if (!isCurrentAction()) {
+          return false
+        }
+        applySummary(baselineSummary)
+        const pending = createOAuthPendingOperation(
+          currentWorkspace,
+          input,
+          actionId,
+          Date.now(),
+          activeAppIdsForService(baselineSummary, input.service),
+        )
+        startedOAuthPending = pending
         oauthPending.current = pending
         rememberOAuthPendingOperation(pending)
         applyPolling(pending.pollingKey)
@@ -398,9 +425,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           applyActionError(resolveConnectionError("WANTA_OAUTH_CANCELLED", operation))
           return false
         }
-        if (input.authType === "oauth2" && oauthPending.current?.service === input.service) {
-          clearActiveOAuthPending(oauthPending.current)
-          setPolling(null)
+        if (
+          startedOAuthPending &&
+          oauthPending.current?.key === startedOAuthPending.key &&
+          oauthPending.current.actionId === startedOAuthPending.actionId
+        ) {
+          clearActiveOAuthPending(startedOAuthPending)
+          applyPolling(null)
         }
         applyActionError(resolveConnectionError(err, operation))
         return false

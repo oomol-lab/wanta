@@ -122,29 +122,25 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
         return
       }
 
-      setActiveSearchUserId((current) => {
-        const currentUserId = selectedSearchUserId ?? current
-        let nextUserId: string | null
+      const currentUserId = selectedSearchUserId ?? activeSearchUserId
+      let nextUserId: string | null
 
-        if (step === "first") {
-          nextUserId = memberSearch.items[0]?.userId ?? null
-        } else if (step === "last") {
-          nextUserId = memberSearch.items.at(-1)?.userId ?? null
-        } else {
-          const currentIndex = currentUserId
-            ? memberSearch.items.findIndex((user) => user.userId === currentUserId)
-            : -1
-          const fallbackIndex = step > 0 ? -1 : 0
-          const nextIndex = currentIndex === -1 ? fallbackIndex + step : currentIndex + step
-          const clampedIndex = Math.max(0, Math.min(memberSearch.items.length - 1, nextIndex))
-          nextUserId = memberSearch.items[clampedIndex]?.userId ?? null
-        }
+      if (step === "first") {
+        nextUserId = memberSearch.items[0]?.userId ?? null
+      } else if (step === "last") {
+        nextUserId = memberSearch.items.at(-1)?.userId ?? null
+      } else {
+        const currentIndex = currentUserId ? memberSearch.items.findIndex((user) => user.userId === currentUserId) : -1
+        const fallbackIndex = step > 0 ? -1 : 0
+        const nextIndex = currentIndex === -1 ? fallbackIndex + step : currentIndex + step
+        const clampedIndex = Math.max(0, Math.min(memberSearch.items.length - 1, nextIndex))
+        nextUserId = memberSearch.items[clampedIndex]?.userId ?? null
+      }
 
-        setSelectedSearchUserId(nextUserId)
-        return nextUserId
-      })
+      setActiveSearchUserId(nextUserId)
+      setSelectedSearchUserId(nextUserId)
     },
-    [memberSearch.items, selectedSearchUserId],
+    [activeSearchUserId, memberSearch.items, selectedSearchUserId],
   )
 
   return {

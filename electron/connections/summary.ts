@@ -221,18 +221,23 @@ function normalizeOAuthClientConfigField(item: unknown): ConnectionOAuthClientCo
         ? "password"
         : "text"
 
+  const location = field.location === "secretExtra" ? "secretExtra" : "extra"
+  const defaultValue =
+    typeof field.defaultValue === "string"
+      ? field.defaultValue
+      : Array.isArray(field.defaultValue)
+        ? field.defaultValue.filter((item): item is string => typeof item === "string")
+        : undefined
+
   return {
     key,
     label,
     inputType,
-    location: field.location === "secretExtra" ? "secretExtra" : "extra",
+    location,
     required: field.required === true,
-    secret: field.secret === true || inputType === "password",
+    secret: location === "secretExtra" || field.secret === true || inputType === "password",
     connectOnly: field.connectOnly === true,
-    defaultValue:
-      typeof field.defaultValue === "string" || Array.isArray(field.defaultValue)
-        ? (field.defaultValue as string | string[])
-        : undefined,
+    defaultValue,
     description: asString(field.description),
     placeholder: asString(field.placeholder),
   }

@@ -9,6 +9,7 @@ export interface OAuthPendingOperation {
   appId?: string
   createdAt: number
   expiresAt: number
+  existingActiveAppIds?: string[]
   key: string
   pollingKey: string
   service: string
@@ -34,8 +35,7 @@ export function createOAuthPendingKey(
   workspace: ConnectionWorkspace,
   input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
 ): string {
-  // connector 会按同一 owner + service 让旧 state 失效；这里也按 service 粒度防重复。
-  return `${connectionWorkspaceKey(workspace)}\0${input.service}`
+  return `${connectionWorkspaceKey(workspace)}\0${input.service}\0${input.appId ?? ""}`
 }
 
 export function createOAuthPendingOperation(
@@ -43,12 +43,14 @@ export function createOAuthPendingOperation(
   input: Extract<ConnectionConnectInput, { authType: "oauth2" }>,
   actionId: number,
   now = Date.now(),
+  existingActiveAppIds?: string[],
 ): OAuthPendingOperation {
   return {
     actionId,
     ...(input.appId ? { appId: input.appId } : {}),
     createdAt: now,
     expiresAt: now + connectionOAuthPendingTtlMs,
+    ...(existingActiveAppIds ? { existingActiveAppIds } : {}),
     key: createOAuthPendingKey(workspace, input),
     pollingKey: createConnectionPollingKey(input.service, input.appId),
     service: input.service,
@@ -88,6 +90,9 @@ function normalizeOAuthPendingOperation(value: unknown): OAuthPendingOperation |
   const service = optionalString(value["service"])
   const workspaceKey = optionalString(value["workspaceKey"])
   const appId = optionalString(value["appId"])
+  const existingActiveAppIds = Array.isArray(value["existingActiveAppIds"])
+    ? value["existingActiveAppIds"].filter((item): item is string => typeof item === "string")
+    : undefined
   if (
     typeof actionId !== "number" ||
     typeof createdAt !== "number" ||
@@ -104,6 +109,7 @@ function normalizeOAuthPendingOperation(value: unknown): OAuthPendingOperation |
     ...(appId ? { appId } : {}),
     createdAt,
     expiresAt,
+    ...(existingActiveAppIds ? { existingActiveAppIds } : {}),
     key,
     pollingKey,
     service,

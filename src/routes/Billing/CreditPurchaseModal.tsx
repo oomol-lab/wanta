@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
+import { getSubscriptionMarkers, isWantaSubscriptionPlan } from "./plans.ts"
 import { formatCredit } from "./usage.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -134,23 +135,6 @@ const wantaPlans: WantaPlan[] = [
   },
 ]
 
-function subscriptionPlansFromStatus(
-  status: { features?: string[]; plan: string | null; plans: string[]; platforms: Record<string, string[]> } | null,
-): string[] {
-  if (!status) {
-    return []
-  }
-  return Array.from(
-    new Set([
-      ...status.plans,
-      ...(status.plan ? [status.plan] : []),
-      ...(status.features ?? []),
-      ...(status.platforms["stripe"] ?? []),
-      ...(status.platforms["app_store"] ?? []),
-    ]),
-  )
-}
-
 function planLabel(plan: string | undefined, t: ReturnType<typeof useT>): string {
   if (plan === "wanta_plus") {
     return t("billing.wantaPlusPlanTitle")
@@ -198,22 +182,27 @@ export function CreditPurchaseModal({
   const [subscriptionLoading, setSubscriptionLoading] = React.useState<SubscriptionPlanTag | null>(null)
   const [wantaLoading, setWantaLoading] = React.useState<WantaSubscriptionPlan | "seats" | null>(null)
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
-  const [billableSeats, setBillableSeats] = React.useState(() => normalizeSeats(effectiveBillingContext.memberCount))
+  const minimumBillableSeats = React.useMemo(
+    () => normalizeSeats(effectiveBillingContext.memberCount),
+    [effectiveBillingContext.memberCount],
+  )
+  const [billableSeats, setBillableSeats] = React.useState(minimumBillableSeats)
+  const checkoutBillableSeats = Math.max(minimumBillableSeats, billableSeats)
 
   const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit) : "--"
   const currentPlans = React.useMemo(
-    () => subscriptionPlansFromStatus(overview.data?.subscription ?? null),
+    () => getSubscriptionMarkers(overview.data?.subscription ?? null),
     [overview.data?.subscription],
   )
-  const currentWantaPlan = currentPlans.find(isWantaPlan)
+  const currentWantaPlan = currentPlans.find(isWantaSubscriptionPlan)
   const hasWantaSubscription = currentPlans.some((plan) => plan.toLowerCase().startsWith("wanta"))
   const pendingWantaPaymentUrl = overview.data?.wantaPendingPayment?.paymentURL?.trim() || ""
 
   React.useEffect(() => {
     if (open) {
-      setBillableSeats(normalizeSeats(effectiveBillingContext.memberCount))
+      setBillableSeats(minimumBillableSeats)
     }
-  }, [effectiveBillingContext.memberCount, open])
+  }, [minimumBillableSeats, open])
 
   const handleWantaSubscription = React.useCallback(
     async (plan: WantaSubscriptionPlan, isCurrent: boolean) => {
@@ -224,7 +213,7 @@ export function CreditPurchaseModal({
           : hasWantaSubscription && !isCurrent
             ? await wantaSubscriptionPortalUrl()
             : wantaSubscriptionCheckoutUrl({
-                billableSeats,
+                billableSeats: checkoutBillableSeats,
                 organizationId: effectiveBillingContext.organizationId,
                 plan,
               })
@@ -237,7 +226,7 @@ export function CreditPurchaseModal({
       }
     },
     [
-      billableSeats,
+      checkoutBillableSeats,
       effectiveBillingContext.organizationId,
       chatService,
       hasWantaSubscription,
@@ -255,7 +244,7 @@ export function CreditPurchaseModal({
         : hasWantaSubscription
           ? await wantaSubscriptionPortalUrl()
           : wantaSubscriptionCheckoutUrl({
-              billableSeats,
+              billableSeats: checkoutBillableSeats,
               organizationId: effectiveBillingContext.organizationId,
             })
       await chatService.invoke("openExternalUrl", { url })
@@ -266,7 +255,7 @@ export function CreditPurchaseModal({
       setWantaLoading(null)
     }
   }, [
-    billableSeats,
+    checkoutBillableSeats,
     effectiveBillingContext.organizationId,
     chatService,
     hasWantaSubscription,
@@ -455,19 +444,25 @@ export function CreditPurchaseModal({
                       type="button"
                       variant="outline"
                       size="icon"
-                      disabled={!effectiveBillingContext.canManage || billableSeats <= 1 || wantaLoading !== null}
-                      onClick={() => setBillableSeats((count) => Math.max(1, count - 1))}
+                      disabled={
+                        !effectiveBillingContext.canManage ||
+                        billableSeats <= minimumBillableSeats ||
+                        wantaLoading !== null
+                      }
+                      onClick={() => setBillableSeats((count) => Math.max(minimumBillableSeats, count - 1))}
                     >
                       <MinusIcon className="size-4" />
                     </Button>
                     <Input
                       className="w-24 text-center tabular-nums"
                       disabled={!effectiveBillingContext.canManage || wantaLoading !== null}
-                      min={1}
+                      min={minimumBillableSeats}
                       step={1}
                       type="number"
                       value={billableSeats}
-                      onChange={(event) => setBillableSeats(normalizeSeats(event.currentTarget.value))}
+                      onChange={(event) =>
+                        setBillableSeats(normalizeSeats(event.currentTarget.value, minimumBillableSeats))
+                      }
                     />
                     <Button
                       type="button"
@@ -609,11 +604,7 @@ function SummaryCell({ label, value }: { label: string; value: string }) {
   )
 }
 
-function isWantaPlan(plan: string): plan is WantaSubscriptionPlan {
-  return plan === "wanta_plus" || plan === "wanta_pro"
-}
-
-function normalizeSeats(value: string | number): number {
+function normalizeSeats(value: string | number, minimum = 1): number {
   const parsed = typeof value === "number" ? value : Number(value)
-  return Number.isFinite(parsed) ? Math.max(1, Math.floor(parsed)) : 1
+  return Number.isFinite(parsed) ? Math.max(minimum, Math.floor(parsed)) : minimum
 }

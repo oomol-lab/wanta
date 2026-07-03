@@ -198,6 +198,7 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
             connectedProviderCount={billingContext.connectedProviderCount}
             currentPlan={currentWantaPlan}
             hasSubscription={hasWantaSubscription}
+            loading={(loading && !data) || Boolean(error && !data)}
             memberCount={billingContext.memberCount}
             memberLoading={seatState.loading}
             pendingPayment={data?.wantaPendingPayment ?? null}
@@ -364,6 +365,7 @@ function WantaSubscriptionOverview({
   connectedProviderCount,
   currentPlan,
   hasSubscription,
+  loading = false,
   memberCount,
   memberLoading,
   pendingPayment,
@@ -375,6 +377,7 @@ function WantaSubscriptionOverview({
   connectedProviderCount?: number
   currentPlan: WantaSubscriptionPlan | null
   hasSubscription: boolean
+  loading?: boolean
   memberCount: number
   memberLoading: boolean
   pendingPayment: WantaPendingPaymentResult | null
@@ -395,19 +398,27 @@ function WantaSubscriptionOverview({
                 <h2 className="oo-text-title truncate">{t("billing.wantaSubscriptionTitle")}</h2>
               </div>
               <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-                <span className="oo-text-metric text-foreground">
-                  {currentPlan ? wantaPlanLabel(currentPlan, t) : t("billing.wantaNoPlan")}
-                </span>
-                <Badge variant={hasSubscription ? "secondary" : "outline"}>
-                  {hasSubscription ? t("billing.wantaActive") : t("billing.noSubscription")}
-                </Badge>
+                {loading ? (
+                  <Skeleton className="h-7 w-32" />
+                ) : (
+                  <span className="oo-text-metric text-foreground">
+                    {currentPlan ? wantaPlanLabel(currentPlan, t) : t("billing.wantaNoPlan")}
+                  </span>
+                )}
+                {loading ? (
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                ) : (
+                  <Badge variant={hasSubscription ? "secondary" : "outline"}>
+                    {hasSubscription ? t("billing.wantaActive") : t("billing.noSubscription")}
+                  </Badge>
+                )}
                 {pendingPaymentUrl ? <Badge variant="outline">{t("billing.wantaPaymentPending")}</Badge> : null}
               </div>
               <p className="oo-text-body mt-2 max-w-2xl text-muted-foreground">
                 {t("billing.wantaSubscriptionDescription")}
               </p>
             </div>
-            <Button type="button" disabled={!canManage} onClick={onManage}>
+            <Button type="button" disabled={loading || !canManage} onClick={onManage}>
               <CreditCardIcon className="size-4" />
               {pendingPaymentUrl ? t("billing.wantaContinuePayment") : t("billing.wantaManagePlan")}
             </Button>
@@ -423,7 +434,7 @@ function WantaSubscriptionOverview({
           <MiniStat
             icon={<UsersIcon className="size-4" />}
             label={t("billing.wantaBillableSeats")}
-            value={memberLoading ? "..." : `${memberCount} / ${planCapacity.members}`}
+            value={loading || memberLoading ? "..." : `${memberCount} / ${planCapacity.members}`}
           />
           <MiniStat
             icon={<ShieldCheckIcon className="size-4" />}

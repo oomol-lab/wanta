@@ -2,6 +2,8 @@ import type { BillingPeriodDays, BillingSpendStats } from "../../../electron/cha
 
 export type UsageCategory = "model" | "api" | "link"
 
+const linkSubjectPattern = /(^|[^a-z0-9])(link|connector|provider|oauth|action)(?=$|[^a-z0-9])/
+
 export interface CategorySummary {
   category: UsageCategory
   credit: number
@@ -107,7 +109,7 @@ export function usageCategory(source: string, subject: string): UsageCategory {
     source === "SERVICE_OOMOL_CONNECTOR" ||
     normalizedSource.includes("auth_link") ||
     normalizedSource.includes("connector") ||
-    /\b(link|connector|provider|oauth|action)\b/.test(normalizedSubject)
+    linkSubjectPattern.test(normalizedSubject)
   ) {
     return "link"
   }

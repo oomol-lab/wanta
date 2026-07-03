@@ -495,7 +495,7 @@ export const zhCNMessages = {
   "billing.wantaContinuePayment": "继续支付",
   "billing.wantaManagePlan": "管理 Wanta 订阅",
   "billing.wantaManageSeats": "更新席位",
-  "billing.wantaManagedByCreator": "只有组织创建者可以管理 Wanta 订阅和席位。",
+  "billing.wantaManagedByCreator": "只有具备管理权限的组织成员可以管理 Wanta 订阅和席位。",
   "billing.wantaBillableSeats": "计费席位",
   "billing.wantaWorkspace": "工作区",
   "billing.wantaSharedLinks": "共享 Link",

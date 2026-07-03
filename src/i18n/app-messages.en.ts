@@ -516,7 +516,8 @@ export const enMessages = {
   "billing.wantaContinuePayment": "Continue payment",
   "billing.wantaManagePlan": "Manage Wanta subscription",
   "billing.wantaManageSeats": "Update seats",
-  "billing.wantaManagedByCreator": "Only the organization creator can manage Wanta subscriptions and seats.",
+  "billing.wantaManagedByCreator":
+    "Only organization members with management permission can manage Wanta subscriptions and seats.",
   "billing.wantaBillableSeats": "Billable seats",
   "billing.wantaWorkspace": "Workspace",
   "billing.wantaSharedLinks": "Shared Links",

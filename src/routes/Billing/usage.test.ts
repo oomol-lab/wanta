@@ -55,6 +55,9 @@ describe("billing usage helpers", () => {
     expect(usageCategory("SERVICE_FUSION_API", "tts")).toBe("api")
     expect(usageCategory("SERVICE_AUTH_LINK", "google_sheets.read")).toBe("link")
     expect(usageCategory("SERVICE_OOMOL_CONNECTOR", "hubspot.search")).toBe("link")
+    expect(usageCategory("SERVICE_OTHER", "auth_link")).toBe("link")
+    expect(usageCategory("SERVICE_OTHER", "shared_link.create")).toBe("link")
+    expect(usageCategory("SERVICE_OTHER", "oauth_token")).toBe("link")
   })
 })
 

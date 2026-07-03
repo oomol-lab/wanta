@@ -569,6 +569,7 @@ export async function getBillingSummary(days: number): Promise<BillingSummaryRes
     logs: [],
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
     schedules: [],
+    // summary 路径刻意不拉待支付状态，避免轻量刷新额外请求订阅结账接口。
     wantaPendingPayment: null,
   }
 }

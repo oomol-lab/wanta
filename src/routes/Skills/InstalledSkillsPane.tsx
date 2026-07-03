@@ -6,22 +6,28 @@ import * as React from "react"
 import {
   getGroupRowPackageLine,
   getGroupStatus,
+  getInstalledPlatformHosts,
   getRuntimeHosts,
+  getSkillCreatorLine,
   getSkillKindLabel,
+  getSkillPlatformLine,
   getSkillVersionCheck,
   getSkillRowStatusBadgeClassName,
+  hasExternalInstalledHost,
+  hasRuntimeInstalledHost,
   hasSkillUpdateAvailable,
   isPublishableLocalSkill,
   shouldUpdatePublishedSkill,
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
+import { SkillListRow } from "./SkillListRow.tsx"
 import { SkillIconFrame, SkillManagementSheet } from "./SkillUiParts.tsx"
+import { AgentIcon } from "@/components/AgentIcon"
 import { AppIcons } from "@/components/AppIcons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardDescription } from "@/components/ui/card"
 import { useAppI18n } from "@/i18n"
-import { cn } from "@/lib/utils"
 
 const publishableSkillBadgeClassName = "oo-badge-info oo-text-micro h-5 shrink-0 px-1.5 font-medium"
 
@@ -70,9 +76,9 @@ export function InstalledSkillsPane({
         {groups.length === 0 ? (
           <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.installedEmpty")}</div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+          <div className="overflow-hidden rounded-md border bg-background">
             {groups.map((group) => (
-              <InstalledSkillCard
+              <InstalledSkillRow
                 key={group.id}
                 group={group}
                 selected={selectedSkill?.id === group.id}
@@ -134,7 +140,7 @@ function CliUpdateNotice({
   )
 }
 
-interface InstalledSkillCardProps {
+interface InstalledSkillRowProps {
   group: ManagedSkillGroup
   onOpen: () => void
   selected: boolean
@@ -143,28 +149,38 @@ interface InstalledSkillCardProps {
   versionCheck: SkillVersionReport["skills"][number] | undefined
 }
 
-function InstalledSkillCard({
+function InstalledSkillRow({
   group,
   onOpen,
   selected,
   updateRegistrySkill,
   updatingRegistrySkillId,
   versionCheck,
-}: InstalledSkillCardProps) {
+}: InstalledSkillRowProps) {
   const { t } = useAppI18n()
   const status = getGroupStatus(group, t, getRuntimeHosts(group))
   const hasUpdate = hasSkillUpdateAvailable(versionCheck)
   const canUpdate = hasUpdate && shouldUpdatePublishedSkill(group)
   const isPublishable = isPublishableLocalSkill(group)
   const hasAttention = status.tone === "attention" || status.tone === "danger"
+  const hasRuntimeHost = hasRuntimeInstalledHost(group)
+  const hasExternalHost = hasExternalInstalledHost(group)
   const statusLabel = hasUpdate
     ? t("skills.updateAvailable")
     : hasAttention
       ? (status.label ?? t("skills.groupStatus.modified"))
-      : isPublishable
-        ? t("skills.publishable")
-        : t("skills.installed")
-  const badgeTone: ObjectStatusTone = hasUpdate ? "attention" : hasAttention ? status.tone : "ready"
+      : !hasRuntimeHost && hasExternalHost
+        ? t("skills.externalInstalled")
+        : isPublishable
+          ? t("skills.publishable")
+          : t("skills.installed")
+  const badgeTone: ObjectStatusTone = hasUpdate
+    ? "attention"
+    : hasAttention
+      ? status.tone
+      : !hasRuntimeHost && hasExternalHost
+        ? "pending"
+        : "ready"
   const badgeClassName =
     isPublishable && !hasUpdate && !hasAttention
       ? publishableSkillBadgeClassName
@@ -178,44 +194,42 @@ function InstalledSkillCard({
         })
       : hasAttention
         ? (status.description ?? t("skills.groupStatus.modifiedDescription", { count: 1 }))
-        : isPublishable
-          ? t("skills.publishableDescription")
-          : t("skills.installedDescription")
+        : !hasRuntimeHost && hasExternalHost
+          ? t("skills.externalInstalledDescription", { platforms: getSkillPlatformLine(group, t) })
+          : isPublishable
+            ? t("skills.publishableDescription")
+            : t("skills.installedDescription")
   const isUpdating = updatingRegistrySkillId === group.id
 
   return (
-    <div
-      className={cn(
-        "grid min-h-44 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-md border bg-card text-card-foreground transition-colors hover:bg-[var(--oo-row-hover)]",
-        selected && "border-[var(--accent-ring)] bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
-      )}
-    >
-      <button
-        type="button"
-        className="grid min-w-0 gap-2 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
-        onClick={onOpen}
-      >
-        <div className="flex min-w-0 items-start gap-3">
-          <SkillIconFrame icon={group.icon} />
-          <div className="grid min-w-0 gap-1">
-            <div className="oo-text-label min-w-0 truncate">{group.name}</div>
-            <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={packageLine}>
-              {packageLine}
-            </div>
-          </div>
-        </div>
-        {group.description ? (
-          <p className="oo-text-caption line-clamp-2 text-foreground/75">{group.description}</p>
-        ) : null}
-        <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={runtimeLabel}>
-          {runtimeLabel}
-        </div>
-      </button>
-      <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
+    <SkillListRow
+      icon={<SkillIconFrame icon={group.icon} className="size-9" iconClassName="size-4.5" />}
+      selected={selected}
+      title={group.name}
+      subtitle={
+        <span className="min-w-0 truncate" title={packageLine}>
+          {packageLine}
+        </span>
+      }
+      description={group.description}
+      badges={
         <Badge className={badgeClassName} variant={badgeTone === "danger" ? "destructive" : "outline"}>
           {statusLabel}
         </Badge>
-        {canUpdate ? (
+      }
+      meta={
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <InstalledSkillPlatformBadges group={group} />
+          <span className="min-w-0 truncate" title={getSkillCreatorLine(group, t)}>
+            {getSkillCreatorLine(group, t)}
+          </span>
+          <span className="min-w-0 truncate" title={runtimeLabel}>
+            {runtimeLabel}
+          </span>
+        </div>
+      }
+      actions={
+        canUpdate ? (
           <Button
             type="button"
             variant="outline"
@@ -230,8 +244,32 @@ function InstalledSkillCard({
           <Button type="button" variant="ghost" size="sm" onClick={onOpen}>
             {t("skills.installedManage")}
           </Button>
-        )}
-      </div>
+        )
+      }
+      onSelect={onOpen}
+    />
+  )
+}
+
+function InstalledSkillPlatformBadges({ group }: { group: ManagedSkillGroup }) {
+  const hosts = getInstalledPlatformHosts(group)
+
+  if (hosts.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
+      {hosts.map((host) => (
+        <span
+          key={`${host.agentId}:${host.path ?? host.agentName}`}
+          className="inline-flex min-w-0 items-center gap-1 rounded-md border bg-background px-1.5 py-0.5"
+          title={host.path ? `${host.agentName}: ${host.path}` : host.agentName}
+        >
+          <AgentIcon host={host.agentName} className="oo-entity-icon-compact size-5 border-0" />
+          <span className="oo-text-micro max-w-24 truncate text-muted-foreground">{host.agentName}</span>
+        </span>
+      ))}
     </div>
   )
 }

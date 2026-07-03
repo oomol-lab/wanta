@@ -57,6 +57,7 @@ export const supportedAgents: readonly SupportedAgent[] = [
     ooCliAgentId: "universal",
   },
   {
+    canDiscoverFromSkillRoot: true,
     homeEnvVar: "CODEX_HOME",
     homeRoot: ".codex",
     id: "codex",
@@ -65,6 +66,7 @@ export const supportedAgents: readonly SupportedAgent[] = [
     ooCliAgentId: "codex",
   },
   {
+    canDiscoverFromSkillRoot: true,
     homeRoot: ".claude",
     id: "claude-code",
     cliCommands: ["claude"],

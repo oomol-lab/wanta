@@ -15,6 +15,7 @@ import {
   isNearScrollBottom,
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
+import { SkillListRow } from "./SkillListRow.tsx"
 import { SkillIconFrame } from "./SkillUiParts.tsx"
 import { AppIcons } from "@/components/AppIcons"
 import { SkeletonText } from "@/components/LoadingSkeletons"
@@ -22,7 +23,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
-import { cn } from "@/lib/utils"
 
 interface DiscoverSkillsPaneProps {
   error: string | null
@@ -148,7 +148,7 @@ export function DiscoverSkillsPane({
           </div>
         ) : null}
         {isLoading && packages.length === 0 ? (
-          <PublicSkillGridSkeleton />
+          <PublicSkillListSkeleton />
         ) : packages.length === 0 ? (
           <div className="oo-text-body oo-text-muted px-1 py-3">
             {filter === "mine"
@@ -158,9 +158,9 @@ export function DiscoverSkillsPane({
               : t("skills.discoverEmpty")}
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+          <div className="overflow-hidden rounded-md border bg-background">
             {packages.map((pkg) => (
-              <PublicSkillPackageCard
+              <PublicSkillPackageRow
                 key={pkg.id}
                 groupById={groupById}
                 installingKey={installingKey}
@@ -204,27 +204,34 @@ export function DiscoverSkillsPane({
   )
 }
 
-function PublicSkillGridSkeleton() {
+function PublicSkillListSkeleton() {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(15.5rem,1fr))] gap-2.5">
+    <div className="overflow-hidden rounded-md border bg-background">
       {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="grid gap-3 rounded-md border bg-card px-3 py-3">
-          <div className="flex items-start gap-3">
-            <Skeleton className="size-10 rounded-md" />
-            <div className="grid flex-1 gap-2">
-              <SkeletonText className="h-4 w-28" />
-              <SkeletonText className="h-3 w-full" />
-              <SkeletonText className="h-3 w-20" />
+        <div
+          key={index}
+          className="grid min-w-0 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+        >
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+            <Skeleton className="size-9 rounded-md" />
+            <div className="grid min-w-0 gap-1.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <SkeletonText className="h-4 w-36" />
+                <SkeletonText className="h-5 w-16 rounded-md" />
+              </div>
+              <SkeletonText className="h-3 w-56 max-w-full" />
+              <SkeletonText className="h-3 w-72 max-w-full" />
+              <SkeletonText className="h-3 w-32 max-w-full" />
             </div>
           </div>
-          <Skeleton className="h-8 rounded-md" />
+          <Skeleton className="h-[var(--oo-control-height-compact)] w-24 rounded-md" />
         </div>
       ))}
     </div>
   )
 }
 
-interface PublicSkillPackageCardProps {
+interface PublicSkillPackageRowProps {
   groupById: ManagedSkillGroupById
   installingKey: string | null
   onInstall: (skillName?: string) => void
@@ -234,7 +241,7 @@ interface PublicSkillPackageCardProps {
   selected: boolean
 }
 
-function PublicSkillPackageCard({
+function PublicSkillPackageRow({
   groupById,
   installingKey,
   onInstall,
@@ -242,46 +249,36 @@ function PublicSkillPackageCard({
   onSelect,
   pkg,
   selected,
-}: PublicSkillPackageCardProps) {
+}: PublicSkillPackageRowProps) {
   const { t } = useAppI18n()
   const primarySkill = getPublicPackagePrimarySkill(pkg)
   const primaryInstallSkill = getPublicPackagePrimaryInstallSkill(groupById, pkg)
   const state = getPublicPackageInstallState(groupById, pkg)
   const isInstalling = installingKey === getPublicSkillInstallKey(pkg, primaryInstallSkill?.name)
+  const stateBadge =
+    state === "name-conflict" || state === "unavailable" ? (
+      <Badge variant="outline">{getPublicSkillInstallStateLabel(state, t)}</Badge>
+    ) : null
 
   return (
-    <div
-      className={cn(
-        "grid min-h-44 grid-rows-[minmax(0,1fr)_auto] overflow-hidden rounded-md border bg-card text-card-foreground transition-colors hover:bg-[var(--oo-row-hover)]",
-        selected && "border-[var(--accent-ring)] bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
-      )}
-    >
-      <button
-        type="button"
-        className="grid min-w-0 gap-2 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
-        onClick={onSelect}
-      >
-        <div className="flex min-w-0 items-start gap-3">
-          <SkillIconFrame icon={pkg.icon} />
-          <div className="grid min-w-0 gap-1">
-            <div className="oo-text-label min-w-0 truncate">{pkg.displayName}</div>
-            <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={pkg.name}>
-              {pkg.name}
-            </div>
-          </div>
-        </div>
-        {pkg.description ? <p className="oo-text-caption line-clamp-2 text-foreground/75">{pkg.description}</p> : null}
-        <div className="oo-text-caption oo-text-muted min-w-0 truncate" title={getPublicPackageMetaLine(pkg, t)}>
+    <SkillListRow
+      icon={<SkillIconFrame icon={pkg.icon} className="size-9" iconClassName="size-4.5" />}
+      selected={selected}
+      title={pkg.displayName}
+      subtitle={
+        <span className="min-w-0 truncate" title={pkg.name}>
+          {pkg.name}
+        </span>
+      }
+      description={pkg.description}
+      badges={stateBadge}
+      meta={
+        <div className="min-w-0 truncate" title={getPublicPackageMetaLine(pkg, t)}>
           {getPublicPackageMetaLine(pkg, t)}
         </div>
-      </button>
-      <div className="oo-border-divider flex items-center justify-between gap-2 border-t px-3 py-2">
-        <div className="min-w-0">
-          {state === "name-conflict" || state === "unavailable" ? (
-            <Badge variant="outline">{getPublicSkillInstallStateLabel(state, t)}</Badge>
-          ) : null}
-        </div>
-        {state === "name-conflict" && primarySkill ? (
+      }
+      actions={
+        state === "name-conflict" && primarySkill ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => onOpenManagedSkill(primarySkill.name)}>
             {t("skills.discoverOpenManage")}
           </Button>
@@ -304,8 +301,9 @@ function PublicSkillPackageCard({
                 ? t("skills.discoverInstallMissing")
                 : t("organizations.skillManageInstallRuntime")}
           </Button>
-        ) : null}
-      </div>
-    </div>
+        ) : null
+      }
+      onSelect={onSelect}
+    />
   )
 }

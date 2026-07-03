@@ -16,9 +16,10 @@ export const discoverAutoLoadThresholdPx = 160
 export type SkillSelectionKey = string
 export type SkillPageTab = "discover" | "installed" | "organization"
 export type DiscoverSkillFilter = "all" | "mine"
-export type InstalledSkillFilter = "all" | "updates" | "local"
+export type InstalledSkillFilter = "all" | "wanta" | "codex" | "claude-code" | "updates" | "local"
 export type SkillDocumentViewMode = "preview" | "raw"
 export type PublicSkillInstallState =
+  | "external-installed"
   | "installed"
   | "partially-installed"
   | "installable"
@@ -91,7 +92,14 @@ export const initialPublicPackageCatalogState: PublicPackageCatalogState = {
 }
 
 export function isInstalledSkillFilter(value: string): value is InstalledSkillFilter {
-  return value === "all" || value === "updates" || value === "local"
+  return (
+    value === "all" ||
+    value === "wanta" ||
+    value === "codex" ||
+    value === "claude-code" ||
+    value === "updates" ||
+    value === "local"
+  )
 }
 
 export function isDiscoverSkillFilter(value: string): value is DiscoverSkillFilter {
@@ -195,6 +203,22 @@ export function getRuntimeHosts(group: ManagedSkillGroup): ManagedSkillHostCover
   return group.runtimeHosts
 }
 
+export function getInstalledPlatformHosts(group: ManagedSkillGroup): ManagedSkillHostCoverage[] {
+  return group.hosts.filter((host) => host.status === "installed")
+}
+
+export function hasInstalledHostForAgent(group: ManagedSkillGroup, agentId: string): boolean {
+  return getInstalledPlatformHosts(group).some((host) => host.agentId === agentId)
+}
+
+export function hasRuntimeInstalledHost(group: ManagedSkillGroup): boolean {
+  return getInstalledPlatformHosts(group).some((host) => host.scope === "runtime")
+}
+
+export function hasExternalInstalledHost(group: ManagedSkillGroup): boolean {
+  return getInstalledPlatformHosts(group).some((host) => host.scope === "external")
+}
+
 export function getInstalledSkillHosts(group: ManagedSkillGroup): ManagedSkillHostCoverage[] {
   return group.hosts.filter((host) => host.status === "installed")
 }
@@ -245,6 +269,12 @@ export function matchesInstalledSkillFilter(
   switch (filter) {
     case "all":
       return true
+    case "wanta":
+      return hasRuntimeInstalledHost(group)
+    case "codex":
+      return hasInstalledHostForAgent(group, "codex")
+    case "claude-code":
+      return hasInstalledHostForAgent(group, "claude-code")
     case "updates":
       return hasSkillUpdateAvailable(versionCheck)
     case "local":
@@ -368,6 +398,47 @@ export function getGroupRowPackageLine(group: ManagedSkillGroup): string | undef
   return line || undefined
 }
 
+export function getSkillCreatorLine(group: ManagedSkillGroup, t: TFunction): string {
+  const owner = getPackageOwner(group.packageName)
+  if (owner) {
+    return t("skills.createdByPackage", { owner })
+  }
+
+  if (group.kind === "local") {
+    return t("skills.createdLocally")
+  }
+
+  return t("skills.createdUnknown")
+}
+
+export function getSkillPlatformLine(group: ManagedSkillGroup, t: TFunction): string {
+  const installedHosts = getInstalledPlatformHosts(group)
+  const hostNames = installedHosts.map((host) => host.agentName)
+
+  if (hostNames.length === 0) {
+    return t("skills.platform.none")
+  }
+
+  if (hostNames.length <= 2) {
+    return t("skills.platform.list", { names: hostNames.join(", ") })
+  }
+
+  return t("skills.platform.count", { count: hostNames.length })
+}
+
+function getPackageOwner(packageName: string | undefined): string | undefined {
+  const normalizedPackageName = packageName?.trim()
+  if (!normalizedPackageName) {
+    return undefined
+  }
+
+  if (normalizedPackageName.startsWith("@")) {
+    return normalizedPackageName.slice(1).split("/")[0] || normalizedPackageName
+  }
+
+  return normalizedPackageName
+}
+
 export function joinSkillMeta(parts: Array<string | undefined>): string | undefined {
   const line = parts
     .map((part) => part?.trim())
@@ -479,8 +550,12 @@ export function getPublicSkillInstallState(
   }
 
   const installedHosts = group.hosts.filter((host) => host.status === "installed")
-  if (installedHosts.some((host) => (host.packageName ?? group.packageName) === pkg.name)) {
+  const matchingHosts = installedHosts.filter((host) => (host.packageName ?? group.packageName) === pkg.name)
+  if (matchingHosts.some((host) => host.scope === "runtime")) {
     return "installed"
+  }
+  if (matchingHosts.length > 0) {
+    return "external-installed"
   }
 
   return installedHosts.length > 0 ? "name-conflict" : "installable"
@@ -504,8 +579,15 @@ export function getPublicPackageInstallState(
     return "name-conflict"
   }
 
-  if (skillStates.some((state) => state === "installable") && skillStates.some((state) => state === "installed")) {
+  if (
+    skillStates.some((state) => state === "installable") &&
+    skillStates.some((state) => state === "installed" || state === "external-installed")
+  ) {
     return "partially-installed"
+  }
+
+  if (skillStates.some((state) => state === "external-installed")) {
+    return "external-installed"
   }
 
   return skillStates.some((state) => state === "installable") ? "installable" : "unavailable"
@@ -515,7 +597,10 @@ export function getPublicPackagePrimaryInstallSkill(
   groupById: ManagedSkillGroupById | undefined,
   pkg: PublicSkillPackage,
 ): PublicSkillPackage["skills"][number] | undefined {
-  return pkg.skills.find((skill) => getPublicSkillInstallState(groupById, pkg, skill.name) === "installable")
+  return pkg.skills.find((skill) => {
+    const state = getPublicSkillInstallState(groupById, pkg, skill.name)
+    return state === "installable" || state === "external-installed"
+  })
 }
 
 export function matchesPublicPackageQuery(pkg: PublicSkillPackage, normalizedQuery: string): boolean {
@@ -576,6 +661,8 @@ export function getPublicSkillInstallStateLabel(state: PublicSkillInstallState, 
   switch (state) {
     case "installed":
       return t("skills.installed")
+    case "external-installed":
+      return t("skills.discoverExternalInstalled")
     case "partially-installed":
       return t("skills.discoverPartiallyInstalled")
     case "name-conflict":
@@ -593,6 +680,8 @@ export function getPublicSkillInstallActionLabel(state: PublicSkillInstallState,
       return t("skills.discoverInstallMissing")
     case "installable":
       return t("skills.registryInstall")
+    case "external-installed":
+      return t("skills.discoverInstallToWanta")
     case "installed":
       return t("skills.discoverOpenManage")
     case "name-conflict":
@@ -603,7 +692,7 @@ export function getPublicSkillInstallActionLabel(state: PublicSkillInstallState,
 }
 
 export function canInstallPublicSkill(state: PublicSkillInstallState): boolean {
-  return state === "installable" || state === "partially-installed"
+  return state === "installable" || state === "partially-installed" || state === "external-installed"
 }
 
 export function getPublicSkillInstallKey(pkg: PublicSkillPackage, skillName: string | undefined): string {

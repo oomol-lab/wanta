@@ -6,11 +6,13 @@ import {
   getInstallableOrganizationSkills,
   getGroupStatus,
   getOrganizationSkillRuntimeStatus,
+  getPublicSkillInstallState,
   getPublicPackageInstallState,
   getRuntimeHosts,
   getRuntimeSkillRemoveTarget,
   initialPublicPackageCatalogState,
   isEmojiIcon,
+  matchesInstalledSkillFilter,
   publicPackageCatalogReducer,
   skillDocumentPreviewSource,
 } from "./skill-route-model.ts"
@@ -82,6 +84,30 @@ test("getPublicPackageInstallState distinguishes installed, conflict, and instal
     getPublicPackageInstallState(new Map([["demo", managedSkillGroup("demo", "@other/demo")]]), pkg),
     "name-conflict",
   )
+})
+
+test("external installed public skills remain installable into Wanta", () => {
+  const pkg = {
+    ...publicPackage("demo"),
+    name: "@alice/demo",
+    skills: [{ name: "demo", title: "Demo" }],
+  }
+  const groupById = new Map([["demo", externalManagedSkillGroup("demo", "@alice/demo", "codex", "Codex")]])
+
+  assert.equal(getPublicSkillInstallState(groupById, pkg, "demo"), "external-installed")
+  assert.equal(getPublicPackageInstallState(groupById, pkg), "external-installed")
+})
+
+test("matchesInstalledSkillFilter can filter by Wanta, Codex, and Claude Code hosts", () => {
+  const runtimeGroup = managedSkillGroup("runtime", "@alice/runtime")
+  const codexGroup = externalManagedSkillGroup("codex-only", "@alice/codex-only", "codex", "Codex")
+  const claudeCodeGroup = externalManagedSkillGroup("claude-only", "@alice/claude-only", "claude-code", "Claude Code")
+
+  assert.equal(matchesInstalledSkillFilter(runtimeGroup, "wanta", undefined), true)
+  assert.equal(matchesInstalledSkillFilter(runtimeGroup, "codex", undefined), false)
+  assert.equal(matchesInstalledSkillFilter(codexGroup, "codex", undefined), true)
+  assert.equal(matchesInstalledSkillFilter(codexGroup, "wanta", undefined), false)
+  assert.equal(matchesInstalledSkillFilter(claudeCodeGroup, "claude-code", undefined), true)
 })
 
 test("runtime status ignores modified external hosts", () => {
@@ -277,6 +303,32 @@ function managedSkillGroup(
     ...(packageName ? { packageName } : {}),
     runtimeHosts: [host],
     ...(options.version ? { version: options.version } : {}),
+  }
+}
+
+function externalManagedSkillGroup(
+  name: string,
+  packageName: string | undefined,
+  agentId: string,
+  agentName: string,
+): ManagedSkillGroup {
+  const host = {
+    agentId,
+    agentName,
+    kind: "registry" as const,
+    ...(packageName ? { packageName } : {}),
+    scope: "external" as const,
+    status: "installed" as const,
+  }
+
+  return {
+    externalHosts: [host],
+    hosts: [host],
+    id: name,
+    kind: "registry",
+    name,
+    ...(packageName ? { packageName } : {}),
+    runtimeHosts: [],
   }
 }
 

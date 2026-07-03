@@ -11,6 +11,7 @@ import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { branding } from "../branding.ts"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
@@ -60,7 +61,15 @@ export async function persistOrganizationScopeUpdate({
   try {
     await writeScope(nextName)
   } catch (error) {
-    await writeScope(currentName).catch(() => undefined)
+    await writeScope(currentName).catch((rollbackError: unknown) => {
+      console.warn("[wanta] failed to rollback agent organization scope:", rollbackError)
+      logDiagnostic(
+        "agent",
+        "failed to rollback agent organization scope",
+        { error: rollbackError, organizationName: currentName },
+        "warn",
+      )
+    })
     throw error
   }
 }
@@ -194,7 +203,9 @@ export class AgentManager {
       this.organizationName = nextOrganizationName
     }
     const task = this.organizationUpdateChain.then(update, update)
-    this.organizationUpdateChain = task.catch(() => undefined)
+    this.organizationUpdateChain = task.catch((error: unknown) => {
+      logDiagnostic("agent", "agent organization scope update failed", { error }, "warn")
+    })
     await task
   }
 
@@ -387,11 +398,31 @@ export class AgentManager {
         if (this.eventLoopStopped) {
           break
         }
-        subscriber.onEvent(event)
+        try {
+          subscriber.onEvent(event)
+        } catch (error) {
+          console.error("[wanta] opencode event handling failed:", error)
+          logDiagnostic(
+            "opencode-event-stream",
+            "opencode event handling failed",
+            {
+              error,
+              eventType: event.type,
+            },
+            "error",
+          )
+        }
       }
     } catch (error) {
       if (!this.eventLoopStopped) {
         console.error("[wanta] opencode event stream ended:", error)
+        logDiagnostic("opencode-event-stream", "opencode event stream ended", { error }, "error")
+        subscriber.onConnectionStatus?.({
+          status: "failed",
+          attempt: eventStreamMaxReconnectAttempts,
+          maxAttempts: eventStreamMaxReconnectAttempts,
+          message: error instanceof Error ? error.message : String(error),
+        })
       }
     } finally {
       if (this.eventStreamAbort === controller) {
@@ -576,12 +607,26 @@ export class AgentManager {
         signal: requestSignal.signal,
       })
       if (!response.ok) {
+        console.warn("[wanta] authorized service lookup failed:", response.status, response.statusText)
+        logDiagnostic(
+          "agent",
+          "authorized service lookup failed",
+          {
+            status: response.status,
+            statusText: response.statusText,
+          },
+          "warn",
+        )
         return []
       }
       const payload = (await response.json()) as { data?: Array<{ service?: string; status?: string }> }
       const apps = payload.data ?? []
       return apps.filter((a) => a.status === "active" && a.service).map((a) => a.service as string)
-    } catch {
+    } catch (error) {
+      if (!signal?.aborted) {
+        console.warn("[wanta] authorized service lookup failed:", error)
+        logDiagnostic("agent", "authorized service lookup failed", { error }, "warn")
+      }
       return []
     } finally {
       requestSignal.cleanup()

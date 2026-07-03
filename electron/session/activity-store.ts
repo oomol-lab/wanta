@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface PersistedSessionActivity {
   sessions?: Record<string, number>
@@ -42,7 +43,8 @@ export class SessionActivityStore {
   public async read(): Promise<Map<string, number>> {
     try {
       return normalizeActivity(JSON.parse(await readFile(this.file, "utf-8")))
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("session activity", this.file, error)
       return new Map()
     }
   }

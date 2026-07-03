@@ -8,6 +8,7 @@ import { dropCachedAvatarImage } from "../lib/avatar-image-cache.ts"
 import { applyOrganizationPatchesToOverview, upsertOverviewOrganization } from "../lib/organization-overview.ts"
 import { organizationCanManage, organizationRole } from "../lib/organization-permissions.ts"
 import { getOrganizationOverview } from "../lib/organizations-client.ts"
+import { reportRendererHandledError } from "../lib/renderer-diagnostics.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 export { organizationAvatarStyle, organizationInitials, organizationAvatarPalette } from "../lib/organization-avatar.ts"
@@ -200,7 +201,9 @@ function readCachedWorkspaceOverview(
         workspaceOverviewInFlight = null
       }
     })
-    .catch(() => undefined)
+    .catch((error: unknown) => {
+      reportRendererHandledError("organization-workspace", "organization overview request failed", error)
+    })
   return promise
 }
 

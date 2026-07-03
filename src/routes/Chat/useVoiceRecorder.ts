@@ -3,6 +3,7 @@ import type { RecordedWav } from "./voice-wav.ts"
 import * as React from "react"
 import voiceRecorderWorkletUrl from "./voice-recorder-worklet.ts?worker&url"
 import { encodePcm16Wav } from "./voice-wav.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const barIntervalMs = 50
 const durationIntervalMs = 125
@@ -57,7 +58,9 @@ export function useVoiceRecorder(): VoiceRecorderControls {
     runtime.silentGain.disconnect()
     runtime.source.disconnect()
     runtime.stream.getTracks().forEach((track) => track.stop())
-    void runtime.context.close().catch(() => undefined)
+    void runtime.context.close().catch((error: unknown) => {
+      reportRendererHandledError("voice", "audio context close failed", error)
+    })
   }, [])
 
   const start = React.useCallback(async () => {

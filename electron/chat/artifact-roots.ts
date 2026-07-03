@@ -3,6 +3,7 @@ import type { ChatMessage } from "./common.ts"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export type ArtifactRoots = Map<string, Map<string, string>>
 
@@ -111,7 +112,8 @@ export class ArtifactRootStore {
   public async read(): Promise<ArtifactRoots> {
     try {
       return normalizeArtifactRoots(JSON.parse(await readFile(this.file, "utf-8")))
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("artifact roots", this.file, error)
       return new Map()
     }
   }

@@ -41,6 +41,7 @@ import {
   visibleChatError,
 } from "./chat-message-state.ts"
 import { useChatService } from "@/components/AppContext"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 type MessagesMap = Record<string, ChatMessage[]>
 type CancelledToolPartsMap = Map<string, Set<string>>
@@ -417,6 +418,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         }))
       } catch (err) {
         console.error("[wanta] getMessages failed", err)
+        reportRendererHandledError("chat", "getMessages failed", err)
       }
     },
     [chatService, flushPendingToolParts, isSessionUserStopped, rememberCancelledToolParts],
@@ -592,6 +594,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           reasoningLevel: options.reasoningLevel,
         })
       } catch (err) {
+        reportRendererHandledError("chat", "sendMessage invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
         clearSessionError(sessionId)
@@ -618,6 +621,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         setStatus(sessionId, "ready")
         setActivity(sessionId, undefined)
       } catch (err) {
+        reportRendererHandledError("chat", "stopGeneration invoke failed", err)
         setStatus(sessionId, "error")
         setActivity(sessionId, undefined)
         setSessionError(sessionId, String(err))

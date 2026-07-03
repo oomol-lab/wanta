@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logDiagnostic } from "./diagnostics-log.ts"
 
 export type OperationHistoryStatus = "failed" | "succeeded"
 
@@ -47,6 +48,7 @@ export async function recordOperationHistory(params: OperationHistoryCreateParam
     })
     .catch((error: unknown) => {
       console.warn("[wanta] failed to record operation", error)
+      logDiagnostic("operation-history", "failed to record operation", { error }, "warn")
     })
 
   await writeQueue

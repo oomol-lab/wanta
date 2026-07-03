@@ -17,6 +17,7 @@ import type {
 
 import { consoleBaseUrl, consoleServerBaseUrl, insightBaseUrl } from "@/lib/domain"
 import { authRequiredMessage, oomolFetchJson } from "@/lib/oomol-http"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 // 额度中心的全部网络读取与结账 URL 解析在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
 // BillingClient 代发的请求。凭证经 httpOnly 会话 cookie 自动附带（oomolFetchJson 内 credentials:"include"），
@@ -389,7 +390,14 @@ function unwrapApiData<T>(payload: unknown): T {
 function logSettledFailure(label: string, result: PromiseSettledResult<unknown>): void {
   if (result.status === "rejected") {
     console.warn("[wanta] billing overview request failed", { label, error: errorMessage(result.reason) })
+    reportRendererHandledError("billingClient.request", `Billing overview request failed: ${label}`, result.reason)
   }
+}
+
+function preventEarlyUnhandledRejection(promise: Promise<unknown>): void {
+  void promise.catch(() => {
+    // 调用方稍后会通过 allSettled/settleWithSoftTimeout 统一记录和降级。
+  })
 }
 
 function settleWithSoftTimeout<T>(
@@ -543,7 +551,7 @@ async function getWantaPendingPayment(): Promise<WantaPendingPaymentResult | nul
 
 export async function getBillingSummary(days: number): Promise<BillingSummaryResult> {
   const subscriptionPromise = getSubscriptionStatus()
-  void subscriptionPromise.catch(() => undefined)
+  preventEarlyUnhandledRejection(subscriptionPromise)
   const [balance, spend, metering] = await Promise.allSettled([
     getAllCreditUsages(),
     getCreditSpendStats(days),
@@ -583,10 +591,10 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
   const schedulesPromise = getSubscriptionSchedules()
   const wantaPendingPaymentPromise = getWantaPendingPayment()
 
-  void logsPromise.catch(() => undefined)
-  void subscriptionPromise.catch(() => undefined)
-  void schedulesPromise.catch(() => undefined)
-  void wantaPendingPaymentPromise.catch(() => undefined)
+  preventEarlyUnhandledRejection(logsPromise)
+  preventEarlyUnhandledRejection(subscriptionPromise)
+  preventEarlyUnhandledRejection(schedulesPromise)
+  preventEarlyUnhandledRejection(wantaPendingPaymentPromise)
 
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
   const [logs, subscription, schedules, wantaPendingPayment] = await Promise.all([

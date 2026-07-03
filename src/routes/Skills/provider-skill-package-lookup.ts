@@ -4,6 +4,7 @@ import type { ProviderSkillCandidate } from "./provider-skill-recommendations.ts
 
 import * as React from "react"
 import { getConnectedProviderSkillCandidates } from "./provider-skill-recommendations.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { readPublicSkillPackageByName } from "@/lib/skills-catalog-client"
 
 const providerSkillPackageCacheMs = 30_000
@@ -78,6 +79,11 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
           next.set(candidate.service, pkg)
         } catch (cause) {
           console.warn("[wanta] failed to read provider Skill recommendation:", cause)
+          reportRendererHandledError(
+            "providerSkillPackageLookup.readPackage",
+            "Failed to read provider Skill recommendation",
+            cause,
+          )
           firstFailure ??= cause
           next.set(candidate.service, null)
         }

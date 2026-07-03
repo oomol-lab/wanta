@@ -56,6 +56,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { addOrganizationSkill } from "@/lib/organization-skills-client"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { listMyPublishedSkillPackages, listPublicSkillPackages } from "@/lib/skills-catalog-client"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
@@ -234,7 +235,9 @@ export function SkillsRoute({
     }
 
     requestedVersionCheckRef.current = true
-    void versionResource.refresh({ silent: true }).catch(() => {})
+    void versionResource
+      .refresh({ silent: true })
+      .catch((error: unknown) => reportRendererHandledError("skills", "silent skill version refresh failed", error))
   }, [versionResource])
 
   React.useEffect(() => {
@@ -325,7 +328,9 @@ export function SkillsRoute({
       return
     }
 
-    void loadPublicSkillPackages().catch(() => undefined)
+    void loadPublicSkillPackages().catch((error: unknown) => {
+      reportRendererHandledError("skills", "public skill package load failed", error)
+    })
   }, [
     activeTab,
     discoveryFilter,
@@ -345,7 +350,9 @@ export function SkillsRoute({
       return
     }
 
-    void loadMyPublishedSkillPackages().catch(() => undefined)
+    void loadMyPublishedSkillPackages().catch((error: unknown) => {
+      reportRendererHandledError("skills", "published skill package load failed", error)
+    })
   }, [
     activeTab,
     authResource.data?.status,
@@ -648,12 +655,20 @@ export function SkillsRoute({
           visibility: options.visibility,
         })
         inventoryResource.setData(result.inventory)
-        await versionResource.refresh({ forceRefresh: true, silent: true }).catch(() => {})
+        await versionResource
+          .refresh({ forceRefresh: true, silent: true })
+          .catch((error: unknown) =>
+            reportRendererHandledError("skills", "silent skill version refresh failed after publish", error),
+          )
         homeSummaryResource.invalidate()
         toast.success(t("skills.publishDone", { name: skill.name }))
-        void loadMyPublishedSkillPackages({ forceRefresh: true }).catch(() => undefined)
+        void loadMyPublishedSkillPackages({ forceRefresh: true }).catch((error: unknown) => {
+          reportRendererHandledError("skills", "published skill package refresh failed after publish", error)
+        })
         if (publicPackageCatalog.items.length > 0) {
-          void loadPublicSkillPackages({ forceRefresh: true }).catch(() => undefined)
+          void loadPublicSkillPackages({ forceRefresh: true }).catch((error: unknown) => {
+            reportRendererHandledError("skills", "public skill package refresh failed after publish", error)
+          })
         }
         return result
       } catch (cause) {

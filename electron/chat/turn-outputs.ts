@@ -3,6 +3,7 @@ import type { TurnFileDiffResult, TurnOutputFile, TurnOutputRecord, TurnOutputSu
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface StoredTurnOutputFile extends TurnOutputFile {
   diff: TurnFileDiffResult
@@ -169,7 +170,8 @@ export class TurnOutputStore {
   public async read(): Promise<TurnOutputRecords> {
     try {
       return normalizeRecords(JSON.parse(await readFile(this.file, "utf-8")))
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("turn outputs", this.file, error)
       return new Map()
     }
   }

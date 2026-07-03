@@ -4,6 +4,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { ModelsService as ModelsServiceName } from "./common.ts"
 import {
   CUSTOM_MODEL_PROVIDERS,
@@ -127,7 +128,10 @@ export class ModelsServiceImpl extends ConnectionService<ModelsService> implemen
 
   private async emitCatalog(): Promise<ModelCatalog> {
     const catalog = await this.deps.store.catalog()
-    await this.send("modelsChanged", catalog).catch(() => undefined)
+    await this.send("modelsChanged", catalog).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit models catalog:", error)
+      logDiagnostic("models-service", "failed to emit models catalog", { error }, "warn")
+    })
     return catalog
   }
 }

@@ -33,6 +33,7 @@ import { ChatServiceImpl } from "./chat/node.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
+import { configureDiagnosticsLog, flushDiagnosticsLog, logDiagnostic } from "./diagnostics-log.ts"
 import { GitServiceImpl } from "./git/node.ts"
 import { ModelsServiceImpl } from "./models/node.ts"
 import { ModelsStore } from "./models/store.ts"
@@ -60,6 +61,8 @@ import { createWindowsTrayLifecycle } from "./window/windows-tray-lifecycle.ts"
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(dirname, "..")
 process.env.APP_ROOT = appRoot
+configureDiagnosticsLog(path.join(app.getPath("userData"), "logs", "diagnostics.jsonl"))
+installMainProcessErrorHandlers()
 
 const viteDevServerUrl = process.env["VITE_DEV_SERVER_URL"]
 const rendererDist = path.join(appRoot, "dist")
@@ -176,7 +179,10 @@ const gitService = new GitServiceImpl({
 })
 
 chatService.sessionActivity.on(({ sessionId, usedAt }) => {
-  void sessionService.recordUseAndEmit(sessionId, usedAt).catch(() => undefined)
+  void sessionService.recordUseAndEmit(sessionId, usedAt).catch((error: unknown) => {
+    console.warn("[wanta] failed to record session activity:", error)
+    logMainError("failed to record session activity", error, { sessionId })
+  })
 })
 
 registerProtocolClient(protocolScheme)
@@ -198,6 +204,7 @@ server.registerService(gitService)
 settingsService.applyStartupTheme()
 registerAttachmentDialogHandler()
 registerAppLocaleHandler()
+registerRendererErrorHandler()
 
 if (isLocked) {
   server.start()
@@ -213,37 +220,45 @@ if (isLocked) {
     })
   }
 
-  app.whenReady().then(() => {
-    // 放行渲染进程对 *.<endpoint> 的已鉴权直连请求（凭证经会话 cookie 自动附带，token 不进渲染层）。
-    installOomolCorsShim(session.defaultSession)
-    installApplicationMenu()
-    createMainWindow()
-    // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
-    void updateService.checkForAppUpdate().catch((error: unknown) => {
-      console.warn("[wanta] startup update check failed:", error)
-    })
+  app
+    .whenReady()
+    .then(() => {
+      // 放行渲染进程对 *.<endpoint> 的已鉴权直连请求（凭证经会话 cookie 自动附带，token 不进渲染层）。
+      installOomolCorsShim(session.defaultSession)
+      installApplicationMenu()
+      createMainWindow()
+      // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
+      void updateService.checkForAppUpdate().catch((error: unknown) => {
+        console.warn("[wanta] startup update check failed:", error)
+        logMainError("startup update check failed", error)
+      })
 
-    // 启动时一次性抹除磁盘上残留的旧长期 api-key（迁移到纯会话 token 后不再落盘任何凭证）。
-    authStore.purgeLegacy()
-    void authManager
-      .activeRuntimeAccount()
-      .then((account) => {
-        if (account) {
-          return applyAuthAccount(account)
+      // 启动时一次性抹除磁盘上残留的旧长期 api-key（迁移到纯会话 token 后不再落盘任何凭证）。
+      authStore.purgeLegacy()
+      void authManager
+        .activeRuntimeAccount()
+        .then((account) => {
+          if (account) {
+            return applyAuthAccount(account)
+          }
+          console.log("[wanta] not signed in (or session expired) — login page will be shown")
+          return undefined
+        })
+        .catch((error: unknown) => {
+          console.error("[wanta] agent sidecar failed to start:", error)
+          logMainError("agent sidecar failed to start", error)
+        })
+
+      app.on("activate", () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          createMainWindow()
         }
-        console.log("[wanta] not signed in (or session expired) — login page will be shown")
-        return undefined
       })
-      .catch((error: unknown) => {
-        console.error("[wanta] agent sidecar failed to start:", error)
-      })
-
-    app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow()
-      }
     })
-  })
+    .catch((error: unknown) => {
+      console.error("[wanta] app startup failed:", error)
+      logMainError("app startup failed", error)
+    })
 
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") {
@@ -261,6 +276,44 @@ if (isLocked) {
     windowsTrayLifecycle = null
     agent?.dispose()
     server.dispose()
+    void flushDiagnosticsLog().catch((error: unknown) => {
+      console.warn("[wanta] failed to flush diagnostics log", error)
+    })
+  })
+}
+
+function logMainError(message: string, error: unknown, fields: Record<string, unknown> = {}): void {
+  logDiagnostic("main", message, { ...fields, error }, "error")
+}
+
+function installMainProcessErrorHandlers(): void {
+  process.on("uncaughtExceptionMonitor", (error, origin) => {
+    console.error("[wanta] uncaught exception:", error)
+    logMainError("uncaught exception", error, { origin })
+  })
+  process.on("unhandledRejection", (reason) => {
+    console.error("[wanta] unhandled promise rejection:", reason)
+    logMainError("unhandled promise rejection", reason)
+  })
+  process.on("warning", (warning) => {
+    console.warn("[wanta] process warning:", warning)
+    logDiagnostic("main", "process warning", { warning }, "warn")
+  })
+  app.on("child-process-gone", (_event, details) => {
+    console.error("[wanta] child process gone:", details)
+    logDiagnostic("main", "child process gone", { details }, "error")
+  })
+  app.on("render-process-gone", (_event, webContents, details) => {
+    console.error("[wanta] render process gone:", details)
+    logDiagnostic(
+      "main",
+      "render process gone",
+      {
+        details,
+        url: webContents.getURL(),
+      },
+      "error",
+    )
   })
 }
 
@@ -311,6 +364,43 @@ function registerAttachmentDialogHandler(): void {
   })
 }
 
+function registerRendererErrorHandler(): void {
+  ipcMain.on("wanta:renderer-error", (_event, input: unknown) => {
+    const report = normalizeRendererErrorReport(input)
+    if (!report) {
+      return
+    }
+    console.error("[wanta] renderer error:", report)
+    logDiagnostic("renderer", "renderer error", report, "error")
+  })
+}
+
+function normalizeRendererErrorReport(input: unknown): {
+  message: string
+  scope?: string
+  source: string
+  stack?: string
+} | null {
+  if (!input || typeof input !== "object") {
+    return null
+  }
+  const record = input as Record<string, unknown>
+  const message = typeof record["message"] === "string" ? record["message"].trim() : ""
+  if (!message) {
+    return null
+  }
+  const rawSource = record["source"]
+  const source = rawSource === "unhandledrejection" || rawSource === "handled" ? rawSource : "error"
+  const scope = typeof record["scope"] === "string" ? record["scope"].trim().slice(0, 200) : undefined
+  const stack = typeof record["stack"] === "string" ? record["stack"].slice(0, 16_000) : undefined
+  return {
+    message: message.slice(0, 4_000),
+    ...(scope ? { scope } : {}),
+    source,
+    ...(stack ? { stack } : {}),
+  }
+}
+
 function assertAttachmentPickerKind(kind: unknown): asserts kind is AttachmentPickerKind {
   if (!isAttachmentPickerKind(kind)) {
     throw new Error("Invalid attachment picker kind.")
@@ -358,7 +448,9 @@ function runtimeErrorMessage(error: unknown): string {
 /** 凭证 → 运行时装配：替换 agent（重启 sidecar）并同步 connector 凭证。经 applyChain 串行执行。 */
 function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
   const next = applyChain.then(() => applyAuthAccountNow(account))
-  applyChain = next.catch(() => undefined)
+  applyChain = next.catch((error: unknown) => {
+    logMainError("auth account application failed", error)
+  })
   return next
 }
 
@@ -522,7 +614,10 @@ function getBrandingResourcePath(fileName: string): string {
 // 仅放行安全的用户意图协议外开；其余（file:、自定义协议等）一律忽略。
 function openExternalUrl(url: string): void {
   if (/^(https?|mailto|tel):/i.test(url)) {
-    void shell.openExternal(url)
+    void shell.openExternal(url).catch((error: unknown) => {
+      console.warn("[wanta] failed to open external URL:", error)
+      logMainError("failed to open external URL", error, { url })
+    })
   }
 }
 
@@ -659,11 +754,42 @@ function createMainWindow(): void {
       openExternalUrl(url)
     }
   })
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) {
+      return
+    }
+    console.error("[wanta] renderer failed to load:", { errorCode, errorDescription, validatedURL })
+    logDiagnostic(
+      "main-window",
+      "renderer failed to load",
+      {
+        errorCode,
+        errorDescription,
+        url: validatedURL,
+      },
+      "error",
+    )
+  })
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[wanta] main window render process gone:", details)
+    logDiagnostic("main-window", "main window render process gone", { details }, "error")
+  })
+  mainWindow.on("unresponsive", () => {
+    console.warn("[wanta] main window became unresponsive")
+    logDiagnostic("main-window", "main window became unresponsive", {}, "warn")
+  })
 
   if (viteDevServerUrl) {
-    void mainWindow.loadURL(viteDevServerUrl)
+    void mainWindow.loadURL(viteDevServerUrl).catch((error: unknown) => {
+      console.error("[wanta] failed to load renderer URL:", error)
+      logMainError("failed to load renderer URL", error, { url: viteDevServerUrl })
+    })
   } else {
-    void mainWindow.loadFile(path.join(rendererDist, "index.html"))
+    const rendererEntry = path.join(rendererDist, "index.html")
+    void mainWindow.loadFile(rendererEntry).catch((error: unknown) => {
+      console.error("[wanta] failed to load renderer file:", error)
+      logMainError("failed to load renderer file", error, { path: rendererEntry })
+    })
   }
 
   mainWindow.on("closed", () => {

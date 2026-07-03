@@ -1,4 +1,5 @@
 import * as React from "react"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface ErrorBoundaryProps {
   fallback: React.ReactNode
@@ -19,6 +20,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: unknown): void {
     console.error("[wanta] render error caught by boundary:", error)
+    reportRendererHandledError("react", "render error caught by boundary", error)
   }
 
   render(): React.ReactNode {

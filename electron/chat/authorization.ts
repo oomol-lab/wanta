@@ -3,6 +3,7 @@ import type { AuthorizationInfo, ChatMessage } from "./common.ts"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export type AuthorizationOverlays = Map<string, Map<string, Map<string, AuthorizationInfo>>>
 
@@ -179,7 +180,8 @@ export class AuthorizationOverlayStore {
   public async read(): Promise<AuthorizationOverlays> {
     try {
       return normalizeAuthorizationOverlays(JSON.parse(await readFile(this.file, "utf-8")))
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("authorization overlays", this.file, error)
       return new Map()
     }
   }

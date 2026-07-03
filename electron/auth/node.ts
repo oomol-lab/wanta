@@ -4,6 +4,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { app, dialog, shell } from "electron"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { apiBaseUrl } from "../domain.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
@@ -84,6 +85,7 @@ export class AuthManager {
   public getAuthState(): Promise<AuthState> {
     void this.refreshActiveAccountProfile().catch((error: unknown) => {
       console.warn("[wanta] failed to refresh account profile:", error)
+      logDiagnostic("auth", "failed to refresh account profile", { error }, "warn")
     })
     return this.currentState()
   }
@@ -124,6 +126,7 @@ export class AuthManager {
     }
     await clearOomolSessionCookies().catch((error: unknown) => {
       console.warn("[wanta] failed to clear session cookies:", error)
+      logDiagnostic("auth", "failed to clear session cookies", { error }, "warn")
     })
     const state = await this.currentState()
     this.stateChanged.emit(state)
@@ -153,6 +156,7 @@ export class AuthManager {
     } catch (error) {
       const wrapped = error instanceof Error ? error : new Error(String(error))
       console.error("[wanta] browser sign-in failed:", wrapped)
+      logDiagnostic("auth", "browser sign-in failed", { error: wrapped }, "error")
       if (this.pending === pendingAtStart) {
         this.rejectPending(wrapped)
       }
@@ -194,6 +198,7 @@ export class AuthManager {
     await this.emitState(state)
     void this.deps.applyAccount(account).catch((error: unknown) => {
       console.error("[wanta] failed to start agent after sign-in:", error)
+      logDiagnostic("auth", "failed to start agent after sign-in", { error }, "error")
     })
     return state
   }

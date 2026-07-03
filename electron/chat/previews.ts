@@ -6,6 +6,7 @@ import type {
 } from "./common.ts"
 
 import { readFile, stat } from "node:fs/promises"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import {
   archivePreview,
   binaryDataPreview,
@@ -33,6 +34,12 @@ function logPath(filePath: string): string {
   return filePath.replace(/[\r\n]/g, " ")
 }
 
+function logPreviewFailure(scope: string, filePath: string, error: unknown, mime?: string): void {
+  const safePath = logPath(filePath)
+  console.error(`[wanta] ${scope} failed`, { error: errorMessage(error), path: safePath })
+  logDiagnostic("chat-preview", `${scope} failed`, { error, mime, path: safePath }, "warn")
+}
+
 function attachmentPreviewMime(req: AttachmentPreviewRequest): string | null {
   if (req.mime.toLowerCase().startsWith("image/")) {
     return req.mime
@@ -53,13 +60,12 @@ export async function attachmentPreview(req: AttachmentPreviewRequest): Promise<
     const bytes = await readFile(req.path)
     return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}` }
   } catch (error) {
-    console.error("[wanta] getAttachmentPreview failed", { path: logPath(req.path), error: errorMessage(error) })
+    logPreviewFailure("getAttachmentPreview", req.path, error, mime)
     return { dataUrl: null }
   }
 }
 
 export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
-  const safePath = logPath(req.path)
   const item = await localArtifactItem(req.path)
   if (!item || item.kind !== "file") {
     return { kind: "unsupported", mime: "application/octet-stream", reason: "missing" }
@@ -79,7 +85,7 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
         dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
       }
     } catch (error) {
-      console.error("[wanta] getLocalArtifactPreview image failed", { path: safePath, error: errorMessage(error) })
+      logPreviewFailure("getLocalArtifactPreview image", item.path, error, item.mime)
       return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
     }
   }
@@ -97,7 +103,7 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
         dataUrl: `data:${item.mime};base64,${bytes.toString("base64")}`,
       }
     } catch (error) {
-      console.error("[wanta] getLocalArtifactPreview media failed", { path: safePath, error: errorMessage(error) })
+      logPreviewFailure("getLocalArtifactPreview media", item.path, error, item.mime)
       return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
     }
   }
@@ -106,16 +112,13 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
     try {
       return await spreadsheetPreview(item.path, item.mime, size)
     } catch (error) {
-      console.error("[wanta] getLocalArtifactPreview spreadsheet failed", {
-        path: safePath,
-        error: errorMessage(error),
-      })
+      logPreviewFailure("getLocalArtifactPreview spreadsheet", item.path, error, item.mime)
       return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
     }
   }
 
   const archive = await archivePreview(item.path, item.mime, size).catch((error: unknown) => {
-    console.error("[wanta] getLocalArtifactPreview archive failed", { path: safePath, error: errorMessage(error) })
+    logPreviewFailure("getLocalArtifactPreview archive", item.path, error, item.mime)
     return { kind: "unsupported" as const, mime: item.mime, size, reason: "read_failed" as const }
   })
   if (archive) {
@@ -136,7 +139,7 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
         truncated: preview.truncated,
       }
     } catch (error) {
-      console.error("[wanta] getLocalArtifactPreview rtf failed", { path: safePath, error: errorMessage(error) })
+      logPreviewFailure("getLocalArtifactPreview rtf", item.path, error, item.mime)
       return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
     }
   }
@@ -149,10 +152,7 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
         return richPreview
       }
     } catch (error) {
-      console.error("[wanta] getLocalArtifactPreview rich file failed", {
-        path: safePath,
-        error: errorMessage(error),
-      })
+      logPreviewFailure("getLocalArtifactPreview rich file", item.path, error, item.mime)
       return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
     }
   } else if (isBinaryDataPreviewArtifact(item.path, item.mime)) {
@@ -176,7 +176,7 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
       truncated: preview.truncated,
     }
   } catch (error) {
-    console.error("[wanta] getLocalArtifactPreview text failed", { path: safePath, error: errorMessage(error) })
+    logPreviewFailure("getLocalArtifactPreview text", item.path, error, item.mime)
     return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }
   }
 }

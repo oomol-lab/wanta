@@ -1,5 +1,6 @@
 import { app } from "electron"
 import path from "node:path"
+import { logDiagnostic } from "./diagnostics-log.ts"
 
 export interface ProtocolHandler {
   handleUrl(url: string): Promise<boolean> | boolean
@@ -44,7 +45,8 @@ export function requestProtocolSingleInstanceLock(
 export function listenProtocolUrls(scheme: string, handler: ProtocolHandler, onSecondInstance: () => void): void {
   const dispatchUrl = (url: string): void => {
     void Promise.resolve(handler.handleUrl(url)).catch((error) => {
-      console.warn("[protocol] failed to handle protocol url", error)
+      console.warn("[wanta] failed to handle protocol url:", error)
+      logDiagnostic("protocol", "failed to handle protocol url", { error }, "warn")
     })
   }
 

@@ -3,6 +3,7 @@ import type { SessionProject, SessionScope } from "./common.ts"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface PersistedSessionProjects {
   projects?: Record<string, SessionProject>
@@ -96,7 +97,8 @@ export class SessionProjectStore {
   public async read(): Promise<Map<string, SessionProject>> {
     try {
       return normalizeProjects(JSON.parse(await readFile(this.file, "utf-8")))
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("session projects", this.file, error)
       return new Map()
     }
   }

@@ -13,6 +13,7 @@ import {
   sessionTitleGenerationKey,
   SESSION_TITLE_RETRY_DELAY_MS,
 } from "./app-shell-model.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface UseSessionTitleGenerationOptions {
   activeSession?: SessionInfo
@@ -178,6 +179,7 @@ export function useSessionTitleGeneration({
           retryAfter: Date.now() + SESSION_TITLE_RETRY_DELAY_MS,
         })
         console.error("[wanta] generate session title failed", error)
+        reportRendererHandledError("sessionTitle.generate", "Failed to generate session title", error)
       } finally {
         if (titleGenerationInFlightBySession.current.get(sessionId) === generationKey) {
           titleGenerationInFlightBySession.current.delete(sessionId)

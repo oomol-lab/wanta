@@ -3,6 +3,7 @@ import type { ChatMessage, ChatMessagePart } from "./common.ts"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface StoppedMessageRecord {
   partIds: Set<string>
@@ -174,7 +175,8 @@ export class StoppedGenerationStore {
   public async read(): Promise<StoppedGenerations> {
     try {
       return normalizeStoppedGenerations(JSON.parse(await readFile(this.file, "utf-8")))
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("stopped generations", this.file, error)
       return new Map()
     }
   }

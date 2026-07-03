@@ -7,6 +7,7 @@ import type {
 import { normalizePublicSkillPackageCatalog, normalizeRegistrySkillPackageInfo } from "../../electron/skills/actions.ts"
 import { registryBaseUrl, searchBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolvePackageAssetIconSource } from "@/lib/skill-icon-assets.ts"
 
 // 技能 Discover 标签的注册表浏览/搜索请求在渲染层直接发起：原先这些是渲染业务驱动、却由主进程
@@ -253,6 +254,11 @@ export async function listMyPublishedSkillPackages(
           packageInfo = await readRegistrySkillPackageInfo(publishedPackage.name, maintainer)
         } catch (error) {
           console.warn("[wanta] failed to read my published skill package info:", error)
+          reportRendererHandledError(
+            "skillsCatalog.readMyPublishedPackageInfo",
+            "Failed to read published Skill package info",
+            error,
+          )
           packageInfo = undefined
         }
         return mergeMyPublishedPackage(publishedPackage, packageInfo)
@@ -383,6 +389,11 @@ async function enrichPublicSkillSearchGroup(group: PublicSkillSearchGroup): Prom
     packageInfo = await readRegistrySkillPackageInfo(group.packageName, group.maintainer, { version: group.version })
   } catch (error) {
     console.warn("[wanta] failed to read searched skill package info:", error)
+    reportRendererHandledError(
+      "skillsCatalog.readSearchedPackageInfo",
+      "Failed to read searched Skill package info",
+      error,
+    )
     packageInfo = undefined
   }
 

@@ -1,7 +1,7 @@
 import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises"
 import path from "node:path"
 
-type DiagnosticLevel = "trace" | "info" | "warn"
+type DiagnosticLevel = "trace" | "info" | "warn" | "error"
 type DiagnosticFields = Record<string, unknown>
 
 const maxLogBytes = 2 * 1024 * 1024
@@ -10,6 +10,7 @@ const pinoLevels: Record<DiagnosticLevel, number> = {
   trace: 10,
   info: 30,
   warn: 40,
+  error: 50,
 }
 
 let writeQueue = Promise.resolve()
@@ -165,6 +166,15 @@ function normalizeFields(fields: DiagnosticFields): DiagnosticFields {
 function normalizeValue(value: unknown): unknown {
   if (value === undefined || value === null || typeof value === "boolean" || typeof value === "number") {
     return value
+  }
+
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+      cause: value.cause ? normalizeValue(value.cause) : undefined,
+    }
   }
 
   if (typeof value === "string") {

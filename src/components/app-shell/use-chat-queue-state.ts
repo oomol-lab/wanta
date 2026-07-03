@@ -12,6 +12,7 @@ import {
   removeQueuedMessage,
   shouldDispatchQueuedMessage,
 } from "./chat-queue.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 type SendQueuedMessage = (
   text: string,
@@ -164,6 +165,7 @@ export function useChatQueueState({
             : appendQueuedMessage(current, message),
         )
         console.error("[wanta] dispatch queued message failed", cause)
+        reportRendererHandledError("chatQueue.dispatch", "Failed to dispatch queued message", cause)
       })
       .finally(() => {
         dispatchingQueuedSessionsRef.current.delete(activeSessionId)

@@ -18,6 +18,7 @@ import {
   reorderOrganizationSkills,
   updateOrganizationSkill,
 } from "@/lib/organization-skills-client"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface OrganizationSkillChatContext {
@@ -170,7 +171,9 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
   )
 
   React.useEffect(() => {
-    void refresh().catch(() => undefined)
+    void refresh().catch((error: unknown) => {
+      reportRendererHandledError("organization-skills", "organization skills refresh failed", error)
+    })
   }, [refresh])
 
   const reloadAfterMutation = React.useCallback(

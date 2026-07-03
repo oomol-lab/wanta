@@ -8,6 +8,7 @@ import { ConnectionService } from "@oomol/connection"
 import { app } from "electron"
 import updaterPkg from "electron-updater"
 import { branding } from "../branding.ts"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { staticBaseUrl } from "../domain.ts"
 import { resolveUpdateChannel, updaterChannelName } from "./channel.ts"
 import { UpdateService as UpdateServiceName } from "./common.ts"
@@ -139,9 +140,11 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
 
     // feed 重配延迟到下次 getAutoUpdater()（configuredChannel 失配触发 setFeedURL）。
     this.state = { ...this.snapshotBase(), status: { status: "idle" } }
-    void this.send("appUpdateStateChanged", this.state)
+    this.sendStateChanged("set update channel")
     // 切渠道后立即后台检查一次（dev 下 runCheck 内部短路为 not-available）。
-    void this.checkForAppUpdate().catch(() => undefined)
+    void this.checkForAppUpdate().catch((error: unknown) => {
+      this.logFailure("background update check failed after channel change", error, "warn")
+    })
     return Promise.resolve(this.state)
   }
 
@@ -168,7 +171,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
 
   private patchStatus(status: AppUpdateStatus): void {
     this.state = { ...this.state, ...this.snapshotBase(), status }
-    void this.send("appUpdateStateChanged", this.state)
+    this.sendStateChanged(`patch ${status.status} status`)
   }
 
   private async runCheck(isMissingAssetRetry: boolean): Promise<AppUpdateState> {
@@ -178,7 +181,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
         checkedAt: new Date().toISOString(),
         status: { status: "not-available" },
       }
-      void this.send("appUpdateStateChanged", this.state)
+      this.sendStateChanged("set dev update state")
       return this.state
     }
 
@@ -193,7 +196,9 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
       // 旧渠道在途请求未结清时直接调用会原样复用旧 provider 的结果——generation 是新的、
       // 守卫放行，旧渠道结果就被标上新渠道。必须等上一轮库级请求结清再发起。
       if (this.libraryCheck && !this.libraryCheckSettled) {
-        await withTimeout(this.libraryCheck, checkTimeoutMs, "prior update check settling").catch(() => undefined)
+        await withTimeout(this.libraryCheck, checkTimeoutMs, "prior update check settling").catch((error: unknown) => {
+          this.logFailure("prior update check failed while settling", error, "warn")
+        })
         if (generation !== this.checkGeneration) {
           return this.state
         }
@@ -216,7 +221,7 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
           ? { status: "available", version: info.version, releaseDate: info.releaseDate }
           : { status: "not-available" },
       }
-      void this.send("appUpdateStateChanged", this.state)
+      this.sendStateChanged("complete update check")
       return this.state
     } catch (cause) {
       if (generation !== this.checkGeneration) {
@@ -226,12 +231,14 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
       if (isMissingAssetError(cause)) {
         // 上传/CDN 竞态或渠道 yml 暂缺：按"暂无更新"处理并限次重试，不打扰用户。
         console.warn("[wanta] update check skipped, asset missing (404):", message)
+        logDiagnostic("update-service", "update check skipped because asset is missing", { error: cause }, "warn")
         this.patchStatus({ status: "not-available" })
         this.scheduleMissingAssetRetry()
         return this.state
       }
       // 检查失败不向调用方抛：状态里已带错误，渲染层据此显示。
       console.warn("[wanta] update check failed:", message)
+      logDiagnostic("update-service", "update check failed", { error: cause }, "warn")
       this.patchStatus({ status: "error", error: message })
       return this.state
     }
@@ -309,11 +316,29 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     const message = cause instanceof Error ? cause.message : String(cause)
     if (isMissingAssetError(cause)) {
       console.warn("[wanta] update download skipped, asset missing (404):", message)
+      logDiagnostic("update-service", "update download skipped because asset is missing", { error: cause }, "warn")
       this.patchStatus({ status: "not-available" })
       this.scheduleMissingAssetRetry()
       return
     }
+    this.logFailure("update download failed", cause, "warn")
     this.patchStatus({ status: "error", error: message })
+  }
+
+  private sendStateChanged(action: string): void {
+    void this.send("appUpdateStateChanged", this.state).catch((error: unknown) => {
+      this.logFailure("failed to emit app update state", error, "warn", { action, status: this.state.status.status })
+    })
+  }
+
+  private logFailure(
+    message: string,
+    error: unknown,
+    level: "warn" | "error" = "warn",
+    fields: Record<string, unknown> = {},
+  ): void {
+    console.warn(`[wanta] ${message}:`, error)
+    logDiagnostic("update-service", message, { error, ...fields }, level)
   }
 
   private getAutoUpdater(): AutoUpdater {
@@ -392,7 +417,9 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
       }
       this.missingAssetRetryTimer = undefined
       this.missingAssetRetryAttempt = nextAttempt
-      void this.runCheck(true).catch(() => undefined)
+      void this.runCheck(true).catch((error: unknown) => {
+        this.logFailure("missing asset retry update check failed", error, "warn")
+      })
     }, missingAssetRetryDelayMs)
     this.missingAssetRetryTimer.unref()
   }

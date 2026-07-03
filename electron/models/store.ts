@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { externalModelProviderBaseUrls } from "../domain.ts"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, builtinModelSummaries, isBuiltinModelId } from "./builtin.ts"
 
 const providerBaseUrls = externalModelProviderBaseUrls
@@ -439,7 +440,8 @@ export class ModelsStore {
         selected: isKnownModelChoice(parsed, parsed.selected) ? parsed.selected : defaultModelChoice(),
         customModels: Array.isArray(parsed.customModels) ? parsed.customModels.filter(isPersistedCustomModel) : [],
       }
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("models", this.file, error)
       return { selected: defaultModelChoice(), customModels: [] }
     }
   }

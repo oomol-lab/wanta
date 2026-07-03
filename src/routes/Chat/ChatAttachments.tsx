@@ -16,6 +16,7 @@ import { fileVisualKind } from "./file-type-kind.ts"
 import { ImageViewerModal } from "@/components/ai-elements/message-image"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -85,7 +86,9 @@ function AttachmentImageCard({
         setAttachmentPreviewUrl(attachmentPath, result.dataUrl)
         setPreviewUrl(result.dataUrl)
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        reportRendererHandledError("chat", "attachment preview load failed", error)
+      })
     return () => {
       cancelled = true
     }
@@ -157,6 +160,7 @@ export function AttachmentList({
         return
       }
       void chatService.invoke("showLocalPathInFolder", { path: attachment.path }).catch((cause: unknown) => {
+        reportRendererHandledError("chatAttachments.showInFolder", "Failed to reveal attachment", cause)
         const error = resolveUserFacingError(cause, { area: "artifact" })
         toast.error(userFacingErrorDescription(error, t))
       })

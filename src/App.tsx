@@ -62,10 +62,23 @@ export function App() {
   useGlobalScrollbars()
 
   return (
-    <I18nProvider>
-      <ThemeProvider>
-        <AuthGate />
-      </ThemeProvider>
-    </I18nProvider>
+    <ErrorBoundary fallback={<RootFallback />}>
+      <I18nProvider>
+        <ThemeProvider>
+          <AuthGate />
+        </ThemeProvider>
+      </I18nProvider>
+    </ErrorBoundary>
+  )
+}
+
+function RootFallback() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-background text-foreground">
+      <p className="text-sm text-muted-foreground">Wanta could not render this window.</p>
+      <Button variant="outline" onClick={() => window.location.reload()}>
+        Reload
+      </Button>
+    </div>
   )
 }

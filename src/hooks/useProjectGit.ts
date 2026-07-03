@@ -4,6 +4,7 @@ import type { UserFacingError } from "@/lib/user-facing-error"
 
 import * as React from "react"
 import { useGitService } from "@/components/AppContext"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 export interface UseProjectGit {
@@ -41,6 +42,7 @@ export function useProjectGit(project: SessionProject | undefined): UseProjectGi
       }
       return next
     } catch (cause) {
+      reportRendererHandledError("git", "repository state refresh failed", cause)
       if (requestId === requestSequence.current) {
         setError(resolveUserFacingError(cause, { area: "session" }))
         setState(null)
@@ -72,6 +74,7 @@ export function useProjectGit(project: SessionProject | undefined): UseProjectGi
         }
         return next
       } catch (cause) {
+        reportRendererHandledError("git", "branch checkout failed", cause)
         if (requestId === requestSequence.current) {
           setError(resolveUserFacingError(cause, { area: "session" }))
         }
@@ -100,6 +103,7 @@ export function useProjectGit(project: SessionProject | undefined): UseProjectGi
         }
         return next
       } catch (cause) {
+        reportRendererHandledError("git", "branch create and checkout failed", cause)
         if (requestId === requestSequence.current) {
           setError(resolveUserFacingError(cause, { area: "session" }))
         }

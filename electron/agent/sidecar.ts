@@ -1,10 +1,12 @@
 import type { Config, OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { ChildProcessWithoutNullStreams } from "node:child_process"
+import type { Readable } from "node:stream"
 
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { spawn } from "node:child_process"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { logDiagnostic } from "../diagnostics-log.ts"
 
 export interface SidecarOptions {
   /** opencode 二进制绝对路径。 */
@@ -31,6 +33,9 @@ export interface SidecarExitInfo {
   signal?: NodeJS.Signals | null
 }
 
+const startupOutputMaxBytes = 64 * 1024
+const runtimeLineMaxLength = 8 * 1024
+
 /** OpenCode 本地 sidecar：spawn `opencode serve`、解析 URL、提供 SDK client、随 app 退出回收。 */
 export class OpencodeSidecar {
   private readonly options: SidecarOptions
@@ -38,6 +43,7 @@ export class OpencodeSidecar {
   private opencodeClient: OpencodeClient | null = null
   private serverUrl = ""
   private disposed = false
+  private streamLogCleanup: (() => void) | null = null
 
   public constructor(options: SidecarOptions) {
     this.options = options
@@ -88,12 +94,15 @@ export class OpencodeSidecar {
     this.proc = proc
 
     let output = ""
+    const appendStartupOutput = (chunk: Buffer): void => {
+      output = appendBoundedOutput(output, chunk.toString(), startupOutputMaxBytes)
+    }
     const url = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new Error(`opencode serve startup timeout after ${timeoutMs}ms\n${output}`))
       }, timeoutMs)
       const onData = (chunk: Buffer): void => {
-        output += chunk.toString()
+        appendStartupOutput(chunk)
         const match = output.match(/listening on\s+(https?:\/\/\S+)/i)
         if (match) {
           clearTimeout(timer)
@@ -111,26 +120,33 @@ export class OpencodeSidecar {
         detach()
         reject(error)
       }
+      const onStderrData = (chunk: Buffer): void => {
+        appendStartupOutput(chunk)
+      }
       const detach = (): void => {
         proc.stdout.off("data", onData)
+        proc.stderr.off("data", onStderrData)
         proc.off("exit", onExit)
         proc.off("error", onError)
       }
       proc.stdout.on("data", onData)
-      proc.stderr.on("data", (chunk: Buffer) => {
-        output += chunk.toString()
-      })
+      proc.stderr.on("data", onStderrData)
       proc.on("exit", onExit)
       proc.on("error", onError)
     })
 
     this.serverUrl = url
+    this.streamLogCleanup = attachRuntimeStreamDiagnostics(proc)
     proc.once("exit", (code, signal) => {
+      this.streamLogCleanup?.()
+      this.streamLogCleanup = null
       if (!this.disposed) {
         this.options.onExit?.({ code, signal })
       }
     })
     proc.once("error", (error) => {
+      this.streamLogCleanup?.()
+      this.streamLogCleanup = null
       if (!this.disposed) {
         this.options.onExit?.({ error })
       }
@@ -145,6 +161,8 @@ export class OpencodeSidecar {
 
   public dispose(): void {
     this.disposed = true
+    this.streamLogCleanup?.()
+    this.streamLogCleanup = null
     if (this.proc) {
       this.proc.kill("SIGTERM")
       this.proc = null
@@ -152,4 +170,64 @@ export class OpencodeSidecar {
     this.opencodeClient = null
     this.serverUrl = ""
   }
+}
+
+function appendBoundedOutput(current: string, next: string, maxBytes: number): string {
+  const combined = current + next
+  if (Buffer.byteLength(combined, "utf8") <= maxBytes) {
+    return combined
+  }
+  return combined.slice(-maxBytes)
+}
+
+function attachRuntimeStreamDiagnostics(proc: ChildProcessWithoutNullStreams): () => void {
+  const cleanupStdout = attachStreamDiagnostics(proc.stdout, "stdout")
+  const cleanupStderr = attachStreamDiagnostics(proc.stderr, "stderr")
+  return () => {
+    cleanupStdout()
+    cleanupStderr()
+  }
+}
+
+function attachStreamDiagnostics(stream: Readable, source: "stdout" | "stderr"): () => void {
+  let pending = ""
+  const onData = (chunk: Buffer): void => {
+    pending += chunk.toString()
+    const lines = pending.split(/\r?\n/)
+    pending = lines.pop() ?? ""
+    if (pending.length > runtimeLineMaxLength) {
+      emitRuntimeLine(source, pending.slice(0, runtimeLineMaxLength), true)
+      pending = ""
+    }
+    for (const line of lines) {
+      emitRuntimeLine(source, line, false)
+    }
+  }
+  stream.on("data", onData)
+  return () => {
+    stream.off("data", onData)
+    if (pending.trim()) {
+      emitRuntimeLine(source, pending, false)
+    }
+    pending = ""
+  }
+}
+
+function emitRuntimeLine(source: "stdout" | "stderr", line: string, truncated: boolean): void {
+  const text = line.trim()
+  if (!text) {
+    return
+  }
+  if (source === "stderr") {
+    console.warn("[wanta] opencode stderr:", text)
+  }
+  logDiagnostic(
+    "opencode-sidecar",
+    `opencode ${source}`,
+    {
+      line: text,
+      ...(truncated ? { truncated: true } : {}),
+    },
+    source === "stderr" ? "warn" : "trace",
+  )
 }

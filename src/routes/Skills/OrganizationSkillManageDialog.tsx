@@ -35,6 +35,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import {
   listPublicSkillPackages,
   readPublicSkillPackageByName,
@@ -208,7 +209,9 @@ export function OrganizationSkillManageDialog({
     }
 
     const load = () => {
-      void loadMarketPackages({ clearItems: true, forceRefresh: true, query: marketQuery }).catch(() => undefined)
+      void loadMarketPackages({ clearItems: true, forceRefresh: true, query: marketQuery }).catch((error: unknown) => {
+        reportRendererHandledError("organization-skills", "market package load failed", error)
+      })
     }
 
     if (!marketQuery) {
@@ -239,7 +242,9 @@ export function OrganizationSkillManageDialog({
             setMarketExactPackage(pkg)
           }
         })
-        .catch(() => undefined)
+        .catch((error: unknown) => {
+          reportRendererHandledError("organization-skills", "exact market package lookup failed", error)
+        })
         .finally(() => {
           if (marketExactRequestIdRef.current === requestId) {
             setMarketExactLoading(false)

@@ -87,6 +87,10 @@ export const enMessages = {
   "error.update.title": "Update failed",
   "error.update.description": "The update operation could not be completed right now. Try again later.",
   "app.loadFailed": "Failed to load the interface",
+  "app.renderFailed": "Wanta could not render this window. Reload the window; if it still fails, restart Wanta.",
+  "app.startupFailedTitle": "Wanta failed to start",
+  "app.startupBridgeMissingDescription":
+    "The desktop bridge is unavailable. Reload the window; if it still fails, restart Wanta.",
   "app.reload": "Reload",
   "nav.settings": "Settings",
   "nav.updateDownload": "Download update",

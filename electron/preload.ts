@@ -33,6 +33,7 @@ export interface RendererErrorReport {
   source: "error" | "handled" | "unhandledrejection"
   scope?: string
   stack?: string
+  suppressedCount?: number
 }
 
 export interface WantaBridge {

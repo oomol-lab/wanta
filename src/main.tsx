@@ -11,6 +11,7 @@ import { SkillService } from "../electron/skills/common.ts"
 import { UpdateService } from "../electron/update/common.ts"
 import { App } from "@/App"
 import { AppContext } from "@/components/AppContext"
+import { detectInitialLocale, translate } from "@/i18n/i18n"
 import { reportRendererIssue } from "@/lib/renderer-diagnostics"
 
 import "./index.css"
@@ -27,8 +28,8 @@ installRendererErrorReporting()
 
 if (!hasElectronConnectionBridge()) {
   const error = new Error("Wanta: missing Electron connection bridge")
-  reportRendererIssue("handled", "startup.connectionBridge", error.message, error)
-  renderStartupError(rootElement, error.message)
+  reportRendererIssue("error", "startup.connectionBridge", error.message, error)
+  renderStartupError(rootElement)
 } else {
   const client = new ConnectionClient(new ElectronClientAdapter())
   client.start()
@@ -64,12 +65,22 @@ function hasElectronConnectionBridge(): boolean {
   return Boolean((globalThis as Record<string, unknown>)[electronConnectionBridgeName])
 }
 
-function renderStartupError(container: Element, message: string): void {
+function renderStartupError(container: Element): void {
+  const locale = detectInitialLocale()
   createRoot(container).render(
     <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <div className="max-w-md space-y-2 text-center">
-        <h1 className="text-base font-medium">Wanta failed to start</h1>
-        <p className="text-sm text-muted-foreground">{message}</p>
+      <div className="max-w-md space-y-4 text-center">
+        <div className="space-y-2">
+          <h1 className="text-base font-medium">{translate(locale, "app.startupFailedTitle")}</h1>
+          <p className="text-sm text-muted-foreground">{translate(locale, "app.startupBridgeMissingDescription")}</p>
+        </div>
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
+          onClick={() => window.location.reload()}
+        >
+          {translate(locale, "app.reload")}
+        </button>
       </div>
     </main>,
   )

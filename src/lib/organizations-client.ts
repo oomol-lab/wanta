@@ -51,6 +51,36 @@ interface RequestOptions extends RequestInit {
 }
 
 const organizationRequestTimeoutMs = 20_000
+const organizationMemberLimitPatterns = [
+  "organization member limit exceeded",
+  "member limit exceeded",
+  "seat limit exceeded",
+  "member quota exceeded",
+]
+
+export class OrganizationRequestError extends Error {
+  readonly apiMessage: string | undefined
+  readonly code: string | undefined
+  readonly status: number
+
+  constructor({
+    apiMessage,
+    code,
+    status,
+    statusText,
+  }: {
+    apiMessage?: string
+    code?: string
+    status: number
+    statusText: string
+  }) {
+    super(`HTTP ${status}: ${apiMessage ?? statusText}`)
+    this.name = "OrganizationRequestError"
+    this.apiMessage = apiMessage
+    this.code = code
+    this.status = status
+  }
+}
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
@@ -254,6 +284,24 @@ function readErrorMessage(payload: unknown): string | undefined {
   )
 }
 
+function readErrorCode(payload: unknown): string | undefined {
+  if (!isPlainObject(payload)) {
+    return undefined
+  }
+  return asString(payload["code"]) ?? asString(payload["errorCode"]) ?? asString(payload["error_code"])
+}
+
+export function isOrganizationMemberLimitError(error: unknown): boolean {
+  const message =
+    error instanceof OrganizationRequestError
+      ? `${error.apiMessage ?? ""}\n${error.code ?? ""}\n${error.message}`
+      : error instanceof Error
+        ? error.message
+        : String(error)
+  const normalized = message.toLowerCase()
+  return organizationMemberLimitPatterns.some((pattern) => normalized.includes(pattern))
+}
+
 async function requestJson(baseUrl: string, path: string, options: RequestOptions = {}): Promise<unknown> {
   const { headers: optionHeaders, noResult, ...init } = options
   const headers: Record<string, string> = {
@@ -270,7 +318,12 @@ async function requestJson(baseUrl: string, path: string, options: RequestOption
   })
   const payload = await readPayload(response)
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${readErrorMessage(payload) ?? response.statusText}`)
+    throw new OrganizationRequestError({
+      apiMessage: readErrorMessage(payload),
+      code: readErrorCode(payload),
+      status: response.status,
+      statusText: response.statusText,
+    })
   }
   if (noResult || response.status === 204) {
     return undefined

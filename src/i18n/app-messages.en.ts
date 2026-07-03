@@ -534,8 +534,16 @@ export const enMessages = {
   "billing.wantaSharedLinks": "Shared Links",
   "billing.personalWorkspace": "Personal workspace",
   "billing.organizationWorkspace": "Organization workspace",
+  "billing.wantaPromotionTitle": "Wanta promotion",
+  "billing.wantaPromotionDescription":
+    "Buy a Wanta service during the promotion to keep a permanent 20% discount on Wanta products.",
+  "billing.wantaPromotionBadge": "Permanent 20% off",
   "billing.wantaPlusPlanTitle": "Wanta Plus",
+  "billing.wantaPlusPlanDiscountPrice": "$32",
+  "billing.wantaPlusPlanOriginalPrice": "$40",
   "billing.wantaProPlanTitle": "Wanta Pro",
+  "billing.wantaProPlanDiscountPrice": "$80",
+  "billing.wantaProPlanOriginalPrice": "$100",
   "billing.wantaPlanStatus":
     "{workspace} currently includes {audit} and {report}. Usage balance continues to track model, built-in API, and Link overage costs separately.",
   "billing.purchaseDialog.title": "Manage plan and usage balance",

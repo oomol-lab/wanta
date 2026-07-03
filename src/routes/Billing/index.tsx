@@ -12,6 +12,7 @@ import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import {
   CreditCardIcon,
   GaugeIcon,
+  GiftIcon,
   ImageIcon,
   ListIcon,
   LogInIcon,
@@ -529,49 +530,73 @@ function PlanComparison({
   const t = useT()
   return (
     <BillingPanel title={t("billing.planComparison.title")} meta={t("billing.planComparison.meta")}>
-      <div className="grid gap-3 md:grid-cols-2">
-        <PlanComparisonCard
-          current={currentPlan === "wanta_plus"}
-          description={t("billing.planComparison.plusDescription")}
-          features={[
-            t("billing.planComparison.plusMembers"),
-            t("billing.planComparison.plusAccounts"),
-            t("billing.planComparison.plusAudit"),
-            t("billing.planComparison.plusReport"),
-            t("billing.planComparison.plusCredits"),
-          ]}
-          title={t("billing.wantaPlusPlanTitle")}
-          onChoose={onChoosePlan}
-        />
-        <PlanComparisonCard
-          current={currentPlan === "wanta_pro"}
-          description={t("billing.planComparison.proDescription")}
-          features={[
-            t("billing.planComparison.proMembers"),
-            t("billing.planComparison.proAccounts"),
-            t("billing.planComparison.proPermissions"),
-            t("billing.planComparison.proAudit"),
-            t("billing.planComparison.proReport"),
-            t("billing.planComparison.proCredits"),
-          ]}
-          title={t("billing.wantaProPlanTitle")}
-          onChoose={onChoosePlan}
-        />
+      <div className="grid gap-3">
+        <WantaPromotionNotice />
+        <div className="grid gap-3 md:grid-cols-2">
+          <PlanComparisonCard
+            current={currentPlan === "wanta_plus"}
+            description={t("billing.planComparison.plusDescription")}
+            features={[
+              t("billing.planComparison.plusMembers"),
+              t("billing.planComparison.plusAccounts"),
+              t("billing.planComparison.plusAudit"),
+              t("billing.planComparison.plusReport"),
+              t("billing.planComparison.plusCredits"),
+            ]}
+            discountPrice={t("billing.wantaPlusPlanDiscountPrice")}
+            originalPrice={t("billing.wantaPlusPlanOriginalPrice")}
+            title={t("billing.wantaPlusPlanTitle")}
+            onChoose={onChoosePlan}
+          />
+          <PlanComparisonCard
+            current={currentPlan === "wanta_pro"}
+            description={t("billing.planComparison.proDescription")}
+            features={[
+              t("billing.planComparison.proMembers"),
+              t("billing.planComparison.proAccounts"),
+              t("billing.planComparison.proPermissions"),
+              t("billing.planComparison.proAudit"),
+              t("billing.planComparison.proReport"),
+              t("billing.planComparison.proCredits"),
+            ]}
+            discountPrice={t("billing.wantaProPlanDiscountPrice")}
+            originalPrice={t("billing.wantaProPlanOriginalPrice")}
+            title={t("billing.wantaProPlanTitle")}
+            onChoose={onChoosePlan}
+          />
+        </div>
       </div>
     </BillingPanel>
+  )
+}
+
+function WantaPromotionNotice() {
+  const t = useT()
+  return (
+    <div className="flex items-start gap-3 rounded-md border border-[var(--oo-success-border)] bg-[var(--oo-success-surface)] px-4 py-3 text-foreground">
+      <GiftIcon className="mt-0.5 size-4 shrink-0 text-[var(--oo-success-foreground)]" />
+      <div className="min-w-0">
+        <div className="oo-text-title">{t("billing.wantaPromotionTitle")}</div>
+        <p className="oo-text-body mt-1 text-muted-foreground">{t("billing.wantaPromotionDescription")}</p>
+      </div>
+    </div>
   )
 }
 
 function PlanComparisonCard({
   current,
   description,
+  discountPrice,
   features,
+  originalPrice,
   title,
   onChoose,
 }: {
   current: boolean
   description: string
+  discountPrice: string
   features: string[]
+  originalPrice: string
   title: string
   onChoose: () => void
 }) {
@@ -584,6 +609,14 @@ function PlanComparisonCard({
           <p className="oo-text-body mt-1 text-muted-foreground">{description}</p>
         </div>
         {current ? <Badge variant="secondary">{t("billing.subscriptions.currentSubscriptionButton")}</Badge> : null}
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span className="inline-flex items-baseline">
+          <span className="text-3xl leading-none font-semibold text-foreground tabular-nums">{discountPrice}</span>
+          <span className="oo-text-body ml-1 text-muted-foreground">{t("billing.subscriptions.priceUnit")}</span>
+        </span>
+        <span className="oo-text-body text-muted-foreground tabular-nums line-through">{originalPrice}</span>
+        <Badge variant="success">{t("billing.wantaPromotionBadge")}</Badge>
       </div>
       <div className="grid gap-2">
         {features.map((feature) => (

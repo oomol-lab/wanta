@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createOrganization, updateOrganization, uploadOrganizationAvatar } from "./organizations-client.ts"
+import {
+  addOrganizationMember,
+  createOrganization,
+  isOrganizationMemberLimitError,
+  OrganizationRequestError,
+  updateOrganization,
+  uploadOrganizationAvatar,
+} from "./organizations-client.ts"
 
 describe("organizations-client", () => {
   afterEach(() => {
@@ -65,5 +72,26 @@ describe("organizations-client", () => {
     await expect(uploadOrganizationAvatar("org-1", new File(["avatar"], "avatar.png"))).resolves.toEqual({
       avatar: "019eddb2-7587-7e98-88a6-975dc65b672b.png",
     })
+  })
+
+  it("classifies organization member limit responses", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({ message: "organization member limit exceeded" }, { status: 400, statusText: "Bad Request" }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    const error = await addOrganizationMember({ orgId: "org-1", userId: "user-1" }).catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(OrganizationRequestError)
+    expect(error).toMatchObject({
+      apiMessage: "organization member limit exceeded",
+      message: "HTTP 400: organization member limit exceeded",
+      status: 400,
+    })
+    expect(isOrganizationMemberLimitError(error)).toBe(true)
+
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(String(url)).toContain("/v1/organizations/org-1/members")
+    expect(init?.method).toBe("POST")
   })
 })

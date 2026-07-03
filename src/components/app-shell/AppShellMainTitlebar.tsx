@@ -1,4 +1,5 @@
 import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { LucideIcon } from "lucide-react"
 
 import * as React from "react"
@@ -14,6 +15,7 @@ export function AppShellMainTitlebar({
   artifactsToggleLabel,
   billingCacheScope,
   isSidebarRestoring,
+  sharedConnectorCount,
   onArtifactsToggle,
   onOpenSearch,
   onRenameSession,
@@ -23,6 +25,7 @@ export function AppShellMainTitlebar({
   sidebarCollapsed,
   titlebarEditable,
   titlebarTitle,
+  workspace,
 }: {
   activeSession: SessionInfo | null
   artifactsPanelOpen: boolean
@@ -30,6 +33,7 @@ export function AppShellMainTitlebar({
   artifactsToggleLabel: string
   billingCacheScope: string
   isSidebarRestoring: boolean
+  sharedConnectorCount?: number
   onArtifactsToggle: () => void
   onOpenSearch: () => void
   onRenameSession: (sessionId: string, title: string) => void
@@ -39,6 +43,7 @@ export function AppShellMainTitlebar({
   sidebarCollapsed: boolean
   titlebarEditable: boolean
   titlebarTitle: string
+  workspace: WorkspaceSelection
 }) {
   return (
     <header className="oo-titlebar oo-toolbar oo-main-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] items-center border-b [-webkit-app-region:drag]">
@@ -68,7 +73,12 @@ export function AppShellMainTitlebar({
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         <AppUpdateTitlebarEntry />
-        <BillingUsagePopover cacheScope={billingCacheScope} onViewDetails={onViewBilling} />
+        <BillingUsagePopover
+          cacheScope={billingCacheScope}
+          sharedConnectorCount={sharedConnectorCount}
+          workspace={workspace}
+          onViewDetails={onViewBilling}
+        />
         {showArtifactsToggle ? (
           <button
             type="button"

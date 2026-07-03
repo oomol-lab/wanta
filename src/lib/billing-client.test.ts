@@ -9,6 +9,8 @@ import {
   subscriptionCheckoutUrl,
   subscriptionPortalUrl,
   topUpCheckoutUrl,
+  wantaSubscriptionCheckoutUrl,
+  wantaSubscriptionPortalUrl,
 } from "./billing-client.ts"
 import { OomolHttpError } from "./oomol-http.ts"
 
@@ -103,6 +105,37 @@ describe("billing-client", () => {
     expect(requestedUrls).toHaveLength(1)
     expect(requestedUrls[0]?.pathname).toBe("/api/stripe/portal")
     expect(requestedUrls[0]?.searchParams.get("product")).toBe("ai")
+  })
+
+  it("builds the Wanta subscription page URL with organization and seat context", () => {
+    const url = new URL(
+      wantaSubscriptionCheckoutUrl({
+        billableSeats: 8,
+        organizationId: "org-1",
+        plan: "wanta_pro",
+      }),
+    )
+
+    expect(url.pathname).toBe("/api/user/subscriptions/wanta/page")
+    expect(url.searchParams.get("client_platform")).toBe("chat-web")
+    expect(url.searchParams.get("plan")).toBe("wanta_pro")
+    expect(url.searchParams.get("org_id")).toBe("org-1")
+    expect(url.searchParams.get("additional_seats")).toBe("8")
+    expect(url.searchParams.get("billable_seats")).toBe("8")
+    expect(new URL(url.searchParams.get("redirect") ?? "").pathname).toBe("/billing")
+  })
+
+  it("keeps the Wanta stripe portal endpoint contract", async () => {
+    const requestedUrls: URL[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      requestedUrls.push(urlOf(input))
+      return Response.json({ data: "https://console.example.com/wanta-portal", success: true })
+    })
+
+    expect(await wantaSubscriptionPortalUrl()).toBe("https://console.example.com/wanta-portal")
+    expect(requestedUrls).toHaveLength(1)
+    expect(requestedUrls[0]?.pathname).toBe("/api/stripe/portal")
+    expect(requestedUrls[0]?.searchParams.get("product")).toBe("wanta")
   })
 
   it("caps credit usage pagination at 100 pages", async () => {

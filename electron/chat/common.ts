@@ -450,6 +450,7 @@ export type BillingPageTarget = "recharge" | "usage"
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
 export type BillingPeriodDays = 7 | 30 | 90
 export type SubscriptionPlanTag = "ai_pro" | "ai_max"
+export type WantaSubscriptionPlan = "wanta_plus" | "wanta_pro"
 
 export interface OpenBillingPageRequest {
   target: BillingPageTarget
@@ -533,6 +534,22 @@ export interface SubscriptionSchedule {
   currentPeriodEnd?: number
 }
 
+export interface WantaPendingPaymentResult {
+  subscriptionID: string | null
+  status: string | null
+  plan: WantaSubscriptionPlan | null
+  additionalSeats: number
+  currentPeriodEnd: number | null
+  latestInvoiceID: string | null
+  paymentRequired: boolean
+  paymentURL: string | null
+  invoiceStatus: string | null
+  amountRemaining: number | null
+  currency: string | null
+  pendingUpdate: boolean
+  pendingUpdateExpiresAt: number | null
+}
+
 export interface BillingOverviewRequest {
   days: BillingPeriodDays
   forceRefresh?: boolean
@@ -545,6 +562,7 @@ export interface BillingOverviewResult {
   logs: BillingLogItem[]
   subscription: SubscriptionStatus | null
   schedules: SubscriptionSchedule[]
+  wantaPendingPayment: WantaPendingPaymentResult | null
 }
 
 export type BillingSummaryResult = BillingOverviewResult

@@ -1233,7 +1233,12 @@ export function AppShell() {
   if (route === "billing") {
     return (
       <React.Suspense fallback={<RouteLoadingFallback />}>
-        <BillingRoute cacheScope={billingCacheScope} onBack={() => setRoute("chat")} />
+        <BillingRoute
+          cacheScope={billingCacheScope}
+          sharedConnectorCount={sharedConnectorCount}
+          workspace={organizationWorkspace.activeWorkspace}
+          onBack={() => setRoute("chat")}
+        />
       </React.Suspense>
     )
   }
@@ -1333,10 +1338,12 @@ export function AppShell() {
             artifactsToggleLabel={artifactsToggleLabel}
             billingCacheScope={billingCacheScope}
             isSidebarRestoring={isSidebarRestoring}
+            sharedConnectorCount={sharedConnectorCount}
             showArtifactsToggle={showArtifactsToggle}
             sidebarCollapsed={sidebarCollapsed}
             titlebarEditable={titlebarEditable}
             titlebarTitle={titlebarTitle}
+            workspace={organizationWorkspace.activeWorkspace}
             onArtifactsToggle={() => setArtifactsPanelOpen((open) => !open)}
             onOpenSearch={handleOpenSearch}
             onRenameSession={handleRenameSession}

@@ -9,7 +9,15 @@ afterEach(() => {
 })
 
 function emptyBillingOverview(): BillingOverviewResult {
-  return { balance: null, logs: [], metering: null, schedules: [], spend: null, subscription: null }
+  return {
+    balance: null,
+    logs: [],
+    metering: null,
+    schedules: [],
+    spend: null,
+    subscription: null,
+    wantaPendingPayment: null,
+  }
 }
 
 test("billing overview in-flight cache is released after a renderer-side timeout", async () => {

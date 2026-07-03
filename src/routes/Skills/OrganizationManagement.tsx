@@ -136,6 +136,7 @@ export function OrganizationManagementRoute({
   const [editAvatarFile, setEditAvatarFile] = React.useState<File | null>(null)
   const [editDuplicated, setEditDuplicated] = React.useState(false)
   const [addMemberOpen, setAddMemberOpen] = React.useState(false)
+  const [addMemberError, setAddMemberError] = React.useState<string | null>(null)
   const [membersPanelOpen, setMembersPanelOpen] = React.useState(false)
   const [providerAccessForm, setProviderAccessForm] = React.useState<ProviderAccessForm>(initialProviderAccessForm)
   const overviewRequestId = React.useRef(0)
@@ -150,10 +151,13 @@ export function OrganizationManagementRoute({
   const avatarPreviewUrls = workspace?.organizationAvatarPreviewUrls ?? {}
   const clearOrganizationAvatarPreview = workspace?.clearOrganizationAvatarPreview ?? (() => undefined)
   const {
+    activeSearchUserId,
     memberInput,
     memberSearch,
+    moveActiveSearchUser,
     resetMemberSearch,
     selectedSearchUserId,
+    setActiveSearchUserId,
     setMemberInput,
     setSelectedSearchUserId,
   } = useOrganizationMemberSearch({ addMemberOpen, members: membersState.data })
@@ -772,13 +776,20 @@ export function OrganizationManagementRoute({
         return
       }
 
-      const userId = selectedSearchUserId ?? memberInput.trim()
+      const currentSearchUserId = selectedSearchUserId ?? activeSearchUserId
+      if (memberSearch.items.length > 0 && !currentSearchUserId) {
+        setAddMemberError(t("organizations.addMemberSelectRequired"))
+        return
+      }
+
+      const userId = memberSearch.items.length > 0 ? currentSearchUserId : memberInput.trim()
       if (!userId) {
-        toast.error(t("organizations.userIdRequired"))
+        setAddMemberError(t("organizations.userIdRequired"))
         return
       }
 
       setBusyAction("add")
+      setAddMemberError(null)
       try {
         await addOrganizationMember({ orgId: selectedOrganization.id, userId })
         toast.success(t("organizations.addMemberSuccess"))
@@ -786,12 +797,25 @@ export function OrganizationManagementRoute({
         setAddMemberOpen(false)
         await reloadMembersAndAccess()
       } catch (error) {
-        toast.error(errorMessage(error))
+        const message = errorMessage(error)
+        setAddMemberError(
+          message.toLowerCase().includes("user does not exist") ? t("organizations.addMemberUserNotFound") : message,
+        )
       } finally {
         setBusyAction(null)
       }
     },
-    [canManage, memberInput, reloadMembersAndAccess, resetMemberSearch, selectedOrganization, selectedSearchUserId, t],
+    [
+      activeSearchUserId,
+      canManage,
+      memberInput,
+      memberSearch.items.length,
+      reloadMembersAndAccess,
+      resetMemberSearch,
+      selectedOrganization,
+      selectedSearchUserId,
+      t,
+    ],
   )
 
   const handleRemoveMember = React.useCallback(
@@ -1062,23 +1086,32 @@ export function OrganizationManagementRoute({
         onSubmit={handleUpdateOrganization}
       />
       <AddMemberDialog
+        activeUserId={activeSearchUserId}
+        addError={addMemberError}
         busy={busyAction === "add"}
         input={memberInput}
         open={addMemberOpen}
         search={memberSearch}
+        selectedUserId={selectedSearchUserId}
         onClose={() => {
           if (busyAction !== "add") {
             setAddMemberOpen(false)
+            setAddMemberError(null)
             resetMemberSearch()
           }
         }}
         onInputChange={(value) => {
           setMemberInput(value)
+          setActiveSearchUserId(null)
           setSelectedSearchUserId(null)
+          setAddMemberError(null)
         }}
+        onMoveActiveUser={moveActiveSearchUser}
         onSearchSelect={(user) => {
           setMemberInput(user.username)
+          setActiveSearchUserId(user.userId)
           setSelectedSearchUserId(user.userId)
+          setAddMemberError(null)
         }}
         onSubmit={handleAddMember}
       />

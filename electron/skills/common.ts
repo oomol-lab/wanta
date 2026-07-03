@@ -194,12 +194,14 @@ export interface SkillDocument {
 
 export interface PublishSkillRequest {
   path: string
-  visibility?: "public"
+  visibility?: "private" | "public"
 }
 
 export interface PublishSkillResult {
   inventory: SkillInventory
   message: string
+  packageName: string
+  version: string
 }
 
 export interface DeleteSkillRequest {

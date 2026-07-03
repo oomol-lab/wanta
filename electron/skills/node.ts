@@ -20,6 +20,7 @@ import type {
   UpdateRegistrySkillRequest,
 } from "./common.ts"
 import type { DefaultRegistrySkillSpec } from "./default-registry-skills.ts"
+import type { EnsureSkillPublishMetadataResult } from "./publish-metadata.ts"
 import type { IConnectionService } from "@oomol/connection"
 import type { FSWatcher } from "node:fs"
 
@@ -45,6 +46,7 @@ import {
   createSkillSearchArgs,
   createUpdateRegistrySkillArgs,
   normalizeSkillSearchResults,
+  readSkillPublishRequiredScope,
 } from "./actions.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
 import {
@@ -267,17 +269,35 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
-    const skillPath = await this.resolveAllowedSkillPath(request.path)
-    await ensureSkillPublishMetadata({
+  private async attemptPublishSkill(input: {
+    packageScope?: string
+    request: PublishSkillRequest
+    skillPath: string
+  }): Promise<{ args: string[]; metadata: EnsureSkillPublishMetadataResult; result: OoCommandResult }> {
+    const metadata = await ensureSkillPublishMetadata({
       accountName: this.authService.activeAccount()?.name,
-      skillPath,
+      packageScope: input.packageScope,
+      skillPath: input.skillPath,
     })
-    const args = createPublishSkillArgs({ ...request, path: skillPath })
+    const args = createPublishSkillArgs({ ...input.request, path: input.skillPath })
     const result = await this.runOoCommand(args, {
       owner: "skill-service",
       rejectOnFailure: false,
     })
+    return { args, metadata, result }
+  }
+
+  public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
+    const skillPath = await this.resolveAllowedSkillPath(request.path)
+    let { args, metadata, result } = await this.attemptPublishSkill({ request, skillPath })
+    const requiredScope = readSkillPublishRequiredScope(result)
+    if (!result.ok && requiredScope) {
+      ;({ args, metadata, result } = await this.attemptPublishSkill({
+        packageScope: requiredScope,
+        request,
+        skillPath,
+      }))
+    }
     assertOoSkillPublishResult(result, args)
     this.invalidateVersionReport()
     this.notifyRuntimeSkillsChanged("publish-skill")
@@ -285,6 +305,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return {
       inventory: await this.readAndPublishSkillInventory(),
       message: result.stdout.trim(),
+      packageName: metadata.packageName,
+      version: metadata.version,
     }
   }
 

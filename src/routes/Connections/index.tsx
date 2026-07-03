@@ -3,6 +3,7 @@ import type {
   ConnectionConnectInput,
   ConnectionProviderDetail,
   ConnectionProviderSummary,
+  ConnectionUserOAuthClientConfigSummary,
 } from "../../../electron/connections/common.ts"
 import type { ConnectionCatalogFilter, ConnectionCategoryFilter, DisconnectTarget } from "./connection-route-model.ts"
 import type { ConnectionAuthIntent } from "./ConnectionProviderDetailPane.tsx"
@@ -30,6 +31,7 @@ import {
 } from "./connection-route-model.ts"
 import { EmptyList, ProviderDetail, StatusNotice } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
+import { shouldOpenOAuthClientDialog } from "./oauth-client-config.ts"
 import {
   getProviderGridColumnCount,
   getProviderGridVisibleRange,
@@ -57,6 +59,7 @@ import {
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
+import { getOAuthClientConfig } from "@/lib/connections-client"
 import { resolveConnectionError } from "@/lib/connections-error"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -102,8 +105,9 @@ export function ConnectionsPanel({
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
     appId?: string
-    authType: "api_key" | "custom_credential" | "federated"
+    authType: "api_key" | "custom_credential" | "federated" | "oauth2"
     detail: ConnectionProviderDetail
+    oauthClientConfig?: ConnectionUserOAuthClientConfigSummary | null
   } | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = React.useState<DisconnectTarget | null>(null)
   const detailCloseTimerRef = React.useRef<number | null>(null)
@@ -267,12 +271,29 @@ export function ConnectionsPanel({
       appId?: string,
     ): Promise<void> => {
       try {
-        if (authType === "oauth2" || authType === "no_auth") {
-          const input: ConnectionConnectInput =
-            authType === "oauth2"
-              ? { authType, service: provider.service, appId }
-              : { authType, service: provider.service }
-          const ok = await connect(input)
+        if (authType === "oauth2") {
+          const loaded =
+            detailService === provider.service && detail ? detail : await getProviderDetail(provider.service)
+          const oauthClientConfig = loaded.oauthClientConfig ? await getOAuthClientConfig(provider.service) : null
+          if (
+            shouldOpenOAuthClientDialog({
+              providerOAuthClientConfig: loaded.oauthClientConfig,
+              userOAuthClientConfig: oauthClientConfig,
+            })
+          ) {
+            setDialog({ detail: loaded, authType, appId, oauthClientConfig })
+            return
+          }
+
+          const ok = await connect({ authType, service: provider.service, appId })
+          if (ok) {
+            detailCacheRef.current.delete(provider.service)
+          }
+          return
+        }
+
+        if (authType === "no_auth") {
+          const ok = await connect({ authType, service: provider.service })
           if (ok) {
             detailCacheRef.current.delete(provider.service)
           }
@@ -286,6 +307,22 @@ export function ConnectionsPanel({
       }
     },
     [connect, detail, detailService, getProviderDetail],
+  )
+
+  const submitConnectDialog = React.useCallback(
+    (input: ConnectionConnectInput): void => {
+      void (async () => {
+        const ok = await connect(input)
+        if (ok) {
+          detailCacheRef.current.delete(input.service)
+          setDialog(null)
+        }
+      })()
+      if (input.authType === "oauth2") {
+        setDialog(null)
+      }
+    },
+    [connect],
   )
 
   if (presentation === "drawer") {
@@ -338,15 +375,10 @@ export function ConnectionsPanel({
           detail={dialog?.detail ?? null}
           authType={dialog?.authType ?? null}
           appId={dialog?.appId}
+          oauthClientConfig={dialog?.oauthClientConfig}
           busy={busy === "connect"}
           onClose={() => setDialog(null)}
-          onSubmit={async (input) => {
-            const ok = await connect(input)
-            if (ok) {
-              detailCacheRef.current.delete(input.service)
-              setDialog(null)
-            }
-          }}
+          onSubmit={submitConnectDialog}
           onOpenUrl={(url) => void connections.openExternal(url)}
         />
         <DisconnectDialog
@@ -472,15 +504,10 @@ export function ConnectionsPanel({
         detail={dialog?.detail ?? null}
         authType={dialog?.authType ?? null}
         appId={dialog?.appId}
+        oauthClientConfig={dialog?.oauthClientConfig}
         busy={busy === "connect"}
         onClose={() => setDialog(null)}
-        onSubmit={async (input) => {
-          const ok = await connect(input)
-          if (ok) {
-            detailCacheRef.current.delete(input.service)
-            setDialog(null)
-          }
-        }}
+        onSubmit={submitConnectDialog}
         onOpenUrl={(url) => void connections.openExternal(url)}
       />
 

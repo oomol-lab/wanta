@@ -161,6 +161,48 @@ test("merge exposes connection account labels for UI distinction", () => {
   assert.equal(summary.apps[0]?.accountLabel, undefined)
 })
 
+test("merge normalizes OAuth client config metadata for setup dialogs", () => {
+  const summary = mergeConnectionSummary({
+    apps: [],
+    providers: [
+      {
+        service: "twitter",
+        displayName: "X (Twitter)",
+        authTypes: ["oauth2" as const],
+        oauthClientConfig: {
+          service: "twitter",
+          clientConfigPolicy: "user_required",
+          configured: false,
+          nextConnectSource: "unconfigured",
+          tokenEndpointAuthMethod: "client_secret_basic",
+          oauthScopes: ["tweet.read", "users.read"],
+          clientConfigFields: [
+            {
+              key: "appBearerToken",
+              label: "App Bearer Token",
+              inputType: "text",
+              required: false,
+              secret: false,
+              location: "secretExtra",
+              defaultValue: ["keep", 1, "safe"],
+            },
+          ],
+        },
+      },
+    ],
+    usage: emptyUsage,
+  })
+
+  const twitter = summary.providers.find((provider) => provider.service === "twitter")
+
+  assert.equal(twitter?.oauthClientConfig?.clientConfigPolicy, "user_required")
+  assert.equal(twitter?.oauthClientConfig?.tokenEndpointAuthMethod, "client_secret_basic")
+  assert.deepEqual(twitter?.oauthClientConfig?.oauthScopes, ["tweet.read", "users.read"])
+  assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.location, "secretExtra")
+  assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.secret, true)
+  assert.deepEqual(twitter?.oauthClientConfig?.clientConfigFields[0]?.defaultValue, ["keep", "safe"])
+})
+
 test("createEmptyConnectionSummary exposes a signed-out state", () => {
   const summary = createEmptyConnectionSummary("signed-out", "no key")
 

@@ -18,6 +18,20 @@ describe("resolveConnectionError", () => {
     })
   })
 
+  it("explains OAuth client config failures instead of treating them as service outages", () => {
+    expect(
+      resolveConnectionError(
+        "Connector /v1/apps/twitter/connect failed: oauth client config is required for twitter.",
+        "connect",
+      ),
+    ).toMatchObject({
+      kind: "validation_error",
+      severity: "warning",
+      titleKey: "error.connections.oauthClientConfigRequired.title",
+      descriptionKey: "error.connections.oauthClientConfigRequired.description",
+    })
+  })
+
   it("uses operation titles for unclassified connector failures", () => {
     expect(resolveConnectionError("Provider cloudflare is not available", "detail")).toMatchObject({
       kind: "operation_failed",

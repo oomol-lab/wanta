@@ -19,6 +19,7 @@ const defaultPublishVersion = "0.0.1"
 
 export async function ensureSkillPublishMetadata(request: {
   accountName?: string
+  packageScope?: string
   skillPath: string
 }): Promise<EnsureSkillPublishMetadataResult> {
   const skillFilePath = path.join(request.skillPath, "SKILL.md")
@@ -26,6 +27,7 @@ export async function ensureSkillPublishMetadata(request: {
   const next = ensureSkillPublishMetadataContent(content, {
     accountName: request.accountName,
     fallbackSkillName: path.basename(request.skillPath),
+    packageScope: request.packageScope,
   })
 
   if (next.updated) {
@@ -41,7 +43,7 @@ export async function ensureSkillPublishMetadata(request: {
 
 export function ensureSkillPublishMetadataContent(
   content: string,
-  request: { accountName?: string; fallbackSkillName: string },
+  request: { accountName?: string; fallbackSkillName: string; packageScope?: string },
 ): EnsureSkillPublishMetadataResult & { content: string } {
   const range = readFrontmatterRange(content)
   if (!range) {
@@ -51,7 +53,11 @@ export function ensureSkillPublishMetadataContent(
   const frontmatter = readFrontmatter(content.slice(range.bodyStart, range.yamlEnd))
   const skillName = asText(frontmatter["name"]) ?? request.fallbackSkillName
   const metadata = isRecord(frontmatter["metadata"]) ? { ...frontmatter["metadata"] } : {}
-  const packageName = asText(metadata["packageName"]) ?? createDefaultSkillPackageName(request.accountName, skillName)
+  const packageName = resolvePublishPackageName(
+    asText(metadata["packageName"]),
+    request.packageScope ?? request.accountName,
+    skillName,
+  )
   const version = asText(metadata["version"]) ?? defaultPublishVersion
 
   if (metadata["packageName"] === packageName && metadata["version"] === version && isRecord(frontmatter["metadata"])) {
@@ -90,6 +96,49 @@ export function createDefaultSkillPackageName(accountName: string | undefined, s
   }
 
   return `@${scope}/${name}`
+}
+
+function resolvePublishPackageName(
+  existingPackageName: string | undefined,
+  accountName: string | undefined,
+  skillName: string,
+): string {
+  if (!existingPackageName) {
+    return createDefaultSkillPackageName(accountName, skillName)
+  }
+
+  const accountScope = normalizePackageNamePart(accountName)
+  if (!accountScope) {
+    return existingPackageName
+  }
+
+  const packageName = existingPackageName.trim()
+  const current = readScopedPackageName(packageName)
+  if (current?.scope === accountScope) {
+    return packageName
+  }
+
+  const name = normalizePackageNamePart(current?.name ?? packageName)
+  if (!name) {
+    return createDefaultSkillPackageName(accountName, skillName)
+  }
+
+  return `@${accountScope}/${name}`
+}
+
+function readScopedPackageName(packageName: string): { name: string; scope: string } | undefined {
+  const match = /^@([^/]+)\/(.+)$/.exec(packageName.trim())
+  if (!match?.[1] || !match[2]) {
+    return undefined
+  }
+
+  const scope = normalizePackageNamePart(match[1])
+  const name = normalizePackageNamePart(match[2])
+  if (!scope || !name) {
+    return undefined
+  }
+
+  return { name, scope }
 }
 
 function readFrontmatterRange(content: string): SkillFrontmatterRange | undefined {

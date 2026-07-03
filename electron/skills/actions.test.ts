@@ -19,6 +19,7 @@ import {
   normalizeSkillSearchResults,
   normalizeCliCheckUpdateResult,
   createUpdateRegistrySkillArgs,
+  readSkillPublishRequiredScope,
 } from "./actions.ts"
 
 test("createCliUpdateArgs keeps oo self-update commands", () => {
@@ -339,6 +340,14 @@ test("createUpdateRegistrySkillArgs updates registry skills as json", () => {
 })
 
 test("createPublishSkillArgs publishes a Skill path non-interactively", () => {
+  assert.deepEqual(createPublishSkillArgs({ path: "/tmp/demo" }), [
+    "skills",
+    "publish",
+    "/tmp/demo",
+    "-y",
+    "--visibility",
+    "private",
+  ])
   assert.deepEqual(createPublishSkillArgs({ path: "/tmp/demo", visibility: "public" }), [
     "skills",
     "publish",
@@ -358,6 +367,17 @@ test("createSkillPublishErrorMessage prefers publish stderr details", () => {
     }),
     "Package version already exists.",
   )
+})
+
+test("readSkillPublishRequiredScope parses registry scope mismatch errors", () => {
+  assert.equal(
+    readSkillPublishRequiredScope({
+      stderr:
+        'The skill package publish request returned HTTP 422: {"error":"[UNPROCESSABLE_ENTITY] For create package, scope \\"@shaun\\" must equal to \\"@alwaysmavs\\", user: \\"u1\\""}',
+    }),
+    "@alwaysmavs",
+  )
+  assert.equal(readSkillPublishRequiredScope({ stderr: "Package version already exists." }), undefined)
 })
 
 test("createSkillPublishErrorMessage extracts json failure messages", () => {

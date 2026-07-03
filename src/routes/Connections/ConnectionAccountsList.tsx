@@ -13,7 +13,7 @@ import { Loader } from "@/components/ai-elements/loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { isConnectionPollingTarget } from "@/hooks/connection-oauth-pending"
+import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -39,6 +39,7 @@ export function ConnectionAccountsList({
   provider: ConnectionProviderSummary
 }) {
   const t = useT()
+  const servicePolling = isConnectionServicePollingTarget(polling, provider.service)
   return (
     <div className="grid gap-2">
       <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
@@ -48,7 +49,7 @@ export function ConnectionAccountsList({
         </span>
       </div>
       {provider.apps.map((app, index) => {
-        const isPolling = isConnectionPollingTarget(polling, provider.service, app.id)
+        const isPolling = servicePolling
         const reconnectAuthType =
           app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
             ? app.authType
@@ -81,6 +82,7 @@ export function ConnectionAccountsList({
                   variant="outline"
                   size="sm"
                   className={accountActionButtonClassName}
+                  disabled={servicePolling}
                   onClick={() => void connections.setDefaultAccount(provider.service, app.id)}
                 >
                   <Star className="size-3.5" />
@@ -105,7 +107,7 @@ export function ConnectionAccountsList({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={busy === "disconnect"}
+                  disabled={servicePolling || busy === "disconnect"}
                   className={cn(
                     accountActionButtonClassName,
                     "border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive",

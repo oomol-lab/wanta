@@ -3,6 +3,10 @@ import type {
   ConnectionAppSummary,
   ConnectionAuthType,
   ConnectionCredentialField,
+  ConnectionOAuthClientConfigFieldDefinition,
+  ConnectionOAuthClientConfigNextConnectSource,
+  ConnectionOAuthClientConfigPolicy,
+  ConnectionOAuthTokenEndpointAuthMethod,
   ConnectionProviderActionKind,
   ConnectionProviderDetail,
   ConnectionProviderStatus,
@@ -38,6 +42,7 @@ export interface RawProvider {
   homepageUrl?: unknown
   icon?: unknown
   iconUrl?: unknown
+  oauthClientConfig?: unknown
   service?: unknown
 }
 
@@ -55,6 +60,29 @@ export interface RawAppListMeta {
 interface RawProviderCategory {
   displayName?: unknown
   id?: unknown
+}
+
+interface RawOAuthClientConfig {
+  clientConfigFields?: unknown
+  clientConfigPolicy?: unknown
+  configured?: unknown
+  nextConnectSource?: unknown
+  oauthScopes?: unknown
+  service?: unknown
+  tokenEndpointAuthMethod?: unknown
+}
+
+interface RawOAuthClientConfigField {
+  connectOnly?: unknown
+  defaultValue?: unknown
+  description?: unknown
+  inputType?: unknown
+  key?: unknown
+  label?: unknown
+  location?: unknown
+  placeholder?: unknown
+  required?: unknown
+  secret?: unknown
 }
 
 interface RawCredentialField {
@@ -78,6 +106,23 @@ interface RawCustomCredentialConfig {
 }
 
 const appStatuses = new Set<ConnectionAppStatus>(["active", "reauth_required", "error", "disconnected"])
+const oauthClientConfigPolicies = new Set<ConnectionOAuthClientConfigPolicy>(["default_only", "user_required"])
+const oauthClientConfigNextConnectSources = new Set<ConnectionOAuthClientConfigNextConnectSource>([
+  "custom",
+  "default",
+  "unconfigured",
+])
+const oauthTokenEndpointAuthMethods = new Set<ConnectionOAuthTokenEndpointAuthMethod>([
+  "client_secret_basic",
+  "client_secret_post",
+  "none",
+])
+const oauthClientConfigFieldInputTypes = new Set<ConnectionOAuthClientConfigFieldDefinition["inputType"]>([
+  "password",
+  "string_array",
+  "text",
+  "textarea",
+])
 const authTypes = new Set<Exclude<ConnectionAuthType, null>>([
   "oauth2",
   "api_key",
@@ -92,6 +137,10 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
 }
 
 function normalizeAppStatus(value: unknown): ConnectionAppStatus {
@@ -131,6 +180,96 @@ function normalizeCategories(value: unknown): string[] {
       return asString(category.displayName) ?? asString(category.id)
     })
     .filter((item): item is string => Boolean(item))
+}
+
+function normalizeOAuthClientConfigPolicy(value: unknown): ConnectionOAuthClientConfigPolicy {
+  return typeof value === "string" && oauthClientConfigPolicies.has(value as ConnectionOAuthClientConfigPolicy)
+    ? (value as ConnectionOAuthClientConfigPolicy)
+    : "default_only"
+}
+
+function normalizeOAuthClientConfigNextConnectSource(value: unknown): ConnectionOAuthClientConfigNextConnectSource {
+  return typeof value === "string" &&
+    oauthClientConfigNextConnectSources.has(value as ConnectionOAuthClientConfigNextConnectSource)
+    ? (value as ConnectionOAuthClientConfigNextConnectSource)
+    : "unconfigured"
+}
+
+function normalizeOAuthTokenEndpointAuthMethod(value: unknown): ConnectionOAuthTokenEndpointAuthMethod {
+  return typeof value === "string" && oauthTokenEndpointAuthMethods.has(value as ConnectionOAuthTokenEndpointAuthMethod)
+    ? (value as ConnectionOAuthTokenEndpointAuthMethod)
+    : "client_secret_post"
+}
+
+function normalizeOAuthClientConfigField(item: unknown): ConnectionOAuthClientConfigFieldDefinition | undefined {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return undefined
+  }
+
+  const field = item as RawOAuthClientConfigField
+  const key = asString(field.key)
+  const label = asString(field.label)
+  if (!key || !label) {
+    return undefined
+  }
+
+  const inputType =
+    typeof field.inputType === "string" &&
+    oauthClientConfigFieldInputTypes.has(field.inputType as ConnectionOAuthClientConfigFieldDefinition["inputType"])
+      ? (field.inputType as ConnectionOAuthClientConfigFieldDefinition["inputType"])
+      : field.secret === true
+        ? "password"
+        : "text"
+
+  const location = field.location === "secretExtra" ? "secretExtra" : "extra"
+  const defaultValue =
+    typeof field.defaultValue === "string"
+      ? field.defaultValue
+      : Array.isArray(field.defaultValue)
+        ? field.defaultValue.filter((item): item is string => typeof item === "string")
+        : undefined
+
+  return {
+    key,
+    label,
+    inputType,
+    location,
+    required: field.required === true,
+    secret: location === "secretExtra" || field.secret === true || inputType === "password",
+    connectOnly: field.connectOnly === true,
+    defaultValue,
+    description: asString(field.description),
+    placeholder: asString(field.placeholder),
+  }
+}
+
+export function normalizeOAuthClientConfig(
+  value: unknown,
+  serviceFallback?: string,
+): ConnectionProviderDetail["oauthClientConfig"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null
+  }
+
+  const config = value as RawOAuthClientConfig
+  const service = asString(config.service) ?? serviceFallback
+  if (!service) {
+    return null
+  }
+
+  return {
+    service,
+    clientConfigFields: Array.isArray(config.clientConfigFields)
+      ? config.clientConfigFields
+          .map((field) => normalizeOAuthClientConfigField(field))
+          .filter((field): field is ConnectionOAuthClientConfigFieldDefinition => Boolean(field))
+      : [],
+    clientConfigPolicy: normalizeOAuthClientConfigPolicy(config.clientConfigPolicy),
+    configured: config.configured === true,
+    nextConnectSource: normalizeOAuthClientConfigNextConnectSource(config.nextConnectSource),
+    oauthScopes: stringList(config.oauthScopes),
+    tokenEndpointAuthMethod: normalizeOAuthTokenEndpointAuthMethod(config.tokenEndpointAuthMethod),
+  }
 }
 
 function isVirtualNoAuthApp(app: Pick<ConnectionAppSummary, "id">): boolean {
@@ -310,6 +449,7 @@ export function normalizeProvider(
     connectedUpdatedAt: latestUpdatedAt(manageableApps),
     displayName: asString(item.displayName) ?? service,
     iconUrl: asString(item.iconUrl) ?? asString(item.icon),
+    oauthClientConfig: normalizeOAuthClientConfig(item.oauthClientConfig, service),
   }
 }
 

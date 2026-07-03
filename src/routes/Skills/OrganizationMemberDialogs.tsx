@@ -315,26 +315,57 @@ function OrganizationAvatarField({
 }
 
 export function AddMemberDialog({
+  activeUserId,
+  addError,
   busy,
   input,
+  selectedUserId,
   onClose,
   onInputChange,
+  onMoveActiveUser,
   onSearchSelect,
   onSubmit,
   open,
   search,
 }: {
+  activeUserId: string | null
+  addError: string | null
   busy: boolean
   input: string
+  selectedUserId: string | null
   onClose: () => void
   onInputChange: (value: string) => void
+  onMoveActiveUser: (step: -1 | 1 | "first" | "last") => void
   onSearchSelect: (user: MemberSearchState["items"][number]) => void
   onSubmit: (event: React.FormEvent) => void
   open: boolean
   search: MemberSearchState
 }) {
   const { t } = useAppI18n()
-  const canSubmit = input.trim().length > 0 && !busy
+  const hasSearchResults = search.items.length > 0
+  const currentUserId = selectedUserId ?? activeUserId
+  const canSubmit = input.trim().length > 0 && !busy && !search.loading && (!hasSearchResults || Boolean(currentUserId))
+
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    switch (event.key) {
+      case "ArrowDown":
+        if (hasSearchResults) {
+          event.preventDefault()
+          onMoveActiveUser(1)
+        }
+        return
+      case "ArrowUp":
+        if (hasSearchResults) {
+          event.preventDefault()
+          onMoveActiveUser(-1)
+        }
+        return
+      case "Escape":
+        event.preventDefault()
+        onClose()
+        return
+    }
+  }
 
   return (
     <Dialog
@@ -372,12 +403,25 @@ export function AddMemberDialog({
               data-form-type="other"
               data-lpignore="true"
               disabled={busy}
+              aria-activedescendant={currentUserId ? `organization-member-option-${currentUserId}` : undefined}
+              aria-controls="organization-member-search-results"
+              aria-expanded={hasSearchResults}
+              aria-autocomplete="list"
+              role="combobox"
               placeholder={t("organizations.userSearchPlaceholder")}
               spellCheck={false}
               onChange={(event) => onInputChange(event.currentTarget.value)}
+              onKeyDown={handleInputKeyDown}
             />
           </InputGroup>
-          <MemberSearchResults search={search} onSelect={onSearchSelect} />
+          <MemberSearchResults
+            activeUserId={activeUserId}
+            busy={busy}
+            error={addError}
+            search={search}
+            selectedUserId={selectedUserId}
+            onSelect={onSearchSelect}
+          />
         </div>
       </form>
     </Dialog>
@@ -385,43 +429,85 @@ export function AddMemberDialog({
 }
 
 function MemberSearchResults({
+  activeUserId,
+  busy,
+  error,
   onSelect,
   search,
+  selectedUserId,
 }: {
+  activeUserId: string | null
+  busy: boolean
+  error: string | null
   onSelect: (user: MemberSearchState["items"][number]) => void
   search: MemberSearchState
+  selectedUserId: string | null
 }) {
   const { t } = useAppI18n()
+  const itemRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const showInitial = search.query.length < minimumMemberSearchLength
   const showEmpty =
     search.query.length >= minimumMemberSearchLength && !search.loading && !search.error && search.items.length === 0
 
+  React.useEffect(() => {
+    if (!activeUserId) {
+      return
+    }
+    itemRefs.current.get(activeUserId)?.scrollIntoView({ block: "nearest" })
+  }, [activeUserId])
+
   return (
-    <div className="min-h-28 overflow-hidden rounded-md border">
+    <div id="organization-member-search-results" className="min-h-28 overflow-hidden rounded-md border" role="listbox">
       {search.items.length > 0 ? (
         <div className="max-h-64 overflow-y-auto p-1">
-          {search.items.map((user) => (
-            <button
-              type="button"
-              key={user.userId}
-              className="flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground"
-              onClick={() => onSelect(user)}
-            >
-              <UserAvatar avatar={user.avatar} fallback={user.fallback} />
-              <span className="min-w-0">
-                <span className="oo-text-label block truncate">{user.displayName}</span>
-                <span className="oo-text-caption-compact block truncate font-mono text-muted-foreground">
-                  {user.username}
+          {search.items.map((user) => {
+            const current = user.userId === (selectedUserId ?? activeUserId)
+            return (
+              <button
+                tabIndex={-1}
+                ref={(element) => {
+                  if (element) {
+                    itemRefs.current.set(user.userId, element)
+                  } else {
+                    itemRefs.current.delete(user.userId)
+                  }
+                }}
+                type="button"
+                id={`organization-member-option-${user.userId}`}
+                key={user.userId}
+                className={cn(
+                  "relative flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent/70 hover:text-accent-foreground",
+                  current && "bg-accent text-accent-foreground",
+                )}
+                disabled={busy}
+                aria-selected={current}
+                role="option"
+                onClick={() => onSelect(user)}
+              >
+                {current ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" /> : null}
+                <UserAvatar avatar={user.avatar} fallback={user.fallback} />
+                <span className="min-w-0 flex-1">
+                  <span className="oo-text-label block truncate">{user.displayName}</span>
+                  <span
+                    className={cn(
+                      "oo-text-caption-compact block truncate font-mono",
+                      current ? "text-accent-foreground/80" : "text-muted-foreground",
+                    )}
+                  >
+                    {user.username}
+                  </span>
                 </span>
-              </span>
-            </button>
-          ))}
+                {current ? <CheckIcon className="size-4 shrink-0" /> : null}
+              </button>
+            )
+          })}
         </div>
       ) : null}
       {search.loading ? <DialogHint>{t("organizations.loading")}</DialogHint> : null}
       {showInitial ? <DialogHint>{t("organizations.searchUsersInitial")}</DialogHint> : null}
       {showEmpty ? <DialogHint>{t("organizations.noUsersFoundCanAddId")}</DialogHint> : null}
       {search.error ? <DialogHint danger>{search.error}</DialogHint> : null}
+      {error ? <DialogHint danger>{error}</DialogHint> : null}
     </div>
   )
 }

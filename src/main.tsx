@@ -11,9 +11,11 @@ import { SkillService } from "../electron/skills/common.ts"
 import { UpdateService } from "../electron/update/common.ts"
 import { App } from "@/App"
 import { AppContext } from "@/components/AppContext"
+import { reportRendererIssue } from "@/lib/renderer-diagnostics"
 
 import "./index.css"
 
+const electronConnectionBridgeName = "oomol-connection-electron-bridge"
 const rootElement = document.querySelector("#root")
 if (!rootElement) {
   throw new Error("Wanta: missing #root mount node")
@@ -21,32 +23,66 @@ if (!rootElement) {
 
 document.documentElement.dataset.platform = globalThis.wanta?.platform ?? "browser"
 document.documentElement.dataset.window = "main"
+installRendererErrorReporting()
 
-const client = new ConnectionClient(new ElectronClientAdapter())
-client.start()
+if (!hasElectronConnectionBridge()) {
+  const error = new Error("Wanta: missing Electron connection bridge")
+  reportRendererIssue("handled", "startup.connectionBridge", error.message, error)
+  renderStartupError(rootElement, error.message)
+} else {
+  const client = new ConnectionClient(new ElectronClientAdapter())
+  client.start()
 
-const chatService = client.use(ChatService)
-const gitService = client.use(GitService)
-const sessionService = client.use(SessionService)
-const skillService = client.use(SkillService)
-const modelsService = client.use(ModelsService)
-const settingsService = client.use(SettingsService)
-const authService = client.use(AuthService)
-const updateService = client.use(UpdateService)
+  const chatService = client.use(ChatService)
+  const gitService = client.use(GitService)
+  const sessionService = client.use(SessionService)
+  const skillService = client.use(SkillService)
+  const modelsService = client.use(ModelsService)
+  const settingsService = client.use(SettingsService)
+  const authService = client.use(AuthService)
+  const updateService = client.use(UpdateService)
 
-createRoot(rootElement).render(
-  <AppContext.Provider
-    value={{
-      chatService,
-      gitService,
-      sessionService,
-      skillService,
-      modelsService,
-      settingsService,
-      authService,
-      updateService,
-    }}
-  >
-    <App />
-  </AppContext.Provider>,
-)
+  createRoot(rootElement).render(
+    <AppContext.Provider
+      value={{
+        chatService,
+        gitService,
+        sessionService,
+        skillService,
+        modelsService,
+        settingsService,
+        authService,
+        updateService,
+      }}
+    >
+      <App />
+    </AppContext.Provider>,
+  )
+}
+
+function hasElectronConnectionBridge(): boolean {
+  return Boolean((globalThis as Record<string, unknown>)[electronConnectionBridgeName])
+}
+
+function renderStartupError(container: Element, message: string): void {
+  createRoot(container).render(
+    <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <div className="max-w-md space-y-2 text-center">
+        <h1 className="text-base font-medium">Wanta failed to start</h1>
+        <p className="text-sm text-muted-foreground">{message}</p>
+      </div>
+    </main>,
+  )
+}
+
+function installRendererErrorReporting(): void {
+  const report = (source: "error" | "unhandledrejection", cause: unknown): void => {
+    reportRendererIssue(source, "global", "renderer global error", cause)
+  }
+  window.addEventListener("error", (event) => {
+    report("error", event.error ?? event.message)
+  })
+  window.addEventListener("unhandledrejection", (event) => {
+    report("unhandledrejection", event.reason)
+  })
+}

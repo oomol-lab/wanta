@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import path from "node:path"
 import { promisify } from "node:util"
+import { logDiagnostic } from "./diagnostics-log.ts"
 import { recordOperationHistory } from "./operation-history.ts"
 
 const execFileAsync = promisify(execFile)
@@ -128,5 +129,6 @@ async function recordOperation(
     })
   } catch (error) {
     console.warn("[wanta] failed to record operation history", error)
+    logDiagnostic("oo-command", "failed to record operation history", { error, owner }, "warn")
   }
 }

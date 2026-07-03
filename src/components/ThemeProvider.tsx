@@ -3,6 +3,7 @@ import type { EffectiveTheme, ThemeContextValue, ThemePreference } from "./theme
 import * as React from "react"
 import { isThemePreference, ThemeContext, themeStorageKey } from "./theme-context.ts"
 import { useSettingsService } from "@/components/AppContext"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 function readInitialPreference(): ThemePreference {
   const stored = localStorage.getItem(themeStorageKey)
@@ -27,7 +28,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // 同步 Electron nativeTheme（窗口背景/原生控件随主题）。
   React.useEffect(() => {
-    void settingsService.invoke("setThemeSource", preference).catch(() => {})
+    void settingsService
+      .invoke("setThemeSource", preference)
+      .catch((error: unknown) => reportRendererHandledError("theme", "theme source sync failed", error))
   }, [preference, settingsService])
 
   const effectiveTheme: EffectiveTheme = preference === "system" ? systemTheme : preference

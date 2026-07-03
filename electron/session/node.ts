@@ -20,6 +20,7 @@ import type { IConnectionService } from "@oomol/connection"
 import { ConnectionService } from "@oomol/connection"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { SessionService as SessionServiceName } from "./common.ts"
 
 interface SessionServiceDeps {
@@ -187,7 +188,7 @@ export class SessionServiceImpl
       await this.persistProjects()
     }
     await this.persistMetadata()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("create session")
     return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
   }
 
@@ -221,7 +222,7 @@ export class SessionServiceImpl
     }
     this.projects.set(project.id, project)
     await this.persistProjects()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("create project")
     return project
   }
 
@@ -243,7 +244,7 @@ export class SessionServiceImpl
     }
     this.setMetadataEntry(req.sessionId, next)
     await this.persistMetadata()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("assign session project")
   }
 
   public async renameProject(req: { id: string; name: string }): Promise<void> {
@@ -261,7 +262,7 @@ export class SessionServiceImpl
     }
     this.projects.set(req.id, { ...current, name, updatedAt: Date.now() })
     await this.persistProjects()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("rename project")
   }
 
   public async pinProject(req: { id: string; pinned: boolean }): Promise<void> {
@@ -281,7 +282,7 @@ export class SessionServiceImpl
     }
     this.projects.set(req.id, next)
     await this.persistProjects()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("pin project")
   }
 
   public async archiveProject(id: string): Promise<void> {
@@ -320,12 +321,13 @@ export class SessionServiceImpl
       try {
         await this.persistProjects()
         await this.persistMetadata()
-      } catch {
+      } catch (rollbackError) {
         // 回滚落盘是 best-effort；仍向调用方暴露原始持久化错误。
+        this.logFailure("failed to rollback project archive", rollbackError, { projectId: id })
       }
       throw error
     }
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("archive project")
   }
 
   public async removeProject(id: string): Promise<void> {
@@ -347,7 +349,7 @@ export class SessionServiceImpl
     }
     await this.persistProjects()
     await this.persistMetadata()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("remove project")
   }
 
   public async generateTitle(req: GenerateSessionTitleRequest): Promise<GenerateSessionTitleResult> {
@@ -362,7 +364,7 @@ export class SessionServiceImpl
       return
     }
     await this.agent.renameSession(req.id, req.title)
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("rename session")
   }
 
   public async pin(req: { id: string; pinned: boolean }): Promise<void> {
@@ -382,7 +384,7 @@ export class SessionServiceImpl
       this.setMetadataEntry(req.id, next)
     }
     await this.persistMetadata()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("pin session")
   }
 
   public async archive(id: string): Promise<void> {
@@ -393,7 +395,7 @@ export class SessionServiceImpl
     const current = this.sessionMetadata.get(id) ?? {}
     this.sessionMetadata.set(id, { ...current, archivedAt: Date.now(), pinnedAt: undefined })
     await this.persistMetadata()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("archive session")
   }
 
   public async unarchive(id: string): Promise<SessionInfo | null> {
@@ -410,7 +412,7 @@ export class SessionServiceImpl
     this.setMetadataEntry(id, next)
     await this.persistMetadata()
     const restored = await this.resolveSession(id, "active")
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("unarchive session")
     return restored
   }
 
@@ -426,7 +428,7 @@ export class SessionServiceImpl
     await this.deps.onSessionRemoved?.(id)
     await this.persistActivity()
     await this.persistMetadata()
-    void this.broadcastChanged().catch(() => undefined)
+    this.broadcastChangedBestEffort("remove session")
   }
 
   public markUsed(id: string, usedAt = Date.now()): boolean {
@@ -457,7 +459,11 @@ export class SessionServiceImpl
       await this.persistProjects()
     }
     await this.persistActivity()
-    await this.refreshAndEmit().catch(() => undefined)
+    try {
+      await this.refreshAndEmit()
+    } catch (error) {
+      this.logFailure("failed to broadcast sessions changed", error, { action: "record session use", sessionId: id })
+    }
   }
 
   private async ensureActivityLoaded(): Promise<void> {
@@ -643,5 +649,16 @@ export class SessionServiceImpl
     }
     const sessions = await this.list()
     await this.send("sessionsChanged", { sessions })
+  }
+
+  private broadcastChangedBestEffort(action: string): void {
+    void this.broadcastChanged().catch((error: unknown) => {
+      this.logFailure("failed to broadcast sessions changed", error, { action })
+    })
+  }
+
+  private logFailure(message: string, error: unknown, fields: Record<string, unknown> = {}): void {
+    console.warn(`[wanta] ${message}:`, error)
+    logDiagnostic("session-service", message, { error, ...fields }, "warn")
   }
 }

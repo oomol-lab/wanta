@@ -7,6 +7,7 @@ import { useAppI18n } from "../i18n/index.ts"
 import { resolveUserFacingError, userFacingErrorDescription } from "../lib/user-facing-error.ts"
 import { useSkillService } from "./AppContext.ts"
 import { useHomeSummaryResource, useSkillInventoryResource, useSkillVersionReportResource } from "./AppDataHooks.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface UseSkillObjectActionsOptions {
   onDeleted?: (inventory: SkillInventory) => void
@@ -32,7 +33,9 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
   const isRemovingSkillRef = React.useRef(false)
 
   const refreshSkillResources = React.useCallback(async () => {
-    await inventoryResource.refresh({ forceRefresh: true, silent: true, supersede: true }).catch(() => {})
+    await inventoryResource.refresh({ forceRefresh: true, silent: true, supersede: true }).catch((error: unknown) => {
+      reportRendererHandledError("skills", "silent skill inventory refresh failed after action", error)
+    })
   }, [inventoryResource])
 
   const openSkillFolder = React.useCallback(
@@ -40,6 +43,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       try {
         await skillService.invoke("openSkillFolder", { path: pathname })
       } catch (cause) {
+        reportRendererHandledError("skills", "open skill folder failed", cause)
         toast.error(t("skills.openFolderFailed", { error: skillActionErrorMessage(cause, t) }))
       }
     },
@@ -52,6 +56,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
         await navigator.clipboard.writeText(pathname)
         toast.success(t("skills.pathCopied"))
       } catch (cause) {
+        reportRendererHandledError("skills", "copy skill path failed", cause)
         toast.error(t("skills.pathCopyFailed", { error: skillActionErrorMessage(cause, t) }))
       }
     },
@@ -83,6 +88,7 @@ export function useSkillObjectActions(options: UseSkillObjectActionsOptions = {}
       setRemoveTarget(null)
       toast.success(t("skills.removeDone", { name: target.skill.name }))
     } catch (cause) {
+      reportRendererHandledError("skills", "remove skill failed", cause)
       toast.error(t("skills.removeFailed", { error: skillActionErrorMessage(cause, t) }))
     } finally {
       isRemovingSkillRef.current = false

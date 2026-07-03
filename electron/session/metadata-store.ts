@@ -3,6 +3,7 @@ import type { SessionScope } from "./common.ts"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface SessionMetadata {
   scope?: SessionScope
@@ -112,7 +113,8 @@ export class SessionMetadataStore {
   public async read(): Promise<Map<string, SessionMetadata>> {
     try {
       return normalizeMetadata(JSON.parse(await readFile(this.file, "utf-8")))
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("session metadata", this.file, error)
       return new Map()
     }
   }

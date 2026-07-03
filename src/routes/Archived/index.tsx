@@ -40,6 +40,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useI18n } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -97,6 +98,7 @@ export function ArchivedRoute({
       setError(null)
     } catch (cause) {
       console.error("[wanta] list archived sessions failed", cause)
+      reportRendererHandledError("archived.refresh", "Failed to refresh archived sessions", cause)
       setError(resolveUserFacingError(cause, { area: "session" }))
     } finally {
       setLoaded(true)
@@ -120,6 +122,7 @@ export function ArchivedRoute({
       .catch((cause: unknown) => {
         if (!cancelled) {
           console.error("[wanta] list archived sessions failed", cause)
+          reportRendererHandledError("archived.initialLoad", "Failed to load archived sessions", cause)
           setError(resolveUserFacingError(cause, { area: "session" }))
         }
       })

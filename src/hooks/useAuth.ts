@@ -4,6 +4,7 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 import * as React from "react"
 import { useAuthService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 export interface UseAuth {
   /** null = 初始状态尚未加载（避免登录页闪烁）。 */
@@ -33,6 +34,7 @@ export function useAuth(): UseAuth {
       },
       (err) => {
         if (!cancelled) {
+          reportRendererHandledError("auth", "initial auth state load failed", err)
           setError(resolveUserFacingError(err, { area: "auth" }))
         }
       },
@@ -55,6 +57,7 @@ export function useAuth(): UseAuth {
       // resolve 于浏览器 deep-link 回调完成（或超时 reject）。
       setState(await service.invoke("login"))
     } catch (err) {
+      reportRendererHandledError("auth", "login failed", err)
       setError(resolveUserFacingError(err, { area: "auth" }))
     } finally {
       loginInFlight.current = false
@@ -68,6 +71,7 @@ export function useAuth(): UseAuth {
     try {
       setState(await service.invoke("logout"))
     } catch (err) {
+      reportRendererHandledError("auth", "logout failed", err)
       setError(resolveUserFacingError(err, { area: "auth" }))
     } finally {
       setLoggingOut(false)

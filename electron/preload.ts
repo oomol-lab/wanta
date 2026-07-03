@@ -28,11 +28,19 @@ export interface SaveClipboardAttachmentInput {
   bytes: ArrayBuffer
 }
 
+export interface RendererErrorReport {
+  message: string
+  source: "error" | "handled" | "unhandledrejection"
+  scope?: string
+  stack?: string
+}
+
 export interface WantaBridge {
   appCommit: string
   getPathForFile(file: File): string
   onAppCommand(callback: (command: AppCommand) => void): () => void
   platform: NodeJS.Platform
+  reportRendererError(input: RendererErrorReport): void
   saveClipboardAttachment(input: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath>
   selectAttachmentPaths(kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]>
   selectProjectDirectory(): Promise<SelectedAttachmentPath | null>
@@ -62,6 +70,7 @@ const wanta: WantaBridge = {
     return () => ipcRenderer.removeListener(APP_COMMAND_CHANNEL, listener)
   },
   platform: process.platform,
+  reportRendererError: (input: RendererErrorReport) => ipcRenderer.send("wanta:renderer-error", input),
   saveClipboardAttachment: (input: SaveClipboardAttachmentInput) =>
     electronAPI.ipcRenderer.invoke("wanta:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
   selectAttachmentPaths: (kind: AttachmentPickerKind) =>
@@ -77,7 +86,13 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld("electron", electronAPI)
     contextBridge.exposeInMainWorld(branding.windowBridge, wanta)
   } catch (error) {
-    console.error(error)
+    console.error("[wanta] failed to expose preload bridge:", error)
+    ipcRenderer.send("wanta:renderer-error", {
+      message: "Failed to expose preload bridge",
+      source: "handled",
+      scope: "preload.exposeBridge",
+      stack: error instanceof Error ? error.stack : undefined,
+    } satisfies RendererErrorReport)
   }
 } else {
   window.electron = electronAPI

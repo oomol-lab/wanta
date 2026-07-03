@@ -37,6 +37,7 @@ import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
 import os from "node:os"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
@@ -212,7 +213,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public setAgentStatus(status: AgentRuntimeStatus): void {
     this.agentStatus = status
-    void this.send("agentStatusChanged", { status }).catch(() => undefined)
+    void this.send("agentStatusChanged", { status }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit agent status:", error)
+      logDiagnostic("chat-service", "failed to emit agent status", { error, status: status.status }, "warn")
+    })
   }
 
   public hasActiveGeneration(): boolean {
@@ -255,7 +259,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               this.activeAssistantMessages.delete(sessionId)
               this.activeToolParts.delete(sessionId)
               this.emitSessionActivity(sessionId)
-              void emit("generationStopped", { sessionId })
+              this.sendBestEffort(emit, "generationStopped", { sessionId }, { sessionId })
             })
           continue
         }
@@ -277,11 +281,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             }
           }
           if (artifactRoot) {
-            void emit("messageArtifacts", {
-              sessionId: translated.data.sessionId,
-              messageId: translated.data.messageId,
-              artifactRoot,
-            })
+            this.sendBestEffort(
+              emit,
+              "messageArtifacts",
+              {
+                sessionId: translated.data.sessionId,
+                messageId: translated.data.messageId,
+                artifactRoot,
+              },
+              { messageId: translated.data.messageId, sessionId: translated.data.sessionId },
+            )
             void this.rememberArtifactRoot(translated.data.sessionId, translated.data.messageId, artifactRoot).catch(
               (error: unknown) => {
                 console.warn("[wanta] failed to record artifact root", error)
@@ -340,11 +349,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               this.activeAssistantMessages.delete(sessionId)
               this.activeToolParts.delete(sessionId)
               this.emitSessionActivity(sessionId)
-              void emit(translated.event, translated.data)
+              this.sendBestEffort(emit, translated.event, translated.data, { sessionId })
             })
           continue
         }
-        void emit(translated.event, translated.data)
+        this.sendBestEffort(emit, translated.event, translated.data, { sessionId: translated.data.sessionId })
       }
     }, handleConnectionStatus)
   }
@@ -379,15 +388,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             : null
     for (const sessionId of sessionIds) {
       const messageId = this.activeAssistantMessages.get(sessionId)
-      void emit("agentConnectionChanged", {
-        sessionId,
-        ...(messageId ? { messageId } : {}),
-        status: status.status,
-        ...(status.attempt ? { attempt: status.attempt } : {}),
-        ...(status.maxAttempts ? { maxAttempts: status.maxAttempts } : {}),
-        ...(status.message ? { message: status.message } : {}),
-        createdAt: Date.now(),
-      })
+      this.sendBestEffort(
+        emit,
+        "agentConnectionChanged",
+        {
+          sessionId,
+          ...(messageId ? { messageId } : {}),
+          status: status.status,
+          ...(status.attempt ? { attempt: status.attempt } : {}),
+          ...(status.maxAttempts ? { maxAttempts: status.maxAttempts } : {}),
+          ...(status.message ? { message: status.message } : {}),
+          createdAt: Date.now(),
+        },
+        { messageId, sessionId },
+      )
       if (!terminalMessage) {
         continue
       }
@@ -486,7 +500,31 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.rememberMessageError(sessionId, message)) {
       return
     }
-    void emit("messageError", createMessageErrorPayload(sessionId, message, messageId))
+    this.sendBestEffort(emit, "messageError", createMessageErrorPayload(sessionId, message, messageId), {
+      messageId,
+      sessionId,
+    })
+  }
+
+  private sendBestEffort(
+    emit: (event: string, data: unknown) => Promise<void>,
+    event: string,
+    data: unknown,
+    context: { messageId?: string; sessionId?: string } = {},
+  ): void {
+    void emit(event, data).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit chat server event:", { event, error, ...context })
+      logDiagnostic(
+        "chat-service",
+        "failed to emit chat server event",
+        {
+          event,
+          error,
+          ...context,
+        },
+        "warn",
+      )
+    })
   }
 
   private beginSessionGeneration(sessionId: string): SessionGeneration {
@@ -721,7 +759,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     const write = this.authorizationOverlayWritePromise
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        this.logQueuedWriteFailure("authorization overlay", error)
+      })
       .then(async () => {
         await this.deps.authorizationOverlayStore?.write(this.authorizationOverlays)
       })
@@ -740,11 +780,18 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await this.deps.stoppedGenerationStore?.write(this.stoppedGenerations)
   }
 
+  private logQueuedWriteFailure(scope: string, error: unknown): void {
+    console.warn(`[wanta] previous ${scope} write failed:`, error)
+    logDiagnostic("chat-service", "previous queued write failed", { error, scope }, "warn")
+  }
+
   private async rememberTurnOutput(record: StoredTurnOutputRecord): Promise<void> {
     await this.ensureTurnOutputsLoaded()
     recordTurnOutput(this.turnOutputs, record)
     const write = this.turnOutputWritePromise
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        this.logQueuedWriteFailure("turn output", error)
+      })
       .then(async () => {
         await this.deps.turnOutputStore?.write(this.turnOutputs)
       })
@@ -811,7 +858,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       summary: summarizeTurnFiles(files, artifactGroup?.items.length ?? 0),
     }
     await this.rememberTurnOutput(record)
-    await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch(() => undefined)
+    await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit turn output update:", error)
+      logDiagnostic(
+        "chat-service",
+        "failed to emit turn output update",
+        { error, messageId: resolvedMessageId, sessionId },
+        "warn",
+      )
+    })
   }
 
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
@@ -948,7 +1003,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeTurnOutputs.delete(sessionId)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
-    await this.send("generationStopped", { sessionId }).catch(() => undefined)
+    await this.send("generationStopped", { sessionId }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit generation stopped:", error)
+      logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
+    })
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {

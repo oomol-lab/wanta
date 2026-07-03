@@ -2,6 +2,7 @@ import type { AppUpdateState, UpdateChannel } from "../../electron/update/common
 
 import * as React from "react"
 import { useUpdateService } from "@/components/AppContext"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 export interface UseAppUpdate {
   /** null = 初始状态尚未加载。 */
@@ -49,6 +50,26 @@ function getSnapshot(): AppUpdateSnapshot {
   return appUpdateStore.snapshot
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
+function patchUpdateError(error: unknown): void {
+  const current = appUpdateStore.snapshot.state
+  if (!current) {
+    return
+  }
+  appUpdateStore.patch({
+    state: {
+      ...current,
+      status: { status: "error", error: errorMessage(error) },
+    },
+  })
+}
+
 export function useAppUpdate(): UseAppUpdate {
   const service = useUpdateService()
   const snapshot = React.useSyncExternalStore(appUpdateStore.subscribe.bind(appUpdateStore), getSnapshot, getSnapshot)
@@ -61,7 +82,11 @@ export function useAppUpdate(): UseAppUpdate {
           appUpdateStore.patch({ state: next })
         }
       },
-      () => undefined,
+      (error: unknown) => {
+        if (!cancelled) {
+          reportRendererHandledError("update", "initial update state load failed", error)
+        }
+      },
     )
     const off = service.serverEvents.on("appUpdateStateChanged", (next) => appUpdateStore.patch({ state: next }))
     return () => {
@@ -80,7 +105,9 @@ export function useAppUpdate(): UseAppUpdate {
     try {
       appUpdateStore.patch({ state: await service.invoke("checkForAppUpdate") })
     } catch (error) {
-      console.error("checkForAppUpdate failed:", error)
+      console.error("[wanta] checkForAppUpdate failed:", error)
+      reportRendererHandledError("update", "update check failed", error)
+      patchUpdateError(error)
     }
   }, [service])
 
@@ -90,9 +117,14 @@ export function useAppUpdate(): UseAppUpdate {
     }
     appUpdateStore.patch({ isDownloadInFlight: true })
     try {
-      // 失败状态经 appUpdateStateChanged 事件回流（status=error），此处吞掉 rejection 防未捕获。
-      await service.invoke("downloadAppUpdate").catch(() => undefined)
-      await refreshState().catch(() => undefined)
+      // 失败状态通常经 appUpdateStateChanged 事件回流（status=error）；这里仍补本地诊断兜底。
+      await service.invoke("downloadAppUpdate").catch((error: unknown) => {
+        reportRendererHandledError("update", "update download failed", error)
+        patchUpdateError(error)
+      })
+      await refreshState().catch((error: unknown) => {
+        reportRendererHandledError("update", "update state refresh after download failed", error)
+      })
     } finally {
       appUpdateStore.patch({ isDownloadInFlight: false })
     }
@@ -106,7 +138,9 @@ export function useAppUpdate(): UseAppUpdate {
         await download()
       }
     } catch (error) {
-      console.error("checkForAppUpdate failed:", error)
+      console.error("[wanta] checkForAppUpdate failed:", error)
+      reportRendererHandledError("update", "update check-and-download failed", error)
+      patchUpdateError(error)
     }
   }, [download, service])
 
@@ -117,7 +151,9 @@ export function useAppUpdate(): UseAppUpdate {
     appUpdateStore.patch({ isInstallTriggered: true })
     await service.invoke("installDownloadedAppUpdate").catch((error: unknown) => {
       appUpdateStore.patch({ isInstallTriggered: false })
-      console.error("installDownloadedAppUpdate failed:", error)
+      console.error("[wanta] installDownloadedAppUpdate failed:", error)
+      reportRendererHandledError("update", "update install failed", error)
+      patchUpdateError(error)
     })
   }, [service])
 
@@ -127,7 +163,9 @@ export function useAppUpdate(): UseAppUpdate {
         appUpdateStore.patch({ state: await service.invoke("setUpdateChannel", channel) })
       } catch (error) {
         // 主进程持久化失败等：渠道未切换，按钮选中态保持原渠道即是反馈。
-        console.error("setUpdateChannel failed:", error)
+        console.error("[wanta] setUpdateChannel failed:", error)
+        reportRendererHandledError("update", "update channel change failed", error)
+        patchUpdateError(error)
       }
     },
     [service],

@@ -65,6 +65,7 @@ import { useProjectGit } from "@/hooks/useProjectGit"
 import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
 import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
@@ -1052,6 +1053,7 @@ export function AppShell() {
 
   const handleShowProjectInFolder = (project: SessionProject): void => {
     void chatService.invoke("showLocalPathInFolder", { path: project.path }).catch((cause: unknown) => {
+      reportRendererHandledError("appShell.showProjectInFolder", "Failed to reveal project folder", cause)
       const notice = resolveUserFacingError(cause, { area: "artifact" })
       toast.error(userFacingErrorDescription(notice, t))
     })
@@ -1162,6 +1164,7 @@ export function AppShell() {
     clearAutoFallbackTitle(sessionId)
     void rename(sessionId, title).catch((cause: unknown) => {
       console.error("[wanta] rename session failed", cause)
+      reportRendererHandledError("appShell.renameSession", "Failed to rename session", cause)
       toast.error(t("session.renameFailed"))
     })
   }

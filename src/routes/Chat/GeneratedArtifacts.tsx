@@ -33,6 +33,7 @@ import { FileKindIcon, FileKindTile } from "./file-type-icons.tsx"
 import { useChatService } from "@/components/AppContext"
 import { Badge } from "@/components/ui/badge"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
@@ -117,6 +118,7 @@ function useArtifactFileActions(): {
         return
       }
       void chatService.invoke("openLocalPath", { path: filePath }).catch((cause: unknown) => {
+        reportRendererHandledError("generatedArtifacts.openPath", "Failed to open artifact file", cause)
         const error = resolveUserFacingError(cause, { area: "artifact" })
         toast.error(userFacingErrorDescription(error, t))
       })
@@ -130,6 +132,7 @@ function useArtifactFileActions(): {
         return
       }
       void chatService.invoke("showLocalPathInFolder", { path: filePath }).catch((cause: unknown) => {
+        reportRendererHandledError("generatedArtifacts.showInFolder", "Failed to reveal artifact file", cause)
         const error = resolveUserFacingError(cause, { area: "artifact" })
         toast.error(userFacingErrorDescription(error, t))
       })
@@ -436,6 +439,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
       })
       .catch((error: unknown) => {
         console.warn("[wanta] failed to resolve generated artifacts", { error })
+        reportRendererHandledError("generatedArtifacts.resolve", "Failed to resolve generated artifacts", error)
         if (!cancelled) {
           setGroups([])
         }

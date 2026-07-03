@@ -11,6 +11,7 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 import * as React from "react"
 import { useSessionService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const personalSessionScope: SessionScope = { type: "personal" }
 
@@ -137,6 +138,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setError(null)
     } catch (error) {
       console.error("[wanta] list sessions failed", error)
+      reportRendererHandledError("session", "list sessions failed", error)
       if (requestId === requestSequenceRef.current && enabledRef.current) {
         setError(resolveUserFacingError(error, { area: "session" }))
       }

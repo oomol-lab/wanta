@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 export interface PersistedSettings {
   themeSource?: string
@@ -18,7 +19,8 @@ export class SettingsStore {
   public read(): PersistedSettings {
     try {
       return JSON.parse(readFileSync(this.file, "utf-8")) as PersistedSettings
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("settings", this.file, error)
       return {}
     }
   }

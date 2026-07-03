@@ -4,6 +4,7 @@ import type { ResourceView } from "@/lib/resource-store"
 
 import * as React from "react"
 import { useAppDataResources } from "@/components/AppDataContext"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { ResourceStore, toResourceView } from "@/lib/resource-store"
 
 function useResource<T>(resource: ResourceStore<T>, options: { autoLoad?: boolean } = {}): ResourceView<T> {
@@ -18,8 +19,9 @@ function useResource<T>(resource: ResourceStore<T>, options: { autoLoad?: boolea
       return
     }
 
-    void resource.refresh().catch(() => {
+    void resource.refresh().catch((error: unknown) => {
       // 错误保存在 resource snapshot 中，页面按状态展示。
+      reportRendererHandledError("resource", "resource auto-load failed", error)
     })
   }, [options.autoLoad, resource])
 

@@ -32,7 +32,7 @@ import os from "node:os"
 import path from "node:path"
 import { buildOoEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
-import { logDiagnosticOnChange } from "../diagnostics-log.ts"
+import { logDiagnostic, logDiagnosticOnChange } from "../diagnostics-log.ts"
 import { ooEndpoint } from "../domain.ts"
 import { runOoCommand } from "../oo-command.ts"
 import { ServiceEvent } from "../service-events.ts"
@@ -803,7 +803,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       }
 
       const resolvedAllowedPath = path.resolve(allowedPath)
-      const canonicalAllowedPath = await realpath(resolvedAllowedPath).catch(() => undefined)
+      const canonicalAllowedPath = await realpath(resolvedAllowedPath).catch((error: unknown) => {
+        logDiagnostic("skills", "failed to resolve allowed skill path", { error, path: resolvedAllowedPath }, "warn")
+        return undefined
+      })
       if (!canonicalAllowedPath) {
         continue
       }

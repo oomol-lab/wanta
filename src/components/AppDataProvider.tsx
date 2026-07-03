@@ -5,6 +5,7 @@ import type { AppDataResources } from "@/components/AppDataContext"
 import * as React from "react"
 import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { createResource } from "@/lib/resource-store"
 
 const backgroundRefreshMs = 60_000
@@ -61,8 +62,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       resources.skillInventory.invalidate()
       resources.skillVersions.invalidate()
       if (nextAuthState.status === "authenticated") {
-        void resources.skillInventory.refresh({ forceRefresh: true, silent: true }).catch(() => {})
-        void resources.skillVersions.refresh({ silent: true }).catch(() => {})
+        void resources.skillInventory
+          .refresh({ forceRefresh: true, silent: true })
+          .catch((error: unknown) =>
+            reportRendererHandledError("app-data", "silent skill inventory refresh failed after auth change", error),
+          )
+        void resources.skillVersions
+          .refresh({ silent: true })
+          .catch((error: unknown) =>
+            reportRendererHandledError("app-data", "silent skill version refresh failed after auth change", error),
+          )
       } else {
         resources.skillInventory.reset()
         resources.skillVersions.reset()
@@ -72,7 +81,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     return skillService.serverEvents.on("skillInventoryChanged", () => {
-      void resources.skillInventory.refresh({ forceRefresh: true, silent: true }).catch(() => {})
+      void resources.skillInventory
+        .refresh({ forceRefresh: true, silent: true })
+        .catch((error: unknown) =>
+          reportRendererHandledError("app-data", "silent skill inventory refresh failed after inventory event", error),
+        )
       resources.skillVersions.invalidate()
     })
   }, [resources, skillService.serverEvents])
@@ -84,8 +97,14 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState !== "visible") {
         return
       }
-      void resources.authState.refresh({ silent: true }).catch(() => {})
-      void resources.skillInventory.refresh({ silent: true }).catch(() => {})
+      void resources.authState
+        .refresh({ silent: true })
+        .catch((error: unknown) => reportRendererHandledError("app-data", "silent auth state refresh failed", error))
+      void resources.skillInventory
+        .refresh({ silent: true })
+        .catch((error: unknown) =>
+          reportRendererHandledError("app-data", "silent skill inventory refresh failed", error),
+        )
     }
 
     const sync = () => {

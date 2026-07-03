@@ -2,6 +2,7 @@ import type { ManagedSkillGroup } from "./common.ts"
 
 import { access, cp, mkdir, rename, rm } from "node:fs/promises"
 import path from "node:path"
+import { logDiagnostic } from "../diagnostics-log.ts"
 import { metadataFileName } from "./constants.ts"
 
 export function normalizeSkillId(skillId: string): string {
@@ -122,9 +123,18 @@ export async function replaceDirectory(sourcePath: string, targetPath: string): 
       hasBackup = false
     }
   } finally {
-    await rm(tempPath, { force: true, recursive: true }).catch(() => undefined)
+    await cleanupDirectory(tempPath, "temporary skill directory")
     if (hasBackup && !preserveBackup) {
-      await rm(backupPath, { force: true, recursive: true }).catch(() => undefined)
+      await cleanupDirectory(backupPath, "skill backup directory")
     }
+  }
+}
+
+async function cleanupDirectory(targetPath: string, scope: string): Promise<void> {
+  try {
+    await rm(targetPath, { force: true, recursive: true })
+  } catch (error) {
+    console.warn(`[wanta] failed to clean up ${scope}:`, error)
+    logDiagnostic("skills", "failed to clean up directory", { error, path: targetPath, scope }, "warn")
   }
 }

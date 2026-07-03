@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { ooEndpoint } from "../domain.ts"
+import { logStoreReadFailure } from "../store-diagnostics.ts"
 
 /** 持久化的账号资料：只存身份与展示信息，**不含任何凭证**。唯一凭证是会话 token（见 AuthRuntimeAccount）。 */
 export interface AuthAccount {
@@ -99,7 +100,8 @@ export class AuthStore {
   public read(): PersistedAuth {
     try {
       return migrateLegacyAccounts(JSON.parse(readFileSync(this.file, "utf-8")) as PersistedAuth)
-    } catch {
+    } catch (error) {
+      logStoreReadFailure("auth", this.file, error)
       return {}
     }
   }

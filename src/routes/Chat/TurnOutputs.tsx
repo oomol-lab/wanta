@@ -28,6 +28,7 @@ import { toast } from "sonner"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import { FileKindTile } from "@/routes/Chat/file-type-icons"
@@ -251,6 +252,9 @@ function useTurnFileDiff(
           setDiff(result)
         }
       })
+      .catch((error: unknown) => {
+        reportRendererHandledError("turnOutputs.loadDiff", "Failed to load turn file diff", error)
+      })
     return () => {
       cancelled = true
     }
@@ -272,6 +276,7 @@ function useTurnFileActions(): {
           return
         }
         void chatService.invoke("openLocalPath", { path: filePath }).catch((cause: unknown) => {
+          reportRendererHandledError("turnOutputs.openPath", "Failed to open turn output file", cause)
           const error = resolveUserFacingError(cause, { area: "artifact" })
           toast.error(userFacingErrorDescription(error, t))
         })
@@ -281,6 +286,7 @@ function useTurnFileActions(): {
           return
         }
         void chatService.invoke("showLocalPathInFolder", { path: filePath }).catch((cause: unknown) => {
+          reportRendererHandledError("turnOutputs.showInFolder", "Failed to reveal turn output file", cause)
           const error = resolveUserFacingError(cause, { area: "artifact" })
           toast.error(userFacingErrorDescription(error, t))
         })

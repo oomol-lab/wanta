@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useT } from "@/i18n/i18n"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 type ApiEndpointSource = Pick<CustomModelProvider | CustomModelApiPlan, "apiRegions" | "baseUrl">
 
@@ -290,7 +291,9 @@ export function AddCustomModelDialog({
                 maxOutputTokens: optionalTokenLimit(maxOutputTokens),
                 reasoningVariants,
               })
-                .catch(() => undefined)
+                .catch((error: unknown) => {
+                  reportRendererHandledError("model", "custom model save failed", error)
+                })
                 .finally(() => setSaving(false))
             }}
           >

@@ -10,8 +10,35 @@ interface UseOrganizationMemberSearchOptions {
   members: OrganizationMember[]
 }
 
+function preferredSearchUserId(
+  items: MemberSearchState["items"],
+  query: string,
+  currentUserId: string | null,
+): string | null {
+  if (items.length === 0) {
+    return null
+  }
+  if (currentUserId && items.some((user) => user.userId === currentUserId)) {
+    return currentUserId
+  }
+
+  const normalizedQuery = query.trim().toLowerCase()
+  const exactMatch = normalizedQuery
+    ? items.find((user) => {
+        return (
+          user.userId.toLowerCase() === normalizedQuery ||
+          user.username.toLowerCase() === normalizedQuery ||
+          user.displayName.toLowerCase() === normalizedQuery
+        )
+      })
+    : undefined
+
+  return exactMatch?.userId ?? items[0]?.userId ?? null
+}
+
 export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrganizationMemberSearchOptions) {
   const [memberInput, setMemberInput] = React.useState("")
+  const [activeSearchUserId, setActiveSearchUserId] = React.useState<string | null>(null)
   const [selectedSearchUserId, setSelectedSearchUserId] = React.useState<string | null>(null)
   const [memberSearch, setMemberSearch] = React.useState<MemberSearchState>({
     error: null,
@@ -23,6 +50,7 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
 
   const resetMemberSearch = React.useCallback((): void => {
     setMemberInput("")
+    setActiveSearchUserId(null)
     setSelectedSearchUserId(null)
     setMemberSearch({ error: null, items: [], loading: false, query: "" })
   }, [])
@@ -67,11 +95,66 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
     return () => window.clearTimeout(timer)
   }, [addMemberOpen, memberInput, members])
 
+  React.useEffect(() => {
+    if (!addMemberOpen) {
+      setActiveSearchUserId(null)
+      setSelectedSearchUserId(null)
+      return
+    }
+
+    if (memberSearch.query !== memberInput.trim()) {
+      setActiveSearchUserId(null)
+      setSelectedSearchUserId(null)
+      return
+    }
+
+    const currentUserId = selectedSearchUserId ?? activeSearchUserId
+    const nextUserId = preferredSearchUserId(memberSearch.items, memberInput, currentUserId)
+    setActiveSearchUserId(nextUserId)
+    setSelectedSearchUserId(nextUserId)
+  }, [activeSearchUserId, addMemberOpen, memberInput, memberSearch.items, selectedSearchUserId])
+
+  const moveActiveSearchUser = React.useCallback(
+    (step: -1 | 1 | "first" | "last"): void => {
+      if (memberSearch.items.length === 0) {
+        setActiveSearchUserId(null)
+        setSelectedSearchUserId(null)
+        return
+      }
+
+      setActiveSearchUserId((current) => {
+        const currentUserId = selectedSearchUserId ?? current
+        let nextUserId: string | null
+
+        if (step === "first") {
+          nextUserId = memberSearch.items[0]?.userId ?? null
+        } else if (step === "last") {
+          nextUserId = memberSearch.items.at(-1)?.userId ?? null
+        } else {
+          const currentIndex = currentUserId
+            ? memberSearch.items.findIndex((user) => user.userId === currentUserId)
+            : -1
+          const fallbackIndex = step > 0 ? -1 : 0
+          const nextIndex = currentIndex === -1 ? fallbackIndex + step : currentIndex + step
+          const clampedIndex = Math.max(0, Math.min(memberSearch.items.length - 1, nextIndex))
+          nextUserId = memberSearch.items[clampedIndex]?.userId ?? null
+        }
+
+        setSelectedSearchUserId(nextUserId)
+        return nextUserId
+      })
+    },
+    [memberSearch.items, selectedSearchUserId],
+  )
+
   return {
+    activeSearchUserId,
     memberInput,
     memberSearch,
+    moveActiveSearchUser,
     resetMemberSearch,
     selectedSearchUserId,
+    setActiveSearchUserId,
     setMemberInput,
     setMemberSearch,
     setSelectedSearchUserId,

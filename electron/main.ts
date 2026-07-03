@@ -40,6 +40,7 @@ import { ModelsStore } from "./models/store.ts"
 import { installOomolCorsShim } from "./net/oomol-cors.ts"
 // Organizations 请求已整体搬到渲染层（src/lib/organizations-client.ts），不再有对应主进程 service。
 import { listenProtocolUrls, registerProtocolClient, requestProtocolSingleInstanceLock } from "./protocol.ts"
+import { normalizeRendererErrorReport } from "./renderer-error-report.ts"
 import { SessionActivityStore } from "./session/activity-store.ts"
 import { SessionMetadataStore } from "./session/metadata-store.ts"
 import { SessionServiceImpl } from "./session/node.ts"
@@ -370,35 +371,14 @@ function registerRendererErrorHandler(): void {
     if (!report) {
       return
     }
-    console.error("[wanta] renderer error:", report)
-    logDiagnostic("renderer", "renderer error", report, "error")
+    const message = report.level === "error" ? "renderer error" : "renderer handled issue"
+    if (report.level === "error") {
+      console.error("[wanta] renderer error:", report)
+    } else {
+      console.warn("[wanta] renderer handled issue:", report)
+    }
+    logDiagnostic("renderer", message, { ...report }, report.level)
   })
-}
-
-function normalizeRendererErrorReport(input: unknown): {
-  message: string
-  scope?: string
-  source: string
-  stack?: string
-} | null {
-  if (!input || typeof input !== "object") {
-    return null
-  }
-  const record = input as Record<string, unknown>
-  const message = typeof record["message"] === "string" ? record["message"].trim() : ""
-  if (!message) {
-    return null
-  }
-  const rawSource = record["source"]
-  const source = rawSource === "unhandledrejection" || rawSource === "handled" ? rawSource : "error"
-  const scope = typeof record["scope"] === "string" ? record["scope"].trim().slice(0, 200) : undefined
-  const stack = typeof record["stack"] === "string" ? record["stack"].slice(0, 16_000) : undefined
-  return {
-    message: message.slice(0, 4_000),
-    ...(scope ? { scope } : {}),
-    source,
-    ...(stack ? { stack } : {}),
-  }
 }
 
 function assertAttachmentPickerKind(kind: unknown): asserts kind is AttachmentPickerKind {

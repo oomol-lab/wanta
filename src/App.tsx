@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuth } from "@/hooks/useAuth"
 import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
 import { useT } from "@/i18n"
+import { detectInitialLocale, translate } from "@/i18n/i18n"
 import { I18nProvider } from "@/i18n/I18nProvider"
 import { LoginRoute } from "@/routes/Login"
 
@@ -73,11 +74,12 @@ export function App() {
 }
 
 function RootFallback() {
+  const locale = detectInitialLocale()
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 bg-background text-foreground">
-      <p className="text-sm text-muted-foreground">Wanta could not render this window.</p>
+      <p className="text-sm text-muted-foreground">{translate(locale, "app.renderFailed")}</p>
       <Button variant="outline" onClick={() => window.location.reload()}>
-        Reload
+        {translate(locale, "app.reload")}
       </Button>
     </div>
   )

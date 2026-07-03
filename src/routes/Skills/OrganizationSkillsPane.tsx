@@ -28,7 +28,7 @@ import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-f
 import { cn } from "@/lib/utils"
 
 function skillErrorMessage(cause: unknown, t: TFunction): string {
-  return userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills" }), t)
+  return userFacingErrorDescription(resolveUserFacingError(cause, { area: "skills", preserveMessage: true }), t)
 }
 
 interface OrganizationSkillsPaneProps {
@@ -146,7 +146,10 @@ export function OrganizationSkillsPane({
           {selectedOrganizationSkills.error ? (
             <div className="flex min-w-0 items-start gap-2">
               <ErrorNotice
-                error={resolveUserFacingError(selectedOrganizationSkills.error, { area: "skills" })}
+                error={resolveUserFacingError(selectedOrganizationSkills.error, {
+                  area: "skills",
+                  preserveMessage: true,
+                })}
                 compact
                 className="min-w-0 flex-1"
               />

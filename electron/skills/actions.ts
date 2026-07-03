@@ -108,6 +108,12 @@ interface RawSkillOperationError {
   message?: unknown
 }
 
+interface SkillPublishFailureOutput {
+  message?: string
+  stderr?: string
+  stdout?: string
+}
+
 interface RawSkillOperationEntry {
   error?: unknown
   targets?: unknown
@@ -691,6 +697,15 @@ export function createDeleteSkillArgs(request: { skillId: string }): string[] {
   return ["skills", "uninstall", skillId, "--json"]
 }
 
+export function createSkillPublishErrorMessage(result: SkillPublishFailureOutput): string {
+  return (
+    readSkillPublishFailureMessage(result.stderr) ??
+    readSkillPublishFailureMessage(result.stdout) ??
+    asText(result.message) ??
+    "Skill publish failed."
+  )
+}
+
 export function assertSkillOperationSucceeded(stdout: string, expectedCommand: SkillOperationCommand): void {
   const parsed = JSON.parse(stdout) as unknown
 
@@ -788,6 +803,58 @@ function readSkillOperationErrorMessage(error: unknown): string | undefined {
 
   const raw = error as RawSkillOperationError
   return asText(raw.message) ?? asText(raw.code)
+}
+
+function readSkillPublishFailureMessage(output: string | undefined): string | undefined {
+  const text = asText(output)
+  if (!text) {
+    return undefined
+  }
+
+  const parsedMessage = readSkillPublishJsonFailureMessage(text)
+  return parsedMessage ?? text
+}
+
+function readSkillPublishJsonFailureMessage(output: string): string | undefined {
+  try {
+    const parsed = JSON.parse(output) as unknown
+    return readJsonFailureMessage(parsed)
+  } catch {
+    return undefined
+  }
+}
+
+function readJsonFailureMessage(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return asText(value)
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined
+  }
+
+  const record = value as Record<string, unknown>
+  return (
+    asText(record["message"]) ??
+    asText(record["error"]) ??
+    readSkillOperationErrorMessage(record["error"]) ??
+    readFirstJsonFailureMessage(record["errors"])
+  )
+}
+
+function readFirstJsonFailureMessage(errors: unknown): string | undefined {
+  if (!Array.isArray(errors)) {
+    return undefined
+  }
+
+  for (const error of errors) {
+    const message = readJsonFailureMessage(error)
+    if (message) {
+      return message
+    }
+  }
+
+  return undefined
 }
 
 function createRegistrySkillCheckUpdateErrorMessage(error: unknown): string | undefined {

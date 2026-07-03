@@ -5,9 +5,9 @@
 // （主进程禁用同步 fs，会阻塞渲染）。本脚本是独立 Node CLI，用同步 fs 无副作用。
 // 设了 WANTA_OO_BIN 覆盖时跳过检查（信任开发者指定的路径）。
 
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
-import { localOoBinPath } from "./oo-cli.ts"
+import { localOoBinPath, OO_CLI_VERSION, resolvePlatformTarget } from "./oo-cli.ts"
 import { localRipgrepBinPath } from "./ripgrep.ts"
 import { bundledSkillIds, bundledSkillsDir, exportBundledSkills } from "./skills.ts"
 
@@ -16,6 +16,18 @@ if (!process.env.WANTA_OO_BIN) {
   if (!existsSync(ooBin)) {
     console.error(
       `[wanta] oo 二进制缺失：${ooBin}\n` +
+        "  运行 `npm run postinstall` 重新下载，或设 WANTA_OO_BIN 指向已有 oo（见 .env.example）。",
+    )
+    process.exit(1)
+  }
+  const expectedMarker = `${resolvePlatformTarget().packageName}@${OO_CLI_VERSION}`
+  const versionMarker = path.join(path.dirname(ooBin), ".version")
+  const actualMarker = existsSync(versionMarker) ? readFileSync(versionMarker, "utf-8").trim() : ""
+  if (actualMarker !== expectedMarker) {
+    console.error(
+      `[wanta] oo 二进制版本不匹配：${ooBin}\n` +
+        `  expected: ${expectedMarker}\n` +
+        `  actual:   ${actualMarker || "<missing>"}\n` +
         "  运行 `npm run postinstall` 重新下载，或设 WANTA_OO_BIN 指向已有 oo（见 .env.example）。",
     )
     process.exit(1)

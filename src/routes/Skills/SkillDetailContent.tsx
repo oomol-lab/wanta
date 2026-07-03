@@ -149,7 +149,7 @@ export interface SkillDetailContentProps {
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
   publishingSkillId: string | null
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
-  selectedPlanError: string | null
+  selectedPlanError: unknown
   selectedSkill: ManagedSkillGroup | undefined
   selectedStatus: ReturnType<typeof getGroupStatus> | null
   selectedVersionCheck?: SkillVersionReport["skills"][number]
@@ -204,7 +204,7 @@ interface SkillPeekProps {
   copySkillPath: (pathname: string) => void
   isRemovingSkill: boolean
   openSkillFolder: (pathname: string) => void
-  planError: string | null
+  planError: unknown
   publishSkill: (skill: ManagedSkillGroup) => Promise<void>
   publishingSkillId: string | null
   requestRemoveSkill: (skill: ManagedSkillGroup) => void
@@ -523,7 +523,10 @@ function SkillPeek({
               <SkeletonText className="w-3/4" />
             </div>
           ) : skillDocumentError ? (
-            <ErrorNotice error={resolveUserFacingError(skillDocumentError, { area: "skills" })} compact />
+            <ErrorNotice
+              error={resolveUserFacingError(skillDocumentError, { area: "skills", preserveMessage: true })}
+              compact
+            />
           ) : skillDocument ? (
             <div className="max-h-96 min-h-32 overflow-auto rounded-md border bg-background p-3">
               {skillDocumentViewMode === "preview" ? (

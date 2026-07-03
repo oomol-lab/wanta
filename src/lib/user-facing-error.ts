@@ -82,6 +82,9 @@ export function errorMessage(cause: unknown): string {
   if (cause instanceof Error) {
     return cause.message
   }
+  if (cause && typeof cause === "object" && typeof (cause as { message?: unknown }).message === "string") {
+    return (cause as { message: string }).message
+  }
   return String(cause)
 }
 
@@ -97,11 +100,13 @@ export function resolveUserFacingError(
   if (isUserFacingError(cause)) {
     return cause
   }
-  const diagnostics = errorMessage(cause).trim()
-  const normalized = diagnostics.toLowerCase()
-  const status = readStatusCode(diagnostics)
+  const message = errorMessage(cause).trim()
+  const diagnostics = errorDiagnostics(cause, message).trim()
+  const normalizedMessage = message.toLowerCase()
+  const normalized = `${normalizedMessage}\n${diagnostics.toLowerCase()}`
+  const status = readStatusCode(`${message}\n${diagnostics}`)
 
-  if (normalized === "wanta_oauth_pending") {
+  if (normalizedMessage === "wanta_oauth_pending") {
     return buildError(
       area,
       "timeout",
@@ -109,10 +114,12 @@ export function resolveUserFacingError(
       "error.connections.oauthPending.title",
       "error.connections.oauthPending.description",
       diagnostics,
+      false,
+      message,
     )
   }
 
-  if (normalized === "wanta_oauth_cancelled") {
+  if (normalizedMessage === "wanta_oauth_cancelled") {
     return buildError(
       area,
       "cancelled",
@@ -120,6 +127,8 @@ export function resolveUserFacingError(
       "error.connections.oauthCancelled.title",
       "error.connections.oauthCancelled.description",
       diagnostics,
+      false,
+      message,
     )
   }
 
@@ -131,11 +140,22 @@ export function resolveUserFacingError(
       "error.agent.title",
       "error.agent.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
   if (isCancelled(normalized)) {
-    return buildError(area, "cancelled", "info", "error.cancelled.title", "error.cancelled.description", diagnostics)
+    return buildError(
+      area,
+      "cancelled",
+      "info",
+      "error.cancelled.title",
+      "error.cancelled.description",
+      diagnostics,
+      preserveMessage,
+      message,
+    )
   }
 
   if (status === 401 || includesAny(normalized, ["unauthorized", "sign in", "login required", "fresh sign-in"])) {
@@ -149,6 +169,8 @@ export function resolveUserFacingError(
       isBilling ? "error.billingSessionExpired.title" : "error.authRequired.title",
       isBilling ? "error.billingSessionExpired.description" : "error.authRequired.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
@@ -160,6 +182,8 @@ export function resolveUserFacingError(
       "error.permissionDenied.title",
       "error.permissionDenied.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
@@ -171,11 +195,22 @@ export function resolveUserFacingError(
       "error.rateLimited.title",
       "error.rateLimited.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
   if (isTimeout(normalized)) {
-    return buildError(area, "timeout", "warning", "error.timeout.title", "error.timeout.description", diagnostics)
+    return buildError(
+      area,
+      "timeout",
+      "warning",
+      "error.timeout.title",
+      "error.timeout.description",
+      diagnostics,
+      preserveMessage,
+      message,
+    )
   }
 
   if (area === "artifact" || includesAny(normalized, ["enoent", "no such file", "file unavailable"])) {
@@ -186,6 +221,8 @@ export function resolveUserFacingError(
       "error.localFile.title",
       "error.localFile.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
@@ -198,6 +235,7 @@ export function resolveUserFacingError(
       area === "model" ? "error.model.validationDescription" : "error.validation.description",
       diagnostics,
       preserveMessage,
+      message,
     )
   }
 
@@ -209,6 +247,8 @@ export function resolveUserFacingError(
       "error.serverUnavailable.title",
       "error.serverUnavailable.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
@@ -220,6 +260,8 @@ export function resolveUserFacingError(
       "error.serverUnavailable.title",
       "error.serverUnavailable.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
@@ -231,6 +273,8 @@ export function resolveUserFacingError(
       "error.networkUnavailable.title",
       "error.networkUnavailable.description",
       diagnostics,
+      preserveMessage,
+      message,
     )
   }
 
@@ -242,7 +286,15 @@ export function resolveUserFacingError(
     fallbackDescriptionKey ?? areaDescriptionKeys[area],
     diagnostics,
     preserveMessage,
+    message,
   )
+}
+
+function errorDiagnostics(cause: unknown, fallback: string): string {
+  if (cause && typeof cause === "object" && typeof (cause as { diagnostics?: unknown }).diagnostics === "string") {
+    return (cause as { diagnostics: string }).diagnostics
+  }
+  return fallback
 }
 
 function isUserFacingError(value: unknown): value is UserFacingError {
@@ -268,6 +320,7 @@ function buildError(
   descriptionKey: MessageKey,
   diagnostics: string,
   preserveMessage = false,
+  message = diagnostics,
 ): UserFacingError {
   return {
     area,
@@ -275,7 +328,7 @@ function buildError(
     severity,
     titleKey,
     descriptionKey,
-    descriptionText: preserveMessage && diagnostics ? diagnostics : undefined,
+    descriptionText: preserveMessage && message ? message : undefined,
     diagnostics: diagnostics || undefined,
   }
 }

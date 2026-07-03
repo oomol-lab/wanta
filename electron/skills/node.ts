@@ -41,6 +41,7 @@ import {
   createCliUpdateArgs,
   createInstallRegistrySkillArgs,
   createPublishSkillArgs,
+  createSkillPublishErrorMessage,
   createSkillSearchArgs,
   createUpdateRegistrySkillArgs,
   normalizeSkillSearchResults,
@@ -73,6 +74,7 @@ import {
   writeManifestStore,
 } from "./manifest.ts"
 import { resolveSharedAgentSkillRoot } from "./paths.ts"
+import { ensureSkillPublishMetadata } from "./publish-metadata.ts"
 import { assertSafeResetPaths } from "./reset.ts"
 import { scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
 import { resolveUsableRegistrySkillSourcePath } from "./source.ts"
@@ -267,9 +269,16 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   public async publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult> {
     const skillPath = await this.resolveAllowedSkillPath(request.path)
-    const result = await this.runOoCommand(createPublishSkillArgs({ ...request, path: skillPath }), {
-      owner: "skill-service",
+    await ensureSkillPublishMetadata({
+      accountName: this.authService.activeAccount()?.name,
+      skillPath,
     })
+    const args = createPublishSkillArgs({ ...request, path: skillPath })
+    const result = await this.runOoCommand(args, {
+      owner: "skill-service",
+      rejectOnFailure: false,
+    })
+    assertOoSkillPublishResult(result, args)
     this.invalidateVersionReport()
     this.notifyRuntimeSkillsChanged("publish-skill")
 
@@ -810,6 +819,29 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       cacheKey: `${account.id}@${ooEndpoint}`,
     }
   }
+}
+
+function assertOoSkillPublishResult(result: OoCommandResult, args: readonly string[]): void {
+  if (result.ok) {
+    return
+  }
+
+  const message = createSkillPublishErrorMessage(result)
+  throw Object.assign(new Error(message), {
+    diagnostics: createSkillPublishDiagnostics(message, args, result),
+  })
+}
+
+function createSkillPublishDiagnostics(message: string, args: readonly string[], result: OoCommandResult): string {
+  return [
+    "Skill publish failed.",
+    `command: oo ${args.join(" ")}`,
+    `message: ${message}`,
+    result.stdout.trim() ? `stdout:\n${result.stdout.trim()}` : undefined,
+    result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n")
 }
 
 function assertOoSkillOperationResult(

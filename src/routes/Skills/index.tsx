@@ -52,9 +52,10 @@ import { DeleteSkillConfirmDialog } from "@/components/DeleteSkillConfirmDialog"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
 import { useAppI18n } from "@/i18n"
 import { listMyPublishedSkillPackages, listPublicSkillPackages } from "@/lib/skills-catalog-client"
+import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 type SkillOperationError = {
-  message: string
+  cause: unknown
   operation: "publish" | "update"
   skillId: SkillSelectionKey
 }
@@ -62,12 +63,12 @@ type SkillOperationError = {
 function visibleSkillOperationError(
   error: SkillOperationError | null,
   skillId: SkillSelectionKey | undefined,
-): string | null {
+): unknown {
   if (!error) {
     return null
   }
   if (error.skillId === skillId) {
-    return error.message
+    return error.cause
   }
   return null
 }
@@ -552,7 +553,7 @@ export function SkillsRoute({
         homeSummaryResource.invalidate()
       } catch (cause) {
         setPlanError({
-          message: cause instanceof Error ? cause.message : String(cause),
+          cause: resolveUserFacingError(cause, { area: "skills", preserveMessage: true }),
           operation: "update",
           skillId: skill.id,
         })
@@ -594,8 +595,11 @@ export function SkillsRoute({
           void loadPublicSkillPackages({ forceRefresh: true }).catch(() => undefined)
         }
       } catch (cause) {
-        const message = skillErrorMessage(cause, t)
-        setPlanError({ message, operation: "publish", skillId: skill.id })
+        setPlanError({
+          cause: resolveUserFacingError(cause, { area: "skills", preserveMessage: true }),
+          operation: "publish",
+          skillId: skill.id,
+        })
       } finally {
         publishSkillInFlightRef.current = false
         setPublishingSkillId(null)

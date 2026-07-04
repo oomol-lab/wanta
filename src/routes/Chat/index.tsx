@@ -6,13 +6,13 @@ import type {
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
-  ChatQuestionRequest,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
+import type { ChatPendingQuestion } from "./question-state.ts"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -35,7 +35,7 @@ interface ChatAreaProps {
   composerDraftKey: string
   composerFocusRequest: number
   messages: ChatMessage[]
-  pendingQuestions: ChatQuestionRequest[]
+  pendingQuestions: ChatPendingQuestion[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
   showEmptyState: boolean
@@ -66,6 +66,8 @@ interface ChatAreaProps {
     mode?: AgentMode,
   ) => Promise<boolean>
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
+  onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => void
@@ -230,6 +232,8 @@ export const ChatArea = React.memo(function ChatArea({
   onComposerStateChange,
   onSend,
   onAnswerQuestion,
+  onContinueQuestion,
+  onDiscardQuestion,
   onRejectQuestion,
   onSetDefaultConnection,
   onStop,
@@ -348,6 +352,8 @@ export const ChatArea = React.memo(function ChatArea({
       onTurnOutputOpen={onTurnOutputOpen}
       onTurnOutputAvailable={onTurnOutputAvailable}
       onAnswerQuestion={onAnswerQuestion}
+      onContinueQuestion={onContinueQuestion}
+      onDiscardQuestion={onDiscardQuestion}
       onRejectQuestion={onRejectQuestion}
       onViewBilling={onViewBilling}
     />

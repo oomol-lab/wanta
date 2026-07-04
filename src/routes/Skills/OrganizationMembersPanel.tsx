@@ -903,7 +903,7 @@ function MemberActionsMenu({
           type="button"
           variant="ghost"
           size="icon"
-          className={compact ? "size-6" : undefined}
+          className={compact ? "size-[1.375rem]" : undefined}
           disabled={disabled}
           aria-label={t("organizations.actions")}
         >

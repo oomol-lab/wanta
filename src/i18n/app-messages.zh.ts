@@ -271,6 +271,7 @@ export const zhCNMessages = {
   "chat.likeMessage": "赞",
   "chat.dislikeMessage": "踩",
   "chat.voiceInput": "语音输入",
+  "chat.voiceStarting": "正在准备麦克风",
   "chat.voiceStop": "停止语音输入",
   "chat.voiceCancel": "取消语音输入",
   "chat.voiceRetry": "重试语音识别",

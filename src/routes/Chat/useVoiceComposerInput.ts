@@ -79,7 +79,7 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
     }
   }, [retryBlob, transcribeBlob])
 
-  const busy = recorder.isRecording || transcribing
+  const busy = recorder.isBusy || transcribing
 
   return React.useMemo(
     () => ({
@@ -93,6 +93,7 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
       retry,
       retryBlob,
       start,
+      starting: recorder.isStarting,
       stop,
       transcribing,
     }),
@@ -103,6 +104,7 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
       recorder.bars,
       recorder.durationMs,
       recorder.error,
+      recorder.isStarting,
       retry,
       retryBlob,
       start,

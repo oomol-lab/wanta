@@ -283,6 +283,7 @@ export const enMessages = {
   "chat.likeMessage": "Good response",
   "chat.dislikeMessage": "Bad response",
   "chat.voiceInput": "Voice input",
+  "chat.voiceStarting": "Preparing microphone",
   "chat.voiceStop": "Stop voice input",
   "chat.voiceCancel": "Cancel voice input",
   "chat.voiceRetry": "Retry voice recognition",

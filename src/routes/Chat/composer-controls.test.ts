@@ -3,15 +3,34 @@ import { composerSubmitState, composerVoiceControlMode } from "./composer-contro
 
 describe("composer controls", () => {
   it("selects the voice control mode from active and error state", () => {
-    expect(composerVoiceControlMode({ voiceActive: false, voiceTranscribing: false })).toBe("idle")
-    expect(
-      composerVoiceControlMode({ voiceActive: false, voiceTranscribing: false, visibleVoiceError: "No mic" }),
-    ).toBe("idle-error")
-    expect(composerVoiceControlMode({ voiceActive: true, voiceTranscribing: false })).toBe("recording")
-    expect(composerVoiceControlMode({ voiceActive: true, voiceTranscribing: false, visibleVoiceError: "Failed" })).toBe(
-      "recording-error",
+    expect(composerVoiceControlMode({ voiceActive: false, voiceStarting: false, voiceTranscribing: false })).toBe(
+      "idle",
     )
-    expect(composerVoiceControlMode({ voiceActive: true, voiceTranscribing: true })).toBe("transcribing")
+    expect(
+      composerVoiceControlMode({
+        voiceActive: false,
+        voiceStarting: false,
+        voiceTranscribing: false,
+        visibleVoiceError: "No mic",
+      }),
+    ).toBe("idle-error")
+    expect(composerVoiceControlMode({ voiceActive: true, voiceStarting: true, voiceTranscribing: false })).toBe(
+      "starting",
+    )
+    expect(composerVoiceControlMode({ voiceActive: true, voiceStarting: false, voiceTranscribing: false })).toBe(
+      "recording",
+    )
+    expect(
+      composerVoiceControlMode({
+        voiceActive: true,
+        voiceStarting: false,
+        voiceTranscribing: false,
+        visibleVoiceError: "Failed",
+      }),
+    ).toBe("recording-error")
+    expect(composerVoiceControlMode({ voiceActive: true, voiceStarting: true, voiceTranscribing: true })).toBe(
+      "transcribing",
+    )
   })
 
   it("keeps streaming submit clickable as an explicit stop control", () => {

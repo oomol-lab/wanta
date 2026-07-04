@@ -1,6 +1,12 @@
 import type { ChatStatus } from "ai"
 
-export type ComposerVoiceControlMode = "idle" | "idle-error" | "recording" | "recording-error" | "transcribing"
+export type ComposerVoiceControlMode =
+  | "idle"
+  | "idle-error"
+  | "recording"
+  | "recording-error"
+  | "starting"
+  | "transcribing"
 export type ComposerSubmitAria = "send" | "sending" | "stop"
 
 export interface ComposerSubmitState {
@@ -12,18 +18,23 @@ export interface ComposerSubmitState {
 
 export function composerVoiceControlMode({
   voiceActive,
+  voiceStarting,
   voiceTranscribing,
   visibleVoiceError,
 }: {
   voiceActive: boolean
+  voiceStarting: boolean
   voiceTranscribing: boolean
   visibleVoiceError?: string | null
 }): ComposerVoiceControlMode {
-  if (voiceActive && visibleVoiceError) {
-    return "recording-error"
-  }
   if (voiceTranscribing) {
     return "transcribing"
+  }
+  if (voiceStarting) {
+    return "starting"
+  }
+  if (voiceActive && visibleVoiceError) {
+    return "recording-error"
   }
   if (voiceActive) {
     return "recording"

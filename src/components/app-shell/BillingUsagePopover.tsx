@@ -83,6 +83,7 @@ export function BillingUsagePopover({
   const averageDailySpend = totalSpend / usagePeriodDays
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const modelSpend = getSummary(summaries, "model").credit
+  const connectorSpend = getSummary(summaries, "link").credit
   const currentWantaPlan = getCurrentWantaPlan(data?.subscription ?? null)
   const planCapacity = wantaPlanCapacity(currentWantaPlan)
   const billableSeats = workspace.type === "organization" ? Math.max(1, seatState.count ?? 1) : 1
@@ -91,7 +92,8 @@ export function BillingUsagePopover({
     memberCount: billableSeats,
     totalEvents,
   })
-  const showUpgradePrompt = Boolean(data && !error && recommendPro)
+  const showPlanPrompt = Boolean(data && !error && !currentWantaPlan)
+  const showUpgradePrompt = Boolean(data && !error && currentWantaPlan && recommendPro)
   const availableShare =
     originalCredit > 0
       ? Math.max(0, Math.min(100, (currentCredit / originalCredit) * 100))
@@ -212,7 +214,7 @@ export function BillingUsagePopover({
 
                 <section className="grid grid-cols-2 gap-3">
                   <UsageMiniMetric label={t("billing.modelSpend")} value={formatCredit(modelSpend)} />
-                  <UsageMiniMetric label={t("billing.callCount")} value={Intl.NumberFormat().format(totalEvents)} />
+                  <UsageMiniMetric label={t("billing.category.link")} value={formatCredit(connectorSpend)} />
                 </section>
 
                 <section className="rounded-lg border border-border p-3">
@@ -232,11 +234,19 @@ export function BillingUsagePopover({
                       </div>
                     </div>
                     <Badge variant={showUpgradePrompt ? "default" : "outline"}>
-                      {showUpgradePrompt ? t("billing.popover.upgradeHint") : t("billing.popover.planActive")}
+                      {showUpgradePrompt
+                        ? t("billing.popover.upgradeHint")
+                        : showPlanPrompt
+                          ? t("billing.popover.planInactive")
+                          : t("billing.popover.planActive")}
                     </Badge>
                   </div>
                   <p className="oo-text-caption mt-3 text-muted-foreground">
-                    {showUpgradePrompt ? t("billing.popover.proRecommendation") : t("billing.popover.planDescription")}
+                    {showPlanPrompt
+                      ? t("billing.popover.noPlanRecommendation")
+                      : showUpgradePrompt
+                        ? t("billing.popover.proRecommendation")
+                        : t("billing.popover.planDescription")}
                   </p>
                 </section>
               </>
@@ -253,11 +263,13 @@ export function BillingUsagePopover({
               }}
             >
               {t(
-                showUpgradePrompt
-                  ? "billing.proRecommendation.cta"
-                  : hasNoCredits
-                    ? "billing.purchaseCredits"
-                    : "billing.popover.viewDetails",
+                showPlanPrompt
+                  ? "billing.planComparison.choosePlan"
+                  : showUpgradePrompt
+                    ? "billing.proRecommendation.cta"
+                    : hasNoCredits
+                      ? "billing.purchaseCredits"
+                      : "billing.popover.viewDetails",
               )}
               <ArrowRightIcon className="size-4" />
             </Button>

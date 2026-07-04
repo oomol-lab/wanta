@@ -1,16 +1,12 @@
-import type {
-  BillingLogItem,
-  BillingPeriodDays,
-  BillingSpendStats,
-  CreditItem,
-  WantaSubscriptionPlan,
-} from "../../../electron/chat/common.ts"
+import type { BillingPeriodDays, CreditItem, WantaSubscriptionPlan } from "../../../electron/chat/common.ts"
 import type { CategorySummary, UsageCategory } from "./usage.ts"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 
 import {
   CreditCardIcon,
   ChevronDownIcon,
+  CircleDollarSignIcon,
+  CoinsIcon,
   GiftIcon,
   ImageIcon,
   ListIcon,
@@ -21,6 +17,7 @@ import {
   UsersIcon,
   PiggyBankIcon,
   PlusIcon,
+  ReceiptTextIcon,
   RefreshCwIcon,
   SparklesIcon,
 } from "lucide-react"
@@ -31,19 +28,14 @@ import { getCurrentWantaPlan } from "./plans.ts"
 import {
   buildCategorySummaries,
   buildDailySpendBuckets,
-  billingCredit,
-  billingEventCount,
   categoryOrder,
   formatCredit,
   formatDate,
-  formatDateTime,
   formatPercent,
   getSummary,
-  normalizeTimestamp,
   statsTotalCredit,
   statsTotalEvents,
   toNumber,
-  usageCategory,
 } from "./usage.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -70,16 +62,6 @@ interface BillingRouteProps {
 }
 
 const periods: BillingPeriodDays[] = [7, 30, 90]
-
-interface RecentRecord {
-  amount: number
-  category: UsageCategory
-  createdAt: number
-  eventCount?: number
-  id: string
-  source: string
-  subject: string
-}
 
 export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspace }: BillingRouteProps) {
   const t = useT()
@@ -138,10 +120,6 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
   const maxDailySpend = Math.max(
     ...dailyBuckets.map((bucket) => bucket.credit),
     hasEstimatedTrend ? averageDailySpend * 2 : 0,
-  )
-  const recentRecords = React.useMemo(
-    () => buildRecentRecords(data?.logs ?? [], data?.spend?.items ?? []),
-    [data?.logs, data?.spend?.items],
   )
   const openUsagePurchase = React.useCallback(() => {
     setPurchaseOpen(true)
@@ -265,7 +243,6 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
           loading={loading && !data}
           maxDailySpend={maxDailySpend}
           period={period}
-          recentRecords={recentRecords}
           summaries={summaries}
           totalSpend={totalSpend}
         />
@@ -566,20 +543,21 @@ function AdditionalSeatsPanel({
           </div>
         </div>
 
-        <div className="grid content-start gap-3 rounded-md border border-border p-3">
+        <div className="grid content-start gap-3 justify-self-end rounded-md border border-border p-3 max-[760px]:w-full sm:w-[17rem]">
           <div className="oo-text-label text-muted-foreground">{t("billing.additionalSeats.inputLabel")}</div>
-          <div className="flex items-center gap-2">
+          <div className="grid w-full grid-cols-[3rem_minmax(0,1fr)_3rem] items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="icon"
+              className="h-9 w-full"
               disabled={disabled || loading || additionalSeats <= 0}
               onClick={() => setAdditionalSeats((count) => Math.max(0, count - 1))}
             >
               <MinusIcon className="size-4" />
             </Button>
             <Input
-              className="w-24 text-center tabular-nums"
+              className="h-9 w-full text-center tabular-nums"
               disabled={disabled || loading}
               min={0}
               step={1}
@@ -591,6 +569,7 @@ function AdditionalSeatsPanel({
               type="button"
               variant="outline"
               size="icon"
+              className="h-9 w-full"
               disabled={disabled || loading}
               onClick={() => setAdditionalSeats((count) => count + 1)}
             >
@@ -600,6 +579,7 @@ function AdditionalSeatsPanel({
           <Button
             type="button"
             variant="outline"
+            className="h-9 w-full"
             disabled={actionDisabled}
             onClick={() => onUpdateSeats(additionalSeats)}
           >
@@ -622,7 +602,6 @@ function UsageDetailsDisclosure({
   loading,
   maxDailySpend,
   period,
-  recentRecords,
   summaries,
   totalSpend,
 }: {
@@ -632,7 +611,6 @@ function UsageDetailsDisclosure({
   loading: boolean
   maxDailySpend: number
   period: BillingPeriodDays
-  recentRecords: RecentRecord[]
   summaries: CategorySummary[]
   totalSpend: number
 }) {
@@ -648,7 +626,18 @@ function UsageDetailsDisclosure({
           <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="grid gap-4 border-t border-[var(--oo-divider)] p-3">
+          <div className="grid gap-4 border-t border-[var(--oo-divider)] bg-muted/20 p-3">
+            <BillingPanel
+              title={t("billing.trendTitle")}
+              meta={t(hasEstimatedTrend ? "billing.trendEstimatedMeta" : "billing.trendMeta", { days: period })}
+              bodyClassName="p-0"
+            >
+              {loading ? (
+                <Skeleton className="m-3 h-36" />
+              ) : (
+                <TrendChart buckets={dailyBuckets} maxDailySpend={maxDailySpend} />
+              )}
+            </BillingPanel>
             <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
               <BillingPanel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")} bodyClassName="p-0">
                 {loading ? <LoadingRows count={3} /> : <CategorySpendList summaries={summaries} total={totalSpend} />}
@@ -661,24 +650,6 @@ function UsageDetailsDisclosure({
                 {loading ? <LoadingRows count={3} /> : <BalanceLots lots={balanceLots} />}
               </BillingPanel>
             </section>
-            <BillingPanel
-              title={t("billing.trendTitle")}
-              meta={t(hasEstimatedTrend ? "billing.trendEstimatedMeta" : "billing.trendMeta", { days: period })}
-              bodyClassName="p-0"
-            >
-              {loading ? (
-                <Skeleton className="m-3 h-36 rounded-md" />
-              ) : (
-                <TrendChart buckets={dailyBuckets} maxDailySpend={maxDailySpend} />
-              )}
-            </BillingPanel>
-            <BillingPanel
-              title={t("billing.recordsTitle")}
-              meta={t("billing.recordsMeta", { days: period })}
-              bodyClassName="p-0"
-            >
-              {loading ? <LoadingRows count={5} /> : <RecentRecords records={recentRecords} />}
-            </BillingPanel>
           </div>
         </CollapsibleContent>
       </section>
@@ -886,19 +857,32 @@ function CategorySpendList({ summaries, total }: { summaries: CategorySummary[];
 
 function BalanceLots({ lots }: { lots: CreditItem[] }) {
   const t = useT()
+  const [expanded, setExpanded] = React.useState(false)
   const sortedLots = [...lots].sort((left, right) => Number(right.currentCredit) - Number(left.currentCredit))
   if (sortedLots.length === 0) {
     return <div className="oo-text-body py-8 text-center text-muted-foreground">{t("billing.emptyBalanceLots")}</div>
   }
+  const visibleLots = expanded ? sortedLots : sortedLots.slice(0, 3)
+  const hiddenCount = sortedLots.length - visibleLots.length
   return (
     <div className="grid gap-0">
-      {sortedLots.slice(0, 3).map((lot) => (
+      {visibleLots.map((lot) => (
         <BalanceLotRow key={lot.id} lot={lot} />
       ))}
       {sortedLots.length > 3 ? (
-        <div className="oo-text-caption flex items-center justify-between gap-3 border-t border-[var(--oo-divider)] px-3 py-2.5">
-          <span>{t("billing.hiddenBalanceLots", { count: sortedLots.length - 3 })}</span>
-          <Badge variant="outline">{t("billing.viewAllBalanceLots")}</Badge>
+        <div className="oo-text-caption flex items-center justify-between gap-3 bg-muted/20 px-3 py-2.5">
+          <span>
+            {expanded ? t("billing.allBalanceLotsShown") : t("billing.hiddenBalanceLots", { count: hiddenCount })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? t("billing.collapseBalanceLots") : t("billing.viewAllBalanceLots")}
+          </Button>
         </div>
       ) : null}
     </div>
@@ -911,20 +895,23 @@ function BalanceLotRow({ lot }: { lot: CreditItem }) {
   const original = toNumber(lot.originalCredit)
   const share = original > 0 ? Math.max(0, Math.min(100, (current / original) * 100)) : 0
   return (
-    <div className="grid min-h-14 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0">
-      <div className="flex items-start justify-between gap-3">
+    <div className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0">
+      <div className="grid size-8 place-items-center rounded-md bg-[var(--oo-inspector-surface)] text-muted-foreground">
+        {balanceSourceIcon(lot.sourceType)}
+      </div>
+      <div className="grid min-w-0 gap-1.5">
         <div className="min-w-0">
           <div className="oo-text-title truncate text-foreground">{balanceSourceLabel(lot.sourceType, t)}</div>
           <div className="oo-text-caption truncate">
             {lot.expiresAt ? t("billing.expiresAt", { date: formatDate(lot.expiresAt) }) : t("billing.neverExpires")}
           </div>
         </div>
-        <div className="oo-text-title shrink-0 text-right text-foreground">
-          {formatCredit(current)}
-          <div className="oo-text-caption">{formatCredit(original)}</div>
-        </div>
+        <Progress value={share} className="h-1.5 bg-muted" />
       </div>
-      <Progress value={share} className="h-1.5 bg-muted" />
+      <div className="oo-text-title shrink-0 text-right text-foreground">
+        {formatCredit(current)}
+        <div className="oo-text-caption">{formatCredit(original)}</div>
+      </div>
     </div>
   )
 }
@@ -965,72 +952,6 @@ function TrendChart({
   )
 }
 
-function RecentRecords({ records }: { records: RecentRecord[] }) {
-  const t = useT()
-  if (records.length === 0) {
-    return <div className="oo-text-body py-8 text-center text-muted-foreground">{t("billing.emptyRecords")}</div>
-  }
-  return (
-    <div className="grid gap-0">
-      {records.map((record) => {
-        return (
-          <div
-            key={record.id}
-            className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 max-[760px]:grid-cols-[auto_minmax(0,1fr)]"
-          >
-            <Badge className="justify-self-start" variant={record.category === "link" ? "outline" : "secondary"}>
-              {t(`billing.category.${record.category}`)}
-            </Badge>
-            <div className="min-w-0">
-              <div className="oo-text-title truncate text-foreground">{record.subject || record.source}</div>
-              <div className="oo-text-caption truncate">
-                {record.eventCount === undefined
-                  ? sourceLabel(record.source, t)
-                  : `${sourceLabel(record.source, t)} · ${t("billing.categoryCalls", {
-                      count: Intl.NumberFormat().format(record.eventCount),
-                    })}`}
-              </div>
-            </div>
-            <div className="min-w-28 text-right max-[760px]:col-span-2 max-[760px]:justify-self-start max-[760px]:text-left">
-              <div className="oo-text-title text-foreground tabular-nums">{formatCredit(record.amount)}</div>
-              <div className="oo-text-caption tabular-nums">{formatDateTime(record.createdAt)}</div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function buildRecentRecords(logs: BillingLogItem[], spendItems: BillingSpendStats["items"]): RecentRecord[] {
-  if (logs.length > 0) {
-    return logs
-      .map((log, index) => ({
-        amount: toNumber(log.debitCredit),
-        category: usageCategory(log.source, log.subject),
-        createdAt: log.createdAt,
-        id: log.eventID || log.traceID || `${log.source}:${log.subject}:${log.createdAt}:${index}`,
-        source: log.source,
-        subject: log.subject,
-      }))
-      .sort((left, right) => right.createdAt - left.createdAt)
-      .slice(0, 20)
-  }
-  return spendItems
-    .map((item, index) => ({
-      amount: billingCredit(item),
-      category: usageCategory(item.source, item.subject),
-      createdAt: normalizeTimestamp(item.time),
-      eventCount: billingEventCount(item),
-      id: `${item.source}:${item.subject}:${item.time}:${index}`,
-      source: item.source,
-      subject: item.subject,
-    }))
-    .filter((record) => Number.isFinite(record.createdAt) && (record.amount > 0 || (record.eventCount ?? 0) > 0))
-    .sort((left, right) => right.createdAt - left.createdAt)
-    .slice(0, 20)
-}
-
 function categoryIcon(category: UsageCategory): React.ReactNode {
   if (category === "model") {
     return <MessageCircleIcon className="size-5" />
@@ -1039,25 +960,6 @@ function categoryIcon(category: UsageCategory): React.ReactNode {
     return <ImageIcon className="size-5" />
   }
   return <ShieldCheckIcon className="size-5" />
-}
-
-function sourceLabel(source: string, t: ReturnType<typeof useT>): string {
-  switch (source) {
-    case "SERVICE_LLM":
-      return t("billing.source.llm")
-    case "SERVICE_FUSION_API":
-      return t("billing.source.fusionApi")
-    case "SERVICE_STUDIO_SERVER":
-      return t("billing.source.studioServer")
-    case "SERVICE_CLOUD_TASK":
-      return t("billing.source.cloudTask")
-    case "SERVICE_AUTH_LINK":
-      return t("billing.source.authLink")
-    case "SERVICE_OOMOL_CONNECTOR":
-      return t("billing.source.connector")
-    default:
-      return source || t("billing.source.unknown")
-  }
 }
 
 function balanceSourceLabel(sourceType: string, t: ReturnType<typeof useT>): string {
@@ -1071,4 +973,17 @@ function balanceSourceLabel(sourceType: string, t: ReturnType<typeof useT>): str
     return t("billing.balanceSource.topup")
   }
   return t("billing.balanceSource.bonus")
+}
+
+function balanceSourceIcon(sourceType: string): React.ReactNode {
+  if (sourceType === "quota") {
+    return <CoinsIcon className="size-5" />
+  }
+  if (sourceType.includes("subscription")) {
+    return <ReceiptTextIcon className="size-5" />
+  }
+  if (sourceType.includes("credits_package")) {
+    return <CircleDollarSignIcon className="size-5" />
+  }
+  return <GiftIcon className="size-5" />
 }

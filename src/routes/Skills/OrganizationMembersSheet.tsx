@@ -72,7 +72,7 @@ export function OrganizationMembersSheet({
         aria-modal="true"
         aria-label={t("organizations.memberManagement")}
         tabIndex={-1}
-        className="absolute top-0 right-0 grid h-full w-[min(24rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)] border-l bg-background shadow-xl outline-none [-webkit-app-region:no-drag]"
+        className="absolute top-0 right-0 grid h-full w-[min(42rem,calc(100vw-2rem))] grid-rows-[auto_minmax(0,1fr)] border-l bg-background shadow-xl outline-none [-webkit-app-region:no-drag]"
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.stopPropagation()

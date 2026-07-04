@@ -451,7 +451,7 @@ function MembersTable({
             const selectable = isBulkEditableMember(member)
             return (
               <div key={member.user_id} className="grid min-w-0 gap-2 px-3 py-3">
-                <div className="flex min-w-0 items-start gap-2.5">
+                <div className="flex min-w-0 items-center gap-3">
                   {canBulkManage ? (
                     <MemberStatusCheckbox
                       ariaLabel={t("organizations.selectMember", { name: member.displayName })}
@@ -461,20 +461,26 @@ function MembersTable({
                     />
                   ) : null}
                   <UserAvatar avatar={member.avatar} fallback={member.fallback} />
-                  <div className="min-w-0 flex-1">
-                    <MemberIdentity member={member} showRole />
-                    {showStatusColumn ? (
-                      <div className="mt-1">
-                        <MemberStatusBadge member={member} />
-                      </div>
-                    ) : null}
+                  <div className="min-w-0 flex-1 self-center">
+                    <MemberIdentity member={member} />
                   </div>
-                  {canRemove ? (
-                    <MemberActionsMenu
-                      disabled={bulkBusy || busyAction === `remove:${member.user_id}`}
-                      onRemove={() => setRemoveTarget(member)}
-                    />
-                  ) : null}
+                  <div className="grid shrink-0 grid-rows-[1.375rem_1.375rem] justify-items-end gap-1">
+                    <div className="flex h-[1.375rem] items-center justify-end gap-2">
+                      <Badge variant="secondary">
+                        {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+                      </Badge>
+                      {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
+                    </div>
+                    <div className="flex h-[1.375rem] items-center justify-end">
+                      {canRemove ? (
+                        <MemberActionsMenu
+                          compact
+                          disabled={bulkBusy || busyAction === `remove:${member.user_id}`}
+                          onRemove={() => setRemoveTarget(member)}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
                 {canRemove && showProviderAccess ? (
                   <div className="grid min-w-0 gap-2 pl-10">
@@ -660,23 +666,18 @@ function MembersTable({
   )
 }
 
-function MemberIdentity({ member, showRole = false }: { member: MemberView; showRole?: boolean }) {
+function MemberIdentity({ member }: { member: MemberView }) {
   const { t } = useAppI18n()
 
   return (
     <div className="group/member-identity grid min-w-0 gap-0.5">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span className="oo-text-label min-w-0 truncate">{member.displayName}</span>
-        <CopyValueButton
+      <div className="flex min-w-0 items-center">
+        <CopyTextButton
           ariaLabel={t("organizations.copyMemberName")}
+          className="oo-text-label min-w-0 truncate"
           copiedLabel={t("organizations.memberNameCopied")}
           value={member.displayName}
         />
-        {showRole ? (
-          <Badge variant="secondary" className="shrink-0">
-            {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-          </Badge>
-        ) : null}
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
         <Tooltip>
@@ -694,6 +695,47 @@ function MemberIdentity({ member, showRole = false }: { member: MemberView; show
         />
       </div>
     </div>
+  )
+}
+
+function CopyTextButton({
+  ariaLabel,
+  className,
+  copiedLabel,
+  value,
+}: {
+  ariaLabel: string
+  className?: string
+  copiedLabel: string
+  value: string
+}) {
+  const { t } = useAppI18n()
+  const { copied, copyText } = useClipboardCopy({ failureMessage: t("organizations.memberCopyFailed") })
+
+  const copyValue = React.useCallback(async () => {
+    await copyText(value)
+  }, [copyText, value])
+
+  const buttonAriaLabel = copied ? copiedLabel : ariaLabel
+  const tooltipLabel = copied ? copiedLabel : `${ariaLabel}: ${value}`
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "rounded-sm text-left transition hover:text-foreground hover:underline focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+            className,
+          )}
+          aria-label={buttonAriaLabel}
+          onClick={() => void copyValue()}
+        >
+          {value}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltipLabel}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -843,13 +885,28 @@ function CopyValueButton({ ariaLabel, copiedLabel, value }: { ariaLabel: string;
   )
 }
 
-function MemberActionsMenu({ disabled, onRemove }: { disabled: boolean; onRemove: () => void }) {
+function MemberActionsMenu({
+  compact = false,
+  disabled,
+  onRemove,
+}: {
+  compact?: boolean
+  disabled: boolean
+  onRemove: () => void
+}) {
   const { t } = useAppI18n()
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" disabled={disabled} aria-label={t("organizations.actions")}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={compact ? "size-6" : undefined}
+          disabled={disabled}
+          aria-label={t("organizations.actions")}
+        >
           <MoreHorizontalIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>

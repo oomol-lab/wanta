@@ -32,6 +32,7 @@ interface ComposerTrailingControlsProps {
   voiceError: string | null
   voiceRecorderError?: string
   voiceRetryBlob: Blob | null
+  voiceStarting: boolean
   voiceTranscribing: boolean
   onAddModel: () => void
   onCancelVoice: () => void
@@ -304,11 +305,27 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageInfo | null }) {
   )
 }
 
-function VoiceRecorderPanel({ bars, durationMs }: { bars: readonly number[]; durationMs: number }) {
+function VoiceRecorderPanel({
+  bars,
+  durationMs,
+  loading,
+}: {
+  bars: readonly number[]
+  durationMs: number
+  loading: boolean
+}) {
+  const t = useT()
   return (
     <div className="flex min-w-0 flex-1 items-center gap-3">
       <div className="flex h-8 min-w-0 flex-1 items-center justify-center overflow-hidden">
-        <VoiceWaveCanvas bars={bars} height={32} />
+        {loading ? (
+          <div className="oo-text-control flex min-w-0 items-center gap-2 text-muted-foreground">
+            <Loader2 className="size-4 shrink-0 animate-spin" />
+            <span className="truncate">{t("chat.voiceStarting")}</span>
+          </div>
+        ) : (
+          <VoiceWaveCanvas bars={bars} height={32} />
+        )}
       </div>
       <span className="oo-text-control min-w-9 shrink-0 text-right font-normal text-muted-foreground tabular-nums">
         {voiceDurationLabel(durationMs)}
@@ -333,6 +350,7 @@ export function ComposerTrailingControls({
   voiceError,
   voiceRecorderError,
   voiceRetryBlob,
+  voiceStarting,
   voiceTranscribing,
   onAddModel,
   onCancelVoice,
@@ -347,14 +365,16 @@ export function ComposerTrailingControls({
 }: ComposerTrailingControlsProps) {
   const t = useT()
   const visibleVoiceError = voiceError ?? voiceRecorderError
-  const voiceMode = composerVoiceControlMode({ voiceActive, voiceTranscribing, visibleVoiceError })
+  const voiceMode = composerVoiceControlMode({ voiceActive, voiceStarting, voiceTranscribing, visibleVoiceError })
   const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status })
   const retryDisabled = !voiceRetryBlob || voiceTranscribing
   const stopLabel = labelWithShortcut(t("aria.stop"), appCommandShortcutLabel(APP_COMMANDS.stopGeneration))
 
   return (
     <>
-      {voiceActive ? <VoiceRecorderPanel bars={voiceBars} durationMs={voiceDurationMs} /> : null}
+      {voiceActive ? (
+        <VoiceRecorderPanel bars={voiceBars} durationMs={voiceDurationMs} loading={voiceMode === "starting"} />
+      ) : null}
       <div className={cn("flex min-w-0 items-center justify-end gap-1", voiceActive ? "shrink-0" : "flex-1")}>
         {voiceActive ? (
           <>
@@ -371,7 +391,7 @@ export function ComposerTrailingControls({
               >
                 <RotateCcw className="size-4" />
               </Button>
-            ) : voiceMode === "transcribing" ? (
+            ) : voiceMode === "starting" || voiceMode === "transcribing" ? (
               <Button
                 type="button"
                 variant="ghost"

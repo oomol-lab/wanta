@@ -649,6 +649,7 @@ export function ChatComposer({
           voiceError={voiceInput.error}
           voiceRecorderError={voiceInput.recorderError}
           voiceRetryBlob={voiceInput.retryBlob}
+          voiceStarting={voiceInput.starting}
           voiceTranscribing={voiceInput.transcribing}
           onAddModel={modelCatalogState.openDialog}
           onCancelVoice={voiceInput.cancel}

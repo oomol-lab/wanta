@@ -7,6 +7,7 @@ import type {
   ChatMessagePart,
   ChatOrganizationSkillContext,
   ChatProjectContext,
+  ChatQuestionRequest,
   MessageDeltaEvent,
   MessageReasoningDeltaEvent,
   ReasoningLevel,
@@ -44,6 +45,7 @@ import { useChatService } from "@/components/AppContext"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 type MessagesMap = Record<string, ChatMessage[]>
+type PendingQuestionsMap = Record<string, ChatQuestionRequest[]>
 type CancelledToolPartsMap = Map<string, Set<string>>
 type PendingTextDelta = {
   event: TextDeltaEvent
@@ -62,6 +64,7 @@ const toolPartMaxSettleDelayMs = 1200
 
 export interface UseChat {
   messages: ChatMessage[]
+  pendingQuestions: ChatQuestionRequest[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
   messagesLoaded: boolean
@@ -82,6 +85,8 @@ export interface UseChat {
     },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
+  answerQuestion: (sessionId: string, requestId: string, answers: string[][]) => Promise<void>
+  rejectQuestion: (sessionId: string, requestId: string) => Promise<void>
 }
 
 function setSessionStatus(
@@ -131,6 +136,7 @@ function setSessionActivity(
 export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
   const chatService = useChatService()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
+  const [pendingQuestionsMap, setPendingQuestionsMap] = React.useState<PendingQuestionsMap>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
   const [activities, setActivities] = React.useState<Record<string, AssistantActivityEvent | undefined>>({})
   const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
@@ -144,6 +150,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const pendingToolParts = React.useRef(new Map<string, PendingToolPart>())
   const pendingToolTimer = React.useRef<number | null>(null)
   const pendingToolDelayStartedAt = React.useRef<number | null>(null)
+  const pendingQuestionsFetchVersions = React.useRef(new Map<string, number>())
+  const pendingQuestionsMutationVersions = React.useRef(new Map<string, number>())
 
   React.useEffect(() => {
     visibleSessionIdRef.current = visibleSessionId
@@ -334,6 +342,24 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [enqueueToolPart],
   )
 
+  const markPendingQuestionsMutated = React.useCallback((sessionId: string) => {
+    pendingQuestionsMutationVersions.current.set(
+      sessionId,
+      (pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) + 1,
+    )
+  }, [])
+
+  const removePendingQuestion = React.useCallback(
+    (sessionId: string, requestId: string) => {
+      markPendingQuestionsMutated(sessionId)
+      setPendingQuestionsMap((current) => ({
+        ...current,
+        [sessionId]: (current[sessionId] ?? []).filter((request) => request.id !== requestId),
+      }))
+    },
+    [markPendingQuestionsMutated],
+  )
+
   React.useEffect(() => {
     return () => {
       if (pendingTextFrame.current !== null) {
@@ -424,6 +450,28 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [chatService, flushPendingToolParts, isSessionUserStopped, rememberCancelledToolParts],
   )
 
+  const reloadPendingQuestions = React.useCallback(
+    async (sessionId: string) => {
+      const fetchVersion = (pendingQuestionsFetchVersions.current.get(sessionId) ?? 0) + 1
+      const mutationVersion = pendingQuestionsMutationVersions.current.get(sessionId) ?? 0
+      pendingQuestionsFetchVersions.current.set(sessionId, fetchVersion)
+      try {
+        const questions = await chatService.invoke("getPendingQuestions", sessionId)
+        if (pendingQuestionsFetchVersions.current.get(sessionId) !== fetchVersion) {
+          return
+        }
+        if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
+          return
+        }
+        setPendingQuestionsMap((prev) => ({ ...prev, [sessionId]: questions }))
+      } catch (err) {
+        console.error("[wanta] getPendingQuestions failed", err)
+        reportRendererHandledError("chat", "getPendingQuestions failed", err)
+      }
+    },
+    [chatService],
+  )
+
   React.useEffect(() => {
     const offs = [
       chatService.serverEvents.on("messageStarted", (e) => {
@@ -468,6 +516,23 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           rememberCancelledToolParts(e.sessionId, [e.partId])
         }
         enqueueToolCallResult(e, cancelled)
+      }),
+      chatService.serverEvents.on("questionAsked", (e) => {
+        flushPendingToolParts()
+        setStatus(e.sessionId, "streaming")
+        setActivity(e.sessionId, undefined)
+        markPendingQuestionsMutated(e.sessionId)
+        setPendingQuestionsMap((current) => {
+          const questions = current[e.sessionId] ?? []
+          const next = [e.request, ...questions.filter((request) => request.id !== e.request.id)]
+          return { ...current, [e.sessionId]: next }
+        })
+      }),
+      chatService.serverEvents.on("questionReplied", (e) => {
+        removePendingQuestion(e.sessionId, e.requestId)
+      }),
+      chatService.serverEvents.on("questionRejected", (e) => {
+        removePendingQuestion(e.sessionId, e.requestId)
       }),
       chatService.serverEvents.on("assistantActivity", (e) => {
         setStatus(e.sessionId, "streaming")
@@ -546,9 +611,11 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     forgetPendingToolPart,
     isSessionUserStopped,
     markCurrentToolsCancelled,
+    markPendingQuestionsMutated,
     patch,
     reload,
     rememberCancelledToolParts,
+    removePendingQuestion,
     setActivity,
     setSessionError,
     setStatus,
@@ -557,8 +624,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   React.useEffect(() => {
     if (activeSessionId) {
       void reload(activeSessionId)
+      void reloadPendingQuestions(activeSessionId)
     }
-  }, [activeSessionId, reload])
+  }, [activeSessionId, reload, reloadPendingQuestions])
 
   const send = React.useCallback(
     async (
@@ -638,7 +706,46 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     ],
   )
 
+  const answerQuestion = React.useCallback(
+    async (sessionId: string, requestId: string, answers: string[][]) => {
+      setGlobalError(null)
+      clearSessionError(sessionId)
+      setStatus(sessionId, "streaming")
+      setActivity(sessionId, { sessionId, phase: "thinking" })
+      try {
+        await chatService.invoke("answerQuestion", { sessionId, requestId, answers })
+        removePendingQuestion(sessionId, requestId)
+      } catch (err) {
+        reportRendererHandledError("chat", "answerQuestion invoke failed", err)
+        setStatus(sessionId, "error")
+        setActivity(sessionId, undefined)
+        setSessionError(sessionId, err instanceof Error ? err.message : String(err))
+        throw err
+      }
+    },
+    [chatService, clearSessionError, removePendingQuestion, setActivity, setSessionError, setStatus],
+  )
+
+  const rejectQuestion = React.useCallback(
+    async (sessionId: string, requestId: string) => {
+      setGlobalError(null)
+      clearSessionError(sessionId)
+      try {
+        await chatService.invoke("rejectQuestion", { sessionId, requestId })
+        removePendingQuestion(sessionId, requestId)
+      } catch (err) {
+        reportRendererHandledError("chat", "rejectQuestion invoke failed", err)
+        setStatus(sessionId, "error")
+        setActivity(sessionId, undefined)
+        setSessionError(sessionId, err instanceof Error ? err.message : String(err))
+        throw err
+      }
+    },
+    [chatService, clearSessionError, removePendingQuestion, setActivity, setSessionError, setStatus],
+  )
+
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? []) : []
+  const pendingQuestions = activeSessionId ? (pendingQuestionsMap[activeSessionId] ?? []) : []
   const status = activeSessionId ? (statuses[activeSessionId] ?? "ready") : "ready"
   const activity = activeSessionId ? (activities[activeSessionId] ?? null) : null
   const messagesLoaded = activeSessionId ? Object.hasOwn(messagesMap, activeSessionId) : true
@@ -651,5 +758,18 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [unreadSessionIds],
   )
   const error = visibleChatError(errorsBySession, globalError, activeSessionId)
-  return { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop }
+  return {
+    messages,
+    pendingQuestions,
+    status,
+    activity,
+    messagesLoaded,
+    error,
+    getSessionStatus,
+    hasUnreadSession,
+    send,
+    stop,
+    answerQuestion,
+    rejectQuestion,
+  }
 }

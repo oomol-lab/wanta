@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { normalizeMessage, parseAuthorization, translateOpencodeEvent } from "./event-translator.ts"
+import {
+  normalizeMessage,
+  normalizeQuestionRequest,
+  parseAuthorization,
+  translateOpencodeEvent,
+} from "./event-translator.ts"
 
 test("message.updated → messageStarted with role", () => {
   const out = translateOpencodeEvent({
@@ -123,6 +128,71 @@ test("retry signals update assistant activity", () => {
       data: { sessionId: "s1", messageId: "m1", phase: "retrying", message: "upstream timeout", attempt: 2 },
     },
   ])
+})
+
+test("question.asked → questionAsked", () => {
+  const out = translateOpencodeEvent({
+    type: "question.asked",
+    properties: {
+      id: "q1",
+      sessionID: "s1",
+      questions: [
+        {
+          header: "收件人",
+          question: "请问收件人邮箱地址是什么？",
+          options: [{ label: "我自己", description: "发送给自己" }],
+        },
+      ],
+      tool: { messageID: "m1", callID: "c1" },
+    },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "questionAsked",
+      data: {
+        sessionId: "s1",
+        request: {
+          id: "q1",
+          sessionId: "s1",
+          questions: [
+            {
+              header: "收件人",
+              question: "请问收件人邮箱地址是什么？",
+              options: [{ label: "我自己", description: "发送给自己" }],
+            },
+          ],
+          tool: { messageId: "m1", callId: "c1" },
+        },
+      },
+    },
+  ])
+})
+
+test("question resolved events are translated", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({ type: "question.replied", properties: { sessionID: "s1", requestID: "q1" } }),
+    [{ event: "questionReplied", data: { sessionId: "s1", requestId: "q1" } }],
+  )
+  assert.deepEqual(
+    translateOpencodeEvent({ type: "question.v2.rejected", data: { sessionID: "s1", requestID: "q1" } }),
+    [{ event: "questionRejected", data: { sessionId: "s1", requestId: "q1" } }],
+  )
+  assert.deepEqual(
+    translateOpencodeEvent({ type: "question.rejected", properties: { sessionId: "s1", requestId: "q1" } }),
+    [{ event: "questionRejected", data: { sessionId: "s1", requestId: "q1" } }],
+  )
+})
+
+test("normalizeQuestionRequest returns null when all questions are filtered out", () => {
+  assert.equal(
+    normalizeQuestionRequest({
+      id: "q1",
+      sessionID: "s1",
+      questions: [{ header: "收件人", options: [{ label: "我自己" }] }],
+    }),
+    null,
+  )
 })
 
 test("file part.updated → messageAttachment", () => {

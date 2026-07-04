@@ -119,6 +119,15 @@ function pathInput(input: Record<string, unknown>): string {
   return str(input.filePath) || str(input.path)
 }
 
+function questionDetail(input: Record<string, unknown>): string {
+  const questions = input.questions
+  if (!Array.isArray(questions)) {
+    return ""
+  }
+  const first = questions[0] as { header?: unknown; question?: unknown } | undefined
+  return str(first?.header) || str(first?.question)
+}
+
 export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisplayLine {
   const input = part.input ?? {}
   const fallbackDetail = part.title || part.tool || "tool"
@@ -206,6 +215,13 @@ export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisp
         detail: compactToolDetail(fallbackDetail),
         detailKind: "text",
       }
+    case "question": {
+      const detail = questionDetail(input)
+      return {
+        title: t("chat.toolQuestionGeneric"),
+        ...(detail ? { detail: compactToolDetail(detail), detailKind: "text" } : {}),
+      }
+    }
     default:
       return {
         title: t("chat.toolGenericGeneric"),
@@ -263,6 +279,10 @@ export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string
     }
     case "task": {
       return t("chat.toolTask", { detail: compactToolDetail(fallbackDetail) })
+    }
+    case "question": {
+      const detail = questionDetail(input)
+      return detail ? t("chat.toolQuestion", { detail: compactToolDetail(detail) }) : t("chat.toolQuestionGeneric")
     }
     default:
       return t("chat.toolGeneric", { detail: compactToolDetail(fallbackDetail) })

@@ -211,10 +211,20 @@ export function AppShell() {
   const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
 
-  const { messages, status, activity, messagesLoaded, error, getSessionStatus, hasUnreadSession, send, stop } = useChat(
-    activeSessionId,
-    route === "chat" ? activeSessionId : null,
-  )
+  const {
+    messages,
+    pendingQuestions,
+    status,
+    activity,
+    messagesLoaded,
+    error,
+    getSessionStatus,
+    hasUnreadSession,
+    send,
+    stop,
+    answerQuestion,
+    rejectQuestion,
+  } = useChat(activeSessionId, route === "chat" ? activeSessionId : null)
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
   const sharedConnectorCount =
     organizationWorkspace.activeWorkspace.type === "organization"
@@ -993,6 +1003,18 @@ export function AppShell() {
     ],
   )
 
+  const handleAnswerQuestion = React.useCallback(
+    (requestId: string, answers: string[][]): Promise<void> =>
+      activeSessionId ? answerQuestion(activeSessionId, requestId, answers) : Promise.resolve(),
+    [activeSessionId, answerQuestion],
+  )
+
+  const handleRejectQuestion = React.useCallback(
+    (requestId: string): Promise<void> =>
+      activeSessionId ? rejectQuestion(activeSessionId, requestId) : Promise.resolve(),
+    [activeSessionId, rejectQuestion],
+  )
+
   const handlePinSession = async (session: SessionInfo): Promise<void> => {
     try {
       await pin(session.id, !session.pinnedAt)
@@ -1380,6 +1402,7 @@ export function AppShell() {
                       billingCacheScope={billingCacheScope}
                       composerDraftKey={activeComposerDraftKey}
                       messages={bridgeInitialSendPending ? [] : messages}
+                      pendingQuestions={bridgeInitialSendPending ? [] : pendingQuestions}
                       status={displayedStatus}
                       activity={bridgeInitialSendPending ? null : activity}
                       showEmptyState={showChatEmptyState}
@@ -1426,6 +1449,8 @@ export function AppShell() {
                       }
                       onComposerStateChange={handleComposerStateChange}
                       onSend={handleSend}
+                      onAnswerQuestion={handleAnswerQuestion}
+                      onRejectQuestion={handleRejectQuestion}
                       onSetDefaultConnection={connections.setDefaultAccount}
                       onStop={handleChatStop}
                       onQueuedMessageMove={handleQueuedMessageMove}

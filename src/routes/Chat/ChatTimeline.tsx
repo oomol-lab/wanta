@@ -4,6 +4,7 @@ import type {
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
+  ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
@@ -47,6 +48,7 @@ import {
   shouldCollapseUserMessageText,
   visibleUserText,
 } from "./message-text.ts"
+import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
 import { renderBlocks } from "./render-blocks.ts"
 import { formatToolActivityDuration, formatWholeSecondDuration } from "./tool-activity.ts"
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
@@ -797,6 +799,7 @@ interface ChatTimelineProps {
   activeSessionId: string | null
   billingCacheScope: string
   messages: ChatMessage[]
+  pendingQuestions: ChatQuestionRequest[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
   isGenerating: boolean
@@ -806,6 +809,8 @@ interface ChatTimelineProps {
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
+  onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onRejectQuestion: (requestId: string) => Promise<void>
   onViewBilling?: () => void
 }
 
@@ -813,6 +818,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   activeSessionId,
   billingCacheScope,
   messages,
+  pendingQuestions = [],
   status,
   activity,
   isGenerating,
@@ -822,6 +828,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   onArtifactsAvailable,
   onTurnOutputOpen,
   onTurnOutputAvailable,
+  onAnswerQuestion,
+  onRejectQuestion,
   onViewBilling,
 }: ChatTimelineProps) {
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
@@ -905,6 +913,18 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             />
           )
         })}
+        {pendingQuestions.map((request) => (
+          <div key={request.id} className="flex justify-start">
+            <div className="w-full max-w-full">
+              <QuestionPromptCard
+                request={request}
+                busy={status === "submitted"}
+                onAnswer={onAnswerQuestion}
+                onReject={onRejectQuestion}
+              />
+            </div>
+          </div>
+        ))}
         {visibleArtifactSources.length > 0 ? (
           <React.Suspense fallback={null}>
             <GeneratedArtifacts

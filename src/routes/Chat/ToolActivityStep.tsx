@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleAlert,
   Circle,
+  CircleHelp,
   FilePenLine,
   FilePlus2,
   FileSearch,
@@ -55,6 +56,9 @@ function toolStatusLabel(t: TranslateFn, status: ToolStatus | undefined): string
 }
 
 function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
+  if (part.tool === "question" && (part.status === "pending" || part.status === "running")) {
+    return t("chat.toolStatusWaitingForAnswer")
+  }
   return isToolCancellation(part) ? t("chat.toolStatusStopped") : toolStatusLabel(t, part.status)
 }
 
@@ -85,6 +89,33 @@ function formatToolOutput(output: string | undefined): string {
 
 function formatJson(value: Record<string, unknown>): string {
   return JSON.stringify(value, null, 2)
+}
+
+function normalizeQuestionAnswers(answers: unknown[]): string {
+  return answers
+    .flatMap((answer) => (Array.isArray(answer) ? answer : [answer]))
+    .map((answer) => String(answer).trim())
+    .filter(Boolean)
+    .join("\n")
+}
+
+function questionAnswerSummary(part: ChatMessagePart): string {
+  const answers = part.metadata?.answers
+  if (Array.isArray(answers)) {
+    return normalizeQuestionAnswers(answers)
+  }
+  if (!part.output) {
+    return ""
+  }
+  try {
+    const parsed = JSON.parse(part.output) as { answers?: unknown }
+    if (!Array.isArray(parsed.answers)) {
+      return ""
+    }
+    return normalizeQuestionAnswers(parsed.answers)
+  } catch {
+    return ""
+  }
 }
 
 function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | undefined; stopped?: boolean }) {
@@ -130,6 +161,8 @@ function ToolActionIcon({ part }: { part: ChatMessagePart }) {
       return <Globe className={className} />
     case "task":
       return <ListChecks className={className} />
+    case "question":
+      return <CircleHelp className={className} />
     default:
       if (part.tool?.startsWith("todo")) {
         return <ListChecks className={className} />
@@ -174,8 +207,11 @@ function ToolPre({ children, tone = "default" }: { children: string; tone?: "def
   )
 }
 
-function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null): boolean {
+function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null, answerSummary: string): boolean {
   const stopped = isToolCancellation(part)
+  if (part.tool === "question") {
+    return Boolean(answerSummary)
+  }
   return (
     hasKeys(part.input) ||
     hasKeys(part.metadata) ||
@@ -205,7 +241,8 @@ export function ToolActivityStep({
   const t = useT()
   const auth = parseToolAuthorization(part)
   const stopped = isToolCancellation(part)
-  const details = hasToolDetails(part, auth)
+  const answerSummary = questionAnswerSummary(part)
+  const details = hasToolDetails(part, auth, answerSummary)
   const [open, setOpen] = React.useState(false)
   const statusText =
     settling && part.status === "completed" ? t("chat.toolStatusFinalizing") : toolPartStatusLabel(t, part)
@@ -296,7 +333,12 @@ export function ToolActivityStep({
       {details && (
         <CollapsibleContent className="data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
           <div className="ml-6 space-y-2.5 pt-1.5 pb-1">
-            {open && hasKeys(part.input) && (
+            {open && part.tool === "question" && answerSummary ? (
+              <ToolDetailSection label={t("chat.questionAnswered")}>
+                <ToolPre>{answerSummary}</ToolPre>
+              </ToolDetailSection>
+            ) : null}
+            {open && part.tool !== "question" && hasKeys(part.input) && (
               <ToolDetailSection label={t("chat.toolParams")}>
                 <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
               </ToolDetailSection>

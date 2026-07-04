@@ -1,4 +1,4 @@
-import type { AgentMode, ChatAttachment, ChatMessage, ReasoningLevel } from "../chat/common.ts"
+import type { AgentMode, ChatAttachment, ChatMessage, ChatQuestionRequest, ReasoningLevel } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
@@ -16,7 +16,7 @@ import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
-import { normalizeMessage } from "./event-translator.ts"
+import { normalizeMessage, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { buildOoEnv } from "./oo.ts"
 import { opencodeReasoningVariant } from "./reasoning.ts"
@@ -136,7 +136,7 @@ const runtimeRestartInitialDelayMs = 1_000
 const runtimeRestartMaxDelayMs = 10_000
 
 interface AgentEventSubscriber {
-  onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void
+  onEvent: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
   onConnectionStatus?: (status: AgentEventConnectionStatus) => void
 }
 
@@ -321,7 +321,7 @@ export class AgentManager {
 
   /** 订阅 OpenCode 全局 SSE 事件流。回调收到原始 OpenCode 事件 {type, properties}。返回停止函数。 */
   public subscribe(
-    onEvent: (event: { type: string; properties?: Record<string, unknown> }) => void,
+    onEvent: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void,
     onConnectionStatus?: (status: AgentEventConnectionStatus) => void,
   ): () => void {
     this.eventLoopStopped = false
@@ -392,8 +392,11 @@ export class AgentManager {
           reconnectFailedAnnounced = false
         },
       })
-      const stream = (subscription as { stream: AsyncIterable<{ type: string; properties?: Record<string, unknown> }> })
-        .stream
+      const stream = (
+        subscription as {
+          stream: AsyncIterable<{ type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }>
+        }
+      ).stream
       for await (const event of stream) {
         if (this.eventLoopStopped) {
           break
@@ -524,6 +527,26 @@ export class AgentManager {
       }
     }
     return messages
+  }
+
+  public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
+    if (!this.started) {
+      return []
+    }
+    const result = await this.client.question.list()
+    const raw = Array.isArray(result.data) ? result.data : []
+    return raw
+      .map(normalizeQuestionRequest)
+      .filter((request): request is ChatQuestionRequest => Boolean(request))
+      .filter((request) => request.sessionId === sessionId)
+  }
+
+  public async answerQuestion(_sessionId: string, requestId: string, answers: string[][]): Promise<void> {
+    await this.client.question.reply({ requestID: requestId, answers })
+  }
+
+  public async rejectQuestion(_sessionId: string, requestId: string): Promise<void> {
+    await this.client.question.reject({ requestID: requestId })
   }
 
   /**

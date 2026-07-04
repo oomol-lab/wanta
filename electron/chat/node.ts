@@ -6,10 +6,12 @@ import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
+  AnswerQuestionRequest,
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
   AuthorizationInfo,
   ChatMessage,
+  ChatQuestionRequest,
   ChatService,
   ChatProjectContext,
   LocalArtifactPreviewRequest,
@@ -19,6 +21,7 @@ import type {
   MessageErrorEvent,
   OpenExternalUrlRequest,
   OpenLocalPathRequest,
+  RejectQuestionRequest,
   ResolveLocalArtifactsRequest,
   ResolveLocalArtifactsResult,
   SendMessageRequest,
@@ -1024,5 +1027,28 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       ),
       this.stoppedGenerations.get(sessionId),
     )
+  }
+
+  public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
+    if (!this.agent) {
+      return []
+    }
+    return this.agent.getPendingQuestions(sessionId)
+  }
+
+  public async answerQuestion(req: AnswerQuestionRequest): Promise<void> {
+    if (!this.agent) {
+      throw new Error("Agent not configured (sign in first)")
+    }
+    await this.agent.answerQuestion(req.sessionId, req.requestId, req.answers)
+    this.emitSessionActivity(req.sessionId)
+  }
+
+  public async rejectQuestion(req: RejectQuestionRequest): Promise<void> {
+    if (!this.agent) {
+      throw new Error("Agent not configured (sign in first)")
+    }
+    await this.agent.rejectQuestion(req.sessionId, req.requestId)
+    this.emitSessionActivity(req.sessionId)
   }
 }

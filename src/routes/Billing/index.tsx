@@ -1,64 +1,56 @@
-import type {
-  BillingLogItem,
-  BillingPeriodDays,
-  BillingSpendStats,
-  CreditItem,
-  WantaPendingPaymentResult,
-  WantaSubscriptionPlan,
-} from "../../../electron/chat/common.ts"
+import type { BillingPeriodDays, CreditItem, WantaSubscriptionPlan } from "../../../electron/chat/common.ts"
 import type { CategorySummary, UsageCategory } from "./usage.ts"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 
 import {
   CreditCardIcon,
-  GaugeIcon,
+  ChevronDownIcon,
+  CircleDollarSignIcon,
+  CoinsIcon,
   GiftIcon,
   ImageIcon,
   ListIcon,
   LogInIcon,
   MessageCircleIcon,
+  MinusIcon,
   ShieldCheckIcon,
   UsersIcon,
   PiggyBankIcon,
+  PlusIcon,
+  ReceiptTextIcon,
   RefreshCwIcon,
   SparklesIcon,
 } from "lucide-react"
 import * as React from "react"
+import { toast } from "sonner"
 import { CreditPurchaseModal } from "./CreditPurchaseModal.tsx"
-import {
-  getCurrentWantaPlan,
-  hasAnyWantaSubscription,
-  shouldRecommendPro,
-  wantaPlanCapacity,
-  wantaPlanLimits,
-} from "./plans.ts"
+import { getCurrentWantaPlan } from "./plans.ts"
 import {
   buildCategorySummaries,
   buildDailySpendBuckets,
-  billingCredit,
-  billingEventCount,
   categoryOrder,
   formatCredit,
   formatDate,
-  formatDateTime,
   formatPercent,
   getSummary,
-  normalizeTimestamp,
   statsTotalCredit,
   statsTotalEvents,
   toNumber,
-  usageCategory,
 } from "./usage.ts"
+import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
+import { updateWantaSubscription } from "@/lib/billing-client"
 import { listOrganizationMembers } from "@/lib/organizations-client"
 import { cn } from "@/lib/utils"
 
@@ -70,26 +62,17 @@ interface BillingRouteProps {
 }
 
 const periods: BillingPeriodDays[] = [7, 30, 90]
-type PurchaseMode = "subscription" | "usage"
-
-interface RecentRecord {
-  amount: number
-  category: UsageCategory
-  createdAt: number
-  eventCount?: number
-  id: string
-  source: string
-  subject: string
-}
 
 export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspace }: BillingRouteProps) {
   const t = useT()
   const { login } = useAuth()
+  const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
-  const [purchaseMode, setPurchaseMode] = React.useState<PurchaseMode>("subscription")
+  const [wantaLoading, setWantaLoading] = React.useState<WantaSubscriptionPlan | "seats" | null>(null)
   const { data, error, loading, refresh } = useBillingOverview(period, { cacheScope })
   const seatState = useOrganizationBillableSeats(workspace)
+  const planComparisonRef = React.useRef<HTMLElement | null>(null)
   // 会话过期：引导重新登录刷新会话，并避免在错误下方继续显示误导性的 "$0" 余额标题。
   const isSessionExpired = error?.kind === "auth_required"
   const handleSignIn = React.useCallback(() => {
@@ -108,7 +91,8 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
   const originalCredit = toNumber(data?.balance?.total.originalCredit)
   const modelSpend = getSummary(summaries, "model").credit
   const currentWantaPlan = getCurrentWantaPlan(data?.subscription ?? null)
-  const hasWantaSubscription = hasAnyWantaSubscription(data?.subscription ?? null)
+  const currentAdditionalSeats = data?.subscription?.wanta?.additionalSeats ?? 0
+  const pendingWantaPaymentUrl = data?.wantaPendingPayment?.paymentURL?.trim() || ""
   const billingContext = React.useMemo(
     () =>
       buildBillingWorkspaceContext(
@@ -120,7 +104,6 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
       ),
     [seatState.count, sharedConnectorCount, t, workspace],
   )
-  const currentPlanCapacity = wantaPlanCapacity(currentWantaPlan)
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const availableShare =
@@ -138,47 +121,72 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
     ...dailyBuckets.map((bucket) => bucket.credit),
     hasEstimatedTrend ? averageDailySpend * 2 : 0,
   )
-  const recentRecords = React.useMemo(
-    () => buildRecentRecords(data?.logs ?? [], data?.spend?.items ?? []),
-    [data?.logs, data?.spend?.items],
-  )
-  const recommendPro = shouldRecommendPro({
-    currentPlan: currentWantaPlan,
-    memberCount: billingContext.memberCount,
-    totalEvents,
-  })
-  const showProRecommendation = Boolean(data && !error && recommendPro)
-
-  const openPurchase = React.useCallback((mode: PurchaseMode) => {
-    setPurchaseMode(mode)
+  const openUsagePurchase = React.useCallback(() => {
     setPurchaseOpen(true)
   }, [])
+  const openExternalCheckout = React.useCallback(
+    async (url: string) => {
+      await chatService.invoke("openExternalUrl", { url })
+    },
+    [chatService],
+  )
+  const handleWantaPlan = React.useCallback(
+    async (plan: WantaSubscriptionPlan) => {
+      setWantaLoading(plan)
+      try {
+        if (pendingWantaPaymentUrl) {
+          await openExternalCheckout(pendingWantaPaymentUrl)
+          return
+        }
+        const result = await updateWantaSubscription({ plan })
+        const paymentUrl = result.paymentURL?.trim()
+        if (paymentUrl) {
+          await openExternalCheckout(paymentUrl)
+          return
+        }
+        toast.success(t("billing.wantaSubscriptionUpdated"))
+        void refresh({ force: true })
+      } catch {
+        toast.error(t("billing.purchaseDialog.checkoutFailed"))
+      } finally {
+        setWantaLoading(null)
+      }
+    },
+    [openExternalCheckout, pendingWantaPaymentUrl, refresh, t],
+  )
+  const handleWantaSeats = React.useCallback(
+    async (additionalSeats: number) => {
+      setWantaLoading("seats")
+      try {
+        if (pendingWantaPaymentUrl) {
+          await openExternalCheckout(pendingWantaPaymentUrl)
+          return
+        }
+        const result = await updateWantaSubscription({ additional_seats: additionalSeats })
+        const paymentUrl = result.paymentURL?.trim()
+        if (paymentUrl) {
+          await openExternalCheckout(paymentUrl)
+          return
+        }
+        toast.success(t("billing.wantaSubscriptionUpdated"))
+        void refresh({ force: true })
+      } catch {
+        toast.error(t("billing.purchaseDialog.checkoutFailed"))
+      } finally {
+        setWantaLoading(null)
+      }
+    },
+    [openExternalCheckout, pendingWantaPaymentUrl, refresh, t],
+  )
 
   return (
     <>
       <PageRouteShell backLabel={t("billing.backToChat")} contentClassName="max-w-[84rem] gap-5" onBack={onBack}>
         <h1 className="oo-text-page-title">{t("billing.title")}</h1>
 
-        <section className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--oo-divider)] pb-5">
+        <section className="border-b border-[var(--oo-divider)] pb-5">
           <div className="min-w-0">
             <p className="oo-text-body text-muted-foreground">{t("billing.subtitle")}</p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <PeriodToggle period={period} onChange={setPeriod} />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={loading}
-              onClick={() => void refresh({ force: true })}
-            >
-              <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
-              {t("billing.refresh")}
-            </Button>
-            <Button type="button" size="sm" onClick={() => openPurchase("subscription")}>
-              <CreditCardIcon className="size-4" />
-              {t("billing.purchaseCredits")}
-            </Button>
           </div>
         </section>
 
@@ -193,19 +201,23 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
           />
         ) : null}
 
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <WantaSubscriptionOverview
-            canManage={billingContext.canManage}
-            connectedProviderCount={billingContext.connectedProviderCount}
-            currentPlan={currentWantaPlan}
-            hasSubscription={hasWantaSubscription}
-            loading={(loading && !data) || Boolean(error && !data)}
-            memberCount={billingContext.memberCount}
-            memberLoading={seatState.loading}
-            pendingPayment={data?.wantaPendingPayment ?? null}
-            planCapacity={currentPlanCapacity}
+        <PlanComparison
+          ref={planComparisonRef}
+          currentPlan={currentWantaPlan}
+          disabled={!billingContext.canManage}
+          loadingPlan={wantaLoading}
+          pendingPaymentUrl={pendingWantaPaymentUrl}
+          onChoosePlan={handleWantaPlan}
+        />
+
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
+          <AdditionalSeatsPanel
+            currentAdditionalSeats={currentAdditionalSeats}
+            disabled={!billingContext.canManage}
+            loading={wantaLoading !== null}
+            pendingPaymentUrl={pendingWantaPaymentUrl}
             workspaceLabel={billingContext.workspaceLabel}
-            onManage={() => openPurchase("subscription")}
+            onUpdateSeats={handleWantaSeats}
           />
 
           <BalanceOverview
@@ -217,58 +229,28 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
             totalEvents={totalEvents}
             totalSpend={totalSpend}
             availableShare={availableShare}
-            onTopUp={() => openPurchase("usage")}
+            period={period}
+            onPeriodChange={setPeriod}
+            onRefresh={() => void refresh({ force: true })}
+            onTopUp={openUsagePurchase}
           />
         </section>
 
-        {showProRecommendation ? (
-          <ProUpgradeRecommendation
-            currentPlan={currentWantaPlan}
-            memberCount={billingContext.memberCount}
-            totalEvents={totalEvents}
-            onUpgrade={() => openPurchase("subscription")}
-          />
-        ) : null}
-
-        <PlanComparison currentPlan={currentWantaPlan} onChoosePlan={() => openPurchase("subscription")} />
-
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
-          <BillingPanel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")} bodyClassName="p-0">
-            {loading && !data ? (
-              <LoadingRows count={3} />
-            ) : (
-              <CategorySpendList summaries={summaries} total={totalSpend} />
-            )}
-          </BillingPanel>
-          <BillingPanel title={t("billing.balanceLotsTitle")} meta={t("billing.balanceLotsMeta")} bodyClassName="p-0">
-            {loading && !data ? <LoadingRows count={3} /> : <BalanceLots lots={data?.balance?.items ?? []} />}
-          </BillingPanel>
-        </section>
-
-        <BillingPanel
-          title={t("billing.trendTitle")}
-          meta={t(hasEstimatedTrend ? "billing.trendEstimatedMeta" : "billing.trendMeta", { days: period })}
-          bodyClassName="p-0"
-        >
-          {loading && !data ? (
-            <Skeleton className="m-3 h-36 rounded-md" />
-          ) : (
-            <TrendChart buckets={dailyBuckets} maxDailySpend={maxDailySpend} />
-          )}
-        </BillingPanel>
-
-        <BillingPanel
-          title={t("billing.recordsTitle")}
-          meta={t("billing.recordsMeta", { days: period })}
-          bodyClassName="p-0"
-        >
-          {loading && !data ? <LoadingRows count={5} /> : <RecentRecords records={recentRecords} />}
-        </BillingPanel>
+        <UsageDetailsDisclosure
+          balanceLots={data?.balance?.items ?? []}
+          dailyBuckets={dailyBuckets}
+          hasEstimatedTrend={hasEstimatedTrend}
+          loading={loading && !data}
+          maxDailySpend={maxDailySpend}
+          period={period}
+          summaries={summaries}
+          totalSpend={totalSpend}
+        />
       </PageRouteShell>
       <CreditPurchaseModal
         billingContext={billingContext}
         cacheScope={cacheScope}
-        mode={purchaseMode}
+        mode="usage"
         open={purchaseOpen}
         showViewDetails={false}
         onClose={() => {
@@ -361,175 +343,24 @@ function useOrganizationBillableSeats(workspace: WorkspaceSelection): {
   return { count, error, loading }
 }
 
-function WantaSubscriptionOverview({
-  canManage,
-  connectedProviderCount,
-  currentPlan,
-  hasSubscription,
-  loading = false,
-  memberCount,
-  memberLoading,
-  pendingPayment,
-  planCapacity,
-  workspaceLabel,
-  onManage,
-}: {
-  canManage: boolean
-  connectedProviderCount?: number
-  currentPlan: WantaSubscriptionPlan | null
-  hasSubscription: boolean
-  loading?: boolean
-  memberCount: number
-  memberLoading: boolean
-  pendingPayment: WantaPendingPaymentResult | null
-  planCapacity: ReturnType<typeof wantaPlanCapacity>
-  workspaceLabel: string
-  onManage: () => void
-}) {
-  const t = useT()
-  const pendingPaymentUrl = pendingPayment?.paymentURL?.trim() || ""
-  return (
-    <section className="h-full overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="grid h-full gap-4 p-4">
-        <div className="grid min-w-0 gap-4">
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <ShieldCheckIcon className="oo-icon-muted size-4 shrink-0" />
-                <h2 className="oo-text-title truncate">{t("billing.wantaSubscriptionTitle")}</h2>
-              </div>
-              <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-                {loading ? (
-                  <Skeleton className="h-7 w-32" />
-                ) : (
-                  <span className="oo-text-metric text-foreground">
-                    {currentPlan ? wantaPlanLabel(currentPlan, t) : t("billing.wantaNoPlan")}
-                  </span>
-                )}
-                {loading ? (
-                  <Skeleton className="h-5 w-20 rounded-full" />
-                ) : (
-                  <Badge variant={hasSubscription ? "secondary" : "outline"}>
-                    {hasSubscription ? t("billing.wantaActive") : t("billing.noSubscription")}
-                  </Badge>
-                )}
-                {pendingPaymentUrl ? <Badge variant="outline">{t("billing.wantaPaymentPending")}</Badge> : null}
-              </div>
-              <p className="oo-text-body mt-2 max-w-2xl text-muted-foreground">
-                {t("billing.wantaSubscriptionDescription")}
-              </p>
-            </div>
-            <Button type="button" disabled={loading || !canManage} onClick={onManage}>
-              <CreditCardIcon className="size-4" />
-              {pendingPaymentUrl ? t("billing.wantaContinuePayment") : t("billing.wantaManagePlan")}
-            </Button>
-          </div>
-          {!canManage ? (
-            <div className="oo-text-caption rounded-md border border-border bg-muted/40 px-3 py-2 text-muted-foreground">
-              {t("billing.wantaManagedByCreator")}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="grid min-w-0 grid-cols-3 gap-2 max-[760px]:grid-cols-1">
-          <MiniStat
-            icon={<UsersIcon className="size-4" />}
-            label={t("billing.wantaBillableSeats")}
-            value={loading || memberLoading ? "..." : `${memberCount} / ${planCapacity.members}`}
-          />
-          <MiniStat
-            icon={<ShieldCheckIcon className="size-4" />}
-            label={t("billing.planComparison.accountsPerApp")}
-            value={String(planCapacity.accountsPerApp)}
-          />
-          <MiniStat
-            icon={<GaugeIcon className="size-4" />}
-            label={t("billing.wantaSharedLinks")}
-            value={connectedProviderCount === undefined ? "--" : Intl.NumberFormat().format(connectedProviderCount)}
-          />
-        </div>
-        <div className="oo-text-caption rounded-md bg-muted/40 px-3 py-2 text-muted-foreground">
-          {t("billing.wantaPlanStatus", {
-            audit: t(planCapacity.auditLogKey),
-            report: t(planCapacity.reportKey),
-            workspace: workspaceLabel,
-          })}
-        </div>
-      </div>
-    </section>
-  )
+function normalizeAdditionalSeats(value: string | number): number {
+  const parsed = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0
 }
 
-function wantaPlanLabel(plan: WantaSubscriptionPlan, t: ReturnType<typeof useT>): string {
-  return plan === "wanta_pro" ? t("billing.wantaProPlanTitle") : t("billing.wantaPlusPlanTitle")
-}
-
-function ProUpgradeRecommendation({
-  currentPlan,
-  memberCount,
-  totalEvents,
-  onUpgrade,
-}: {
-  currentPlan: WantaSubscriptionPlan | null
-  memberCount: number
-  totalEvents: number
-  onUpgrade: () => void
-}) {
-  const t = useT()
-  const titleKey = currentPlan ? "billing.proRecommendation.plusTitle" : "billing.proRecommendation.freeTitle"
-  const descriptionKey = currentPlan
-    ? "billing.proRecommendation.plusDescription"
-    : "billing.proRecommendation.freeDescription"
-  return (
-    <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="grid gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <ShieldCheckIcon className="oo-icon-muted size-4 shrink-0" />
-            <h2 className="oo-text-title truncate text-foreground">{t(titleKey)}</h2>
-          </div>
-          <p className="oo-text-body max-w-3xl text-muted-foreground">
-            {t(descriptionKey, {
-              calls: Intl.NumberFormat().format(totalEvents),
-              members: memberCount,
-            })}
-          </p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <MiniStat
-              icon={<UsersIcon className="size-4" />}
-              label={t("billing.planComparison.maxMembers")}
-              value={String(wantaPlanLimits.wanta_pro.members)}
-            />
-            <MiniStat
-              icon={<GaugeIcon className="size-4" />}
-              label={t("billing.planComparison.accountsPerApp")}
-              value={String(wantaPlanLimits.wanta_pro.accountsPerApp)}
-            />
-            <MiniStat
-              icon={<ListIcon className="size-4" />}
-              label={t("billing.planComparison.reports")}
-              value={t(wantaPlanLimits.wanta_pro.reportKey)}
-            />
-          </div>
-        </div>
-        <Button type="button" className="self-start" onClick={onUpgrade}>
-          {t("billing.proRecommendation.cta")}
-        </Button>
-      </div>
-    </section>
-  )
-}
-
-function PlanComparison({
-  currentPlan,
-  onChoosePlan,
-}: {
-  currentPlan: WantaSubscriptionPlan | null
-  onChoosePlan: () => void
-}) {
+const PlanComparison = React.forwardRef<
+  HTMLElement,
+  {
+    currentPlan: WantaSubscriptionPlan | null
+    disabled: boolean
+    loadingPlan: WantaSubscriptionPlan | "seats" | null
+    pendingPaymentUrl: string
+    onChoosePlan: (plan: WantaSubscriptionPlan) => void
+  }
+>(function PlanComparison({ currentPlan, disabled, loadingPlan, pendingPaymentUrl, onChoosePlan }, ref) {
   const t = useT()
   return (
-    <BillingPanel title={t("billing.planComparison.title")} meta={t("billing.planComparison.meta")}>
+    <BillingPanel ref={ref} title={t("billing.planComparison.title")} meta={t("billing.planComparison.meta")}>
       <div className="grid gap-3">
         <WantaPromotionNotice />
         <div className="grid gap-3 md:grid-cols-2">
@@ -537,14 +368,18 @@ function PlanComparison({
             current={currentPlan === "wanta_plus"}
             description={t("billing.planComparison.plusDescription")}
             features={[
+              t("billing.planComparison.planning"),
+              t("billing.planComparison.sharedLinks"),
+              t("billing.planComparison.orgGovernance"),
               t("billing.planComparison.plusMembers"),
               t("billing.planComparison.plusAccounts"),
-              t("billing.planComparison.plusAudit"),
-              t("billing.planComparison.plusReport"),
-              t("billing.planComparison.plusCredits"),
             ]}
             discountPrice={t("billing.wantaPlusPlanDiscountPrice")}
+            disabled={disabled}
+            loading={loadingPlan === "wanta_plus"}
             originalPrice={t("billing.wantaPlusPlanOriginalPrice")}
+            pendingPayment={Boolean(pendingPaymentUrl)}
+            plan="wanta_plus"
             title={t("billing.wantaPlusPlanTitle")}
             onChoose={onChoosePlan}
           />
@@ -552,15 +387,18 @@ function PlanComparison({
             current={currentPlan === "wanta_pro"}
             description={t("billing.planComparison.proDescription")}
             features={[
+              t("billing.planComparison.planning"),
+              t("billing.planComparison.sharedLinks"),
+              t("billing.planComparison.advancedGovernance"),
               t("billing.planComparison.proMembers"),
               t("billing.planComparison.proAccounts"),
-              t("billing.planComparison.proPermissions"),
-              t("billing.planComparison.proAudit"),
-              t("billing.planComparison.proReport"),
-              t("billing.planComparison.proCredits"),
             ]}
             discountPrice={t("billing.wantaProPlanDiscountPrice")}
+            disabled={disabled}
+            loading={loadingPlan === "wanta_pro"}
             originalPrice={t("billing.wantaProPlanOriginalPrice")}
+            pendingPayment={Boolean(pendingPaymentUrl)}
+            plan="wanta_pro"
             title={t("billing.wantaProPlanTitle")}
             onChoose={onChoosePlan}
           />
@@ -568,7 +406,7 @@ function PlanComparison({
       </div>
     </BillingPanel>
   )
-}
+})
 
 function WantaPromotionNotice() {
   const t = useT()
@@ -586,19 +424,27 @@ function WantaPromotionNotice() {
 function PlanComparisonCard({
   current,
   description,
+  disabled,
   discountPrice,
   features,
+  loading,
   originalPrice,
+  pendingPayment,
+  plan,
   title,
   onChoose,
 }: {
   current: boolean
   description: string
+  disabled: boolean
   discountPrice: string
   features: string[]
+  loading: boolean
   originalPrice: string
+  pendingPayment: boolean
+  plan: WantaSubscriptionPlan
   title: string
-  onChoose: () => void
+  onChoose: (plan: WantaSubscriptionPlan) => void
 }) {
   const t = useT()
   return (
@@ -626,10 +472,188 @@ function PlanComparisonCard({
           </div>
         ))}
       </div>
-      <Button type="button" variant={current ? "outline" : "default"} disabled={current} onClick={onChoose}>
-        {current ? t("billing.subscriptions.currentSubscriptionButton") : t("billing.planComparison.choosePlan")}
+      <Button
+        type="button"
+        variant={current ? "outline" : "default"}
+        disabled={disabled || (current && !pendingPayment) || loading}
+        onClick={() => onChoose(plan)}
+      >
+        {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+        {pendingPayment
+          ? t("billing.wantaContinuePayment")
+          : current
+            ? t("billing.subscriptions.currentSubscriptionButton")
+            : t("billing.planComparison.choosePlan")}
       </Button>
     </article>
+  )
+}
+
+function AdditionalSeatsPanel({
+  currentAdditionalSeats,
+  disabled,
+  loading,
+  pendingPaymentUrl,
+  workspaceLabel,
+  onUpdateSeats,
+}: {
+  currentAdditionalSeats: number
+  disabled: boolean
+  loading: boolean
+  pendingPaymentUrl: string
+  workspaceLabel: string
+  onUpdateSeats: (additionalSeats: number) => void
+}) {
+  const t = useT()
+  const [additionalSeats, setAdditionalSeats] = React.useState(currentAdditionalSeats)
+
+  React.useEffect(() => {
+    setAdditionalSeats(currentAdditionalSeats)
+  }, [currentAdditionalSeats])
+
+  const unchanged = additionalSeats === currentAdditionalSeats
+  const actionDisabled = disabled || loading || (!pendingPaymentUrl && unchanged)
+
+  return (
+    <BillingPanel title={t("billing.additionalSeats.title")} meta={t("billing.additionalSeats.meta")}>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.45fr)]">
+        <div className="grid gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+              <UsersIcon className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="oo-text-title text-foreground">{t("billing.additionalSeats.cardTitle")}</h3>
+              <p className="oo-text-body mt-1 text-muted-foreground">
+                {t("billing.additionalSeats.description", { workspace: workspaceLabel })}
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <MiniStat
+              icon={<UsersIcon className="size-4" />}
+              label={t("billing.additionalSeats.current")}
+              value={String(currentAdditionalSeats)}
+            />
+            <MiniStat
+              icon={<CreditCardIcon className="size-4" />}
+              label={t("billing.additionalSeats.unitPrice")}
+              value={t("billing.additionalSeats.price")}
+            />
+          </div>
+        </div>
+
+        <div className="grid content-start gap-3 justify-self-end rounded-md border border-border p-3 max-[760px]:w-full sm:w-[17rem]">
+          <div className="oo-text-label text-muted-foreground">{t("billing.additionalSeats.inputLabel")}</div>
+          <div className="grid w-full grid-cols-[3rem_minmax(0,1fr)_3rem] items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-full"
+              disabled={disabled || loading || additionalSeats <= 0}
+              onClick={() => setAdditionalSeats((count) => Math.max(0, count - 1))}
+            >
+              <MinusIcon className="size-4" />
+            </Button>
+            <Input
+              className="h-9 w-full text-center tabular-nums"
+              disabled={disabled || loading}
+              min={0}
+              step={1}
+              type="number"
+              value={additionalSeats}
+              onChange={(event) => setAdditionalSeats(normalizeAdditionalSeats(event.currentTarget.value))}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-full"
+              disabled={disabled || loading}
+              onClick={() => setAdditionalSeats((count) => count + 1)}
+            >
+              <PlusIcon className="size-4" />
+            </Button>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 w-full"
+            disabled={actionDisabled}
+            onClick={() => onUpdateSeats(additionalSeats)}
+          >
+            {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+            {pendingPaymentUrl ? t("billing.wantaContinuePayment") : t("billing.wantaManageSeats")}
+          </Button>
+          {disabled ? (
+            <p className="oo-text-caption text-muted-foreground">{t("billing.wantaManagedByCreator")}</p>
+          ) : null}
+        </div>
+      </div>
+    </BillingPanel>
+  )
+}
+
+function UsageDetailsDisclosure({
+  balanceLots,
+  dailyBuckets,
+  hasEstimatedTrend,
+  loading,
+  maxDailySpend,
+  period,
+  summaries,
+  totalSpend,
+}: {
+  balanceLots: CreditItem[]
+  dailyBuckets: ReturnType<typeof buildDailySpendBuckets>
+  hasEstimatedTrend: boolean
+  loading: boolean
+  maxDailySpend: number
+  period: BillingPeriodDays
+  summaries: CategorySummary[]
+  totalSpend: number
+}) {
+  const t = useT()
+  return (
+    <Collapsible>
+      <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+        <CollapsibleTrigger className="group flex w-full min-w-0 items-center justify-between gap-3 px-3 py-2 text-left">
+          <div className="min-w-0">
+            <h2 className="oo-text-title truncate text-foreground">{t("billing.usageDetails.title")}</h2>
+            <p className="oo-text-caption truncate text-muted-foreground">{t("billing.usageDetails.description")}</p>
+          </div>
+          <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="grid gap-4 border-t border-[var(--oo-divider)] bg-muted/20 p-3">
+            <BillingPanel
+              title={t("billing.trendTitle")}
+              meta={t(hasEstimatedTrend ? "billing.trendEstimatedMeta" : "billing.trendMeta", { days: period })}
+              bodyClassName="p-0"
+            >
+              {loading ? (
+                <Skeleton className="m-3 h-36" />
+              ) : (
+                <TrendChart buckets={dailyBuckets} maxDailySpend={maxDailySpend} />
+              )}
+            </BillingPanel>
+            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,1fr)]">
+              <BillingPanel title={t("billing.categoryTitle")} meta={t("billing.categoryMeta")} bodyClassName="p-0">
+                {loading ? <LoadingRows count={3} /> : <CategorySpendList summaries={summaries} total={totalSpend} />}
+              </BillingPanel>
+              <BillingPanel
+                title={t("billing.balanceLotsTitle")}
+                meta={t("billing.balanceLotsMeta")}
+                bodyClassName="p-0"
+              >
+                {loading ? <LoadingRows count={3} /> : <BalanceLots lots={balanceLots} />}
+              </BillingPanel>
+            </section>
+          </div>
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   )
 }
 
@@ -672,6 +696,9 @@ function BalanceOverview({
   coverageDays,
   currentCredit,
   loading,
+  period,
+  onPeriodChange,
+  onRefresh,
   onTopUp,
   totalEvents,
   totalSpend,
@@ -682,6 +709,9 @@ function BalanceOverview({
   coverageDays: number
   currentCredit: number
   loading: boolean
+  period: BillingPeriodDays
+  onPeriodChange: (period: BillingPeriodDays) => void
+  onRefresh: () => void
   onTopUp: () => void
   totalEvents: number
   totalSpend: number
@@ -689,14 +719,21 @@ function BalanceOverview({
   const t = useT()
   return (
     <section className="h-full overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
-      <div className="grid h-full gap-4 p-4 md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+      <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
+        <h2 className="oo-text-title truncate text-foreground">{t("billing.availableCredits")}</h2>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <PeriodToggle period={period} onChange={onPeriodChange} />
+          <Button type="button" variant="outline" size="sm" disabled={loading} onClick={onRefresh}>
+            <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
+            {t("billing.refresh")}
+          </Button>
+        </div>
+      </div>
+      <div className="grid h-[calc(100%-2.75rem)] gap-4 p-4 md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
         <div className="grid min-w-0 gap-3">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
-                <PiggyBankIcon className="oo-icon-muted size-4 shrink-0" />
-                <h2 className="oo-text-title truncate">{t("billing.availableCredits")}</h2>
-              </div>
+              <PiggyBankIcon className="oo-icon-muted size-4 shrink-0" />
               <div className="oo-text-metric-large mt-2 text-foreground">
                 {loading ? "..." : formatCredit(currentCredit)}
               </div>
@@ -751,19 +788,17 @@ function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string
   )
 }
 
-function BillingPanel({
-  bodyClassName,
-  children,
-  meta,
-  title,
-}: {
-  bodyClassName?: string
-  children: React.ReactNode
-  meta?: string
-  title: string
-}) {
+const BillingPanel = React.forwardRef<
+  HTMLElement,
+  {
+    bodyClassName?: string
+    children: React.ReactNode
+    meta?: string
+    title: string
+  }
+>(function BillingPanel({ bodyClassName, children, meta, title }, ref) {
   return (
-    <section className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
+    <section ref={ref} className="overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
       <div className="flex min-h-10 items-center justify-between gap-3 border-b border-[var(--oo-divider)] px-3 py-2">
         <h2 className="oo-text-title truncate text-foreground">{title}</h2>
         {meta ? <span className="oo-text-caption shrink-0 truncate text-right">{meta}</span> : null}
@@ -771,7 +806,7 @@ function BillingPanel({
       <div className={cn("p-3", bodyClassName)}>{children}</div>
     </section>
   )
-}
+})
 
 function LoadingRows({ count }: { count: number }) {
   return (
@@ -822,19 +857,32 @@ function CategorySpendList({ summaries, total }: { summaries: CategorySummary[];
 
 function BalanceLots({ lots }: { lots: CreditItem[] }) {
   const t = useT()
+  const [expanded, setExpanded] = React.useState(false)
   const sortedLots = [...lots].sort((left, right) => Number(right.currentCredit) - Number(left.currentCredit))
   if (sortedLots.length === 0) {
     return <div className="oo-text-body py-8 text-center text-muted-foreground">{t("billing.emptyBalanceLots")}</div>
   }
+  const visibleLots = expanded ? sortedLots : sortedLots.slice(0, 3)
+  const hiddenCount = sortedLots.length - visibleLots.length
   return (
     <div className="grid gap-0">
-      {sortedLots.slice(0, 3).map((lot) => (
+      {visibleLots.map((lot) => (
         <BalanceLotRow key={lot.id} lot={lot} />
       ))}
       {sortedLots.length > 3 ? (
-        <div className="oo-text-caption flex items-center justify-between gap-3 border-t border-[var(--oo-divider)] px-3 py-2.5">
-          <span>{t("billing.hiddenBalanceLots", { count: sortedLots.length - 3 })}</span>
-          <Badge variant="outline">{t("billing.viewAllBalanceLots")}</Badge>
+        <div className="oo-text-caption flex items-center justify-between gap-3 bg-muted/20 px-3 py-2.5">
+          <span>
+            {expanded ? t("billing.allBalanceLotsShown") : t("billing.hiddenBalanceLots", { count: hiddenCount })}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? t("billing.collapseBalanceLots") : t("billing.viewAllBalanceLots")}
+          </Button>
         </div>
       ) : null}
     </div>
@@ -847,20 +895,23 @@ function BalanceLotRow({ lot }: { lot: CreditItem }) {
   const original = toNumber(lot.originalCredit)
   const share = original > 0 ? Math.max(0, Math.min(100, (current / original) * 100)) : 0
   return (
-    <div className="grid min-h-14 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0">
-      <div className="flex items-start justify-between gap-3">
+    <div className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0">
+      <div className="grid size-8 place-items-center rounded-md bg-[var(--oo-inspector-surface)] text-muted-foreground">
+        {balanceSourceIcon(lot.sourceType)}
+      </div>
+      <div className="grid min-w-0 gap-1.5">
         <div className="min-w-0">
           <div className="oo-text-title truncate text-foreground">{balanceSourceLabel(lot.sourceType, t)}</div>
           <div className="oo-text-caption truncate">
             {lot.expiresAt ? t("billing.expiresAt", { date: formatDate(lot.expiresAt) }) : t("billing.neverExpires")}
           </div>
         </div>
-        <div className="oo-text-title shrink-0 text-right text-foreground">
-          {formatCredit(current)}
-          <div className="oo-text-caption">{formatCredit(original)}</div>
-        </div>
+        <Progress value={share} className="h-1.5 bg-muted" />
       </div>
-      <Progress value={share} className="h-1.5 bg-muted" />
+      <div className="oo-text-title shrink-0 text-right text-foreground">
+        {formatCredit(current)}
+        <div className="oo-text-caption">{formatCredit(original)}</div>
+      </div>
     </div>
   )
 }
@@ -901,72 +952,6 @@ function TrendChart({
   )
 }
 
-function RecentRecords({ records }: { records: RecentRecord[] }) {
-  const t = useT()
-  if (records.length === 0) {
-    return <div className="oo-text-body py-8 text-center text-muted-foreground">{t("billing.emptyRecords")}</div>
-  }
-  return (
-    <div className="grid gap-0">
-      {records.map((record) => {
-        return (
-          <div
-            key={record.id}
-            className="grid min-h-14 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 max-[760px]:grid-cols-[auto_minmax(0,1fr)]"
-          >
-            <Badge className="justify-self-start" variant={record.category === "link" ? "outline" : "secondary"}>
-              {t(`billing.category.${record.category}`)}
-            </Badge>
-            <div className="min-w-0">
-              <div className="oo-text-title truncate text-foreground">{record.subject || record.source}</div>
-              <div className="oo-text-caption truncate">
-                {record.eventCount === undefined
-                  ? sourceLabel(record.source, t)
-                  : `${sourceLabel(record.source, t)} · ${t("billing.categoryCalls", {
-                      count: Intl.NumberFormat().format(record.eventCount),
-                    })}`}
-              </div>
-            </div>
-            <div className="min-w-28 text-right max-[760px]:col-span-2 max-[760px]:justify-self-start max-[760px]:text-left">
-              <div className="oo-text-title text-foreground tabular-nums">{formatCredit(record.amount)}</div>
-              <div className="oo-text-caption tabular-nums">{formatDateTime(record.createdAt)}</div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function buildRecentRecords(logs: BillingLogItem[], spendItems: BillingSpendStats["items"]): RecentRecord[] {
-  if (logs.length > 0) {
-    return logs
-      .map((log, index) => ({
-        amount: toNumber(log.debitCredit),
-        category: usageCategory(log.source, log.subject),
-        createdAt: log.createdAt,
-        id: log.eventID || log.traceID || `${log.source}:${log.subject}:${log.createdAt}:${index}`,
-        source: log.source,
-        subject: log.subject,
-      }))
-      .sort((left, right) => right.createdAt - left.createdAt)
-      .slice(0, 20)
-  }
-  return spendItems
-    .map((item, index) => ({
-      amount: billingCredit(item),
-      category: usageCategory(item.source, item.subject),
-      createdAt: normalizeTimestamp(item.time),
-      eventCount: billingEventCount(item),
-      id: `${item.source}:${item.subject}:${item.time}:${index}`,
-      source: item.source,
-      subject: item.subject,
-    }))
-    .filter((record) => Number.isFinite(record.createdAt) && (record.amount > 0 || (record.eventCount ?? 0) > 0))
-    .sort((left, right) => right.createdAt - left.createdAt)
-    .slice(0, 20)
-}
-
 function categoryIcon(category: UsageCategory): React.ReactNode {
   if (category === "model") {
     return <MessageCircleIcon className="size-5" />
@@ -975,25 +960,6 @@ function categoryIcon(category: UsageCategory): React.ReactNode {
     return <ImageIcon className="size-5" />
   }
   return <ShieldCheckIcon className="size-5" />
-}
-
-function sourceLabel(source: string, t: ReturnType<typeof useT>): string {
-  switch (source) {
-    case "SERVICE_LLM":
-      return t("billing.source.llm")
-    case "SERVICE_FUSION_API":
-      return t("billing.source.fusionApi")
-    case "SERVICE_STUDIO_SERVER":
-      return t("billing.source.studioServer")
-    case "SERVICE_CLOUD_TASK":
-      return t("billing.source.cloudTask")
-    case "SERVICE_AUTH_LINK":
-      return t("billing.source.authLink")
-    case "SERVICE_OOMOL_CONNECTOR":
-      return t("billing.source.connector")
-    default:
-      return source || t("billing.source.unknown")
-  }
 }
 
 function balanceSourceLabel(sourceType: string, t: ReturnType<typeof useT>): string {
@@ -1007,4 +973,17 @@ function balanceSourceLabel(sourceType: string, t: ReturnType<typeof useT>): str
     return t("billing.balanceSource.topup")
   }
   return t("billing.balanceSource.bonus")
+}
+
+function balanceSourceIcon(sourceType: string): React.ReactNode {
+  if (sourceType === "quota") {
+    return <CoinsIcon className="size-5" />
+  }
+  if (sourceType.includes("subscription")) {
+    return <ReceiptTextIcon className="size-5" />
+  }
+  if (sourceType.includes("credits_package")) {
+    return <CircleDollarSignIcon className="size-5" />
+  }
+  return <GiftIcon className="size-5" />
 }

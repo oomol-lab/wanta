@@ -109,14 +109,20 @@ test("organizationCanManage prefers writable and falls back to role", () => {
   assert.equal(organizationCanManage(overview, overview.joined[4] ?? null), true)
 })
 
-test("buildMemberViews and buildGrantViews decorate users and provider labels", () => {
-  const members = buildMemberViews([member("user-a"), member("user-b")], {
-    "user-a": {
-      nickname: "Alice",
-      url: "https://avatar.example/a.png",
-      username: "alice",
-    } satisfies OrganizationUserSummary,
-  })
+test("buildMemberViews and buildGrantViews decorate users, status, and provider labels", () => {
+  const members = buildMemberViews(
+    [
+      { ...member("user-a"), disable: false },
+      { ...member("user-b"), disable: true },
+    ],
+    {
+      "user-a": {
+        nickname: "Alice",
+        url: "https://avatar.example/a.png",
+        username: "alice",
+      } satisfies OrganizationUserSummary,
+    },
+  )
   const grants = buildGrantViews(
     {
       "user::user-a": {
@@ -128,6 +134,8 @@ test("buildMemberViews and buildGrantViews decorate users and provider labels", 
   )
 
   assert.equal(members[0]?.displayName, "Alice")
+  assert.equal(members[0]?.disable, false)
+  assert.equal(members[1]?.disable, true)
   assert.equal(members[0]?.secondaryLabel, "user-a")
   assert.equal(grants.error, null)
   assert.deepEqual(grants.grants[0], {

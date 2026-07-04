@@ -19,6 +19,8 @@ export type BusyAction =
   | "add"
   | "addSkillBatch"
   | "create"
+  | "disableMembers"
+  | "enableMembers"
   | "installSkillBatch"
   | "saveProviderAccess"
   | "uploadOrganizationAvatar"

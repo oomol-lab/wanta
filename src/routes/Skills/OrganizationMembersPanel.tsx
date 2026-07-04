@@ -11,7 +11,9 @@ import {
   RefreshCwIcon,
   ShieldCheckIcon,
   Trash2Icon,
+  UserCheckIcon,
   UsersIcon,
+  UserXIcon,
 } from "lucide-react"
 import * as React from "react"
 import { userFallback } from "./organization-management-model.ts"
@@ -148,7 +150,9 @@ export function OrganizationDetailPanel({
   membersError,
   membersLoading,
   onAddMember,
+  onDisableMembers,
   onEditProviderAccess,
+  onEnableMembers,
   onGrantProviderAccess,
   onRemoveMember,
   onRevokeProviderAccess,
@@ -164,7 +168,9 @@ export function OrganizationDetailPanel({
   membersError: string | null
   membersLoading: boolean
   onAddMember: () => void
+  onDisableMembers: (userIds: string[]) => void
   onEditProviderAccess: (grant: ProviderGrantView) => void
+  onEnableMembers: (userIds: string[]) => void
   onGrantProviderAccess: (userId: string) => void
   onRemoveMember: (member: OrganizationMember) => void
   onRevokeProviderAccess: (grant: ProviderGrantView) => void
@@ -252,7 +258,9 @@ export function OrganizationDetailPanel({
               members={members}
               showProviderAccess={showProviderAccess}
               providerAccessError={providerAccessError}
+              onDisableMembers={onDisableMembers}
               onEditProviderAccess={onEditProviderAccess}
+              onEnableMembers={onEnableMembers}
               onGrantProviderAccess={onGrantProviderAccess}
               onRemoveMember={onRemoveMember}
               onRevokeProviderAccess={onRevokeProviderAccess}
@@ -284,6 +292,8 @@ function MembersTable({
   grantsByUserId,
   members,
   onEditProviderAccess,
+  onDisableMembers,
+  onEnableMembers,
   onGrantProviderAccess,
   onRemoveMember,
   onRevokeProviderAccess,
@@ -296,7 +306,9 @@ function MembersTable({
   compact?: boolean
   grantsByUserId: Map<string, ProviderGrantView>
   members: MemberView[]
+  onDisableMembers: (userIds: string[]) => void
   onEditProviderAccess: (grant: ProviderGrantView) => void
+  onEnableMembers: (userIds: string[]) => void
   onGrantProviderAccess: (userId: string) => void
   onRemoveMember: (member: OrganizationMember) => void
   onRevokeProviderAccess: (grant: ProviderGrantView) => void
@@ -305,7 +317,77 @@ function MembersTable({
 }) {
   const { t } = useAppI18n()
   const [removeTarget, setRemoveTarget] = React.useState<MemberView | null>(null)
+  const [selectedUserIds, setSelectedUserIds] = React.useState<Set<string>>(() => new Set())
   const removeTargetBusy = removeTarget ? busyAction === `remove:${removeTarget.user_id}` : false
+  const showStatusColumn = members.some(hasMemberStatus)
+  const canBulkManage = canManage && showStatusColumn
+  const selectableMembers = React.useMemo(
+    () => (canBulkManage ? members.filter(isBulkEditableMember) : []),
+    [canBulkManage, members],
+  )
+  const selectableUserIds = React.useMemo(
+    () => new Set(selectableMembers.map((member) => member.user_id)),
+    [selectableMembers],
+  )
+  const selectedMembers = React.useMemo(
+    () => selectableMembers.filter((member) => selectedUserIds.has(member.user_id)),
+    [selectableMembers, selectedUserIds],
+  )
+  const selectedEnableUserIds = React.useMemo(
+    () => selectedMembers.filter((member) => member.disable).map((member) => member.user_id),
+    [selectedMembers],
+  )
+  const selectedDisableUserIds = React.useMemo(
+    () => selectedMembers.filter((member) => !member.disable).map((member) => member.user_id),
+    [selectedMembers],
+  )
+  const selectedCount = selectedMembers.length
+  const allSelected = selectableMembers.length > 0 && selectedCount === selectableMembers.length
+  const someSelected = selectedCount > 0 && !allSelected
+  const bulkBusy = busyAction === "enableMembers" || busyAction === "disableMembers"
+
+  React.useEffect(() => {
+    setSelectedUserIds((current) => {
+      const next = new Set([...current].filter((userId) => selectableUserIds.has(userId)))
+      return next.size === current.size ? current : next
+    })
+  }, [selectableUserIds])
+
+  const toggleAll = React.useCallback(
+    (checked: boolean) => {
+      setSelectedUserIds(checked ? selectableUserIds : new Set<string>())
+    },
+    [selectableUserIds],
+  )
+
+  const toggleMember = React.useCallback((userId: string, checked: boolean) => {
+    setSelectedUserIds((current) => {
+      const next = new Set(current)
+      if (checked) {
+        next.add(userId)
+      } else {
+        next.delete(userId)
+      }
+      return next
+    })
+  }, [])
+
+  const enableSelectedMembers = React.useCallback(() => {
+    if (selectedEnableUserIds.length === 0) {
+      return
+    }
+    onEnableMembers(selectedEnableUserIds)
+    setSelectedUserIds(new Set<string>())
+  }, [onEnableMembers, selectedEnableUserIds])
+
+  const disableSelectedMembers = React.useCallback(() => {
+    if (selectedDisableUserIds.length === 0) {
+      return
+    }
+    onDisableMembers(selectedDisableUserIds)
+    setSelectedUserIds(new Set<string>())
+  }, [onDisableMembers, selectedDisableUserIds])
+
   const removeConfirmDialog = (
     <ConfirmDialog
       open={Boolean(removeTarget)}
@@ -345,20 +427,51 @@ function MembersTable({
   if (compact) {
     return (
       <>
+        {canBulkManage ? (
+          <MemberStatusBulkToolbar
+            allSelected={allSelected}
+            bulkBusy={bulkBusy}
+            disableBusy={busyAction === "disableMembers"}
+            enableBusy={busyAction === "enableMembers"}
+            enableDisabled={selectedEnableUserIds.length === 0}
+            disableDisabled={selectedDisableUserIds.length === 0}
+            selectAllDisabled={selectableMembers.length === 0}
+            selectedCount={selectedCount}
+            showSelectAll
+            someSelected={someSelected}
+            onDisable={disableSelectedMembers}
+            onEnable={enableSelectedMembers}
+            onToggleAll={toggleAll}
+          />
+        ) : null}
         <div className="divide-y">
           {members.map((member) => {
             const grant = grantsByUserId.get(member.user_id) ?? null
             const canRemove = canManage && member.role !== "creator"
+            const selectable = isBulkEditableMember(member)
             return (
               <div key={member.user_id} className="grid min-w-0 gap-2 px-3 py-3">
                 <div className="flex min-w-0 items-start gap-2.5">
+                  {canBulkManage ? (
+                    <MemberStatusCheckbox
+                      ariaLabel={t("organizations.selectMember", { name: member.displayName })}
+                      checked={selectedUserIds.has(member.user_id)}
+                      disabled={bulkBusy || !selectable}
+                      onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
+                    />
+                  ) : null}
                   <UserAvatar avatar={member.avatar} fallback={member.fallback} />
                   <div className="min-w-0 flex-1">
                     <MemberIdentity member={member} showRole />
+                    {showStatusColumn ? (
+                      <div className="mt-1">
+                        <MemberStatusBadge member={member} />
+                      </div>
+                    ) : null}
                   </div>
                   {canRemove ? (
                     <MemberActionsMenu
-                      disabled={busyAction === `remove:${member.user_id}`}
+                      disabled={bulkBusy || busyAction === `remove:${member.user_id}`}
                       onRemove={() => setRemoveTarget(member)}
                     />
                   ) : null}
@@ -382,7 +495,7 @@ function MembersTable({
                       <ProviderAccessActions
                         compact
                         busyAction={busyAction}
-                        disabled={appAccessLoading || Boolean(providerAccessError)}
+                        disabled={appAccessLoading || bulkBusy || Boolean(providerAccessError)}
                         grant={grant}
                         memberId={member.user_id}
                         onEdit={onEditProviderAccess}
@@ -401,26 +514,62 @@ function MembersTable({
     )
   }
 
-  const gridClassName = canManage
-    ? showProviderAccess
-      ? "grid-cols-[minmax(12rem,1fr)_7rem_minmax(12rem,1fr)_auto]"
-      : "grid-cols-[minmax(12rem,1fr)_7rem_auto]"
-    : "grid-cols-[minmax(12rem,1fr)_7rem]"
-
-  const minWidthClassName = canManage && showProviderAccess ? "min-w-[44rem]" : "min-w-[32rem]"
+  const gridTemplateColumns = [
+    canBulkManage ? "2rem" : null,
+    "minmax(12rem,1fr)",
+    "7rem",
+    showStatusColumn ? "7rem" : null,
+    canManage && showProviderAccess ? "minmax(12rem,1fr)" : null,
+    canManage ? "auto" : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+  const minWidthClassName =
+    canBulkManage && canManage && showProviderAccess
+      ? "min-w-[50rem]"
+      : canBulkManage || (canManage && showProviderAccess)
+        ? "min-w-[40rem]"
+        : "min-w-[32rem]"
 
   return (
     <>
+      {canBulkManage ? (
+        <MemberStatusBulkToolbar
+          allSelected={allSelected}
+          bulkBusy={bulkBusy}
+          disableBusy={busyAction === "disableMembers"}
+          enableBusy={busyAction === "enableMembers"}
+          enableDisabled={selectedEnableUserIds.length === 0}
+          disableDisabled={selectedDisableUserIds.length === 0}
+          selectAllDisabled={selectableMembers.length === 0}
+          selectedCount={selectedCount}
+          showSelectAll={false}
+          someSelected={someSelected}
+          onDisable={disableSelectedMembers}
+          onEnable={enableSelectedMembers}
+          onToggleAll={toggleAll}
+        />
+      ) : null}
       <div className="min-w-0 overflow-x-auto">
         <div className={minWidthClassName}>
           <div
             className={cn(
               "oo-text-caption-compact grid gap-3 border-b bg-muted/30 px-3 py-2 font-medium text-muted-foreground",
-              gridClassName,
             )}
+            style={{ gridTemplateColumns }}
           >
+            {canBulkManage ? (
+              <MemberStatusCheckbox
+                ariaLabel={t("organizations.selectAllMembers")}
+                checked={allSelected}
+                disabled={bulkBusy || selectableMembers.length === 0}
+                indeterminate={someSelected}
+                onCheckedChange={toggleAll}
+              />
+            ) : null}
             <div>{t("organizations.member")}</div>
             <div>{t("organizations.role")}</div>
+            {showStatusColumn ? <div>{t("organizations.memberStatus")}</div> : null}
             {canManage && showProviderAccess ? <div>{t("organizations.usableConnections")}</div> : null}
             {canManage ? <div className="text-right">{t("organizations.actions")}</div> : null}
           </div>
@@ -428,8 +577,17 @@ function MembersTable({
             {members.map((member) => {
               const grant = grantsByUserId.get(member.user_id) ?? null
               const canRemove = canManage && member.role !== "creator"
+              const selectable = isBulkEditableMember(member)
               return (
-                <div key={member.user_id} className={cn("grid items-center gap-3 px-3 py-3", gridClassName)}>
+                <div key={member.user_id} className="grid items-center gap-3 px-3 py-3" style={{ gridTemplateColumns }}>
+                  {canBulkManage ? (
+                    <MemberStatusCheckbox
+                      ariaLabel={t("organizations.selectMember", { name: member.displayName })}
+                      checked={selectedUserIds.has(member.user_id)}
+                      disabled={bulkBusy || !selectable}
+                      onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
+                    />
+                  ) : null}
                   <div className="flex min-w-0 items-center gap-3">
                     <UserAvatar avatar={member.avatar} fallback={member.fallback} />
                     <div className="min-w-0">
@@ -441,6 +599,11 @@ function MembersTable({
                       {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
                     </Badge>
                   </div>
+                  {showStatusColumn ? (
+                    <div>
+                      <MemberStatusBadge member={member} />
+                    </div>
+                  ) : null}
                   {canManage && showProviderAccess ? (
                     <div>
                       {member.role === "creator" ? (
@@ -470,7 +633,7 @@ function MembersTable({
                           {showProviderAccess ? (
                             <ProviderAccessActions
                               busyAction={busyAction}
-                              disabled={appAccessLoading || Boolean(providerAccessError)}
+                              disabled={appAccessLoading || bulkBusy || Boolean(providerAccessError)}
                               grant={grant}
                               memberId={member.user_id}
                               onEdit={onEditProviderAccess}
@@ -479,7 +642,7 @@ function MembersTable({
                             />
                           ) : null}
                           <MemberActionsMenu
-                            disabled={!canRemove || busyAction === `remove:${member.user_id}`}
+                            disabled={!canRemove || bulkBusy || busyAction === `remove:${member.user_id}`}
                             onRemove={() => setRemoveTarget(member)}
                           />
                         </>
@@ -532,6 +695,119 @@ function MemberIdentity({ member, showRole = false }: { member: MemberView; show
       </div>
     </div>
   )
+}
+
+function MemberStatusBulkToolbar({
+  allSelected,
+  bulkBusy,
+  disableBusy,
+  disableDisabled,
+  enableBusy,
+  enableDisabled,
+  onDisable,
+  onEnable,
+  onToggleAll,
+  selectAllDisabled,
+  selectedCount,
+  showSelectAll,
+  someSelected,
+}: {
+  allSelected: boolean
+  bulkBusy: boolean
+  disableBusy: boolean
+  disableDisabled: boolean
+  enableBusy: boolean
+  enableDisabled: boolean
+  onDisable: () => void
+  onEnable: () => void
+  onToggleAll: (checked: boolean) => void
+  selectAllDisabled: boolean
+  selectedCount: number
+  showSelectAll: boolean
+  someSelected: boolean
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2 border-b px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+      <label className="oo-text-caption-compact flex min-w-0 items-center gap-2 text-muted-foreground">
+        {showSelectAll ? (
+          <MemberStatusCheckbox
+            ariaLabel={t("organizations.selectAllMembers")}
+            checked={allSelected}
+            disabled={bulkBusy || selectAllDisabled}
+            indeterminate={someSelected}
+            onCheckedChange={onToggleAll}
+          />
+        ) : null}
+        <span className="truncate">{t("organizations.selectedMembers", { count: selectedCount })}</span>
+      </label>
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" disabled={bulkBusy || enableDisabled} onClick={onEnable}>
+          <UserCheckIcon className="size-3.5" />
+          {enableBusy ? t("organizations.enablingMembers") : t("organizations.enableSelectedMembers")}
+        </Button>
+        <Button type="button" variant="outline" size="sm" disabled={bulkBusy || disableDisabled} onClick={onDisable}>
+          <UserXIcon className="size-3.5" />
+          {disableBusy ? t("organizations.disablingMembers") : t("organizations.disableSelectedMembers")}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function MemberStatusBadge({ member }: { member: MemberView }) {
+  const { t } = useAppI18n()
+  if (!hasMemberStatus(member)) {
+    return null
+  }
+  return (
+    <Badge variant={member.disable ? "destructive" : "success"}>
+      {member.disable ? t("organizations.memberDisabled") : t("organizations.memberEnabled")}
+    </Badge>
+  )
+}
+
+function MemberStatusCheckbox({
+  ariaLabel,
+  checked,
+  disabled,
+  indeterminate = false,
+  onCheckedChange,
+}: {
+  ariaLabel: string
+  checked: boolean
+  disabled: boolean
+  indeterminate?: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+
+  React.useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.indeterminate = indeterminate
+    }
+  }, [indeterminate])
+
+  return (
+    <input
+      ref={inputRef}
+      type="checkbox"
+      className="mt-0.5 size-4 shrink-0 accent-primary disabled:cursor-not-allowed disabled:opacity-50"
+      checked={checked}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onChange={(event) => onCheckedChange(event.currentTarget.checked)}
+    />
+  )
+}
+
+function hasMemberStatus(member: OrganizationMember): member is OrganizationMember & { disable: boolean } {
+  return typeof member.disable === "boolean"
+}
+
+function isBulkEditableMember(member: OrganizationMember): member is OrganizationMember & { disable: boolean } {
+  return member.role !== "creator" && hasMemberStatus(member)
 }
 
 function CopyValueButton({ ariaLabel, copiedLabel, value }: { ariaLabel: string; copiedLabel: string; value: string }) {

@@ -8,6 +8,7 @@ import type {
   OrganizationProviderOption,
   OrganizationUserSearchResult,
   OrganizationUserSummary,
+  UpdateOrganizationMembersStatusRequest,
   UpdateOrganizationRequest,
   UploadOrganizationAvatarResponse,
 } from "../../electron/organizations/common.ts"
@@ -145,7 +146,11 @@ function normalizeOrganizationMember(value: unknown): OrganizationMember | undef
   if (!userId || (role !== "creator" && role !== "member")) {
     return undefined
   }
-  return { user_id: userId, role }
+  return {
+    user_id: userId,
+    role,
+    ...(typeof value["disable"] === "boolean" ? { disable: value["disable"] } : {}),
+  }
 }
 
 function normalizeOrganizationMembers(value: unknown): OrganizationMember[] {
@@ -456,6 +461,34 @@ export async function removeOrganizationMember(req: OrganizationMemberRequest): 
     method: "DELETE",
     noResult: true,
   })
+}
+
+function normalizedMemberStatusUserIds(userIds: string[]): string[] {
+  return Array.from(new Set(userIds.map((userId) => userId.trim()).filter(Boolean)))
+}
+
+async function updateOrganizationMembersStatus(
+  req: UpdateOrganizationMembersStatusRequest,
+  path: "disable" | "enable",
+): Promise<void> {
+  const orgId = requireIdentifier(req.orgId, "Organization id")
+  const userIds = normalizedMemberStatusUserIds(req.userIds)
+  if (userIds.length === 0) {
+    throw new Error("Member user ids are required.")
+  }
+  await requestOrgControlJson(`/v1/organizations/${encodePath(orgId)}/members/${path}`, {
+    method: "PUT",
+    body: JSON.stringify({ user_ids: userIds }),
+    noResult: true,
+  })
+}
+
+export function enableOrganizationMembers(req: UpdateOrganizationMembersStatusRequest): Promise<void> {
+  return updateOrganizationMembersStatus(req, "enable")
+}
+
+export function disableOrganizationMembers(req: UpdateOrganizationMembersStatusRequest): Promise<void> {
+  return updateOrganizationMembersStatus(req, "disable")
 }
 
 export async function getOrganizationAppAccess(orgId: string): Promise<OrganizationAppAccess> {

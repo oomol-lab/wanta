@@ -118,41 +118,53 @@ function QuestionChoiceRow({
 
 function QuestionStepIndicator({
   activeIndex,
+  disabled,
   drafts,
   fields,
+  onSelect,
 }: {
   activeIndex: number
+  disabled: boolean
   drafts: QuestionFieldDraft[]
   fields: QuestionField[]
+  onSelect: (index: number) => void
 }) {
   return (
-    <ol className="grid gap-2" style={{ gridTemplateColumns: `repeat(${fields.length}, minmax(0, 1fr))` }}>
+    <ol className="inline-flex max-w-full flex-wrap items-center gap-1 border-b border-border" role="tablist">
       {fields.map((field, index) => {
         const answered = canSubmitFieldAnswers([field], [drafts[index] ?? { value: "", selected: [] }])
         const active = index === activeIndex
         return (
-          <li
-            key={field.id}
-            className={cn(
-              "flex min-w-0 items-center gap-2 border-b-2 pb-1.5",
-              active
-                ? "border-foreground text-foreground"
-                : answered
-                  ? "border-muted-foreground/45 text-foreground"
-                  : "border-border text-muted-foreground",
-            )}
-          >
-            <span
+          <li key={field.id} className="min-w-0">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active}
+              disabled={disabled}
               className={cn(
-                "oo-text-micro flex size-5 shrink-0 items-center justify-center rounded-full border font-semibold",
-                active || answered
-                  ? "border-foreground bg-foreground text-background"
-                  : "border-border bg-background text-muted-foreground",
+                "flex min-w-0 items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                active
+                  ? "border-foreground text-foreground"
+                  : answered
+                    ? "border-transparent text-foreground hover:border-muted-foreground/40"
+                    : "border-transparent text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground",
               )}
+              onClick={() => onSelect(index)}
             >
-              {index + 1}
-            </span>
-            <span className="oo-text-label min-w-0 truncate font-medium">{field.label}</span>
+              <span
+                className={cn(
+                  "oo-text-micro flex size-4 shrink-0 items-center justify-center rounded-full border font-medium",
+                  active
+                    ? "border-foreground text-foreground"
+                    : answered
+                      ? "border-muted-foreground/50 text-foreground"
+                      : "border-border text-muted-foreground",
+                )}
+              >
+                {index + 1}
+              </span>
+              <span className="oo-text-label min-w-0 truncate">{field.label}</span>
+            </button>
           </li>
         )
       })}
@@ -166,6 +178,8 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
   const [drafts, setDrafts] = React.useState<QuestionFieldDraft[]>(() => initialFieldDrafts(fields))
   const [activeFieldIndex, setActiveFieldIndex] = React.useState(0)
   const [submitting, setSubmitting] = React.useState<"answer" | "reject" | null>(null)
+  const activeControlRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+  const previousActiveFieldIndexRef = React.useRef(activeFieldIndex)
   const disabled = busy || Boolean(submitting)
   const canSubmit = canSubmitFieldAnswers(fields, drafts)
   const activeField = fields[activeFieldIndex]
@@ -184,6 +198,18 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
       setActiveFieldIndex(0)
     }
   }, [activeFieldIndex, fields.length])
+
+  React.useLayoutEffect(() => {
+    if (previousActiveFieldIndexRef.current === activeFieldIndex) {
+      return
+    }
+    previousActiveFieldIndexRef.current = activeFieldIndex
+    activeControlRef.current?.focus()
+  }, [activeFieldIndex])
+
+  const setActiveControlRef = React.useCallback((node: HTMLInputElement | HTMLTextAreaElement | null) => {
+    activeControlRef.current = node
+  }, [])
 
   const updateDraft = React.useCallback((index: number, updater: (draft: QuestionFieldDraft) => QuestionFieldDraft) => {
     setDrafts((current) => current.map((draft, draftIndex) => (draftIndex === index ? updater(draft) : draft)))
@@ -238,14 +264,22 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
       className="not-prose rounded-lg border border-border/80 bg-background px-4 py-3 shadow-xs"
       onSubmit={(event) => {
         event.preventDefault()
+        if (fields.length > 1 && !isLastStep) {
+          handleNext()
+          return
+        }
         void handleSubmit()
       }}
     >
       <div className="space-y-3">
-        <div className="oo-text-label font-semibold text-foreground">{request.questions[0]?.header}</div>
-
         {fields.length > 1 ? (
-          <QuestionStepIndicator activeIndex={activeFieldIndex} drafts={drafts} fields={fields} />
+          <QuestionStepIndicator
+            activeIndex={activeFieldIndex}
+            disabled={disabled}
+            drafts={drafts}
+            fields={fields}
+            onSelect={setActiveFieldIndex}
+          />
         ) : null}
 
         {fields.map((field, index) => {
@@ -298,6 +332,7 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
               {showInput ? (
                 field.kind === "textarea" ? (
                   <Textarea
+                    ref={setActiveControlRef}
                     id={inputId}
                     value={draft.value}
                     disabled={disabled}
@@ -309,6 +344,7 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
                   />
                 ) : (
                   <Input
+                    ref={setActiveControlRef}
                     id={inputId}
                     type={field.kind === "email" ? "email" : "text"}
                     value={draft.value}

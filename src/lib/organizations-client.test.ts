@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   addOrganizationMember,
   createOrganization,
+  disableOrganizationMembers,
+  enableOrganizationMembers,
   isOrganizationMemberLimitError,
+  listOrganizationMembers,
   OrganizationRequestError,
   updateOrganization,
   uploadOrganizationAvatar,
@@ -93,5 +96,42 @@ describe("organizations-client", () => {
     const [url, init] = fetchMock.mock.calls[0] ?? []
     expect(String(url)).toContain("/v1/organizations/org-1/members")
     expect(init?.method).toBe("POST")
+  })
+
+  it("keeps member disabled status from organization member lists", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        members: [
+          { disable: false, role: "creator", user_id: "creator-1" },
+          { disable: true, role: "member", user_id: "member-1" },
+          { role: "member", user_id: "member-2" },
+        ],
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(listOrganizationMembers("org-1")).resolves.toEqual([
+      { disable: false, role: "creator", user_id: "creator-1" },
+      { disable: true, role: "member", user_id: "member-1" },
+      { role: "member", user_id: "member-2" },
+    ])
+  })
+
+  it("updates organization member status in batches", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await disableOrganizationMembers({ orgId: "org-1", userIds: ["member-1", "member-1", " "] })
+    await enableOrganizationMembers({ orgId: "org-1", userIds: ["member-2"] })
+
+    const [disableUrl, disableInit] = fetchMock.mock.calls[0] ?? []
+    expect(String(disableUrl)).toContain("/v1/organizations/org-1/members/disable")
+    expect(disableInit?.method).toBe("PUT")
+    expect(JSON.parse(String(disableInit?.body))).toEqual({ user_ids: ["member-1"] })
+
+    const [enableUrl, enableInit] = fetchMock.mock.calls[1] ?? []
+    expect(String(enableUrl)).toContain("/v1/organizations/org-1/members/enable")
+    expect(enableInit?.method).toBe("PUT")
+    expect(JSON.parse(String(enableInit?.body))).toEqual({ user_ids: ["member-2"] })
   })
 })

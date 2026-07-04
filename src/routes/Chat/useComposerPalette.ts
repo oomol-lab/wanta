@@ -16,7 +16,12 @@ import type { ComposerAction } from "./composer-state.ts"
 import type { ComposerTrigger } from "./composer-triggers.ts"
 
 import * as React from "react"
-import { buildConnectionAccountPaletteItems, creatorSkillId, matchesComposerQuery } from "./composer-palette-items.ts"
+import {
+  buildConnectionAccountPaletteItems,
+  buildSlashRootPaletteItems,
+  creatorSkillId,
+  filterComposerPaletteItems,
+} from "./composer-palette-items.ts"
 import { resolveComposerPaletteKeyAction } from "./composer-palette-logic.ts"
 import {
   initialComposerPaletteNavigation,
@@ -122,9 +127,9 @@ export function useComposerPalette({
     } else if (paletteMode === "connections") {
       sourceItems = connectionItems
     } else {
-      sourceItems = slashItems
+      sourceItems = buildSlashRootPaletteItems({ connectionItems, skillItems, slashItems })
     }
-    return sourceItems.filter((item) => matchesComposerQuery(item, activeTrigger.query)).slice(0, 8)
+    return filterComposerPaletteItems(sourceItems, activeTrigger.query)
   }, [
     activeTrigger,
     connectionItems,

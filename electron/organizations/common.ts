@@ -10,6 +10,7 @@ export interface Organization {
 }
 
 export interface OrganizationMember {
+  disable?: boolean
   user_id: string
   role: OrganizationRole
 }
@@ -68,6 +69,11 @@ export interface OrganizationIdRequest extends OrganizationCacheRequest {
 export interface OrganizationMemberRequest {
   orgId: string
   userId: string
+}
+
+export interface UpdateOrganizationMembersStatusRequest {
+  orgId: string
+  userIds: string[]
 }
 
 export interface UpdateOrganizationAppAccessRequest {

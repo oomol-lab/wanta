@@ -61,6 +61,8 @@ import { upsertOverviewOrganization } from "@/lib/organization-overview"
 import {
   addOrganizationMember,
   createOrganization,
+  disableOrganizationMembers,
+  enableOrganizationMembers,
   getOrganizationAppAccess,
   getOrganizationOverview,
   isOrganizationMemberLimitError,
@@ -846,6 +848,49 @@ export function OrganizationManagementRoute({
     [canManage, reloadMembersAndAccess, selectedOrganization, t],
   )
 
+  const updateMembersStatus = React.useCallback(
+    async (userIds: string[], disabled: boolean) => {
+      if (!selectedOrganization || !canManage) {
+        return
+      }
+
+      const normalizedUserIds = uniqueStrings(userIds.map((userId) => userId.trim()).filter(Boolean))
+      if (normalizedUserIds.length === 0) {
+        return
+      }
+
+      setBusyAction(disabled ? "disableMembers" : "enableMembers")
+      try {
+        if (disabled) {
+          await disableOrganizationMembers({ orgId: selectedOrganization.id, userIds: normalizedUserIds })
+        } else {
+          await enableOrganizationMembers({ orgId: selectedOrganization.id, userIds: normalizedUserIds })
+        }
+        toast.success(disabled ? t("organizations.disableMembersSuccess") : t("organizations.enableMembersSuccess"))
+        await reloadMembersAndAccess()
+      } catch (error) {
+        toast.error(errorMessage(error))
+      } finally {
+        setBusyAction(null)
+      }
+    },
+    [canManage, reloadMembersAndAccess, selectedOrganization, t],
+  )
+
+  const handleEnableMembers = React.useCallback(
+    async (userIds: string[]) => {
+      await updateMembersStatus(userIds, false)
+    },
+    [updateMembersStatus],
+  )
+
+  const handleDisableMembers = React.useCallback(
+    async (userIds: string[]) => {
+      await updateMembersStatus(userIds, true)
+    },
+    [updateMembersStatus],
+  )
+
   const openGrantProviderAccess = React.useCallback((userId?: string) => {
     setProviderAccessForm({
       allProviders: false,
@@ -1041,7 +1086,9 @@ export function OrganizationManagementRoute({
                       organization={selectedOrganization}
                       providerAccessError={providerAccessError}
                       onAddMember={() => setAddMemberOpen(true)}
+                      onDisableMembers={handleDisableMembers}
                       onEditProviderAccess={openEditProviderAccess}
+                      onEnableMembers={handleEnableMembers}
                       onGrantProviderAccess={openGrantProviderAccess}
                       onRemoveMember={handleRemoveMember}
                       onRevokeProviderAccess={handleRevokeProviderAccess}

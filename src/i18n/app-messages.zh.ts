@@ -328,7 +328,7 @@ export const zhCNMessages = {
   "chat.modelOptionalTokenPlaceholder": "可选，如 1000000",
   "chat.modelReasoningVariants": "OpenAI-compatible 推理档位",
   "chat.modelReasoningVariantsDescription": "仅当接口支持 reasoning_effort 时选择；不确定可以留空。",
-  "chat.commandPaletteEmpty": "没有匹配的命令",
+  "chat.commandPaletteEmpty": "没有匹配的命令、技能或连接器",
   "chat.skillPaletteEmpty": "没有匹配的技能",
   "chat.skillPaletteLoading": "正在加载技能…",
   "chat.skillFallbackDescription": "显式调用这个技能处理当前请求",

@@ -1,11 +1,15 @@
+import type { VoiceInputErrorKind } from "./voice-error-display.ts"
+
 import * as React from "react"
 import { useVoiceRecorder } from "./useVoiceRecorder.ts"
-import { transcribeVoice } from "./voice-asr.ts"
+import { isVoiceNoSpeechError, transcribeVoice } from "./voice-asr.ts"
 import {
   invalidateVoiceTranscription,
   isCurrentVoiceTranscription,
   startVoiceTranscription,
 } from "./voice-transcription.ts"
+
+const minimumTranscriptionDurationMs = 800
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
@@ -22,6 +26,7 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
   const transcriptionRef = React.useRef(0)
   const [transcribing, setTranscribing] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [errorKind, setErrorKind] = React.useState<VoiceInputErrorKind | null>(null)
   const [retryBlob, setRetryBlob] = React.useState<Blob | null>(null)
 
   const transcribeBlob = React.useCallback(
@@ -29,6 +34,7 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
       const transcriptionToken = startVoiceTranscription(transcriptionRef)
       setTranscribing(true)
       setError(null)
+      setErrorKind(null)
       setRetryBlob(blob)
       try {
         const audioBase64 = arrayBufferToBase64(await blob.arrayBuffer())
@@ -43,6 +49,7 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
         if (!isCurrentVoiceTranscription(transcriptionRef, transcriptionToken)) {
           return
         }
+        setErrorKind(isVoiceNoSpeechError(cause) ? "no_speech" : "transcription_failed")
         setError(cause instanceof Error ? cause.message : String(cause))
       } finally {
         if (isCurrentVoiceTranscription(transcriptionRef, transcriptionToken)) {
@@ -55,22 +62,40 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
 
   const stop = React.useCallback(async () => {
     const recorded = await recorder.stop()
-    if (recorded) {
-      await transcribeBlob(recorded.blob)
+    if (!recorded) {
+      return
     }
+    if (recorded.durationMs < minimumTranscriptionDurationMs) {
+      setError(null)
+      setErrorKind(null)
+      setRetryBlob(null)
+      return
+    }
+    await transcribeBlob(recorded.blob)
   }, [recorder, transcribeBlob])
 
   const cancel = React.useCallback(() => {
     invalidateVoiceTranscription(transcriptionRef)
     setTranscribing(false)
     setError(null)
+    setErrorKind(null)
     setRetryBlob(null)
     recorder.cancel()
   }, [recorder])
 
   const start = React.useCallback(() => {
     setError(null)
+    setErrorKind(null)
     void recorder.start()
+  }, [recorder])
+
+  const dismissError = React.useCallback(() => {
+    setError(null)
+    setErrorKind(null)
+    setRetryBlob(null)
+    if (recorder.error) {
+      recorder.cancel()
+    }
   }, [recorder])
 
   const retry = React.useCallback(() => {
@@ -89,7 +114,9 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
       cancel,
       durationMs: recorder.durationMs,
       error,
+      errorKind,
       recorderError: recorder.error,
+      dismissError,
       retry,
       retryBlob,
       start,
@@ -100,7 +127,9 @@ export function useVoiceComposerInput(onTranscription: (text: string) => void) {
     [
       busy,
       cancel,
+      dismissError,
       error,
+      errorKind,
       recorder.bars,
       recorder.durationMs,
       recorder.error,

@@ -1,6 +1,6 @@
 import type { UserFacingError, UserFacingErrorSeverity } from "@/lib/user-facing-error"
 
-import { AlertTriangleIcon, CheckIcon, CopyIcon, InfoIcon } from "lucide-react"
+import { AlertTriangleIcon, CheckIcon, CopyIcon, InfoIcon, XIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,7 @@ interface ErrorNoticeProps {
   className?: string
   compact?: boolean
   error: UserFacingError
+  onDismiss?: () => void
   showDiagnosticsCopy?: boolean
 }
 
@@ -30,6 +31,7 @@ export function ErrorNotice({
   className,
   compact = false,
   error,
+  onDismiss,
   showDiagnosticsCopy = true,
 }: ErrorNoticeProps) {
   const t = useT()
@@ -120,6 +122,19 @@ export function ErrorNotice({
             </div>
           ) : null}
         </div>
+        {onDismiss ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="-m-1 size-7 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+            aria-label={t("common.close")}
+            title={t("common.close")}
+            onClick={onDismiss}
+          >
+            <XIcon className="size-3.5" />
+          </Button>
+        ) : null}
       </div>
     </section>
   )

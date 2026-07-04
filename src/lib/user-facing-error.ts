@@ -22,6 +22,7 @@ export type UserFacingErrorKind =
   | "cancelled"
   | "local_file_unavailable"
   | "network_unavailable"
+  | "no_input"
   | "operation_failed"
   | "permission_denied"
   | "rate_limited"

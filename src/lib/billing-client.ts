@@ -167,13 +167,9 @@ function readWantaSubscriptionUpdate(payload: unknown): WantaSubscriptionUpdateR
   return {
     subscriptionID: readStringField(record, ["subscriptionID", "subscriptionId", "subscription_id"]) ?? "",
     status: readStringField(record, ["status"]) ?? "",
-    plan: isWantaSubscriptionPlan(record["plan"]) ? record["plan"] : null,
+    plan: readPlanField(record, ["plan"]),
     additionalSeats: readIntegerField(record, ["additionalSeats", "additional_seats"]),
-    targetPlan: isWantaSubscriptionPlan(record["targetPlan"])
-      ? record["targetPlan"]
-      : isWantaSubscriptionPlan(record["target_plan"])
-        ? record["target_plan"]
-        : null,
+    targetPlan: readPlanField(record, ["targetPlan", "target_plan"]),
     targetAdditionalSeats: readIntegerField(record, ["targetAdditionalSeats", "target_additional_seats"]),
     currentPeriodEnd: readTimestampField(record, ["currentPeriodEnd", "current_period_end"]) ?? 0,
     latestInvoiceID: readStringField(record, ["latestInvoiceID", "latestInvoiceId", "latest_invoice_id"]),
@@ -187,6 +183,16 @@ function readWantaSubscriptionUpdate(payload: unknown): WantaSubscriptionUpdateR
     scheduledUpdate: readBooleanField(record, ["scheduledUpdate", "scheduled_update"]),
     scheduledEffectiveAt: readOptionalTimestampField(record, ["scheduledEffectiveAt", "scheduled_effective_at"]),
   }
+}
+
+function readPlanField(record: Record<string, unknown>, keys: string[]): WantaSubscriptionPlan | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (isWantaSubscriptionPlan(value)) {
+      return value
+    }
+  }
+  return null
 }
 
 function isWantaSubscriptionPlan(value: unknown): value is WantaSubscriptionPlan {

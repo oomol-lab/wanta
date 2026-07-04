@@ -214,7 +214,7 @@ export function BillingRoute({ cacheScope, onBack, sharedConnectorCount, workspa
           <AdditionalSeatsPanel
             currentAdditionalSeats={currentAdditionalSeats}
             disabled={!billingContext.canManage}
-            loading={wantaLoading === "seats"}
+            loading={wantaLoading !== null}
             pendingPaymentUrl={pendingWantaPaymentUrl}
             workspaceLabel={billingContext.workspaceLabel}
             onUpdateSeats={handleWantaSeats}

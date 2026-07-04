@@ -233,7 +233,7 @@ export function BillingUsagePopover({
                           : ` · ${t("billing.popover.sharedLinks", { count: sharedConnectorCount })}`}
                       </div>
                     </div>
-                    <Badge variant={showUpgradePrompt ? "default" : "outline"}>
+                    <Badge variant={showUpgradePrompt || showPlanPrompt ? "default" : "outline"}>
                       {showUpgradePrompt
                         ? t("billing.popover.upgradeHint")
                         : showPlanPrompt

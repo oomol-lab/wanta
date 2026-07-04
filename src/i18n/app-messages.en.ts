@@ -453,7 +453,7 @@ export const enMessages = {
   "billing.period90": "90 days",
   "billing.refresh": "Refresh",
   "billing.signInAgain": "Sign in again",
-  "billing.purchaseCredits": "Manage plan and usage",
+  "billing.purchaseCredits": "Top up balance",
   "billing.popover.tooltip": "Plan and usage",
   "billing.popover.title": "Plan and usage",
   "billing.popover.close": "Close usage popover",

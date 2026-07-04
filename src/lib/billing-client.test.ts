@@ -32,6 +32,16 @@ function urlOf(input: string | URL | Request): URL {
   return new URL(typeof input === "string" || input instanceof URL ? input.toString() : input.url)
 }
 
+function stubWantaSubscriptionFetch(data: Record<string, unknown>): { requestBody: () => string } {
+  let body = ""
+  vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+    expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta")
+    body = String(init?.body ?? "")
+    return Response.json({ data, success: true })
+  })
+  return { requestBody: () => body }
+}
+
 describe("billing-client", () => {
   it("attaches the session cookie via credentials:include and sets no Authorization header", async () => {
     let seenInit: RequestInit | undefined
@@ -108,54 +118,38 @@ describe("billing-client", () => {
   })
 
   it("posts Wanta plan changes without seat fields", async () => {
-    let requestBody = ""
-    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta")
-      requestBody = String(init?.body ?? "")
-      return Response.json({
-        data: {
-          additionalSeats: 0,
-          currentPeriodEnd: 0,
-          paymentURL: "https://console.example.com/wanta-checkout",
-          plan: "wanta_plus",
-          status: "active",
-          subscriptionID: "sub-1",
-          targetAdditionalSeats: 0,
-          targetPlan: "wanta_plus",
-        },
-        success: true,
-      })
+    const request = stubWantaSubscriptionFetch({
+      additionalSeats: 0,
+      currentPeriodEnd: 0,
+      paymentURL: "https://console.example.com/wanta-checkout",
+      plan: "wanta_plus",
+      status: "active",
+      subscriptionID: "sub-1",
+      targetAdditionalSeats: 0,
+      targetPlan: "wanta_plus",
     })
 
     const result = await updateWantaSubscription({ plan: "wanta_plus" })
 
-    expect(JSON.parse(requestBody)).toEqual({ plan: "wanta_plus" })
+    expect(JSON.parse(request.requestBody())).toEqual({ plan: "wanta_plus" })
     expect(result.paymentURL).toBe("https://console.example.com/wanta-checkout")
   })
 
   it("posts Wanta seat changes without plan fields", async () => {
-    let requestBody = ""
-    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
-      expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta")
-      requestBody = String(init?.body ?? "")
-      return Response.json({
-        data: {
-          additionalSeats: 1,
-          currentPeriodEnd: 0,
-          paymentURL: "https://console.example.com/wanta-seat-checkout",
-          plan: null,
-          status: "active",
-          subscriptionID: "sub-1",
-          targetAdditionalSeats: 1,
-          targetPlan: null,
-        },
-        success: true,
-      })
+    const request = stubWantaSubscriptionFetch({
+      additionalSeats: 1,
+      currentPeriodEnd: 0,
+      paymentURL: "https://console.example.com/wanta-seat-checkout",
+      plan: null,
+      status: "active",
+      subscriptionID: "sub-1",
+      targetAdditionalSeats: 1,
+      targetPlan: null,
     })
 
     const result = await updateWantaSubscription({ additional_seats: 1 })
 
-    expect(JSON.parse(requestBody)).toEqual({ additional_seats: 1 })
+    expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 1 })
     expect(result.paymentURL).toBe("https://console.example.com/wanta-seat-checkout")
   })
 

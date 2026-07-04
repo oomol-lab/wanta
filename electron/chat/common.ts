@@ -561,10 +561,15 @@ export interface WantaAdditionalSeatsData {
   cached: boolean
 }
 
-export type WantaSubscriptionChangePayload = {
-  additional_seats?: number
-  plan?: WantaSubscriptionPlan | null
-}
+export type WantaSubscriptionChangePayload =
+  | {
+      additional_seats: number
+      plan?: never
+    }
+  | {
+      additional_seats?: never
+      plan: WantaSubscriptionPlan | null
+    }
 
 export interface WantaSubscriptionUpdateResult {
   subscriptionID: string

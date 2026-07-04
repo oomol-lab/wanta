@@ -178,6 +178,8 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
   const [drafts, setDrafts] = React.useState<QuestionFieldDraft[]>(() => initialFieldDrafts(fields))
   const [activeFieldIndex, setActiveFieldIndex] = React.useState(0)
   const [submitting, setSubmitting] = React.useState<"answer" | "reject" | null>(null)
+  const activeControlRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
+  const previousActiveFieldIndexRef = React.useRef(activeFieldIndex)
   const disabled = busy || Boolean(submitting)
   const canSubmit = canSubmitFieldAnswers(fields, drafts)
   const activeField = fields[activeFieldIndex]
@@ -196,6 +198,18 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
       setActiveFieldIndex(0)
     }
   }, [activeFieldIndex, fields.length])
+
+  React.useLayoutEffect(() => {
+    if (previousActiveFieldIndexRef.current === activeFieldIndex) {
+      return
+    }
+    previousActiveFieldIndexRef.current = activeFieldIndex
+    activeControlRef.current?.focus()
+  }, [activeFieldIndex])
+
+  const setActiveControlRef = React.useCallback((node: HTMLInputElement | HTMLTextAreaElement | null) => {
+    activeControlRef.current = node
+  }, [])
 
   const updateDraft = React.useCallback((index: number, updater: (draft: QuestionFieldDraft) => QuestionFieldDraft) => {
     setDrafts((current) => current.map((draft, draftIndex) => (draftIndex === index ? updater(draft) : draft)))
@@ -318,6 +332,7 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
               {showInput ? (
                 field.kind === "textarea" ? (
                   <Textarea
+                    ref={setActiveControlRef}
                     id={inputId}
                     value={draft.value}
                     disabled={disabled}
@@ -329,6 +344,7 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
                   />
                 ) : (
                   <Input
+                    ref={setActiveControlRef}
                     id={inputId}
                     type={field.kind === "email" ? "email" : "text"}
                     value={draft.value}

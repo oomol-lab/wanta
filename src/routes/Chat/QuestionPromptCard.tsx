@@ -26,6 +26,8 @@ interface QuestionPromptCardProps {
 }
 
 const customOptionValue = "__custom__"
+const questionControlClassName =
+  "border-[var(--oo-control-border)] shadow-none focus-visible:border-[var(--input-focus-ring)] focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_var(--input-focus-ring)]"
 
 function placeholderForField(t: ReturnType<typeof useT>, field: QuestionField): string {
   if (field.kind === "email") {
@@ -337,7 +339,7 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
                     value={draft.value}
                     disabled={disabled}
                     placeholder={placeholderForField(t, field)}
-                    className="min-h-20 resize-y"
+                    className={cn("min-h-20 resize-y", questionControlClassName)}
                     onChange={(event) =>
                       updateDraft(index, (current) => ({ value: event.target.value, selected: current.selected }))
                     }
@@ -350,7 +352,7 @@ export function QuestionPromptCard({ request, busy = false, onAnswer, onReject }
                     value={draft.value}
                     disabled={disabled}
                     placeholder={placeholderForField(t, field)}
-                    className="h-8"
+                    className={cn("h-8", questionControlClassName)}
                     onChange={(event) =>
                       updateDraft(index, (current) => ({ value: event.target.value, selected: current.selected }))
                     }

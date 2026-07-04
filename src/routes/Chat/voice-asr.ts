@@ -17,6 +17,17 @@ export interface VoiceAsrResponse {
   }
 }
 
+export class VoiceNoSpeechError extends Error {
+  public constructor() {
+    super("No speech was recognized.")
+    this.name = "VoiceNoSpeechError"
+  }
+}
+
+export function isVoiceNoSpeechError(error: unknown): error is VoiceNoSpeechError {
+  return error instanceof VoiceNoSpeechError
+}
+
 export function createVoiceAsrRequestId(): string {
   return crypto.randomUUID()
 }
@@ -36,7 +47,7 @@ export function buildVoiceAsrBody(audioBase64: string, requestId: string): strin
 export function parseVoiceAsrTranscript(payload: VoiceAsrResponse | undefined): string {
   const transcript = payload?.result?.text?.trim() ?? ""
   if (!transcript) {
-    throw new Error("No speech was recognized.")
+    throw new VoiceNoSpeechError()
   }
   return transcript
 }

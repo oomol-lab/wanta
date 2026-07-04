@@ -14,6 +14,7 @@ import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
+import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ChatStatus } from "ai"
 
 import { File as FileIcon, Folder, LoaderCircle, Plus } from "lucide-react"
@@ -42,6 +43,7 @@ import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttac
 import { useComposerPalette } from "./useComposerPalette.ts"
 import { useModelCatalog } from "./useModelCatalog.ts"
 import { useVoiceComposerInput } from "./useVoiceComposerInput.ts"
+import { getVoiceErrorNotice } from "./voice-error-display.ts"
 import {
   PromptInput,
   PromptInputAttachments,
@@ -103,6 +105,12 @@ const agentModes = new Set<AgentMode>(WANTA_AGENT_MODES)
 interface PendingDefaultConnection {
   item: ConnectionAccountPaletteItem
   selectConnection: () => void
+}
+
+interface VisibleComposerError {
+  error: UserFacingError
+  showDiagnosticsCopy: boolean
+  onDismiss?: () => void
 }
 
 function readStoredReasoningLevel(): ReasoningLevel {
@@ -532,7 +540,7 @@ export function ChatComposer({
     setInputError(null)
   }
 
-  const visibleError = React.useMemo(() => {
+  const visibleError = React.useMemo<VisibleComposerError | null>(() => {
     if (error) {
       return { error: resolveUserFacingError(error, { area: "chat" }), showDiagnosticsCopy: true }
     }
@@ -545,14 +553,31 @@ export function ChatComposer({
     if (modelError) {
       return { error: modelError, showDiagnosticsCopy: true }
     }
-    const voiceError = voiceInput.error ?? voiceInput.recorderError
-    if (voiceError) {
-      return { error: resolveUserFacingError(voiceError, { area: "voice" }), showDiagnosticsCopy: true }
+    const voiceNotice = getVoiceErrorNotice({
+      recorderError: voiceInput.recorderError,
+      transcriptionError: voiceInput.error,
+      transcriptionErrorKind: voiceInput.errorKind,
+    })
+    if (voiceNotice) {
+      return { ...voiceNotice, onDismiss: voiceInput.dismissError }
     }
     return null
-  }, [error, inputError, modelError, voiceInput.error, voiceInput.recorderError])
+  }, [
+    error,
+    inputError,
+    modelError,
+    voiceInput.dismissError,
+    voiceInput.error,
+    voiceInput.errorKind,
+    voiceInput.recorderError,
+  ])
   const errorBanner = visibleError ? (
-    <ErrorNotice error={visibleError.error} compact showDiagnosticsCopy={visibleError.showDiagnosticsCopy} />
+    <ErrorNotice
+      error={visibleError.error}
+      compact
+      showDiagnosticsCopy={visibleError.showDiagnosticsCopy}
+      onDismiss={visibleError.onDismiss}
+    />
   ) : null
   const submitText = draft
   const canSubmit = !submitBlocked && !composerDisabled && (submitText.trim().length > 0 || attachments.length > 0)

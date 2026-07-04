@@ -4,6 +4,7 @@ import type {
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
+  ChatQuestionRequest,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -34,6 +35,7 @@ import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
 import { buildContextUsageInfo } from "./context-usage.ts"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
 import { AddCustomModelDialog } from "./ModelControls.tsx"
+import { answerSingleTextQuestion, isSingleTextQuestion } from "./question-answer.ts"
 import { QueuedMessagePanel } from "./QueuedMessagePanel.tsx"
 import { normalizeServiceSlug } from "./tool-display.ts"
 import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttachments.ts"
@@ -65,6 +67,7 @@ interface ChatComposerProps {
   initialComposerState?: ComposerState
   initialSendPending: boolean
   messages: ChatMessage[]
+  pendingQuestions: ChatQuestionRequest[]
   placeholder: string
   organizationSkills?: ChatOrganizationSkillContext[]
   providers: ConnectionProvider[]
@@ -85,6 +88,7 @@ interface ChatComposerProps {
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
   ) => Promise<boolean>
+  onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onStop: () => void
@@ -185,6 +189,7 @@ export function ChatComposer({
   initialComposerState: initialComposerStateProp,
   initialSendPending,
   messages,
+  pendingQuestions = [],
   placeholder,
   organizationSkills = [],
   providers,
@@ -198,6 +203,7 @@ export function ChatComposer({
   onQueuedMessageResume,
   onComposerStateChange,
   onSend,
+  onAnswerQuestion,
   onSetDefaultConnection,
   onOpenConnectionProvider,
   onStop,
@@ -214,6 +220,7 @@ export function ChatComposer({
     initialComposerStateProp ?? initialComposerState(),
   )
   const [inputError, setInputError] = React.useState<string | null>(null)
+  const [answeringQuestion, setAnsweringQuestion] = React.useState(false)
   const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false)
   const [attachmentMenuStyle, setAttachmentMenuStyle] = React.useState<React.CSSProperties | undefined>()
   const [agentMode, setAgentModeState] = React.useState<AgentMode>(readStoredAgentMode)
@@ -227,7 +234,7 @@ export function ChatComposer({
   const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   const isGenerating = status === "submitted" || status === "streaming"
   const submitBlocked = submitDisabled || initialSendPending
-  const composerDisabled = voiceInput.busy || initialSendPending
+  const composerDisabled = voiceInput.busy || initialSendPending || answeringQuestion
   const modelCatalog = modelCatalogState.catalog
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({
@@ -487,6 +494,24 @@ export function ChatComposer({
   // 的按钮点击触发，避免生成中按回车误中止流。
   const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
     const text = message.text
+    const pendingQuestion = pendingQuestions[0]
+    if (pendingQuestion && isSingleTextQuestion(pendingQuestion) && text.trim().length > 0) {
+      if (submitBlocked || composerDisabled || answeringQuestion) {
+        return
+      }
+      setAnsweringQuestion(true)
+      try {
+        await onAnswerQuestion(pendingQuestion.id, answerSingleTextQuestion(pendingQuestion, text))
+        composerAttachments.revokeCurrentPreviews()
+        dispatchComposer({ type: "reset-after-submit" })
+        setInputError(null)
+      } catch (err) {
+        setInputError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setAnsweringQuestion(false)
+      }
+      return
+    }
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
@@ -531,6 +556,7 @@ export function ChatComposer({
   ) : null
   const submitText = draft
   const canSubmit = !submitBlocked && !composerDisabled && (submitText.trim().length > 0 || attachments.length > 0)
+  const composerPlaceholder = pendingQuestions.length > 0 ? t("chat.questionComposerPlaceholder") : placeholder
   const hasInputAddons = attachments.length > 0 || contextMentions.length > 0
   const contextUsage = React.useMemo(() => buildContextUsageInfo(messages, modelCatalog), [messages, modelCatalog])
 
@@ -564,7 +590,7 @@ export function ChatComposer({
           className={cn(hasInputAddons && "pt-2")}
           value={draft}
           disabled={composerDisabled}
-          placeholder={placeholder}
+          placeholder={composerPlaceholder}
           onChange={(e) => {
             dispatchComposer({
               type: "set-draft",

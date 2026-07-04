@@ -103,6 +103,43 @@ export interface ToolCallResultEvent {
   attachmentsCount?: number
   authorization?: AuthorizationInfo
 }
+export interface ChatQuestionOption {
+  label: string
+  description?: string
+}
+export interface ChatQuestionInfo {
+  question: string
+  header: string
+  options: ChatQuestionOption[]
+  multiple?: boolean
+  custom?: boolean
+}
+export interface ChatQuestionRequest {
+  id: string
+  sessionId: string
+  questions: ChatQuestionInfo[]
+  tool?: {
+    messageId: string
+    callId: string
+  }
+}
+export interface QuestionAskedEvent {
+  sessionId: string
+  request: ChatQuestionRequest
+}
+export interface QuestionResolvedEvent {
+  sessionId: string
+  requestId: string
+}
+export interface AnswerQuestionRequest {
+  sessionId: string
+  requestId: string
+  answers: string[][]
+}
+export interface RejectQuestionRequest {
+  sessionId: string
+  requestId: string
+}
 export interface MessageCompletedEvent {
   sessionId: string
 }
@@ -640,6 +677,9 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     assistantActivity: AssistantActivityEvent
     toolCallStarted: ToolCallStartedEvent
     toolCallResult: ToolCallResultEvent
+    questionAsked: QuestionAskedEvent
+    questionReplied: QuestionResolvedEvent
+    questionRejected: QuestionResolvedEvent
     messageCompleted: MessageCompletedEvent
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
@@ -663,6 +703,9 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void>
     stopGeneration(sessionId: string): Promise<void>
     getMessages(sessionId: string): Promise<ChatMessage[]>
+    getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]>
+    answerQuestion(req: AnswerQuestionRequest): Promise<void>
+    rejectQuestion(req: RejectQuestionRequest): Promise<void>
     getAgentStatus(): Promise<AgentRuntimeStatus>
     /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
     isReady(): Promise<boolean>

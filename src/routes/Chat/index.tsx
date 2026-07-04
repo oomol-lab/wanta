@@ -6,6 +6,7 @@ import type {
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
+  ChatQuestionRequest,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -34,6 +35,7 @@ interface ChatAreaProps {
   composerDraftKey: string
   composerFocusRequest: number
   messages: ChatMessage[]
+  pendingQuestions: ChatQuestionRequest[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
   showEmptyState: boolean
@@ -63,6 +65,8 @@ interface ChatAreaProps {
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
   ) => Promise<boolean>
+  onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onRejectQuestion: (requestId: string) => Promise<void>
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => void
   onComposerStateChange?: (state: ComposerState) => void
@@ -201,6 +205,7 @@ export const ChatArea = React.memo(function ChatArea({
   composerDraftKey,
   composerFocusRequest,
   messages,
+  pendingQuestions,
   status,
   activity,
   showEmptyState,
@@ -224,6 +229,8 @@ export const ChatArea = React.memo(function ChatArea({
   organizationSkills,
   onComposerStateChange,
   onSend,
+  onAnswerQuestion,
+  onRejectQuestion,
   onSetDefaultConnection,
   onStop,
   onQueuedMessageMove,
@@ -264,6 +271,7 @@ export const ChatArea = React.memo(function ChatArea({
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}
       messages={messages}
+      pendingQuestions={pendingQuestions}
       placeholder={placeholder}
       contextBar={showCenteredEmptyState ? contextBar : undefined}
       organizationSkills={organizationSkills}
@@ -277,6 +285,7 @@ export const ChatArea = React.memo(function ChatArea({
       onQueuedMessageRemove={onQueuedMessageRemove}
       onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
+      onAnswerQuestion={onAnswerQuestion}
       onSetDefaultConnection={onSetDefaultConnection}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onStop={onStop}
@@ -328,6 +337,7 @@ export const ChatArea = React.memo(function ChatArea({
       activeSessionId={activeSessionId}
       billingCacheScope={billingCacheScope}
       messages={messages}
+      pendingQuestions={pendingQuestions}
       status={status}
       activity={activity}
       isGenerating={isGenerating}
@@ -337,6 +347,8 @@ export const ChatArea = React.memo(function ChatArea({
       onArtifactsAvailable={onArtifactsAvailable}
       onTurnOutputOpen={onTurnOutputOpen}
       onTurnOutputAvailable={onTurnOutputAvailable}
+      onAnswerQuestion={onAnswerQuestion}
+      onRejectQuestion={onRejectQuestion}
       onViewBilling={onViewBilling}
     />
   )

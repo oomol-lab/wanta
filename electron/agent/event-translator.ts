@@ -1,6 +1,7 @@
 import type {
   AuthorizationInfo,
   AssistantActivityEvent,
+  ChatQuestionRequest,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
@@ -29,12 +30,16 @@ export type ChatEmit =
   | { event: "assistantActivity"; data: AssistantActivityEvent }
   | { event: "toolCallStarted"; data: ToolCallStartedEvent }
   | { event: "toolCallResult"; data: ToolCallResultEvent }
+  | { event: "questionAsked"; data: { sessionId: string; request: ChatQuestionRequest } }
+  | { event: "questionReplied"; data: { sessionId: string; requestId: string } }
+  | { event: "questionRejected"; data: { sessionId: string; requestId: string } }
   | { event: "messageCompleted"; data: MessageCompletedEvent }
   | { event: "messagePartRemoved"; data: MessagePartRemovedEvent }
   | { event: "agentError"; data: { sessionId?: string; message: string } }
 
 interface OpencodeEvent {
   type: string
+  data?: Record<string, unknown>
   properties?: Record<string, unknown>
 }
 
@@ -90,9 +95,109 @@ function messageErrorPart(error: unknown): ChatMessagePart | undefined {
   }
 }
 
+function normalizeQuestionOption(value: unknown): { label: string; description?: string } | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const option = value as { label?: unknown; description?: unknown }
+  if (typeof option.label !== "string" || !option.label.trim()) {
+    return null
+  }
+  return {
+    label: option.label,
+    ...(typeof option.description === "string" && option.description.trim() ? { description: option.description } : {}),
+  }
+}
+
+function normalizeQuestion(value: unknown): ChatQuestionRequest["questions"][number] | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const question = value as {
+    custom?: unknown
+    header?: unknown
+    multiple?: unknown
+    options?: unknown
+    question?: unknown
+  }
+  if (typeof question.question !== "string" || !question.question.trim()) {
+    return null
+  }
+  const header =
+    typeof question.header === "string" && question.header.trim() ? question.header.trim() : question.question.trim()
+  return {
+    question: question.question,
+    header,
+    options: Array.isArray(question.options)
+      ? question.options
+          .map(normalizeQuestionOption)
+          .filter((option): option is NonNullable<typeof option> => Boolean(option))
+      : [],
+    ...(typeof question.multiple === "boolean" ? { multiple: question.multiple } : {}),
+    ...(typeof question.custom === "boolean" ? { custom: question.custom } : {}),
+  }
+}
+
+export function normalizeQuestionRequest(value: unknown): ChatQuestionRequest | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const request = value as {
+    id?: unknown
+    questions?: unknown
+    sessionID?: unknown
+    sessionId?: unknown
+    tool?: { callID?: unknown; callId?: unknown; messageID?: unknown; messageId?: unknown }
+  }
+  const sessionId = typeof request.sessionID === "string" ? request.sessionID : request.sessionId
+  if (typeof request.id !== "string" || typeof sessionId !== "string" || !Array.isArray(request.questions)) {
+    return null
+  }
+  const questions = request.questions
+    .map(normalizeQuestion)
+    .filter((question): question is NonNullable<typeof question> => Boolean(question))
+  if (questions.length === 0) {
+    return null
+  }
+  const messageId = typeof request.tool?.messageID === "string" ? request.tool.messageID : request.tool?.messageId
+  const callId = typeof request.tool?.callID === "string" ? request.tool.callID : request.tool?.callId
+  return {
+    id: request.id,
+    sessionId,
+    questions,
+    ...(typeof messageId === "string" && typeof callId === "string" ? { tool: { messageId, callId } } : {}),
+  }
+}
+
+function normalizeQuestionResolved(value: unknown, event: "questionReplied" | "questionRejected"): ChatEmit[] {
+  if (!value || typeof value !== "object") {
+    return []
+  }
+  const resolved = value as { requestID?: unknown; requestId?: unknown; sessionID?: unknown; sessionId?: unknown }
+  const requestId = typeof resolved.requestID === "string" ? resolved.requestID : resolved.requestId
+  const sessionId = typeof resolved.sessionID === "string" ? resolved.sessionID : resolved.sessionId
+  if (typeof requestId !== "string" || typeof sessionId !== "string") {
+    return []
+  }
+  return [{ event, data: { sessionId, requestId } }]
+}
+
 export function translateOpencodeEvent(event: OpencodeEvent): ChatEmit[] {
-  const props = event.properties ?? {}
+  const props = event.properties ?? event.data ?? {}
   switch (event.type) {
+    case "question.asked":
+    case "question.v2.asked": {
+      const request = normalizeQuestionRequest(props)
+      return request ? [{ event: "questionAsked", data: { sessionId: request.sessionId, request } }] : []
+    }
+    case "question.replied":
+    case "question.v2.replied": {
+      return normalizeQuestionResolved(props, "questionReplied")
+    }
+    case "question.rejected":
+    case "question.v2.rejected": {
+      return normalizeQuestionResolved(props, "questionRejected")
+    }
     case "message.updated": {
       const info = props.info as { id?: string; sessionID?: string; role?: ChatRole; error?: unknown } | undefined
       if (!info?.id || !info.sessionID || !info.role) {

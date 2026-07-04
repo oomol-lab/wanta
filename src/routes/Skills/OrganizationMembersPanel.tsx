@@ -2,6 +2,8 @@ import type { Organization, OrganizationMember } from "../../../electron/organiz
 import type { BusyAction, MemberView, ProviderGrantView } from "./organization-management-model.ts"
 
 import {
+  CheckIcon,
+  CopyIcon,
   CrownIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -30,6 +32,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { organizationAvatarStyle, organizationInitials } from "@/hooks/useOrganizationWorkspace"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
@@ -351,20 +354,7 @@ function MembersTable({
                 <div className="flex min-w-0 items-start gap-2.5">
                   <UserAvatar avatar={member.avatar} fallback={member.fallback} />
                   <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <div className="oo-text-label min-w-0 truncate">{member.displayName}</div>
-                      <Badge variant="secondary" className="shrink-0">
-                        {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
-                      </Badge>
-                    </div>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
-                          {member.secondaryLabel}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent className="font-mono break-all">{member.user_id}</TooltipContent>
-                    </Tooltip>
+                    <MemberIdentity member={member} showRole />
                   </div>
                   {canRemove ? (
                     <MemberActionsMenu
@@ -443,15 +433,7 @@ function MembersTable({
                   <div className="flex min-w-0 items-center gap-3">
                     <UserAvatar avatar={member.avatar} fallback={member.fallback} />
                     <div className="min-w-0">
-                      <div className="oo-text-label truncate">{member.displayName}</div>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="oo-text-caption-compact mt-0.5 truncate font-mono text-muted-foreground">
-                            {member.secondaryLabel}
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent className="font-mono break-all">{member.user_id}</TooltipContent>
-                      </Tooltip>
+                      <MemberIdentity member={member} />
                     </div>
                   </div>
                   <div>
@@ -512,6 +494,76 @@ function MembersTable({
       </div>
       {removeConfirmDialog}
     </>
+  )
+}
+
+function MemberIdentity({ member, showRole = false }: { member: MemberView; showRole?: boolean }) {
+  const { t } = useAppI18n()
+
+  return (
+    <div className="group/member-identity grid min-w-0 gap-0.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="oo-text-label min-w-0 truncate">{member.displayName}</span>
+        <CopyValueButton
+          ariaLabel={t("organizations.copyMemberName")}
+          copiedLabel={t("organizations.memberNameCopied")}
+          value={member.displayName}
+        />
+        {showRole ? (
+          <Badge variant="secondary" className="shrink-0">
+            {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
+          </Badge>
+        ) : null}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
+              {member.secondaryLabel}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-80 font-mono break-all">{member.user_id}</TooltipContent>
+        </Tooltip>
+        <CopyValueButton
+          ariaLabel={t("organizations.copyMemberUserId")}
+          copiedLabel={t("organizations.memberUserIdCopied")}
+          value={member.user_id}
+        />
+      </div>
+    </div>
+  )
+}
+
+function CopyValueButton({ ariaLabel, copiedLabel, value }: { ariaLabel: string; copiedLabel: string; value: string }) {
+  const { t } = useAppI18n()
+  const { copied, copyText } = useClipboardCopy({ failureMessage: t("organizations.memberCopyFailed") })
+
+  const copyValue = React.useCallback(async () => {
+    await copyText(value)
+  }, [copyText, value])
+
+  const Icon = copied ? CheckIcon : CopyIcon
+  const buttonAriaLabel = copied ? copiedLabel : ariaLabel
+  const tooltipLabel = copied ? copiedLabel : `${ariaLabel}: ${value}`
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+            "opacity-70 group-hover/member-identity:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100",
+          )}
+          data-copied={copied ? "true" : "false"}
+          aria-label={buttonAriaLabel}
+          onClick={() => void copyValue()}
+        >
+          <Icon className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{tooltipLabel}</TooltipContent>
+    </Tooltip>
   )
 }
 

@@ -97,14 +97,62 @@ function normalizedSearchText(value: string): string {
   return value.trim().toLowerCase()
 }
 
-export function matchesComposerQuery(item: ComposerPaletteItem, query: string): boolean {
+function normalizedSearchCandidates(item: ComposerPaletteItem): Array<{ priority: number; value: string }> {
+  return [
+    { priority: 0, value: item.id },
+    { priority: 0, value: item.title },
+    ...(item.keywords ?? []).map((value) => ({ priority: 1, value })),
+    { priority: 2, value: item.meta ?? "" },
+    { priority: 3, value: item.description },
+  ].map((candidate) => ({ ...candidate, value: normalizedSearchText(candidate.value) }))
+}
+
+export function composerQueryScore(item: ComposerPaletteItem, query: string): number {
   const normalized = normalizedSearchText(query)
   if (!normalized) {
-    return true
+    return 0
   }
-  return [item.id, item.title, item.description, item.meta ?? "", ...(item.keywords ?? [])].some((value) =>
-    normalizedSearchText(value).includes(normalized),
-  )
+
+  let bestScore = Number.POSITIVE_INFINITY
+  for (const candidate of normalizedSearchCandidates(item)) {
+    if (!candidate.value) {
+      continue
+    }
+    const titleOrIdBoost = candidate.priority === 0 ? 0 : 10 + candidate.priority * 10
+    let score = Number.POSITIVE_INFINITY
+    if (candidate.value === normalized) {
+      score = titleOrIdBoost
+    } else if (candidate.value.startsWith(normalized)) {
+      score = titleOrIdBoost + 1
+    } else if (candidate.value.split(/[\s:_./-]+/).some((part) => part.startsWith(normalized))) {
+      score = titleOrIdBoost + 2
+    } else {
+      const index = candidate.value.indexOf(normalized)
+      if (index >= 0) {
+        score = titleOrIdBoost + 3 + Math.min(index, 20) / 100
+      }
+    }
+    bestScore = Math.min(bestScore, score)
+  }
+
+  return bestScore
+}
+
+export function matchesComposerQuery(item: ComposerPaletteItem, query: string): boolean {
+  return Number.isFinite(composerQueryScore(item, query))
+}
+
+export function filterComposerPaletteItems<TItem extends ComposerPaletteItem>(
+  items: TItem[],
+  query: string,
+  limit = 8,
+): TItem[] {
+  return items
+    .map((item, index) => ({ index, item, score: composerQueryScore(item, query) }))
+    .filter((entry) => Number.isFinite(entry.score))
+    .sort((left, right) => left.score - right.score || left.index - right.index)
+    .slice(0, limit)
+    .map((entry) => entry.item)
 }
 
 function installedSkillHostCount(group: ManagedSkillGroup): number {
@@ -613,4 +661,16 @@ export function slashCommandItems({
       title: t("chat.commandBilling"),
     },
   ]
+}
+
+export function buildSlashRootPaletteItems({
+  connectionItems,
+  skillItems,
+  slashItems,
+}: {
+  connectionItems: ConnectionProviderPaletteItem[]
+  skillItems: SkillPaletteItem[]
+  slashItems: SlashCommandPaletteItem[]
+}): ChatComposerPaletteItem[] {
+  return [...slashItems, ...skillItems.filter((item) => item.skillId !== creatorSkillId), ...connectionItems]
 }

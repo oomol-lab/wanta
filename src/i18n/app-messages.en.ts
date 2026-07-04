@@ -344,7 +344,7 @@ export const enMessages = {
   "chat.modelReasoningVariants": "OpenAI-compatible reasoning levels",
   "chat.modelReasoningVariantsDescription":
     "Select only when the API supports reasoning_effort. Leave empty if you are unsure.",
-  "chat.commandPaletteEmpty": "No matching commands",
+  "chat.commandPaletteEmpty": "No matching commands, skills, or connectors",
   "chat.skillPaletteEmpty": "No matching skills",
   "chat.skillPaletteLoading": "Loading skills…",
   "chat.skillFallbackDescription": "Explicitly invoke this skill for the current request",

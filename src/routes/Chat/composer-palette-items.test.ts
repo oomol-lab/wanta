@@ -9,7 +9,9 @@ import {
   buildConnectionAccountPaletteItems,
   buildConnectionPaletteItems,
   buildContextPaletteItems,
+  buildSlashRootPaletteItems,
   buildSkillPaletteItems,
+  filterComposerPaletteItems,
   creatorSkillId,
   slashCommandItems,
 } from "./composer-palette-items.ts"
@@ -199,6 +201,66 @@ describe("composer palette items", () => {
     expect(React.isValidElement<{ icon?: string }>(icon)).toBe(true)
     expect(item?.iconSource).toBe(":lucide:shopping-bag:")
     expect(React.isValidElement<{ icon?: string }>(icon) ? icon.props.icon : undefined).toBe(":lucide:shopping-bag:")
+  })
+
+  it("surfaces installed skills directly in slash search", () => {
+    const slashItems = slashCommandItems({ canViewBilling: true, t })
+    const skillItems = buildSkillPaletteItems(
+      [
+        runtimeSkillGroup(creatorSkillId),
+        runtimeSkillGroup("gpt-image-2", "registry", ":simple-icons:openai:"),
+        runtimeSkillGroup("ai-elements", "local"),
+      ],
+      "Fallback",
+      {
+        description: translations["chat.commandCreatorSkillDescription"] ?? "",
+        title: translations["chat.commandCreatorSkill"] ?? "",
+      },
+    )
+    const rootItems = buildSlashRootPaletteItems({ connectionItems: [], skillItems, slashItems })
+
+    expect(rootItems.some((item) => item.kind === "skill" && item.skillId === "gpt-image-2")).toBe(true)
+    expect(rootItems.filter((item) => item.title === "Creator Skill")).toHaveLength(1)
+    expect(filterComposerPaletteItems(rootItems, "gpt").map((item) => item.id)).toEqual(["skill:gpt-image-2"])
+  })
+
+  it("surfaces connector providers directly in slash search", () => {
+    const rootItems = buildSlashRootPaletteItems({
+      slashItems: slashCommandItems({ canViewBilling: true, t }),
+      skillItems: [],
+      connectionItems: buildConnectionPaletteItems(
+        [
+          {
+            actionKind: "oauth2",
+            appCount: 1,
+            appId: "app-gmail",
+            appStatus: "active",
+            apps: [
+              {
+                accountLabel: "work@example.com",
+                authType: "oauth2",
+                createdAt: 1,
+                id: "app-gmail",
+                isDefault: true,
+                service: "gmail",
+                status: "active",
+                updatedAt: 1,
+              },
+            ],
+            authTypes: ["oauth2"],
+            canDisconnect: true,
+            categoryLabels: [],
+            displayName: "Gmail",
+            service: "gmail",
+            status: "connected",
+          },
+        ],
+        (service) => `Use ${service}`,
+        connectionPaletteCopy,
+      ),
+    })
+
+    expect(filterComposerPaletteItems(rootItems, "gmail").map((item) => item.id)).toEqual(["connection-provider:gmail"])
   })
 
   it("builds context items from attachments and connected providers", () => {

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict"
-import { access, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import { metadataFileName } from "./constants.ts"
-import { removeSkillDirectoryIfSafe } from "./file-operations.ts"
+import { removeSkillDirectoryIfSafe, restoreQuarantinedTarget } from "./file-operations.ts"
 
 async function exists(pathname: string): Promise<boolean> {
   try {
@@ -180,4 +180,35 @@ test("removeSkillDirectoryIfSafe rejects symlinks pointing outside allowed roots
   assert.equal(result.reason, "symlink-target-outside-allowed-roots")
   assert.equal(await exists(linkPath), true)
   assert.equal(await exists(outsideSkillPath), true)
+})
+
+test("restoreQuarantinedTarget restores over an empty recreated target", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-restore-"))
+  const quarantinePath = path.join(root, ".example.remove-test")
+  const targetPath = path.join(root, "example")
+  await mkdir(quarantinePath, { recursive: true })
+  await writeFile(path.join(quarantinePath, "original.txt"), "original", "utf8")
+  await mkdir(targetPath, { recursive: true })
+
+  const result = await restoreQuarantinedTarget(quarantinePath, targetPath)
+
+  assert.equal(result, "restored")
+  assert.equal(await readFile(path.join(targetPath, "original.txt"), "utf8"), "original")
+  assert.equal(await exists(quarantinePath), false)
+})
+
+test("restoreQuarantinedTarget refuses to overwrite a changed target", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-restore-"))
+  const quarantinePath = path.join(root, ".example.remove-test")
+  const targetPath = path.join(root, "example")
+  await mkdir(quarantinePath, { recursive: true })
+  await writeFile(path.join(quarantinePath, "original.txt"), "original", "utf8")
+  await mkdir(targetPath, { recursive: true })
+  await writeFile(path.join(targetPath, "new.txt"), "new", "utf8")
+
+  const result = await restoreQuarantinedTarget(quarantinePath, targetPath)
+
+  assert.equal(result, "target-changed")
+  assert.equal(await readFile(path.join(targetPath, "new.txt"), "utf8"), "new")
+  assert.equal(await readFile(path.join(quarantinePath, "original.txt"), "utf8"), "original")
 })

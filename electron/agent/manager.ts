@@ -1,4 +1,12 @@
-import type { AgentMode, ChatAttachment, ChatMessage, ChatQuestionRequest, ReasoningLevel } from "../chat/common.ts"
+import type {
+  AgentMode,
+  ChatAttachment,
+  ChatMessage,
+  ChatPermissionReply,
+  ChatPermissionRequest,
+  ChatQuestionRequest,
+  ReasoningLevel,
+} from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
 import type { SessionInfo } from "../session/common.ts"
@@ -16,7 +24,7 @@ import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
 import { DEFAULT_BUILTIN_MODEL_ID, isBuiltinModelId, resolveBuiltinModel } from "../models/builtin.ts"
 import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../session/title.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
-import { normalizeMessage, normalizeQuestionRequest } from "./event-translator.ts"
+import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { buildOoEnv } from "./oo.ts"
 import { opencodeReasoningVariant } from "./reasoning.ts"
@@ -547,6 +555,22 @@ export class AgentManager {
 
   public async rejectQuestion(_sessionId: string, requestId: string): Promise<void> {
     await this.client.question.reject({ requestID: requestId })
+  }
+
+  public async getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]> {
+    if (!this.started) {
+      return []
+    }
+    const result = await this.client.permission.list()
+    const raw = Array.isArray(result.data) ? result.data : []
+    return raw
+      .map(normalizePermissionRequest)
+      .filter((request): request is ChatPermissionRequest => Boolean(request))
+      .filter((request) => request.sessionId === sessionId)
+  }
+
+  public async answerPermission(_sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> {
+    await this.client.permission.reply({ requestID: requestId, reply })
   }
 
   /**

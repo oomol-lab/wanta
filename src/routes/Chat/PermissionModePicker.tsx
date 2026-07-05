@@ -1,57 +1,53 @@
-import type { AgentMode } from "../../../electron/chat/common.ts"
+import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 
-import { Check, ChevronDown, Hammer, ListChecks } from "lucide-react"
+import { Check, ChevronDown, ShieldCheck, TriangleAlert } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { WANTA_AGENT_MODES } from "../../../electron/agent/mode.ts"
 import { clampNumber, nextModelMenuIndex } from "./model-control-utils.ts"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
-const agentModeOptions: readonly AgentMode[] = WANTA_AGENT_MODES
+const permissionModeOptions: readonly AgentPermissionMode[] = ["default", "full_access"]
 
-function agentModeMenuItemElementId(mode: AgentMode): string {
-  return `agent-mode-menu-item-${mode}`
+function permissionModeMenuItemElementId(mode: AgentPermissionMode): string {
+  return `permission-mode-menu-item-${mode}`
 }
 
-function agentModeLabel(mode: AgentMode, t: ReturnType<typeof useT>): string {
-  switch (mode) {
-    case "build":
-      return t("chat.agentModeBuild")
-    case "plan":
-      return t("chat.agentModePlan")
-  }
+function permissionModeLabel(mode: AgentPermissionMode, t: ReturnType<typeof useT>): string {
+  return mode === "full_access" ? t("chat.permissionModeFullAccess") : t("chat.permissionModeDefault")
 }
 
-function AgentModeIcon({ mode }: { mode: AgentMode }) {
-  return mode === "plan" ? (
-    <ListChecks className="size-4 shrink-0 text-muted-foreground" />
+function PermissionModeIcon({ mode, active = false }: { mode: AgentPermissionMode; active?: boolean }) {
+  return mode === "full_access" ? (
+    <TriangleAlert className={cn("size-4 shrink-0", active ? "text-[var(--oo-warning-foreground)]" : undefined)} />
   ) : (
-    <Hammer className="size-4 shrink-0 text-muted-foreground" />
+    <ShieldCheck className="size-4 shrink-0" />
   )
 }
 
-export function AgentModePicker({
+export function PermissionModePicker({
   disabled,
   value,
-  onValueChange,
+  onDefault,
+  onFullAccess,
 }: {
   disabled: boolean
-  value: AgentMode
-  onValueChange: (mode: AgentMode) => void
+  value: AgentPermissionMode
+  onDefault: () => void
+  onFullAccess: () => void
 }) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const [activeIndex, setActiveIndex] = React.useState(0)
   const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({})
   const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const menuRef = React.useRef<HTMLDivElement | null>(null)
   const triggerRef = React.useRef<HTMLButtonElement | null>(null)
-  const itemRefs = React.useRef(new Map<AgentMode, HTMLButtonElement>())
-  const selectedLabel = agentModeLabel(value, t)
-  const activeMode = agentModeOptions[activeIndex]
-  const activeItemElementId = activeMode ? agentModeMenuItemElementId(activeMode) : undefined
+  const menuRef = React.useRef<HTMLDivElement | null>(null)
+  const itemRefs = React.useRef(new Map<AgentPermissionMode, HTMLButtonElement>())
+  const selectedLabel = permissionModeLabel(value, t)
+  const activeMode = permissionModeOptions[activeIndex]
+  const activeItemElementId = activeMode ? permissionModeMenuItemElementId(activeMode) : undefined
 
   const updateMenuPosition = React.useCallback(() => {
     const anchor = rootRef.current
@@ -61,10 +57,10 @@ export function AgentModePicker({
     const rect = anchor.getBoundingClientRect()
     const margin = 16
     const gap = 8
-    const width = Math.min(164, window.innerWidth - margin * 2)
+    const width = Math.min(220, window.innerWidth - margin * 2)
     const left = clampNumber(rect.left, margin, window.innerWidth - width - margin)
     const bottom = Math.max(margin, window.innerHeight - rect.top + gap)
-    const maxHeight = Math.max(120, rect.top - margin - gap)
+    const maxHeight = Math.max(112, rect.top - margin - gap)
     setMenuStyle({ left, bottom, width, maxHeight })
   }, [])
 
@@ -81,7 +77,7 @@ export function AgentModePicker({
     }
   }, [])
 
-  const focusMode = React.useCallback((mode: AgentMode | undefined): void => {
+  const focusMode = React.useCallback((mode: AgentPermissionMode | undefined): void => {
     if (!mode) {
       return
     }
@@ -89,14 +85,18 @@ export function AgentModePicker({
   }, [])
 
   const activateMode = React.useCallback(
-    (mode: AgentMode | undefined): void => {
+    (mode: AgentPermissionMode | undefined): void => {
       if (!mode || disabled) {
         return
       }
-      onValueChange(mode)
       closeMenu()
+      if (mode === "full_access") {
+        onFullAccess()
+      } else {
+        onDefault()
+      }
     },
-    [closeMenu, disabled, onValueChange],
+    [closeMenu, disabled, onDefault, onFullAccess],
   )
 
   React.useEffect(() => {
@@ -109,10 +109,10 @@ export function AgentModePicker({
     if (!open) {
       return
     }
-    const selectedIndex = agentModeOptions.indexOf(value)
+    const selectedIndex = permissionModeOptions.indexOf(value)
     const nextIndex = selectedIndex >= 0 ? selectedIndex : 0
     setActiveIndex(nextIndex)
-    window.requestAnimationFrame(() => focusMode(agentModeOptions[nextIndex]))
+    window.requestAnimationFrame(() => focusMode(permissionModeOptions[nextIndex]))
   }, [focusMode, open, value])
 
   React.useEffect(() => {
@@ -149,36 +149,17 @@ export function AgentModePicker({
       closeMenu()
       return
     }
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault()
-      const nextIndex = nextModelMenuIndex(activeIndex, agentModeOptions.length, 1)
+      const direction = event.key === "ArrowDown" ? 1 : -1
+      const nextIndex = nextModelMenuIndex(activeIndex, permissionModeOptions.length, direction)
       setActiveIndex(nextIndex)
-      focusMode(agentModeOptions[nextIndex])
-      return
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault()
-      const nextIndex = nextModelMenuIndex(activeIndex, agentModeOptions.length, -1)
-      setActiveIndex(nextIndex)
-      focusMode(agentModeOptions[nextIndex])
-      return
-    }
-    if (event.key === "Home") {
-      event.preventDefault()
-      setActiveIndex(0)
-      focusMode(agentModeOptions[0])
-      return
-    }
-    if (event.key === "End") {
-      event.preventDefault()
-      const nextIndex = agentModeOptions.length - 1
-      setActiveIndex(nextIndex)
-      focusMode(agentModeOptions[nextIndex])
+      focusMode(permissionModeOptions[nextIndex])
       return
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault()
-      activateMode(agentModeOptions[activeIndex])
+      activateMode(permissionModeOptions[activeIndex])
     }
   }
 
@@ -190,18 +171,18 @@ export function AgentModePicker({
           role="menu"
           tabIndex={-1}
           aria-activedescendant={activeItemElementId}
-          aria-label={t("chat.agentModePicker")}
+          aria-label={t("chat.permissionModePicker")}
           className="oo-border-divider fixed z-50 overflow-y-auto rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-xl"
           onKeyDown={handleMenuKeyDown}
         >
-          {agentModeOptions.map((mode, index) => {
+          {permissionModeOptions.map((mode, index) => {
             const active = value === mode
             const highlighted = index === activeIndex
-            const label = agentModeLabel(mode, t)
+            const label = permissionModeLabel(mode, t)
             return (
               <button
                 key={mode}
-                id={agentModeMenuItemElementId(mode)}
+                id={permissionModeMenuItemElementId(mode)}
                 ref={(node) => {
                   if (node) {
                     itemRefs.current.set(mode, node)
@@ -227,8 +208,8 @@ export function AgentModePicker({
                 }}
                 onClick={() => activateMode(mode)}
               >
-                <AgentModeIcon mode={mode} />
-                <span className="oo-text-label min-w-0 flex-1 truncate">{label}</span>
+                <PermissionModeIcon mode={mode} active={active} />
+                <span className={cn("oo-text-label min-w-0 flex-1 truncate", active && "font-medium")}>{label}</span>
                 {active ? <Check className="size-4 shrink-0" /> : <span className="size-4 shrink-0" aria-hidden />}
               </button>
             )
@@ -245,28 +226,22 @@ export function AgentModePicker({
         type="button"
         variant="ghost"
         size="sm"
-        title={`${t("chat.agentModePicker")} · ${selectedLabel}`}
-        aria-label={t("chat.agentModePicker")}
+        title={`${t("chat.permissionModePicker")} · ${selectedLabel}`}
+        aria-label={t("chat.permissionModePicker")}
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled}
-        className="h-8 max-w-full min-w-0 shrink rounded-full px-2"
+        className={cn(
+          "h-8 max-w-full min-w-0 shrink rounded-full px-2",
+          value === "full_access" && "text-[var(--oo-warning-foreground)] hover:text-[var(--oo-warning-foreground)]",
+        )}
         onClick={() => {
           if (!disabled) {
-            setOpen((value) => !value)
-          }
-        }}
-        onKeyDown={(event) => {
-          if (disabled) {
-            return
-          }
-          if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
-            event.preventDefault()
-            setOpen(true)
+            setOpen((current) => !current)
           }
         }}
       >
-        <AgentModeIcon mode={value} />
+        <PermissionModeIcon mode={value} active={value === "full_access"} />
         <span className="min-w-0 flex-1 truncate text-left">{selectedLabel}</span>
         <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-180")} />
       </Button>

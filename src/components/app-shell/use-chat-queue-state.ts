@@ -1,4 +1,10 @@
-import type { AgentMode, ChatAttachment, ChatContextMention, ReasoningLevel } from "../../../electron/chat/common.ts"
+import type {
+  AgentMode,
+  AgentPermissionMode,
+  ChatAttachment,
+  ChatContextMention,
+  ReasoningLevel,
+} from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ChatQueueMap, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { ChatStatus } from "ai"
@@ -21,6 +27,7 @@ type SendQueuedMessage = (
   model?: ModelChoice,
   reasoningLevel?: ReasoningLevel,
   mode?: AgentMode,
+  permissionMode?: AgentPermissionMode,
   afterOptimisticSubmit?: () => void,
 ) => Promise<boolean>
 
@@ -53,6 +60,7 @@ export function useChatQueueState({
       model?: ModelChoice,
       reasoningLevel?: ReasoningLevel,
       mode?: AgentMode,
+      permissionMode?: AgentPermissionMode,
     ): boolean => {
       if (!activeSessionId) {
         return false
@@ -65,6 +73,7 @@ export function useChatQueueState({
         model,
         reasoningLevel,
         mode,
+        permissionMode,
       )
       setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
       return true
@@ -145,6 +154,7 @@ export function useChatQueueState({
       message.model,
       message.reasoningLevel,
       message.mode,
+      message.permissionMode,
       () => {
         setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
       },

@@ -1,6 +1,8 @@
 import type {
   AuthorizationInfo,
   AssistantActivityEvent,
+  ChatPermissionReply,
+  ChatPermissionRequest,
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
@@ -48,6 +50,7 @@ import {
   shouldCollapseUserMessageText,
   visibleUserText,
 } from "./message-text.ts"
+import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
 import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
 import { renderBlocks } from "./render-blocks.ts"
 import { formatToolActivityDuration, formatWholeSecondDuration } from "./tool-activity.ts"
@@ -799,6 +802,7 @@ interface ChatTimelineProps {
   activeSessionId: string | null
   billingCacheScope: string
   messages: ChatMessage[]
+  pendingPermissions: ChatPermissionRequest[]
   pendingQuestions: ChatPendingQuestion[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
@@ -810,6 +814,7 @@ interface ChatTimelineProps {
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
   onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
@@ -820,6 +825,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   activeSessionId,
   billingCacheScope,
   messages,
+  pendingPermissions = [],
   pendingQuestions = [],
   status,
   activity,
@@ -831,6 +837,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   onTurnOutputOpen,
   onTurnOutputAvailable,
   onAnswerQuestion,
+  onAnswerPermission,
   onContinueQuestion,
   onDiscardQuestion,
   onRejectQuestion,
@@ -929,6 +936,19 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 onContinue={onContinueQuestion}
                 onDiscard={onDiscardQuestion}
                 onReject={onRejectQuestion}
+              />
+            </div>
+          </div>
+        ))}
+        {pendingPermissions.map((request) => (
+          <div key={request.id} className="flex justify-start">
+            <div className="w-full max-w-full">
+              <PermissionRequiredCard
+                request={request}
+                busy={status === "submitted"}
+                onAllowOnce={(requestId) => void onAnswerPermission(requestId, "once")}
+                onAllowForSession={(requestId) => void onAnswerPermission(requestId, "always")}
+                onReject={(requestId) => void onAnswerPermission(requestId, "reject")}
               />
             </div>
           </div>

@@ -44,42 +44,24 @@ export interface OpencodeCustomModel {
   reasoningVariants?: readonly WantaReasoningVariant[]
 }
 
-// 全量放开内置工具 + 权限：bash/read/write/edit/grep/glob/list/webfetch/task/todo* 与自定义
-// 连接器工具并存。permission 全 allow——本应用未接入 OpenCode 的权限询问 UI，"ask" 会让会话
-// 挂起（无人应答），故只能 allow 或 deny；external_directory: allow 让 read/glob/list 等文件
-// 工具能访问 workspace cwd（App 私有 scratch 目录）之外的真实文件系统，bash 本就不受此限。
+// 内置工具与自定义连接器工具并存；本地 shell、写入和越出私有 scratch workspace
+// 的路径访问经 permission ask 进入 Wanta 两档权限 UI。连接器自定义工具不受内置工具 permission 影响。
 const WANTA_PERMISSION = {
-  edit: "allow",
-  bash: "allow",
-  webfetch: "allow",
-  external_directory: "allow",
-} as const
-
-// 覆盖 OpenCode 原生 plan agent 时保留其“只读调查，只允许写计划文件”的语义。
-const WANTA_PLAN_PERMISSION = {
+  edit: "ask",
   bash: {
-    "*": "deny",
-    "cat *": "allow",
-    "head *": "allow",
-    "tail *": "allow",
-    "sed -n *": "allow",
-    "rg *": "allow",
-    "grep *": "allow",
-    "find *": "allow",
-    "ls *": "allow",
-    pwd: "allow",
-    "git status*": "allow",
-    "git diff*": "allow",
-    "git log*": "allow",
-    "git show*": "allow",
-    "git branch*": "allow",
-    "git rev-parse*": "allow",
-    "git ls-files*": "allow",
-    "git grep*": "allow",
-    "git remote*": "allow",
+    "*": "ask",
   },
   webfetch: "allow",
-  external_directory: "allow",
+  external_directory: "ask",
+} as const
+
+// 覆盖 OpenCode 原生 plan agent 时保留其“不写用户文件”的语义；是否允许本地 shell 仍交给两档权限 UI。
+const WANTA_PLAN_PERMISSION = {
+  bash: {
+    "*": "ask",
+  },
+  webfetch: "allow",
+  external_directory: "ask",
   edit: {
     "*": "deny",
     ".opencode/plans/*.md": "allow",

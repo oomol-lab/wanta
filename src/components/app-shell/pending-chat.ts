@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
@@ -15,6 +16,7 @@ export interface PendingChatTransition {
   model?: ModelChoice
   reasoningLevel?: ReasoningLevel
   mode?: AgentMode
+  permissionMode?: AgentPermissionMode
   createdAt: number
 }
 

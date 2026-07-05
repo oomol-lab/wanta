@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
   ChatOrganizationSkillContext,
@@ -44,6 +45,7 @@ export interface TurnRetryOptions {
   model?: ModelChoice
   reasoningLevel?: ReasoningLevel
   mode?: AgentMode
+  permissionMode?: AgentPermissionMode
 }
 
 export function rememberTurnRetryOptions(
@@ -118,6 +120,7 @@ export function createQueuedChatMessage(
   model?: ModelChoice,
   reasoningLevel?: ReasoningLevel,
   mode?: AgentMode,
+  permissionMode?: AgentPermissionMode,
 ): QueuedChatMessage {
   return {
     id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -128,6 +131,7 @@ export function createQueuedChatMessage(
     model,
     reasoningLevel,
     mode,
+    permissionMode,
     createdAt: Date.now(),
   }
 }

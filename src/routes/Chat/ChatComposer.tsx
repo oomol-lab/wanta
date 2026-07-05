@@ -1,5 +1,6 @@
 import type {
   AgentMode,
+  AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
@@ -69,6 +70,7 @@ interface ChatComposerProps {
   initialComposerState?: ComposerState
   initialSendPending: boolean
   messages: ChatMessage[]
+  permissionMode: AgentPermissionMode
   pendingQuestions: ChatPendingQuestion[]
   placeholder: string
   organizationSkills?: ChatOrganizationSkillContext[]
@@ -89,8 +91,11 @@ interface ChatComposerProps {
     model?: ModelChoice,
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
+    permissionMode?: AgentPermissionMode,
   ) => Promise<boolean>
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onPermissionModeDefault: () => void
+  onPermissionModeFullAccess: () => void
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onStop: () => void
@@ -197,6 +202,7 @@ export function ChatComposer({
   initialComposerState: initialComposerStateProp,
   initialSendPending,
   messages,
+  permissionMode,
   pendingQuestions = [],
   placeholder,
   organizationSkills = [],
@@ -212,6 +218,8 @@ export function ChatComposer({
   onComposerStateChange,
   onSend,
   onAnswerQuestion,
+  onPermissionModeDefault,
+  onPermissionModeFullAccess,
   onSetDefaultConnection,
   onOpenConnectionProvider,
   onStop,
@@ -542,6 +550,7 @@ export function ChatComposer({
       modelCatalog?.selected,
       reasoningLevel,
       agentMode,
+      permissionMode,
     )
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
@@ -684,6 +693,7 @@ export function ChatComposer({
           isGenerating={isGenerating}
           modelCatalog={modelCatalog}
           agentMode={agentMode}
+          permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
           status={status}
           voiceActive={voiceInput.active}
@@ -699,6 +709,8 @@ export function ChatComposer({
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
           onSelectAgentMode={setAgentMode}
+          onSelectDefaultPermissionMode={onPermissionModeDefault}
+          onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
           onStartVoice={voiceInput.start}

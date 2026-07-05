@@ -10,6 +10,7 @@ export type ChatRole = "user" | "assistant"
 export type ToolStatus = "pending" | "running" | "completed" | "error"
 export type ReasoningLevel = WantaReasoningLevel
 export type AgentMode = WantaAgentMode
+export type AgentPermissionMode = "default" | "full_access"
 
 export interface AuthorizationInfo {
   service: string
@@ -140,6 +141,32 @@ export interface RejectQuestionRequest {
   sessionId: string
   requestId: string
 }
+export type ChatPermissionReply = "once" | "always" | "reject"
+export interface ChatPermissionRequest {
+  id: string
+  sessionId: string
+  action: string
+  resources: string[]
+  save?: string[]
+  metadata?: Record<string, unknown>
+  tool?: {
+    messageId: string
+    callId: string
+  }
+}
+export interface PermissionAskedEvent {
+  sessionId: string
+  request: ChatPermissionRequest
+}
+export interface PermissionResolvedEvent {
+  sessionId: string
+  requestId: string
+}
+export interface AnswerPermissionRequest {
+  sessionId: string
+  requestId: string
+  reply: ChatPermissionReply
+}
 export interface MessageCompletedEvent {
   sessionId: string
 }
@@ -244,6 +271,7 @@ export interface SendMessageRequest {
   organizationSkills?: ChatOrganizationSkillContext[]
   projectContext?: ChatProjectContext
   model?: ModelChoice
+  permissionMode?: AgentPermissionMode
   reasoningLevel?: ReasoningLevel
   mode?: AgentMode
 }
@@ -680,6 +708,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     questionAsked: QuestionAskedEvent
     questionReplied: QuestionResolvedEvent
     questionRejected: QuestionResolvedEvent
+    permissionAsked: PermissionAskedEvent
+    permissionReplied: PermissionResolvedEvent
     messageCompleted: MessageCompletedEvent
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
@@ -706,6 +736,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]>
     answerQuestion(req: AnswerQuestionRequest): Promise<void>
     rejectQuestion(req: RejectQuestionRequest): Promise<void>
+    getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]>
+    answerPermission(req: AnswerPermissionRequest): Promise<void>
     getAgentStatus(): Promise<AgentRuntimeStatus>
     /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
     isReady(): Promise<boolean>

@@ -2,10 +2,13 @@ import type {
   AuthorizationInfo,
   AssistantActivityEvent,
   AgentMode,
+  AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
+  ChatPermissionReply,
+  ChatPermissionRequest,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
@@ -23,6 +26,7 @@ import { Building2, ChevronRight, Package, PlugZap } from "lucide-react"
 import * as React from "react"
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatTimeline } from "./ChatTimeline.tsx"
+import { FullAccessConfirmDialog } from "./FullAccessConfirmDialog.tsx"
 import { BrandIcon } from "@/components/BrandIcon"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -35,6 +39,8 @@ interface ChatAreaProps {
   composerDraftKey: string
   composerFocusRequest: number
   messages: ChatMessage[]
+  permissionMode: AgentPermissionMode
+  pendingPermissions: ChatPermissionRequest[]
   pendingQuestions: ChatPendingQuestion[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
@@ -64,8 +70,11 @@ interface ChatAreaProps {
     model?: ModelChoice,
     reasoningLevel?: ReasoningLevel,
     mode?: AgentMode,
+    permissionMode?: AgentPermissionMode,
   ) => Promise<boolean>
+  onPermissionModeChange: (mode: AgentPermissionMode) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
   onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
@@ -207,6 +216,8 @@ export const ChatArea = React.memo(function ChatArea({
   composerDraftKey,
   composerFocusRequest,
   messages,
+  permissionMode,
+  pendingPermissions,
   pendingQuestions,
   status,
   activity,
@@ -231,7 +242,9 @@ export const ChatArea = React.memo(function ChatArea({
   organizationSkills,
   onComposerStateChange,
   onSend,
+  onPermissionModeChange,
   onAnswerQuestion,
+  onAnswerPermission,
   onContinueQuestion,
   onDiscardQuestion,
   onRejectQuestion,
@@ -252,6 +265,7 @@ export const ChatArea = React.memo(function ChatArea({
   onViewBilling,
 }: ChatAreaProps) {
   const t = useT()
+  const [fullAccessDialogOpen, setFullAccessDialogOpen] = React.useState(false)
   const hasMessages = messages.length > 0
   const isGenerating = status === "submitted" || status === "streaming"
   React.useEffect(() => {
@@ -264,6 +278,18 @@ export const ChatArea = React.memo(function ChatArea({
     }
   }, [isGenerating, onArtifactsReset])
 
+  const requestFullAccess = React.useCallback((): void => {
+    if (permissionMode === "full_access") {
+      return
+    }
+    setFullAccessDialogOpen(true)
+  }, [permissionMode])
+
+  const confirmFullAccess = React.useCallback((): void => {
+    onPermissionModeChange("full_access")
+    setFullAccessDialogOpen(false)
+  }, [onPermissionModeChange])
+
   const showCenteredEmptyState = showEmptyState && !hasMessages && !isGenerating
   const composer = (
     <ChatComposer
@@ -275,6 +301,7 @@ export const ChatArea = React.memo(function ChatArea({
       initialComposerState={initialComposerState}
       initialSendPending={initialSendPending}
       messages={messages}
+      permissionMode={permissionMode}
       pendingQuestions={pendingQuestions}
       placeholder={placeholder}
       contextBar={showCenteredEmptyState ? contextBar : undefined}
@@ -290,6 +317,8 @@ export const ChatArea = React.memo(function ChatArea({
       onQueuedMessageResume={onQueuedMessageResume}
       onSend={onSend}
       onAnswerQuestion={onAnswerQuestion}
+      onPermissionModeDefault={() => onPermissionModeChange("default")}
+      onPermissionModeFullAccess={requestFullAccess}
       onSetDefaultConnection={onSetDefaultConnection}
       onOpenConnectionProvider={onOpenConnectionProvider}
       onStop={onStop}
@@ -341,6 +370,7 @@ export const ChatArea = React.memo(function ChatArea({
       activeSessionId={activeSessionId}
       billingCacheScope={billingCacheScope}
       messages={messages}
+      pendingPermissions={pendingPermissions}
       pendingQuestions={pendingQuestions}
       status={status}
       activity={activity}
@@ -352,6 +382,7 @@ export const ChatArea = React.memo(function ChatArea({
       onTurnOutputOpen={onTurnOutputOpen}
       onTurnOutputAvailable={onTurnOutputAvailable}
       onAnswerQuestion={onAnswerQuestion}
+      onAnswerPermission={onAnswerPermission}
       onContinueQuestion={onContinueQuestion}
       onDiscardQuestion={onDiscardQuestion}
       onRejectQuestion={onRejectQuestion}
@@ -368,6 +399,11 @@ export const ChatArea = React.memo(function ChatArea({
           <div className={cn("mx-auto flex w-full flex-col gap-2 px-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>{composer}</div>
         )}
       </div>
+      <FullAccessConfirmDialog
+        open={fullAccessDialogOpen}
+        onClose={() => setFullAccessDialogOpen(false)}
+        onConfirm={confirmFullAccess}
+      />
     </div>
   )
 })

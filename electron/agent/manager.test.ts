@@ -114,6 +114,36 @@ describe("AgentManager", () => {
     expect(writes).toEqual(["identity:new-org", "scope:new-org", "identity:old-org"])
   })
 
+  it("preserves the scope write failure when identity rollback also fails", async () => {
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    const scopeFailure = new Error("scope failed")
+    const rollbackFailure = new Error("rollback failed")
+    const internals = manager as unknown as {
+      organizationName: string | undefined
+      writeOoIdentity: (organizationName: string | undefined) => Promise<void>
+      writeOrganizationScope: (organizationName: string | undefined) => Promise<void>
+      writeOrganizationState: (organizationName: string | undefined) => Promise<void>
+    }
+    internals.organizationName = "old-org"
+    internals.writeOoIdentity = async (organizationName) => {
+      if (organizationName === "old-org") {
+        throw rollbackFailure
+      }
+    }
+    internals.writeOrganizationScope = async () => {
+      throw scopeFailure
+    }
+
+    await expect(internals.writeOrganizationState("new-org")).rejects.toMatchObject({
+      errors: [scopeFailure, rollbackFailure],
+    })
+  })
+
   it("preserves existing oo settings when updating the default organization", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {

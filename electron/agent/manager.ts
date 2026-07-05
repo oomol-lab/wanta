@@ -742,7 +742,11 @@ export class AgentManager {
     try {
       await this.writeOrganizationScope(organizationName)
     } catch (error) {
-      await this.writeOoIdentity(previousOrganizationName)
+      try {
+        await this.writeOoIdentity(previousOrganizationName)
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent organization state.")
+      }
       throw error
     }
   }

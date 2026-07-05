@@ -922,7 +922,7 @@ function ArtifactFileStrip({
   const visibleIndex = entries.length > 0 ? selectedIndex + 1 : 0
 
   return (
-    <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
+    <section className="flex shrink-0 flex-col" style={{ height: listHeight }}>
       <ArtifactBrowserHeader
         baseCrumb={baseCrumb}
         browseLevels={browseLevels}
@@ -930,8 +930,8 @@ function ArtifactFileStrip({
         index={visibleIndex}
         onNavigate={onNavigateBreadcrumb}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-1.5">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1.5 pr-1">
+      <div className="oo-artifact-browser-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-1.5">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1.5">
           {entries.map((entry) => (
             <ArtifactFileTile
               key={entry.key}
@@ -1151,7 +1151,7 @@ function ImageGalleryPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
+      <section className="flex shrink-0 flex-col" style={{ height: listHeight }}>
         <ArtifactBrowserHeader
           baseCrumb={baseCrumb}
           browseLevels={browseLevels}
@@ -1159,8 +1159,8 @@ function ImageGalleryPanel({
           index={selectedIndex + 1}
           onNavigate={onNavigateBreadcrumb}
         />
-        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-1.5">
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(50px,1fr))] gap-1.5 pr-1">
+        <div className="oo-artifact-browser-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-1.5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(50px,1fr))] gap-1.5">
             {entries.map((entry, index) => (
               <ImageThumbnail
                 key={entry.key}

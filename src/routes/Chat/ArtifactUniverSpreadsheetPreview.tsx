@@ -7,8 +7,6 @@ import { FUniver as UniverFacade } from "@univerjs/core/facade"
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core"
 import zhCN from "@univerjs/preset-sheets-core/locales/zh-CN"
 import * as React from "react"
-import "@univerjs/preset-sheets-core/lib/index.css"
-
 import { workbookSnapshotFromPreview } from "./artifact-univer-snapshot.ts"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"

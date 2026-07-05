@@ -117,6 +117,14 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
   }
 }
 
+function organizationNameFromRequest(req: SendMessageRequest): string | undefined {
+  if (req.scope?.type !== "organization") {
+    return undefined
+  }
+  const organizationName = req.scope.organizationName.trim()
+  return organizationName ? organizationName : undefined
+}
+
 function messageErrorSignature(message: string): string {
   return message.trim() || message
 }
@@ -182,6 +190,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private turnOutputsLoaded = false
   private turnOutputsLoadPromise: Promise<void> | null = null
   private turnOutputWritePromise: Promise<void> = Promise.resolve()
+  private agentScopeQueue: Promise<void> = Promise.resolve()
+  private generationScopeReleases = new Map<string, () => void>()
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -215,6 +225,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.turnOutputs.clear()
     this.turnOutputsLoaded = false
     this.turnOutputsLoadPromise = null
+    this.releaseAllGenerationScopeLocks()
   }
 
   public setAgentStatus(status: AgentRuntimeStatus): void {
@@ -534,7 +545,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private beginSessionGeneration(sessionId: string): SessionGeneration {
-    this.sessionGenerations.get(sessionId)?.controller.abort()
+    const previousGeneration = this.sessionGenerations.get(sessionId)
+    previousGeneration?.controller.abort()
+    if (previousGeneration) {
+      this.releaseGenerationScopeLock(previousGeneration.id)
+    }
     const generation = { controller: new AbortController(), id: crypto.randomUUID() }
     this.sessionGenerations.set(sessionId, generation)
     return generation
@@ -544,6 +559,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     for (const generation of this.sessionGenerations.values()) {
       generation.controller.abort()
     }
+    this.releaseAllGenerationScopeLocks()
   }
 
   private isCurrentGeneration(sessionId: string, generationId: string): boolean {
@@ -551,10 +567,51 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private clearSessionGeneration(sessionId: string, generationId?: string): void {
-    if (generationId && !this.isCurrentGeneration(sessionId, generationId)) {
+    const generation = this.sessionGenerations.get(sessionId)
+    if (generationId && generation?.id !== generationId) {
       return
     }
+    if (generation) {
+      this.releaseGenerationScopeLock(generation.id)
+    }
     this.sessionGenerations.delete(sessionId)
+  }
+
+  private async acquireAgentScopeLock(): Promise<() => void> {
+    const previous = this.agentScopeQueue
+    let releaseCurrent!: () => void
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve
+    })
+    this.agentScopeQueue = previous.then(
+      () => current,
+      () => current,
+    )
+    await previous.catch(() => undefined)
+    let released = false
+    return () => {
+      if (released) {
+        return
+      }
+      released = true
+      releaseCurrent()
+    }
+  }
+
+  private releaseGenerationScopeLock(generationId: string): void {
+    const release = this.generationScopeReleases.get(generationId)
+    if (!release) {
+      return
+    }
+    this.generationScopeReleases.delete(generationId)
+    release()
+  }
+
+  private releaseAllGenerationScopeLocks(): void {
+    for (const release of this.generationScopeReleases.values()) {
+      release()
+    }
+    this.generationScopeReleases.clear()
   }
 
   private markUserStopped(sessionId: string): void {
@@ -617,70 +674,88 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    const generation = this.beginSessionGeneration(req.sessionId)
-    this.userStoppedSessions.delete(req.sessionId)
-    this.connectionFailedSessions.delete(req.sessionId)
-    this.clearMessageErrorSignatures(req.sessionId)
-    this.emitSessionActivity(req.sessionId)
-    let artifactDir: string
-    let processDir: string
+    const releaseScope = await this.acquireAgentScopeLock()
+    let generation: SessionGeneration | undefined
+    let artifactDir: string | undefined
+    let processDir: string | undefined
     try {
+      await this.deps.onSetAgentOrganization?.(organizationNameFromRequest(req))
+      generation = this.beginSessionGeneration(req.sessionId)
+      this.generationScopeReleases.set(generation.id, releaseScope)
+      this.userStoppedSessions.delete(req.sessionId)
+      this.connectionFailedSessions.delete(req.sessionId)
+      this.clearMessageErrorSignatures(req.sessionId)
+      this.emitSessionActivity(req.sessionId)
       ;[artifactDir, processDir] = await Promise.all([
         this.agent.createArtifactDir(req.sessionId),
         this.agent.createProcessDir(req.sessionId),
       ])
+      if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
+        this.clearSessionGeneration(req.sessionId, generation.id)
+        return
+      }
+      const project = await this.projectBaseline(req.projectContext)
+      this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
+      this.enqueuePendingProcessDir(req.sessionId, processDir)
+      this.activeTurnOutputs.set(req.sessionId, {
+        artifactRoot: artifactDir,
+        processRoot: processDir,
+        createdAt: Date.now(),
+        requestText: req.text,
+        ...(project.baseline ? { projectBaseline: project.baseline } : {}),
+        ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
+      })
+      const promptGeneration = generation
+      // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
+      void this.agent
+        .promptStreaming(req.sessionId, req.text, {
+          attachments: req.attachments,
+          artifactDir,
+          processDir,
+          mode: req.mode,
+          model: req.model,
+          reasoningLevel: req.reasoningLevel,
+          signal: promptGeneration.controller.signal,
+          system: mergeSystemPrompts(
+            buildOrganizationSkillsSystem(req.organizationSkills),
+            buildContextMentionsSystemPrompt(req.contextMentions),
+            buildProjectContextSystem(req.projectContext),
+            buildPermissionModeSystem(req.permissionMode),
+          ),
+        })
+        .catch((error: unknown) => {
+          if (artifactDir) {
+            this.removePendingArtifactDir(req.sessionId, artifactDir)
+          }
+          if (processDir) {
+            this.removePendingProcessDir(req.sessionId, processDir)
+          }
+          this.activeTurnOutputs.delete(req.sessionId)
+          if (
+            !this.isCurrentGeneration(req.sessionId, promptGeneration.id) ||
+            promptGeneration.controller.signal.aborted
+          ) {
+            this.clearSessionGeneration(req.sessionId, promptGeneration.id)
+            return
+          }
+          const messageId = this.activeAssistantMessages.get(req.sessionId)
+          this.clearSessionGeneration(req.sessionId, promptGeneration.id)
+          this.activeAssistantMessages.delete(req.sessionId)
+          this.emitMessageError(
+            this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+            req.sessionId,
+            errorMessage(error),
+            messageId,
+          )
+        })
     } catch (error) {
-      this.clearSessionGeneration(req.sessionId, generation.id)
+      if (generation) {
+        this.clearSessionGeneration(req.sessionId, generation.id)
+      } else {
+        releaseScope()
+      }
       throw error
     }
-    if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
-      return
-    }
-    const project = await this.projectBaseline(req.projectContext)
-    this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
-    this.enqueuePendingProcessDir(req.sessionId, processDir)
-    this.activeTurnOutputs.set(req.sessionId, {
-      artifactRoot: artifactDir,
-      processRoot: processDir,
-      createdAt: Date.now(),
-      requestText: req.text,
-      ...(project.baseline ? { projectBaseline: project.baseline } : {}),
-      ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
-    })
-    // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
-    void this.agent
-      .promptStreaming(req.sessionId, req.text, {
-        attachments: req.attachments,
-        artifactDir,
-        processDir,
-        mode: req.mode,
-        model: req.model,
-        reasoningLevel: req.reasoningLevel,
-        signal: generation.controller.signal,
-        system: mergeSystemPrompts(
-          buildOrganizationSkillsSystem(req.organizationSkills),
-          buildContextMentionsSystemPrompt(req.contextMentions),
-          buildProjectContextSystem(req.projectContext),
-          buildPermissionModeSystem(req.permissionMode),
-        ),
-      })
-      .catch((error: unknown) => {
-        this.removePendingArtifactDir(req.sessionId, artifactDir)
-        this.removePendingProcessDir(req.sessionId, processDir)
-        this.activeTurnOutputs.delete(req.sessionId)
-        if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
-          return
-        }
-        const messageId = this.activeAssistantMessages.get(req.sessionId)
-        this.clearSessionGeneration(req.sessionId, generation.id)
-        this.activeAssistantMessages.delete(req.sessionId)
-        this.emitMessageError(
-          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-          req.sessionId,
-          errorMessage(error),
-          messageId,
-        )
-      })
   }
 
   private emitSessionActivity(sessionId: string): void {
@@ -975,7 +1050,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
     const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
-    await this.deps.onSetAgentOrganization?.(organizationName)
+    const releaseScope = await this.acquireAgentScopeLock()
+    try {
+      await this.deps.onSetAgentOrganization?.(organizationName)
+    } finally {
+      releaseScope()
+    }
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {

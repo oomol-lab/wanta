@@ -13,7 +13,7 @@ import type {
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
+import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { ChatSendRequest, TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
@@ -40,6 +40,7 @@ import {
   projectContextFromProject,
   rememberTurnRetryOptions,
   sessionScopeFromWorkspace,
+  sessionScopeKey,
 } from "./app-shell-model.ts"
 import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
@@ -257,6 +258,7 @@ export function AppShell() {
     reasoningLevel?: ReasoningLevel
     mode?: AgentMode
     permissionMode?: AgentPermissionMode
+    sessionScope: SessionScope
   } | null>(null)
   const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{
     drawerKey: string
@@ -439,6 +441,9 @@ export function AppShell() {
     if (!pending) {
       return
     }
+    if (sessionScopeKey(sessionScope) !== sessionScopeKey(pending.sessionScope)) {
+      return
+    }
     const connected = connections.summary?.providers.some(
       (p) => p.service === pending.service && p.status === "connected" && p.appStatus === "active",
     )
@@ -460,11 +465,12 @@ export function AppShell() {
         projectContext: pending.projectContext,
         model: pending.model,
         reasoningLevel: pending.reasoningLevel,
+        sessionScope: pending.sessionScope,
         mode: pending.mode,
         permissionMode: pending.permissionMode,
       })
     }
-  }, [connections.summary, send])
+  }, [connections.summary, send, sessionScope])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
   const {
@@ -851,6 +857,9 @@ export function AppShell() {
       if (sendInFlightRef.current) {
         return false
       }
+      if (!sessionScope) {
+        return false
+      }
       sendInFlightRef.current = true
       try {
         setRoute("chat")
@@ -923,6 +932,7 @@ export function AppShell() {
             reasoningLevel,
             mode,
             permissionMode: selectedPermissionMode,
+            sessionScope,
           },
         )
         try {
@@ -932,6 +942,7 @@ export function AppShell() {
             organizationSkills: organizationSkills.chatContextSkills,
             projectContext: activeProjectContext,
             reasoningLevel,
+            sessionScope,
             mode,
             permissionMode: selectedPermissionMode,
           })
@@ -963,6 +974,7 @@ export function AppShell() {
       refreshGeneratedTitle,
       rememberAutoFallbackTitle,
       send,
+      sessionScope,
       setPermissionMode,
     ],
   )
@@ -1206,7 +1218,7 @@ export function AppShell() {
           selectedService: auth.service,
         },
       }))
-      if (activeSessionId && source && (source.text || source.attachments.length > 0)) {
+      if (activeSessionId && sessionScope && source && (source.text || source.attachments.length > 0)) {
         const retryKey = chatTurnInputKey(source)
         const storedOptions = turnRetryOptionsBySession.current.get(activeSessionId)?.get(retryKey)
         pendingRetry.current = {
@@ -1219,6 +1231,7 @@ export function AppShell() {
           projectContext: storedOptions?.projectContext ?? activeProjectContext,
           model: storedOptions?.model ?? lastModelBySession.current.get(activeSessionId),
           reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeSessionId),
+          sessionScope: storedOptions?.sessionScope ?? sessionScope,
           mode: storedOptions?.mode ?? lastModeBySession.current.get(activeSessionId),
           permissionMode:
             storedOptions?.permissionMode ??
@@ -1241,6 +1254,7 @@ export function AppShell() {
       connections.refresh,
       displayedPermissionMode,
       organizationSkills.chatContextSkills,
+      sessionScope,
     ],
   )
   const handleOpenSearch = React.useCallback((): void => setSearchOpen(true), [])
@@ -1485,7 +1499,7 @@ export function AppShell() {
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={artifactSelection}
-                      submitDisabled={!ready || chatBootstrapping}
+                      submitDisabled={!ready || chatBootstrapping || !sessionScope}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}

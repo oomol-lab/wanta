@@ -117,6 +117,7 @@ export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined)
   return [
     "Permission mode for this turn: Default Permission.",
     "- Prefer direct answers, Wanta Link tools, Wanta-controlled app APIs, concrete URL fetching, and selected local context.",
+    "- Single direct oo CLI commands are pre-approved; do not ask the user to approve `oo ...` when it is the right path.",
     "- Use local shell commands, file edits, or external filesystem paths only when they are useful for the task.",
     "- When a local command, file edit, or external path requires permission, ask for that specific command or path instead of asking the user to enable Full Access.",
   ].join("\n")

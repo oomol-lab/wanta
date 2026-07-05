@@ -18,6 +18,7 @@ import type {
   ToolCallStartedEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
+import type { SessionScope } from "../../electron/session/common.ts"
 import type { TextDeltaEvent, TextDeltaKind } from "./chat-message-state.ts"
 import type { SessionPermissionGrant } from "@/routes/Chat/permission-request"
 import type { ChatPendingQuestion } from "@/routes/Chat/question-state"
@@ -51,6 +52,7 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
+  isOoCliPermissionRequest,
   requestMatchesSessionGrant,
 } from "@/routes/Chat/permission-request"
 import {
@@ -103,6 +105,7 @@ export interface UseChat {
       permissionMode?: AgentPermissionMode
       projectContext?: ChatProjectContext
       reasoningLevel?: ReasoningLevel
+      sessionScope?: SessionScope
     },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
@@ -502,6 +505,14 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     return grants.some((grant) => requestMatchesSessionGrant(request, grant))
   }, [])
 
+  const isAutoApprovablePermission = React.useCallback(
+    (sessionId: string, request: ChatPermissionRequest, permissionMode: AgentPermissionMode): boolean =>
+      isOoCliPermissionRequest(request) ||
+      hasSessionPermissionGrant(sessionId, request) ||
+      (permissionMode === "full_access" && !isHighRiskPermissionRequest(request)),
+    [hasSessionPermissionGrant],
+  )
+
   const replyPermissionRequest = React.useCallback(
     async (sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> => {
       await chatService.invoke("answerPermission", { sessionId, requestId, reply })
@@ -708,9 +719,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         const permissionMode = sessionPermissionMode(sessionId)
         const remainingPermissions: ChatPermissionRequest[] = []
         for (const permission of permissions) {
-          const autoApprovable =
-            hasSessionPermissionGrant(sessionId, permission) ||
-            (permissionMode === "full_access" && !isHighRiskPermissionRequest(permission))
+          const autoApprovable = isAutoApprovablePermission(sessionId, permission, permissionMode)
           if (autoApprovable) {
             void replyPermissionRequest(sessionId, permission.id, "once").catch((err: unknown) => {
               reportRendererHandledError("chat", "answerPermission invoke failed", err)
@@ -731,7 +740,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     },
     [
       chatService,
-      hasSessionPermissionGrant,
+      isAutoApprovablePermission,
       replyPermissionRequest,
       sessionPermissionMode,
       setSessionError,
@@ -805,9 +814,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("permissionAsked", (e) => {
         flushPendingToolParts()
         const permissionMode = sessionPermissionMode(e.sessionId)
-        const autoApprovable =
-          hasSessionPermissionGrant(e.sessionId, e.request) ||
-          (permissionMode === "full_access" && !isHighRiskPermissionRequest(e.request))
+        const autoApprovable = isAutoApprovablePermission(e.sessionId, e.request, permissionMode)
         setStatus(e.sessionId, autoApprovable ? "streaming" : "ready")
         setActivity(e.sessionId, undefined)
         markPendingPermissionsMutated(e.sessionId)
@@ -905,6 +912,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     flushPendingToolParts,
     flushPendingTextDeltas,
     forgetPendingToolPart,
+    isAutoApprovablePermission,
     isSessionUserStopped,
     markCurrentToolsCancelled,
     markPendingPermissionsMutated,
@@ -945,6 +953,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         permissionMode?: AgentPermissionMode
         projectContext?: ChatProjectContext
         reasoningLevel?: ReasoningLevel
+        sessionScope?: SessionScope
       } = {},
     ) => {
       setGlobalError(null)
@@ -967,6 +976,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           permissionMode: options.permissionMode ?? sessionPermissionMode(sessionId),
           projectContext: options.projectContext,
           reasoningLevel: options.reasoningLevel,
+          scope: options.sessionScope,
         })
       } catch (err) {
         reportRendererHandledError("chat", "sendMessage invoke failed", err)

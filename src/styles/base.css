@@ -62,6 +62,12 @@
     box-shadow: 0 0 0 2px color-mix(in oklab, var(--input-focus-ring) 26%, transparent);
   }
 
+  :root {
+    --scrollbar-color-rest: transparent transparent;
+    --scrollbar-color-scrolling: var(--scrollbar-thumb) transparent;
+    --scrollbar-width-rest: thin;
+  }
+
   ::-webkit-scrollbar {
     width: var(--scrollbar-size);
     height: var(--scrollbar-size);
@@ -80,8 +86,8 @@
   }
 
   * {
-    scrollbar-color: transparent transparent;
-    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-color-rest);
+    scrollbar-width: var(--scrollbar-width-rest);
   }
 
   .is-scrolling::-webkit-scrollbar-thumb {
@@ -90,7 +96,7 @@
   }
 
   .is-scrolling {
-    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-color: var(--scrollbar-color-scrolling);
   }
 
   .is-scrolling::-webkit-scrollbar-thumb:active {
@@ -101,4 +107,14 @@
   .oo-scrollbar-gutter-auto {
     scrollbar-gutter: auto !important;
   }
+}
+
+/* Univer 使用未分层的全局规则重置 scrollbar，Wanta 的滚动条基线也放到未分层规则中兜底。 */
+* {
+  scrollbar-color: var(--scrollbar-color-rest);
+  scrollbar-width: var(--scrollbar-width-rest);
+}
+
+.is-scrolling {
+  scrollbar-color: var(--scrollbar-color-scrolling);
 }

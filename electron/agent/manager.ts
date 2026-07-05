@@ -26,6 +26,7 @@ import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../ses
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
+import { writeOoIdentitySettings } from "./oo-identity.ts"
 import { buildOoEnv } from "./oo.ts"
 import { opencodeReasoningVariant } from "./reasoning.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
@@ -69,7 +70,9 @@ export async function persistOrganizationScopeUpdate({
   try {
     await writeScope(nextName)
   } catch (error) {
-    await writeScope(currentName).catch((rollbackError: unknown) => {
+    try {
+      await writeScope(currentName)
+    } catch (rollbackError) {
       console.warn("[wanta] failed to rollback agent organization scope:", rollbackError)
       logDiagnostic(
         "agent",
@@ -77,7 +80,8 @@ export async function persistOrganizationScopeUpdate({
         { error: rollbackError, organizationName: currentName },
         "warn",
       )
-    })
+      throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent organization scope.")
+    }
     throw error
   }
 }
@@ -206,7 +210,7 @@ export class AgentManager {
       await persistOrganizationScopeUpdate({
         currentName: previousOrganizationName,
         nextName: nextOrganizationName,
-        writeScope: (name) => this.writeOrganizationScope(name),
+        writeScope: (name) => this.writeOrganizationState(name),
       })
       this.organizationName = nextOrganizationName
     }
@@ -230,7 +234,7 @@ export class AgentManager {
 
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir)
     this.organizationScopePath = organizationScopePath
-    await this.writeOrganizationScope()
+    await this.writeOrganizationState(this.organizationName)
   }
 
   private async startSidecar(): Promise<void> {
@@ -724,12 +728,31 @@ export class AgentManager {
     return { sessionId: id, messages }
   }
 
-  private async writeOrganizationScope(organizationName = this.organizationName): Promise<void> {
+  private async writeOrganizationScope(organizationName: string | undefined): Promise<void> {
     if (!this.organizationScopePath) {
       return
     }
     await mkdir(path.dirname(this.organizationScopePath), { recursive: true })
     await writeFile(this.organizationScopePath, JSON.stringify({ organizationName: organizationName ?? "" }), "utf8")
+  }
+
+  private async writeOrganizationState(organizationName: string | undefined): Promise<void> {
+    const previousOrganizationName = this.organizationName
+    await this.writeOoIdentity(organizationName)
+    try {
+      await this.writeOrganizationScope(organizationName)
+    } catch (error) {
+      try {
+        await this.writeOoIdentity(previousOrganizationName)
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent organization state.")
+      }
+      throw error
+    }
+  }
+
+  private async writeOoIdentity(organizationName: string | undefined): Promise<void> {
+    await writeOoIdentitySettings(path.join(this.options.rootDir, "oo-store", "config"), organizationName)
   }
 
   public dispose(): void {

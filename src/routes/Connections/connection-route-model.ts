@@ -50,7 +50,11 @@ export interface DisconnectTarget {
 }
 
 export function isConnected(provider: ConnectionProviderSummary): boolean {
-  return provider.status === "connected" && provider.appStatus === "active"
+  return provider.status === "connected"
+}
+
+export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): boolean {
+  return provider.status === "connected" && provider.actionKind === "no_auth" && provider.appCount === 0
 }
 
 export function getProviderStatusTone(provider: ConnectionProviderSummary): "attention" | "available" | "connected" {
@@ -138,6 +142,9 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
+      if (isNoAuthReadyProvider(provider)) {
+        return t("connections.noAuthReadyDescription")
+      }
       if (provider.appCount > 1) {
         return t("connections.connectionCount", { count: provider.appCount })
       }
@@ -145,6 +152,19 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
     case "available":
       return getProviderCategoryLabel(provider, t)
   }
+}
+
+export function getProviderAccountValue(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  if (isNoAuthReadyProvider(provider)) {
+    return t("connections.noAccountRequired")
+  }
+  if (provider.appCount === 1 && provider.accountLabel) {
+    return provider.accountLabel
+  }
+  if (provider.appCount > 0) {
+    return t("connections.connectionCount", { count: provider.appCount })
+  }
+  return t("connections.notConnected")
 }
 
 export function getEmptyState(
@@ -210,6 +230,9 @@ export function formatProviderCategoryLabels(provider: ConnectionProviderSummary
 }
 
 export function getProviderMeta(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  if (isNoAuthReadyProvider(provider)) {
+    return t("connections.noAccountRequired")
+  }
   if (provider.status === "connected" && provider.appCount === 1 && provider.accountLabel) {
     return provider.accountLabel
   }

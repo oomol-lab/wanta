@@ -7,6 +7,7 @@ test("buildPermissionModeSystem describes default permission", () => {
 
   assert.match(prompt, /Default Permission/)
   assert.match(prompt, /Wanta-controlled app APIs/)
+  assert.match(prompt, /oo CLI commands are pre-approved/)
   assert.match(prompt, /specific command or path/)
   assert.doesNotMatch(prompt, /user has enabled Full Access/)
 })

@@ -9,6 +9,7 @@ import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltin
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
+import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
 import { AUTH_BLOCKING_ERROR_CODES, buildOoEnv, isAuthBlocking, parseConnectorErrorCode } from "./oo.ts"
 import { WANTA_PLAN_SYSTEM_PROMPT, WANTA_SYSTEM_PROMPT } from "./system-prompt.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
@@ -244,20 +245,16 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
   for (const builtin of ["bash", "edit", "write", "read", "webfetch"]) {
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
-  // Build/Plan 都需要 UI 确认本地 shell 与外部目录；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
+  // Build/Plan 除单条 oo CLI 外都需要 UI 确认本地 shell 与外部目录；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
   // v2 的 PermissionConfig 是 "allow" | "deny" | {对象} 联合，断言对象字段前先按对象形态取出。
   const buildPermission = buildAgent.permission as unknown as Record<string, unknown> | undefined
   const planPermission = planAgent.permission as unknown as Record<string, unknown> | undefined
   const rootPermission = config.permission as unknown as Record<string, unknown> | undefined
-  assert.deepEqual(buildPermission?.bash, {
-    "*": "ask",
-  })
+  assert.deepEqual(buildPermission?.bash, OO_CLI_BASH_PERMISSION)
   assert.equal(buildPermission?.edit, "ask")
   assert.equal(buildPermission?.webfetch, "allow")
   assert.equal(buildPermission?.external_directory, "ask")
-  assert.deepEqual(planPermission?.bash, {
-    "*": "ask",
-  })
+  assert.deepEqual(planPermission?.bash, OO_CLI_BASH_PERMISSION)
   assert.deepEqual(planPermission?.edit, { "*": "deny", ".opencode/plans/*.md": "allow" })
   assert.equal(planPermission?.external_directory, "ask")
   assert.deepEqual(rootPermission?.bash, buildPermission?.bash)

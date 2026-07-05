@@ -1,5 +1,7 @@
 import type { ChatPermissionRequest } from "../../../electron/chat/common.ts"
 
+import { isPureOoCliCommand } from "../../../electron/agent/oo-command-permission.ts"
+
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
 
 export interface SessionPermissionGrant {
@@ -77,6 +79,10 @@ export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boo
     HIGH_RISK_COMMAND_PATTERNS.some((pattern) => pattern.test(command)) ||
     HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(command))
   )
+}
+
+export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolean {
+  return permissionRequestKind(request) === "command" && isPureOoCliCommand(commandText(request))
 }
 
 function escapeRegExp(value: string): string {

@@ -5,6 +5,7 @@ import { test } from "vitest"
 import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
+  isOoCliPermissionRequest,
   permissionCommand,
   permissionPrimaryResource,
   permissionRequestKind,
@@ -41,6 +42,18 @@ test("high risk command detection keeps full access from auto-approving destruct
     true,
   )
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git push origin main" } })), true)
+})
+
+test("oo CLI permission requests are recognized for automatic approval", () => {
+  assert.equal(isOoCliPermissionRequest(permission({ metadata: { command: 'oo search "metaso" --json' } })), true)
+  assert.equal(
+    isOoCliPermissionRequest(permission({ resources: ['oo connector schema "metaso.search" --json'] })),
+    true,
+  )
+  assert.equal(
+    isOoCliPermissionRequest(permission({ metadata: { command: 'oo search "metaso" --json && rm -rf /tmp/x' } })),
+    false,
+  )
 })
 
 test("session grants match exact values, child paths, and saved wildcard patterns", () => {

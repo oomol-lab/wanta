@@ -52,6 +52,7 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
+  isOoCliPermissionRequest,
   requestMatchesSessionGrant,
 } from "@/routes/Chat/permission-request"
 import {
@@ -711,6 +712,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         const remainingPermissions: ChatPermissionRequest[] = []
         for (const permission of permissions) {
           const autoApprovable =
+            isOoCliPermissionRequest(permission) ||
             hasSessionPermissionGrant(sessionId, permission) ||
             (permissionMode === "full_access" && !isHighRiskPermissionRequest(permission))
           if (autoApprovable) {
@@ -808,6 +810,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         flushPendingToolParts()
         const permissionMode = sessionPermissionMode(e.sessionId)
         const autoApprovable =
+          isOoCliPermissionRequest(e.request) ||
           hasSessionPermissionGrant(e.sessionId, e.request) ||
           (permissionMode === "full_access" && !isHighRiskPermissionRequest(e.request))
         setStatus(e.sessionId, autoApprovable ? "streaming" : "ready")

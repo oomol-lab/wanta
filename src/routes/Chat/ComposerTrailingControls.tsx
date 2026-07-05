@@ -382,7 +382,12 @@ export function ComposerTrailingControls({
       {voiceActive ? (
         <VoiceRecorderPanel bars={voiceBars} durationMs={voiceDurationMs} loading={voiceMode === "starting"} />
       ) : null}
-      <div className={cn("flex min-w-0 items-center justify-end gap-1", voiceActive ? "shrink-0" : "flex-1")}>
+      <div
+        className={cn(
+          "flex min-w-0 items-center justify-end gap-1 overflow-hidden",
+          voiceActive ? "shrink-0" : "flex-1",
+        )}
+      >
         {voiceActive ? (
           <>
             {voiceMode === "recording-error" ? (

@@ -615,7 +615,7 @@ export function ChatComposer({
   const promptInput = (
     <PromptInput
       onSubmit={handleSubmit}
-      className={cn(hasMessages && "shrink-0")}
+      className={cn("oo-composer", hasMessages && "shrink-0")}
       onDragOver={composerAttachments.handleDragOver}
       onDrop={composerAttachments.handleDrop}
     >
@@ -660,7 +660,7 @@ export function ChatComposer({
           onPaste={composerAttachments.handlePaste}
         />
       </PromptInputBody>
-      <PromptInputToolbar>
+      <PromptInputToolbar className="oo-composer-toolbar min-w-0 flex-nowrap overflow-hidden">
         <PromptInputTools className="shrink-0 justify-start">
           <input
             ref={composerAttachments.fileInputRef}

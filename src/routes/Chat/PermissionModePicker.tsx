@@ -232,7 +232,7 @@ export function PermissionModePicker({
         aria-haspopup="menu"
         disabled={disabled}
         className={cn(
-          "h-8 max-w-full min-w-0 shrink rounded-full px-2",
+          "oo-composer-control-button h-8 max-w-full min-w-0 shrink rounded-full px-2",
           value === "full_access" && "text-[var(--oo-warning-foreground)] hover:text-[var(--oo-warning-foreground)]",
         )}
         onClick={() => {
@@ -242,8 +242,10 @@ export function PermissionModePicker({
         }}
       >
         <PermissionModeIcon mode={value} active={value === "full_access"} />
-        <span className="min-w-0 flex-1 truncate text-left">{selectedLabel}</span>
-        <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-180")} />
+        <span className="oo-composer-control-label min-w-0 flex-1 truncate text-left">{selectedLabel}</span>
+        <ChevronDown
+          className={cn("oo-composer-control-chevron size-3.5 shrink-0 transition-transform", open && "rotate-180")}
+        />
       </Button>
       {menu}
     </div>

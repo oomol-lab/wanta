@@ -922,7 +922,7 @@ function ArtifactFileStrip({
   const visibleIndex = entries.length > 0 ? selectedIndex + 1 : 0
 
   return (
-    <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
+    <section className="flex shrink-0 flex-col" style={{ height: listHeight }}>
       <ArtifactBrowserHeader
         baseCrumb={baseCrumb}
         browseLevels={browseLevels}
@@ -1151,7 +1151,7 @@ function ImageGalleryPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
+      <section className="flex shrink-0 flex-col" style={{ height: listHeight }}>
         <ArtifactBrowserHeader
           baseCrumb={baseCrumb}
           browseLevels={browseLevels}

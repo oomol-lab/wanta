@@ -5,7 +5,6 @@ import type {
   DeleteSkillRequest,
   ExecuteSkillUpdateRequest,
   InstallRegistrySkillRequest,
-  ManagedSkillGroup,
   OpenSkillPathRequest,
   PublishSkillRequest,
   PublishSkillResult,
@@ -20,6 +19,7 @@ import type {
   UpdateRegistrySkillRequest,
 } from "./common.ts"
 import type { DefaultRegistrySkillSpec } from "./default-registry-skills.ts"
+import type { SkillDeleteStoreTarget } from "./delete-plan.ts"
 import type { EnsureSkillPublishMetadataResult } from "./publish-metadata.ts"
 import type { IConnectionService } from "@oomol/connection"
 import type { FSWatcher } from "node:fs"
@@ -27,14 +27,15 @@ import type { FSWatcher } from "node:fs"
 import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
 import { watch } from "node:fs"
-import { access, readFile, realpath, rm } from "node:fs/promises"
+import { access, readFile, realpath } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { buildOoEnv } from "../agent/oo.ts"
+import { buildOoEnv, buildOoMaintenanceEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
 import { logDiagnostic, logDiagnosticOnChange } from "../diagnostics-log.ts"
 import { ooEndpoint } from "../domain.ts"
 import { runOoCommand } from "../oo-command.ts"
+import { resolveOoStoreDirectory } from "../oo-store-paths.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
   assertSkillOperationSucceeded,
@@ -60,10 +61,11 @@ import {
   runtimeErrorMessage,
 } from "./default-registry-install.ts"
 import { defaultRegistrySkills } from "./default-registry-skills.ts"
+import { buildLocalMachineSkillDeletePlan } from "./delete-plan.ts"
 import {
   assertCanReplaceSharedSkillTarget,
   normalizeSkillId,
-  readDeletableSkillTargetPaths,
+  removeSkillDirectoryIfSafe,
   replaceDirectory,
 } from "./file-operations.ts"
 import { mergeInstalledSkillSnapshots, readSkillCoverageAgents } from "./inventory-snapshot.ts"
@@ -77,6 +79,12 @@ import {
 } from "./manifest.ts"
 import { resolveSharedAgentSkillRoot } from "./paths.ts"
 import { ensureSkillPublishMetadata } from "./publish-metadata.ts"
+import {
+  isSkillRemovedByUser,
+  removeRemovedSkillRecord,
+  RemovedSkillStore,
+  upsertRemovedSkillRecord,
+} from "./removed-store.ts"
 import { assertSafeResetPaths } from "./reset.ts"
 import { scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
 import { resolveUsableRegistrySkillSourcePath } from "./source.ts"
@@ -132,8 +140,28 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return new DefaultSkillInstallStore(app.getPath("userData"))
   }
 
+  private getRemovedSkillStore(): RemovedSkillStore {
+    return new RemovedSkillStore(app.getPath("userData"))
+  }
+
   private getWantaSkillStoreRoot(): string {
     return path.join(app.getPath("userData"), "agent", "oo-store", "config", "skills")
+  }
+
+  private getWantaOoStoreRoot(): string {
+    return path.join(app.getPath("userData"), "agent", "oo-store")
+  }
+
+  private getGlobalOoStoreRoot(): string {
+    return resolveOoStoreDirectory()
+  }
+
+  private getGlobalRegistrySkillRoot(): string {
+    return path.join(this.getGlobalOoStoreRoot(), "skills", "registry")
+  }
+
+  private getWantaRegistrySkillRoot(): string {
+    return path.join(this.getWantaSkillStoreRoot(), "registry")
   }
 
   private getSharedAgentSkillRoot(): string {
@@ -208,6 +236,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.install")
+    await this.forgetRemovedSkill(request)
     await this.syncCachedSkillToSharedAgentRoot(request.skillId, { force: false, packageName: request.packageName })
     this.notifyRuntimeSkillsChanged("install-registry-skill")
 
@@ -323,28 +352,28 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       throw new Error(`Skill not found: ${skillId}`)
     }
 
-    let registryUninstallError: unknown
-    if (group.kind === "registry" && group.packageName?.trim()) {
-      try {
-        const result = await this.runOoCommand(createDeleteSkillArgs({ skillId }), {
-          owner: "skill-service",
-          rejectOnFailure: false,
-        })
-        assertOoSkillOperationResult(result, "skills.uninstall")
-      } catch (cause) {
-        registryUninstallError = cause
-      }
-    }
+    const plan = buildLocalMachineSkillDeletePlan({
+      agentSkillRoots: this.readDeletableSkillRoots(),
+      globalRegistrySkillRoot: this.getGlobalRegistrySkillRoot(),
+      group,
+      wantaRegistrySkillRoot: this.getWantaRegistrySkillRoot(),
+    })
+    const uninstallErrors = await this.uninstallRegistrySkillFromStores(plan.storeTargets)
+    const removedTargets = await this.deleteSkillPlanTargets(plan)
+    const uninstallSucceeded = plan.storeTargets.length > uninstallErrors.length
 
-    const deletedTargets = await this.deleteInstalledSkillTargets(group)
-    if (deletedTargets === 0 && registryUninstallError) {
-      throw registryUninstallError
+    if (removedTargets === 0 && !uninstallSucceeded && uninstallErrors.length > 0) {
+      throw uninstallErrors[0]
     }
-    if (deletedTargets === 0) {
+    if (removedTargets === 0 && !uninstallSucceeded) {
       throw new Error(`No installed Skill target found: ${skillId}`)
     }
 
     await this.rememberDefaultRegistrySkillRemovedByUser(skillId)
+    await this.rememberRemovedSkill({
+      packageName: group.packageName,
+      skillId,
+    })
     this.notifyRuntimeSkillsChanged("delete-skill")
 
     return this.readAndPublishSkillInventory()
@@ -513,6 +542,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       const request = normalizeDefaultRegistrySkillRequest(spec)
       const existingRecord = readDefaultSkillInstallRecord(installStore, request)
       const now = new Date().toISOString()
+      const removedStore = await this.getRemovedSkillStore().read()
 
       if (isRuntimeSkillInstalled(inventory, request.skillId)) {
         installStore = upsertDefaultSkillInstallRecord(installStore, {
@@ -525,7 +555,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         continue
       }
 
-      if (existingRecord?.status === "removed-by-user") {
+      if (existingRecord?.status === "removed-by-user" || isSkillRemovedByUser(removedStore, request)) {
         continue
       }
 
@@ -577,6 +607,25 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         updatedAt: now,
       }),
     )
+  }
+
+  private async rememberRemovedSkill(skill: { packageName?: string; skillId: string }): Promise<void> {
+    const store = this.getRemovedSkillStore()
+    const current = await store.read()
+    await store.write(
+      upsertRemovedSkillRecord(current, {
+        packageName: skill.packageName?.trim() || undefined,
+        removedAt: new Date().toISOString(),
+        scope: "local-machine",
+        skillId: normalizeSkillId(skill.skillId),
+      }),
+    )
+  }
+
+  private async forgetRemovedSkill(skill: { packageName?: string; skillId: string }): Promise<void> {
+    const store = this.getRemovedSkillStore()
+    const current = await store.read()
+    await store.write(removeRemovedSkillRecord(current, skill))
   }
 
   private async refreshManifestRecordsForTargets(targetPaths: string[]): Promise<void> {
@@ -675,13 +724,97 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return path.join(this.getSharedAgentSkillRoot(), normalizeSkillId(skillId))
   }
 
-  private async deleteInstalledSkillTargets(group: ManagedSkillGroup): Promise<number> {
-    const targetPaths = readDeletableSkillTargetPaths(group, this.readDeletableSkillRoots())
+  private async uninstallRegistrySkillFromStores(targets: SkillDeleteStoreTarget[]): Promise<unknown[]> {
+    const errors: unknown[] = []
+
+    for (const target of targets) {
+      try {
+        const result = await this.runOoSkillStoreCommand(target, createDeleteSkillArgs({ skillId: target.skillId }))
+        assertOoSkillOperationResult(result, "skills.uninstall")
+      } catch (cause) {
+        errors.push(cause)
+        logDiagnostic(
+          "skills",
+          "registry skill uninstall failed during local-machine delete",
+          {
+            error: cause,
+            packageName: target.packageName,
+            skillId: target.skillId,
+            store: target.kind,
+          },
+          "warn",
+        )
+      }
+    }
+
+    return errors
+  }
+
+  private async runOoSkillStoreCommand(
+    target: Pick<SkillDeleteStoreTarget, "kind">,
+    args: string[],
+  ): Promise<OoCommandResult> {
+    await this.authService.getAuthState()
+    const authToken = await this.authService.currentSessionToken()
+
+    if (!authToken) {
+      throw new Error("Skills not available (sign in first)")
+    }
+
+    const globalStoreRoot = this.getGlobalOoStoreRoot()
+    const env =
+      target.kind === "global"
+        ? buildOoMaintenanceEnv({
+            authToken,
+            configDir: globalStoreRoot,
+            dataDir: path.join(globalStoreRoot, "data"),
+            logDir: path.join(globalStoreRoot, "log"),
+            ooBinPath: process.env["OO_CLI_PATH"],
+          })
+        : buildOoEnv({
+            authToken,
+            storeDir: this.getWantaOoStoreRoot(),
+            ooBinPath: process.env["OO_CLI_PATH"],
+          })
+
+    return runOoCommand(args, {
+      env,
+      owner: "skill-service",
+      rejectOnFailure: false,
+    })
+  }
+
+  private async deleteSkillPlanTargets(plan: ReturnType<typeof buildLocalMachineSkillDeletePlan>): Promise<number> {
+    const allowedRoots = [
+      ...this.readDeletableSkillRoots(),
+      this.getWantaRegistrySkillRoot(),
+      this.getGlobalRegistrySkillRoot(),
+    ]
     let deletedTargets = 0
 
-    for (const targetPath of targetPaths) {
-      await rm(targetPath, { force: true, recursive: true })
-      deletedTargets += 1
+    for (const target of plan.targets) {
+      const result = await removeSkillDirectoryIfSafe({
+        allowedRoots,
+        packageName: plan.packageName,
+        path: target.path,
+        skillId: plan.skillId,
+      })
+
+      if (result.status === "removed") {
+        deletedTargets += 1
+      } else if (result.reason !== "missing") {
+        logDiagnostic(
+          "skills",
+          "skill delete target skipped",
+          {
+            path: result.path,
+            reason: result.reason,
+            skillId: plan.skillId,
+            targetKind: target.kind,
+          },
+          "warn",
+        )
+      }
     }
 
     return deletedTargets
@@ -740,15 +873,22 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private async readSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
     const startedAtMs = Date.now()
     const manifestPath = this.getManifestPath()
-    const [wantaInstalledSkills, externalInstalledSkills, manifestStore] = await Promise.all([
+    const [wantaInstalledSkills, externalInstalledSkills, manifestStore, removedStore] = await Promise.all([
       scanWantaInstalledSkills({
         cacheSkillStoreRoot: this.getWantaSkillStoreRoot(),
         sharedSkillRoot: this.getSharedAgentSkillRoot(),
       }),
       scanInstalledSkills(),
       readManifestStore(manifestPath),
+      this.getRemovedSkillStore().read(),
     ])
-    const installedSkills = mergeInstalledSkillSnapshots(wantaInstalledSkills, externalInstalledSkills)
+    const installedSkills = mergeInstalledSkillSnapshots(wantaInstalledSkills, externalInstalledSkills).filter(
+      (skill) =>
+        !isSkillRemovedByUser(removedStore, {
+          packageName: skill.metadata.packageName,
+          skillId: skill.name,
+        }),
+    )
     const nextManifestStore = upsertManifestRecords(manifestStore, installedSkills)
     const groups = groupInstalledSkills(installedSkills, nextManifestStore, readSkillCoverageAgents(installedSkills))
 

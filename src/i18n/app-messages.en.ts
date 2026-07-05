@@ -933,7 +933,7 @@ export const enMessages = {
   "artifacts.infoPath": "Path",
   "artifacts.infoFolder": "Folder",
   "connections.title": "Connections",
-  "connections.search": "Search 800+ connectors…",
+  "connections.search": "Search 1000+ connectors…",
   "connections.connect": "Connect",
   "connections.disconnect": "Disconnect",
   "connections.connected": "Connected",

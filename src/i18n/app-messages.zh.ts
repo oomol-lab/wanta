@@ -889,7 +889,7 @@ export const zhCNMessages = {
   "artifacts.infoPath": "路径",
   "artifacts.infoFolder": "所在文件夹",
   "connections.title": "连接",
-  "connections.search": "搜索 800+ 连接器…",
+  "connections.search": "搜索 1000+ 连接器…",
   "connections.connect": "连接",
   "connections.disconnect": "断开",
   "connections.connected": "已连接",

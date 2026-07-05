@@ -2,7 +2,13 @@ import type { ConnectionProviderSummary } from "../../../electron/connections/co
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { isConnected, isNoAuthReadyProvider } from "./connection-route-model.ts"
+import {
+  getProviderAccountValue,
+  getProviderMeta,
+  isConnected,
+  isNoAuthReadyProvider,
+} from "./connection-route-model.ts"
+import { translate } from "@/i18n/i18n"
 
 function provider(overrides: Partial<ConnectionProviderSummary>): ConnectionProviderSummary {
   return {
@@ -30,6 +36,14 @@ test("virtual no-auth ready providers count as connected", () => {
 
   assert.equal(isConnected(ready), true)
   assert.equal(isNoAuthReadyProvider(ready), true)
+  assert.equal(
+    getProviderMeta(ready, (key, vars) => translate("en", key, vars)),
+    "No account required",
+  )
+  assert.equal(
+    getProviderAccountValue(ready, (key, vars) => translate("en", key, vars)),
+    "No account required",
+  )
 })
 
 test("managed no-auth accounts are not treated as connectionless providers", () => {

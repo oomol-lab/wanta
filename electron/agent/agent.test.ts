@@ -280,6 +280,7 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
   assert.match(WANTA_SYSTEM_PROMPT, /inline Connect button/)
   assert.match(WANTA_SYSTEM_PROMPT, /avoid writing manual navigation paths/)
+  assert.match(WANTA_SYSTEM_PROMPT, /first shell token is exactly oo, \$WANTA_OO_BIN, or \$\{WANTA_OO_BIN\}/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
@@ -324,6 +325,26 @@ test("persistOrganizationScopeUpdate restores the previous scope after write fai
   )
 
   assert.deepEqual(writes, ["acme-corp", undefined])
+})
+
+test("persistOrganizationScopeUpdate reports rollback failures", async () => {
+  const failure = new Error("write failed")
+  const rollbackFailure = new Error("rollback failed")
+
+  await assert.rejects(
+    persistOrganizationScopeUpdate({
+      currentName: undefined,
+      nextName: "acme-corp",
+      writeScope: async (organizationName) => {
+        if (organizationName === "acme-corp") {
+          throw failure
+        }
+        throw rollbackFailure
+      },
+    }),
+    (error) =>
+      error instanceof AggregateError && error.errors.includes(failure) && error.errors.includes(rollbackFailure),
+  )
 })
 
 test("parseConnectorErrorCode extracts code in both en and zh (full-width parens) locales", () => {

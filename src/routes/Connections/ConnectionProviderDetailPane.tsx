@@ -16,6 +16,7 @@ import {
   formatDateTime,
   formatProviderCategoryLabels,
   getDefaultAuthType,
+  getProviderAccountValue,
   getEmptyState,
   getProviderDescription,
   getProviderStatusDisplayLabel,
@@ -118,13 +119,7 @@ export function ProviderDetail({
   const t = useT()
   const currentAuthType = getDefaultAuthType(provider)
   const usage = summary?.usage.services.find((item) => item.service === provider.service)
-  const accountValue = isNoAuthReadyProvider(provider)
-    ? t("connections.noAccountRequired")
-    : provider.appCount === 1 && provider.accountLabel
-      ? provider.accountLabel
-      : provider.appCount > 0
-        ? t("connections.connectionCount", { count: provider.appCount })
-        : t("connections.notConnected")
+  const accountValue = getProviderAccountValue(provider, t)
 
   return (
     <div className="grid min-w-0 gap-3">

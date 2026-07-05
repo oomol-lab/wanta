@@ -1,4 +1,5 @@
 export const OO_CLI_BASH_PERMISSION = {
+  // 非 oo shell 仍进入 Wanta 权限 UI；只有下面显式匹配的单条 oo 调用自动放行。
   "*": "ask",
   oo: "allow",
   "oo *": "allow",

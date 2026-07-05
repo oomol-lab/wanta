@@ -70,7 +70,9 @@ export async function persistOrganizationScopeUpdate({
   try {
     await writeScope(nextName)
   } catch (error) {
-    await writeScope(currentName).catch((rollbackError: unknown) => {
+    try {
+      await writeScope(currentName)
+    } catch (rollbackError) {
       console.warn("[wanta] failed to rollback agent organization scope:", rollbackError)
       logDiagnostic(
         "agent",
@@ -78,7 +80,8 @@ export async function persistOrganizationScopeUpdate({
         { error: rollbackError, organizationName: currentName },
         "warn",
       )
-    })
+      throw new AggregateError([error, rollbackError], "Failed to persist and rollback agent organization scope.")
+    }
     throw error
   }
 }
@@ -734,7 +737,14 @@ export class AgentManager {
   }
 
   private async writeOrganizationState(organizationName: string | undefined): Promise<void> {
-    await Promise.all([this.writeOrganizationScope(organizationName), this.writeOoIdentity(organizationName)])
+    const previousOrganizationName = this.organizationName
+    await this.writeOoIdentity(organizationName)
+    try {
+      await this.writeOrganizationScope(organizationName)
+    } catch (error) {
+      await this.writeOoIdentity(previousOrganizationName)
+      throw error
+    }
   }
 
   private async writeOoIdentity(organizationName: string | undefined): Promise<void> {

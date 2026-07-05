@@ -77,6 +77,15 @@ async function waitForEventCount(events: Array<{ event: string; data: unknown }>
   }
 }
 
+async function waitForCondition(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (condition()) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
 async function waitForMessageErrorCount(events: Array<{ event: string; data: unknown }>, count: number): Promise<void> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (events.filter((event) => event.event === "messageError").length >= count) {
@@ -108,7 +117,7 @@ test("setAgentOrganization waits for the scope synchronization callback", async 
   const request = service.setAgentOrganization({ organizationName: "acme-corp" }).then(() => {
     completed = true
   })
-  await Promise.resolve()
+  await waitForCondition(() => Boolean(resolveScope))
 
   assert.equal(completed, false)
   resolveScope?.()
@@ -133,7 +142,7 @@ test("sendMessage waits for the request organization scope before prompting", as
     sessionId: "session-1",
     text: "hello",
   })
-  await Promise.resolve()
+  await waitForCondition(() => Boolean(resolveScope))
 
   assert.deepEqual(scopeCalls, ["acme-corp"])
   assert.equal(bridge.createArtifactDir.mock.calls.length, 0)
@@ -144,6 +153,45 @@ test("sendMessage waits for the request organization scope before prompting", as
 
   assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
   assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+})
+
+test("sendMessage keeps organization scope locked until generation completion", async () => {
+  const bridge = createBridgeAgent()
+  const scopeCalls: Array<string | undefined> = []
+  const service = new ChatServiceImpl(bridge.agent, {
+    onSetAgentOrganization: async (organizationName) => {
+      scopeCalls.push(organizationName)
+    },
+  })
+  service.startEventBridge()
+
+  await service.sendMessage({
+    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    sessionId: "session-1",
+    text: "first",
+  })
+  let secondCompleted = false
+  const second = service
+    .sendMessage({
+      scope: { type: "organization", organizationId: "org-b", organizationName: "org-b" },
+      sessionId: "session-2",
+      text: "second",
+    })
+    .then(() => {
+      secondCompleted = true
+    })
+
+  await Promise.resolve()
+
+  assert.deepEqual(scopeCalls, ["org-a"])
+  assert.equal(secondCompleted, false)
+
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await second
+
+  assert.deepEqual(scopeCalls, ["org-a", "org-b"])
+  assert.equal(secondCompleted, true)
+  assert.equal(bridge.promptStreaming.mock.calls.length, 2)
 })
 
 test("stopGeneration suppresses delayed streaming events until the next send", async () => {

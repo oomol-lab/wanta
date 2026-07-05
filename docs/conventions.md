@@ -62,7 +62,7 @@
 - **permission 的 `"ask"` 必须有 UI 验证**：`permission.asked` / `permission.v2.asked`
   经两档权限 UI 处理；默认权限逐次批准/拒绝当前本地 ask，完全访问确认后自动 reply。
   新增 ask 规则要验证 pending permission 查询、事件推送与 reply。
-- **oo CLI 单命令例外**：`oo ...` / `$WANTA_OO_BIN ...` 这类单条直接 oo CLI 调用在 permission 配置中放行；
+- **oo CLI 单命令例外**：仅当首 token 是 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 时才放行；
   渲染层还会用纯命令判定兜底自动 reply。不要放行 shell 串联、重定向、命令替换或 `sudo oo`。
 - **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器三工具照常 spawn oo，不受影响。
 - 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 search/inspect/call 三者的交叉引用。

@@ -154,6 +154,19 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
   }
 }
 
+export function getProviderAccountValue(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  if (isNoAuthReadyProvider(provider)) {
+    return t("connections.noAccountRequired")
+  }
+  if (provider.appCount === 1 && provider.accountLabel) {
+    return provider.accountLabel
+  }
+  if (provider.appCount > 0) {
+    return t("connections.connectionCount", { count: provider.appCount })
+  }
+  return t("connections.notConnected")
+}
+
 export function getEmptyState(
   summary: ConnectionSummary | null,
   t: TranslateFn,
@@ -217,6 +230,9 @@ export function formatProviderCategoryLabels(provider: ConnectionProviderSummary
 }
 
 export function getProviderMeta(provider: ConnectionProviderSummary, t: TranslateFn): string {
+  if (isNoAuthReadyProvider(provider)) {
+    return t("connections.noAccountRequired")
+  }
   if (provider.status === "connected" && provider.appCount === 1 && provider.accountLabel) {
     return provider.accountLabel
   }

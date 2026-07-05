@@ -6,7 +6,43 @@ const organizationKeyPattern = /^\s*organization\s*=/
 const sectionPattern = /^\s*\[([^\]]+)\]\s*(?:#.*)?$/
 
 function tomlString(value: string): string {
-  return JSON.stringify(value)
+  let escaped = '"'
+  for (const char of value) {
+    const codePoint = char.codePointAt(0) ?? 0
+    switch (char) {
+      case "\b":
+        escaped += "\\b"
+        break
+      case "\t":
+        escaped += "\\t"
+        break
+      case "\n":
+        escaped += "\\n"
+        break
+      case "\f":
+        escaped += "\\f"
+        break
+      case "\r":
+        escaped += "\\r"
+        break
+      case '"':
+        escaped += '\\"'
+        break
+      case "\\":
+        escaped += "\\\\"
+        break
+      default:
+        if (codePoint <= 0x1f || codePoint === 0x7f) {
+          escaped += `\\u${codePoint.toString(16).padStart(4, "0")}`
+        } else if (codePoint === 0x2028 || codePoint === 0x2029) {
+          escaped += `\\u${codePoint.toString(16)}`
+        } else {
+          escaped += char
+        }
+        break
+    }
+  }
+  return `${escaped}"`
 }
 
 function sectionName(line: string): string | undefined {

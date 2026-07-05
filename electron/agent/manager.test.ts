@@ -84,6 +84,36 @@ describe("AgentManager", () => {
     }
   })
 
+  it("restores the default identity when scope persistence fails", async () => {
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    const writes: string[] = []
+    const internals = manager as unknown as {
+      organizationName: string | undefined
+      writeOoIdentity: (organizationName: string | undefined) => Promise<void>
+      writeOrganizationScope: (organizationName: string | undefined) => Promise<void>
+      writeOrganizationState: (organizationName: string | undefined) => Promise<void>
+    }
+    internals.organizationName = "old-org"
+    internals.writeOoIdentity = async (organizationName) => {
+      writes.push(`identity:${organizationName ?? ""}`)
+    }
+    internals.writeOrganizationScope = async (organizationName) => {
+      writes.push(`scope:${organizationName ?? ""}`)
+      if (organizationName === "new-org") {
+        throw new Error("scope failed")
+      }
+    }
+
+    await expect(internals.writeOrganizationState("new-org")).rejects.toThrow("scope failed")
+
+    expect(writes).toEqual(["identity:new-org", "scope:new-org", "identity:old-org"])
+  })
+
   it("preserves existing oo settings when updating the default organization", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
     try {

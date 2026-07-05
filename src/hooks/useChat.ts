@@ -505,6 +505,14 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     return grants.some((grant) => requestMatchesSessionGrant(request, grant))
   }, [])
 
+  const isAutoApprovablePermission = React.useCallback(
+    (sessionId: string, request: ChatPermissionRequest, permissionMode: AgentPermissionMode): boolean =>
+      isOoCliPermissionRequest(request) ||
+      hasSessionPermissionGrant(sessionId, request) ||
+      (permissionMode === "full_access" && !isHighRiskPermissionRequest(request)),
+    [hasSessionPermissionGrant],
+  )
+
   const replyPermissionRequest = React.useCallback(
     async (sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> => {
       await chatService.invoke("answerPermission", { sessionId, requestId, reply })
@@ -711,10 +719,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         const permissionMode = sessionPermissionMode(sessionId)
         const remainingPermissions: ChatPermissionRequest[] = []
         for (const permission of permissions) {
-          const autoApprovable =
-            isOoCliPermissionRequest(permission) ||
-            hasSessionPermissionGrant(sessionId, permission) ||
-            (permissionMode === "full_access" && !isHighRiskPermissionRequest(permission))
+          const autoApprovable = isAutoApprovablePermission(sessionId, permission, permissionMode)
           if (autoApprovable) {
             void replyPermissionRequest(sessionId, permission.id, "once").catch((err: unknown) => {
               reportRendererHandledError("chat", "answerPermission invoke failed", err)
@@ -735,7 +740,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     },
     [
       chatService,
-      hasSessionPermissionGrant,
+      isAutoApprovablePermission,
       replyPermissionRequest,
       sessionPermissionMode,
       setSessionError,
@@ -809,10 +814,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       chatService.serverEvents.on("permissionAsked", (e) => {
         flushPendingToolParts()
         const permissionMode = sessionPermissionMode(e.sessionId)
-        const autoApprovable =
-          isOoCliPermissionRequest(e.request) ||
-          hasSessionPermissionGrant(e.sessionId, e.request) ||
-          (permissionMode === "full_access" && !isHighRiskPermissionRequest(e.request))
+        const autoApprovable = isAutoApprovablePermission(e.sessionId, e.request, permissionMode)
         setStatus(e.sessionId, autoApprovable ? "streaming" : "ready")
         setActivity(e.sessionId, undefined)
         markPendingPermissionsMutated(e.sessionId)
@@ -910,6 +912,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     flushPendingToolParts,
     flushPendingTextDeltas,
     forgetPendingToolPart,
+    isAutoApprovablePermission,
     isSessionUserStopped,
     markCurrentToolsCancelled,
     markPendingPermissionsMutated,

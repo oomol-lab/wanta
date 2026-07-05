@@ -8,7 +8,7 @@ import type {
   ChatMessage,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
-import type { ConnectionProvider, ConnectionWorkspace } from "../../../electron/connections/common.ts"
+import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { GitRepositoryState } from "../../../electron/git/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
@@ -34,9 +34,12 @@ export const TURN_RETRY_OPTIONS_LIMIT = 48
 export const SESSION_TITLE_RETRY_DELAY_MS = 20_000
 export const AUTH_RETRY_POLL_INTERVAL_MS = 2_000
 export const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
+export const WORKSPACE_SWITCH_TIMEOUT_MS = 20_000
 export const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 export const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 export const NO_DRAFT_PROJECT_ID = "__no_project__"
+
+export { connectionWorkspaceKey as connectionWorkspaceSwitchKey } from "@/hooks/connection-oauth-pending"
 
 export interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
@@ -227,10 +230,6 @@ export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): stri
   return workspace.type === "organization" ? `organization:${workspace.organizationId}` : "personal"
 }
 
-export function connectionWorkspaceSwitchKey(workspace: ConnectionWorkspace): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
-}
-
 export function sessionScopeKey(scope: SessionScope | null): string {
   if (!scope) {
     return "workspace-loading"
@@ -268,6 +267,56 @@ export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): bo
     return true
   }
   return !input.organizationSkillsSettled
+}
+
+export interface WorkspaceSwitchTargetReachableInput {
+  activeWorkspaceKey: string
+  hasLoadedOrganizations: boolean
+  loadingOrganizations: boolean
+  organizationIds: readonly string[]
+  targetScopeKey: string | null
+}
+
+export interface WorkspaceSwitchClearInput extends WorkspaceSwitchTargetReachableInput {
+  workspaceSwitching: boolean
+}
+
+export function workspaceSwitchOrganizationId(scopeKey: string): string | null {
+  const prefix = "organization:"
+  if (!scopeKey.startsWith(prefix)) {
+    return null
+  }
+  const organizationId = scopeKey.slice(prefix.length)
+  return organizationId ? organizationId : null
+}
+
+export function isWorkspaceSwitchTargetReachable(input: WorkspaceSwitchTargetReachableInput): boolean {
+  if (!input.targetScopeKey || input.targetScopeKey === "personal") {
+    return true
+  }
+  if (input.activeWorkspaceKey === input.targetScopeKey) {
+    return true
+  }
+  if (input.loadingOrganizations || !input.hasLoadedOrganizations) {
+    return true
+  }
+  const organizationId = workspaceSwitchOrganizationId(input.targetScopeKey)
+  return organizationId ? input.organizationIds.includes(organizationId) : false
+}
+
+export function shouldClearWorkspaceSwitchTarget(input: WorkspaceSwitchClearInput): boolean {
+  if (!input.targetScopeKey) {
+    return false
+  }
+  if (!isWorkspaceSwitchTargetReachable(input)) {
+    return true
+  }
+  if (!input.workspaceSwitching) {
+    return true
+  }
+  return (
+    input.hasLoadedOrganizations && !input.loadingOrganizations && input.activeWorkspaceKey !== input.targetScopeKey
+  )
 }
 
 export function projectContextFromProject(

@@ -43,6 +43,9 @@ import {
   rememberTurnRetryOptions,
   sessionScopeFromWorkspace,
   sessionScopeKey,
+  shouldClearWorkspaceSwitchTarget,
+  workspaceSelectionSwitchKey,
+  WORKSPACE_SWITCH_TIMEOUT_MS,
 } from "./app-shell-model.ts"
 import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
@@ -189,10 +192,12 @@ export function AppShell() {
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
   const [workspaceSwitchTargetKey, setWorkspaceSwitchTargetKey] = React.useState<string | null>(null)
+  const workspaceSwitchStartedAt = React.useRef<number | null>(null)
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
     ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
     : null
+  const activeWorkspaceKey = workspaceSelectionSwitchKey(organizationWorkspace.activeWorkspace)
   const activeOrganizationId =
     organizationWorkspace.activeWorkspace.type === "organization"
       ? organizationWorkspace.activeWorkspace.organizationId
@@ -216,15 +221,52 @@ export function AppShell() {
       if (targetScopeKey === currentScopeKey && !workspaceSwitching) {
         return
       }
+      workspaceSwitchStartedAt.current = Date.now()
       setWorkspaceSwitchTargetKey(targetScopeKey)
     },
     [currentScopeKey, workspaceSwitching],
   )
   React.useEffect(() => {
-    if (workspaceSwitchTargetKey && !workspaceSwitching) {
+    if (!workspaceSwitchTargetKey) {
+      workspaceSwitchStartedAt.current = null
+      return
+    }
+    const shouldClearTarget = shouldClearWorkspaceSwitchTarget({
+      activeWorkspaceKey,
+      hasLoadedOrganizations: organizationWorkspace.hasLoaded,
+      loadingOrganizations: organizationWorkspace.loading,
+      organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
+      targetScopeKey: workspaceSwitchTargetKey,
+      workspaceSwitching,
+    })
+    if (shouldClearTarget) {
       setWorkspaceSwitchTargetKey(null)
     }
-  }, [workspaceSwitchTargetKey, workspaceSwitching])
+  }, [
+    activeWorkspaceKey,
+    organizationWorkspace.hasLoaded,
+    organizationWorkspace.loading,
+    organizationWorkspace.organizations,
+    workspaceSwitchTargetKey,
+    workspaceSwitching,
+  ])
+  React.useEffect(() => {
+    if (!workspaceSwitchTargetKey) {
+      return
+    }
+    const startedAt = workspaceSwitchStartedAt.current ?? Date.now()
+    workspaceSwitchStartedAt.current = startedAt
+    const remainingMs = WORKSPACE_SWITCH_TIMEOUT_MS - (Date.now() - startedAt)
+    if (remainingMs <= 0) {
+      setWorkspaceSwitchTargetKey(null)
+      return
+    }
+    // 防止连接器或组织请求异常挂起时，侧边栏长期停留在禁用态。
+    const timeoutId = window.setTimeout(() => {
+      setWorkspaceSwitchTargetKey((current) => (current === workspaceSwitchTargetKey ? null : current))
+    }, remainingMs)
+    return () => window.clearTimeout(timeoutId)
+  }, [workspaceSwitchTargetKey])
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)

@@ -720,17 +720,11 @@ export function SidebarFooterControls({
           }}
           onRefresh={() => void workspace.refresh({ forceRefresh: true })}
           onSelectOrganization={(organizationId) => {
-            if (workspaceSwitching) {
-              return
-            }
             closeMenus()
             onWorkspaceSwitchStart(`organization:${organizationId}`)
             workspace.selectOrganization(organizationId)
           }}
           onSelectPersonal={() => {
-            if (workspaceSwitching) {
-              return
-            }
             closeMenus()
             onWorkspaceSwitchStart("personal")
             workspace.selectPersonal()

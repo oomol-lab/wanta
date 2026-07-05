@@ -220,7 +220,7 @@ export const enMessages = {
   "chat.newSession": "New chat",
   "chat.emptyTitle": "Tell me what you need, and I'll help you get it done.",
   "chat.emptyConnectorsTitle": "Connectable tools",
-  "chat.emptyConnectorsMeta": "Gmail, Supabase, GitHub, Notion, and 800+ more",
+  "chat.emptyConnectorsMeta": "Gmail, Supabase, GitHub, Notion, and 1000+ more",
   "chat.emptyConnectorsAction": "Connect",
   "chat.emptyConnectorsAria": "Open connections to view connectable tools",
   "chat.emptySharedConnectorsTitle": "Team shared apps",
@@ -1096,7 +1096,7 @@ export const enMessages = {
   "login.description": "Connect apps and team resources so agents can move from answers to action.",
   "login.tagline": "An AI desktop assistant for teams",
   "login.featureSummary":
-    "Connect 800+ apps, from answering questions to using tools. Secure sharing, one authorization for everyone.",
+    "Connect 1000+ apps, from answering questions to using tools. Secure sharing, one authorization for everyone.",
   "login.brandPanelAriaLabel": "Overview of Wanta connection capabilities",
   "login.appsAriaLabel": "Common apps and services Wanta can connect",
   "login.appCategories.ai": "AI",

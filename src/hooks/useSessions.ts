@@ -11,6 +11,7 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 import * as React from "react"
 import { useSessionService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
+import { sessionScopeKey } from "@/components/app-shell/app-shell-model"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const personalSessionScope: SessionScope = { type: "personal" }
@@ -77,7 +78,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
-  const scopeKey = requestScope.type === "organization" ? `organization:${requestScope.organizationId}` : "personal"
+  const scopeKey = sessionScopeKey(requestScope)
 
   React.useEffect(() => {
     enabledRef.current = enabled

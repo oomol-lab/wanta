@@ -79,6 +79,15 @@ describe("workspace switch target cleanup", () => {
     ).toBe(true)
   })
 
+  test("keeps a reachable target while the active workspace catches up", () => {
+    expect(
+      shouldClearWorkspaceSwitchTarget({
+        ...cleanupInput,
+        activeWorkspaceKey: "personal",
+      }),
+    ).toBe(false)
+  })
+
   test("keeps an organization target reachable while organizations are still loading", () => {
     expect(
       shouldClearWorkspaceSwitchTarget({

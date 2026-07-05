@@ -314,9 +314,7 @@ export function shouldClearWorkspaceSwitchTarget(input: WorkspaceSwitchClearInpu
   if (!input.workspaceSwitching) {
     return true
   }
-  return (
-    input.hasLoadedOrganizations && !input.loadingOrganizations && input.activeWorkspaceKey !== input.targetScopeKey
-  )
+  return false
 }
 
 export function projectContextFromProject(

@@ -21,6 +21,7 @@ import {
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
   isConnected,
+  isNoAuthReadyProvider,
 } from "./connection-route-model.ts"
 import { AuthTypeToggleGroup, ConnectionAccountsList } from "./ConnectionAccountsList.tsx"
 import { ProviderUsagePanel } from "./ConnectionUsagePanel.tsx"
@@ -117,6 +118,13 @@ export function ProviderDetail({
   const t = useT()
   const currentAuthType = getDefaultAuthType(provider)
   const usage = summary?.usage.services.find((item) => item.service === provider.service)
+  const accountValue = isNoAuthReadyProvider(provider)
+    ? t("connections.noAccountRequired")
+    : provider.appCount === 1 && provider.accountLabel
+      ? provider.accountLabel
+      : provider.appCount > 0
+        ? t("connections.connectionCount", { count: provider.appCount })
+        : t("connections.notConnected")
 
   return (
     <div className="grid min-w-0 gap-3">
@@ -188,16 +196,7 @@ export function ProviderDetail({
       <section className="grid gap-1.5">
         <h3 className="oo-text-title px-0.5">{t("connections.providerDetails")}</h3>
         <dl className="overflow-hidden rounded-md border">
-          <DetailRow
-            label={t("connections.account")}
-            value={
-              provider.appCount === 1 && provider.accountLabel
-                ? provider.accountLabel
-                : provider.appCount > 0
-                  ? t("connections.connectionCount", { count: provider.appCount })
-                  : t("connections.notConnected")
-            }
-          />
+          <DetailRow label={t("connections.account")} value={accountValue} />
           <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
           <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
           <DetailRow label={t("connections.service")} value={provider.service} mono />
@@ -274,6 +273,7 @@ function ConnectionPanel({
   const activeAuthType =
     selectedAuthType && usableAuthTypes.includes(selectedAuthType) ? selectedAuthType : usableAuthTypes[0]
   const isPolling = isConnectionServicePollingTarget(polling, provider.service)
+  const noAuthReady = isNoAuthReadyProvider(provider)
 
   React.useEffect(() => {
     setSelectedAuthType(currentAuthType)
@@ -299,7 +299,11 @@ function ConnectionPanel({
         />
       </div>
 
-      {activeAuthType ? (
+      {noAuthReady ? (
+        <div className="oo-text-caption oo-text-muted rounded-md border bg-muted/30 px-3 py-2">
+          {t("connections.noAuthReadyDescription")}
+        </div>
+      ) : activeAuthType ? (
         <div className="flex flex-wrap items-center gap-2">
           {isPolling ? (
             <>

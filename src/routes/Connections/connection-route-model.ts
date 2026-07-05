@@ -50,7 +50,11 @@ export interface DisconnectTarget {
 }
 
 export function isConnected(provider: ConnectionProviderSummary): boolean {
-  return provider.status === "connected" && provider.appStatus === "active"
+  return provider.status === "connected"
+}
+
+export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): boolean {
+  return provider.status === "connected" && provider.actionKind === "no_auth" && provider.appCount === 0
 }
 
 export function getProviderStatusTone(provider: ConnectionProviderSummary): "attention" | "available" | "connected" {
@@ -138,6 +142,9 @@ export function getProviderDescription(provider: ConnectionProviderSummary, t: T
     case "needs_attention":
       return t("connections.providerNeedsAttentionDescription", { name: provider.displayName })
     case "connected":
+      if (isNoAuthReadyProvider(provider)) {
+        return t("connections.noAuthReadyDescription")
+      }
       if (provider.appCount > 1) {
         return t("connections.connectionCount", { count: provider.appCount })
       }

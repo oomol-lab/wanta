@@ -69,12 +69,12 @@
 - **理由**：控制依赖面（新增 Radix 收敛到 collapsible/input-group/slot）；保持源码 canonical 以便对照升级（`.claude/skills/ai-elements/references/` 是权威 API 参考，`skills-lock.json` 记录来源 hash）。
 - **后果（13-agent 审查确认 9 个运行时问题，已修）**：streaming 时 Enter 只发送不停止（曾是 HIGH 回归）；工具调用 UI 迁移为 `Task` 折叠摘要后，未接入的独立 Tool/CodeBlock 组件已移除；`src/index.css` 须 `@source "../node_modules/streamdown/dist"`（Tailwind v4 不扫 node_modules）；vendored 目录享受 oxlint override（`react/only-export-components` off）。
 
-## 9. 放开 tools 权限
+## 9. 放开 tools 权限并接入两档权限模式
 
 - **背景**：早期 agent 定位"非编码连接器助手"，内置工具全封禁。后果：答不了"我电脑上有哪些文件"，也无法写脚本组合多个 action 的 JSON 结果。
-- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② `WANTA_PERMISSION = { edit: "allow", bash: "allow", webfetch: "allow", external_directory: "allow" }` 同时下发 agent 级与根级；③ 系统提示词整段重写为双能力（connector 三工具 + 本地工具）——只放开工具不改提示词，模型仍会自我拒绝。
-- **理由（关键约束）**：permission 取值 `ask | allow | deny`，但 `event-translator.ts` 未处理 `permission.updated` 事件（无确认 UI），设 `ask` 会让会话静默挂死 → 只能 allow/deny 二选一。`external_directory: "allow"` 让 read/glob/list 越出私有 scratch cwd 访问真实文件系统（bash 本就不受限）；**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），用提示词引导绝对路径/`~` 代替。
-- **后果**：当前安全姿态是**模型拥有无确认的任意 shell / 文件读写 / 网络访问**，这是已知且接受的取舍。若将来要"危险操作前确认"，需监听 `permission.updated` 并做确认弹窗（明确列为可选后续工作，未做）。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器三工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。前端无需改动（工具渲染有 default 分支）。
+- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② Build agent、Plan agent 与根级 `WANTA_PERMISSION` 对本地 shell 和 `external_directory` 统一设为 `ask`，`edit` 在 Build 为 `ask`、Plan 仅允许 `.opencode/plans/*.md`；③ `event-translator.ts` 翻译 `permission.asked` / `permission.v2.asked` 与 replied 事件，ChatService 暴露 pending permission 查询和 reply；④ 渲染层保留两档模式：默认权限与完全访问。默认权限下本地 ask 会在聊天内显示当前路径/操作并允许用户批准或拒绝本次；完全访问必须经一次确认弹窗，开启后本会话自动 reply pending permission；⑤ 系统提示词整段重写为双能力（connector 三工具 + 本地工具）并按权限模式动态追加——只放开工具不改提示词，模型仍会自我拒绝。
+- **理由（关键约束）**：OpenCode permission 取值 `ask | allow | deny`。Wanta 产品层不暴露细粒度权限，避免用户理解每个内置工具规则；但底层仍用 OpenCode ask 闸住高风险本地动作。**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），访问真实文件仍用绝对路径/`~` 并由 `external_directory: "ask"` 触发权限边界。
+- **后果**：当前安全姿态从"任意 shell / 文件读写 / 网络访问全无确认"收紧为"默认权限优先直接回答、Link 工具和 Wanta 内置 API；需要本地 shell、写入或外部目录时由用户逐次批准，用户也可主动切到完全访问减少后续确认"。若将来继续细化敏感路径（如 `.ssh`、浏览器 profile、邮件数据库、`.env`）或区分外部目录读/写，需要同步 `config.ts`、两档权限 UI、事件测试和 [conventions.md §7](conventions.md)。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器三工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。
 
 ## 10. Beta/Stable 双发行渠道
 

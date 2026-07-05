@@ -244,37 +244,25 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
   for (const builtin of ["bash", "edit", "write", "read", "webfetch"]) {
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
-  // Build 保持全 allow；Plan 显式禁止普通编辑，避免根级 allow 覆盖 OpenCode plan 语义。
+  // Build/Plan 都需要 UI 确认本地 shell 与外部目录；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
   // v2 的 PermissionConfig 是 "allow" | "deny" | {对象} 联合，断言对象字段前先按对象形态取出。
   const buildPermission = buildAgent.permission as unknown as Record<string, unknown> | undefined
   const planPermission = planAgent.permission as unknown as Record<string, unknown> | undefined
   const rootPermission = config.permission as unknown as Record<string, unknown> | undefined
-  assert.equal(buildPermission?.bash, "allow")
-  assert.equal(buildPermission?.edit, "allow")
+  assert.deepEqual(buildPermission?.bash, {
+    "*": "ask",
+  })
+  assert.equal(buildPermission?.edit, "ask")
   assert.equal(buildPermission?.webfetch, "allow")
+  assert.equal(buildPermission?.external_directory, "ask")
   assert.deepEqual(planPermission?.bash, {
-    "*": "deny",
-    "cat *": "allow",
-    "head *": "allow",
-    "tail *": "allow",
-    "sed -n *": "allow",
-    "rg *": "allow",
-    "grep *": "allow",
-    "find *": "allow",
-    "ls *": "allow",
-    pwd: "allow",
-    "git status*": "allow",
-    "git diff*": "allow",
-    "git log*": "allow",
-    "git show*": "allow",
-    "git branch*": "allow",
-    "git rev-parse*": "allow",
-    "git ls-files*": "allow",
-    "git grep*": "allow",
-    "git remote*": "allow",
+    "*": "ask",
   })
   assert.deepEqual(planPermission?.edit, { "*": "deny", ".opencode/plans/*.md": "allow" })
-  assert.equal(rootPermission?.bash, "allow")
+  assert.equal(planPermission?.external_directory, "ask")
+  assert.deepEqual(rootPermission?.bash, buildPermission?.bash)
+  assert.equal(rootPermission?.edit, "ask")
+  assert.equal(rootPermission?.external_directory, "ask")
 })
 
 test("system prompt treats Link as a contextual capability, not the default path", () => {

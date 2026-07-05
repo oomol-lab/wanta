@@ -9,6 +9,19 @@
     box-shadow: var(--oo-prompt-input-shadow) !important;
   }
 
+  .oo-composer {
+    container-type: inline-size;
+  }
+
+  .oo-composer-toolbar {
+    flex-wrap: nowrap;
+  }
+
+  .oo-composer-control-button,
+  .oo-composer-model-button {
+    min-width: 2rem;
+  }
+
   .oo-queue-dock {
     border-color: var(--oo-queue-dock-border);
     background: var(--oo-queue-dock-surface);
@@ -438,5 +451,34 @@
   .oo-active-accent:active {
     background: var(--oo-row-selected);
     color: var(--foreground);
+  }
+}
+
+@layer utilities {
+  @container (max-width: 680px) {
+    .oo-composer-model-button {
+      max-width: 9rem;
+    }
+
+    .oo-composer-model-reasoning {
+      display: none;
+    }
+  }
+
+  @container (max-width: 640px) {
+    .oo-composer-control-button,
+    .oo-composer-model-button {
+      width: 2rem;
+      max-width: 2rem;
+      min-width: 2rem;
+      gap: 0;
+      padding-inline: 0;
+    }
+
+    .oo-composer-control-label,
+    .oo-composer-model-text,
+    .oo-composer-control-chevron {
+      display: none;
+    }
   }
 }

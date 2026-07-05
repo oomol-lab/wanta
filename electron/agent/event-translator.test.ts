@@ -184,6 +184,78 @@ test("question resolved events are translated", () => {
   )
 })
 
+test("permission.asked → permissionAsked", () => {
+  const out = translateOpencodeEvent({
+    type: "permission.asked",
+    properties: {
+      id: "p1",
+      sessionID: "s1",
+      permission: "bash",
+      patterns: ["npm test"],
+      always: ["npm *"],
+      metadata: { command: "npm test" },
+      tool: { messageID: "m1", callID: "c1" },
+    },
+  })
+
+  assert.deepEqual(out, [
+    {
+      event: "permissionAsked",
+      data: {
+        sessionId: "s1",
+        request: {
+          id: "p1",
+          sessionId: "s1",
+          action: "bash",
+          resources: ["npm test"],
+          save: ["npm *"],
+          metadata: { command: "npm test" },
+          tool: { messageId: "m1", callId: "c1" },
+        },
+      },
+    },
+  ])
+})
+
+test("permission.v2 events are translated", () => {
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "permission.v2.asked",
+      data: {
+        id: "p2",
+        sessionID: "s1",
+        action: "edit",
+        resources: ["/tmp/report.md"],
+        save: ["/tmp/*.md"],
+        source: { type: "tool", messageID: "m1", callID: "c1" },
+      },
+    }),
+    [
+      {
+        event: "permissionAsked",
+        data: {
+          sessionId: "s1",
+          request: {
+            id: "p2",
+            sessionId: "s1",
+            action: "edit",
+            resources: ["/tmp/report.md"],
+            save: ["/tmp/*.md"],
+            tool: { messageId: "m1", callId: "c1" },
+          },
+        },
+      },
+    ],
+  )
+  assert.deepEqual(
+    translateOpencodeEvent({
+      type: "permission.v2.replied",
+      data: { sessionID: "s1", requestID: "p2", reply: "once" },
+    }),
+    [{ event: "permissionReplied", data: { sessionId: "s1", requestId: "p2" } }],
+  )
+})
+
 test("normalizeQuestionRequest returns null when all questions are filtered out", () => {
   assert.equal(
     normalizeQuestionRequest({

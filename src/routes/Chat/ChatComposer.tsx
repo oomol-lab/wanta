@@ -1,18 +1,18 @@
 import type {
   AgentMode,
-  ChatAttachment,
+  AgentPermissionMode,
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ConnectionAccountPaletteItem } from "./composer-palette-items.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { ChatPendingQuestion } from "./question-state.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
+import type { ChatSendRequest } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ChatStatus } from "ai"
@@ -69,6 +69,7 @@ interface ChatComposerProps {
   initialComposerState?: ComposerState
   initialSendPending: boolean
   messages: ChatMessage[]
+  permissionMode: AgentPermissionMode
   pendingQuestions: ChatPendingQuestion[]
   placeholder: string
   organizationSkills?: ChatOrganizationSkillContext[]
@@ -82,15 +83,10 @@ interface ChatComposerProps {
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
   onComposerStateChange?: (state: ComposerState) => void
-  onSend: (
-    text: string,
-    attachments: ChatAttachment[],
-    contextMentions: ChatContextMention[],
-    model?: ModelChoice,
-    reasoningLevel?: ReasoningLevel,
-    mode?: AgentMode,
-  ) => Promise<boolean>
+  onSend: (request: ChatSendRequest) => Promise<boolean>
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onPermissionModeDefault: () => void
+  onPermissionModeFullAccess: () => void
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onOpenConnectionProvider?: (service: string, displayName: string) => void
   onStop: () => void
@@ -197,6 +193,7 @@ export function ChatComposer({
   initialComposerState: initialComposerStateProp,
   initialSendPending,
   messages,
+  permissionMode,
   pendingQuestions = [],
   placeholder,
   organizationSkills = [],
@@ -212,6 +209,8 @@ export function ChatComposer({
   onComposerStateChange,
   onSend,
   onAnswerQuestion,
+  onPermissionModeDefault,
+  onPermissionModeFullAccess,
   onSetDefaultConnection,
   onOpenConnectionProvider,
   onStop,
@@ -535,14 +534,15 @@ export function ChatComposer({
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
-    const accepted = await onSend(
-      text,
-      attachments.map(stripDraftAttachment),
+    const accepted = await onSend({
+      attachments: attachments.map(stripDraftAttachment),
       contextMentions,
-      modelCatalog?.selected,
+      mode: agentMode,
+      model: modelCatalog?.selected,
+      permissionMode,
       reasoningLevel,
-      agentMode,
-    )
+      text,
+    })
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
       return
@@ -606,7 +606,7 @@ export function ChatComposer({
   const promptInput = (
     <PromptInput
       onSubmit={handleSubmit}
-      className={cn(hasMessages && "shrink-0")}
+      className={cn("oo-composer", hasMessages && "shrink-0")}
       onDragOver={composerAttachments.handleDragOver}
       onDrop={composerAttachments.handleDrop}
     >
@@ -651,7 +651,7 @@ export function ChatComposer({
           onPaste={composerAttachments.handlePaste}
         />
       </PromptInputBody>
-      <PromptInputToolbar>
+      <PromptInputToolbar className="oo-composer-toolbar min-w-0 flex-nowrap overflow-hidden">
         <PromptInputTools className="shrink-0 justify-start">
           <input
             ref={composerAttachments.fileInputRef}
@@ -684,6 +684,7 @@ export function ChatComposer({
           isGenerating={isGenerating}
           modelCatalog={modelCatalog}
           agentMode={agentMode}
+          permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
           status={status}
           voiceActive={voiceInput.active}
@@ -699,6 +700,8 @@ export function ChatComposer({
           onDeleteModel={modelCatalogState.deleteModel}
           onRetryVoice={voiceInput.retry}
           onSelectAgentMode={setAgentMode}
+          onSelectDefaultPermissionMode={onPermissionModeDefault}
+          onRequestFullAccessPermissionMode={onPermissionModeFullAccess}
           onSelectReasoningLevel={setReasoningLevel}
           onSelectModel={modelCatalogState.selectModel}
           onStartVoice={voiceInput.start}

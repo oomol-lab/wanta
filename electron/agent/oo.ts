@@ -35,6 +35,19 @@ export interface OoEnvOptions {
   ooBinPath?: string
 }
 
+export interface OoMaintenanceEnvOptions {
+  /** 网关鉴权凭证：现为会话 token（注入到 OO_API_KEY，网关层接受 cookie/token/api-key）。 */
+  authToken: string
+  /** oo 配置目录。维护全局 oo store 时需要直接指向用户级 oo 根目录。 */
+  configDir: string
+  /** oo 数据目录。 */
+  dataDir: string
+  /** oo 日志目录。 */
+  logDir: string
+  /** oo 二进制绝对路径（注入 WANTA_OO_BIN，供自定义工具直接调用，比 PATH 更稳）。 */
+  ooBinPath?: string
+}
+
 /** R3：自定义工具经 OpenCode 调用 oo 所需的全部环境变量。 */
 export function buildOoEnv({
   authToken,
@@ -43,13 +56,37 @@ export function buildOoEnv({
   storeDir,
   ooBinPath,
 }: OoEnvOptions): Record<string, string> {
+  const env = buildOoMaintenanceEnv({
+    authToken,
+    configDir: path.join(storeDir, "config"),
+    dataDir: path.join(storeDir, "data"),
+    logDir: path.join(storeDir, "log"),
+    ooBinPath,
+  })
+  if (organizationScopePath) {
+    env.WANTA_ORGANIZATION_SCOPE_PATH = organizationScopePath
+  }
+  if (organizationName) {
+    env.WANTA_ORGANIZATION_NAME = organizationName
+  }
+  return env
+}
+
+/** R3：维护 skill store 时使用的 oo 环境变量；config/data/log 目录由调用方显式给定。 */
+export function buildOoMaintenanceEnv({
+  authToken,
+  configDir,
+  dataDir,
+  logDir,
+  ooBinPath,
+}: OoMaintenanceEnvOptions): Record<string, string> {
   const env: Record<string, string> = {
     // 环境变量名固定为 OO_API_KEY（oo-cli 契约）；值是会话 token。
     OO_API_KEY: authToken,
     OO_ENDPOINT: ooEndpoint,
-    OO_CONFIG_DIR: path.join(storeDir, "config"),
-    OO_DATA_DIR: path.join(storeDir, "data"),
-    OO_LOG_DIR: path.join(storeDir, "log"),
+    OO_CONFIG_DIR: configDir,
+    OO_DATA_DIR: dataDir,
+    OO_LOG_DIR: logDir,
     OO_SKILLS_SYNC_DISABLED: "1",
     OO_NO_SELF_UPDATE: "1",
     OO_TELEMETRY_DISABLED: "1",
@@ -61,12 +98,6 @@ export function buildOoEnv({
   }
   if (ooBinPath) {
     env.WANTA_OO_BIN = ooBinPath
-  }
-  if (organizationScopePath) {
-    env.WANTA_ORGANIZATION_SCOPE_PATH = organizationScopePath
-  }
-  if (organizationName) {
-    env.WANTA_ORGANIZATION_NAME = organizationName
   }
   return env
 }

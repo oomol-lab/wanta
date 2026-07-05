@@ -9,7 +9,18 @@ import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { ArtifactPreviewMode } from "./ArtifactPreviewPane.tsx"
 
-import { ExternalLink, Eye, FolderOpen, Image, Info, Maximize2, Minimize2, PanelRightClose } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Eye,
+  FolderOpen,
+  Image,
+  Info,
+  Maximize2,
+  Minimize2,
+  PanelRightClose,
+} from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
@@ -39,6 +50,11 @@ import { cn } from "@/lib/utils"
 
 const previewLimit = 4
 const artifactResolveCacheLimit = 24
+const artifactListHeightStorageKey = "wanta:artifacts:list-height"
+const artifactListDefaultHeightPx = 168
+const artifactListMinHeightPx = 96
+const artifactPreviewMinHeightPx = 220
+const artifactListMaxHeightRatio = 0.55
 
 export interface ResolvedArtifactGroup {
   messageId: string
@@ -73,6 +89,12 @@ interface ArtifactPanelEntry {
   group: LocalArtifactGroup
   item: LocalArtifactItem
   pack?: LocalArtifactPack
+}
+
+interface ArtifactBrowseLevel {
+  groups: ResolvedArtifactGroup[]
+  label: string
+  path: string
 }
 
 interface ArtifactContextMenuState {
@@ -299,6 +321,37 @@ function flattenPanelEntries(groups: ResolvedArtifactGroup[]): ArtifactPanelEntr
   })
 }
 
+function firstPanelEntryPath(groups: ResolvedArtifactGroup[]): string | null {
+  return flattenPanelEntries(groups)[0]?.item.path ?? null
+}
+
+function rootArtifactItem(groups: ResolvedArtifactGroup[]): LocalArtifactItem | null {
+  return groups.find(({ group }) => group.root)?.group.root ?? null
+}
+
+function readArtifactListHeight(): number {
+  const value = Number(globalThis.localStorage?.getItem(artifactListHeightStorageKey))
+  return Number.isFinite(value) && value > 0 ? value : artifactListDefaultHeightPx
+}
+
+function artifactListMaxHeight(panelHeight: number): number {
+  return Math.max(artifactListMinHeightPx, panelHeight - artifactPreviewMinHeightPx)
+}
+
+function clampArtifactListHeight(height: number, panelHeight: number): number {
+  const ratioMax = Math.floor(panelHeight * artifactListMaxHeightRatio)
+  const maxHeight = Math.max(artifactListMinHeightPx, Math.min(artifactListMaxHeight(panelHeight), ratioMax))
+  return Math.min(Math.max(height, artifactListMinHeightPx), maxHeight)
+}
+
+function saveArtifactListHeight(height: number): void {
+  try {
+    globalThis.localStorage?.setItem(artifactListHeightStorageKey, String(Math.round(height)))
+  } catch {
+    // 受限环境中 localStorage 可能不可用。
+  }
+}
+
 function selectionWithContext(
   group: LocalArtifactGroup,
   messageId: string,
@@ -491,9 +544,13 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
 
 export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaximized }: ArtifactsPanelProps) {
   const t = useT()
+  const chatService = useChatService()
   const { openPath, showInFolder } = useArtifactFileActions()
   const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
   const previewCache = React.useRef<LocalArtifactPreviewCache>(new Map()).current
+  const shellRef = React.useRef<HTMLElement | null>(null)
+  const [artifactListHeight, setArtifactListHeight] = React.useState(readArtifactListHeight)
+  const [browseLevels, setBrowseLevels] = React.useState<ArtifactBrowseLevel[]>([])
   const groups = React.useMemo(() => {
     if (selection?.groups?.length) {
       return selection.groups
@@ -508,9 +565,28 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
         ]
       : []
   }, [selection])
-  const entries = React.useMemo(() => flattenPanelEntries(groups), [groups])
-  const showArtifactList = entries.length > 1
-  const fallbackPath = selection?.selectedPath ?? entries[0]?.item.path ?? selection?.group.root?.path ?? null
+  const activeGroups = browseLevels.at(-1)?.groups ?? groups
+  const entries = React.useMemo(() => flattenPanelEntries(activeGroups), [activeGroups])
+  const showArtifactList = entries.length > 1 || browseLevels.length > 0
+  const hasArtifactBrowser = entries.length > 0 || browseLevels.length > 0
+  const fallbackPath =
+    browseLevels.at(-1) && entries.length > 0
+      ? entries[0]?.item.path
+      : (selection?.selectedPath ?? entries[0]?.item.path ?? selection?.group.root?.path ?? null)
+
+  React.useLayoutEffect(() => {
+    const panelHeight = shellRef.current?.getBoundingClientRect().height ?? 0
+    if (panelHeight <= 0) {
+      return
+    }
+    setArtifactListHeight((current) => {
+      const clamped = clampArtifactListHeight(current, panelHeight)
+      if (clamped !== current) {
+        saveArtifactListHeight(clamped)
+      }
+      return clamped
+    })
+  }, [])
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
   const [previewMode, setPreviewMode] = React.useState<ArtifactPreviewMode>("preview")
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null
@@ -521,10 +597,19 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
     selectedPack?.display === "gallery"
       ? entries.length > 0
       : entries.length > 1 && entries.every((entry) => isImageArtifact(entry.item))
+  const baseRoot = rootArtifactItem(groups)
+  const baseCrumb = {
+    label: selection?.pack?.title ?? baseRoot?.name ?? t("artifacts.title"),
+    path: baseRoot?.path ?? selection?.messageId ?? "artifacts-root",
+  }
 
   const showParent = (filePath: string | undefined): void => {
     showInFolder(filePath ?? selectedEntry?.group.root?.path)
   }
+
+  React.useEffect(() => {
+    setBrowseLevels([])
+  }, [selection])
 
   React.useEffect(() => {
     setSelectedPath((current) => {
@@ -547,8 +632,127 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
     setPreviewMode("preview")
   }, [])
 
+  const enterFolder = React.useCallback(
+    async (entry: ArtifactPanelEntry): Promise<void> => {
+      if (entry.item.kind !== "directory") {
+        openPath(entry.item.path)
+        return
+      }
+      try {
+        const result = await chatService.invoke("resolveLocalArtifacts", { artifactRoot: entry.item.path })
+        const nextGroups = resolveResultPayloads(result).map((payload) => ({
+          messageId: entry.messageId,
+          ...payload,
+        }))
+        if (nextGroups.length === 0) {
+          openPath(entry.item.path)
+          return
+        }
+        setBrowseLevels((current) => [
+          ...current,
+          {
+            groups: nextGroups,
+            label: entry.item.name,
+            path: entry.item.path,
+          },
+        ])
+        setSelectedPath(firstPanelEntryPath(nextGroups))
+        setPreviewMode("preview")
+      } catch (cause) {
+        reportRendererHandledError("generatedArtifacts.enterFolder", "Failed to resolve artifact folder", cause)
+        const error = resolveUserFacingError(cause, { area: "artifact" })
+        toast.error(userFacingErrorDescription(error, t))
+      }
+    },
+    [chatService, openPath, t],
+  )
+
+  const navigateToBreadcrumb = React.useCallback(
+    (index: number): void => {
+      if (index < 0) {
+        const nextSelectedPath = browseLevels[0]?.path ?? firstPanelEntryPath(groups)
+        setBrowseLevels([])
+        setSelectedPath(nextSelectedPath)
+        setPreviewMode("preview")
+        return
+      }
+      const nextLevels = browseLevels.slice(0, index + 1)
+      const nextGroups = nextLevels.at(-1)?.groups ?? groups
+      const nextSelectedPath = browseLevels[index + 1]?.path ?? firstPanelEntryPath(nextGroups)
+      setBrowseLevels(nextLevels)
+      setSelectedPath(nextSelectedPath)
+      setPreviewMode("preview")
+    },
+    [browseLevels, groups],
+  )
+
+  const updateArtifactListHeight = React.useCallback((nextHeight: number): void => {
+    const panelHeight = shellRef.current?.getBoundingClientRect().height ?? 0
+    const clamped = panelHeight > 0 ? clampArtifactListHeight(nextHeight, panelHeight) : nextHeight
+    setArtifactListHeight(clamped)
+    saveArtifactListHeight(clamped)
+  }, [])
+
+  const handleArtifactListResizeStart = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      if (event.button !== 0) {
+        return
+      }
+      const panelHeight = shellRef.current?.getBoundingClientRect().height ?? 0
+      if (panelHeight <= 0) {
+        return
+      }
+      const startY = event.clientY
+      const startHeight = artifactListHeight
+      const pointerId = event.pointerId
+      event.currentTarget.setPointerCapture(pointerId)
+      const handlePointerMove = (moveEvent: PointerEvent): void => {
+        const nextHeight = startHeight + moveEvent.clientY - startY
+        setArtifactListHeight(clampArtifactListHeight(nextHeight, panelHeight))
+      }
+      const handlePointerUp = (upEvent: PointerEvent): void => {
+        const nextHeight = clampArtifactListHeight(startHeight + upEvent.clientY - startY, panelHeight)
+        setArtifactListHeight(nextHeight)
+        saveArtifactListHeight(nextHeight)
+        window.removeEventListener("pointermove", handlePointerMove)
+        window.removeEventListener("pointerup", handlePointerUp)
+        window.removeEventListener("pointercancel", handlePointerUp)
+      }
+      window.addEventListener("pointermove", handlePointerMove)
+      window.addEventListener("pointerup", handlePointerUp)
+      window.addEventListener("pointercancel", handlePointerUp)
+    },
+    [artifactListHeight],
+  )
+
+  const handleArtifactListResizeKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (event.key === "ArrowUp") {
+        event.preventDefault()
+        updateArtifactListHeight(artifactListHeight - 16)
+        return
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault()
+        updateArtifactListHeight(artifactListHeight + 16)
+        return
+      }
+      if (event.key === "Home") {
+        event.preventDefault()
+        updateArtifactListHeight(artifactListMinHeightPx)
+        return
+      }
+      if (event.key === "End") {
+        event.preventDefault()
+        updateArtifactListHeight(artifactListMaxHeight(shellRef.current?.getBoundingClientRect().height ?? 0))
+      }
+    },
+    [artifactListHeight, updateArtifactListHeight],
+  )
+
   return (
     <aside
+      ref={shellRef}
       className={cn(
         "oo-border-divider flex h-full min-h-0 w-full flex-col border-l bg-background",
         maximized && "border-l-0",
@@ -617,28 +821,44 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {entries.length > 0 ? (
+        {hasArtifactBrowser ? (
           showImageGallery ? (
             <ImageGalleryPanel
               entries={entries}
               group={selectedEntry?.group ?? null}
+              listHeight={artifactListHeight}
               previewCache={previewCache}
               mode={previewMode}
+              baseCrumb={baseCrumb}
+              browseLevels={browseLevels}
               selectedItem={selectedItem}
               onOpenPath={openPath}
               onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
+              onEnterFolder={(entry) => void enterFolder(entry)}
               onModeChange={setPreviewMode}
+              onNavigateBreadcrumb={navigateToBreadcrumb}
+              onResizeDoubleClick={() => updateArtifactListHeight(artifactListDefaultHeightPx)}
+              onResizeKeyDown={handleArtifactListResizeKeyDown}
+              onResizeStart={handleArtifactListResizeStart}
               onSelect={selectPreviewPath}
             />
           ) : (
             <>
               {showArtifactList ? (
                 <ArtifactFileStrip
+                  baseCrumb={baseCrumb}
+                  browseLevels={browseLevels}
                   entries={entries}
+                  listHeight={artifactListHeight}
                   selectedItem={selectedItem}
-                  truncated={groups.some(({ group }) => group.truncated)}
+                  truncated={activeGroups.some(({ group }) => group.truncated)}
                   onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
+                  onEnterFolder={(entry) => void enterFolder(entry)}
                   onOpenPath={openPath}
+                  onNavigateBreadcrumb={navigateToBreadcrumb}
+                  onResizeDoubleClick={() => updateArtifactListHeight(artifactListDefaultHeightPx)}
+                  onResizeKeyDown={handleArtifactListResizeKeyDown}
+                  onResizeStart={handleArtifactListResizeStart}
                   onSelect={selectPreviewPath}
                 />
               ) : null}
@@ -664,15 +884,31 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
 }
 
 function ArtifactFileStrip({
+  baseCrumb,
+  browseLevels,
   entries,
+  listHeight,
   onContextMenu,
+  onEnterFolder,
+  onNavigateBreadcrumb,
+  onResizeDoubleClick,
+  onResizeKeyDown,
+  onResizeStart,
   selectedItem,
   truncated,
   onOpenPath,
   onSelect,
 }: {
+  baseCrumb: { label: string; path: string }
+  browseLevels: ArtifactBrowseLevel[]
   entries: ArtifactPanelEntry[]
+  listHeight: number
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  onEnterFolder: (entry: ArtifactPanelEntry) => void
+  onNavigateBreadcrumb: (index: number) => void
+  onResizeDoubleClick: () => void
+  onResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void
   selectedItem: LocalArtifactItem | null
   truncated: boolean
   onOpenPath: (path: string | undefined) => void
@@ -683,31 +919,149 @@ function ArtifactFileStrip({
     0,
     entries.findIndex((entry) => entry.item.path === selectedItem?.path),
   )
+  const visibleIndex = entries.length > 0 ? selectedIndex + 1 : 0
 
   return (
-    <section className="oo-border-divider shrink-0 border-b px-2.5 py-1.5">
+    <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
+      <ArtifactBrowserHeader
+        baseCrumb={baseCrumb}
+        browseLevels={browseLevels}
+        count={entries.length}
+        index={visibleIndex}
+        onNavigate={onNavigateBreadcrumb}
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-1.5">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1.5 pr-1">
+          {entries.map((entry) => (
+            <ArtifactFileTile
+              key={entry.key}
+              entry={entry}
+              selected={entry.item.path === selectedItem?.path}
+              onClick={() => onSelect(entry.item.path)}
+              onContextMenu={(x, y) => onContextMenu(entry.item, x, y)}
+              onDoubleClick={() => {
+                if (entry.item.kind === "directory") {
+                  onEnterFolder(entry)
+                } else {
+                  onOpenPath(entry.item.path)
+                }
+              }}
+            />
+          ))}
+        </div>
+        {truncated ? (
+          <p className="oo-text-caption px-1 pt-2 text-muted-foreground">{t("artifacts.truncated")}</p>
+        ) : null}
+      </div>
+      <ArtifactPanelResizeHandle
+        value={listHeight}
+        onDoubleClick={onResizeDoubleClick}
+        onKeyDown={onResizeKeyDown}
+        onPointerDown={onResizeStart}
+      />
+    </section>
+  )
+}
+
+function ArtifactBrowserHeader({
+  baseCrumb,
+  browseLevels,
+  count,
+  index,
+  onNavigate,
+}: {
+  baseCrumb: { label: string; path: string }
+  browseLevels: ArtifactBrowseLevel[]
+  count: number
+  index: number
+  onNavigate: (index: number) => void
+}) {
+  const t = useT()
+  const crumbs = [baseCrumb, ...browseLevels.map((level) => ({ label: level.label, path: level.path }))]
+
+  return (
+    <div className="shrink-0 px-2.5 pt-1.5 pb-1">
       <div className="flex items-center justify-between gap-3">
-        <div className="oo-text-caption-compact font-medium text-muted-foreground">
-          {t("artifacts.count", { count: entries.length })}
+        <div className="flex min-w-0 items-center gap-1">
+          {browseLevels.length > 0 ? (
+            <button
+              type="button"
+              title={t("artifacts.backToParent")}
+              aria-label={t("artifacts.backToParent")}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => onNavigate(browseLevels.length - 2)}
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+          ) : (
+            <div
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+              aria-hidden
+            >
+              <FolderOpen className="size-4" />
+            </div>
+          )}
+          <div className="oo-text-caption-compact flex min-w-0 items-center gap-1 font-medium text-muted-foreground">
+            {crumbs.map((crumb, index) => {
+              const active = index === crumbs.length - 1
+              const navigateIndex = index - 1
+              return (
+                <React.Fragment key={`${crumb.path}:${index}`}>
+                  {index > 0 ? <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" /> : null}
+                  <button
+                    type="button"
+                    disabled={active}
+                    title={crumb.path}
+                    className={cn(
+                      "min-w-0 truncate rounded px-1 py-0.5 text-left disabled:cursor-default",
+                      active ? "text-foreground" : "hover:bg-accent hover:text-foreground",
+                    )}
+                    onClick={() => onNavigate(navigateIndex)}
+                  >
+                    {crumb.label}
+                  </button>
+                </React.Fragment>
+              )
+            })}
+          </div>
         </div>
         <div className="oo-text-caption text-muted-foreground">
-          {selectedIndex + 1}/{entries.length}
+          {index}/{count}
         </div>
       </div>
-      <div className="mt-1.5 grid max-h-28 grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-1.5 overflow-y-auto pr-1">
-        {entries.map((entry) => (
-          <ArtifactFileTile
-            key={entry.key}
-            entry={entry}
-            selected={entry.item.path === selectedItem?.path}
-            onClick={() => onSelect(entry.item.path)}
-            onContextMenu={(x, y) => onContextMenu(entry.item, x, y)}
-            onDoubleClick={() => onOpenPath(entry.item.path)}
-          />
-        ))}
-      </div>
-      {truncated ? <p className="oo-text-caption px-1 pt-2 text-muted-foreground">{t("artifacts.truncated")}</p> : null}
-    </section>
+    </div>
+  )
+}
+
+function ArtifactPanelResizeHandle({
+  onDoubleClick,
+  onKeyDown,
+  onPointerDown,
+  value,
+}: {
+  onDoubleClick: () => void
+  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void
+  value: number
+}) {
+  const t = useT()
+
+  return (
+    <div
+      role="separator"
+      aria-label={t("artifacts.resizeFileBrowser")}
+      aria-orientation="horizontal"
+      aria-valuemin={artifactListMinHeightPx}
+      aria-valuenow={Math.round(value)}
+      tabIndex={0}
+      title={t("artifacts.resizeFileBrowser")}
+      className="group -mb-1 flex h-3 shrink-0 cursor-row-resize items-center outline-none"
+      onDoubleClick={onDoubleClick}
+      onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+    >
+      <div className="h-px w-full bg-border transition-colors group-hover:bg-ring group-focus-visible:bg-ring" />
+    </div>
   )
 }
 
@@ -754,27 +1108,42 @@ function ArtifactFileTile({
 }
 
 function ImageGalleryPanel({
+  baseCrumb,
+  browseLevels,
   entries,
   group,
+  listHeight,
   mode,
   onContextMenu,
+  onEnterFolder,
   onModeChange,
+  onNavigateBreadcrumb,
   previewCache,
   selectedItem,
   onOpenPath,
+  onResizeDoubleClick,
+  onResizeKeyDown,
+  onResizeStart,
   onSelect,
 }: {
+  baseCrumb: { label: string; path: string }
+  browseLevels: ArtifactBrowseLevel[]
   entries: ArtifactPanelEntry[]
   group: LocalArtifactGroup | null
+  listHeight: number
   mode: ArtifactPreviewMode
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  onEnterFolder: (entry: ArtifactPanelEntry) => void
   onModeChange: (mode: ArtifactPreviewMode) => void
+  onNavigateBreadcrumb: (index: number) => void
   previewCache: LocalArtifactPreviewCache
   selectedItem: LocalArtifactItem | null
   onOpenPath: (path: string | undefined) => void
+  onResizeDoubleClick: () => void
+  onResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
+  onResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void
   onSelect: (path: string) => void
 }) {
-  const t = useT()
   const selectedIndex = Math.max(
     0,
     entries.findIndex((entry) => entry.item.path === selectedItem?.path),
@@ -782,29 +1151,42 @@ function ImageGalleryPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <section className="oo-border-divider shrink-0 border-b px-2.5 py-1.5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="oo-text-caption-compact font-medium text-muted-foreground">
-            {t("artifacts.imageCount", { count: entries.length })}
-          </div>
-          <div className="oo-text-caption text-muted-foreground">
-            {selectedIndex + 1}/{entries.length}
+      <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
+        <ArtifactBrowserHeader
+          baseCrumb={baseCrumb}
+          browseLevels={browseLevels}
+          count={entries.length}
+          index={selectedIndex + 1}
+          onNavigate={onNavigateBreadcrumb}
+        />
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-1.5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(50px,1fr))] gap-1.5 pr-1">
+            {entries.map((entry, index) => (
+              <ImageThumbnail
+                key={entry.key}
+                index={index + 1}
+                item={entry.item}
+                previewCache={previewCache}
+                selected={entry.item.path === selectedItem?.path}
+                onClick={() => onSelect(entry.item.path)}
+                onContextMenu={(x, y) => onContextMenu(entry.item, x, y)}
+                onDoubleClick={() => {
+                  if (entry.item.kind === "directory") {
+                    onEnterFolder(entry)
+                  } else {
+                    onOpenPath(entry.item.path)
+                  }
+                }}
+              />
+            ))}
           </div>
         </div>
-        <div className="mt-1.5 grid max-h-32 grid-cols-[repeat(auto-fill,minmax(50px,1fr))] gap-1.5 overflow-y-auto pr-1">
-          {entries.map((entry, index) => (
-            <ImageThumbnail
-              key={entry.key}
-              index={index + 1}
-              item={entry.item}
-              previewCache={previewCache}
-              selected={entry.item.path === selectedItem?.path}
-              onClick={() => onSelect(entry.item.path)}
-              onContextMenu={(x, y) => onContextMenu(entry.item, x, y)}
-              onDoubleClick={() => onOpenPath(entry.item.path)}
-            />
-          ))}
-        </div>
+        <ArtifactPanelResizeHandle
+          value={listHeight}
+          onDoubleClick={onResizeDoubleClick}
+          onKeyDown={onResizeKeyDown}
+          onPointerDown={onResizeStart}
+        />
       </section>
       <ImageGalleryPreview
         group={group}

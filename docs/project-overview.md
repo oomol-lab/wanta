@@ -29,7 +29,7 @@ Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | 凭证经 `OO_API_KEY` 环境变量注入，免登录直跑                                        | 改为浏览器登录流（console launcher → deep-link 回跳 → 换 `oomol-token` 会话 token；全程只用它，`auth.json` 只存 profile、不落盘凭证） |
 | endpoint 运行时可切换 `oomol.com` / `oomol.dev`（阶段 5 还做了 `setEndpoint` 联动） | **已整体移除**：endpoint 是构建期常量 `__OO_ENDPOINT__`，App 层不可见不可切换                                                         |
-| 严格非编码 agent：deny 所有内置编码工具，只留连接器三工具                           | **已放开**：所有 OpenCode 内置工具启用，permission 全 allow，本地编码成为主用法之一                                                   |
+| 严格非编码 agent：deny 所有内置编码工具，只留连接器三工具                           | **已放开但受控**：OpenCode 内置工具启用；读/搜索/网页直接可用，shell/写入/外部目录访问经聊天内确认卡片批准                            |
 | 自定义工具只有 `search_actions` / `call_action`                                     | 新增第三个工具 `inspect_action`，强制 inspect-before-call                                                                             |
 | 前端 shadcn/ui 手写聊天界面                                                         | 聊天界面迁移到 vendored ai-elements 组件，Markdown 渲染从 react-markdown 换为 streamdown                                              |
 | 测试用 Node 原生 `node --test`                                                      | 迁移到 vitest（随 endpoint 常量化，vitest 原生套用 vite define）                                                                      |
@@ -42,7 +42,7 @@ Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言
 
 最初 7 个 commit 按阶段 0–6 逐一交付，commit message 即阶段名：脚手架（镜像 oo-desktop）→ Agent 内核 headless 金路径 → 聊天 UI 与流式渲染 → Connections 面板与 OAuth → 动态提示 + 聊天内授权闭环（R4）→ 设置与 endpoint 切换 → 打包/签名/公证/自动更新/CI。
 
-其后是计划外的修正与演进：修复登录（浏览器登录流）→ 移除动态 endpoint 支持 → 修复 oo-cli（`.oo-bin` 自管理）→ 修复 Markdown 渲染 + 系统提示词 + 工具调用 UI → 优化右侧连接 UI → UI 框架迁移至 ai-elements → 放开 tools 权限。每个节点的"为什么"见 [key-decisions.md](key-decisions.md)。
+其后是计划外的修正与演进：修复登录（浏览器登录流）→ 移除动态 endpoint 支持 → 修复 oo-cli（`.oo-bin` 自管理）→ 修复 Markdown 渲染 + 系统提示词 + 工具调用 UI → 优化右侧连接 UI → UI 框架迁移至 ai-elements → 放开 tools 权限并收敛为默认权限 / 完全访问两档。每个节点的"为什么"见 [key-decisions.md](key-decisions.md)。
 
 ## 5. 术语速查
 

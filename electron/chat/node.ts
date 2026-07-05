@@ -6,11 +6,13 @@ import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
+  AnswerPermissionRequest,
   AnswerQuestionRequest,
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
   AuthorizationInfo,
   ChatMessage,
+  ChatPermissionRequest,
   ChatQuestionRequest,
   ChatService,
   ChatProjectContext,
@@ -50,6 +52,7 @@ import { ChatService as ChatServiceName } from "./common.ts"
 import {
   buildContextMentionsSystem as buildContextMentionsSystemPrompt,
   buildOrganizationSkillsSystem,
+  buildPermissionModeSystem,
   buildProjectContextSystem,
   mergeSystemPrompts,
 } from "./context-system.ts"
@@ -658,6 +661,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           buildOrganizationSkillsSystem(req.organizationSkills),
           buildContextMentionsSystemPrompt(req.contextMentions),
           buildProjectContextSystem(req.projectContext),
+          buildPermissionModeSystem(req.permissionMode),
         ),
       })
       .catch((error: unknown) => {
@@ -1049,6 +1053,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Agent not configured (sign in first)")
     }
     await this.agent.rejectQuestion(req.sessionId, req.requestId)
+    this.emitSessionActivity(req.sessionId)
+  }
+
+  public async getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]> {
+    if (!this.agent) {
+      return []
+    }
+    return this.agent.getPendingPermissions(sessionId)
+  }
+
+  public async answerPermission(req: AnswerPermissionRequest): Promise<void> {
+    if (!this.agent) {
+      throw new Error("Agent not configured (sign in first)")
+    }
+    await this.agent.answerPermission(req.sessionId, req.requestId, req.reply)
     this.emitSessionActivity(req.sessionId)
   }
 }

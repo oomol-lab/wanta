@@ -1,11 +1,13 @@
 import type { AppCommand } from "../../../electron/app-command.ts"
 import type {
   AgentMode,
+  AgentPermissionMode,
   AgentRuntimeStatus,
   AuthorizationInfo,
   ChatAttachment,
   ChatContextMention,
   ChatOrganizationSkillContext,
+  ChatPermissionReply,
   ChatProjectContext,
   ChatQuestionRequest,
   ReasoningLevel,
@@ -13,7 +15,7 @@ import type {
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
-import type { TurnRetryOptions } from "./app-shell-model.ts"
+import type { ChatSendRequest, TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -185,6 +187,7 @@ export function AppShell() {
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
+  const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
   const [sidebarSegment, setSidebarSegment] = React.useState<SidebarSegment>(() =>
     readStoredSidebarSegment(globalThis.localStorage),
@@ -215,6 +218,7 @@ export function AppShell() {
 
   const {
     messages,
+    pendingPermissions,
     pendingQuestions,
     status,
     activity,
@@ -222,8 +226,11 @@ export function AppShell() {
     error,
     getSessionStatus,
     hasUnreadSession,
+    permissionMode,
+    setPermissionMode,
     send,
     stop,
+    answerPermission,
     answerQuestion,
     discardQuestion,
     rejectQuestion,
@@ -249,6 +256,7 @@ export function AppShell() {
     model?: ModelChoice
     reasoningLevel?: ReasoningLevel
     mode?: AgentMode
+    permissionMode?: AgentPermissionMode
   } | null>(null)
   const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{
     drawerKey: string
@@ -260,6 +268,7 @@ export function AppShell() {
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
   const lastModeBySession = React.useRef<Map<string, AgentMode | undefined>>(new Map())
+  const lastPermissionModeBySession = React.useRef<Map<string, AgentPermissionMode | undefined>>(new Map())
   const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
@@ -347,7 +356,7 @@ export function AppShell() {
     const smoke = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_SMOKE"]
     if (ready && smoke && !smokeSent.current) {
       smokeSent.current = true
-      void handleSend(smoke)
+      void handleSend({ text: smoke })
     }
   }, [ready])
 
@@ -452,6 +461,7 @@ export function AppShell() {
         model: pending.model,
         reasoningLevel: pending.reasoningLevel,
         mode: pending.mode,
+        permissionMode: pending.permissionMode,
       })
     }
   }, [connections.summary, send])
@@ -535,6 +545,7 @@ export function AppShell() {
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
+  const displayedPermissionMode = activeSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
     sessionsLoaded && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0
   const startupError =
@@ -714,6 +725,7 @@ export function AppShell() {
   const handleNewSession = React.useCallback((): void => {
     setActiveSessionId(null)
     setIsDraftSession(true)
+    setDraftPermissionMode("default")
     setDraftProjectId(NO_DRAFT_PROJECT_ID)
     setPendingChatTransition(null)
     setRoute("chat")
@@ -726,6 +738,7 @@ export function AppShell() {
     draftProjectFallbacksById.current.set(project.id, project)
     setActiveSessionId(null)
     setIsDraftSession(true)
+    setDraftPermissionMode("default")
     setDraftProjectId(project.id)
     setPendingChatTransition(null)
     setRoute("chat")
@@ -824,15 +837,17 @@ export function AppShell() {
   }, [])
 
   const sendNow = React.useCallback(
-    async (
-      text: string,
-      attachments: ChatAttachment[] = [],
-      contextMentions: ChatContextMention[] = [],
-      model?: ModelChoice,
-      reasoningLevel?: ReasoningLevel,
-      mode?: AgentMode,
-      afterOptimisticSubmit?: () => void,
-    ): Promise<boolean> => {
+    async (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }): Promise<boolean> => {
+      const {
+        afterOptimisticSubmit,
+        attachments = [],
+        contextMentions = [],
+        mode,
+        model,
+        permissionMode: permissionModeArg,
+        reasoningLevel,
+        text,
+      } = request
       if (sendInFlightRef.current) {
         return false
       }
@@ -849,6 +864,7 @@ export function AppShell() {
           !sessionId || (activeSession ? isAutoRefreshable(activeSession, allowPlaceholderTitle, fallbackTitle) : false)
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()
+        const selectedPermissionMode = permissionModeArg ?? displayedPermissionMode
         if (bridgeEmptySend) {
           setPendingChatTransition({
             sessionId,
@@ -858,6 +874,7 @@ export function AppShell() {
             model,
             reasoningLevel,
             mode,
+            permissionMode: selectedPermissionMode,
             createdAt,
           })
         }
@@ -880,6 +897,7 @@ export function AppShell() {
             pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
           )
         }
+        setPermissionMode(sessionId, selectedPermissionMode)
         if (shouldRefreshTitle) {
           void refreshGeneratedTitle(
             sessionId,
@@ -891,6 +909,7 @@ export function AppShell() {
         lastModelBySession.current.set(sessionId, model)
         lastReasoningLevelBySession.current.set(sessionId, reasoningLevel)
         lastModeBySession.current.set(sessionId, mode)
+        lastPermissionModeBySession.current.set(sessionId, selectedPermissionMode)
         lastContextMentionsBySession.current.set(sessionId, contextMentions)
         rememberTurnRetryOptions(
           turnRetryOptionsBySession.current,
@@ -903,6 +922,7 @@ export function AppShell() {
             model,
             reasoningLevel,
             mode,
+            permissionMode: selectedPermissionMode,
           },
         )
         try {
@@ -913,6 +933,7 @@ export function AppShell() {
             projectContext: activeProjectContext,
             reasoningLevel,
             mode,
+            permissionMode: selectedPermissionMode,
           })
           afterOptimisticSubmit?.()
           await sendPromise
@@ -933,6 +954,7 @@ export function AppShell() {
       activeProject?.id,
       activeProjectContext,
       create,
+      displayedPermissionMode,
       getAutoFallbackTitle,
       isAutoRefreshable,
       messages,
@@ -941,6 +963,7 @@ export function AppShell() {
       refreshGeneratedTitle,
       rememberAutoFallbackTitle,
       send,
+      setPermissionMode,
     ],
   )
 
@@ -974,21 +997,23 @@ export function AppShell() {
   }, [activeSessionId, clearQueuedSession, sessions, sessionsLoaded])
 
   const handleSend = React.useCallback(
-    async (
-      text: string,
-      attachments: ChatAttachment[] = [],
-      contextMentions: ChatContextMention[] = [],
-      model?: ModelChoice,
-      reasoningLevel?: ReasoningLevel,
-      mode?: AgentMode,
-    ): Promise<boolean> => {
+    async (request: ChatSendRequest): Promise<boolean> => {
+      const { attachments = [], contextMentions = [], mode, model, permissionMode, reasoningLevel, text } = request
       const draftKey = activeSessionId ?? activeComposerDraftKey
       if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
-        queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode)
+        queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
         clearComposerDraft(draftKey)
         return true
       }
-      const accepted = await sendNow(text, attachments, contextMentions, model, reasoningLevel, mode)
+      const accepted = await sendNow({
+        attachments,
+        contextMentions,
+        mode,
+        model,
+        permissionMode,
+        reasoningLevel,
+        text,
+      })
       if (accepted) {
         releaseActiveQueue()
         clearComposerDraft(draftKey)
@@ -1012,13 +1037,19 @@ export function AppShell() {
     [activeSessionId, answerQuestion],
   )
 
+  const handleAnswerPermission = React.useCallback(
+    (requestId: string, reply: ChatPermissionReply): Promise<void> =>
+      activeSessionId ? answerPermission(activeSessionId, requestId, reply) : Promise.resolve(),
+    [activeSessionId, answerPermission],
+  )
+
   const handleContinueQuestion = React.useCallback(
     async (request: ChatQuestionRequest, answers: string[][]): Promise<void> => {
       const sessionId = activeSessionId
       if (!sessionId) {
         return
       }
-      const accepted = await handleSend(formatQuestionResumeMessage(t, request, answers))
+      const accepted = await handleSend({ text: formatQuestionResumeMessage(t, request, answers) })
       if (accepted) {
         discardQuestion(sessionId, request.id)
       }
@@ -1189,6 +1220,10 @@ export function AppShell() {
           model: storedOptions?.model ?? lastModelBySession.current.get(activeSessionId),
           reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeSessionId),
           mode: storedOptions?.mode ?? lastModeBySession.current.get(activeSessionId),
+          permissionMode:
+            storedOptions?.permissionMode ??
+            lastPermissionModeBySession.current.get(activeSessionId) ??
+            displayedPermissionMode,
         }
         setPendingRetryWatch({
           drawerKey: activeComposerDraftKey,
@@ -1204,6 +1239,7 @@ export function AppShell() {
       activeProjectContext,
       activeSessionId,
       connections.refresh,
+      displayedPermissionMode,
       organizationSkills.chatContextSkills,
     ],
   )
@@ -1222,6 +1258,16 @@ export function AppShell() {
       void stop(activeSessionId)
     }
   }, [activeSessionId, holdActiveQueueIfQueued, stop])
+  const handlePermissionModeChange = React.useCallback(
+    (mode: AgentPermissionMode): void => {
+      if (activeSessionId) {
+        setPermissionMode(activeSessionId, mode)
+        return
+      }
+      setDraftPermissionMode(mode)
+    },
+    [activeSessionId, setPermissionMode],
+  )
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {
       switch (command) {
@@ -1428,6 +1474,8 @@ export function AppShell() {
                       billingCacheScope={billingCacheScope}
                       composerDraftKey={activeComposerDraftKey}
                       messages={bridgeInitialSendPending ? [] : messages}
+                      permissionMode={displayedPermissionMode}
+                      pendingPermissions={bridgeInitialSendPending ? [] : pendingPermissions}
                       pendingQuestions={bridgeInitialSendPending ? [] : pendingQuestions}
                       status={displayedStatus}
                       activity={bridgeInitialSendPending ? null : activity}
@@ -1476,6 +1524,8 @@ export function AppShell() {
                       onComposerStateChange={handleComposerStateChange}
                       onSend={handleSend}
                       onAnswerQuestion={handleAnswerQuestion}
+                      onAnswerPermission={handleAnswerPermission}
+                      onPermissionModeChange={handlePermissionModeChange}
                       onContinueQuestion={handleContinueQuestion}
                       onDiscardQuestion={handleDiscardQuestion}
                       onRejectQuestion={handleRejectQuestion}

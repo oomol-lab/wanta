@@ -1,9 +1,25 @@
 import type { ManagedSkillGroup } from "./common.ts"
 
-import { access, cp, mkdir, rename, rm } from "node:fs/promises"
+import { access, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir } from "node:fs/promises"
 import path from "node:path"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { metadataFileName } from "./constants.ts"
+import { normalizeMetadata } from "./metadata.ts"
+
+export type SafeSkillDirectoryRemoveStatus = "removed" | "skipped"
+
+export interface SafeSkillDirectoryRemoveResult {
+  path: string
+  reason?: string
+  status: SafeSkillDirectoryRemoveStatus
+}
+
+export interface SafeSkillDirectoryRemoveRequest {
+  allowedRoots: string[]
+  packageName?: string
+  path: string
+  skillId: string
+}
 
 export function normalizeSkillId(skillId: string): string {
   const normalizedSkillId = skillId.trim()
@@ -51,12 +67,197 @@ export function readDeletableSkillTargetPaths(group: ManagedSkillGroup, skillRoo
   return Array.from(targetPaths)
 }
 
+export async function removeSkillDirectoryIfSafe(
+  request: SafeSkillDirectoryRemoveRequest,
+): Promise<SafeSkillDirectoryRemoveResult> {
+  const normalizedSkillId = normalizeSkillId(request.skillId)
+  const targetPath = path.resolve(request.path)
+  const allowedRoots = request.allowedRoots.map((skillRoot) => path.resolve(skillRoot))
+
+  if (path.basename(targetPath) !== normalizedSkillId) {
+    return skipped(targetPath, "basename-mismatch")
+  }
+
+  if (!allowedRoots.some((allowedRoot) => isPathInside(allowedRoot, targetPath))) {
+    return skipped(targetPath, "outside-allowed-roots")
+  }
+
+  const targetStat = await lstat(targetPath).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined
+    }
+    throw error
+  })
+  if (!targetStat) {
+    return skipped(targetPath, "missing")
+  }
+  if (!targetStat.isDirectory() && !targetStat.isSymbolicLink()) {
+    return skipped(targetPath, "not-directory")
+  }
+
+  if (targetStat.isSymbolicLink() && !(await isRealPathInsideAllowedRoots(targetPath, allowedRoots))) {
+    return skipped(targetPath, "symlink-target-outside-allowed-roots")
+  }
+
+  const quarantinePath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.remove-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  )
+  let quarantined = false
+
+  try {
+    await rename(targetPath, quarantinePath)
+    quarantined = true
+
+    const quarantinedStat = await lstat(quarantinePath)
+    if (!isSameFile(targetStat, quarantinedStat)) {
+      await restoreQuarantinedTarget(quarantinePath, targetPath)
+      quarantined = false
+      return skipped(targetPath, "target-changed")
+    }
+
+    const validationSkipReason = await validateQuarantinedSkillRemovalTarget({
+      allowedRoots,
+      packageName: request.packageName,
+      path: quarantinePath,
+    })
+    if (validationSkipReason) {
+      const restoreStatus = await restoreQuarantinedTarget(quarantinePath, targetPath)
+      quarantined = false
+      return skipped(targetPath, restoreStatus === "restored" ? validationSkipReason : "target-changed")
+    }
+
+    await rm(quarantinePath, { force: true, recursive: true })
+    quarantined = false
+    return {
+      path: targetPath,
+      status: "removed",
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return skipped(targetPath, "missing")
+    }
+    if (quarantined) {
+      const restoreStatus = await restoreQuarantinedTarget(quarantinePath, targetPath)
+      if (restoreStatus !== "restored") {
+        throw new Error("Skill delete target changed while restoring quarantine.", { cause: error })
+      }
+    }
+    throw error
+  }
+}
+
+async function validateQuarantinedSkillRemovalTarget({
+  allowedRoots,
+  packageName,
+  path: targetPath,
+}: {
+  allowedRoots: string[]
+  packageName?: string
+  path: string
+}): Promise<string | undefined> {
+  const targetStat = await lstat(targetPath)
+  if (!targetStat.isDirectory() && !targetStat.isSymbolicLink()) {
+    return "not-directory"
+  }
+  if (targetStat.isSymbolicLink() && !(await isRealPathInsideAllowedRoots(targetPath, allowedRoots))) {
+    return "symlink-target-outside-allowed-roots"
+  }
+  const metadata = await readSkillDirectoryMetadata(targetPath)
+  const hasSkillDocument = await localPathExists(path.join(targetPath, "SKILL.md"))
+  if (!metadata && !hasSkillDocument) {
+    return "skill-definition-missing"
+  }
+  const expectedPackageName = packageName?.trim()
+  if (expectedPackageName && metadata?.packageName !== expectedPackageName) {
+    return "package-name-mismatch"
+  }
+  return undefined
+}
+
+export async function restoreQuarantinedTarget(
+  quarantinePath: string,
+  targetPath: string,
+): Promise<"restored" | "target-changed"> {
+  const targetStat = await lstat(targetPath).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined
+    }
+    throw error
+  })
+  if (targetStat) {
+    if (!targetStat.isDirectory() || targetStat.isSymbolicLink()) {
+      return "target-changed"
+    }
+    const entries = await readdir(targetPath).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return undefined
+      }
+      throw error
+    })
+    if (entries && entries.length > 0) {
+      return "target-changed"
+    }
+    if (entries) {
+      await rmdir(targetPath).catch((error: unknown) => {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === "ENOENT") {
+          return
+        }
+        if (code === "ENOTEMPTY" || code === "EEXIST") {
+          return
+        }
+        throw error
+      })
+      if (await localPathExists(targetPath)) {
+        return "target-changed"
+      }
+    }
+  }
+
+  await rename(quarantinePath, targetPath)
+  return "restored"
+}
+
+function isSameFile(left: { dev: number; ino: number }, right: { dev: number; ino: number }): boolean {
+  return left.dev === right.dev && left.ino === right.ino
+}
+
 export async function localPathExists(pathname: string): Promise<boolean> {
   try {
     await access(pathname)
     return true
   } catch {
     return false
+  }
+}
+
+async function isRealPathInsideAllowedRoots(targetPath: string, allowedRoots: string[]): Promise<boolean> {
+  const [targetRealPath, ...rootRealPaths] = await Promise.all([
+    realpath(targetPath),
+    ...allowedRoots.map((allowedRoot) => realpath(allowedRoot).catch(() => allowedRoot)),
+  ])
+  return rootRealPaths.some((allowedRoot) => isPathInside(allowedRoot, targetRealPath))
+}
+
+async function readSkillDirectoryMetadata(
+  targetPath: string,
+): Promise<ReturnType<typeof normalizeMetadata> | undefined> {
+  try {
+    return normalizeMetadata(await readFile(path.join(targetPath, metadataFileName), "utf8"))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return undefined
+    }
+    throw error
+  }
+}
+
+function skipped(pathname: string, reason: string): SafeSkillDirectoryRemoveResult {
+  return {
+    path: pathname,
+    reason,
+    status: "skipped",
   }
 }
 

@@ -1,4 +1,4 @@
-import type { AgentMode, ReasoningLevel } from "../../../electron/chat/common.ts"
+import type { AgentMode, AgentPermissionMode, ReasoningLevel } from "../../../electron/chat/common.ts"
 import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.ts"
 import type { ContextUsageInfo } from "./context-usage.ts"
 import type { ChatStatus } from "ai"
@@ -10,6 +10,7 @@ import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 import { formatTokenCount } from "./context-usage.ts"
 import { AgentModePicker, ModelReasoningPicker } from "./ModelControls.tsx"
+import { PermissionModePicker } from "./PermissionModePicker.tsx"
 import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
@@ -24,6 +25,7 @@ interface ComposerTrailingControlsProps {
   isGenerating: boolean
   modelCatalog: ModelCatalog | null
   agentMode: AgentMode
+  permissionMode: AgentPermissionMode
   reasoningLevel: ReasoningLevel
   status: ChatStatus
   voiceActive: boolean
@@ -39,6 +41,8 @@ interface ComposerTrailingControlsProps {
   onDeleteModel: (id: string) => void
   onRetryVoice: () => void
   onSelectAgentMode: (mode: AgentMode) => void
+  onSelectDefaultPermissionMode: () => void
+  onRequestFullAccessPermissionMode: () => void
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
   onStartVoice: () => void
@@ -342,6 +346,7 @@ export function ComposerTrailingControls({
   isGenerating,
   modelCatalog,
   agentMode,
+  permissionMode,
   reasoningLevel,
   status,
   voiceActive,
@@ -357,6 +362,8 @@ export function ComposerTrailingControls({
   onDeleteModel,
   onRetryVoice,
   onSelectAgentMode,
+  onSelectDefaultPermissionMode,
+  onRequestFullAccessPermissionMode,
   onSelectModel,
   onSelectReasoningLevel,
   onStartVoice,
@@ -375,7 +382,12 @@ export function ComposerTrailingControls({
       {voiceActive ? (
         <VoiceRecorderPanel bars={voiceBars} durationMs={voiceDurationMs} loading={voiceMode === "starting"} />
       ) : null}
-      <div className={cn("flex min-w-0 items-center justify-end gap-1", voiceActive ? "shrink-0" : "flex-1")}>
+      <div
+        className={cn(
+          "flex min-w-0 items-center justify-end gap-1 overflow-hidden",
+          voiceActive ? "shrink-0" : "flex-1",
+        )}
+      >
         {voiceActive ? (
           <>
             {voiceMode === "recording-error" ? (
@@ -455,6 +467,12 @@ export function ComposerTrailingControls({
             ) : null}
             <ContextUsageIndicator usage={contextUsage} />
             <AgentModePicker disabled={composerDisabled} value={agentMode} onValueChange={onSelectAgentMode} />
+            <PermissionModePicker
+              disabled={composerDisabled}
+              value={permissionMode}
+              onDefault={onSelectDefaultPermissionMode}
+              onFullAccess={onRequestFullAccessPermissionMode}
+            />
             <ModelReasoningPicker
               catalog={modelCatalog}
               disabled={composerDisabled}

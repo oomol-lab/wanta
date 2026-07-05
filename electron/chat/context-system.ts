@@ -1,4 +1,9 @@
-import type { ChatContextMention, ChatOrganizationSkillContext, ChatProjectContext } from "./common.ts"
+import type {
+  AgentPermissionMode,
+  ChatContextMention,
+  ChatOrganizationSkillContext,
+  ChatProjectContext,
+} from "./common.ts"
 
 function quoted(value: string): string {
   return JSON.stringify(value)
@@ -97,6 +102,24 @@ export function buildProjectContextSystem(project: ChatProjectContext | undefine
     }
   }
   return lines.join("\n")
+}
+
+export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined): string {
+  if (mode === "full_access") {
+    return [
+      "Permission mode for this turn: Full Access.",
+      "- The user has enabled Full Access for this session.",
+      "- You may use local shell commands, edit files, and access external filesystem paths when needed for the task.",
+      "- High-risk destructive shell commands may still require explicit user confirmation.",
+      "- Still confirm destructive business actions such as sending, purchasing, deleting, publishing, inviting, changing permissions, deployment, or pushing code unless the user's instruction is explicit.",
+    ].join("\n")
+  }
+  return [
+    "Permission mode for this turn: Default Permission.",
+    "- Prefer direct answers, Wanta Link tools, Wanta-controlled app APIs, concrete URL fetching, and selected local context.",
+    "- Use local shell commands, file edits, or external filesystem paths only when they are useful for the task.",
+    "- When a local command, file edit, or external path requires permission, ask for that specific command or path instead of asking the user to enable Full Access.",
+  ].join("\n")
 }
 
 export function mergeSystemPrompts(...parts: Array<string | undefined>): string | undefined {

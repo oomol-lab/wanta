@@ -290,6 +290,9 @@ function localArtifactPreviewUnavailableDescription(
   item: LocalArtifactItem,
   preview: LocalArtifactPreviewResult | null,
 ): string {
+  if (item.kind === "directory") {
+    return t("artifacts.folderPreviewDescription")
+  }
   switch (preview?.reason) {
     case "missing":
       return t("artifacts.previewMissing")
@@ -324,7 +327,9 @@ function ArtifactUnavailablePreview({
       <div className="mb-3 flex size-12 items-center justify-center rounded-xl border border-border bg-muted/40 text-muted-foreground">
         <ArtifactIcon item={item} className="size-5" pack={pack} />
       </div>
-      <div className="oo-text-title text-foreground">{t("artifacts.previewUnavailable")}</div>
+      <div className="oo-text-title text-foreground">
+        {item.kind === "directory" ? t("artifacts.folderPreviewTitle") : t("artifacts.previewUnavailable")}
+      </div>
       <p className="oo-text-caption mt-1 max-w-72 text-muted-foreground">
         {description ?? localArtifactPreviewUnavailableDescription(t, item, preview)}
       </p>

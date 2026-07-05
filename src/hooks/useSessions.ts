@@ -11,6 +11,7 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 import * as React from "react"
 import { useSessionService } from "../components/AppContext.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
+import { sessionScopeKey } from "@/components/app-shell/app-shell-model"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const personalSessionScope: SessionScope = { type: "personal" }
@@ -37,6 +38,7 @@ export interface UseSessions {
   projectSessions: SessionInfo[]
   projects: SessionProject[]
   loaded: boolean
+  loadedScopeKey: string | null
   error: UserFacingError | null
   create: (title?: string, projectId?: string) => Promise<SessionInfo>
   listArchived: () => Promise<SessionInfo[]>
@@ -71,11 +73,12 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const [projectSessions, setProjectSessions] = React.useState<SessionInfo[]>([])
   const [projects, setProjects] = React.useState<SessionProject[]>([])
   const [loaded, setLoaded] = React.useState(false)
+  const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
-  const scopeKey = requestScope.type === "organization" ? `organization:${requestScope.organizationId}` : "personal"
+  const scopeKey = sessionScopeKey(requestScope)
 
   React.useEffect(() => {
     enabledRef.current = enabled
@@ -93,6 +96,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     setProjectSessions([])
     setProjects([])
     setLoaded(false)
+    setLoadedScopeKey(null)
     setError(null)
   }, [scopeKey])
 
@@ -104,6 +108,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setProjectSessions([])
       setProjects([])
       setLoaded(false)
+      setLoadedScopeKey(null)
       setError(null)
       return
     }
@@ -145,9 +150,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     } finally {
       if (requestId === requestSequenceRef.current && enabledRef.current) {
         setLoaded(true)
+        setLoadedScopeKey(scopeKey)
       }
     }
-  }, [enabled, requestScope, sessionService])
+  }, [enabled, requestScope, scopeKey, sessionService])
 
   React.useEffect(() => {
     if (!enabled) {
@@ -156,6 +162,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setProjectSessions([])
       setProjects([])
       setLoaded(false)
+      setLoadedScopeKey(null)
       setError(null)
       return
     }
@@ -332,6 +339,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     projectSessions,
     projects,
     loaded,
+    loadedScopeKey,
     error,
     create,
     listArchived,

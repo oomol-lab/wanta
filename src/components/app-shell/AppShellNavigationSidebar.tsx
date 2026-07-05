@@ -59,6 +59,7 @@ export function AppShellNavigationSidebar({
   onSidebarResizeKeyDown,
   onSidebarResizeStart,
   onToggleSidebar,
+  onWorkspaceSwitchStart,
   projectPinnedGroups,
   projectPinnedSessions,
   projectRegularGroups,
@@ -70,6 +71,7 @@ export function AppShellNavigationSidebar({
   taskSessions,
   width,
   workspace,
+  workspaceSwitching,
 }: {
   accountName?: string
   activeRoute: Route
@@ -103,6 +105,7 @@ export function AppShellNavigationSidebar({
   onSidebarResizeKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
   onSidebarResizeStart: (event: React.PointerEvent<HTMLDivElement>) => void
   onToggleSidebar: () => void
+  onWorkspaceSwitchStart: (targetScopeKey: string) => void
   projectPinnedGroups: ProjectSidebarGroup[]
   projectPinnedSessions: SessionInfo[]
   projectRegularGroups: ProjectSidebarGroup[]
@@ -114,6 +117,7 @@ export function AppShellNavigationSidebar({
   taskSessions: SessionInfo[]
   width: number
   workspace: UseOrganizationWorkspace
+  workspaceSwitching: boolean
 }) {
   const t = useT()
 
@@ -335,8 +339,10 @@ export function AppShellNavigationSidebar({
             activeRoute={activeRoute}
             loggingOut={loggingOut}
             workspace={workspace}
+            workspaceSwitching={workspaceSwitching}
             onNavigate={onNavigate}
             onLogout={onLogout}
+            onWorkspaceSwitchStart={onWorkspaceSwitchStart}
           />
         </nav>
       </div>

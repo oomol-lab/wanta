@@ -34,9 +34,12 @@ export const TURN_RETRY_OPTIONS_LIMIT = 48
 export const SESSION_TITLE_RETRY_DELAY_MS = 20_000
 export const AUTH_RETRY_POLL_INTERVAL_MS = 2_000
 export const AUTH_RETRY_POLL_TIMEOUT_MS = 5 * 60_000
+export const WORKSPACE_SWITCH_TIMEOUT_MS = 20_000
 export const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 export const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 export const NO_DRAFT_PROJECT_ID = "__no_project__"
+
+export { connectionWorkspaceKey as connectionWorkspaceSwitchKey } from "@/hooks/connection-oauth-pending"
 
 export interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
@@ -223,11 +226,95 @@ export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): Sessio
   return { type: "organization", organizationId, organizationName }
 }
 
+export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): string {
+  return workspace.type === "organization" ? `organization:${workspace.organizationId}` : "personal"
+}
+
 export function sessionScopeKey(scope: SessionScope | null): string {
   if (!scope) {
     return "workspace-loading"
   }
   return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
+}
+
+export interface WorkspaceSwitchPendingInput {
+  connectionSettledWorkspaceKey: string | null
+  connectionWorkspaceKey: string | null
+  connectionsRefreshing: boolean
+  currentScopeKey: string
+  loadedSessionScopeKey: string | null
+  organizationSkillsSettled: boolean
+  targetScopeKey: string | null
+}
+
+export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): boolean {
+  if (!input.targetScopeKey) {
+    return false
+  }
+  if (input.currentScopeKey !== input.targetScopeKey) {
+    return true
+  }
+  if (input.loadedSessionScopeKey !== input.targetScopeKey) {
+    return true
+  }
+  if (!input.connectionWorkspaceKey) {
+    return true
+  }
+  if (input.connectionsRefreshing) {
+    return true
+  }
+  if (input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
+    return true
+  }
+  return !input.organizationSkillsSettled
+}
+
+export interface WorkspaceSwitchTargetReachableInput {
+  activeWorkspaceKey: string
+  hasLoadedOrganizations: boolean
+  loadingOrganizations: boolean
+  organizationIds: readonly string[]
+  targetScopeKey: string | null
+}
+
+export interface WorkspaceSwitchClearInput extends WorkspaceSwitchTargetReachableInput {
+  workspaceSwitching: boolean
+}
+
+export function workspaceSwitchOrganizationId(scopeKey: string): string | null {
+  const prefix = "organization:"
+  if (!scopeKey.startsWith(prefix)) {
+    return null
+  }
+  const organizationId = scopeKey.slice(prefix.length)
+  return organizationId ? organizationId : null
+}
+
+export function isWorkspaceSwitchTargetReachable(input: WorkspaceSwitchTargetReachableInput): boolean {
+  if (!input.targetScopeKey || input.targetScopeKey === "personal") {
+    return true
+  }
+  if (input.activeWorkspaceKey === input.targetScopeKey) {
+    return true
+  }
+  if (input.loadingOrganizations || !input.hasLoadedOrganizations) {
+    return true
+  }
+  const organizationId = workspaceSwitchOrganizationId(input.targetScopeKey)
+  return organizationId ? input.organizationIds.includes(organizationId) : false
+}
+
+export function shouldClearWorkspaceSwitchTarget(input: WorkspaceSwitchClearInput): boolean {
+  if (!input.targetScopeKey) {
+    return false
+  }
+  if (!isWorkspaceSwitchTargetReachable(input)) {
+    return true
+  }
+  if (!input.workspaceSwitching) {
+    return true
+  }
+  return false
 }
 
 export function projectContextFromProject(

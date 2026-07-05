@@ -86,6 +86,7 @@ function isOAuthOperationConnected(next: ConnectionSummary, operation: OAuthPend
 
 export interface UseConnections {
   summary: ConnectionSummary | null
+  summaryWorkspaceKey: string | null
   busy: "connect" | "disconnect" | "refresh" | null
   polling: string | null
   actionError: UserFacingError | null
@@ -108,6 +109,7 @@ export interface UseConnections {
 export function useConnections(workspace: ConnectionWorkspace | null): UseConnections {
   const chatService = useChatService()
   const [summary, setSummary] = React.useState<ConnectionSummary | null>(null)
+  const [summaryWorkspaceKey, setSummaryWorkspaceKey] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<UseConnections["busy"]>(null)
   const [polling, setPolling] = React.useState<string | null>(null)
   const [actionError, setActionError] = React.useState<UserFacingError | null>(null)
@@ -122,6 +124,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const summaryRequestSequence = React.useRef(0)
   effectiveWorkspace.current = workspace
 
+  const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
+    setSummary(next)
+    setSummaryWorkspaceKey(connectionWorkspaceKey(next.workspace))
+  }, [])
+
   const isCurrentWorkspace = React.useCallback((generation: number, key: string): boolean => {
     return workspaceGeneration.current === generation && sameWorkspace(effectiveWorkspace.current, key)
   }, [])
@@ -131,6 +138,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       const currentWorkspace = effectiveWorkspace.current
       if (!currentWorkspace) {
         setSummary(null)
+        setSummaryWorkspaceKey(null)
         setBusy(null)
         setSummaryError(null)
         return null
@@ -143,12 +151,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       try {
         const next = await getConnectionSummary(currentWorkspace, request)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
-          setSummary(next)
+          setCurrentSummary(next)
           setSummaryError(null)
         }
         return next
       } catch (err) {
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
+          setSummaryWorkspaceKey(key)
           setSummaryError(resolveConnectionError(err, "summary"))
         }
         return null
@@ -158,7 +167,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [isCurrentWorkspace],
+    [isCurrentWorkspace, setCurrentSummary],
   )
 
   const activateOAuthPending = React.useCallback((operation: OAuthPendingOperation): OAuthPendingOperation => {
@@ -212,7 +221,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
             return false
           }
           if (isOAuthOperationConnected(next, operation)) {
-            setSummary(next)
+            setCurrentSummary(next)
             setActionError(null)
             clearActiveOAuthPending(operation)
             setPolling(null)
@@ -244,7 +253,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [clearActiveOAuthPending, isCurrentWorkspace],
+    [clearActiveOAuthPending, isCurrentWorkspace, setCurrentSummary],
   )
 
   // workspace 变化（含首帧）：同步 agent 组织作用域 + 重拉摘要。
@@ -267,6 +276,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       setActionError(null)
       setSummaryError(null)
       setSummary(null)
+      setSummaryWorkspaceKey(null)
       return
     }
     const key = connectionWorkspaceKey(workspace)
@@ -283,6 +293,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     oauthPending.current = null
     pollAbort.current = null
     setPolling(null)
+    setSummaryWorkspaceKey(null)
     const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
     setActionError(null)
     setSummaryError(null)
@@ -295,6 +306,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       } catch (err) {
         if (isCurrentWorkspace(generation, key)) {
+          setSummaryWorkspaceKey(key)
           setSummaryError(resolveConnectionError(err, "summary"))
           setBusy((current) => (current === "refresh" ? null : current))
         }
@@ -358,7 +370,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       }
       const applySummary = (next: ConnectionSummary): void => {
         if (isCurrentAction()) {
-          setSummary(next)
+          setCurrentSummary(next)
         }
       }
       const applyActionError = (error: UserFacingError): void => {
@@ -439,7 +451,14 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         applyBusy(null)
       }
     },
-    [activateOAuthPending, chatService, clearActiveOAuthPending, isCurrentWorkspace, pollOAuthPending],
+    [
+      activateOAuthPending,
+      chatService,
+      clearActiveOAuthPending,
+      isCurrentWorkspace,
+      pollOAuthPending,
+      setCurrentSummary,
+    ],
   )
 
   const disconnect = React.useCallback(
@@ -463,7 +482,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         await disconnectProviderRequest(svc, currentWorkspace)
         const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
-          setSummary(next)
+          setCurrentSummary(next)
         }
         return isCurrentAction()
       } catch (err) {
@@ -477,7 +496,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [isCurrentWorkspace],
+    [isCurrentWorkspace, setCurrentSummary],
   )
 
   const disconnectAccount = React.useCallback(
@@ -501,7 +520,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         await disconnectAccountRequest(appId, currentWorkspace)
         const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
-          setSummary(next)
+          setCurrentSummary(next)
         }
         return isCurrentAction()
       } catch (err) {
@@ -515,7 +534,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [isCurrentWorkspace],
+    [isCurrentWorkspace, setCurrentSummary],
   )
 
   const setDefaultAccount = React.useCallback(
@@ -538,7 +557,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         await setDefaultAccountRequest(svc, appId, currentWorkspace)
         const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
-          setSummary(next)
+          setCurrentSummary(next)
         }
         return isCurrentAction()
       } catch (err) {
@@ -548,7 +567,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return false
       }
     },
-    [isCurrentWorkspace],
+    [isCurrentWorkspace, setCurrentSummary],
   )
 
   const updateAlias = React.useCallback(
@@ -571,7 +590,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         await updateAliasRequest(appId, alias, currentWorkspace)
         const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
-          setSummary(next)
+          setCurrentSummary(next)
         }
         return isCurrentAction()
       } catch (err) {
@@ -581,7 +600,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return false
       }
     },
-    [isCurrentWorkspace],
+    [isCurrentWorkspace, setCurrentSummary],
   )
 
   const cancelPolling = React.useCallback(() => {
@@ -617,6 +636,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
 
   return {
     summary,
+    summaryWorkspaceKey,
     busy,
     polling,
     actionError,
@@ -631,7 +651,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     getExecutionLogs,
     openExternal,
     setDefaultAccount,
-    setSummary,
+    setSummary: setCurrentSummary,
     updateAlias,
   }
 }

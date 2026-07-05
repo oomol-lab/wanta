@@ -4,11 +4,11 @@ import type {
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
-  ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
+import type { ChatPendingQuestion } from "./question-state.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
@@ -799,7 +799,7 @@ interface ChatTimelineProps {
   activeSessionId: string | null
   billingCacheScope: string
   messages: ChatMessage[]
-  pendingQuestions: ChatQuestionRequest[]
+  pendingQuestions: ChatPendingQuestion[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
   isGenerating: boolean
@@ -810,6 +810,8 @@ interface ChatTimelineProps {
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
+  onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
+  onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
   onViewBilling?: () => void
 }
@@ -829,6 +831,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   onTurnOutputOpen,
   onTurnOutputAvailable,
   onAnswerQuestion,
+  onContinueQuestion,
+  onDiscardQuestion,
   onRejectQuestion,
   onViewBilling,
 }: ChatTimelineProps) {
@@ -913,13 +917,17 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             />
           )
         })}
-        {pendingQuestions.map((request) => (
+        {pendingQuestions.map(({ request, state }) => (
           <div key={request.id} className="flex justify-start">
             <div className="w-full max-w-full">
               <QuestionPromptCard
                 request={request}
+                state={state}
                 busy={status === "submitted"}
+                continueDisabled={state === "stopped" && (status === "submitted" || status === "streaming")}
                 onAnswer={onAnswerQuestion}
+                onContinue={onContinueQuestion}
+                onDiscard={onDiscardQuestion}
                 onReject={onRejectQuestion}
               />
             </div>

@@ -7,6 +7,7 @@ import type {
   ChatContextMention,
   ChatOrganizationSkillContext,
   ChatProjectContext,
+  ChatQuestionRequest,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
@@ -70,6 +71,7 @@ import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-f
 import { cn } from "@/lib/utils"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
+import { formatQuestionResumeMessage } from "@/routes/Chat/question-resume-message"
 import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 type ProjectSelectionSource = "composer" | "sidebar"
@@ -223,6 +225,7 @@ export function AppShell() {
     send,
     stop,
     answerQuestion,
+    discardQuestion,
     rejectQuestion,
   } = useChat(activeSessionId, route === "chat" ? activeSessionId : null)
   const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
@@ -1009,6 +1012,29 @@ export function AppShell() {
     [activeSessionId, answerQuestion],
   )
 
+  const handleContinueQuestion = React.useCallback(
+    async (request: ChatQuestionRequest, answers: string[][]): Promise<void> => {
+      const sessionId = activeSessionId
+      if (!sessionId) {
+        return
+      }
+      const accepted = await handleSend(formatQuestionResumeMessage(t, request, answers))
+      if (accepted) {
+        discardQuestion(sessionId, request.id)
+      }
+    },
+    [activeSessionId, discardQuestion, handleSend, t],
+  )
+
+  const handleDiscardQuestion = React.useCallback(
+    (requestId: string): void => {
+      if (activeSessionId) {
+        discardQuestion(activeSessionId, requestId)
+      }
+    },
+    [activeSessionId, discardQuestion],
+  )
+
   const handleRejectQuestion = React.useCallback(
     (requestId: string): Promise<void> =>
       activeSessionId ? rejectQuestion(activeSessionId, requestId) : Promise.resolve(),
@@ -1450,6 +1476,8 @@ export function AppShell() {
                       onComposerStateChange={handleComposerStateChange}
                       onSend={handleSend}
                       onAnswerQuestion={handleAnswerQuestion}
+                      onContinueQuestion={handleContinueQuestion}
+                      onDiscardQuestion={handleDiscardQuestion}
                       onRejectQuestion={handleRejectQuestion}
                       onSetDefaultConnection={connections.setDefaultAccount}
                       onStop={handleChatStop}

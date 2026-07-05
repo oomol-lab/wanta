@@ -1,10 +1,10 @@
 import type { ChatQuestionRequest } from "../../../electron/chat/common.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 
-function questionLabel(request: ChatQuestionRequest, questionIndex: number): string {
+function questionLabel(t: TranslateFn, request: ChatQuestionRequest, questionIndex: number): string {
   const question = request.questions[questionIndex]
   const text = question?.question.trim() || question?.header.trim()
-  return text || `Question ${questionIndex + 1}`
+  return text || t("chat.questionFallbackLabel", { index: questionIndex + 1 })
 }
 
 export function formatQuestionResumeMessage(t: TranslateFn, request: ChatQuestionRequest, answers: string[][]): string {
@@ -19,7 +19,7 @@ export function formatQuestionResumeMessage(t: TranslateFn, request: ChatQuestio
     return [
       t("chat.questionResumeMessageItem", {
         answer: answerText,
-        question: questionLabel(request, index),
+        question: questionLabel(t, request, index),
       }),
     ]
   })

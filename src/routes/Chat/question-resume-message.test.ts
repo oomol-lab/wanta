@@ -14,6 +14,9 @@ const t: TranslateFn = (key, values) => {
   if (key === "chat.questionResumeMessageEmpty") {
     return "No answers"
   }
+  if (key === "chat.questionFallbackLabel") {
+    return `Question ${String(values?.index ?? "")}`
+  }
   return key
 }
 
@@ -41,5 +44,15 @@ describe("question resume message", () => {
     }
 
     expect(formatQuestionResumeMessage(t, request, [[]])).toBe("Continue:\nNo answers")
+  })
+
+  it("localizes fallback question labels", () => {
+    const request: ChatQuestionRequest = {
+      id: "q1",
+      sessionId: "s1",
+      questions: [{ header: "", question: "", options: [] }],
+    }
+
+    expect(formatQuestionResumeMessage(t, request, [["value"]])).toBe("Continue:\n- Question 1\n  value")
   })
 })

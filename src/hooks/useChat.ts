@@ -163,7 +163,17 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const pendingToolDelayStartedAt = React.useRef<number | null>(null)
   const pendingQuestionsFetchVersions = React.useRef(new Map<string, number>())
   const pendingQuestionsMutationVersions = React.useRef(new Map<string, number>())
+  const pendingQuestionsMapRef = React.useRef(pendingQuestionsMap)
   const stoppedQuestionsMapRef = React.useRef(stoppedQuestionsMap)
+
+  const updatePendingQuestionsMap = React.useCallback(
+    (updater: (current: PendingQuestionsMap) => PendingQuestionsMap) => {
+      const next = updater(pendingQuestionsMapRef.current)
+      pendingQuestionsMapRef.current = next
+      setPendingQuestionsMap(next)
+    },
+    [],
+  )
 
   React.useEffect(() => {
     stoppedQuestionsMapRef.current = stoppedQuestionsMap
@@ -383,39 +393,36 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     })
   }, [])
 
-  const markPendingQuestionsStopped = React.useCallback(
-    (sessionId: string) => {
-      const requests = pendingQuestionsMap[sessionId] ?? []
-      const requestIds = requests.map((request) => request.id)
-      if (requestIds.length === 0) {
-        return
-      }
-      addStoredStoppedQuestions(sessionId, requests)
-      setStoppedQuestionsMap((current) => {
-        const existing = current[sessionId] ?? []
-        const nextIds = [...existing]
-        for (const requestId of requestIds) {
-          if (!nextIds.includes(requestId)) {
-            nextIds.push(requestId)
-          }
+  const markPendingQuestionsStopped = React.useCallback((sessionId: string) => {
+    const requests = pendingQuestionsMapRef.current[sessionId] ?? []
+    const requestIds = requests.map((request) => request.id)
+    if (requestIds.length === 0) {
+      return
+    }
+    addStoredStoppedQuestions(sessionId, requests)
+    setStoppedQuestionsMap((current) => {
+      const existing = current[sessionId] ?? []
+      const nextIds = [...existing]
+      for (const requestId of requestIds) {
+        if (!nextIds.includes(requestId)) {
+          nextIds.push(requestId)
         }
-        return nextIds.length === existing.length ? current : { ...current, [sessionId]: nextIds }
-      })
-    },
-    [pendingQuestionsMap],
-  )
+      }
+      return nextIds.length === existing.length ? current : { ...current, [sessionId]: nextIds }
+    })
+  }, [])
 
   const removePendingQuestion = React.useCallback(
     (sessionId: string, requestId: string) => {
       markPendingQuestionsMutated(sessionId)
       clearStoppedQuestion(sessionId, requestId)
       removeStoredQuestionDraft(sessionId, requestId)
-      setPendingQuestionsMap((current) => ({
+      updatePendingQuestionsMap((current) => ({
         ...current,
         [sessionId]: (current[sessionId] ?? []).filter((request) => request.id !== requestId),
       }))
     },
-    [clearStoppedQuestion, markPendingQuestionsMutated],
+    [clearStoppedQuestion, markPendingQuestionsMutated, updatePendingQuestionsMap],
   )
 
   React.useEffect(() => {
@@ -551,7 +558,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
             ? current
             : { ...current, [sessionId]: nextIds }
         })
-        setPendingQuestionsMap((prev) => ({
+        updatePendingQuestionsMap((prev) => ({
           ...prev,
           [sessionId]: mergePendingQuestionsWithStopped({
             fetchedQuestions: questions,
@@ -567,7 +574,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         reportRendererHandledError("chat", "getPendingQuestions failed", err)
       }
     },
-    [chatService],
+    [chatService, updatePendingQuestionsMap],
   )
 
   React.useEffect(() => {
@@ -621,7 +628,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         setActivity(e.sessionId, undefined)
         markPendingQuestionsMutated(e.sessionId)
         clearStoppedQuestion(e.sessionId, e.request.id)
-        setPendingQuestionsMap((current) => {
+        updatePendingQuestionsMap((current) => {
           const questions = current[e.sessionId] ?? []
           const next = [e.request, ...questions.filter((request) => request.id !== e.request.id)]
           return { ...current, [e.sessionId]: next }
@@ -721,6 +728,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     setActivity,
     setSessionError,
     setStatus,
+    updatePendingQuestionsMap,
   ])
 
   React.useEffect(() => {

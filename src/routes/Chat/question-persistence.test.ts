@@ -33,6 +33,10 @@ function question(id: string): ChatQuestionRequest {
   }
 }
 
+const stoppedQuestionsStorageKey = "wanta:chat:stopped-questions:v1"
+const questionDraftsStorageKey = "wanta:chat:question-drafts:v1"
+const staleUpdatedAt = Date.now() - 15 * 24 * 60 * 60 * 1000
+
 describe("question persistence", () => {
   const originalLocalStorage = globalThis.localStorage
 
@@ -106,5 +110,29 @@ describe("question persistence", () => {
         storedStoppedQuestions: [question("q1")],
       }).map((request) => request.id),
     ).toEqual(["q1"])
+  })
+
+  it("prunes expired stopped questions and drafts during reads", () => {
+    globalThis.localStorage.setItem(
+      stoppedQuestionsStorageKey,
+      JSON.stringify({
+        s1: [{ request: question("q1"), updatedAt: staleUpdatedAt }],
+      }),
+    )
+    globalThis.localStorage.setItem(
+      questionDraftsStorageKey,
+      JSON.stringify({
+        s1: {
+          q1: {
+            activeFieldIndex: 0,
+            drafts: [{ selected: [], value: "old" }],
+            updatedAt: staleUpdatedAt,
+          },
+        },
+      }),
+    )
+
+    expect(readStoredStoppedQuestions("s1")).toEqual([])
+    expect(readStoredQuestionDraft("s1", "q1", 1)).toBeNull()
   })
 })

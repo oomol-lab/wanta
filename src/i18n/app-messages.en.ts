@@ -790,6 +790,7 @@ export const enMessages = {
   "chat.questionCustomOption": "Custom",
   "chat.questionComposerPlaceholder": "Answer Wanta's question...",
   "chat.questionComposerBlockedPlaceholder": "Complete the question above first...",
+  "chat.questionAttachmentUnsupported": "Remove attachments to answer Wanta's question.",
   "chat.questionStoppedStatus": "Stopped",
   "chat.questionStoppedHint":
     "Your entries are preserved. Continue will resend them in a new message. You can also keep chatting below.",
@@ -809,6 +810,7 @@ export const enMessages = {
   "chat.questionResumeMessage": "Continue the previous task. Here is the information I filled in:\n{answers}",
   "chat.questionResumeMessageItem": "- {question}\n  {answer}",
   "chat.questionResumeMessageEmpty": "No additional fields were filled in.",
+  "chat.questionFallbackLabel": "Question {index}",
   "artifacts.title": "Artifacts",
   "artifacts.generatedSummary": "{count} artifact(s) generated",
   "artifacts.open": "Open",

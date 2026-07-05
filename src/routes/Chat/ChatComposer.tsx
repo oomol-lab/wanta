@@ -243,13 +243,14 @@ export function ChatComposer({
   const isGenerating = status === "submitted" || status === "streaming"
   const activePendingQuestion = pendingQuestions.find((item) => item.state === "active")?.request
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
+  const composerAttachmentsDisabled = Boolean(activePendingQuestion)
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled = voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
   const modelCatalog = modelCatalogState.catalog
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({
     attachments,
-    disabled: composerDisabled,
+    disabled: composerDisabled || composerAttachmentsDisabled,
     dispatch: dispatchComposer,
     setInputError,
   })
@@ -341,7 +342,7 @@ export function ChatComposer({
     if (!attachmentMenuOpen) {
       return
     }
-    if (composerDisabled) {
+    if (composerDisabled || composerAttachmentsDisabled) {
       setAttachmentMenuOpen(false)
       return
     }
@@ -372,7 +373,7 @@ export function ChatComposer({
       window.removeEventListener("resize", handleReposition)
       window.removeEventListener("scroll", handleReposition, true)
     }
-  }, [attachmentMenuOpen, composerDisabled, updateAttachmentMenuPlacement])
+  }, [attachmentMenuOpen, composerAttachmentsDisabled, composerDisabled, updateAttachmentMenuPlacement])
 
   React.useLayoutEffect(() => {
     const textarea = textareaRef.current
@@ -490,7 +491,7 @@ export function ChatComposer({
     onOpenConnectionProvider,
     onRequestSetDefaultConnection: onSetDefaultConnection ? requestSetDefaultConnection : undefined,
     onSelectAttachments: (kind) => {
-      if (composerDisabled) {
+      if (composerDisabled || composerAttachmentsDisabled) {
         return
       }
       void composerAttachments.selectAttachments(kind)
@@ -504,8 +505,18 @@ export function ChatComposer({
   // 的按钮点击触发，避免生成中按回车误中止流。
   const handleSubmit = async (message: PromptInputMessage): Promise<void> => {
     const text = message.text
-    if (activePendingQuestion && isSingleTextQuestion(activePendingQuestion) && text.trim().length > 0) {
+    if (activePendingQuestion) {
+      if (!isSingleTextQuestion(activePendingQuestion)) {
+        return
+      }
       if (submitBlocked || composerDisabled || answeringQuestion) {
+        return
+      }
+      if (attachments.length > 0) {
+        setInputError(t("chat.questionAttachmentUnsupported"))
+        return
+      }
+      if (text.trim().length === 0) {
         return
       }
       setAnsweringQuestion(true)
@@ -581,7 +592,9 @@ export function ChatComposer({
     />
   ) : null
   const submitText = draft
-  const canSubmit = !submitBlocked && !composerDisabled && (submitText.trim().length > 0 || attachments.length > 0)
+  const canSubmit = activePendingQuestion
+    ? !submitBlocked && !composerDisabled && attachments.length === 0 && submitText.trim().length > 0
+    : !submitBlocked && !composerDisabled && (submitText.trim().length > 0 || attachments.length > 0)
   const composerPlaceholder = activePendingQuestion
     ? composerQuestionBlocked
       ? t("chat.questionComposerBlockedPlaceholder")
@@ -655,7 +668,7 @@ export function ChatComposer({
               title={t("chat.attachFile")}
               aria-label={t("chat.attachFile")}
               aria-expanded={attachmentMenuOpen}
-              disabled={composerDisabled}
+              disabled={composerDisabled || composerAttachmentsDisabled}
               className="size-8 rounded-full"
               onClick={() => setAttachmentMenuOpen((open) => !open)}
             >

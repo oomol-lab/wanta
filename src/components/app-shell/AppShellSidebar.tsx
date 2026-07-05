@@ -34,6 +34,7 @@ import {
 } from "lucide-react"
 import * as React from "react"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
+import { workspaceSelectionSwitchKey } from "./app-shell-model.ts"
 import { formatSessionAbsoluteTime, formatSessionRelativeTime } from "@/components/app-shell/session-time"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
 import { ErrorNotice } from "@/components/ErrorNotice"
@@ -57,10 +58,6 @@ export { SessionSearchOverlay } from "./SessionSearchOverlay.tsx"
 function accountInitial(name?: string): string {
   const trimmed = name?.trim()
   return trimmed ? trimmed.charAt(0).toLocaleUpperCase() : "L"
-}
-
-function workspaceSelectionKey(workspace: WorkspaceSelection): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationId}` : "personal"
 }
 
 function WorkspaceAvatar({
@@ -131,7 +128,7 @@ function WorkspaceMenuContent({
   workspace: WorkspaceSelection
 }) {
   const t = useT()
-  const activeKey = workspaceSelectionKey(workspace)
+  const activeKey = workspaceSelectionSwitchKey(workspace)
   const personalLabel = accountName?.trim() || t("organizations.personal")
   const personalDescription =
     personalLabel === t("organizations.personal") ? t("organizations.workspace") : t("organizations.personal")
@@ -607,7 +604,9 @@ export function SidebarFooterControls({
   loggingOut,
   onNavigate,
   onLogout,
+  onWorkspaceSwitchStart,
   workspace,
+  workspaceSwitching,
 }: {
   accountName?: string
   avatarUrl?: string
@@ -615,7 +614,9 @@ export function SidebarFooterControls({
   loggingOut: boolean
   onNavigate: (route: AppShellRoute) => void
   onLogout: () => void
+  onWorkspaceSwitchStart: (targetScopeKey: string) => void
   workspace: UseOrganizationWorkspace
+  workspaceSwitching: boolean
 }) {
   const t = useT()
   const rootRef = React.useRef<HTMLDivElement | null>(null)
@@ -628,6 +629,7 @@ export function SidebarFooterControls({
     workspace.activeWorkspace.type === "organization"
       ? (workspace.activeWorkspace.organization?.name ?? t("organizations.workspace"))
       : personalWorkspaceLabel
+  const workspaceButtonTitle = workspaceSwitching ? t("sidebar.switchingAccount") : activeWorkspaceLabel
 
   React.useEffect(() => {
     if (!workspaceMenuOpen && !accountMenuOpen) {
@@ -655,6 +657,12 @@ export function SidebarFooterControls({
     }
   }, [accountMenuOpen, workspaceMenuOpen])
 
+  React.useEffect(() => {
+    if (workspaceSwitching) {
+      setWorkspaceMenuOpen(false)
+    }
+  }, [workspaceSwitching])
+
   const closeMenus = React.useCallback(() => {
     setWorkspaceMenuOpen(false)
     setAccountMenuOpen(false)
@@ -667,10 +675,12 @@ export function SidebarFooterControls({
     >
       <button
         type="button"
-        className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left"
-        aria-label={t("organizations.workspaceSwitcher")}
+        className="oo-sidebar-nav-item oo-sidebar-workspace-trigger flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left disabled:cursor-default disabled:opacity-80"
+        aria-busy={workspaceSwitching}
+        aria-label={workspaceSwitching ? t("sidebar.switchingAccount") : t("organizations.workspaceSwitcher")}
         aria-expanded={workspaceMenuOpen}
-        title={activeWorkspaceLabel}
+        disabled={workspaceSwitching}
+        title={workspaceButtonTitle}
         onClick={() => {
           setWorkspaceMenuOpen((open) => !open)
           setAccountMenuOpen(false)
@@ -687,7 +697,11 @@ export function SidebarFooterControls({
             {activeWorkspaceLabel}
           </div>
         </div>
-        <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
+        {workspaceSwitching ? (
+          <LoaderCircle className="oo-sidebar-nav-label size-4 shrink-0 animate-spin text-muted-foreground" />
+        ) : (
+          <ChevronsUpDown className="oo-sidebar-nav-label size-4 shrink-0 text-muted-foreground" />
+        )}
       </button>
       {workspaceMenuOpen ? (
         <WorkspaceMenuContent
@@ -706,11 +720,19 @@ export function SidebarFooterControls({
           }}
           onRefresh={() => void workspace.refresh({ forceRefresh: true })}
           onSelectOrganization={(organizationId) => {
+            if (workspaceSwitching) {
+              return
+            }
             closeMenus()
+            onWorkspaceSwitchStart(`organization:${organizationId}`)
             workspace.selectOrganization(organizationId)
           }}
           onSelectPersonal={() => {
+            if (workspaceSwitching) {
+              return
+            }
             closeMenus()
+            onWorkspaceSwitchStart("personal")
             workspace.selectPersonal()
           }}
         />

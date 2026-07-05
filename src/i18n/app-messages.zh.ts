@@ -108,6 +108,7 @@ export const zhCNMessages = {
   "sidebar.searchEmpty": "没有匹配的任务",
   "sidebar.closeSearch": "关闭搜索",
   "sidebar.accountMenu": "账号菜单",
+  "sidebar.switchingAccount": "正在切换账号…",
   "session.renameTitle": "重命名对话",
   "session.renameDescription": "保持简短且易于识别",
   "session.renameClose": "关闭重命名",

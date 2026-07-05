@@ -8,7 +8,7 @@ import type {
   ChatMessage,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
-import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ConnectionProvider, ConnectionWorkspace } from "../../../electron/connections/common.ts"
 import type { GitRepositoryState } from "../../../electron/git/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
@@ -223,11 +223,51 @@ export function sessionScopeFromWorkspace(workspace: WorkspaceSelection): Sessio
   return { type: "organization", organizationId, organizationName }
 }
 
+export function workspaceSelectionSwitchKey(workspace: WorkspaceSelection): string {
+  return workspace.type === "organization" ? `organization:${workspace.organizationId}` : "personal"
+}
+
+export function connectionWorkspaceSwitchKey(workspace: ConnectionWorkspace): string {
+  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
+}
+
 export function sessionScopeKey(scope: SessionScope | null): string {
   if (!scope) {
     return "workspace-loading"
   }
   return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
+}
+
+export interface WorkspaceSwitchPendingInput {
+  connectionSettledWorkspaceKey: string | null
+  connectionWorkspaceKey: string | null
+  connectionsRefreshing: boolean
+  currentScopeKey: string
+  loadedSessionScopeKey: string | null
+  organizationSkillsSettled: boolean
+  targetScopeKey: string | null
+}
+
+export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): boolean {
+  if (!input.targetScopeKey) {
+    return false
+  }
+  if (input.currentScopeKey !== input.targetScopeKey) {
+    return true
+  }
+  if (input.loadedSessionScopeKey !== input.targetScopeKey) {
+    return true
+  }
+  if (!input.connectionWorkspaceKey) {
+    return true
+  }
+  if (input.connectionsRefreshing) {
+    return true
+  }
+  if (input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
+    return true
+  }
+  return !input.organizationSkillsSettled
 }
 
 export function projectContextFromProject(

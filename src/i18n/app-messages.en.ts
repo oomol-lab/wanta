@@ -120,6 +120,7 @@ export const enMessages = {
   "sidebar.searchEmpty": "No matching tasks",
   "sidebar.closeSearch": "Close search",
   "sidebar.accountMenu": "Account menu",
+  "sidebar.switchingAccount": "Switching account…",
   "session.renameTitle": "Rename chat",
   "session.renameDescription": "Keep it short and easy to identify",
   "session.renameClose": "Close rename",

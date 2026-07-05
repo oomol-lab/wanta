@@ -33,8 +33,10 @@ import {
   AUTH_RETRY_POLL_INTERVAL_MS,
   AUTH_RETRY_POLL_TIMEOUT_MS,
   buildSessionTitleInput,
+  connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
   initialRoute,
+  isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
@@ -168,6 +170,7 @@ export function AppShell() {
     projectSessions,
     projects,
     loaded: sessionsLoaded,
+    loadedScopeKey: sessionsLoadedScopeKey,
     error: sessionsError,
     create,
     createProject,
@@ -185,6 +188,43 @@ export function AppShell() {
     remove: removeSession,
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
+  const [workspaceSwitchTargetKey, setWorkspaceSwitchTargetKey] = React.useState<string | null>(null)
+  const currentScopeKey = sessionScopeKey(sessionScope)
+  const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
+    ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
+    : null
+  const activeOrganizationId =
+    organizationWorkspace.activeWorkspace.type === "organization"
+      ? organizationWorkspace.activeWorkspace.organizationId
+      : null
+  const organizationSkillsSettled =
+    !activeOrganizationId ||
+    (organizationSkills.organizationId === activeOrganizationId &&
+      !organizationSkills.loading &&
+      (organizationSkills.hasLoaded || organizationSkills.error !== null))
+  const workspaceSwitching = isWorkspaceSwitchPending({
+    connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
+    connectionWorkspaceKey: currentConnectionWorkspaceKey,
+    connectionsRefreshing: connections.busy === "refresh",
+    currentScopeKey,
+    loadedSessionScopeKey: sessionsLoadedScopeKey,
+    organizationSkillsSettled,
+    targetScopeKey: workspaceSwitchTargetKey,
+  })
+  const handleWorkspaceSwitchStart = React.useCallback(
+    (targetScopeKey: string): void => {
+      if (targetScopeKey === currentScopeKey && !workspaceSwitching) {
+        return
+      }
+      setWorkspaceSwitchTargetKey(targetScopeKey)
+    },
+    [currentScopeKey, workspaceSwitching],
+  )
+  React.useEffect(() => {
+    if (workspaceSwitchTargetKey && !workspaceSwitching) {
+      setWorkspaceSwitchTargetKey(null)
+    }
+  }, [workspaceSwitchTargetKey, workspaceSwitching])
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
@@ -1411,6 +1451,7 @@ export function AppShell() {
         taskSessions={taskSessions}
         width={sidebarWidth}
         workspace={organizationWorkspace}
+        workspaceSwitching={workspaceSwitching}
         onArchiveProjectRequest={(project) => setArchiveProjectId(project.id)}
         onArchiveSessionRequest={handleArchiveSessionRequest}
         onLogout={() => void auth.logout()}
@@ -1423,6 +1464,7 @@ export function AppShell() {
         onProjectExpandedChange={handleProjectSidebarExpandedChange}
         onRemoveProjectRequest={(project) => setRemoveProjectId(project.id)}
         onRenameProjectRequest={(project) => setRenameProjectId(project.id)}
+        onWorkspaceSwitchStart={handleWorkspaceSwitchStart}
         onRenameSessionRequest={(session) => setRenameSessionId(session.id)}
         onSelectProjectDraft={handleOpenProjectDraft}
         onSelectProjectFolder={() => void handleSelectProjectFolder()}

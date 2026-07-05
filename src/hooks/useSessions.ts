@@ -37,6 +37,7 @@ export interface UseSessions {
   projectSessions: SessionInfo[]
   projects: SessionProject[]
   loaded: boolean
+  loadedScopeKey: string | null
   error: UserFacingError | null
   create: (title?: string, projectId?: string) => Promise<SessionInfo>
   listArchived: () => Promise<SessionInfo[]>
@@ -71,6 +72,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const [projectSessions, setProjectSessions] = React.useState<SessionInfo[]>([])
   const [projects, setProjects] = React.useState<SessionProject[]>([])
   const [loaded, setLoaded] = React.useState(false)
+  const [loadedScopeKey, setLoadedScopeKey] = React.useState<string | null>(null)
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
@@ -93,6 +95,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     setProjectSessions([])
     setProjects([])
     setLoaded(false)
+    setLoadedScopeKey(null)
     setError(null)
   }, [scopeKey])
 
@@ -104,6 +107,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setProjectSessions([])
       setProjects([])
       setLoaded(false)
+      setLoadedScopeKey(null)
       setError(null)
       return
     }
@@ -145,9 +149,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     } finally {
       if (requestId === requestSequenceRef.current && enabledRef.current) {
         setLoaded(true)
+        setLoadedScopeKey(scopeKey)
       }
     }
-  }, [enabled, requestScope, sessionService])
+  }, [enabled, requestScope, scopeKey, sessionService])
 
   React.useEffect(() => {
     if (!enabled) {
@@ -156,6 +161,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setProjectSessions([])
       setProjects([])
       setLoaded(false)
+      setLoadedScopeKey(null)
       setError(null)
       return
     }
@@ -332,6 +338,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     projectSessions,
     projects,
     loaded,
+    loadedScopeKey,
     error,
     create,
     listArchived,

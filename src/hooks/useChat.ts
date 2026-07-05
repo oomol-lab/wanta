@@ -18,6 +18,7 @@ import type {
   ToolCallStartedEvent,
 } from "../../electron/chat/common.ts"
 import type { ModelChoice } from "../../electron/models/common.ts"
+import type { SessionScope } from "../../electron/session/common.ts"
 import type { TextDeltaEvent, TextDeltaKind } from "./chat-message-state.ts"
 import type { SessionPermissionGrant } from "@/routes/Chat/permission-request"
 import type { ChatPendingQuestion } from "@/routes/Chat/question-state"
@@ -103,6 +104,7 @@ export interface UseChat {
       permissionMode?: AgentPermissionMode
       projectContext?: ChatProjectContext
       reasoningLevel?: ReasoningLevel
+      sessionScope?: SessionScope
     },
   ) => Promise<void>
   stop: (sessionId: string) => Promise<void>
@@ -945,6 +947,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         permissionMode?: AgentPermissionMode
         projectContext?: ChatProjectContext
         reasoningLevel?: ReasoningLevel
+        sessionScope?: SessionScope
       } = {},
     ) => {
       setGlobalError(null)
@@ -967,6 +970,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           permissionMode: options.permissionMode ?? sessionPermissionMode(sessionId),
           projectContext: options.projectContext,
           reasoningLevel: options.reasoningLevel,
+          scope: options.sessionScope,
         })
       } catch (err) {
         reportRendererHandledError("chat", "sendMessage invoke failed", err)

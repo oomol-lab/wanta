@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -58,6 +58,57 @@ describe("AgentManager", () => {
       expect(relative).not.toBe("..")
       expect(relative.startsWith(`..${path.sep}`)).toBe(false)
       expect(path.isAbsolute(relative)).toBe(false)
+    } finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("syncs the oo CLI default identity with the active organization", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    try {
+      const manager = new AgentManager({
+        authToken: "test",
+        opencodeBinPath: "/tmp/opencode",
+        ooBinPath: "/tmp/oo",
+        rootDir,
+      })
+      const settingsPath = path.join(rootDir, "oo-store", "config", "settings.toml")
+
+      await manager.setOrganizationName("acme-corp")
+      await expect(readFile(settingsPath, "utf8")).resolves.toContain('organization = "acme-corp"')
+
+      await manager.setOrganizationName(undefined)
+      await expect(readFile(settingsPath, "utf8")).resolves.not.toContain("organization =")
+    } finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves existing oo settings when updating the default organization", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    try {
+      const manager = new AgentManager({
+        authToken: "test",
+        opencodeBinPath: "/tmp/opencode",
+        ooBinPath: "/tmp/oo",
+        rootDir,
+      })
+      const settingsPath = path.join(rootDir, "oo-store", "config", "settings.toml")
+      await mkdir(path.dirname(settingsPath), { recursive: true })
+      await writeFile(
+        settingsPath,
+        ["[skills.recommend]", "muted = true", "", "[identity]", 'organization = "old"', 'note = "keep"'].join("\n"),
+        "utf8",
+      )
+
+      await manager.setOrganizationName('team "quoted"')
+
+      const settings = await readFile(settingsPath, "utf8")
+      expect(settings).toContain("[skills.recommend]")
+      expect(settings).toContain("muted = true")
+      expect(settings).toContain("[identity]")
+      expect(settings).toContain('organization = "team \\"quoted\\""')
+      expect(settings).toContain('note = "keep"')
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }

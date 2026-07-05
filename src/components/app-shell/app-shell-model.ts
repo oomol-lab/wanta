@@ -46,6 +46,7 @@ export interface TurnRetryOptions {
   reasoningLevel?: ReasoningLevel
   mode?: AgentMode
   permissionMode?: AgentPermissionMode
+  sessionScope?: SessionScope
 }
 
 export interface ChatSendRequest {

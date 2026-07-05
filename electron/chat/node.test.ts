@@ -77,6 +77,15 @@ async function waitForEventCount(events: Array<{ event: string; data: unknown }>
   }
 }
 
+async function waitForMessageErrorCount(events: Array<{ event: string; data: unknown }>, count: number): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (events.filter((event) => event.event === "messageError").length >= count) {
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
 test("isAbortErrorMessage recognizes controlled stop errors only", () => {
   assert.equal(isAbortErrorMessage("Aborted"), true)
   assert.equal(isAbortErrorMessage("AbortError"), true)
@@ -105,6 +114,36 @@ test("setAgentOrganization waits for the scope synchronization callback", async 
   resolveScope?.()
   await request
   assert.equal(completed, true)
+})
+
+test("sendMessage waits for the request organization scope before prompting", async () => {
+  const bridge = createBridgeAgent()
+  let resolveScope: (() => void) | undefined
+  const scopeCalls: Array<string | undefined> = []
+  const service = new ChatServiceImpl(bridge.agent, {
+    onSetAgentOrganization: async (organizationName) =>
+      new Promise<void>((resolve) => {
+        scopeCalls.push(organizationName)
+        resolveScope = resolve
+      }),
+  })
+
+  const request = service.sendMessage({
+    scope: { type: "organization", organizationId: "org-id", organizationName: " acme-corp " },
+    sessionId: "session-1",
+    text: "hello",
+  })
+  await Promise.resolve()
+
+  assert.deepEqual(scopeCalls, ["acme-corp"])
+  assert.equal(bridge.createArtifactDir.mock.calls.length, 0)
+  assert.equal(bridge.promptStreaming.mock.calls.length, 0)
+
+  resolveScope?.()
+  await request
+
+  assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
+  assert.equal(bridge.promptStreaming.mock.calls.length, 1)
 })
 
 test("stopGeneration suppresses delayed streaming events until the next send", async () => {
@@ -274,7 +313,7 @@ test("agent errors from multiple opencode channels produce one message error per
     properties: { sessionID: "session-1", error },
   })
   rejectPrompt?.(new Error("The selected model does not exist."))
-  await Promise.resolve()
+  await waitForMessageErrorCount(events, 1)
 
   const messageErrors = events.filter((event) => event.event === "messageError")
   assert.equal(messageErrors.length, 1)
@@ -287,6 +326,7 @@ test("agent errors from multiple opencode channels produce one message error per
     properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant", error } },
   })
 
+  await waitForMessageErrorCount(events, 2)
   assert.equal(events.filter((event) => event.event === "messageError").length, 2)
 })
 

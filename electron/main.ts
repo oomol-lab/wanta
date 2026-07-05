@@ -452,6 +452,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   ) {
     return
   }
+  const previousAccountId = appliedAccount?.id
   appliedAccount = null
   agent?.dispose()
   agent = null
@@ -460,7 +461,11 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   sessionService.setAgent(null)
 
   if (!account) {
+    activeAgentOrganizationName = undefined
     return
+  }
+  if (previousAccountId && previousAccountId !== account.id) {
+    activeAgentOrganizationName = undefined
   }
 
   const nextAgent = new AgentManager({
@@ -498,9 +503,10 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
 
 async function handleAgentOrganizationChanged(organizationName: string | undefined): Promise<void> {
   const previousOrganizationName = activeAgentOrganizationName
-  activeAgentOrganizationName = organizationName
+  const nextOrganizationName = organizationName?.trim() ? organizationName.trim() : undefined
+  activeAgentOrganizationName = nextOrganizationName
   try {
-    await agent?.setOrganizationName(organizationName)
+    await agent?.setOrganizationName(nextOrganizationName)
   } catch (error: unknown) {
     activeAgentOrganizationName = previousOrganizationName
     console.error("[wanta] failed to update agent workspace scope:", error)

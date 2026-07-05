@@ -1,6 +1,7 @@
 import type { WantaAgentMode } from "../agent/mode.ts"
 import type { WantaReasoningLevel } from "../agent/reasoning.ts"
 import type { ModelChoice } from "../models/common.ts"
+import type { SessionScope } from "../session/common.ts"
 import type { ChatErrorKind } from "./error.ts"
 import type { ServiceName } from "@oomol/connection"
 
@@ -270,6 +271,7 @@ export interface SendMessageRequest {
   contextMentions?: ChatContextMention[]
   organizationSkills?: ChatOrganizationSkillContext[]
   projectContext?: ChatProjectContext
+  scope?: SessionScope
   model?: ModelChoice
   permissionMode?: AgentPermissionMode
   reasoningLevel?: ReasoningLevel

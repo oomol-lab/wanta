@@ -26,6 +26,7 @@ import { buildFallbackSessionTitle, sanitizeGeneratedSessionTitle } from "../ses
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest } from "./event-translator.ts"
 import { normalizeWantaAgentMode } from "./mode.ts"
+import { writeOoIdentitySettings } from "./oo-identity.ts"
 import { buildOoEnv } from "./oo.ts"
 import { opencodeReasoningVariant } from "./reasoning.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
@@ -206,7 +207,7 @@ export class AgentManager {
       await persistOrganizationScopeUpdate({
         currentName: previousOrganizationName,
         nextName: nextOrganizationName,
-        writeScope: (name) => this.writeOrganizationScope(name),
+        writeScope: (name) => this.writeOrganizationState(name),
       })
       this.organizationName = nextOrganizationName
     }
@@ -230,7 +231,7 @@ export class AgentManager {
 
     await ensureAgentWorkspace(workspaceDir, bundledSkillsDir)
     this.organizationScopePath = organizationScopePath
-    await this.writeOrganizationScope()
+    await this.writeOrganizationState(this.organizationName)
   }
 
   private async startSidecar(): Promise<void> {
@@ -724,12 +725,20 @@ export class AgentManager {
     return { sessionId: id, messages }
   }
 
-  private async writeOrganizationScope(organizationName = this.organizationName): Promise<void> {
+  private async writeOrganizationScope(organizationName: string | undefined): Promise<void> {
     if (!this.organizationScopePath) {
       return
     }
     await mkdir(path.dirname(this.organizationScopePath), { recursive: true })
     await writeFile(this.organizationScopePath, JSON.stringify({ organizationName: organizationName ?? "" }), "utf8")
+  }
+
+  private async writeOrganizationState(organizationName: string | undefined): Promise<void> {
+    await Promise.all([this.writeOrganizationScope(organizationName), this.writeOoIdentity(organizationName)])
+  }
+
+  private async writeOoIdentity(organizationName: string | undefined): Promise<void> {
+    await writeOoIdentitySettings(path.join(this.options.rootDir, "oo-store", "config"), organizationName)
   }
 
   public dispose(): void {

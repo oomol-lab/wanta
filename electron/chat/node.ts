@@ -117,6 +117,14 @@ function createMessageErrorPayload(sessionId: string, message: string, messageId
   }
 }
 
+function organizationNameFromRequest(req: SendMessageRequest): string | undefined {
+  if (req.scope?.type !== "organization") {
+    return undefined
+  }
+  const organizationName = req.scope.organizationName.trim()
+  return organizationName ? organizationName : undefined
+}
+
 function messageErrorSignature(message: string): string {
   return message.trim() || message
 }
@@ -617,6 +625,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    await this.deps.onSetAgentOrganization?.(organizationNameFromRequest(req))
     const generation = this.beginSessionGeneration(req.sessionId)
     this.userStoppedSessions.delete(req.sessionId)
     this.connectionFailedSessions.delete(req.sessionId)

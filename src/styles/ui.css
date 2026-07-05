@@ -448,6 +448,12 @@
     background: var(--oo-artifact-selected-surface);
   }
 
+  .oo-artifact-browser-scroll {
+    scrollbar-color: transparent transparent !important;
+    scrollbar-gutter: stable both-edges !important;
+    scrollbar-width: thin !important;
+  }
+
   .oo-active-accent:active {
     background: var(--oo-row-selected);
     color: var(--foreground);

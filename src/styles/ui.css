@@ -449,9 +449,7 @@
   }
 
   .oo-artifact-browser-scroll {
-    scrollbar-color: transparent transparent !important;
-    scrollbar-gutter: stable both-edges !important;
-    scrollbar-width: thin !important;
+    scrollbar-gutter: stable both-edges;
   }
 
   .oo-active-accent:active {

@@ -102,3 +102,13 @@
     scrollbar-gutter: auto !important;
   }
 }
+
+/* Univer 使用未分层的全局规则重置 scrollbar，Wanta 的滚动条基线也放到未分层规则中兜底。 */
+* {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.is-scrolling {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}

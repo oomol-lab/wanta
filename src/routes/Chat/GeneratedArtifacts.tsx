@@ -583,7 +583,6 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
     selectedPack?.display === "gallery"
       ? entries.length > 0
       : entries.length > 1 && entries.every((entry) => isImageArtifact(entry.item))
-  const activeRoot = rootArtifactItem(activeGroups)
   const baseRoot = rootArtifactItem(groups)
   const baseCrumb = {
     label: selection?.pack?.title ?? baseRoot?.name ?? t("artifacts.title"),
@@ -833,7 +832,6 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
             <>
               {showArtifactList ? (
                 <ArtifactFileStrip
-                  activeRoot={activeRoot}
                   baseCrumb={baseCrumb}
                   browseLevels={browseLevels}
                   entries={entries}
@@ -872,7 +870,6 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
 }
 
 function ArtifactFileStrip({
-  activeRoot,
   baseCrumb,
   browseLevels,
   entries,
@@ -888,7 +885,6 @@ function ArtifactFileStrip({
   onOpenPath,
   onSelect,
 }: {
-  activeRoot: LocalArtifactItem | null
   baseCrumb: { label: string; path: string }
   browseLevels: ArtifactBrowseLevel[]
   entries: ArtifactPanelEntry[]
@@ -914,7 +910,6 @@ function ArtifactFileStrip({
   return (
     <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
       <ArtifactBrowserHeader
-        activeRoot={activeRoot}
         baseCrumb={baseCrumb}
         browseLevels={browseLevels}
         count={entries.length}
@@ -955,14 +950,12 @@ function ArtifactFileStrip({
 }
 
 function ArtifactBrowserHeader({
-  activeRoot,
   baseCrumb,
   browseLevels,
   count,
   index,
   onNavigate,
 }: {
-  activeRoot: LocalArtifactItem | null
   baseCrumb: { label: string; path: string }
   browseLevels: ArtifactBrowseLevel[]
   count: number
@@ -986,7 +979,14 @@ function ArtifactBrowserHeader({
             >
               <ChevronLeft className="size-4" />
             </button>
-          ) : null}
+          ) : (
+            <div
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+              aria-hidden
+            >
+              <FolderOpen className="size-4" />
+            </div>
+          )}
           <div className="oo-text-caption-compact flex min-w-0 items-center gap-1 font-medium text-muted-foreground">
             {crumbs.map((crumb, index) => {
               const active = index === crumbs.length - 1
@@ -997,6 +997,7 @@ function ArtifactBrowserHeader({
                   <button
                     type="button"
                     disabled={active}
+                    title={crumb.path}
                     className={cn(
                       "min-w-0 truncate rounded px-1 py-0.5 text-left disabled:cursor-default",
                       active ? "text-foreground" : "hover:bg-accent hover:text-foreground",
@@ -1013,9 +1014,6 @@ function ArtifactBrowserHeader({
         <div className="oo-text-caption text-muted-foreground">
           {index}/{count}
         </div>
-      </div>
-      <div className="oo-text-caption-compact mt-0.5 truncate text-muted-foreground">
-        {activeRoot?.path ?? t("artifacts.count", { count })}
       </div>
     </div>
   )
@@ -1141,7 +1139,6 @@ function ImageGalleryPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <section className="oo-border-divider flex shrink-0 flex-col border-b" style={{ height: listHeight }}>
         <ArtifactBrowserHeader
-          activeRoot={group?.root ?? null}
           baseCrumb={baseCrumb}
           browseLevels={browseLevels}
           count={entries.length}

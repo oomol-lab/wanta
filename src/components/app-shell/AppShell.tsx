@@ -15,7 +15,7 @@ import type {
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
-import type { TurnRetryOptions } from "./app-shell-model.ts"
+import type { ChatSendRequest, TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -356,7 +356,7 @@ export function AppShell() {
     const smoke = (import.meta.env as Record<string, string | undefined>)["VITE_WANTA_SMOKE"]
     if (ready && smoke && !smokeSent.current) {
       smokeSent.current = true
-      void handleSend(smoke)
+      void handleSend({ text: smoke })
     }
   }, [ready])
 
@@ -837,16 +837,17 @@ export function AppShell() {
   }, [])
 
   const sendNow = React.useCallback(
-    async (
-      text: string,
-      attachments: ChatAttachment[] = [],
-      contextMentions: ChatContextMention[] = [],
-      model?: ModelChoice,
-      reasoningLevel?: ReasoningLevel,
-      mode?: AgentMode,
-      permissionModeArg?: AgentPermissionMode,
-      afterOptimisticSubmit?: () => void,
-    ): Promise<boolean> => {
+    async (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }): Promise<boolean> => {
+      const {
+        afterOptimisticSubmit,
+        attachments = [],
+        contextMentions = [],
+        mode,
+        model,
+        permissionMode: permissionModeArg,
+        reasoningLevel,
+        text,
+      } = request
       if (sendInFlightRef.current) {
         return false
       }
@@ -996,22 +997,23 @@ export function AppShell() {
   }, [activeSessionId, clearQueuedSession, sessions, sessionsLoaded])
 
   const handleSend = React.useCallback(
-    async (
-      text: string,
-      attachments: ChatAttachment[] = [],
-      contextMentions: ChatContextMention[] = [],
-      model?: ModelChoice,
-      reasoningLevel?: ReasoningLevel,
-      mode?: AgentMode,
-      permissionMode?: AgentPermissionMode,
-    ): Promise<boolean> => {
+    async (request: ChatSendRequest): Promise<boolean> => {
+      const { attachments = [], contextMentions = [], mode, model, permissionMode, reasoningLevel, text } = request
       const draftKey = activeSessionId ?? activeComposerDraftKey
       if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
         queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
         clearComposerDraft(draftKey)
         return true
       }
-      const accepted = await sendNow(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
+      const accepted = await sendNow({
+        attachments,
+        contextMentions,
+        mode,
+        model,
+        permissionMode,
+        reasoningLevel,
+        text,
+      })
       if (accepted) {
         releaseActiveQueue()
         clearComposerDraft(draftKey)
@@ -1047,7 +1049,7 @@ export function AppShell() {
       if (!sessionId) {
         return
       }
-      const accepted = await handleSend(formatQuestionResumeMessage(t, request, answers))
+      const accepted = await handleSend({ text: formatQuestionResumeMessage(t, request, answers) })
       if (accepted) {
         discardQuestion(sessionId, request.id)
       }

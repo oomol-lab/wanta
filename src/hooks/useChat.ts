@@ -1032,16 +1032,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         throw err
       }
     },
-    [
-      chatService,
-      clearSessionError,
-      hasSessionPermissionGrant,
-      removePendingQuestion,
-      replyPermissionRequest,
-      setActivity,
-      setSessionError,
-      setStatus,
-    ],
+    [chatService, clearSessionError, removePendingQuestion, setActivity, setSessionError, setStatus],
   )
 
   const answerPermission = React.useCallback(

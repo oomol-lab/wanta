@@ -218,6 +218,7 @@ export function normalizePermissionRequest(value: unknown): ChatPermissionReques
   const resources = normalizeStringArray(request.resources)
   const legacyPatterns = normalizeStringArray(request.patterns)
   const legacyAlways = normalizeStringArray(request.always)
+  const tool = normalizePermissionTool(request.source) ?? normalizePermissionTool(request.tool)
   return {
     id: request.id,
     sessionId,
@@ -229,9 +230,7 @@ export function normalizePermissionRequest(value: unknown): ChatPermissionReques
     ...(request.metadata && typeof request.metadata === "object"
       ? { metadata: request.metadata as Record<string, unknown> }
       : {}),
-    ...((normalizePermissionTool(request.source) ?? normalizePermissionTool(request.tool))
-      ? { tool: normalizePermissionTool(request.source) ?? normalizePermissionTool(request.tool) }
-      : {}),
+    ...(tool ? { tool } : {}),
   }
 }
 

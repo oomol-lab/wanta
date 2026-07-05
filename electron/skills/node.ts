@@ -108,6 +108,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private inventoryInFlight: { promise: Promise<SkillInventory>; writeManifest: boolean } | undefined
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
   private inventoryChangeTimer: NodeJS.Timeout | undefined
+  private removedSkillStore: RemovedSkillStore | undefined
   private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
   private isDisposed = false
@@ -141,7 +142,8 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   private getRemovedSkillStore(): RemovedSkillStore {
-    return new RemovedSkillStore(app.getPath("userData"))
+    this.removedSkillStore ??= new RemovedSkillStore(app.getPath("userData"))
+    return this.removedSkillStore
   }
 
   private getWantaSkillStoreRoot(): string {
@@ -168,16 +170,22 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     return resolveSharedAgentSkillRoot(os.homedir())
   }
 
-  private async runOoCommand(
-    args: string[],
-    options: Omit<Parameters<typeof runOoCommand>[1], "env">,
-  ): Promise<OoCommandResult> {
+  private async readSkillAuthToken(): Promise<string> {
     await this.authService.getAuthState()
     const authToken = await this.authService.currentSessionToken()
 
     if (!authToken) {
       throw new Error("Skills not available (sign in first)")
     }
+
+    return authToken
+  }
+
+  private async runOoCommand(
+    args: string[],
+    options: Omit<Parameters<typeof runOoCommand>[1], "env">,
+  ): Promise<OoCommandResult> {
+    const authToken = await this.readSkillAuthToken()
 
     return runOoCommand(args, {
       ...options,
@@ -369,11 +377,13 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       throw new Error(`No installed Skill target found: ${skillId}`)
     }
 
-    await this.rememberDefaultRegistrySkillRemovedByUser(skillId)
-    await this.rememberRemovedSkill({
-      packageName: group.packageName,
-      skillId,
-    })
+    if (group.kind === "registry") {
+      await this.rememberDefaultRegistrySkillRemovedByUser(skillId)
+      await this.rememberRemovedSkill({
+        packageName: group.packageName,
+        skillId,
+      })
+    }
     this.notifyRuntimeSkillsChanged("delete-skill")
 
     return this.readAndPublishSkillInventory()
@@ -537,12 +547,12 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     const store = this.getDefaultSkillInstallStore()
     let installStore = await store.read()
     let inventory = await this.readSharedSkillInventory({ writeManifest: true })
+    const removedStore = await this.getRemovedSkillStore().read()
 
     for (const spec of enabledSpecs) {
       const request = normalizeDefaultRegistrySkillRequest(spec)
       const existingRecord = readDefaultSkillInstallRecord(installStore, request)
       const now = new Date().toISOString()
-      const removedStore = await this.getRemovedSkillStore().read()
 
       if (isRuntimeSkillInstalled(inventory, request.skillId)) {
         installStore = upsertDefaultSkillInstallRecord(installStore, {
@@ -611,8 +621,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async rememberRemovedSkill(skill: { packageName?: string; skillId: string }): Promise<void> {
     const store = this.getRemovedSkillStore()
-    const current = await store.read()
-    await store.write(
+    await store.update((current) =>
       upsertRemovedSkillRecord(current, {
         packageName: skill.packageName?.trim() || undefined,
         removedAt: new Date().toISOString(),
@@ -624,8 +633,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async forgetRemovedSkill(skill: { packageName?: string; skillId: string }): Promise<void> {
     const store = this.getRemovedSkillStore()
-    const current = await store.read()
-    await store.write(removeRemovedSkillRecord(current, skill))
+    await store.update((current) => removeRemovedSkillRecord(current, skill))
   }
 
   private async refreshManifestRecordsForTargets(targetPaths: string[]): Promise<void> {
@@ -754,12 +762,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     target: Pick<SkillDeleteStoreTarget, "kind">,
     args: string[],
   ): Promise<OoCommandResult> {
-    await this.authService.getAuthState()
-    const authToken = await this.authService.currentSessionToken()
-
-    if (!authToken) {
-      throw new Error("Skills not available (sign in first)")
-    }
+    const authToken = await this.readSkillAuthToken()
 
     const globalStoreRoot = this.getGlobalOoStoreRoot()
     const env =

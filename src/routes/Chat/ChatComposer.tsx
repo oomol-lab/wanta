@@ -1,19 +1,18 @@
 import type {
   AgentMode,
   AgentPermissionMode,
-  ChatAttachment,
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ConnectionAccountPaletteItem } from "./composer-palette-items.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { ChatPendingQuestion } from "./question-state.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
+import type { ChatSendRequest } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ChatStatus } from "ai"
@@ -84,15 +83,7 @@ interface ChatComposerProps {
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
   onComposerStateChange?: (state: ComposerState) => void
-  onSend: (
-    text: string,
-    attachments: ChatAttachment[],
-    contextMentions: ChatContextMention[],
-    model?: ModelChoice,
-    reasoningLevel?: ReasoningLevel,
-    mode?: AgentMode,
-    permissionMode?: AgentPermissionMode,
-  ) => Promise<boolean>
+  onSend: (request: ChatSendRequest) => Promise<boolean>
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onPermissionModeDefault: () => void
   onPermissionModeFullAccess: () => void
@@ -543,15 +534,15 @@ export function ChatComposer({
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
-    const accepted = await onSend(
-      text,
-      attachments.map(stripDraftAttachment),
+    const accepted = await onSend({
+      attachments: attachments.map(stripDraftAttachment),
       contextMentions,
-      modelCatalog?.selected,
-      reasoningLevel,
-      agentMode,
+      mode: agentMode,
+      model: modelCatalog?.selected,
       permissionMode,
-    )
+      reasoningLevel,
+      text,
+    })
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
       return

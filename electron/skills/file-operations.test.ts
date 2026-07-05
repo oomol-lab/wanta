@@ -96,6 +96,72 @@ test("removeSkillDirectoryIfSafe rejects registry package mismatches", async () 
   assert.equal(await exists(skillPath), true)
 })
 
+test("removeSkillDirectoryIfSafe rejects missing paths", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-remove-"))
+  const skillPath = path.join(root, "example")
+
+  const result = await removeSkillDirectoryIfSafe({
+    allowedRoots: [root],
+    packageName: "@oomol/example",
+    path: skillPath,
+    skillId: "example",
+  })
+
+  assert.equal(result.status, "skipped")
+  assert.equal(result.reason, "missing")
+})
+
+test("removeSkillDirectoryIfSafe rejects non-directory targets", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-remove-"))
+  const skillPath = path.join(root, "example")
+  await writeFile(skillPath, "not a directory", "utf8")
+
+  const result = await removeSkillDirectoryIfSafe({
+    allowedRoots: [root],
+    packageName: "@oomol/example",
+    path: skillPath,
+    skillId: "example",
+  })
+
+  assert.equal(result.status, "skipped")
+  assert.equal(result.reason, "not-directory")
+  assert.equal(await exists(skillPath), true)
+})
+
+test("removeSkillDirectoryIfSafe rejects directories without skill definitions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-remove-"))
+  const skillPath = path.join(root, "example")
+  await mkdir(skillPath, { recursive: true })
+
+  const result = await removeSkillDirectoryIfSafe({
+    allowedRoots: [root],
+    path: skillPath,
+    skillId: "example",
+  })
+
+  assert.equal(result.status, "skipped")
+  assert.equal(result.reason, "skill-definition-missing")
+  assert.equal(await exists(skillPath), true)
+})
+
+test("removeSkillDirectoryIfSafe rejects registry package checks when metadata is missing", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-remove-"))
+  const skillPath = path.join(root, "example")
+  await mkdir(skillPath, { recursive: true })
+  await writeFile(path.join(skillPath, "SKILL.md"), "---\nname: example\n---\n", "utf8")
+
+  const result = await removeSkillDirectoryIfSafe({
+    allowedRoots: [root],
+    packageName: "@oomol/example",
+    path: skillPath,
+    skillId: "example",
+  })
+
+  assert.equal(result.status, "skipped")
+  assert.equal(result.reason, "package-name-mismatch")
+  assert.equal(await exists(skillPath), true)
+})
+
 test("removeSkillDirectoryIfSafe rejects symlinks pointing outside allowed roots", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-remove-"))
   const outside = await mkdtemp(path.join(os.tmpdir(), "wanta-skill-outside-"))

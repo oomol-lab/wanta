@@ -348,7 +348,7 @@ function saveArtifactListHeight(height: number): void {
   try {
     globalThis.localStorage?.setItem(artifactListHeightStorageKey, String(Math.round(height)))
   } catch {
-    // localStorage can be unavailable in restricted environments.
+    // 受限环境中 localStorage 可能不可用。
   }
 }
 
@@ -573,6 +573,20 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
     browseLevels.at(-1) && entries.length > 0
       ? entries[0]?.item.path
       : (selection?.selectedPath ?? entries[0]?.item.path ?? selection?.group.root?.path ?? null)
+
+  React.useLayoutEffect(() => {
+    const panelHeight = shellRef.current?.getBoundingClientRect().height ?? 0
+    if (panelHeight <= 0) {
+      return
+    }
+    setArtifactListHeight((current) => {
+      const clamped = clampArtifactListHeight(current, panelHeight)
+      if (clamped !== current) {
+        saveArtifactListHeight(clamped)
+      }
+      return clamped
+    })
+  }, [])
   const [selectedPath, setSelectedPath] = React.useState<string | null>(fallbackPath)
   const [previewMode, setPreviewMode] = React.useState<ArtifactPreviewMode>("preview")
   const selectedEntry = entries.find((entry) => entry.item.path === selectedPath) ?? entries[0] ?? null

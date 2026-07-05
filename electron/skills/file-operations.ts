@@ -99,22 +99,85 @@ export async function removeSkillDirectoryIfSafe(
     return skipped(targetPath, "symlink-target-outside-allowed-roots")
   }
 
+  const quarantinePath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.remove-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  )
+  let quarantined = false
+
+  try {
+    await rename(targetPath, quarantinePath)
+    quarantined = true
+
+    const quarantinedStat = await lstat(quarantinePath)
+    if (!isSameFile(targetStat, quarantinedStat)) {
+      await restoreQuarantinedTarget(quarantinePath, targetPath)
+      quarantined = false
+      return skipped(targetPath, "target-changed")
+    }
+
+    const validationSkipReason = await validateQuarantinedSkillRemovalTarget({
+      allowedRoots,
+      packageName: request.packageName,
+      path: quarantinePath,
+    })
+    if (validationSkipReason) {
+      await restoreQuarantinedTarget(quarantinePath, targetPath)
+      quarantined = false
+      return skipped(targetPath, validationSkipReason)
+    }
+
+    await rm(quarantinePath, { force: true, recursive: true })
+    quarantined = false
+    return {
+      path: targetPath,
+      status: "removed",
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return skipped(targetPath, "missing")
+    }
+    if (quarantined) {
+      await restoreQuarantinedTarget(quarantinePath, targetPath)
+    }
+    throw error
+  }
+}
+
+async function validateQuarantinedSkillRemovalTarget({
+  allowedRoots,
+  packageName,
+  path: targetPath,
+}: {
+  allowedRoots: string[]
+  packageName?: string
+  path: string
+}): Promise<string | undefined> {
+  const targetStat = await lstat(targetPath)
+  if (!targetStat.isDirectory() && !targetStat.isSymbolicLink()) {
+    return "not-directory"
+  }
+  if (targetStat.isSymbolicLink() && !(await isRealPathInsideAllowedRoots(targetPath, allowedRoots))) {
+    return "symlink-target-outside-allowed-roots"
+  }
   const metadata = await readSkillDirectoryMetadata(targetPath)
   const hasSkillDocument = await localPathExists(path.join(targetPath, "SKILL.md"))
   if (!metadata && !hasSkillDocument) {
-    return skipped(targetPath, "skill-definition-missing")
+    return "skill-definition-missing"
   }
+  const expectedPackageName = packageName?.trim()
+  if (expectedPackageName && metadata?.packageName !== expectedPackageName) {
+    return "package-name-mismatch"
+  }
+  return undefined
+}
 
-  const packageName = request.packageName?.trim()
-  if (metadata?.kind === "registry" && packageName && metadata.packageName !== packageName) {
-    return skipped(targetPath, "package-name-mismatch")
-  }
+async function restoreQuarantinedTarget(quarantinePath: string, targetPath: string): Promise<void> {
+  await rename(quarantinePath, targetPath)
+}
 
-  await rm(targetPath, { force: true, recursive: true })
-  return {
-    path: targetPath,
-    status: "removed",
-  }
+function isSameFile(left: { dev: number; ino: number }, right: { dev: number; ino: number }): boolean {
+  return left.dev === right.dev && left.ino === right.ino
 }
 
 export async function localPathExists(pathname: string): Promise<boolean> {

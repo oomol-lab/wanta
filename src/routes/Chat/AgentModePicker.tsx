@@ -144,6 +144,10 @@ export function AgentModePicker({
   }, [closeMenu, open, updateMenuPosition])
 
   const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Tab") {
+      closeMenu(false)
+      return
+    }
     if (event.key === "Escape") {
       event.preventDefault()
       closeMenu()

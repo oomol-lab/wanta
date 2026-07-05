@@ -858,6 +858,12 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
     [providers],
   )
+  const answerPermissionSafely = React.useCallback(
+    (requestId: string, reply: ChatPermissionReply): void => {
+      void onAnswerPermission(requestId, reply).catch(() => undefined)
+    },
+    [onAnswerPermission],
+  )
   const activeAssistantMessageId =
     status === "streaming" && latestAssistant && !hasStoppedTool(latestAssistant.parts) ? latestAssistant.id : undefined
   const smoothAssistantMessageId = React.useMemo(() => {
@@ -946,9 +952,9 @@ export const ChatTimeline = React.memo(function ChatTimeline({
               <PermissionRequiredCard
                 request={request}
                 busy={status === "submitted"}
-                onAllowOnce={(requestId) => void onAnswerPermission(requestId, "once")}
-                onAllowForSession={(requestId) => void onAnswerPermission(requestId, "always")}
-                onReject={(requestId) => void onAnswerPermission(requestId, "reject")}
+                onAllowOnce={(requestId) => answerPermissionSafely(requestId, "once")}
+                onAllowForSession={(requestId) => answerPermissionSafely(requestId, "always")}
+                onReject={(requestId) => answerPermissionSafely(requestId, "reject")}
               />
             </div>
           </div>

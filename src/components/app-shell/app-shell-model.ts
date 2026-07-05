@@ -48,6 +48,16 @@ export interface TurnRetryOptions {
   permissionMode?: AgentPermissionMode
 }
 
+export interface ChatSendRequest {
+  attachments?: ChatAttachment[]
+  contextMentions?: ChatContextMention[]
+  mode?: AgentMode
+  model?: ModelChoice
+  permissionMode?: AgentPermissionMode
+  reasoningLevel?: ReasoningLevel
+  text: string
+}
+
 export function rememberTurnRetryOptions(
   store: Map<string, Map<string, TurnRetryOptions>>,
   sessionId: string,

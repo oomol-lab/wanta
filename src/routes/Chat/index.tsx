@@ -1,21 +1,17 @@
 import type {
   AuthorizationInfo,
   AssistantActivityEvent,
-  AgentMode,
   AgentPermissionMode,
-  ChatAttachment,
-  ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
   ChatPermissionReply,
   ChatPermissionRequest,
-  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ChatPendingQuestion } from "./question-state.ts"
+import type { ChatSendRequest } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -63,15 +59,7 @@ interface ChatAreaProps {
   organizationSkillPendingInstallCount?: number
   organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
   organizationSkills?: ChatOrganizationSkillContext[]
-  onSend: (
-    text: string,
-    attachments: ChatAttachment[],
-    contextMentions: ChatContextMention[],
-    model?: ModelChoice,
-    reasoningLevel?: ReasoningLevel,
-    mode?: AgentMode,
-    permissionMode?: AgentPermissionMode,
-  ) => Promise<boolean>
+  onSend: (request: ChatSendRequest) => Promise<boolean>
   onPermissionModeChange: (mode: AgentPermissionMode) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>

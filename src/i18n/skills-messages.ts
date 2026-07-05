@@ -393,7 +393,7 @@ export const skillsMessages = {
     "skills.removing": "移除中",
     "skills.removeDone": "已从本机移除 {{name}}。",
     "skills.removeFailed": "移除失败：{{error}}",
-    "skills.removeConfirmTitle": "从这台 Mac 移除这个 Skill？",
+    "skills.removeConfirmTitle": "从本机移除这个 Skill？",
     "skills.removeConfirmDescription":
       "这会从 Wanta、已识别的本地 Agent Skill 目录，以及本机 oo registry 缓存中删除 {{name}}。需要时可从技能市场重新安装。",
     "skills.deleteConfirmUnavailable": "没有可删除的技能。",
@@ -859,7 +859,7 @@ export const skillsMessages = {
     "skills.removing": "Removing",
     "skills.removeDone": "{{name}} removed from this Mac.",
     "skills.removeFailed": "Remove failed: {{error}}",
-    "skills.removeConfirmTitle": "Remove this Skill from this Mac?",
+    "skills.removeConfirmTitle": "Remove this Skill from this device?",
     "skills.removeConfirmDescription":
       "This removes {{name}} from Wanta, detected local Agent Skill folders, and local oo registry caches. You can reinstall it from the Skill Market when needed.",
     "skills.deleteConfirmUnavailable": "No deletable Skill.",

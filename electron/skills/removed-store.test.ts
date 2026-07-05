@@ -90,6 +90,29 @@ test("removeRemovedSkillRecord clears matching records for reinstall", () => {
   assert.deepEqual(removeRemovedSkillRecord(store, { packageName: "@oomol/example", skillId: "example" }).records, [])
 })
 
+test("RemovedSkillStore serializes read-modify-write updates", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-removed-skills-"))
+  const store = new RemovedSkillStore(dir)
+
+  await Promise.all(
+    Array.from({ length: 8 }, (_, index) =>
+      store.update((current) =>
+        upsertRemovedSkillRecord(current, {
+          packageName: `@oomol/example-${index}`,
+          removedAt: "now",
+          scope: "local-machine",
+          skillId: `example-${index}`,
+        }),
+      ),
+    ),
+  )
+
+  assert.deepEqual(
+    (await store.read()).records.map((record) => createRemovedSkillKey(record)),
+    Array.from({ length: 8 }, (_, index) => `@oomol/example-${index}\u0000example-${index}`),
+  )
+})
+
 test("readRemovedSkillStore ignores unsupported records", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-removed-skills-"))
   const file = path.join(dir, "removed.json")
@@ -120,4 +143,12 @@ test("readRemovedSkillStore ignores unsupported records", async () => {
     store.records.map((record) => createRemovedSkillKey(record)),
     ["@oomol/example\u0000example"],
   )
+})
+
+test("readRemovedSkillStore recovers from corrupt JSON", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wanta-removed-skills-"))
+  const file = path.join(dir, "removed.json")
+  await writeFile(file, "{", "utf8")
+
+  assert.deepEqual(await readRemovedSkillStore(file), emptyRemovedSkillStore())
 })

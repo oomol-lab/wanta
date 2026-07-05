@@ -6,6 +6,7 @@ import type {
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
+import type { ChatSendRequest } from "./app-shell-model.ts"
 import type { ChatQueueMap, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { ChatStatus } from "ai"
 
@@ -20,16 +21,7 @@ import {
 } from "./chat-queue.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
-type SendQueuedMessage = (
-  text: string,
-  attachments: ChatAttachment[],
-  contextMentions: ChatContextMention[],
-  model?: ModelChoice,
-  reasoningLevel?: ReasoningLevel,
-  mode?: AgentMode,
-  permissionMode?: AgentPermissionMode,
-  afterOptimisticSubmit?: () => void,
-) => Promise<boolean>
+type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }) => Promise<boolean>
 
 interface UseChatQueueStateOptions {
   activeSessionId: string | null
@@ -147,18 +139,18 @@ export function useChatQueueState({
       return
     }
     dispatchingQueuedSessionsRef.current.add(activeSessionId)
-    void sendQueuedMessage(
-      message.text,
-      message.attachments,
-      message.contextMentions ?? [],
-      message.model,
-      message.reasoningLevel,
-      message.mode,
-      message.permissionMode,
-      () => {
+    void sendQueuedMessage({
+      afterOptimisticSubmit: () => {
         setQueuedMessagesBySession((current) => removeQueuedMessage(current, activeSessionId, message.id))
       },
-    )
+      attachments: message.attachments,
+      contextMentions: message.contextMentions ?? [],
+      mode: message.mode,
+      model: message.model,
+      permissionMode: message.permissionMode,
+      reasoningLevel: message.reasoningLevel,
+      text: message.text,
+    })
       .then((accepted) => {
         if (!accepted) {
           setQueuedMessagesBySession((current) =>

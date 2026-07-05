@@ -18,17 +18,30 @@ export interface RemovedSkillStoreData {
 
 export class RemovedSkillStore {
   private readonly file: string
+  private operationQueue: Promise<unknown> = Promise.resolve()
 
   public constructor(userDataPath: string) {
     this.file = path.join(userDataPath, "skills", "removed.json")
   }
 
   public async read(): Promise<RemovedSkillStoreData> {
-    return readRemovedSkillStore(this.file)
+    return this.enqueue(() => readRemovedSkillStore(this.file))
   }
 
   public async write(store: RemovedSkillStoreData): Promise<void> {
-    await writeRemovedSkillStore(this.file, store)
+    await this.enqueue(() => writeRemovedSkillStore(this.file, store))
+  }
+
+  public async update(updater: (store: RemovedSkillStoreData) => RemovedSkillStoreData): Promise<void> {
+    await this.enqueue(async () => {
+      await writeRemovedSkillStore(this.file, updater(await readRemovedSkillStore(this.file)))
+    })
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.operationQueue.then(operation, operation)
+    this.operationQueue = next.catch(() => undefined)
+    return next
   }
 }
 
@@ -45,10 +58,10 @@ export async function readRemovedSkillStore(file: string): Promise<RemovedSkillS
       schemaVersion: removedSkillStoreSchemaVersion,
     })
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) {
+      return emptyRemovedSkillStore()
     }
-    return emptyRemovedSkillStore()
+    throw error
   }
 }
 

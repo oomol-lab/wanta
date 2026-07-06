@@ -629,6 +629,73 @@ test("trusted project permissions are approved without showing a permission card
   )
 })
 
+test("trusted project permissions are approved for task subagent sessions", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    projectContext: {
+      id: "project-1",
+      name: "wanta",
+      path: projectPath,
+    },
+    sessionId: "parent-session",
+    text: "Analyze this project",
+  })
+
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: {
+            parentSessionId: "parent-session",
+            sessionId: "child-session",
+          },
+        },
+      },
+    },
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "child-session",
+      action: "external_directory",
+      resources: [`${projectPath}/*`],
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["child-session", "permission-1", "once"]])
+  assert.equal(
+    events.some((event) => event.event === "permissionAsked"),
+    false,
+  )
+})
+
 test("trusted project permission approval does not cover paths outside the project", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"

@@ -10,6 +10,7 @@ import {
   Building2Icon,
   CheckIcon,
   ChevronsUpDownIcon,
+  CopyIcon,
   PackageIcon,
   PencilIcon,
   PlusIcon,
@@ -37,6 +38,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useClipboardCopy } from "@/hooks/useClipboardCopy"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { canInstallPublicSkill, getOrganizationSkillRuntimeStatus } from "@/routes/Skills/skill-route-model"
@@ -121,9 +124,7 @@ export function OrganizationSwitcherPanel({
                   <span className="oo-text-dialog-title min-w-0 truncate text-foreground">
                     {selectedOrganization.name}
                   </span>
-                  <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
-                    {selectedOrganization.id}
-                  </span>
+                  <OrganizationIdLabel organizationId={selectedOrganization.id} />
                 </>
               ) : (
                 <span className="oo-text-body min-w-0 truncate text-muted-foreground">
@@ -251,6 +252,47 @@ export function OrganizationSwitcherPanel({
         </div>
       </div>
     </section>
+  )
+}
+
+function OrganizationIdLabel({ organizationId }: { organizationId: string }) {
+  const { t } = useAppI18n()
+  const { copied, copyText } = useClipboardCopy({ failureMessage: t("organizations.memberCopyFailed") })
+  const Icon = copied ? CheckIcon : CopyIcon
+
+  const copyOrganizationId = React.useCallback(async () => {
+    await copyText(organizationId)
+  }, [copyText, organizationId])
+
+  return (
+    <span className="group/organization-id inline-flex min-w-0 items-center gap-1.5 align-baseline">
+      <span
+        data-selectable="true"
+        className="oo-text-caption-compact min-w-0 cursor-text truncate font-mono text-muted-foreground select-text"
+        title={organizationId}
+      >
+        {organizationId}
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+              "opacity-70 group-hover/organization-id:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100",
+            )}
+            data-copied={copied ? "true" : "false"}
+            aria-label={copied ? t("organizations.organizationIdCopied") : t("organizations.copyOrganizationId")}
+            onClick={() => void copyOrganizationId()}
+          >
+            <Icon className="size-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-80 font-mono break-all">
+          {copied ? t("organizations.organizationIdCopied") : organizationId}
+        </TooltipContent>
+      </Tooltip>
+    </span>
   )
 }
 

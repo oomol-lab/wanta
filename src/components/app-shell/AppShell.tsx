@@ -41,6 +41,7 @@ import {
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
   rememberTurnRetryOptions,
+  resolveNewSessionTarget,
   sessionScopeFromWorkspace,
   sessionScopeKey,
   shouldClearWorkspaceSwitchTarget,
@@ -357,6 +358,7 @@ export function AppShell() {
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
   const draftProjectFallbacksById = React.useRef<Map<string, SessionProject>>(new Map())
+  const lastChatProjectId = React.useRef<string | null>(null)
   const sendInFlightRef = React.useRef(false)
   const activeSidebarSessions = React.useMemo(
     () => (sidebarSegment === "projects" ? projectSessions : taskSessions),
@@ -587,6 +589,11 @@ export function AppShell() {
     () => projectContextFromProject(activeProject, projectGit.state),
     [activeProject, projectGit.state],
   )
+  React.useEffect(() => {
+    if (route === "chat") {
+      lastChatProjectId.current = activeProjectId ?? null
+    }
+  }, [activeProjectId, route])
   const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(taskSessions), [taskSessions])
   const projectPinnedSessions = React.useMemo(() => {
     const pinnedProjectIds = new Set(projects.filter((project) => project.pinnedAt).map((project) => project.id))
@@ -738,6 +745,7 @@ export function AppShell() {
 
   React.useEffect(() => {
     draftProjectFallbacksById.current.clear()
+    lastChatProjectId.current = null
   }, [sessionScope])
 
   React.useEffect(() => {
@@ -810,30 +818,41 @@ export function AppShell() {
     setRoute("connections")
   }, [])
 
-  const handleNewSession = React.useCallback((): void => {
-    setActiveSessionId(null)
-    setIsDraftSession(true)
-    setDraftPermissionMode("default")
-    setDraftProjectId(NO_DRAFT_PROJECT_ID)
-    setPendingChatTransition(null)
-    setRoute("chat")
-    setSidebarSegment("tasks")
-    setSearchOpen(false)
-    setComposerFocusRequest((request) => request + 1)
-  }, [])
+  const startNewSessionDraft = React.useCallback(
+    (target: ReturnType<typeof resolveNewSessionTarget>): void => {
+      const targetDraftKey = newSessionComposerDraftKey(sessionScope, target.projectId)
+      clearComposerDraft(targetDraftKey)
+      setActiveSessionId(null)
+      setIsDraftSession(true)
+      setDraftPermissionMode("default")
+      setDraftProjectId(target.projectId ?? NO_DRAFT_PROJECT_ID)
+      setPendingChatTransition(null)
+      setRoute("chat")
+      setSidebarSegment(target.sidebarSegment)
+      setSearchOpen(false)
+      setComposerFocusRequest((request) => request + 1)
+    },
+    [clearComposerDraft, sessionScope],
+  )
 
-  const handleOpenProjectDraft = React.useCallback((project: SessionProject): void => {
-    draftProjectFallbacksById.current.set(project.id, project)
-    setActiveSessionId(null)
-    setIsDraftSession(true)
-    setDraftPermissionMode("default")
-    setDraftProjectId(project.id)
-    setPendingChatTransition(null)
-    setRoute("chat")
-    setSearchOpen(false)
-    setSidebarSegment("projects")
-    setComposerFocusRequest((request) => request + 1)
-  }, [])
+  const handleNewSession = React.useCallback((): void => {
+    startNewSessionDraft(
+      resolveNewSessionTarget({
+        activeSession,
+        draftProjectId,
+        lastProjectId: lastChatProjectId.current,
+        preferLastProject: route !== "chat",
+      }),
+    )
+  }, [activeSession, draftProjectId, route, startNewSessionDraft])
+
+  const handleOpenProjectDraft = React.useCallback(
+    (project: SessionProject): void => {
+      draftProjectFallbacksById.current.set(project.id, project)
+      startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }))
+    },
+    [draftProjectId, startNewSessionDraft],
+  )
 
   const handleSelectComposerProject = React.useCallback(
     async (projectId: string | undefined): Promise<void> => {
@@ -1413,7 +1432,10 @@ export function AppShell() {
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
   const billingCacheScope = auth.state?.account?.id ?? "authenticated"
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
-  const newChatLabel = labelWithShortcut(t("sidebar.newSession"), newChatShortcut)
+  const newChatLabel = labelWithShortcut(
+    activeProject ? t("project.newTask") : t("sidebar.newSession"),
+    newChatShortcut,
+  )
 
   if (route === "settings") {
     return (

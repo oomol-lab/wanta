@@ -360,6 +360,37 @@ export function activeProjectIdForComposer({
   return undefined
 }
 
+export interface NewSessionTarget {
+  projectId?: string
+  sidebarSegment: "projects" | "tasks"
+}
+
+function validProjectId(projectId: string | null | undefined): string | undefined {
+  const normalized = projectId?.trim()
+  return normalized && normalized !== NO_DRAFT_PROJECT_ID ? normalized : undefined
+}
+
+export function resolveNewSessionTarget({
+  activeSession,
+  draftProjectId,
+  explicitProjectId,
+  lastProjectId,
+  preferLastProject = false,
+}: {
+  activeSession?: Pick<SessionInfo, "projectId"> | null
+  draftProjectId: string | null
+  explicitProjectId?: string | null
+  lastProjectId?: string | null
+  preferLastProject?: boolean
+}): NewSessionTarget {
+  const projectId =
+    validProjectId(explicitProjectId) ??
+    validProjectId(activeSession?.projectId) ??
+    validProjectId(draftProjectId) ??
+    (preferLastProject ? validProjectId(lastProjectId) : undefined)
+  return projectId ? { projectId, sidebarSegment: "projects" } : { sidebarSegment: "tasks" }
+}
+
 export function newSessionComposerDraftKey(scope: SessionScope | null, projectId: string | undefined): string {
   return `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(scope)}:${projectId ?? "none"}`
 }

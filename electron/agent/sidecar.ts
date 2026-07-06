@@ -35,6 +35,8 @@ export interface SidecarExitInfo {
 
 const startupOutputMaxBytes = 64 * 1024
 const runtimeLineMaxLength = 8 * 1024
+/** SIGTERM 后给整组进程自行退出的宽限期，超时再 SIGKILL 兜底。 */
+const processGroupKillGraceMs = 2_000
 
 /** OpenCode 本地 sidecar：spawn `opencode serve`、解析 URL、提供 SDK client、随 app 退出回收。 */
 export class OpencodeSidecar {
@@ -90,14 +92,50 @@ export class OpencodeSidecar {
     const proc = spawn(opencodeBinPath, ["serve", `--hostname=${hostname}`, "--port=0"], {
       cwd: workspaceDir,
       env: childEnv,
+      // unix：让 opencode 自成进程组（pgid === pid），dispose 时可对整组发信号，连同它派生的
+      // Bun 工具 worker / oo CLI 一并回收，避免主进程退出后残留孤儿进程。Windows 无对应语义。
+      detached: process.platform !== "win32",
     })
     this.proc = proc
 
-    let output = ""
-    const appendStartupOutput = (chunk: Buffer): void => {
-      output = appendBoundedOutput(output, chunk.toString(), startupOutputMaxBytes)
+    const url = await this.awaitServerUrl(proc, timeoutMs).catch((error: unknown) => {
+      // 启动失败（超时/提前退出/spawn 出错）时一定要回收已 spawn 的 opencode，
+      // 否则 detached 进程会成为孤儿；recoverRuntime 的重试更会不断叠加。
+      this.terminate(proc)
+      throw error
+    })
+
+    this.serverUrl = url
+    this.streamLogCleanup = attachRuntimeStreamDiagnostics(proc)
+    proc.once("exit", (code, signal) => {
+      this.streamLogCleanup?.()
+      this.streamLogCleanup = null
+      if (!this.disposed) {
+        this.options.onExit?.({ code, signal })
+      }
+    })
+    proc.once("error", (error) => {
+      this.streamLogCleanup?.()
+      this.streamLogCleanup = null
+      if (!this.disposed) {
+        this.options.onExit?.({ error })
+      }
+    })
+    const headers: Record<string, string> = {}
+    if (serverPassword) {
+      const token = Buffer.from(`opencode:${serverPassword}`).toString("base64")
+      headers.Authorization = `Basic ${token}`
     }
-    const url = await new Promise<string>((resolve, reject) => {
+    this.opencodeClient = createOpencodeClient({ baseUrl: url, headers })
+  }
+
+  /** 解析 opencode 启动输出，拿到 "listening on <url>"；超时/提前退出/出错则 reject。 */
+  private awaitServerUrl(proc: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      let output = ""
+      const appendStartupOutput = (chunk: Buffer): void => {
+        output = appendBoundedOutput(output, chunk.toString(), startupOutputMaxBytes)
+      }
       const timer = setTimeout(() => {
         reject(new Error(`opencode serve startup timeout after ${timeoutMs}ms\n${output}`))
       }, timeoutMs)
@@ -134,42 +172,72 @@ export class OpencodeSidecar {
       proc.on("exit", onExit)
       proc.on("error", onError)
     })
+  }
 
-    this.serverUrl = url
-    this.streamLogCleanup = attachRuntimeStreamDiagnostics(proc)
-    proc.once("exit", (code, signal) => {
-      this.streamLogCleanup?.()
-      this.streamLogCleanup = null
-      if (!this.disposed) {
-        this.options.onExit?.({ code, signal })
-      }
-    })
-    proc.once("error", (error) => {
-      this.streamLogCleanup?.()
-      this.streamLogCleanup = null
-      if (!this.disposed) {
-        this.options.onExit?.({ error })
-      }
-    })
-    const headers: Record<string, string> = {}
-    if (serverPassword) {
-      const token = Buffer.from(`opencode:${serverPassword}`).toString("base64")
-      headers.Authorization = `Basic ${token}`
+  /** 回收 opencode 及其全部后代（unix 按进程组 SIGTERM，宽限期后 SIGKILL 兜底）。 */
+  private terminate(proc: ChildProcessWithoutNullStreams): void {
+    if (proc.pid === undefined) {
+      return
     }
-    this.opencodeClient = createOpencodeClient({ baseUrl: url, headers })
+    terminateProcessTree(proc.pid, {
+      platform: process.platform,
+      killGroup: (groupId, signal) => process.kill(groupId, signal),
+      killSelf: (signal) => proc.kill(signal),
+      schedule: (fn, ms) => {
+        const timer = setTimeout(fn, ms)
+        timer.unref?.()
+      },
+    })
   }
 
   public dispose(): void {
     this.disposed = true
     this.streamLogCleanup?.()
     this.streamLogCleanup = null
-    if (this.proc) {
-      this.proc.kill("SIGTERM")
-      this.proc = null
-    }
+    const proc = this.proc
+    this.proc = null
     this.opencodeClient = null
     this.serverUrl = ""
+    if (proc) {
+      this.terminate(proc)
+    }
   }
+}
+
+/** terminateProcessTree 的副作用依赖，便于注入与单测。 */
+export interface ProcessTreeTerminator {
+  platform: NodeJS.Platform
+  /** 向进程组发信号（groupId 传负 pid 表示整组）；组不存在时抛出。 */
+  killGroup: (groupId: number, signal: NodeJS.Signals) => void
+  /** 单进程兜底 kill（Windows 无进程组语义时使用）。 */
+  killSelf: (signal: NodeJS.Signals) => void
+  /** 调度 SIGKILL 兜底（实现应 unref，绝不可阻止进程退出）。 */
+  schedule: (fn: () => void, ms: number) => void
+}
+
+/**
+ * 回收一棵进程树。unix 下目标进程以 detached 方式 spawn，自成进程组（pgid === pid），
+ * 故对 -pid 发 SIGTERM 可命中它及其所有后代（Bun 工具 worker / oo CLI）；宽限期后再 SIGKILL 兜底。
+ * Windows 无对应语义，退回单进程 kill（与既有行为一致，不处理孙子进程）。
+ */
+export function terminateProcessTree(pid: number, deps: ProcessTreeTerminator): void {
+  if (deps.platform === "win32") {
+    deps.killSelf("SIGTERM")
+    return
+  }
+  try {
+    deps.killGroup(-pid, "SIGTERM")
+  } catch {
+    // 组已消失或无权限：退回单进程，尽力而为。
+    deps.killSelf("SIGTERM")
+  }
+  deps.schedule(() => {
+    try {
+      deps.killGroup(-pid, "SIGKILL")
+    } catch {
+      // 组已在宽限期内退出，无需处理。
+    }
+  }, processGroupKillGraceMs)
 }
 
 function appendBoundedOutput(current: string, next: string, maxBytes: number): string {

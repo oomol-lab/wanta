@@ -262,10 +262,28 @@ if (isLocked) {
     })
 
   app.on("window-all-closed", () => {
+    // 沿用系统惯例：仅 Windows/Linux 在关闭最后一个窗口时退出；macOS 保持存活留在 Dock，
+    // 点图标经 activate 重开窗口。macOS 上"退出后仍显示正在后台运行"的病根是 opencode sidecar
+    // 孤儿化（见下方信号处理器与 sidecar.ts 的按组回收），而非关窗行为，故这里不改。
     if (process.platform !== "darwin") {
       app.quit()
     }
   })
+
+  // 终端 Ctrl-C / kill <pid> / OS 关机 / macOS "停止在后台运行" 可能以原始 POSIX 信号（而非 Cocoa
+  // Quit 事件，后者走 before-quit）送达主进程。没有信号处理器时进程会被直接终止、不触发 before-quit，
+  // opencode sidecar 便沦为永久孤儿（reparent 到 launchd），macOS 仍把 app 判为"后台运行"。
+  // 这里先同步回收内核，再走正常退出（before-quit 会再 dispose 一次，幂等）。
+  // 另注：opencode 现以 detached 独立进程组运行，dev 下 Ctrl-C 不会经前台进程组自然传到它，
+  // 全靠此处 SIGINT 处理器显式回收，否则会残留孤儿。
+  const onTerminationSignal = (signal: NodeJS.Signals): void => {
+    console.log(`[wanta] received ${signal}; shutting down`)
+    isQuitting = true
+    agent?.dispose()
+    app.quit()
+  }
+  process.once("SIGTERM", () => onTerminationSignal("SIGTERM"))
+  process.once("SIGINT", () => onTerminationSignal("SIGINT"))
 
   app.on("before-quit", () => {
     isQuitting = true

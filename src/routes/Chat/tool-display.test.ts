@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { normalizeServiceSlug, parseToolAuthorization, toolServiceSlug } from "./tool-display.ts"
+import { normalizeServiceSlug, parseToolAuthorization, toolDisplayLine, toolServiceSlug } from "./tool-display.ts"
 
 describe("tool display", () => {
   it("normalizes service slugs before dropping the oo prefix", () => {
@@ -25,6 +25,22 @@ describe("tool display", () => {
       action: "list_messages",
       errorCode: "connection_required",
       service: "gmail",
+    })
+  })
+
+  it("renders connected-app listing as a connector tool", () => {
+    const line = toolDisplayLine((key, vars) => `${key}:${vars?.detail ?? ""}`, {
+      kind: "tool",
+      partId: "p1",
+      tool: "list_apps",
+      status: "completed",
+      input: { service: "gmail" },
+    })
+
+    expect(line).toEqual({
+      title: "chat.toolListAppsGeneric:",
+      detail: "gmail",
+      detailKind: "text",
     })
   })
 

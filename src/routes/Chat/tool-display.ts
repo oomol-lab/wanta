@@ -132,6 +132,13 @@ export function toolDisplayLine(t: TranslateFn, part: ChatMessagePart): ToolDisp
   const input = part.input ?? {}
   const fallbackDetail = part.title || part.tool || "tool"
   switch (part.tool) {
+    case "list_apps": {
+      const service = str(input.service)
+      return {
+        title: t("chat.toolListAppsGeneric"),
+        ...(service ? { detail: compactToolDetail(service), detailKind: "text" } : {}),
+      }
+    }
     case "search_actions": {
       const query = str(input.query)
       return {
@@ -237,6 +244,10 @@ export function toolActionSummary(t: TranslateFn, part: ChatMessagePart): string
   const target = connectorTarget(input)
   const fallbackDetail = part.title || part.tool || "tool"
   switch (part.tool) {
+    case "list_apps": {
+      const service = str(input.service)
+      return service ? t("chat.toolListApps", { detail: compactToolDetail(service) }) : t("chat.toolListAppsGeneric")
+    }
     case "search_actions": {
       const query = str(input.query)
       return query ? t("chat.toolSearch", { detail: compactToolDetail(query) }) : t("chat.toolSearchGeneric")

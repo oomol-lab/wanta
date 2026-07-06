@@ -201,6 +201,7 @@ export function QuestionPromptCard({
   )
   const [activeFieldIndex, setActiveFieldIndex] = React.useState(initialDraftSnapshot?.activeFieldIndex ?? 0)
   const [submitting, setSubmitting] = React.useState<"answer" | "discard" | "reject" | null>(null)
+  const draftsRef = React.useRef(drafts)
   const activeControlRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
   const previousActiveFieldIndexRef = React.useRef(activeFieldIndex)
   const disabled = busy || Boolean(submitting)
@@ -213,14 +214,30 @@ export function QuestionPromptCard({
 
   React.useEffect(() => {
     const stored = readStoredQuestionDraft(request.sessionId, request.id, fields.length)
-    setDrafts(stored?.drafts ?? initialFieldDrafts(fields))
+    const nextDrafts = stored?.drafts ?? initialFieldDrafts(fields)
+    draftsRef.current = nextDrafts
+    setDrafts(nextDrafts)
     setActiveFieldIndex(stored?.activeFieldIndex ?? 0)
     setSubmitting(null)
   }, [fields, request.id, request.sessionId])
 
   React.useEffect(() => {
+    draftsRef.current = drafts
+  }, [drafts])
+
+  React.useEffect(() => {
     writeStoredQuestionDraft(request.sessionId, request.id, { activeFieldIndex, drafts })
   }, [activeFieldIndex, drafts, request.id, request.sessionId])
+
+  const persistDrafts = React.useCallback(
+    (nextActiveFieldIndex: number, nextDrafts: QuestionFieldDraft[]) => {
+      writeStoredQuestionDraft(request.sessionId, request.id, {
+        activeFieldIndex: nextActiveFieldIndex,
+        drafts: nextDrafts,
+      })
+    },
+    [request.id, request.sessionId],
+  )
 
   React.useEffect(() => {
     if (activeFieldIndex >= fields.length) {
@@ -240,9 +257,26 @@ export function QuestionPromptCard({
     activeControlRef.current = node
   }, [])
 
-  const updateDraft = React.useCallback((index: number, updater: (draft: QuestionFieldDraft) => QuestionFieldDraft) => {
-    setDrafts((current) => current.map((draft, draftIndex) => (draftIndex === index ? updater(draft) : draft)))
-  }, [])
+  const updateDraft = React.useCallback(
+    (index: number, updater: (draft: QuestionFieldDraft) => QuestionFieldDraft) => {
+      setDrafts((current) => {
+        const next = current.map((draft, draftIndex) => (draftIndex === index ? updater(draft) : draft))
+        draftsRef.current = next
+        persistDrafts(activeFieldIndex, next)
+        return next
+      })
+    },
+    [activeFieldIndex, persistDrafts],
+  )
+
+  const selectActiveFieldIndex = React.useCallback(
+    (nextIndex: number) => {
+      const normalizedIndex = Math.min(Math.max(nextIndex, 0), Math.max(0, fields.length - 1))
+      persistDrafts(normalizedIndex, draftsRef.current)
+      setActiveFieldIndex(normalizedIndex)
+    },
+    [fields.length, persistDrafts],
+  )
 
   const handleSubmit = React.useCallback(async () => {
     if (!canSubmit || disabled || (isStopped && continueDisabled)) {
@@ -295,19 +329,19 @@ export function QuestionPromptCard({
     if (!canContinue || disabled || isLastStep) {
       return
     }
-    setActiveFieldIndex((index) => Math.min(index + 1, fields.length - 1))
-  }, [canContinue, disabled, fields.length, isLastStep])
+    selectActiveFieldIndex(activeFieldIndex + 1)
+  }, [activeFieldIndex, canContinue, disabled, isLastStep, selectActiveFieldIndex])
 
   const handlePrevious = React.useCallback(() => {
     if (disabled) {
       return
     }
-    setActiveFieldIndex((index) => Math.max(index - 1, 0))
-  }, [disabled])
+    selectActiveFieldIndex(activeFieldIndex - 1)
+  }, [activeFieldIndex, disabled, selectActiveFieldIndex])
 
   return (
     <form
-      className="not-prose rounded-lg border border-border/80 bg-background px-4 py-3 shadow-xs"
+      className="not-prose rounded-lg border border-border/80 bg-background px-4 py-4 shadow-xs"
       onSubmit={(event) => {
         event.preventDefault()
         if (fields.length > 1 && !isLastStep) {
@@ -317,9 +351,9 @@ export function QuestionPromptCard({
         void handleSubmit()
       }}
     >
-      <div className="space-y-3">
+      <div className="space-y-4">
         {isStopped ? (
-          <div className="rounded-md border border-border/80 bg-muted/35 px-3 py-2">
+          <div className="rounded-md border border-border/80 bg-muted/35 px-3 py-2.5">
             <div className="oo-text-label font-medium text-foreground">{t("chat.questionStoppedStatus")}</div>
             <div className="oo-text-caption mt-0.5 text-muted-foreground">
               {continueDisabled ? t("chat.questionStoppedBusyHint") : t("chat.questionStoppedHint")}
@@ -333,7 +367,7 @@ export function QuestionPromptCard({
             disabled={disabled}
             drafts={drafts}
             fields={fields}
-            onSelect={setActiveFieldIndex}
+            onSelect={selectActiveFieldIndex}
           />
         ) : null}
 
@@ -352,11 +386,15 @@ export function QuestionPromptCard({
             ...field.options.filter((option) => !option.manual),
             ...field.options.filter((option) => option.manual),
           ]
+          const spaciousField = field.options.length > 0 || field.kind === "textarea"
           return (
-            <fieldset key={field.id} className="max-h-64 min-h-28 space-y-1.5 overflow-y-auto pr-1">
+            <fieldset
+              key={field.id}
+              className={cn("space-y-2.5", spaciousField ? "max-h-64 min-h-28 overflow-y-auto pr-1" : "min-h-0")}
+            >
               <Label
                 htmlFor={inputId}
-                className={cn("oo-text-label font-semibold text-foreground", fields.length > 1 && "sr-only")}
+                className={cn("oo-text-label block font-semibold text-foreground", fields.length > 1 && "sr-only")}
               >
                 {fields.length > 1 ? `${index + 1}. ${field.label}` : field.label}
               </Label>
@@ -392,7 +430,7 @@ export function QuestionPromptCard({
                     value={draft.value}
                     disabled={disabled}
                     placeholder={placeholderForField(t, field)}
-                    className={cn("min-h-20 resize-y", questionControlClassName)}
+                    className={cn("min-h-24 resize-y", questionControlClassName)}
                     onChange={(event) =>
                       updateDraft(index, (current) => ({ value: event.target.value, selected: current.selected }))
                     }
@@ -405,7 +443,7 @@ export function QuestionPromptCard({
                     value={draft.value}
                     disabled={disabled}
                     placeholder={placeholderForField(t, field)}
-                    className={cn("h-8", questionControlClassName)}
+                    className={questionControlClassName}
                     onChange={(event) =>
                       updateDraft(index, (current) => ({ value: event.target.value, selected: current.selected }))
                     }
@@ -416,7 +454,7 @@ export function QuestionPromptCard({
           )
         })}
 
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-2 pt-1">
           <Button
             type="button"
             size="sm"

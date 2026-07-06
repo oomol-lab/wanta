@@ -668,6 +668,8 @@ export const enMessages = {
   "chat.authNeeded": "{name} needs authorization to continue",
   "chat.authorize": "Authorize",
   "chat.authorizeConnection": "Connect in Wanta",
+  "chat.toolListApps": "Listing connected apps: {detail}",
+  "chat.toolListAppsGeneric": "Listing connected apps",
   "chat.toolSearch": "Searching connectors: {detail}",
   "chat.toolSearchGeneric": "Searching connectors",
   "chat.toolInspect": "Inspecting {detail}",

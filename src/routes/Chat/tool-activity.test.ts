@@ -113,7 +113,8 @@ describe("toolActivityTitle", () => {
 
 describe("classifyToolPart", () => {
   it("classifies known tool groups", () => {
-    expect(classifyToolPart(toolPart("tool-1", { tool: "search_actions" }))).toBe("connector")
+    expect(classifyToolPart(toolPart("tool-1", { tool: "list_apps" }))).toBe("connector")
+    expect(classifyToolPart(toolPart("tool-1b", { tool: "search_actions" }))).toBe("connector")
     expect(classifyToolPart(toolPart("tool-2", { tool: "bash" }))).toBe("shell")
     expect(classifyToolPart(toolPart("tool-3", { tool: "read" }))).toBe("file")
     expect(classifyToolPart(toolPart("tool-4", { tool: "webfetch" }))).toBe("web")

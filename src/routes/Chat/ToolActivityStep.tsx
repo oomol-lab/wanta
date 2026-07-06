@@ -138,6 +138,8 @@ function ToolStatusIcon({ status, stopped = false }: { status: ToolStatus | unde
 function ToolActionIcon({ part }: { part: ChatMessagePart }) {
   const className = "size-3.5 text-muted-foreground"
   switch (part.tool) {
+    case "list_apps":
+      return <Plug className={className} />
     case "search_actions":
       return <Search className={className} />
     case "inspect_action":

@@ -631,6 +631,8 @@ export const zhCNMessages = {
   "chat.authNeeded": "需要授权 {name} 才能继续",
   "chat.authorize": "去授权",
   "chat.authorizeConnection": "在 Wanta 中连接",
+  "chat.toolListApps": "列出已连接 App：{detail}",
+  "chat.toolListAppsGeneric": "列出已连接 App",
   "chat.toolSearch": "搜索连接器：{detail}",
   "chat.toolSearchGeneric": "搜索连接器",
   "chat.toolInspect": "查看 {detail} 的参数",

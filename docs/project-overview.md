@@ -29,8 +29,8 @@ Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | 凭证经 `OO_API_KEY` 环境变量注入，免登录直跑                                        | 改为浏览器登录流（console launcher → deep-link 回跳 → 换 `oomol-token` 会话 token；全程只用它，`auth.json` 只存 profile、不落盘凭证） |
 | endpoint 运行时可切换 `oomol.com` / `oomol.dev`（阶段 5 还做了 `setEndpoint` 联动） | **已整体移除**：endpoint 是构建期常量 `__OO_ENDPOINT__`，App 层不可见不可切换                                                         |
-| 严格非编码 agent：deny 所有内置编码工具，只留连接器三工具                           | **已放开但受控**：OpenCode 内置工具启用；读/搜索/网页直接可用，shell/写入/外部目录访问经聊天内确认卡片批准                            |
-| 自定义工具只有 `search_actions` / `call_action`                                     | 新增第三个工具 `inspect_action`，强制 inspect-before-call                                                                             |
+| 严格非编码 agent：deny 所有内置编码工具，只留连接器工具                             | **已放开但受控**：OpenCode 内置工具启用；读/搜索/网页直接可用，shell/写入/外部目录访问经聊天内确认卡片批准                            |
+| 自定义工具只有 `search_actions` / `call_action`                                     | 新增 `inspect_action` 强制 inspect-before-call；新增 `list_apps` 直接列 active workspace 已连接 apps                                  |
 | 前端 shadcn/ui 手写聊天界面                                                         | 聊天界面迁移到 vendored ai-elements 组件，Markdown 渲染从 react-markdown 换为 streamdown                                              |
 | 测试用 Node 原生 `node --test`                                                      | 迁移到 vitest（随 endpoint 常量化，vitest 原生套用 vite define）                                                                      |
 
@@ -46,7 +46,7 @@ Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言
 
 ## 5. 术语速查
 
-- **connector / provider / action**：OOMOL 云端的 SaaS 集成单元——provider 是服务（如 `hackernews`），action 是其下可调用的操作（如 `get_item`）；agent 用三工具 search/inspect/call 操作它们。
+- **connector / provider / action**：OOMOL 云端的 SaaS 集成单元——provider 是服务（如 `hackernews`），action 是其下可调用的操作（如 `get_item`）；agent 用 `list_apps` 列当前 workspace 已连接 app，用 search/inspect/call 渐进发现并调用 action。
 - **sidecar**：随 App 启动的本地 `opencode serve` 子进程，HTTP+SSE 服务，承载 agent loop。
 - **endpoint**：OOMOL 主域（`oomol.com` / 内部开发 `oomol.dev`），构建期固定，派生全部子域。
 - **金路径（golden path）**：上文 GA→PV 用例，开发期所有阶段验收都围绕它。

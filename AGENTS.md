@@ -116,7 +116,7 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
   **全应用唯一凭证是会话 token `oomol-token`**（Electron 会话 cookie，短命会过期；网关层统一接受
   cookie/token/api-key，故聊天/连接器/组织/技能/账单一律用它）；`userData/auth.json` 只存账号 profile
   **不存任何凭证**，也不再获取长期 api-key。token 失效即全局判为未登录（`AuthManager.currentState` 门控）。
-- 连接器三工具：`search_actions` → `inspect_action` → `call_action`
+- 连接器工具：`list_apps` 列当前 workspace 已连接 app；`search_actions` → `inspect_action` → `call_action`
   （源码内嵌在 `electron/agent/tool-sources.ts`，运行于 OpenCode 的 Bun，
   不参与本项目 lint/tsc）。
 - IPC：每个服务域 = `common.ts` 契约 + `node.ts` 实现，ServiceName 形如 `wanta/chat-service`；

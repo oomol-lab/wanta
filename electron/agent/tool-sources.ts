@@ -29,65 +29,82 @@ async function currentOrganizationName() {
   return process.env.WANTA_ORGANIZATION_NAME || ""
 }
 
-async function organizationAuthorizedServices(organizationName) {
-  const connectorUrl = String(process.env.WANTA_CONNECTOR_URL || "").replace(/\/+$/, "")
-  const token = String(process.env.OO_API_KEY || "").trim()
-  if (!connectorUrl || !token || !organizationName) {
-    return null
+async function appendIdentityArgs(argv) {
+  const organizationName = (await currentOrganizationName()).trim()
+  if (organizationName) {
+    argv.push("--organization", organizationName)
+  } else {
+    argv.push("--personal")
   }
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
+  return organizationName ? "organization" : "personal"
+}
+
+function serviceFromApp(app) {
+  if (!app || typeof app !== "object") {
+    return ""
+  }
+  return typeof app.service === "string" ? app.service : typeof app.serviceName === "string" ? app.serviceName : ""
+}
+
+function isActiveApp(app) {
+  if (!app || typeof app !== "object") {
+    return false
+  }
+  return typeof app.status !== "string" || app.status === "active"
+}
+
+function parseApps(stdout) {
+  const parsed = JSON.parse((stdout || "").trim() || "[]")
+  if (Array.isArray(parsed)) {
+    return parsed
+  }
+  if (Array.isArray(parsed && parsed.data)) {
+    return parsed.data
+  }
+  if (Array.isArray(parsed && parsed.apps)) {
+    return parsed.apps
+  }
+  return Array.isArray(parsed && parsed.items) ? parsed.items : []
+}
+
+async function authorizedServices() {
+  const argv = ["connector", "apps"]
+  const scope = await appendIdentityArgs(argv)
+  argv.push("--json")
   try {
-    const response = await fetch(connectorUrl + "/v1/apps", {
-      headers: {
-        Authorization: "Bearer " + token,
-        "x-oo-organization-name": organizationName,
-      },
-      signal: controller.signal,
-    })
-    if (!response.ok) {
-      return null
+    const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+    const apps = parseApps(result.stdout)
+    return {
+      scope: scope,
+      services: new Set(apps.filter(isActiveApp).map(serviceFromApp).filter(Boolean)),
     }
-    const payload = await response.json()
-    const apps = Array.isArray(payload && payload.data) ? payload.data : []
-    return new Set(
-      apps
-        .filter((app) => app && app.status === "active" && typeof app.service === "string" && app.service)
-        .map((app) => app.service),
-    )
   } catch {
     return null
-  } finally {
-    clearTimeout(timeout)
   }
 }
 
 async function normalizeSearchOutput(stdout) {
   const text = (stdout || "").trim()
-  const organizationName = (await currentOrganizationName()).trim()
-  if (!organizationName) {
-    return text || "[]"
-  }
   try {
     const parsed = JSON.parse(text || "[]")
     if (!Array.isArray(parsed)) {
       return text || "[]"
     }
-    const authorizedServices = await organizationAuthorizedServices(organizationName)
+    const authorization = await authorizedServices()
     return JSON.stringify(
       parsed.map((item) => {
         if (!item || typeof item !== "object") {
           return item
         }
         const service = typeof item.service === "string" ? item.service : ""
-        if (!authorizedServices) {
-          return { ...item, authenticated: false, authenticatedReliable: false, authenticatedScope: "organization_unknown" }
+        if (!authorization) {
+          return { ...item, authenticatedReliable: false, authenticatedScope: "active_workspace_unknown" }
         }
         return {
           ...item,
-          authenticated: authorizedServices.has(service),
+          authenticated: authorization.services.has(service),
           authenticatedReliable: true,
-          authenticatedScope: "organization",
+          authenticatedScope: authorization.scope,
         }
       }),
     )
@@ -98,7 +115,7 @@ async function normalizeSearchOutput(stdout) {
 
 export default tool({
   description:
-    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current workspace has already connected that service). In an organization workspace, authenticatedReliable is true only when Wanta confirmed organization-scoped authorization; if authenticatedReliable is false, call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
+    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown; use list_apps instead when the user asks what is connected. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current workspace has already connected that service). authenticatedReliable is true only when Wanta confirmed active-workspace authorization; if authenticatedReliable is false, call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
   },
@@ -110,6 +127,64 @@ export default tool({
     } catch (error) {
       const e = error || {}
       const message = String(e.stderr || e.message || "search failed").trim()
+      return JSON.stringify({ status: "error", message: message })
+    }
+  },
+})
+`
+
+const LIST_APPS_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { promisify } from "node:util"
+
+const execFileAsync = promisify(execFile)
+const OO_BIN = process.env.WANTA_OO_BIN || "oo"
+
+async function currentOrganizationName() {
+  const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
+  if (scopePath) {
+    try {
+      const parsed = JSON.parse(await readFile(scopePath, "utf8"))
+      if (parsed && typeof parsed.organizationName === "string") {
+        return parsed.organizationName
+      }
+    } catch {
+      // 启动期或文件损坏时回退到进程启动时的组织名。
+    }
+  }
+  return process.env.WANTA_ORGANIZATION_NAME || ""
+}
+
+async function appendIdentityArgs(argv) {
+  const organizationName = (await currentOrganizationName()).trim()
+  if (organizationName) {
+    argv.push("--organization", organizationName)
+  } else {
+    argv.push("--personal")
+  }
+}
+
+export default tool({
+  description:
+    "List connected OOMOL Link provider apps for the active Wanta workspace. Use this when the user asks which providers, connectors, apps, or accounts are connected, authorized, authenticated, or available in the current workspace, including organization workspaces. This uses oo connector apps --json with an explicit active workspace identity. It returns only connected app records, not the full provider/action catalog. For finding runnable actions, use search_actions.",
+  args: {
+    service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
+  },
+  async execute(args) {
+    const service = String(args.service || "").trim()
+    const argv = ["connector", "apps"]
+    if (service) {
+      argv.push(service)
+    }
+    await appendIdentityArgs(argv)
+    argv.push("--json")
+    try {
+      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+      return (result.stdout || "").trim() || "[]"
+    } catch (error) {
+      const e = error || {}
+      const message = String(e.stderr || e.message || "list connected apps failed").trim()
       return JSON.stringify({ status: "error", message: message })
     }
   },
@@ -176,6 +251,8 @@ async function appendIdentityArgs(argv) {
   const organizationName = (await currentOrganizationName()).trim()
   if (organizationName) {
     argv.push("--organization", organizationName)
+  } else {
+    argv.push("--personal")
   }
 }
 
@@ -253,6 +330,7 @@ export default tool({
 /** workspace 写入用：文件名 → 源码。 */
 export const AGENT_TOOL_FILES: Readonly<Record<string, string>> = {
   "search_actions.ts": SEARCH_ACTIONS_TOOL_TS,
+  "list_apps.ts": LIST_APPS_TOOL_TS,
   "inspect_action.ts": INSPECT_ACTION_TOOL_TS,
   "call_action.ts": CALL_ACTION_TOOL_TS,
 }

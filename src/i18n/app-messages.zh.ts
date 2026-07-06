@@ -792,8 +792,7 @@ export const zhCNMessages = {
   "chat.permissionCommandDescription": "Wanta 想执行：\n{command}\n允许本次操作不会开启完全访问权限。",
   "chat.permissionPathDescription": "Wanta 想访问：\n{path}\n允许本次操作不会开启完全访问权限。",
   "chat.permissionEditDescription": "Wanta 想修改：\n{path}\n允许本次操作不会开启完全访问权限。",
-  "chat.permissionHighRiskDescription":
-    "即使在完全访问权限下，这类命令也需要单独确认：\n{command}\n请确认它符合你的当前任务。",
+  "chat.permissionHighRiskDescription": "Wanta 想执行高风险命令：\n{command}\n请确认它符合你的当前任务。",
   "chat.permissionRequiredAllowOnce": "允许本次操作",
   "chat.permissionRequiredAllowSession": "本会话内允许",
   "chat.permissionRequiredAllowCommandSession": "本会话内允许此命令",

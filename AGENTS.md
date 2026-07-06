@@ -74,7 +74,7 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
    deep-link 日志必须脱敏（query 含 authID）。
 5. **版本钉死，禁止浮动**：`opencode-ai` / `@opencode-ai/sdk` / `@opencode-ai/plugin`
    三包同为 `1.17.11`（上游无 API 稳定承诺）；oo CLI 版本由 `scripts/oo-cli.ts` 的
-   `OO_CLI_VERSION = "1.3.0"` 单一锁定。
+   `OO_CLI_VERSION = "1.4.2"` 单一锁定。
 6. **OpenCode permission 的 `"ask"` 必须接 Wanta 两档权限 UI**。当前已处理
    `permission.asked` / `permission.v2.asked` 与 reply；高风险本地能力走 ask。
    默认权限逐次批准/拒绝当前本地 ask，完全访问确认后自动 reply；新增 ask 类权限时必须验证该闭环

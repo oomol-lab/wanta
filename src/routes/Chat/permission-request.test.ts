@@ -34,7 +34,7 @@ test("permission helpers classify common request kinds", () => {
   )
 })
 
-test("high risk command detection keeps full access from auto-approving destructive commands", () => {
+test("high risk command detection marks destructive commands for default permission prompts", () => {
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm test" } })), false)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "rm -rf /tmp/wanta-test" } })), true)
   assert.equal(

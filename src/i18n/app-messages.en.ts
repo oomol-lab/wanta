@@ -834,7 +834,7 @@ export const enMessages = {
   "chat.permissionPathDescription": "Wanta wants to access:\n{path}\nAllowing this step does not enable full access.",
   "chat.permissionEditDescription": "Wanta wants to modify:\n{path}\nAllowing this step does not enable full access.",
   "chat.permissionHighRiskDescription":
-    "This kind of command still needs confirmation, even in full access:\n{command}\nConfirm that it matches the current task.",
+    "Wanta wants to run a high-risk command:\n{command}\nConfirm that it matches the current task.",
   "chat.permissionRequiredAllowOnce": "Allow this step",
   "chat.permissionRequiredAllowSession": "Allow in this chat",
   "chat.permissionRequiredAllowCommandSession": "Allow this command in this chat",

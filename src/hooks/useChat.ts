@@ -51,7 +51,6 @@ import { useChatService } from "@/components/AppContext"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import {
   createSessionPermissionGrant,
-  isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
   requestMatchesSessionGrant,
 } from "@/routes/Chat/permission-request"
@@ -533,7 +532,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     (sessionId: string, request: ChatPermissionRequest, permissionMode: AgentPermissionMode): boolean =>
       isOoCliPermissionRequest(request) ||
       hasSessionPermissionGrant(sessionId, request) ||
-      (permissionMode === "full_access" && !isHighRiskPermissionRequest(request)),
+      permissionMode === "full_access",
     [hasSessionPermissionGrant],
   )
 
@@ -552,9 +551,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         return
       }
       for (const request of requests) {
-        if (reply === "once" && isHighRiskPermissionRequest(request)) {
-          continue
-        }
         void replyPermissionRequest(sessionId, request.id, reply).catch((err: unknown) => {
           reportRendererHandledError("chat", "answerPermission invoke failed", err)
           setSessionError(sessionId, err instanceof Error ? err.message : String(err))

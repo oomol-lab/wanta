@@ -1,5 +1,6 @@
 import type {
   ConnectionAuthType,
+  ConnectionAppDetail,
   ConnectionConnectInput,
   ConnectionProviderDetail,
   ConnectionProviderSummary,
@@ -90,6 +91,7 @@ export function ConnectionsPanel({
     clearActionError,
     connect,
     disconnect,
+    getAppDetail,
     getProviderDetail,
     polling,
     summary,
@@ -105,6 +107,7 @@ export function ConnectionsPanel({
   const [detailError, setDetailError] = React.useState<UserFacingError | null>(null)
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
   const [dialog, setDialog] = React.useState<{
+    appDetail?: ConnectionAppDetail | null
     appId?: string
     authType: "api_key" | "custom_credential" | "federated" | "oauth2"
     detail: ConnectionProviderDetail
@@ -303,13 +306,16 @@ export function ConnectionsPanel({
           return
         }
 
-        const loaded = detailService === provider.service && detail ? detail : await getProviderDetail(provider.service)
-        setDialog({ detail: loaded, authType, appId })
+        const [loaded, appDetail] = await Promise.all([
+          detailService === provider.service && detail ? Promise.resolve(detail) : getProviderDetail(provider.service),
+          appId ? getAppDetail(appId) : null,
+        ])
+        setDialog({ detail: loaded, authType, appId, appDetail })
       } catch (err) {
         setDetailError(resolveConnectionError(err, "detail"))
       }
     },
-    [connect, detail, detailService, getProviderDetail],
+    [connect, detail, detailService, getAppDetail, getProviderDetail],
   )
 
   const submitConnectDialog = React.useCallback(
@@ -375,6 +381,7 @@ export function ConnectionsPanel({
         )}
         <ConnectDialog
           open={dialog !== null}
+          appDetail={dialog?.appDetail}
           detail={dialog?.detail ?? null}
           authType={dialog?.authType ?? null}
           appId={dialog?.appId}
@@ -504,6 +511,7 @@ export function ConnectionsPanel({
 
       <ConnectDialog
         open={dialog !== null}
+        appDetail={dialog?.appDetail}
         detail={dialog?.detail ?? null}
         authType={dialog?.authType ?? null}
         appId={dialog?.appId}

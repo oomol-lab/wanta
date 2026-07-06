@@ -3,6 +3,9 @@ import type { ConnectionProviderSummary } from "../../../electron/connections/co
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
+  buildCredentialSummaryDisplayValues,
+  buildFederatedCredentialDisplayValues,
+  getConnectionAppNote,
   getProviderAccountValue,
   getProviderMeta,
   isConnected,
@@ -58,4 +61,56 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
 
   assert.equal(isConnected(ready), true)
   assert.equal(isNoAuthReadyProvider(ready), false)
+})
+
+test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {
+  assert.deepEqual(
+    buildCredentialSummaryDisplayValues(
+      [
+        { key: "apiKey", secret: true },
+        { key: "workspace", secret: false },
+        { key: "token", secret: true },
+      ],
+      {
+        authType: "api_key",
+        fields: {
+          apiKey: { configured: true, maskedValue: "sk-***" },
+          token: { configured: true, displayValue: "should-not-fill" },
+          workspace: { configured: true, displayValue: "prod" },
+        },
+      },
+    ),
+    { workspace: "prod" },
+  )
+})
+
+test("buildFederatedCredentialDisplayValues keeps non-secret known fields", () => {
+  assert.deepEqual(
+    buildFederatedCredentialDisplayValues(
+      [{ key: "roleArn" }, { key: "policy" }],
+      [
+        { key: "roleArn", label: "Role ARN", displayValue: "role-a", secret: false },
+        { key: "policy", label: "Policy", displayValue: "{}", secret: false },
+        { key: "token", label: "Token", displayValue: "hidden", secret: true },
+        { key: "unknown", label: "Unknown", displayValue: "ignored", secret: false },
+      ],
+    ),
+    { policy: "{}", roleArn: "role-a" },
+  )
+})
+
+test("getConnectionAppNote trims persisted comments", () => {
+  assert.equal(
+    getConnectionAppNote({
+      authType: "federated",
+      comment: " developer role ",
+      createdAt: 0,
+      id: "app-1",
+      isDefault: false,
+      service: "aliyun_sts",
+      status: "active",
+      updatedAt: 0,
+    }),
+    "developer role",
+  )
 })

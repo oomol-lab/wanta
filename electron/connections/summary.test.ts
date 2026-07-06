@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "vitest"
 import { createEmptyConnectionSummary } from "./summary-model.ts"
-import { mergeConnectionSummary } from "./summary.ts"
+import { mergeConnectionSummary, normalizeConnectionAppDetail, normalizeFederatedCredentialConfig } from "./summary.ts"
 
 const providers = [
   { service: "gmail", displayName: "Gmail", authTypes: ["oauth2" as const], categories: [{ displayName: "Email" }] },
@@ -216,6 +216,73 @@ test("merge normalizes OAuth client config metadata for setup dialogs", () => {
   assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.location, "secretExtra")
   assert.equal(twitter?.oauthClientConfig?.clientConfigFields[0]?.secret, true)
   assert.deepEqual(twitter?.oauthClientConfig?.clientConfigFields[0]?.defaultValue, ["keep", "safe"])
+})
+
+test("normalizes app credential detail without exposing unknown fields", () => {
+  const app = normalizeConnectionAppDetail({
+    id: "app-1",
+    service: "aliyun_sts",
+    authType: "federated",
+    status: "active",
+    comment: "developer role",
+    credentialFields: [
+      { key: "roleArn", label: "Role ARN", displayValue: "acs:ram::123:role/dev", secret: false },
+      { key: "token", label: "Token", displayValue: "redacted", secret: true },
+      { key: "", label: "Invalid", displayValue: "ignored", secret: false },
+    ],
+    credentialSummary: {
+      authType: "custom_credential",
+      fields: {
+        username: { configured: true, displayValue: "alice" },
+        password: { configured: true, maskedValue: "****" },
+      },
+    },
+  })
+
+  assert.equal(app?.comment, "developer role")
+  assert.deepEqual(app?.credentialFields, [
+    { key: "roleArn", label: "Role ARN", displayValue: "acs:ram::123:role/dev", secret: false },
+    { key: "token", label: "Token", displayValue: "redacted", secret: true },
+  ])
+  assert.deepEqual(app?.credentialSummary?.fields.username, {
+    configured: true,
+    displayValue: "alice",
+    maskedValue: undefined,
+  })
+  assert.deepEqual(app?.credentialSummary?.fields.password, {
+    configured: true,
+    displayValue: undefined,
+    maskedValue: "****",
+  })
+})
+
+test("normalizes federated credential field definitions", () => {
+  const config = normalizeFederatedCredentialConfig({
+    fields: [
+      { key: "roleArn", label: "Role ARN", required: true, secret: false },
+      { key: "secretRole", label: "Secret role", required: false, secret: true },
+      { key: "", label: "Invalid", required: true, secret: false },
+    ],
+  })
+
+  assert.deepEqual(config?.fields, [
+    {
+      key: "roleArn",
+      label: "Role ARN",
+      required: true,
+      secret: false,
+      description: undefined,
+      placeholder: undefined,
+    },
+    {
+      key: "secretRole",
+      label: "Secret role",
+      required: false,
+      secret: true,
+      description: undefined,
+      placeholder: undefined,
+    },
+  ])
 })
 
 test("createEmptyConnectionSummary exposes a signed-out state", () => {

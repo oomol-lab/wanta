@@ -1,5 +1,6 @@
 import type {
   ConnectionConnectInput,
+  ConnectionAppDetail,
   ConnectionExecutionLogRequest,
   ConnectionExecutionLogSummary,
   ConnectionProviderDetail,
@@ -16,6 +17,7 @@ import {
   connectProvider,
   disconnectAccount as disconnectAccountRequest,
   disconnectProvider as disconnectProviderRequest,
+  getConnectionAppDetail,
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
@@ -98,6 +100,7 @@ export interface UseConnections {
   disconnectAccount: (appId: string) => Promise<boolean>
   cancelPolling: () => void
   getProviderDetail: (service: string) => Promise<ConnectionProviderDetail>
+  getAppDetail: (appId: string) => Promise<ConnectionAppDetail>
   getExecutionLogs: (request: ConnectionExecutionLogRequest) => Promise<ConnectionExecutionLogSummary>
   openExternal: (url: string) => Promise<void>
   setDefaultAccount: (service: string, appId: string) => Promise<boolean>
@@ -625,6 +628,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     }
     return getConnectionProviderDetail(svc, currentWorkspace)
   }, [])
+  const getAppDetail = React.useCallback((appId: string) => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      return Promise.reject(new Error("Workspace is still loading."))
+    }
+    return getConnectionAppDetail(appId, currentWorkspace)
+  }, [])
   const getExecutionLogs = React.useCallback((request: ConnectionExecutionLogRequest) => {
     const currentWorkspace = effectiveWorkspace.current
     if (!currentWorkspace) {
@@ -648,6 +658,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     disconnectAccount,
     cancelPolling,
     getProviderDetail,
+    getAppDetail,
     getExecutionLogs,
     openExternal,
     setDefaultAccount,

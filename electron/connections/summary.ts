@@ -1,8 +1,11 @@
 import type {
+  ConnectionAppCredentialField,
+  ConnectionAppDetail,
   ConnectionAppStatus,
   ConnectionAppSummary,
   ConnectionAuthType,
   ConnectionCredentialField,
+  ConnectionCredentialSummary,
   ConnectionOAuthClientConfigFieldDefinition,
   ConnectionOAuthClientConfigNextConnectSource,
   ConnectionOAuthClientConfigPolicy,
@@ -22,7 +25,10 @@ export interface RawApp {
   accountLabel?: unknown
   alias?: unknown
   authType?: unknown
+  comment?: unknown
   createdAt?: unknown
+  credentialFields?: unknown
+  credentialSummary?: unknown
   displayName?: unknown
   id?: unknown
   isDefault?: unknown
@@ -102,6 +108,28 @@ interface RawApiKeyConfig {
 }
 
 interface RawCustomCredentialConfig {
+  fields?: unknown
+}
+
+interface RawFederatedCredentialConfig {
+  fields?: unknown
+}
+
+interface RawAppCredentialField {
+  displayValue?: unknown
+  key?: unknown
+  label?: unknown
+  secret?: unknown
+}
+
+interface RawCredentialFieldSummary {
+  configured?: unknown
+  displayValue?: unknown
+  maskedValue?: unknown
+}
+
+interface RawCredentialSummary {
+  authType?: unknown
   fields?: unknown
 }
 
@@ -368,6 +396,84 @@ export function normalizeCustomCredentialConfig(value: unknown): ConnectionProvi
   }
 }
 
+export function normalizeFederatedCredentialConfig(
+  value: unknown,
+): ConnectionProviderDetail["federatedCredentialConfig"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null
+  }
+
+  const config = value as RawFederatedCredentialConfig
+  return {
+    fields: Array.isArray(config.fields)
+      ? config.fields
+          .map((field) => normalizeCredentialField(field))
+          .filter((field): field is ConnectionCredentialField => Boolean(field))
+      : [],
+  }
+}
+
+function normalizeAppCredentialField(item: unknown): ConnectionAppCredentialField | undefined {
+  if (!item || typeof item !== "object" || Array.isArray(item)) {
+    return undefined
+  }
+
+  const field = item as RawAppCredentialField
+  const key = asString(field.key)
+  const label = asString(field.label)
+  const displayValue = asString(field.displayValue)
+  if (!key || !label || displayValue === undefined) {
+    return undefined
+  }
+
+  return {
+    key,
+    label,
+    displayValue,
+    secret: field.secret === true,
+  }
+}
+
+function normalizeCredentialFieldSummary(value: unknown): ConnectionCredentialSummary["fields"][string] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined
+  }
+
+  const field = value as RawCredentialFieldSummary
+  return {
+    configured: field.configured === true,
+    displayValue: asString(field.displayValue),
+    maskedValue: asString(field.maskedValue),
+  }
+}
+
+function normalizeCredentialSummary(value: unknown): ConnectionCredentialSummary | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined
+  }
+
+  const summary = value as RawCredentialSummary
+  if (summary.authType !== "api_key" && summary.authType !== "custom_credential") {
+    return undefined
+  }
+  if (!summary.fields || typeof summary.fields !== "object" || Array.isArray(summary.fields)) {
+    return undefined
+  }
+
+  const fields: ConnectionCredentialSummary["fields"] = {}
+  for (const [key, field] of Object.entries(summary.fields)) {
+    const normalized = normalizeCredentialFieldSummary(field)
+    if (normalized) {
+      fields[key] = normalized
+    }
+  }
+
+  return {
+    authType: summary.authType,
+    fields,
+  }
+}
+
 function getProviderActionKind(authTypes: Exclude<ConnectionAuthType, null>[]): ConnectionProviderActionKind {
   if (authTypes.includes("oauth2")) {
     return "oauth2"
@@ -407,6 +513,24 @@ export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
     providerAccountId: asString(item.providerAccountId),
     status: normalizeAppStatus(item.status),
     updatedAt: asNumber(item.updatedAt) ?? 0,
+  }
+}
+
+export function normalizeConnectionAppDetail(item: RawApp): ConnectionAppDetail | undefined {
+  const app = normalizeApp(item)
+  if (!app) {
+    return undefined
+  }
+
+  return {
+    ...app,
+    comment: typeof item.comment === "string" ? item.comment : item.comment === null ? null : undefined,
+    credentialFields: Array.isArray(item.credentialFields)
+      ? item.credentialFields
+          .map((field) => normalizeAppCredentialField(field))
+          .filter((field): field is ConnectionAppCredentialField => Boolean(field))
+      : undefined,
+    credentialSummary: normalizeCredentialSummary(item.credentialSummary),
   }
 }
 

@@ -1,6 +1,7 @@
 import type { ChatPermissionRequest } from "./common.ts"
 
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 
 const trustedProjectPermissionActions = new Set([
   "directory",
@@ -38,7 +39,7 @@ function pathFromFileUrl(value: string): string | undefined {
   }
   try {
     const url = new URL(value)
-    return url.protocol === "file:" ? decodeURIComponent(url.pathname) : undefined
+    return url.protocol === "file:" ? fileURLToPath(url) : undefined
   } catch {
     return undefined
   }

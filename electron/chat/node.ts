@@ -29,6 +29,8 @@ import type {
   SendMessageRequest,
   SetAgentOrganizationRequest,
   ShowLocalPathInFolderRequest,
+  ToolCallResultEvent,
+  ToolCallStartedEvent,
   TurnFileDiffRequest,
   TurnFileDiffResult,
   TurnOutputRecord,
@@ -130,6 +132,24 @@ function messageErrorSignature(message: string): string {
   return message.trim() || message
 }
 
+function metadataString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined
+}
+
+function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): string | undefined {
+  if (data.tool !== "task") {
+    return undefined
+  }
+  const metadata = data.metadata
+  const parentSessionId =
+    metadataString(metadata?.parentSessionId) ?? metadataString(metadata?.parentSessionID) ?? data.sessionId
+  const childSessionId = metadataString(metadata?.sessionId) ?? metadataString(metadata?.sessionID)
+  if (!childSessionId || childSessionId === data.sessionId || parentSessionId !== data.sessionId) {
+    return undefined
+  }
+  return childSessionId
+}
+
 interface ChatServiceDeps {
   artifactRootStore?: ArtifactRootStore
   authorizationOverlayStore?: AuthorizationOverlayStore
@@ -176,6 +196,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeToolParts = new Map<string, Set<string>>()
   private connectionFailedSessions = new Set<string>()
   private trustedProjectRoots = new Map<string, string>()
+  private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private artifactRoots: ArtifactRoots = new Map()
@@ -216,6 +237,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeToolParts.clear()
     this.connectionFailedSessions.clear()
     this.trustedProjectRoots.clear()
+    this.trustedSubagentSessionsByParent.clear()
     this.artifactRoots.clear()
     this.artifactRootsLoaded = false
     this.artifactRootsLoadPromise = null
@@ -329,12 +351,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           const partIds = this.activeToolParts.get(translated.data.sessionId) ?? new Set<string>()
           partIds.add(translated.data.partId)
           this.activeToolParts.set(translated.data.sessionId, partIds)
+          const childSessionId = taskChildSessionId(translated.data)
+          if (childSessionId) {
+            this.rememberTrustedSubagentSession(translated.data.sessionId, childSessionId)
+          }
         }
         if (translated.event === "toolCallResult") {
           const partIds = this.activeToolParts.get(translated.data.sessionId)
           partIds?.delete(translated.data.partId)
           if (partIds?.size === 0) {
             this.activeToolParts.delete(translated.data.sessionId)
+          }
+          const childSessionId = taskChildSessionId(translated.data)
+          if (childSessionId) {
+            this.forgetTrustedSubagentSession(translated.data.sessionId, childSessionId)
           }
           if (translated.data.authorization) {
             void this.rememberAuthorizationOverlay(
@@ -579,6 +609,40 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return true
   }
 
+  private rememberTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
+    const projectRoot = this.trustedProjectRoots.get(parentSessionId)
+    if (!projectRoot) {
+      return
+    }
+    this.trustedProjectRoots.set(childSessionId, projectRoot)
+    const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId) ?? new Set<string>()
+    childSessionIds.add(childSessionId)
+    this.trustedSubagentSessionsByParent.set(parentSessionId, childSessionIds)
+  }
+
+  private forgetTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
+    const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId)
+    if (!childSessionIds?.has(childSessionId)) {
+      return
+    }
+    childSessionIds.delete(childSessionId)
+    this.trustedProjectRoots.delete(childSessionId)
+    if (childSessionIds.size === 0) {
+      this.trustedSubagentSessionsByParent.delete(parentSessionId)
+    }
+  }
+
+  private forgetTrustedSubagentSessions(parentSessionId: string): void {
+    const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId)
+    if (!childSessionIds) {
+      return
+    }
+    for (const childSessionId of childSessionIds) {
+      this.trustedProjectRoots.delete(childSessionId)
+    }
+    this.trustedSubagentSessionsByParent.delete(parentSessionId)
+  }
+
   private beginSessionGeneration(sessionId: string): SessionGeneration {
     const previousGeneration = this.sessionGenerations.get(sessionId)
     previousGeneration?.controller.abort()
@@ -609,6 +673,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (generation) {
       this.releaseGenerationScopeLock(generation.id)
     }
+    this.forgetTrustedSubagentSessions(sessionId)
     this.sessionGenerations.delete(sessionId)
   }
 

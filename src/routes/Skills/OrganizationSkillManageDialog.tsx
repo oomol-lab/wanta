@@ -11,13 +11,12 @@ import {
   createOrganizationSkillPackageSet,
   errorMessage,
   organizationSkillPackageLinked,
-  planOrganizationSkillBulkLinks,
+  planProviderSkillRecommendationBulkLinks,
 } from "./organization-management-model.ts"
 import {
+  buildOrganizationSkillRecommendationItems,
   looksLikeSkillPackageName,
   mergeMarketPackages,
-  organizationSkillMatchesQuery,
-  providerRecommendationMatchesQuery,
 } from "./organization-skill-manage-helpers.ts"
 import {
   OrganizationRecommendationRemoveConfirmDialog,
@@ -51,7 +50,7 @@ import {
   publicPackageCatalogReducer,
 } from "@/routes/Skills/skill-route-model"
 
-type OrganizationSkillManageTab = "configured" | "market" | "recommended"
+type OrganizationSkillManageTab = "market" | "recommendations"
 
 export {
   OrganizationSkillManageLoadingSkeleton,
@@ -71,6 +70,7 @@ export function OrganizationSkillManageDialog({
   onRequestRemoveRuntimeSkill,
   open = true,
   organizationSkills,
+  providerRecommendationsLoading = false,
   providerRecommendations,
   variant = "dialog",
 }: {
@@ -95,6 +95,7 @@ export function OrganizationSkillManageDialog({
   onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
   open?: boolean
   organizationSkills: UseOrganizationSkills
+  providerRecommendationsLoading?: boolean
   providerRecommendations: ProviderSkillRecommendation[]
   variant?: "dialog" | "inline"
 }) {
@@ -104,7 +105,10 @@ export function OrganizationSkillManageDialog({
   const [organizationRemoveTarget, setOrganizationRemoveTarget] = React.useState<
     UseOrganizationSkills["skills"][number] | null
   >(null)
-  const [activeTab, setActiveTab] = React.useState<OrganizationSkillManageTab>("configured")
+  const [activeTab, setActiveTab] = React.useState<OrganizationSkillManageTab>("recommendations")
+  const [recommendationSourceFilter, setRecommendationSourceFilter] = React.useState<
+    "all" | "configured" | "recommended"
+  >("all")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [marketCatalog, dispatchMarketCatalog] = React.useReducer(
     publicPackageCatalogReducer,
@@ -122,40 +126,52 @@ export function OrganizationSkillManageDialog({
     [organizationSkills.skills],
   )
   const recommendedPlan = React.useMemo(
-    () => planOrganizationSkillBulkLinks(providerRecommendations, organizationSkills.skills),
+    () => planProviderSkillRecommendationBulkLinks(providerRecommendations, organizationSkills.skills),
     [organizationSkills.skills, providerRecommendations],
   )
   const recommendedOrganizationSkills = recommendedPlan.linkable
   const normalizedQuery = searchQuery.trim().toLowerCase()
   const marketQuery = activeTab === "market" ? searchQuery.trim() : ""
-  const filteredConfiguredSkills = React.useMemo(
-    () => organizationSkills.skills.filter((skill) => organizationSkillMatchesQuery(skill, normalizedQuery)),
-    [normalizedQuery, organizationSkills.skills],
-  )
-  const filteredRecommendedSkills = React.useMemo(
+  const recommendationItems = React.useMemo(
     () =>
-      recommendedOrganizationSkills.filter((recommendation) =>
-        providerRecommendationMatchesQuery(recommendation, normalizedQuery),
-      ),
-    [normalizedQuery, recommendedOrganizationSkills],
+      buildOrganizationSkillRecommendationItems({
+        filter: recommendationSourceFilter,
+        normalizedQuery,
+        providerRecommendations: recommendedOrganizationSkills,
+        skills: organizationSkills.skills,
+      }),
+    [normalizedQuery, organizationSkills.skills, recommendationSourceFilter, recommendedOrganizationSkills],
   )
+  const allRecommendationItems = React.useMemo(
+    () =>
+      buildOrganizationSkillRecommendationItems({
+        filter: recommendationSourceFilter,
+        normalizedQuery: "",
+        providerRecommendations: recommendedOrganizationSkills,
+        skills: organizationSkills.skills,
+      }),
+    [organizationSkills.skills, recommendationSourceFilter, recommendedOrganizationSkills],
+  )
+  const recommendationSourceIncludesSystem = recommendationSourceFilter !== "configured"
   const installableRecommendedSkills = React.useMemo(
     () =>
-      recommendedOrganizationSkills
-        .filter((recommendation) => canInstallPublicSkill(recommendation.installState))
-        .map((recommendation) => ({
-          packageName: recommendation.packageName,
-          skillName: recommendation.skillId,
-        })),
-    [recommendedOrganizationSkills],
-  )
-  const installableConfiguredSkills = React.useMemo(
-    () =>
-      organizationSkills.skills.filter((skill) => {
-        const state = getOrganizationSkillRuntimeStatus(groupById, skill).state
-        return skill.enabled && (state === "missing" || state === "external-only")
-      }),
-    [groupById, organizationSkills.skills],
+      allRecommendationItems
+        .flatMap((item) => {
+          if (item.type === "configured") {
+            const state = getOrganizationSkillRuntimeStatus(groupById, item.skill).state
+            return item.skill.enabled && (state === "missing" || state === "external-only")
+              ? [{ packageName: item.skill.packageName, skillName: item.skill.skillName }]
+              : []
+          }
+          return canInstallPublicSkill(item.recommendation.installState)
+            ? [{ packageName: item.recommendation.packageName, skillName: item.recommendation.skillId }]
+            : []
+        })
+        .filter((skill, index, skills) => {
+          const key = `${skill.packageName}\u0000${skill.skillName}`
+          return skills.findIndex((item) => `${item.packageName}\u0000${item.skillName}` === key) === index
+        }),
+    [allRecommendationItems, groupById],
   )
   const marketPackages = React.useMemo(
     () => mergeMarketPackages(marketExactPackage, marketCatalog.items),
@@ -176,11 +192,12 @@ export function OrganizationSkillManageDialog({
     if (!isActive) {
       return
     }
-    setActiveTab(recommendedOrganizationSkills.length > 0 ? "recommended" : "configured")
+    setActiveTab("recommendations")
+    setRecommendationSourceFilter("all")
     setSearchQuery("")
     setMarketExactPackage(null)
     setMarketExactLoading(false)
-  }, [isActive, organizationSkills.organizationId, recommendedOrganizationSkills.length])
+  }, [isActive, organizationSkills.organizationId])
 
   const loadMarketPackages = React.useCallback(
     async (options: { clearItems?: boolean; forceRefresh?: boolean; next?: string | null; query?: string } = {}) => {
@@ -396,25 +413,17 @@ export function OrganizationSkillManageDialog({
                 aria-label={t("organizations.skillManageTitle")}
                 className="w-max"
                 onValueChange={(value) => {
-                  if (value === "configured" || value === "recommended" || value === "market") {
+                  if (value === "recommendations" || value === "market") {
                     changeActiveTab(value)
                   }
                 }}
               >
-                <ToggleGroupItem value="configured">
-                  <span>{t("organizations.skillManageConfigured")}</span>
-                  <span className="oo-text-caption-compact text-muted-foreground">
-                    {organizationSkills.skills.length}
-                  </span>
-                </ToggleGroupItem>
-                <ToggleGroupItem value="recommended">
-                  <span>{t("organizations.skillManageRecommended")}</span>
+                <ToggleGroupItem value="recommendations">
+                  <span>{t("organizations.skillManageRecommendations")}</span>
                   {installableRecommendedSkills.length > 0 ? (
                     <span className="size-2 shrink-0 rounded-full bg-[var(--success)]" aria-hidden="true" />
                   ) : null}
-                  <span className="oo-text-caption-compact text-muted-foreground">
-                    {recommendedOrganizationSkills.length}
-                  </span>
+                  <span className="oo-text-caption-compact text-muted-foreground">{allRecommendationItems.length}</span>
                 </ToggleGroupItem>
                 <ToggleGroupItem value="market">
                   <span>{t("organizations.skillManageMarket")}</span>
@@ -423,38 +432,51 @@ export function OrganizationSkillManageDialog({
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-2 sm:min-w-80 sm:flex-row sm:items-center sm:justify-end">
               <SearchField
-                className="min-w-0 flex-1 sm:max-w-80"
+                className="min-w-0 flex-1"
                 inputClassName="h-[var(--oo-control-height-compact)]"
                 placeholder={
-                  activeTab === "configured"
-                    ? t("organizations.skillManageSearchConfigured")
-                    : activeTab === "recommended"
-                      ? t("organizations.skillManageSearchRecommended")
-                      : t("organizations.skillManageSearchMarket")
+                  activeTab === "recommendations"
+                    ? t("organizations.skillManageSearchRecommendations")
+                    : t("organizations.skillManageSearchMarket")
                 }
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.currentTarget.value)}
               />
-              {activeTab === "configured" && installableConfiguredSkills.length > 0 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={Boolean(busyAction)}
-                  onClick={() => onInstallRuntimeSkills(installableConfiguredSkills)}
-                >
-                  {busyAction === "installSkillBatch" ? (
-                    <RefreshCwIcon className="size-3.5 animate-spin" />
-                  ) : (
-                    <PackageIcon className="size-3.5" />
-                  )}
-                  {t("organizations.skillManageInstallMissingAll", {
-                    count: installableConfiguredSkills.length,
-                  })}
-                </Button>
+              {activeTab === "recommendations" ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="max-w-36 min-w-28 justify-between px-2"
+                    >
+                      <span className="min-w-0 truncate">
+                        {recommendationSourceFilter === "configured"
+                          ? t("organizations.skillManageConfigured")
+                          : recommendationSourceFilter === "recommended"
+                            ? t("organizations.skillManageRecommended")
+                            : t("organizations.skillManageSourceAll")}
+                      </span>
+                      <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => setRecommendationSourceFilter("all")}>
+                      {t("organizations.skillManageSourceAll")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setRecommendationSourceFilter("configured")}>
+                      {t("organizations.skillManageConfigured")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setRecommendationSourceFilter("recommended")}>
+                      {t("organizations.skillManageRecommended")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : null}
-              {activeTab === "recommended" &&
+              {activeTab === "recommendations" &&
               organizationSkills.canManage &&
+              recommendationSourceIncludesSystem &&
               (installableRecommendedSkills.length > 1 || recommendedOrganizationSkills.length > 1) ? (
                 <div className="inline-flex max-w-full items-center justify-end">
                   <Button
@@ -475,7 +497,7 @@ export function OrganizationSkillManageDialog({
                     )}
                     <span className="truncate">
                       {shouldInstallRecommendedBatch
-                        ? t("organizations.skillManageInstallRecommendedAll", {
+                        ? t("organizations.skillManageInstallMissingAll", {
                             count: installableRecommendedSkills.length,
                           })
                         : t("organizations.skillManageLinkAll", { count: recommendedOrganizationSkills.length })}
@@ -513,12 +535,13 @@ export function OrganizationSkillManageDialog({
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              ) : activeTab === "recommended" &&
-                !organizationSkills.canManage &&
+              ) : activeTab === "recommendations" &&
+                (!organizationSkills.canManage ||
+                  !recommendationSourceIncludesSystem ||
+                  recommendedOrganizationSkills.length <= 1) &&
                 installableRecommendedSkills.length > 1 ? (
                 <Button
                   type="button"
-                  variant="outline"
                   size="sm"
                   disabled={Boolean(busyAction)}
                   onClick={() => onInstallRuntimeSkills(installableRecommendedSkills)}
@@ -528,29 +551,39 @@ export function OrganizationSkillManageDialog({
                   ) : (
                     <PackageIcon className="size-3.5" />
                   )}
-                  {t("organizations.skillManageInstallRecommendedAll", {
+                  {t("organizations.skillManageInstallMissingAll", {
                     count: installableRecommendedSkills.length,
                   })}
                 </Button>
               ) : null}
             </div>
           </div>
-          {activeTab === "configured" ? (
-            organizationSkills.skills.length === 0 ? (
+          {activeTab === "recommendations" ? (
+            providerRecommendationsLoading && recommendationSourceIncludesSystem ? (
+              <div className={skillListClassName}>
+                <OrganizationSkillPackageListSkeleton />
+              </div>
+            ) : allRecommendationItems.length === 0 ? (
               <OrganizationSkillDialogEmpty
                 className={emptyStateClassName}
                 title={
-                  organizationSkills.canManage
-                    ? t("organizations.skillGuideEmptyCreatorTitle")
-                    : t("organizations.skillGuideEmptyTitle")
+                  recommendationSourceFilter === "recommended"
+                    ? t("organizations.skillManageRecommendedEmptyTitle")
+                    : recommendationSourceFilter === "configured"
+                      ? t("organizations.skillGuideEmptyTitle")
+                      : t("organizations.skillManageRecommendationsEmptyTitle")
                 }
                 description={
-                  organizationSkills.canManage
-                    ? t("organizations.skillGuideEmptyCreatorDescription")
-                    : t("organizations.skillGuideEmptyDescription")
+                  recommendationSourceFilter === "recommended"
+                    ? t("organizations.skillManageRecommendedEmpty")
+                    : recommendationSourceFilter === "configured"
+                      ? organizationSkills.canManage
+                        ? t("organizations.skillGuideEmptyCreatorDescription")
+                        : t("organizations.skillGuideEmptyDescription")
+                      : t("organizations.skillManageRecommendationsEmptyDescription")
                 }
               />
-            ) : filteredConfiguredSkills.length === 0 ? (
+            ) : recommendationItems.length === 0 ? (
               <OrganizationSkillDialogEmpty
                 className={emptyStateClassName}
                 title={t("organizations.skillManageSearchEmptyTitle")}
@@ -558,64 +591,48 @@ export function OrganizationSkillManageDialog({
               />
             ) : (
               <div className={skillListClassName}>
-                {filteredConfiguredSkills.map((skill) => (
-                  <OrganizationSkillManageRow
-                    key={skill.id}
-                    busy={busyConfigId === skill.id || busyAction === "installSkillBatch"}
-                    busyAction={busyAction}
-                    canManage={organizationSkills.canManage}
-                    groupById={groupById}
-                    installBusy={
-                      busyAction === `installSkill:${skill.packageName}:${skill.skillName}` ||
-                      busyAction === "installSkillBatch"
-                    }
-                    skill={skill}
-                    onInstallRuntime={() =>
-                      onInstallRuntimeSkill({ packageName: skill.packageName, skillName: skill.skillName })
-                    }
-                    onRemove={() => setOrganizationRemoveTarget(skill)}
-                    onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
-                    onToggleEnabled={() => void updateOrganizationSkill(skill, { enabled: !skill.enabled })}
-                  />
-                ))}
-              </div>
-            )
-          ) : activeTab === "recommended" ? (
-            recommendedOrganizationSkills.length === 0 ? (
-              <div
-                className={cn(
-                  "oo-text-caption px-3 py-4 text-muted-foreground",
-                  inline ? "bg-transparent" : "rounded-md border border-dashed bg-muted/20",
+                {recommendationItems.map((item) =>
+                  item.type === "configured" ? (
+                    <OrganizationSkillManageRow
+                      key={item.id}
+                      busy={busyConfigId === item.skill.id || busyAction === "installSkillBatch"}
+                      busyAction={busyAction}
+                      canManage={organizationSkills.canManage}
+                      groupById={groupById}
+                      installBusy={
+                        busyAction === `installSkill:${item.skill.packageName}:${item.skill.skillName}` ||
+                        busyAction === "installSkillBatch"
+                      }
+                      skill={item.skill}
+                      onInstallRuntime={() =>
+                        onInstallRuntimeSkill({
+                          packageName: item.skill.packageName,
+                          skillName: item.skill.skillName,
+                        })
+                      }
+                      onRemove={() => setOrganizationRemoveTarget(item.skill)}
+                      onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
+                      onToggleEnabled={() => void updateOrganizationSkill(item.skill, { enabled: !item.skill.enabled })}
+                    />
+                  ) : (
+                    <OrganizationSkillRecommendationRow
+                      key={item.id}
+                      busyAction={busyAction}
+                      canManage={organizationSkills.canManage}
+                      groupById={groupById}
+                      recommendation={item.recommendation}
+                      onAdd={() => onAddRecommendation(item.recommendation, { installRuntime: false })}
+                      onAddAndInstall={() => onAddRecommendation(item.recommendation, { installRuntime: true })}
+                      onInstallRuntime={() =>
+                        onInstallRuntimeSkill({
+                          packageName: item.recommendation.packageName,
+                          skillName: item.recommendation.skillId,
+                        })
+                      }
+                      onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
+                    />
+                  ),
                 )}
-              >
-                {t("organizations.skillManageRecommendedEmpty")}
-              </div>
-            ) : filteredRecommendedSkills.length === 0 ? (
-              <OrganizationSkillDialogEmpty
-                className={emptyStateClassName}
-                title={t("organizations.skillManageSearchEmptyTitle")}
-                description={t("organizations.skillManageSearchEmptyDescription")}
-              />
-            ) : (
-              <div className={skillListClassName}>
-                {filteredRecommendedSkills.map((recommendation) => (
-                  <OrganizationSkillRecommendationRow
-                    key={`${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`}
-                    busyAction={busyAction}
-                    canManage={organizationSkills.canManage}
-                    groupById={groupById}
-                    recommendation={recommendation}
-                    onAdd={() => onAddRecommendation(recommendation, { installRuntime: false })}
-                    onAddAndInstall={() => onAddRecommendation(recommendation, { installRuntime: true })}
-                    onInstallRuntime={() =>
-                      onInstallRuntimeSkill({
-                        packageName: recommendation.packageName,
-                        skillName: recommendation.skillId,
-                      })
-                    }
-                    onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
-                  />
-                ))}
               </div>
             )
           ) : (
@@ -664,7 +681,8 @@ export function OrganizationSkillManageDialog({
                       onAdd={(skillName) => onAddMarketPackage(pkg, { installRuntime: false, skillName })}
                       onAddAndInstall={(skillName) => onAddMarketPackage(pkg, { installRuntime: true, skillName })}
                       onManageLinked={() => {
-                        setActiveTab("configured")
+                        setActiveTab("recommendations")
+                        setRecommendationSourceFilter("configured")
                         setSearchQuery(pkg.name)
                       }}
                     />

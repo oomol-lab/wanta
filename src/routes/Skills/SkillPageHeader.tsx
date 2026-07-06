@@ -66,7 +66,7 @@ export function SkillPageHeader({
       ]
     : isOrganizationTab
       ? [
-          { label: t("skills.organizationFilter.all"), value: "all" },
+          { label: t("organizations.skillManageSourceAll"), value: "all" },
           { label: t("organizations.skillManageRecommended"), value: "recommended" },
           { label: t("organizations.skillManageConfigured"), value: "configured" },
         ]

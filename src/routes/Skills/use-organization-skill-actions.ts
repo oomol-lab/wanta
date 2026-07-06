@@ -8,7 +8,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import {
   errorMessage,
-  planOrganizationSkillBulkLinks,
+  planProviderSkillRecommendationBulkLinks,
   runtimeSkillRemoveBusyKey,
 } from "./organization-management-model.ts"
 import { useSkillService } from "@/components/AppContext"
@@ -228,7 +228,7 @@ export function useOrganizationSkillActions({
         return
       }
 
-      const plan = planOrganizationSkillBulkLinks(recommendations, organizationSkills.skills)
+      const plan = planProviderSkillRecommendationBulkLinks(recommendations, organizationSkills.skills)
       if (plan.linkable.length === 0) {
         return
       }

@@ -77,13 +77,12 @@ export function OrganizationSkillManageLoadingSkeleton({ inline }: { inline: boo
           <div className="flex h-[var(--oo-control-height-compact)] w-max min-w-0 items-center overflow-hidden rounded-md bg-muted/45 shadow-xs">
             <Skeleton className="mx-2 h-3.5 w-20 shrink-0 rounded-sm" />
             <div className="h-full w-px bg-[var(--oo-divider)]" />
-            <Skeleton className="mx-2 h-3.5 w-16 shrink-0 rounded-sm" />
-            <div className="h-full w-px bg-[var(--oo-divider)]" />
             <Skeleton className="mx-2 h-3.5 w-14 shrink-0 rounded-sm" />
           </div>
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2 sm:min-w-80 sm:flex-row sm:items-center sm:justify-end">
           <Skeleton className="h-[var(--oo-control-height-compact)] min-w-0 flex-1 rounded-md sm:max-w-80" />
+          <Skeleton className="h-[var(--oo-control-height-compact)] w-24 shrink-0 rounded-md" />
           <Skeleton className="h-[var(--oo-control-height-compact)] w-28 shrink-0 rounded-md" />
         </div>
       </div>
@@ -605,6 +604,9 @@ export function OrganizationSkillManageRow({
       <div className="grid min-w-0 gap-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div className="oo-text-label min-w-0 truncate text-foreground">{skill.displayName}</div>
+          <Badge variant="secondary" className="shrink-0">
+            {t("organizations.skillManageConfigured")}
+          </Badge>
           <Badge variant={skill.enabled ? "secondary" : "outline"} className="shrink-0">
             {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
           </Badge>
@@ -690,7 +692,12 @@ export function OrganizationSkillRecommendationRow({
     <div className="group/skill-row grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <OrganizationSkillIconFrame icon={recommendation.package.icon} />
       <div className="grid min-w-0 gap-0.5">
-        <div className="oo-text-label min-w-0 truncate text-foreground">{recommendation.package.displayName}</div>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="oo-text-label min-w-0 truncate text-foreground">{recommendation.package.displayName}</div>
+          <Badge variant="secondary" className="shrink-0">
+            {t("organizations.skillManageRecommended")}
+          </Badge>
+        </div>
         {skillDescription ? (
           <div className="oo-text-caption line-clamp-1 text-foreground/75">{skillDescription}</div>
         ) : null}

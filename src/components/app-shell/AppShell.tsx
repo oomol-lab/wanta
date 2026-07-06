@@ -319,9 +319,14 @@ export function AppShell() {
     discardQuestion,
     rejectQuestion,
   } = useChat(activeSessionId, route === "chat" ? activeSessionId : null)
-  const activeProviders = connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS
+  const connectionSummaryMatchesWorkspace =
+    Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
+  const activeProvidersLoading = Boolean(currentConnectionWorkspaceKey) && !connectionSummaryMatchesWorkspace
+  const activeProviders = connectionSummaryMatchesWorkspace
+    ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
+    : EMPTY_CONNECTION_PROVIDERS
   const sharedConnectorCount =
-    organizationWorkspace.activeWorkspace.type === "organization"
+    organizationWorkspace.activeWorkspace.type === "organization" && connectionSummaryMatchesWorkspace
       ? connections.summary?.connectedProviderCount
       : undefined
   const [selectedService, setSelectedService] = React.useState<string | null>(null)
@@ -1580,12 +1585,14 @@ export function AppShell() {
               ) : route === "skills" ? (
                 <SkillsRoute
                   connectedProviders={activeProviders}
+                  connectedProvidersLoading={activeProvidersLoading}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
                 />
               ) : route === "organizations" ? (
                 <OrganizationManagementRoute
                   connectedProviders={activeProviders}
+                  connectedProvidersLoading={activeProvidersLoading}
                   organizationSkills={organizationSkills}
                   workspace={organizationWorkspace}
                 />

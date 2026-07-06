@@ -90,10 +90,12 @@ function settle<T>(promise: Promise<T>): Promise<AsyncResult<T>> {
 
 export function OrganizationManagementRoute({
   connectedProviders = [],
+  connectedProvidersLoading = false,
   organizationSkills,
   workspace,
 }: {
   connectedProviders?: ConnectionProvider[]
+  connectedProvidersLoading?: boolean
   organizationSkills?: UseOrganizationSkills
   workspace?: UseOrganizationWorkspace
 }) {
@@ -193,15 +195,15 @@ export function OrganizationManagementRoute({
     () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
     [skillInventory.data?.groups],
   )
-  const providerPackagesByService = useProviderSkillPackageLookup(connectedProviders).packagesByService
+  const providerSkillPackageLookup = useProviderSkillPackageLookup(connectedProviders)
   const providerSkillRecommendations = React.useMemo(
     () =>
       buildProviderSkillRecommendations({
         groupById: skillGroupById,
-        packagesByService: providerPackagesByService,
+        packagesByService: providerSkillPackageLookup.packagesByService,
         providers: connectedProviders,
       }),
-    [connectedProviders, providerPackagesByService, skillGroupById],
+    [connectedProviders, providerSkillPackageLookup.packagesByService, skillGroupById],
   )
   const canManage = React.useMemo(
     () => organizationCanManage(overviewState.data, selectedOrganization),
@@ -1043,6 +1045,9 @@ export function OrganizationManagementRoute({
                         busyAction={busyAction}
                         groupById={skillGroupById}
                         organizationSkills={selectedOrganizationSkills}
+                        providerRecommendationsLoading={
+                          connectedProvidersLoading || providerSkillPackageLookup.isLoading
+                        }
                         providerRecommendations={providerSkillRecommendations}
                         onAddRecommendation={addOrganizationSkillFromRecommendation}
                         onAddRecommendationBatch={addOrganizationSkillBatch}

@@ -18,6 +18,7 @@ import {
   organizationNameValidation,
   organizationRole,
   organizationSkillPackageLinked,
+  planProviderSkillRecommendationBulkLinks,
   planOrganizationSkillBulkLinks,
   providerOptionsWithSelected,
   readSelectedOrganizationId,
@@ -218,6 +219,27 @@ test("planOrganizationSkillBulkLinks deduplicates by package and skips linked pa
   )
   assert.deepEqual(
     plan.linked.map((item) => item.skillName),
+    ["slack"],
+  )
+})
+
+test("planProviderSkillRecommendationBulkLinks deduplicates by exact skill and skips linked skills", () => {
+  const plan = planProviderSkillRecommendationBulkLinks(
+    [
+      { packageName: "oo-gmail", skillId: "gmail" },
+      { packageName: "OO-GMAIL", skillId: "gmail" },
+      { packageName: "oo-gmail", skillId: "gmail-admin" },
+      { packageName: "oo-slack", skillId: "slack" },
+    ],
+    [{ packageName: " oo-slack ", skillName: "slack" }],
+  )
+
+  assert.deepEqual(
+    plan.linkable.map((item) => item.skillId),
+    ["gmail", "gmail-admin"],
+  )
+  assert.deepEqual(
+    plan.linked.map((item) => item.skillId),
     ["slack"],
   )
 })

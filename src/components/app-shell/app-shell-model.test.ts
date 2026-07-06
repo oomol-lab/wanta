@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest"
-import { isWorkspaceSwitchPending, shouldClearWorkspaceSwitchTarget } from "./app-shell-model.ts"
+import {
+  NO_DRAFT_PROJECT_ID,
+  isWorkspaceSwitchPending,
+  resolveNewSessionTarget,
+  shouldClearWorkspaceSwitchTarget,
+} from "./app-shell-model.ts"
 
 const readyInput = {
   connectionSettledWorkspaceKey: "personal",
@@ -98,5 +103,57 @@ describe("workspace switch target cleanup", () => {
         organizationIds: [],
       }),
     ).toBe(false)
+  })
+})
+
+describe("new session target resolution", () => {
+  test("opens a root task draft without project context", () => {
+    expect(resolveNewSessionTarget({ draftProjectId: null })).toEqual({ sidebarSegment: "tasks" })
+  })
+
+  test("keeps a new chat inside the active project session", () => {
+    expect(resolveNewSessionTarget({ activeSession: { projectId: "project-a" }, draftProjectId: null })).toEqual({
+      projectId: "project-a",
+      sidebarSegment: "projects",
+    })
+  })
+
+  test("keeps a new chat inside the active project draft", () => {
+    expect(resolveNewSessionTarget({ draftProjectId: "project-b" })).toEqual({
+      projectId: "project-b",
+      sidebarSegment: "projects",
+    })
+  })
+
+  test("treats the explicit no-project draft marker as a root task", () => {
+    expect(resolveNewSessionTarget({ draftProjectId: NO_DRAFT_PROJECT_ID })).toEqual({ sidebarSegment: "tasks" })
+  })
+
+  test("lets an explicit project row target override the active task context", () => {
+    expect(
+      resolveNewSessionTarget({
+        activeSession: {},
+        draftProjectId: NO_DRAFT_PROJECT_ID,
+        explicitProjectId: "project-c",
+      }),
+    ).toEqual({
+      projectId: "project-c",
+      sidebarSegment: "projects",
+    })
+  })
+
+  test("can fall back to the last chat project from non-chat routes", () => {
+    expect(
+      resolveNewSessionTarget({ draftProjectId: null, lastProjectId: "project-d", preferLastProject: true }),
+    ).toEqual({
+      projectId: "project-d",
+      sidebarSegment: "projects",
+    })
+  })
+
+  test("ignores last project context unless requested", () => {
+    expect(resolveNewSessionTarget({ draftProjectId: null, lastProjectId: "project-d" })).toEqual({
+      sidebarSegment: "tasks",
+    })
   })
 })

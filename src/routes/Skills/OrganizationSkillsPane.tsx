@@ -9,7 +9,10 @@ import type { TranslateFn as TFunction } from "@/i18n"
 
 import * as React from "react"
 import { toast } from "sonner"
-import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
+import {
+  organizationSkillIdentityKey,
+  planProviderSkillRecommendationBulkLinks,
+} from "./organization-management-model.ts"
 import { buildOrganizationSkillRecommendationItems } from "./organization-skill-manage-helpers.ts"
 import {
   getOrganizationSkillRuntimeStatus,
@@ -103,6 +106,7 @@ export function OrganizationSkillsPane({
         skills: selectedOrganizationSkills.skills,
       })
     : []
+  const installableSkillKeys = new Set<string>()
   const installableRecommendationSkills = allOrganizationItems
     .flatMap((item) => {
       if (item.type === "configured") {
@@ -117,9 +121,13 @@ export function OrganizationSkillsPane({
         ? [{ packageName: item.recommendation.packageName, skillName: item.recommendation.skillId }]
         : []
     })
-    .filter((skill, index, skills) => {
-      const key = `${skill.packageName}\u0000${skill.skillName}`
-      return skills.findIndex((item) => `${item.packageName}\u0000${item.skillName}` === key) === index
+    .filter((skill) => {
+      const key = organizationSkillIdentityKey(skill.packageName, skill.skillName)
+      if (!key || installableSkillKeys.has(key)) {
+        return false
+      }
+      installableSkillKeys.add(key)
+      return true
     })
   const selectedOrganizationItem = selectedItemId
     ? filteredOrganizationItems.find((item) => item.id === selectedItemId)

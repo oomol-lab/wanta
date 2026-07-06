@@ -10,6 +10,7 @@ import {
   getPublicPackageInstallState,
   getRuntimeHosts,
   getRuntimeSkillRemoveTarget,
+  getSelectedManagedSkillGroup,
   initialPublicPackageCatalogState,
   isEmojiIcon,
   matchesInstalledSkillFilter,
@@ -127,6 +128,16 @@ test("matchesInstalledSkillFilter can filter by Wanta, Codex, and Claude Code ho
   assert.equal(matchesInstalledSkillFilter(codexGroup, "codex", undefined), true)
   assert.equal(matchesInstalledSkillFilter(codexGroup, "wanta", undefined), false)
   assert.equal(matchesInstalledSkillFilter(claudeCodeGroup, "claude-code", undefined), true)
+})
+
+test("getSelectedManagedSkillGroup does not fall back to the first skill", () => {
+  const first = managedSkillGroup("first", "@alice/first")
+  const second = managedSkillGroup("second", "@alice/second")
+  const groups = [first, second]
+
+  assert.equal(getSelectedManagedSkillGroup(groups, null), undefined)
+  assert.equal(getSelectedManagedSkillGroup(groups, "missing"), undefined)
+  assert.equal(getSelectedManagedSkillGroup(groups, "second"), second)
 })
 
 test("runtime status ignores modified external hosts", () => {

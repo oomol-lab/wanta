@@ -235,6 +235,17 @@ export function isInstalledSkillGroup(group: ManagedSkillGroup): boolean {
   return getInstalledSkillHosts(group).length > 0
 }
 
+export function getSelectedManagedSkillGroup(
+  groups: readonly ManagedSkillGroup[],
+  selectedId: SkillSelectionKey | null,
+): ManagedSkillGroup | undefined {
+  if (!selectedId) {
+    return undefined
+  }
+
+  return groups.find((group) => group.id === selectedId)
+}
+
 export function shouldUpdatePublishedSkill(group: ManagedSkillGroup): boolean {
   return (
     group.kind === "registry" &&

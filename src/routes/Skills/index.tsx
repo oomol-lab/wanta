@@ -33,6 +33,7 @@ import {
   getRuntimeHosts,
   getSkillVersionCheck,
   getSkillVersionCheckKey,
+  getSelectedManagedSkillGroup,
   initialPublicPackageCatalogState,
   isInstalledSkillGroup,
   matchesInstalledSkillFilter,
@@ -174,19 +175,12 @@ export function SkillsRoute({
   const myPublishedPackageRequestIdRef = React.useRef(0)
   const { copySkillPath, isRemovingSkill, openSkillFolder, removeSkill, removeTarget, setRemoveTarget } =
     useSkillObjectActions({
-      onDeleted: (nextInventory) => {
-        const nextSelectedSkill = nextInventory.groups.find(isInstalledSkillGroup)
-        setSelectedSkillId(nextSelectedSkill?.id ?? null)
+      onDeleted: () => {
+        setSelectedSkillId(null)
         setNarrowPane("list")
         homeSummaryResource.invalidate()
       },
     })
-
-  React.useEffect(() => {
-    if (!selectedSkillId && inventory?.groups[0]) {
-      setSelectedSkillId(inventory.groups[0].id)
-    }
-  }, [inventory?.groups, selectedSkillId])
 
   const searchedGroups = React.useMemo(() => {
     const groups = inventory?.groups ?? []
@@ -211,7 +205,7 @@ export function SkillsRoute({
       return matchesInstalledSkillFilter(group, installedFilter, getSkillVersionCheck(versionCheckByKey, group))
     })
   }, [installedFilter, installedGroups, versionCheckByKey])
-  const selectedSkill = searchedGroups.find((group) => group.id === selectedSkillId) || searchedGroups[0]
+  const selectedSkill = getSelectedManagedSkillGroup(searchedGroups, selectedSkillId)
   const selectedStatus = selectedSkill ? getGroupStatus(selectedSkill, t, getRuntimeHosts(selectedSkill)) : null
   const selectedVersionCheck = getSkillVersionCheck(versionCheckByKey, selectedSkill)
   const managedOrganizationOptions = React.useMemo<ManagedOrganizationOption[]>(() => {

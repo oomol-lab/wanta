@@ -7,14 +7,19 @@ export interface ConnectorFederatedConnectBody {
   target: "aliyun_oidc" | "aws_oidc" | "gcloud_oidc"
 }
 
+const federatedTargetByService: Readonly<Record<string, ConnectorFederatedConnectBody["target"]>> = {
+  aliyun_oss: "aliyun_oidc",
+  aliyun_sts: "aliyun_oidc",
+  aws_sts: "aws_oidc",
+  gcloud_sts: "gcloud_oidc",
+}
+
 function getFederatedTarget(service: string): ConnectorFederatedConnectBody["target"] {
-  if (service === "aws_sts") {
-    return "aws_oidc"
+  const target = federatedTargetByService[service]
+  if (!target) {
+    throw new Error(`Unsupported federated service: ${service}`)
   }
-  if (service === "gcloud_sts") {
-    return "gcloud_oidc"
-  }
-  return "aliyun_oidc"
+  return target
 }
 
 export function createFederatedConnectBody(

@@ -749,6 +749,12 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           }),
         }))
       } catch (err) {
+        if (pendingQuestionsFetchVersions.current.get(sessionId) !== fetchVersion) {
+          return
+        }
+        if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
+          return
+        }
         const recoveredStoppedQuestions = currentMessages
           ? recoverQuestionsFromMessageTools(sessionId, currentMessages)
           : []

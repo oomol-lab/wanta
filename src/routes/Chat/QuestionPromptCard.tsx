@@ -257,17 +257,11 @@ export function QuestionPromptCard({
     activeControlRef.current = node
   }, [])
 
-  const updateDraft = React.useCallback(
-    (index: number, updater: (draft: QuestionFieldDraft) => QuestionFieldDraft) => {
-      setDrafts((current) => {
-        const next = current.map((draft, draftIndex) => (draftIndex === index ? updater(draft) : draft))
-        draftsRef.current = next
-        persistDrafts(activeFieldIndex, next)
-        return next
-      })
-    },
-    [activeFieldIndex, persistDrafts],
-  )
+  const updateDraft = React.useCallback((index: number, updater: (draft: QuestionFieldDraft) => QuestionFieldDraft) => {
+    const next = draftsRef.current.map((draft, draftIndex) => (draftIndex === index ? updater(draft) : draft))
+    draftsRef.current = next
+    setDrafts(next)
+  }, [])
 
   const selectActiveFieldIndex = React.useCallback(
     (nextIndex: number) => {

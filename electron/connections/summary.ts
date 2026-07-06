@@ -98,6 +98,7 @@ interface RawCredentialField {
   placeholder?: unknown
   required?: unknown
   secret?: unknown
+  valueType?: unknown
 }
 
 interface RawApiKeyConfig {
@@ -358,6 +359,22 @@ export function normalizeCredentialField(item: unknown, secretFallback = false):
     placeholder: asString(field.placeholder),
     required: field.required === true,
     secret: typeof field.secret === "boolean" ? field.secret : secretFallback,
+    valueType: field.valueType === "number" || field.valueType === "string" ? field.valueType : undefined,
+  }
+}
+
+function defaultFederatedFieldValueType(key: string): ConnectionCredentialField["valueType"] {
+  return key === "durationSeconds" || key === "lifetimeSeconds" ? "number" : undefined
+}
+
+function normalizeFederatedCredentialField(item: unknown): ConnectionCredentialField | undefined {
+  const field = normalizeCredentialField(item)
+  if (!field) {
+    return undefined
+  }
+  return {
+    ...field,
+    valueType: field.valueType ?? defaultFederatedFieldValueType(field.key),
   }
 }
 
@@ -407,7 +424,7 @@ export function normalizeFederatedCredentialConfig(
   return {
     fields: Array.isArray(config.fields)
       ? config.fields
-          .map((field) => normalizeCredentialField(field))
+          .map((field) => normalizeFederatedCredentialField(field))
           .filter((field): field is ConnectionCredentialField => Boolean(field))
       : [],
   }

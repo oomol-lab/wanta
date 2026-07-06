@@ -190,7 +190,7 @@ function getCredentialFields(
         { key: "roleArn", label: "Role ARN", required: true, secret: false },
         { key: "roleSessionName", label: "Role session name", required: false, secret: false },
         { key: "bucket", label: "Bucket", required: false, secret: false },
-        { key: "durationSeconds", label: "Duration seconds", required: false, secret: false },
+        { key: "durationSeconds", label: "Duration seconds", required: false, secret: false, valueType: "number" },
         { key: "policy", label: "Policy", required: false, secret: false },
       ],
     }
@@ -468,6 +468,7 @@ export function ConnectDialog({
 
   const submit = (): void => {
     const comment = note.trim() || undefined
+    setFormError(null)
     if (authType === "api_key") {
       const extra: Record<string, string> = {}
       for (const field of fields) {
@@ -502,10 +503,10 @@ export function ConnectDialog({
         if (!value) {
           continue
         }
-        if (field.key === "durationSeconds" || field.key === "lifetimeSeconds") {
+        if (field.valueType === "number") {
           const numberValue = Number(value)
           if (!Number.isFinite(numberValue)) {
-            setFormError(t("connections.fillRequiredFields"))
+            setFormError(t("connections.invalidNumberField", { field: field.label }))
             return
           }
           config[field.key] = numberValue

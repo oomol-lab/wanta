@@ -978,6 +978,7 @@ export const zhCNMessages = {
   "connections.noteHelp": "可选，用于在连接列表中备注该连接。",
   "connections.connectTitle": "连接 {name} 账号",
   "connections.fillRequiredFields": "请填写必填字段。",
+  "connections.invalidNumberField": "{field} 必须是有效数字。",
   "connections.connectProvider": "连接服务商",
   "connections.modifyConnection": "修改",
   "connections.saveConnection": "保存",

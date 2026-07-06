@@ -1023,6 +1023,7 @@ export const enMessages = {
   "connections.noteHelp": "Optional, used to label this connection in the list.",
   "connections.connectTitle": "Connect {name} account",
   "connections.fillRequiredFields": "Fill in the required fields.",
+  "connections.invalidNumberField": "{field} must be a valid number.",
   "connections.connectProvider": "Connect provider",
   "connections.modifyConnection": "Modify",
   "connections.saveConnection": "Save",

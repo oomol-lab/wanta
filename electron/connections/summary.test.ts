@@ -260,7 +260,9 @@ test("normalizes federated credential field definitions", () => {
   const config = normalizeFederatedCredentialConfig({
     fields: [
       { key: "roleArn", label: "Role ARN", required: true, secret: false },
+      { key: "durationSeconds", label: "Duration", required: false, secret: false },
       { key: "secretRole", label: "Secret role", required: false, secret: true },
+      { key: "customNumber", label: "Custom number", required: false, secret: false, valueType: "number" },
       { key: "", label: "Invalid", required: true, secret: false },
     ],
   })
@@ -273,6 +275,16 @@ test("normalizes federated credential field definitions", () => {
       secret: false,
       description: undefined,
       placeholder: undefined,
+      valueType: undefined,
+    },
+    {
+      key: "durationSeconds",
+      label: "Duration",
+      required: false,
+      secret: false,
+      description: undefined,
+      placeholder: undefined,
+      valueType: "number",
     },
     {
       key: "secretRole",
@@ -281,6 +293,16 @@ test("normalizes federated credential field definitions", () => {
       secret: true,
       description: undefined,
       placeholder: undefined,
+      valueType: undefined,
+    },
+    {
+      key: "customNumber",
+      label: "Custom number",
+      required: false,
+      secret: false,
+      description: undefined,
+      placeholder: undefined,
+      valueType: "number",
     },
   ])
 })

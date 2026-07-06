@@ -128,6 +128,7 @@ export interface ConnectionCredentialField {
   placeholder?: string
   required: boolean
   secret: boolean
+  valueType?: "number" | "string"
 }
 
 export type ConnectionField = ConnectionCredentialField

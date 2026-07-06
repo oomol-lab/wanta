@@ -117,6 +117,7 @@ export function ConnectionsPanel({
   const detailCloseTimerRef = React.useRef<number | null>(null)
   const detailCacheRef = React.useRef<Map<string, ConnectionProviderDetail>>(new Map())
   const detailRequestIdRef = React.useRef(0)
+  const connectRequestIdRef = React.useRef(0)
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
   const providers = summary?.providers ?? []
@@ -276,11 +277,17 @@ export function ConnectionsPanel({
       authType: Exclude<ConnectionAuthType, null>,
       appId?: string,
     ): Promise<void> => {
+      const requestId = connectRequestIdRef.current + 1
+      connectRequestIdRef.current = requestId
+      const requestIsCurrent = (): boolean => connectRequestIdRef.current === requestId
       try {
         if (authType === "oauth2") {
           const loaded =
             detailService === provider.service && detail ? detail : await getProviderDetail(provider.service)
           const oauthClientConfig = loaded.oauthClientConfig ? await getOAuthClientConfig(provider.service) : null
+          if (!requestIsCurrent()) {
+            return
+          }
           if (
             shouldOpenOAuthClientDialog({
               providerOAuthClientConfig: loaded.oauthClientConfig,
@@ -292,6 +299,9 @@ export function ConnectionsPanel({
           }
 
           const ok = await connect({ authType, service: provider.service, appId })
+          if (!requestIsCurrent()) {
+            return
+          }
           if (ok) {
             detailCacheRef.current.delete(provider.service)
           }
@@ -300,6 +310,9 @@ export function ConnectionsPanel({
 
         if (authType === "no_auth") {
           const ok = await connect({ authType, service: provider.service })
+          if (!requestIsCurrent()) {
+            return
+          }
           if (ok) {
             detailCacheRef.current.delete(provider.service)
           }
@@ -308,11 +321,16 @@ export function ConnectionsPanel({
 
         const [loaded, appDetail] = await Promise.all([
           detailService === provider.service && detail ? Promise.resolve(detail) : getProviderDetail(provider.service),
-          appId ? getAppDetail(appId) : null,
+          appId ? getAppDetail(appId).catch(() => null) : Promise.resolve(null),
         ])
+        if (!requestIsCurrent()) {
+          return
+        }
         setDialog({ detail: loaded, authType, appId, appDetail })
       } catch (err) {
-        setDetailError(resolveConnectionError(err, "detail"))
+        if (requestIsCurrent()) {
+          setDetailError(resolveConnectionError(err, "detail"))
+        }
       }
     },
     [connect, detail, detailService, getAppDetail, getProviderDetail],

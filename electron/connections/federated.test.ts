@@ -51,3 +51,15 @@ test("createFederatedConnectBody selects cloud target from service", () => {
     "gcloud_oidc",
   )
 })
+
+test("createFederatedConnectBody rejects unknown federated services", () => {
+  assert.throws(
+    () =>
+      createFederatedConnectBody({
+        authType: "federated",
+        config: { roleArn: "acs:ram::123:role/oomol" },
+        service: "unknown_sts",
+      }),
+    /Unsupported federated service: unknown_sts/,
+  )
+})

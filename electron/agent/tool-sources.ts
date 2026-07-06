@@ -3,16 +3,13 @@
 // @opencode-ai/plugin，无需在 workspace 旁安装）。工具通过 execFile 调用内置
 // oo（路径由 WANTA_OO_BIN 注入），将连接器发现/调用/授权信号都走"工具结果"。
 //
-// 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与 ${}，
+// 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与模板插值语法，
 // 故无转义陷阱。这些代码运行在 OpenCode 的 Bun 运行时，不参与本项目 tsc/oxlint。
 
-const SEARCH_ACTIONS_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
-import { execFile } from "node:child_process"
-import { readFile } from "node:fs/promises"
-import { promisify } from "node:util"
-
+const LINK_TOOL_RUNTIME_SHARED_TS = String.raw`
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
+const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 
 async function currentOrganizationName() {
   const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
@@ -38,6 +35,16 @@ async function appendIdentityArgs(argv) {
   }
   return organizationName ? "organization" : "personal"
 }
+`
+
+const SEARCH_ACTIONS_TOOL_TS =
+  String.raw`import { tool } from "@opencode-ai/plugin"
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { promisify } from "node:util"
+` +
+  LINK_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
 
 function serviceFromApp(app) {
   if (!app || typeof app !== "object") {
@@ -67,18 +74,28 @@ function parseApps(stdout) {
   return Array.isArray(parsed && parsed.items) ? parsed.items : []
 }
 
+let authorizedServicesCache = null
+const AUTHORIZED_SERVICES_CACHE_MS = 5 * 1000
+
 async function authorizedServices() {
+  const now = Date.now()
+  if (authorizedServicesCache && now - authorizedServicesCache.createdAt < AUTHORIZED_SERVICES_CACHE_MS) {
+    return authorizedServicesCache.authorization
+  }
   const argv = ["connector", "apps"]
   const scope = await appendIdentityArgs(argv)
   argv.push("--json")
   try {
-    const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+    const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
     const apps = parseApps(result.stdout)
-    return {
+    const authorization = {
       scope: scope,
       services: new Set(apps.filter(isActiveApp).map(serviceFromApp).filter(Boolean)),
     }
+    authorizedServicesCache = { createdAt: now, authorization: authorization }
+    return authorization
   } catch {
+    authorizedServicesCache = { createdAt: now, authorization: null }
     return null
   }
 }
@@ -122,7 +139,7 @@ export default tool({
   async execute(args) {
     const argv = ["connector", "search", args.query, "--json"]
     try {
-      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return await normalizeSearchOutput(result.stdout)
     } catch (error) {
       const e = error || {}
@@ -133,37 +150,14 @@ export default tool({
 })
 `
 
-const LIST_APPS_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
+const LIST_APPS_TOOL_TS =
+  String.raw`import { tool } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
-
-const execFileAsync = promisify(execFile)
-const OO_BIN = process.env.WANTA_OO_BIN || "oo"
-
-async function currentOrganizationName() {
-  const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
-  if (scopePath) {
-    try {
-      const parsed = JSON.parse(await readFile(scopePath, "utf8"))
-      if (parsed && typeof parsed.organizationName === "string") {
-        return parsed.organizationName
-      }
-    } catch {
-      // 启动期或文件损坏时回退到进程启动时的组织名。
-    }
-  }
-  return process.env.WANTA_ORGANIZATION_NAME || ""
-}
-
-async function appendIdentityArgs(argv) {
-  const organizationName = (await currentOrganizationName()).trim()
-  if (organizationName) {
-    argv.push("--organization", organizationName)
-  } else {
-    argv.push("--personal")
-  }
-}
+` +
+  LINK_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
 
 export default tool({
   description:
@@ -180,7 +174,7 @@ export default tool({
     await appendIdentityArgs(argv)
     argv.push("--json")
     try {
-      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return (result.stdout || "").trim() || "[]"
     } catch (error) {
       const e = error || {}
@@ -197,6 +191,7 @@ import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
+const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 
 export default tool({
   description:
@@ -213,7 +208,7 @@ export default tool({
     }
     const argv = ["connector", "schema", ...ids, "--json"]
     try {
-      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return (result.stdout || "").trim() || "{}"
     } catch (error) {
       const e = error || {}
@@ -224,37 +219,14 @@ export default tool({
 })
 `
 
-const CALL_ACTION_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
+const CALL_ACTION_TOOL_TS =
+  String.raw`import { tool } from "@opencode-ai/plugin"
 import { execFile } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { promisify } from "node:util"
-
-const execFileAsync = promisify(execFile)
-const OO_BIN = process.env.WANTA_OO_BIN || "oo"
-
-async function currentOrganizationName() {
-  const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
-  if (scopePath) {
-    try {
-      const parsed = JSON.parse(await readFile(scopePath, "utf8"))
-      if (parsed && typeof parsed.organizationName === "string") {
-        return parsed.organizationName
-      }
-    } catch {
-      // 启动期或文件损坏时回退到进程启动时的组织名。
-    }
-  }
-  return process.env.WANTA_ORGANIZATION_NAME || ""
-}
-
-async function appendIdentityArgs(argv) {
-  const organizationName = (await currentOrganizationName()).trim()
-  if (organizationName) {
-    argv.push("--organization", organizationName)
-  } else {
-    argv.push("--personal")
-  }
-}
+` +
+  LINK_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
 
 function authorizationUrl(service) {
   const consoleUrl = String(process.env.WANTA_CONSOLE_URL || "").trim()
@@ -293,7 +265,7 @@ export default tool({
     const argv = ["connector", "run", args.service, "--action", args.action, "--data", data, "--json"]
     await appendIdentityArgs(argv)
     try {
-      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return (result.stdout || "").trim() || "{}"
     } catch (error) {
       const e = error || {}

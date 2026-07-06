@@ -670,15 +670,13 @@ export function SidebarFooterControls({
     setAccountMenuOpen(false)
   }, [])
   const handleWorkspaceMenuTrigger = React.useCallback(() => {
-    setWorkspaceMenuOpen((open) => {
-      const nextOpen = !open
-      if (nextOpen && !workspace.loading) {
-        void workspace.refresh({ forceRefresh: true })
-      }
-      return nextOpen
-    })
+    const nextOpen = !workspaceMenuOpen
+    setWorkspaceMenuOpen(nextOpen)
+    if (nextOpen && !workspace.loading) {
+      void workspace.refresh({ forceRefresh: true })
+    }
     setAccountMenuOpen(false)
-  }, [workspace])
+  }, [workspace, workspaceMenuOpen])
 
   return (
     <div

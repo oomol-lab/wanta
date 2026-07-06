@@ -2,8 +2,6 @@ import type { Organization, OrganizationMember } from "../../../electron/organiz
 import type { BusyAction, MemberView, ProviderGrantView } from "./organization-management-model.ts"
 
 import {
-  CheckIcon,
-  CopyIcon,
   CrownIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -18,6 +16,7 @@ import {
 import * as React from "react"
 import { userFallback } from "./organization-management-model.ts"
 import { CachedAvatarImage } from "@/components/CachedAvatarImage"
+import { CopyIconButton } from "@/components/CopyIconButton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -938,34 +937,16 @@ function isBulkEditableMember(member: OrganizationMember): member is Organizatio
 
 function CopyValueButton({ ariaLabel, copiedLabel, value }: { ariaLabel: string; copiedLabel: string; value: string }) {
   const { t } = useAppI18n()
-  const { copied, copyText } = useClipboardCopy({ failureMessage: t("organizations.memberCopyFailed") })
-
-  const copyValue = React.useCallback(async () => {
-    await copyText(value)
-  }, [copyText, value])
-
-  const Icon = copied ? CheckIcon : CopyIcon
-  const buttonAriaLabel = copied ? copiedLabel : ariaLabel
-  const tooltipLabel = copied ? copiedLabel : `${ariaLabel}: ${value}`
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-accent hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-            "opacity-70 group-hover/member-identity:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100",
-          )}
-          data-copied={copied ? "true" : "false"}
-          aria-label={buttonAriaLabel}
-          onClick={() => void copyValue()}
-        >
-          <Icon className="size-3.5" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{tooltipLabel}</TooltipContent>
-    </Tooltip>
+    <CopyIconButton
+      ariaLabel={ariaLabel}
+      className="opacity-70 group-hover/member-identity:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100"
+      copiedLabel={copiedLabel}
+      failureMessage={t("organizations.memberCopyFailed")}
+      tooltipLabel={`${ariaLabel}: ${value}`}
+      value={value}
+    />
   )
 }
 

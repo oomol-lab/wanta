@@ -59,6 +59,7 @@ import {
 import { normalizeChatError } from "./error.ts"
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
+import { projectPermissionRequestInsideRoot } from "./project-permission.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 import {
   intermediateArtifactProcessFiles,
@@ -174,6 +175,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private connectionFailedSessions = new Set<string>()
+  private trustedProjectRoots = new Map<string, string>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private artifactRoots: ArtifactRoots = new Map()
@@ -213,6 +215,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
     this.connectionFailedSessions.clear()
+    this.trustedProjectRoots.clear()
     this.artifactRoots.clear()
     this.artifactRootsLoaded = false
     this.artifactRootsLoadPromise = null
@@ -285,6 +288,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "messageStarted") {
           this.emitSessionActivity(translated.data.sessionId)
+        }
+        if (
+          translated.event === "permissionAsked" &&
+          this.answerTrustedProjectPermission(emit, translated.data.request)
+        ) {
+          continue
         }
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
@@ -544,6 +553,32 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     })
   }
 
+  private answerTrustedProjectPermission(
+    emit: (event: string, data: unknown) => Promise<void>,
+    request: ChatPermissionRequest,
+  ): boolean {
+    const projectRoot = this.trustedProjectRoots.get(request.sessionId)
+    if (!this.agent || !projectRoot || !projectPermissionRequestInsideRoot(request, projectRoot)) {
+      return false
+    }
+    void this.agent.answerPermission(request.sessionId, request.id, "once").catch((error: unknown) => {
+      console.warn("[wanta] failed to approve trusted project permission:", error)
+      logDiagnostic(
+        "chat-service",
+        "failed to approve trusted project permission",
+        { action: request.action, error, sessionId: request.sessionId },
+        "warn",
+      )
+      this.sendBestEffort(
+        emit,
+        "permissionAsked",
+        { sessionId: request.sessionId, request },
+        { sessionId: request.sessionId },
+      )
+    })
+    return true
+  }
+
   private beginSessionGeneration(sessionId: string): SessionGeneration {
     const previousGeneration = this.sessionGenerations.get(sessionId)
     previousGeneration?.controller.abort()
@@ -693,6 +728,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, generation.id)
         return
+      }
+      const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
+      if (trustedProjectRoot) {
+        this.trustedProjectRoots.set(req.sessionId, trustedProjectRoot)
+      } else {
+        this.trustedProjectRoots.delete(req.sessionId)
       }
       const project = await this.projectBaseline(req.projectContext)
       this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
@@ -909,6 +950,22 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       console.warn("[wanta] failed to capture project baseline", error)
       return {}
     }
+  }
+
+  private async resolveTrustedProjectRoot(project: ChatProjectContext | undefined): Promise<string | undefined> {
+    const projectPath = project?.path.trim()
+    if (!project || !project.id.trim() || !projectPath || !this.deps.projectStore) {
+      return undefined
+    }
+    const registered = (await this.deps.projectStore.read()).get(project.id)
+    if (
+      !registered ||
+      registered.archivedAt ||
+      normalizeProjectPath(registered.path) !== normalizeProjectPath(projectPath)
+    ) {
+      return undefined
+    }
+    return normalizeProjectPath(registered.path)
   }
 
   private async finalizeTurnOutput(sessionId: string, messageId: string | undefined): Promise<void> {

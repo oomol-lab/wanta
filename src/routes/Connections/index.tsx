@@ -581,7 +581,7 @@ function ConnectionListToolbar({
         <div className="oo-connection-filter-row flex min-w-0 items-center overflow-x-auto overflow-y-hidden">
           <ToggleGroup
             type="single"
-            variant="outline"
+            variant="default"
             size="sm"
             spacing={1}
             value={filterValue}
@@ -610,7 +610,11 @@ function ConnectionListToolbar({
         {overflowCategoryFilters.length > 0 ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5 rounded-md">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 rounded-md transition-[background-color,border-color,box-shadow,transform] active:translate-y-px data-[state=open]:border-[var(--accent-ring)] data-[state=open]:bg-[var(--accent-soft)] data-[state=open]:text-foreground data-[state=open]:shadow-[inset_0_0_0_1px_var(--accent-ring)]"
+              >
                 {t("connections.moreCategories")}
                 <ChevronDown className="size-4" />
               </Button>
@@ -637,9 +641,14 @@ function ConnectionListToolbar({
 
 function FilterToggleItem({ count, label, value }: { count: number; label: string; value: string }) {
   return (
-    <ToggleGroupItem value={value} className="max-w-48 gap-1.5 rounded-md border px-2.5">
+    <ToggleGroupItem
+      value={value}
+      className="group/filter max-w-48 cursor-pointer gap-1.5 rounded-md border border-[var(--oo-control-border)] px-2.5 transition-[background-color,border-color,color,box-shadow,transform] hover:border-[var(--selection-ring)] active:translate-y-px active:scale-[0.98] data-[state=on]:!border-[var(--accent-ring)] data-[state=on]:!bg-[var(--accent-soft)] data-[state=on]:!text-foreground data-[state=on]:!shadow-[inset_0_0_0_1px_var(--accent-ring)] data-[state=on]:hover:!bg-[var(--accent-soft)]"
+    >
       <span className="truncate">{label}</span>
-      <span className="oo-text-micro oo-text-muted">{count}</span>
+      <span className="oo-text-micro oo-text-muted transition-colors group-data-[state=on]/filter:text-[var(--accent-strong)]">
+        {count}
+      </span>
     </ToggleGroupItem>
   )
 }
@@ -806,8 +815,9 @@ function ProviderCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "grid min-w-0 rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-colors outline-none hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40",
-        selected && "border-ring bg-accent/55",
+        "group/card relative grid min-w-0 cursor-pointer overflow-hidden rounded-md border bg-card px-2.5 py-1.5 text-left text-card-foreground transition-[background-color,border-color,box-shadow,transform] outline-none hover:border-[var(--selection-ring)] hover:bg-[var(--oo-row-hover)] focus-visible:ring-[3px] focus-visible:ring-ring/40 active:translate-y-px",
+        selected &&
+          "border-[var(--accent-ring)] bg-[var(--accent-soft)] shadow-[inset_0_0_0_1px_var(--accent-ring)] before:absolute before:inset-y-2 before:left-0 before:w-1 before:rounded-r-full before:bg-[var(--accent-strong)] hover:bg-[var(--accent-soft)]",
       )}
       style={{ height: providerGridCardHeightPx }}
     >

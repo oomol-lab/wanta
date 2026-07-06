@@ -1,4 +1,5 @@
 import type { AgentManager } from "../agent/manager.ts"
+import type { SessionProject } from "../session/common.ts"
 import type { ChatMessage } from "./common.ts"
 
 import assert from "node:assert/strict"
@@ -17,25 +18,32 @@ afterEach(() => {
 function createBridgeAgent(): {
   agent: AgentManager
   abort: ReturnType<typeof vi.fn>
+  answerPermission: ReturnType<typeof vi.fn>
   createArtifactDir: ReturnType<typeof vi.fn>
   createProcessDir: ReturnType<typeof vi.fn>
-  emit: (event: { type: string; properties?: Record<string, unknown> }) => void
+  emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
   promptStreaming: ReturnType<typeof vi.fn>
 } {
-  let listener: ((event: { type: string; properties?: Record<string, unknown> }) => void) | undefined
+  let listener:
+    | ((event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void)
+    | undefined
   const abort = vi.fn(async () => undefined)
+  const answerPermission = vi.fn(async () => undefined)
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
   const promptStreaming = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
-    subscribe: (callback: (event: { type: string; properties?: Record<string, unknown> }) => void) => {
+    subscribe: (
+      callback: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void,
+    ) => {
       listener = callback
       return () => {
         listener = undefined
       }
     },
     abort,
+    answerPermission,
     createArtifactDir,
     createProcessDir,
     promptStreaming,
@@ -44,6 +52,7 @@ function createBridgeAgent(): {
   return {
     agent,
     abort,
+    answerPermission,
     createArtifactDir,
     createProcessDir,
     emit: (event) => listener?.(event),
@@ -57,6 +66,12 @@ function captureServiceEvents(service: ChatServiceImpl): Array<{ event: string; 
     events.push({ event, data })
   }
   return events
+}
+
+function projectStore(projects: SessionProject[]): { read: () => Promise<Map<string, SessionProject>> } {
+  return {
+    read: async () => new Map(projects.map((project) => [project.id, project])),
+  }
 }
 
 async function waitForInactiveGeneration(service: ChatServiceImpl): Promise<void> {
@@ -553,6 +568,107 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /\/Users\/example\/code\/wanta/)
   assert.match(options?.system ?? "", /use this project directory as an absolute path/)
   assert.match(options?.system ?? "", /Do not mention the full project directory/)
+})
+
+test("trusted project permissions are approved without showing a permission card", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    projectContext: {
+      id: "project-1",
+      name: "wanta",
+      path: projectPath,
+    },
+    sessionId: "session-1",
+    text: "Analyze this project",
+  })
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "external_directory",
+      resources: [`${projectPath}/src`],
+      save: [`${projectPath}/*`],
+    },
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-2",
+      sessionID: "session-1",
+      action: "edit",
+      resources: [`${projectPath}/src/main.tsx`],
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
+  assert.equal(
+    events.some((event) => event.event === "permissionAsked"),
+    false,
+  )
+})
+
+test("trusted project permission approval does not cover paths outside the project", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    projectContext: {
+      id: "project-1",
+      name: "wanta",
+      path: projectPath,
+    },
+    sessionId: "session-1",
+    text: "Analyze this project",
+  })
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "external_directory",
+      resources: ["/Users/example/.ssh"],
+    },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+
+  assert.equal(bridge.answerPermission.mock.calls.length, 0)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {

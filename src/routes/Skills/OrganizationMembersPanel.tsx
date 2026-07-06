@@ -31,7 +31,13 @@ import {
   ConfirmDialogTitle,
   ConfirmDialogTrigger,
 } from "@/components/ui/confirm-dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useClipboardCopy } from "@/hooks/useClipboardCopy"
@@ -178,7 +184,7 @@ export function OrganizationDetailPanel({
   providerAccessError: string | null
 }) {
   const { t } = useAppI18n()
-  const showProviderAccess = false
+  const showProviderAccess = canManage
 
   if (!organization) {
     return (
@@ -197,7 +203,7 @@ export function OrganizationDetailPanel({
   return (
     <div className="grid min-w-0 gap-3">
       <Panel
-        title={t("organizations.memberManagement")}
+        title={showProviderAccess ? t("organizations.membersAndPermissions") : t("organizations.memberManagement")}
         description={
           compact ? (
             <span className="oo-text-caption-compact truncate text-muted-foreground">
@@ -317,8 +323,10 @@ function MembersTable({
 }) {
   const { t } = useAppI18n()
   const [removeTarget, setRemoveTarget] = React.useState<MemberView | null>(null)
+  const [revokeTarget, setRevokeTarget] = React.useState<ProviderGrantView | null>(null)
   const [selectedUserIds, setSelectedUserIds] = React.useState<Set<string>>(() => new Set())
   const removeTargetBusy = removeTarget ? busyAction === `remove:${removeTarget.user_id}` : false
+  const revokeTargetBusy = revokeTarget ? busyAction === `revokeProviderAccess:${revokeTarget.userId}` : false
   const showStatusColumn = members.some(hasMemberStatus)
   const canBulkManage = canManage && showStatusColumn
   const selectableMembers = React.useMemo(
@@ -424,6 +432,40 @@ function MembersTable({
     </ConfirmDialog>
   )
 
+  const revokeConfirmDialog = (
+    <ConfirmDialog
+      open={Boolean(revokeTarget)}
+      onOpenChange={(open) => {
+        if (!open && !revokeTargetBusy) {
+          setRevokeTarget(null)
+        }
+      }}
+    >
+      <ConfirmDialogContent>
+        <ConfirmDialogHeader>
+          <ConfirmDialogTitle>{t("organizations.revokeProviderAccessConfirmTitle")}</ConfirmDialogTitle>
+          <ConfirmDialogDescription>
+            {t("organizations.revokeProviderAccessConfirmDescription")}
+          </ConfirmDialogDescription>
+        </ConfirmDialogHeader>
+        <ConfirmDialogFooter>
+          <ConfirmDialogCancel disabled={revokeTargetBusy}>{t("common.cancel")}</ConfirmDialogCancel>
+          <ConfirmDialogAction
+            disabled={revokeTargetBusy || !revokeTarget}
+            onClick={() => {
+              if (revokeTarget) {
+                onRevokeProviderAccess(revokeTarget)
+                setRevokeTarget(null)
+              }
+            }}
+          >
+            {t("organizations.revokeProviderAccess")}
+          </ConfirmDialogAction>
+        </ConfirmDialogFooter>
+      </ConfirmDialogContent>
+    </ConfirmDialog>
+  )
+
   if (compact) {
     return (
       <>
@@ -449,42 +491,37 @@ function MembersTable({
             const grant = grantsByUserId.get(member.user_id) ?? null
             const canRemove = canManage && member.role !== "creator"
             const selectable = isBulkEditableMember(member)
+            const accessDisabled = appAccessLoading || bulkBusy || Boolean(providerAccessError)
+            const removeBusy = busyAction === `remove:${member.user_id}`
+            const revokeBusy = grant ? busyAction === `revokeProviderAccess:${grant.userId}` : false
             return (
-              <div key={member.user_id} className="grid min-w-0 gap-2 px-3 py-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  {canBulkManage ? (
-                    <MemberStatusCheckbox
-                      ariaLabel={t("organizations.selectMember", { name: member.displayName })}
-                      checked={selectedUserIds.has(member.user_id)}
-                      disabled={bulkBusy || !selectable}
-                      onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
-                    />
-                  ) : null}
-                  <UserAvatar avatar={member.avatar} fallback={member.fallback} />
-                  <div className="min-w-0 flex-1 self-center">
-                    <MemberIdentity member={member} />
-                  </div>
-                  <div className="grid shrink-0 grid-rows-[1.375rem_1.375rem] justify-items-end gap-1">
-                    <div className="flex h-[1.375rem] items-center justify-end gap-2">
+              <div
+                key={member.user_id}
+                className={cn(
+                  "grid min-w-0 items-center gap-x-3 px-3 py-2.5",
+                  canBulkManage ? "grid-cols-[auto_auto_minmax(0,1fr)_auto]" : "grid-cols-[auto_minmax(0,1fr)_auto]",
+                )}
+              >
+                {canBulkManage ? (
+                  <MemberStatusCheckbox
+                    ariaLabel={t("organizations.selectMember", { name: member.displayName })}
+                    checked={selectedUserIds.has(member.user_id)}
+                    disabled={bulkBusy || !selectable}
+                    onCheckedChange={(checked) => toggleMember(member.user_id, checked)}
+                  />
+                ) : null}
+                <UserAvatar avatar={member.avatar} fallback={member.fallback} />
+                <div className="min-w-0 self-center">
+                  <CompactMemberIdentity member={member}>
+                    {member.role === "creator" && showProviderAccess ? (
+                      <Badge variant="secondary">{t("organizations.creatorDefaultAccessCompact")}</Badge>
+                    ) : (
                       <Badge variant="secondary">
                         {member.role === "creator" ? t("organizations.roleCreator") : t("organizations.roleMember")}
                       </Badge>
-                      {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
-                    </div>
-                    <div className="flex h-[1.375rem] items-center justify-end">
-                      {canRemove ? (
-                        <MemberActionsMenu
-                          compact
-                          disabled={bulkBusy || busyAction === `remove:${member.user_id}`}
-                          onRemove={() => setRemoveTarget(member)}
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                {canRemove && showProviderAccess ? (
-                  <div className="grid min-w-0 gap-2 pl-10">
-                    <div className="min-w-0">
+                    )}
+                    {showStatusColumn ? <MemberStatusBadge member={member} /> : null}
+                    {showProviderAccess && member.role !== "creator" ? (
                       <ProviderAccessSummary
                         compact
                         allProvidersLabel={t("organizations.allProviders")}
@@ -496,26 +533,42 @@ function MembersTable({
                             : t("organizations.notAuthorized")
                         }
                       />
-                    </div>
-                    <div className="flex min-w-0 flex-wrap gap-2">
-                      <ProviderAccessActions
-                        compact
-                        busyAction={busyAction}
-                        disabled={appAccessLoading || bulkBusy || Boolean(providerAccessError)}
-                        grant={grant}
-                        memberId={member.user_id}
-                        onEdit={onEditProviderAccess}
-                        onGrant={onGrantProviderAccess}
-                        onRevoke={onRevokeProviderAccess}
-                      />
-                    </div>
-                  </div>
-                ) : null}
+                    ) : null}
+                  </CompactMemberIdentity>
+                </div>
+
+                <div className="flex min-w-0 items-center justify-end gap-2">
+                  {canRemove && showProviderAccess && !grant && !appAccessLoading ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 shrink-0 px-2"
+                      disabled={accessDisabled}
+                      onClick={() => onGrantProviderAccess(member.user_id)}
+                    >
+                      <ShieldCheckIcon className="size-3.5" />
+                      {t("organizations.grantProviderAccessAction")}
+                    </Button>
+                  ) : null}
+                  {canRemove ? (
+                    <MemberActionsMenu
+                      compact
+                      editProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
+                      removeDisabled={bulkBusy || removeBusy}
+                      revokeProviderAccessDisabled={accessDisabled || busyAction === "saveProviderAccess" || revokeBusy}
+                      onEditProviderAccess={grant && showProviderAccess ? () => onEditProviderAccess(grant) : undefined}
+                      onRemove={() => setRemoveTarget(member)}
+                      onRevokeProviderAccess={grant && showProviderAccess ? () => setRevokeTarget(grant) : undefined}
+                    />
+                  ) : null}
+                </div>
               </div>
             )
           })}
         </div>
         {removeConfirmDialog}
+        {revokeConfirmDialog}
       </>
     )
   }
@@ -648,7 +701,7 @@ function MembersTable({
                             />
                           ) : null}
                           <MemberActionsMenu
-                            disabled={!canRemove || bulkBusy || busyAction === `remove:${member.user_id}`}
+                            removeDisabled={!canRemove || bulkBusy || busyAction === `remove:${member.user_id}`}
                             onRemove={() => setRemoveTarget(member)}
                           />
                         </>
@@ -694,6 +747,37 @@ function MemberIdentity({ member }: { member: MemberView }) {
           value={member.user_id}
         />
       </div>
+    </div>
+  )
+}
+
+function CompactMemberIdentity({ children, member }: { children: React.ReactNode; member: MemberView }) {
+  const { t } = useAppI18n()
+
+  return (
+    <div className="group/member-identity grid min-w-0 gap-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <CopyTextButton
+          ariaLabel={t("organizations.copyMemberName")}
+          className="oo-text-label max-w-[12rem] min-w-0 shrink truncate"
+          copiedLabel={t("organizations.memberNameCopied")}
+          value={member.displayName}
+        />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
+              {member.secondaryLabel}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-80 font-mono break-all">{member.user_id}</TooltipContent>
+        </Tooltip>
+        <CopyValueButton
+          ariaLabel={t("organizations.copyMemberUserId")}
+          copiedLabel={t("organizations.memberUserIdCopied")}
+          value={member.user_id}
+        />
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>
     </div>
   )
 }
@@ -887,14 +971,27 @@ function CopyValueButton({ ariaLabel, copiedLabel, value }: { ariaLabel: string;
 
 function MemberActionsMenu({
   compact = false,
-  disabled,
+  editProviderAccessDisabled = false,
+  onEditProviderAccess,
   onRemove,
+  onRevokeProviderAccess,
+  removeDisabled = false,
+  revokeProviderAccessDisabled = false,
 }: {
   compact?: boolean
-  disabled: boolean
-  onRemove: () => void
+  editProviderAccessDisabled?: boolean
+  onEditProviderAccess?: () => void
+  onRemove?: () => void
+  onRevokeProviderAccess?: () => void
+  removeDisabled?: boolean
+  revokeProviderAccessDisabled?: boolean
 }) {
   const { t } = useAppI18n()
+  const hasProviderActions = Boolean(onEditProviderAccess || onRevokeProviderAccess)
+  const disabled =
+    (!onEditProviderAccess || editProviderAccessDisabled) &&
+    (!onRevokeProviderAccess || revokeProviderAccessDisabled) &&
+    (!onRemove || removeDisabled)
 
   return (
     <DropdownMenu>
@@ -910,11 +1007,30 @@ function MemberActionsMenu({
           <MoreHorizontalIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={6} className="w-36">
-        <DropdownMenuItem variant="destructive" onSelect={onRemove}>
-          <Trash2Icon className="size-4" />
-          {t("organizations.removeMember")}
-        </DropdownMenuItem>
+      <DropdownMenuContent align="end" sideOffset={6} className="w-44">
+        {onEditProviderAccess ? (
+          <DropdownMenuItem disabled={editProviderAccessDisabled} onSelect={onEditProviderAccess}>
+            <PencilIcon className="size-4" />
+            {t("organizations.editProviderAccessAction")}
+          </DropdownMenuItem>
+        ) : null}
+        {onRevokeProviderAccess ? (
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={revokeProviderAccessDisabled}
+            onSelect={onRevokeProviderAccess}
+          >
+            <Trash2Icon className="size-4" />
+            {t("organizations.revokeProviderAccess")}
+          </DropdownMenuItem>
+        ) : null}
+        {hasProviderActions && onRemove ? <DropdownMenuSeparator /> : null}
+        {onRemove ? (
+          <DropdownMenuItem variant="destructive" disabled={removeDisabled} onSelect={onRemove}>
+            <Trash2Icon className="size-4" />
+            {t("organizations.removeMember")}
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -937,7 +1053,7 @@ function ProviderAccessSummary({
     return <Skeleton className="h-6 w-28 rounded-md" />
   }
   if (!grant) {
-    return <span className="oo-text-body text-muted-foreground">{notAuthorizedLabel}</span>
+    return <Badge variant="secondary">{notAuthorizedLabel}</Badge>
   }
   if (grant.allProviders) {
     return <Badge variant="secondary">{allProvidersLabel}</Badge>

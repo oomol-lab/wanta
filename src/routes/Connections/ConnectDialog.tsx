@@ -1,4 +1,5 @@
 import type {
+  ConnectionAppDetail,
   ConnectionAuthType,
   ConnectionConnectInput,
   ConnectionCredentialField,
@@ -11,6 +12,11 @@ import type { TranslateFn } from "@/i18n/i18n"
 
 import { Copy, KeyRound, Save } from "lucide-react"
 import * as React from "react"
+import {
+  buildCredentialSummaryDisplayValues,
+  buildFederatedCredentialDisplayValues,
+  getConnectionAppNote,
+} from "./connection-route-model.ts"
 import {
   buildOAuthClientConfigPayload,
   buildOAuthConnectPayload,
@@ -173,13 +179,18 @@ function getCredentialFields(
   }
 
   if (authType === "federated") {
+    const fields = detail.federatedCredentialConfig?.fields ?? []
+    if (fields.length > 0) {
+      return { fields }
+    }
+
     return {
       fields: [
         { key: "oidcProviderArn", label: "OIDC Provider ARN", required: true, secret: false },
         { key: "roleArn", label: "Role ARN", required: true, secret: false },
         { key: "roleSessionName", label: "Role session name", required: false, secret: false },
         { key: "bucket", label: "Bucket", required: false, secret: false },
-        { key: "durationSeconds", label: "Duration seconds", required: false, secret: false },
+        { key: "durationSeconds", label: "Duration seconds", required: false, secret: false, valueType: "number" },
         { key: "policy", label: "Policy", required: false, secret: false },
       ],
     }
@@ -198,6 +209,7 @@ function isDialogAuthMode(authType: ConnectionAuthType): authType is DialogAuthM
 
 export interface ConnectDialogProps {
   open: boolean
+  appDetail?: ConnectionAppDetail | null
   detail: ConnectionProviderDetail | null
   authType: DialogAuthMode | null
   busy: boolean
@@ -210,6 +222,7 @@ export interface ConnectDialogProps {
 
 export function ConnectDialog({
   open,
+  appDetail,
   detail,
   authType,
   busy,
@@ -240,12 +253,27 @@ export function ConnectDialog({
   const [formError, setFormError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    if (open) {
+    if (!open) {
+      return
+    }
+
+    setFormError(null)
+    if (!detail || !authType || !isCredentialMode(authType)) {
       setValues({})
       setNote("")
-      setFormError(null)
+      return
     }
-  }, [open, detail?.service, authType])
+
+    const { primary, fields } = getCredentialFields(detail, authType)
+    const allFields = primary ? [primary, ...fields] : fields
+    if (authType === "federated") {
+      setValues(buildFederatedCredentialDisplayValues(allFields, appDetail?.credentialFields))
+    } else {
+      const summary = appDetail?.credentialSummary?.authType === authType ? appDetail.credentialSummary : undefined
+      setValues(buildCredentialSummaryDisplayValues(allFields, summary))
+    }
+    setNote(getConnectionAppNote(appDetail))
+  }, [appDetail, authType, detail, open])
 
   React.useEffect(() => {
     if (!open || authType !== "oauth2") {
@@ -439,7 +467,8 @@ export function ConnectDialog({
   const missingRequired = allFields.some((field) => field.required && !(values[field.key] ?? "").trim())
 
   const submit = (): void => {
-    const label = note.trim() || undefined
+    const comment = note.trim() || undefined
+    setFormError(null)
     if (authType === "api_key") {
       const extra: Record<string, string> = {}
       for (const field of fields) {
@@ -452,7 +481,7 @@ export function ConnectDialog({
         authType: "api_key",
         service: detail.service,
         apiKey: values[PRIMARY_KEY]?.trim() ?? "",
-        label,
+        comment,
         extra: Object.keys(extra).length > 0 ? extra : undefined,
         appId,
       })
@@ -468,29 +497,34 @@ export function ConnectDialog({
     }
 
     if (authType === "federated") {
-      const oidcProviderArn = collected.oidcProviderArn?.trim()
-      const roleArn = collected.roleArn?.trim()
-      if (!oidcProviderArn || !roleArn) {
-        return
+      const config: Record<string, number | string> = {}
+      for (const field of fields) {
+        const value = collected[field.key]
+        if (!value) {
+          continue
+        }
+        if (field.valueType === "number") {
+          const numberValue = Number(value)
+          if (!Number.isFinite(numberValue)) {
+            setFormError(t("connections.invalidNumberField", { field: field.label }))
+            return
+          }
+          config[field.key] = numberValue
+          continue
+        }
+        config[field.key] = value
       }
       onSubmit({
         authType: "federated",
         service: detail.service,
-        config: {
-          oidcProviderArn,
-          roleArn,
-          roleSessionName: collected.roleSessionName,
-          bucket: collected.bucket,
-          durationSeconds: collected.durationSeconds ? Number(collected.durationSeconds) : undefined,
-          policy: collected.policy,
-        },
-        label,
+        config,
+        comment,
         appId,
       })
       return
     }
 
-    onSubmit({ authType: "custom_credential", service: detail.service, values: collected, label, appId })
+    onSubmit({ authType: "custom_credential", service: detail.service, values: collected, comment, appId })
   }
 
   return (
@@ -526,6 +560,7 @@ export function ConnectDialog({
           />
           <span className="oo-text-caption">{t("connections.noteHelp")}</span>
         </div>
+        {formError ? <div className="oo-text-caption text-destructive">{formError}</div> : null}
       </div>
     </Dialog>
   )

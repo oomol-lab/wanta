@@ -1,5 +1,6 @@
 import type {
   ConnectionConnectInput,
+  ConnectionAppDetail,
   ConnectionExecutionLogRequest,
   ConnectionExecutionLogSummary,
   ConnectionProviderDetail,
@@ -20,8 +21,10 @@ import {
 } from "../../electron/connections/summary-model.ts"
 import {
   mergeConnectionSummary,
+  normalizeConnectionAppDetail,
   normalizeApiKeyConfig,
   normalizeCustomCredentialConfig,
+  normalizeFederatedCredentialConfig,
   normalizeOAuthClientConfig,
   normalizeProvider,
 } from "../../electron/connections/summary.ts"
@@ -300,11 +303,25 @@ export async function getConnectionProviderDetail(
     ...provider,
     apiKeyConfig: normalizeApiKeyConfig(providerResult.data.apiKeyConfig),
     customCredentialConfig: normalizeCustomCredentialConfig(providerResult.data.customCredentialConfig),
-    federatedCredentialConfig: null,
+    federatedCredentialConfig: normalizeFederatedCredentialConfig(providerResult.data.federatedCredentialConfig),
     homepageUrl: asString(providerResult.data.homepageUrl),
     oauthClientConfig:
       provider.oauthClientConfig ?? normalizeOAuthClientConfig(providerResult.data.oauthClientConfig, service),
   }
+}
+
+export async function getConnectionAppDetail(
+  appId: string,
+  workspace: ConnectionWorkspace,
+): Promise<ConnectionAppDetail> {
+  const result = await getConnector<RawApp>(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace, {
+    forceRefresh: true,
+  })
+  const app = normalizeConnectionAppDetail(result.data)
+  if (!app) {
+    throw new Error(`Connection app ${appId} is not available`)
+  }
+  return app
 }
 
 export async function getConnectionExecutionLogs(
@@ -428,7 +445,7 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
         : `/v1/apps/${service}/connect/api-key`
       await requestConnector(path, workspace, {
         method: "POST",
-        body: JSON.stringify({ apiKey: input.apiKey, label: input.label, extra: input.extra }),
+        body: JSON.stringify({ apiKey: input.apiKey, comment: input.comment, extra: input.extra }),
       })
       break
     }
@@ -438,7 +455,7 @@ export async function connectProvider(input: ConnectionConnectInput, workspace: 
         : `/v1/apps/${service}/connect/custom-credential`
       await requestConnector(path, workspace, {
         method: "POST",
-        body: JSON.stringify({ values: input.values, label: input.label }),
+        body: JSON.stringify({ values: input.values, comment: input.comment }),
       })
       break
     }

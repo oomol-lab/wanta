@@ -130,6 +130,7 @@ export function toolActivityTitle(
 
 export function classifyToolPart(part: ChatMessagePart): ToolCategory {
   switch (part.tool) {
+    case "list_apps":
     case "search_actions":
     case "inspect_action":
     case "call_action":

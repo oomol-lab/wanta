@@ -1,7 +1,14 @@
-import type { ChatQuestionRequest } from "../../../electron/chat/common.ts"
+import type {
+  ChatMessage,
+  ChatMessagePart,
+  ChatQuestionInfo,
+  ChatQuestionOption,
+  ChatQuestionRequest,
+} from "../../../electron/chat/common.ts"
 import type { QuestionFieldDraft } from "./question-fields.ts"
 
 const stoppedQuestionsStorageKey = "wanta:chat:stopped-questions:v1"
+const recoverableQuestionsStorageKey = "wanta:chat:recoverable-questions:v1"
 const questionDraftsStorageKey = "wanta:chat:question-drafts:v1"
 const questionPersistenceMaxAgeMs = 14 * 24 * 60 * 60 * 1000
 
@@ -76,6 +83,135 @@ function stoppedQuestionItemUpdatedAt(item: ChatQuestionRequest | StoredStoppedQ
   return "updatedAt" in item ? item.updatedAt : Date.now()
 }
 
+function normalizeQuestionOption(value: unknown): ChatQuestionOption | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const option = value as { label?: unknown; description?: unknown }
+  if (typeof option.label !== "string" || !option.label.trim()) {
+    return null
+  }
+  return {
+    label: option.label,
+    ...(typeof option.description === "string" && option.description.trim() ? { description: option.description } : {}),
+  }
+}
+
+function normalizeQuestionInfo(value: unknown): ChatQuestionInfo | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const question = value as {
+    custom?: unknown
+    header?: unknown
+    multiple?: unknown
+    options?: unknown
+    question?: unknown
+  }
+  if (typeof question.question !== "string" || !question.question.trim()) {
+    return null
+  }
+  const header =
+    typeof question.header === "string" && question.header.trim() ? question.header.trim() : question.question.trim()
+  return {
+    question: question.question,
+    header,
+    options: Array.isArray(question.options)
+      ? question.options
+          .map(normalizeQuestionOption)
+          .filter((option): option is NonNullable<typeof option> => Boolean(option))
+      : [],
+    ...(typeof question.multiple === "boolean" ? { multiple: question.multiple } : {}),
+    ...(typeof question.custom === "boolean" ? { custom: question.custom } : {}),
+  }
+}
+
+export function questionRequestToolKey(request: ChatQuestionRequest): string | null {
+  return request.tool ? `${request.tool.messageId}\0${request.tool.callId}` : null
+}
+
+function isWaitingQuestionToolPart(part: ChatMessagePart): boolean {
+  return (
+    part.kind === "tool" &&
+    part.tool === "question" &&
+    typeof part.callId === "string" &&
+    (part.status === "pending" || part.status === "running")
+  )
+}
+
+function questionRequestFromToolPart(
+  sessionId: string,
+  messageId: string,
+  part: ChatMessagePart,
+): ChatQuestionRequest | null {
+  if (!isWaitingQuestionToolPart(part) || !part.callId) {
+    return null
+  }
+  const rawQuestions = part.input?.questions
+  if (!Array.isArray(rawQuestions)) {
+    return null
+  }
+  const questions = rawQuestions
+    .map(normalizeQuestionInfo)
+    .filter((question): question is NonNullable<typeof question> => Boolean(question))
+  if (questions.length === 0) {
+    return null
+  }
+  return {
+    id: `recovered:${messageId}:${part.callId}`,
+    sessionId,
+    questions,
+    tool: {
+      messageId,
+      callId: part.callId,
+    },
+  }
+}
+
+export function recoverQuestionsFromMessageTools(
+  sessionId: string,
+  messages: ChatMessage[],
+  fetchedQuestions: ChatQuestionRequest[] = [],
+): ChatQuestionRequest[] {
+  const fetchedToolKeys = new Set(
+    fetchedQuestions
+      .map(questionRequestToolKey)
+      .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
+  )
+  const recovered = new Map<string, ChatQuestionRequest>()
+  for (const message of messages) {
+    for (const part of message.parts) {
+      const request = questionRequestFromToolPart(sessionId, message.id, part)
+      if (!request) {
+        continue
+      }
+      const toolKey = questionRequestToolKey(request)
+      if (toolKey && fetchedToolKeys.has(toolKey)) {
+        continue
+      }
+      recovered.set(toolKey ?? request.id, request)
+    }
+  }
+  return Array.from(recovered.values())
+}
+
+function dedupeQuestionRequests(requests: ChatQuestionRequest[]): ChatQuestionRequest[] {
+  const byId = new Map<string, ChatQuestionRequest>()
+  const idByToolKey = new Map<string, string>()
+  for (const request of requests) {
+    const toolKey = questionRequestToolKey(request)
+    const existingToolRequestId = toolKey ? idByToolKey.get(toolKey) : undefined
+    if (existingToolRequestId && existingToolRequestId !== request.id) {
+      byId.delete(existingToolRequestId)
+    }
+    byId.set(request.id, request)
+    if (toolKey) {
+      idByToolKey.set(toolKey, request.id)
+    }
+  }
+  return Array.from(byId.values())
+}
+
 function pruneStoppedQuestions(
   stored: StoredStoppedQuestionsBySession,
   now = Date.now(),
@@ -96,6 +232,46 @@ function pruneStoppedQuestions(
   return changed ? next : stored
 }
 
+function readStoredQuestionRequests(storageKey: string, sessionId: string): ChatQuestionRequest[] {
+  const stored = readJson<StoredStoppedQuestionsBySession>(storageKey, {})
+  const pruned = pruneStoppedQuestions(stored)
+  if (pruned !== stored) {
+    writeJson(storageKey, pruned)
+  }
+  return Array.isArray(pruned[sessionId]) ? pruned[sessionId].map(stoppedQuestionItemRequest) : []
+}
+
+function addStoredQuestionRequests(storageKey: string, sessionId: string, requests: ChatQuestionRequest[]): void {
+  if (requests.length === 0) {
+    return
+  }
+  const stored = pruneStoppedQuestions(readJson<StoredStoppedQuestionsBySession>(storageKey, {}))
+  const byId = new Map((stored[sessionId] ?? []).map((item) => [stoppedQuestionItemRequest(item).id, item]))
+  for (const request of requests) {
+    byId.set(request.id, { request, updatedAt: Date.now() })
+  }
+  writeJson(storageKey, { ...stored, [sessionId]: Array.from(byId.values()) })
+}
+
+function removeStoredQuestionRequest(storageKey: string, sessionId: string, requestId: string): void {
+  const raw = readJson<StoredStoppedQuestionsBySession>(storageKey, {})
+  const stored = pruneStoppedQuestions(raw)
+  const nextQuestions = (stored[sessionId] ?? []).filter((item) => stoppedQuestionItemRequest(item).id !== requestId)
+  if (nextQuestions.length === (stored[sessionId] ?? []).length) {
+    if (stored !== raw) {
+      writeJson(storageKey, stored)
+    }
+    return
+  }
+  const next = { ...stored }
+  if (nextQuestions.length > 0) {
+    next[sessionId] = nextQuestions
+  } else {
+    delete next[sessionId]
+  }
+  writeJson(storageKey, next)
+}
+
 function pruneQuestionDrafts(stored: StoredQuestionDraftsBySession, now = Date.now()): StoredQuestionDraftsBySession {
   let changed = false
   const next: StoredQuestionDraftsBySession = {}
@@ -114,43 +290,27 @@ function pruneQuestionDrafts(stored: StoredQuestionDraftsBySession, now = Date.n
 }
 
 export function readStoredStoppedQuestions(sessionId: string): ChatQuestionRequest[] {
-  const stored = readJson<StoredStoppedQuestionsBySession>(stoppedQuestionsStorageKey, {})
-  const pruned = pruneStoppedQuestions(stored)
-  if (pruned !== stored) {
-    writeJson(stoppedQuestionsStorageKey, pruned)
-  }
-  return Array.isArray(pruned[sessionId]) ? pruned[sessionId].map(stoppedQuestionItemRequest) : []
+  return readStoredQuestionRequests(stoppedQuestionsStorageKey, sessionId)
 }
 
 export function addStoredStoppedQuestions(sessionId: string, requests: ChatQuestionRequest[]): void {
-  if (requests.length === 0) {
-    return
-  }
-  const stored = pruneStoppedQuestions(readJson<StoredStoppedQuestionsBySession>(stoppedQuestionsStorageKey, {}))
-  const byId = new Map((stored[sessionId] ?? []).map((item) => [stoppedQuestionItemRequest(item).id, item]))
-  for (const request of requests) {
-    byId.set(request.id, { request, updatedAt: Date.now() })
-  }
-  writeJson(stoppedQuestionsStorageKey, { ...stored, [sessionId]: Array.from(byId.values()) })
+  addStoredQuestionRequests(stoppedQuestionsStorageKey, sessionId, requests)
 }
 
 export function removeStoredStoppedQuestion(sessionId: string, requestId: string): void {
-  const raw = readJson<StoredStoppedQuestionsBySession>(stoppedQuestionsStorageKey, {})
-  const stored = pruneStoppedQuestions(raw)
-  const nextQuestions = (stored[sessionId] ?? []).filter((item) => stoppedQuestionItemRequest(item).id !== requestId)
-  if (nextQuestions.length === (stored[sessionId] ?? []).length) {
-    if (stored !== raw) {
-      writeJson(stoppedQuestionsStorageKey, stored)
-    }
-    return
-  }
-  const next = { ...stored }
-  if (nextQuestions.length > 0) {
-    next[sessionId] = nextQuestions
-  } else {
-    delete next[sessionId]
-  }
-  writeJson(stoppedQuestionsStorageKey, next)
+  removeStoredQuestionRequest(stoppedQuestionsStorageKey, sessionId, requestId)
+}
+
+export function readStoredRecoverableQuestions(sessionId: string): ChatQuestionRequest[] {
+  return readStoredQuestionRequests(recoverableQuestionsStorageKey, sessionId)
+}
+
+export function addStoredRecoverableQuestions(sessionId: string, requests: ChatQuestionRequest[]): void {
+  addStoredQuestionRequests(recoverableQuestionsStorageKey, sessionId, requests)
+}
+
+export function removeStoredRecoverableQuestion(sessionId: string, requestId: string): void {
+  removeStoredQuestionRequest(recoverableQuestionsStorageKey, sessionId, requestId)
 }
 
 export function readStoredQuestionDraft(
@@ -220,24 +380,48 @@ export function removeStoredQuestionDraft(sessionId: string, requestId: string):
 export function mergePendingQuestionsWithStopped({
   fetchedQuestions,
   previousQuestions,
+  storedRecoverableQuestions = [],
   stoppedQuestionIds,
   storedStoppedQuestions,
 }: {
   fetchedQuestions: ChatQuestionRequest[]
   previousQuestions: ChatQuestionRequest[]
+  storedRecoverableQuestions?: ChatQuestionRequest[]
   stoppedQuestionIds: string[]
   storedStoppedQuestions: ChatQuestionRequest[]
 }): ChatQuestionRequest[] {
   const fetchedIds = new Set(fetchedQuestions.map((request) => request.id))
+  const fetchedToolKeys = new Set(
+    fetchedQuestions
+      .map(questionRequestToolKey)
+      .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
+  )
   const stoppedIds = new Set(stoppedQuestionIds)
   for (const request of storedStoppedQuestions) {
     stoppedIds.add(request.id)
   }
   const stoppedQuestions = new Map<string, ChatQuestionRequest>()
   for (const request of [...storedStoppedQuestions, ...previousQuestions]) {
-    if (stoppedIds.has(request.id) && !fetchedIds.has(request.id)) {
+    const toolKey = questionRequestToolKey(request)
+    if (stoppedIds.has(request.id) && !fetchedIds.has(request.id) && (!toolKey || !fetchedToolKeys.has(toolKey))) {
       stoppedQuestions.set(request.id, request)
     }
   }
-  return [...stoppedQuestions.values(), ...fetchedQuestions]
+  const recoverableQuestions = new Map<string, ChatQuestionRequest>()
+  const stoppedToolKeys = new Set(
+    Array.from(stoppedQuestions.values())
+      .map(questionRequestToolKey)
+      .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
+  )
+  for (const request of storedRecoverableQuestions) {
+    const toolKey = questionRequestToolKey(request)
+    if (
+      !fetchedIds.has(request.id) &&
+      !stoppedQuestions.has(request.id) &&
+      (!toolKey || (!fetchedToolKeys.has(toolKey) && !stoppedToolKeys.has(toolKey)))
+    ) {
+      recoverableQuestions.set(request.id, request)
+    }
+  }
+  return dedupeQuestionRequests([...stoppedQuestions.values(), ...recoverableQuestions.values(), ...fetchedQuestions])
 }

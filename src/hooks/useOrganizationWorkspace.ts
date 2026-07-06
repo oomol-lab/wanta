@@ -38,6 +38,7 @@ export interface UseOrganizationWorkspace {
   refresh: (options?: OrganizationWorkspaceRefreshOptions) => Promise<void>
   selectOrganization: (organizationId: string) => void
   selectPersonal: () => void
+  syncOverview: (overview: OrganizationOverview) => void
   upsertOrganization: (organization: Organization, options?: OrganizationWorkspaceUpsertOptions) => void
 }
 
@@ -275,6 +276,33 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     [accountId],
   )
 
+  const syncOverview = React.useCallback(
+    (nextOverview: OrganizationOverview): void => {
+      if (!accountId || nextOverview.accountId !== accountId) {
+        return
+      }
+      const next = applyPendingWorkspaceOrganizationPatches(nextOverview)
+      requestIdRef.current += 1
+      overviewRef.current = next
+      if (workspaceOverviewInFlight?.accountId === accountId) {
+        workspaceOverviewInFlight = null
+      }
+      workspaceOverviewCache = { accountId, fetchedAt: Date.now(), overview: next }
+      setOverview(next)
+      setError(null)
+      setLoading(false)
+      const organizations = uniqueOrganizations(next)
+      setSelectedOrganizationId((current) => {
+        if (!current || organizations.some((organization) => organization.id === current)) {
+          return current
+        }
+        writeStoredWorkspace(accountId, null)
+        return null
+      })
+    },
+    [accountId],
+  )
+
   const clearOrganizationAvatarPreview = React.useCallback((organizationId: string): void => {
     const currentPreviewUrl = organizationAvatarPreviewUrlsRef.current.get(organizationId)
     if (!currentPreviewUrl) {
@@ -395,6 +423,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
     refresh,
     selectOrganization,
     selectPersonal,
+    syncOverview,
     upsertOrganization,
   }
 }

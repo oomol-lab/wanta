@@ -14,7 +14,7 @@ test("createFederatedConnectBody follows connector contract", () => {
         roleArn: "acs:ram::123:role/oomol",
         roleSessionName: "connector-session",
       },
-      label: "OSS Federated",
+      comment: "OSS Federated",
       service: "aliyun_oss",
     }),
     {
@@ -28,7 +28,38 @@ test("createFederatedConnectBody follows connector contract", () => {
         roleArn: "acs:ram::123:role/oomol",
         roleSessionName: "connector-session",
       },
-      label: "OSS Federated",
+      comment: "OSS Federated",
     },
+  )
+})
+
+test("createFederatedConnectBody selects cloud target from service", () => {
+  assert.equal(
+    createFederatedConnectBody({
+      authType: "federated",
+      config: { roleArn: "arn:aws:iam::123:role/example" },
+      service: "aws_sts",
+    }).target,
+    "aws_oidc",
+  )
+  assert.equal(
+    createFederatedConnectBody({
+      authType: "federated",
+      config: { serviceAccountEmail: "runner@example.iam.gserviceaccount.com" },
+      service: "gcloud_sts",
+    }).target,
+    "gcloud_oidc",
+  )
+})
+
+test("createFederatedConnectBody rejects unknown federated services", () => {
+  assert.throws(
+    () =>
+      createFederatedConnectBody({
+        authType: "federated",
+        config: { roleArn: "acs:ram::123:role/oomol" },
+        service: "unknown_sts",
+      }),
+    /Unsupported federated service: unknown_sts/,
   )
 })

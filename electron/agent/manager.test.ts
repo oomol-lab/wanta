@@ -32,6 +32,7 @@ describe("AgentManager", () => {
       expect(system).toContain("Some Link providers are already authorized")
       expect(system).toContain("availability awareness only")
       expect(system).toContain("not a recommendation to use Link tools")
+      expect(system).toContain("For questions about which providers are connected, use list_apps")
       expect(system).toContain("search results include whether a provider is authenticated")
       expect(system).toContain("concrete URLs")
       expect(system).not.toContain("gmail")
@@ -195,6 +196,48 @@ describe("AgentManager", () => {
     expect(calls[1]?.[0].agent).toBe("build")
     expect(calls[1]?.[0].variant).toBe("medium")
     expect(calls[2]?.[0]).not.toHaveProperty("variant")
+  })
+
+  it("uses session-scoped question APIs for pending questions and replies", async () => {
+    const list = vi.fn(async () => ({
+      data: [
+        {
+          id: "q1",
+          sessionID: "session-1",
+          questions: [{ header: "Answer", question: "Pick one", options: [{ label: "A" }] }],
+        },
+      ],
+    }))
+    const reply = vi.fn(async () => ({ data: true }))
+    const reject = vi.fn(async () => ({ data: true }))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown; started: boolean }).sidecar = {
+      client: { v2: { session: { question: { list, reject, reply } } } },
+    }
+    ;(manager as unknown as { started: boolean }).started = true
+
+    await expect(manager.getPendingQuestions("session-1")).resolves.toEqual([
+      {
+        id: "q1",
+        sessionId: "session-1",
+        questions: [{ header: "Answer", question: "Pick one", options: [{ label: "A" }] }],
+      },
+    ])
+    await manager.answerQuestion("session-1", "q1", [["A"]])
+    await manager.rejectQuestion("session-1", "q1")
+
+    expect(list).toHaveBeenCalledWith({ sessionID: "session-1" })
+    expect(reply).toHaveBeenCalledWith({
+      sessionID: "session-1",
+      requestID: "q1",
+      questionV2Reply: { answers: [["A"]] },
+    })
+    expect(reject).toHaveBeenCalledWith({ sessionID: "session-1", requestID: "q1" })
   })
 
   it("uses a generated session title without local length scoring or rewrite", async () => {

@@ -3,159 +3,13 @@
 // @opencode-ai/plugin，无需在 workspace 旁安装）。工具通过 execFile 调用内置
 // oo（路径由 WANTA_OO_BIN 注入），将连接器发现/调用/授权信号都走"工具结果"。
 //
-// 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与 ${}，
+// 用 String.raw 内嵌：保留正则中的反斜杠；工具代码刻意不含反引号与模板插值语法，
 // 故无转义陷阱。这些代码运行在 OpenCode 的 Bun 运行时，不参与本项目 tsc/oxlint。
 
-const SEARCH_ACTIONS_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
-import { execFile } from "node:child_process"
-import { readFile } from "node:fs/promises"
-import { promisify } from "node:util"
-
+const LINK_TOOL_RUNTIME_SHARED_TS = String.raw`
 const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
-
-async function currentOrganizationName() {
-  const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
-  if (scopePath) {
-    try {
-      const parsed = JSON.parse(await readFile(scopePath, "utf8"))
-      if (parsed && typeof parsed.organizationName === "string") {
-        return parsed.organizationName
-      }
-    } catch {
-      // 启动期或文件损坏时回退到进程启动时的组织名。
-    }
-  }
-  return process.env.WANTA_ORGANIZATION_NAME || ""
-}
-
-async function organizationAuthorizedServices(organizationName) {
-  const connectorUrl = String(process.env.WANTA_CONNECTOR_URL || "").replace(/\/+$/, "")
-  const token = String(process.env.OO_API_KEY || "").trim()
-  if (!connectorUrl || !token || !organizationName) {
-    return null
-  }
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
-  try {
-    const response = await fetch(connectorUrl + "/v1/apps", {
-      headers: {
-        Authorization: "Bearer " + token,
-        "x-oo-organization-name": organizationName,
-      },
-      signal: controller.signal,
-    })
-    if (!response.ok) {
-      return null
-    }
-    const payload = await response.json()
-    const apps = Array.isArray(payload && payload.data) ? payload.data : []
-    return new Set(
-      apps
-        .filter((app) => app && app.status === "active" && typeof app.service === "string" && app.service)
-        .map((app) => app.service),
-    )
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-async function normalizeSearchOutput(stdout) {
-  const text = (stdout || "").trim()
-  const organizationName = (await currentOrganizationName()).trim()
-  if (!organizationName) {
-    return text || "[]"
-  }
-  try {
-    const parsed = JSON.parse(text || "[]")
-    if (!Array.isArray(parsed)) {
-      return text || "[]"
-    }
-    const authorizedServices = await organizationAuthorizedServices(organizationName)
-    return JSON.stringify(
-      parsed.map((item) => {
-        if (!item || typeof item !== "object") {
-          return item
-        }
-        const service = typeof item.service === "string" ? item.service : ""
-        if (!authorizedServices) {
-          return { ...item, authenticated: false, authenticatedReliable: false, authenticatedScope: "organization_unknown" }
-        }
-        return {
-          ...item,
-          authenticated: authorizedServices.has(service),
-          authenticatedReliable: true,
-          authenticatedScope: "organization",
-        }
-      }),
-    )
-  } catch {
-    return text || "[]"
-  }
-}
-
-export default tool({
-  description:
-    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current workspace has already connected that service). In an organization workspace, authenticatedReliable is true only when Wanta confirmed organization-scoped authorization; if authenticatedReliable is false, call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
-  args: {
-    query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
-  },
-  async execute(args) {
-    const argv = ["connector", "search", args.query, "--json"]
-    try {
-      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
-      return await normalizeSearchOutput(result.stdout)
-    } catch (error) {
-      const e = error || {}
-      const message = String(e.stderr || e.message || "search failed").trim()
-      return JSON.stringify({ status: "error", message: message })
-    }
-  },
-})
-`
-
-const INSPECT_ACTION_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
-
-const execFileAsync = promisify(execFile)
-const OO_BIN = process.env.WANTA_OO_BIN || "oo"
-
-export default tool({
-  description:
-    "Fetch the contract for one or more selected OOMOL Link actions. Pass an 'actions' array of '<service>.<action>' ids: one id returns a single JSON object, two or more ids return a JSON ARRAY of contracts in the same order you requested. Each contract has description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS inspect an action before call_action, so the call_action params use the real declared field names instead of guesses; when a workflow needs several contracts (for example an async submit/result pair, or a read step feeding a write step) inspect them all in one call. Inspecting a schema does not mean you must execute the action; if a schema does not fit the task, choose another path or explain the limitation. The schema is identity-independent and read-only; calling it never sends or changes anything.",
-  args: {
-    actions: tool.schema
-      .array(tool.schema.string())
-      .describe("One or more action ids in the form '<service>.<action>' (service segment before the first dot, action after it), e.g. ['hackernews.get_item']. When a workflow needs several contracts at once, such as an async submit/result pair or a read step feeding a write step, pass every id in one call, e.g. ['cal.create_schedule','callingly.get_agent_schedule']."),
-  },
-  async execute(args) {
-    const ids = (args.actions || []).map((id) => String(id).trim()).filter(Boolean)
-    if (ids.length === 0) {
-      return JSON.stringify({ status: "error", message: "Provide at least one action id in the form <service>.<action>." })
-    }
-    const argv = ["connector", "schema", ...ids, "--json"]
-    try {
-      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
-      return (result.stdout || "").trim() || "{}"
-    } catch (error) {
-      const e = error || {}
-      const message = String(e.stderr || e.message || "schema lookup failed").trim()
-      return JSON.stringify({ status: "error", message: message })
-    }
-  },
-})
-`
-
-const CALL_ACTION_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
-import { execFile } from "node:child_process"
-import { readFile } from "node:fs/promises"
-import { promisify } from "node:util"
-
-const execFileAsync = promisify(execFile)
-const OO_BIN = process.env.WANTA_OO_BIN || "oo"
+const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 
 async function currentOrganizationName() {
   const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
@@ -176,8 +30,203 @@ async function appendIdentityArgs(argv) {
   const organizationName = (await currentOrganizationName()).trim()
   if (organizationName) {
     argv.push("--organization", organizationName)
+  } else {
+    argv.push("--personal")
+  }
+  return organizationName ? "organization" : "personal"
+}
+`
+
+const SEARCH_ACTIONS_TOOL_TS =
+  String.raw`import { tool } from "@opencode-ai/plugin"
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { promisify } from "node:util"
+` +
+  LINK_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
+
+function serviceFromApp(app) {
+  if (!app || typeof app !== "object") {
+    return ""
+  }
+  return typeof app.service === "string" ? app.service : typeof app.serviceName === "string" ? app.serviceName : ""
+}
+
+function isActiveApp(app) {
+  if (!app || typeof app !== "object") {
+    return false
+  }
+  return typeof app.status !== "string" || app.status === "active"
+}
+
+function parseApps(stdout) {
+  const parsed = JSON.parse((stdout || "").trim() || "[]")
+  if (Array.isArray(parsed)) {
+    return parsed
+  }
+  if (Array.isArray(parsed && parsed.data)) {
+    return parsed.data
+  }
+  if (Array.isArray(parsed && parsed.apps)) {
+    return parsed.apps
+  }
+  return Array.isArray(parsed && parsed.items) ? parsed.items : []
+}
+
+let authorizedServicesCache = null
+const AUTHORIZED_SERVICES_CACHE_MS = 5 * 1000
+
+async function authorizedServices() {
+  const now = Date.now()
+  if (authorizedServicesCache && now - authorizedServicesCache.createdAt < AUTHORIZED_SERVICES_CACHE_MS) {
+    return authorizedServicesCache.authorization
+  }
+  const argv = ["connector", "apps"]
+  const scope = await appendIdentityArgs(argv)
+  argv.push("--json")
+  try {
+    const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
+    const apps = parseApps(result.stdout)
+    const authorization = {
+      scope: scope,
+      services: new Set(apps.filter(isActiveApp).map(serviceFromApp).filter(Boolean)),
+    }
+    authorizedServicesCache = { createdAt: now, authorization: authorization }
+    return authorization
+  } catch {
+    authorizedServicesCache = { createdAt: now, authorization: null }
+    return null
   }
 }
+
+async function normalizeSearchOutput(stdout) {
+  const text = (stdout || "").trim()
+  try {
+    const parsed = JSON.parse(text || "[]")
+    if (!Array.isArray(parsed)) {
+      return text || "[]"
+    }
+    const authorization = await authorizedServices()
+    return JSON.stringify(
+      parsed.map((item) => {
+        if (!item || typeof item !== "object") {
+          return item
+        }
+        const service = typeof item.service === "string" ? item.service : ""
+        if (!authorization) {
+          return { ...item, authenticatedReliable: false, authenticatedScope: "active_workspace_unknown" }
+        }
+        return {
+          ...item,
+          authenticated: authorization.services.has(service),
+          authenticatedReliable: true,
+          authenticatedScope: authorization.scope,
+        }
+      }),
+    )
+  } catch {
+    return text || "[]"
+  }
+}
+
+export default tool({
+  description:
+    "Search the OOMOL connector catalog for Link actions matching a natural-language query. Use this only after deciding the task needs private/account-specific SaaS data or actions and the exact service + action is unknown; use list_apps instead when the user asks what is connected. Do NOT use it for direct answers, local files, concrete URLs, webpage fetching/crawling/scraping, or general web browsing. On success, returns a JSON array; each item has service (slug), name (action name), description, and authenticated (whether the current workspace has already connected that service). authenticatedReliable is true only when Wanta confirmed active-workspace authorization; if authenticatedReliable is false, call_action is the authority for authorization_required. On failure, returns a JSON object with status 'error' and message. If the clearly relevant provider is returned with authenticated false and authenticatedReliable is not false, Wanta can render an inline Connect button from this result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. The search result does NOT include input parameters — after selecting an action, call inspect_action to read its inputSchema before call_action.",
+  args: {
+    query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
+  },
+  async execute(args) {
+    const argv = ["connector", "search", args.query, "--json"]
+    try {
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
+      return await normalizeSearchOutput(result.stdout)
+    } catch (error) {
+      const e = error || {}
+      const message = String(e.stderr || e.message || "search failed").trim()
+      return JSON.stringify({ status: "error", message: message })
+    }
+  },
+})
+`
+
+const LIST_APPS_TOOL_TS =
+  String.raw`import { tool } from "@opencode-ai/plugin"
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { promisify } from "node:util"
+` +
+  LINK_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
+
+export default tool({
+  description:
+    "List connected OOMOL Link provider apps for the active Wanta workspace. Use this when the user asks which providers, connectors, apps, or accounts are connected, authorized, authenticated, or available in the current workspace, including organization workspaces. This uses oo connector apps --json with an explicit active workspace identity. It returns only connected app records, not the full provider/action catalog. For finding runnable actions, use search_actions.",
+  args: {
+    service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
+  },
+  async execute(args) {
+    const service = String(args.service || "").trim()
+    const argv = ["connector", "apps"]
+    if (service) {
+      argv.push(service)
+    }
+    await appendIdentityArgs(argv)
+    argv.push("--json")
+    try {
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
+      return (result.stdout || "").trim() || "[]"
+    } catch (error) {
+      const e = error || {}
+      const message = String(e.stderr || e.message || "list connected apps failed").trim()
+      return JSON.stringify({ status: "error", message: message })
+    }
+  },
+})
+`
+
+const INSPECT_ACTION_TOOL_TS = String.raw`import { tool } from "@opencode-ai/plugin"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
+
+const execFileAsync = promisify(execFile)
+const OO_BIN = process.env.WANTA_OO_BIN || "oo"
+const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
+
+export default tool({
+  description:
+    "Fetch the contract for one or more selected OOMOL Link actions. Pass an 'actions' array of '<service>.<action>' ids: one id returns a single JSON object, two or more ids return a JSON ARRAY of contracts in the same order you requested. Each contract has description, inputSchema (a JSON Schema describing the EXACT input field names, types, required fields, and constraints), and outputSchema. ALWAYS inspect an action before call_action, so the call_action params use the real declared field names instead of guesses; when a workflow needs several contracts (for example an async submit/result pair, or a read step feeding a write step) inspect them all in one call. Inspecting a schema does not mean you must execute the action; if a schema does not fit the task, choose another path or explain the limitation. The schema is identity-independent and read-only; calling it never sends or changes anything.",
+  args: {
+    actions: tool.schema
+      .array(tool.schema.string())
+      .describe("One or more action ids in the form '<service>.<action>' (service segment before the first dot, action after it), e.g. ['hackernews.get_item']. When a workflow needs several contracts at once, such as an async submit/result pair or a read step feeding a write step, pass every id in one call, e.g. ['cal.create_schedule','callingly.get_agent_schedule']."),
+  },
+  async execute(args) {
+    const ids = (args.actions || []).map((id) => String(id).trim()).filter(Boolean)
+    if (ids.length === 0) {
+      return JSON.stringify({ status: "error", message: "Provide at least one action id in the form <service>.<action>." })
+    }
+    const argv = ["connector", "schema", ...ids, "--json"]
+    try {
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
+      return (result.stdout || "").trim() || "{}"
+    } catch (error) {
+      const e = error || {}
+      const message = String(e.stderr || e.message || "schema lookup failed").trim()
+      return JSON.stringify({ status: "error", message: message })
+    }
+  },
+})
+`
+
+const CALL_ACTION_TOOL_TS =
+  String.raw`import { tool } from "@opencode-ai/plugin"
+import { execFile } from "node:child_process"
+import { readFile } from "node:fs/promises"
+import { promisify } from "node:util"
+` +
+  LINK_TOOL_RUNTIME_SHARED_TS +
+  String.raw`
 
 function authorizationUrl(service) {
   const consoleUrl = String(process.env.WANTA_CONSOLE_URL || "").trim()
@@ -216,7 +265,7 @@ export default tool({
     const argv = ["connector", "run", args.service, "--action", args.action, "--data", data, "--json"]
     await appendIdentityArgs(argv)
     try {
-      const result = await execFileAsync(OO_BIN, argv, { maxBuffer: 16 * 1024 * 1024 })
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return (result.stdout || "").trim() || "{}"
     } catch (error) {
       const e = error || {}
@@ -253,6 +302,7 @@ export default tool({
 /** workspace 写入用：文件名 → 源码。 */
 export const AGENT_TOOL_FILES: Readonly<Record<string, string>> = {
   "search_actions.ts": SEARCH_ACTIONS_TOOL_TS,
+  "list_apps.ts": LIST_APPS_TOOL_TS,
   "inspect_action.ts": INSPECT_ACTION_TOOL_TS,
   "call_action.ts": CALL_ACTION_TOOL_TS,
 }

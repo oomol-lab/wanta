@@ -25,6 +25,30 @@ export interface ConnectionAppSummary {
   updatedAt: number
 }
 
+export interface ConnectionCredentialFieldSummary {
+  configured: boolean
+  displayValue?: string
+  maskedValue?: string
+}
+
+export interface ConnectionCredentialSummary {
+  authType: Extract<ConnectionAuthType, "api_key" | "custom_credential">
+  fields: Record<string, ConnectionCredentialFieldSummary>
+}
+
+export interface ConnectionAppCredentialField {
+  displayValue: string
+  key: string
+  label: string
+  secret: boolean
+}
+
+export interface ConnectionAppDetail extends ConnectionAppSummary {
+  comment?: string | null
+  credentialFields?: ConnectionAppCredentialField[]
+  credentialSummary?: ConnectionCredentialSummary
+}
+
 export interface ConnectionProviderSummary {
   accountLabel?: string
   appId?: string
@@ -104,6 +128,7 @@ export interface ConnectionCredentialField {
   placeholder?: string
   required: boolean
   secret: boolean
+  valueType?: "number" | "string"
 }
 
 export type ConnectionField = ConnectionCredentialField
@@ -166,12 +191,17 @@ export interface ConnectionCustomCredentialConfig {
   fields: ConnectionCredentialField[]
 }
 
+export interface ConnectionFederatedCredentialConfig {
+  fields: ConnectionCredentialField[]
+}
+
 export interface ConnectionFederatedConfig {
+  [key: string]: number | string | undefined
   bucket?: string
   durationSeconds?: number
-  oidcProviderArn: string
+  oidcProviderArn?: string
   policy?: string
-  roleArn: string
+  roleArn?: string
   roleSessionName?: string
 }
 
@@ -180,7 +210,7 @@ export type ConnectionCredentialConfig = ConnectionCustomCredentialConfig
 export interface ConnectionProviderDetail extends ConnectionProviderSummary {
   apiKeyConfig: ConnectionApiKeyConfig | null
   customCredentialConfig: ConnectionCustomCredentialConfig | null
-  federatedCredentialConfig: ConnectionFederatedConfig | null
+  federatedCredentialConfig: ConnectionFederatedCredentialConfig | null
   homepageUrl?: string
   oauthClientConfig: ConnectionProviderOAuthClientConfigSummary | null
 }
@@ -216,22 +246,22 @@ export type ConnectionConnectInput =
       apiKey: string
       appId?: string
       authType: "api_key"
+      comment?: string
       extra?: Record<string, string>
-      label?: string
       service: string
     }
   | {
       appId?: string
       authType: "custom_credential"
-      label?: string
+      comment?: string
       service: string
       values: Record<string, string>
     }
   | {
       appId?: string
       authType: "federated"
+      comment?: string
       config: ConnectionFederatedConfig
-      label?: string
       service: string
     }
   | { authType: "no_auth"; service: string }

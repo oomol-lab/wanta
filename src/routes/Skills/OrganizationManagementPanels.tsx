@@ -26,6 +26,7 @@ import {
   OrganizationSkillManageDialog,
   OrganizationSkillManageLoadingSkeleton,
 } from "./OrganizationSkillManageDialog.tsx"
+import { CopyIconButton } from "@/components/CopyIconButton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -121,9 +122,7 @@ export function OrganizationSwitcherPanel({
                   <span className="oo-text-dialog-title min-w-0 truncate text-foreground">
                     {selectedOrganization.name}
                   </span>
-                  <span className="oo-text-caption-compact min-w-0 truncate font-mono text-muted-foreground">
-                    {selectedOrganization.id}
-                  </span>
+                  <OrganizationIdLabel organizationId={selectedOrganization.id} />
                 </>
               ) : (
                 <span className="oo-text-body min-w-0 truncate text-muted-foreground">
@@ -251,6 +250,30 @@ export function OrganizationSwitcherPanel({
         </div>
       </div>
     </section>
+  )
+}
+
+function OrganizationIdLabel({ organizationId }: { organizationId: string }) {
+  const { t } = useAppI18n()
+
+  return (
+    <span className="group/organization-id inline-flex min-w-0 items-center gap-1.5 align-baseline">
+      <span
+        data-selectable="true"
+        className="oo-text-caption-compact min-w-0 cursor-text truncate font-mono text-muted-foreground select-text"
+        title={organizationId}
+      >
+        {organizationId}
+      </span>
+      <CopyIconButton
+        ariaLabel={t("organizations.copyOrganizationId")}
+        className="opacity-70 group-hover/organization-id:opacity-100 focus-visible:opacity-100 data-[copied=true]:opacity-100"
+        copiedLabel={t("organizations.organizationIdCopied")}
+        failureMessage={t("organizations.memberCopyFailed")}
+        tooltipClassName="max-w-80 font-mono break-all"
+        value={organizationId}
+      />
+    </span>
   )
 }
 

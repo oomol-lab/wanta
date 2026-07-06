@@ -1,6 +1,10 @@
 import type {
+  ConnectionAppDetail,
   ConnectionAuthType,
   ConnectionAppSummary,
+  ConnectionAppCredentialField,
+  ConnectionCredentialField,
+  ConnectionCredentialSummary,
   ConnectionProviderSummary,
   ConnectionSummary,
 } from "../../../electron/connections/common.ts"
@@ -249,6 +253,48 @@ export function getConnectionAppGeneratedLabel(app: ConnectionAppSummary, index:
 
 export function getConnectionAppDisplayLabel(app: ConnectionAppSummary, index: number, t: TranslateFn): string {
   return connectionAppUiDisplayLabel(app) ?? getConnectionAppGeneratedLabel(app, index, t)
+}
+
+export function getConnectionAppNote(app: ConnectionAppDetail | null | undefined): string {
+  return app?.comment?.trim() ?? ""
+}
+
+export function buildCredentialSummaryDisplayValues(
+  fields: readonly Pick<ConnectionCredentialField, "key" | "secret">[],
+  summary: ConnectionCredentialSummary | undefined,
+): Record<string, string> {
+  if (!summary) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    fields.flatMap((field) => {
+      if (field.secret) {
+        return []
+      }
+      const value = summary.fields[field.key]?.displayValue
+      return value ? [[field.key, value]] : []
+    }),
+  )
+}
+
+export function buildFederatedCredentialDisplayValues(
+  fields: readonly Pick<ConnectionCredentialField, "key">[],
+  credentialFields: readonly ConnectionAppCredentialField[] | undefined,
+): Record<string, string> {
+  if (!credentialFields?.length) {
+    return {}
+  }
+
+  const fieldKeys = new Set(fields.map((field) => field.key))
+  return Object.fromEntries(
+    credentialFields.flatMap((field) => {
+      if (field.secret || !fieldKeys.has(field.key)) {
+        return []
+      }
+      return field.displayValue ? [[field.key, field.displayValue]] : []
+    }),
+  )
 }
 
 export function matchesProviderQuery(

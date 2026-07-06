@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { clearConnectorCache, isProviderConnectionActive, startOAuthConnect } from "./connections-client.ts"
+import {
+  clearConnectorCache,
+  connectProvider,
+  getConnectionAppDetail,
+  isProviderConnectionActive,
+  startOAuthConnect,
+} from "./connections-client.ts"
 import { consoleBaseUrl } from "./domain.ts"
 
 describe("connections-client", () => {
@@ -37,6 +43,27 @@ describe("connections-client", () => {
     expect(headers.get("x-oo-organization-name")).toBe("acme-corp")
   })
 
+  it("loads connection app details through the by-id endpoint", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        data: {
+          id: "app-1",
+          service: "aliyun_sts",
+          authType: "federated",
+          status: "active",
+          credentialFields: [{ key: "roleArn", label: "Role ARN", displayValue: "role-a", secret: false }],
+        },
+      }),
+    )
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionAppDetail("app-1", { type: "personal" })).resolves.toMatchObject({
+      id: "app-1",
+      credentialFields: [{ key: "roleArn", label: "Role ARN", displayValue: "role-a", secret: false }],
+    })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1")
+  })
+
   it("sends a dev app protocol in the OAuth return URI from the Vite renderer", async () => {
     vi.stubGlobal("window", { location: { protocol: "http:" } })
     const fetchMock = vi.fn<typeof fetch>(async () =>
@@ -69,6 +96,27 @@ describe("connections-client", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
     expect(body.extra).toEqual({ scopes: ["tweet.read", "users.read"] })
     expect(body.secretExtra).toEqual({ appBearerToken: "secret" })
+  })
+
+  it("passes comments when reconnecting non-OAuth credentials", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ data: { id: "app-1" } }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await connectProvider(
+      {
+        apiKey: "secret",
+        appId: "app-1",
+        authType: "api_key",
+        comment: "developer role",
+        extra: { workspace: "prod" },
+        service: "ably",
+      },
+      { type: "personal" },
+    )
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))
+    expect(body).toEqual({ apiKey: "secret", comment: "developer role", extra: { workspace: "prod" } })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect/api-key")
   })
 
   it("deduplicates identical concurrent OAuth start requests", async () => {

@@ -20,7 +20,7 @@
 
 - **背景**：oo-cli 跑在 Bun 上、约 30 个源文件深耦合 Bun 专有 API，无法 import 进 Node/Electron。
 - **决策**：electron-builder `extraResources` 内置平台二进制；只经 `OO_*` 环境变量控制（R3）；授权信号走结构化工具结果（R5）：`call_action` 解析 stderr 的 `errorCode: <code>` token，命中授权阻断码时返回 `{status:"authorization_required", authUrl}`，**不解析模型自由文本**。
-- **理由（连接器暴露策略，调研结论）**：把约 600 个 provider 全量注册成工具是死路——工具数超过 30–50 个时模型选择准确率显著下降；故选"只注入已授权存在性提示（R4，默认不列具体 provider 名）+ search/inspect/call 元工具渐进披露"的混合方案，**不要重新提议按 provider 生成工具或全量注册**。
+- **理由（连接器暴露策略，调研结论）**：把约 600 个 provider 全量注册成工具是死路——工具数超过 30–50 个时模型选择准确率显著下降；故选"只注入已授权存在性提示（R4，默认不列具体 provider 名）+ list/search/inspect/call 元工具渐进披露"的混合方案，**不要重新提议按 provider 生成工具或全量注册**。
 - **后果**：oo-cli 1.2.0 须先实现全套 `OO_*` 变量（曾是未声明硬前置，后上游发版补齐——此行为系 oo-cli 1.2.0 实测 + 上游发版记录，oo 是黑盒二进制、本仓库无法复核，升级 oo 时需重新验证）；`OO_SKILLS_SYNC_DISABLED=1` 必须设置否则 oo 每次运行写用户家目录（`~/.claude`、`~/.agents` 等，1.2.0 实测）。
 
 ## 4. 登录流修正：OO_API_KEY env → 浏览器登录
@@ -56,7 +56,7 @@
 
 - **背景**：三个并行问题——assistant 消息纯文本不渲染 Markdown；工具调用 UI 太显眼；模型瞎猜 connector 参数（实例：hackernews `get_item` 传 `item_id`，schema 要求 `id` 且 `additionalProperties:false` 被拒）。
 - **决策**：
-  - 参数问题根因是工具集缺 schema 查询能力（`search_actions` 不返回 inputSchema），纯改提示词治标不治本 → 新增第三个工具 `inspect_action`（`oo connector schema "<service>.<action>" [...] --json`，oo 1.3.0 起用点号 id 寻址、可一次批量取多个契约；2+ 个 id 返回请求顺序的 JSON 数组），提示词强制 **search → inspect → call** 流程，inputSchema 是参数唯一事实来源。
+  - 参数问题根因是工具集缺 schema 查询能力（`search_actions` 不返回 inputSchema），纯改提示词治标不治本 → 新增第三个工具 `inspect_action`（`oo connector schema "<service>.<action>" [...] --json`，oo 1.3.0 起用点号 id 寻址、可一次批量取多个契约；2+ 个 id 返回请求顺序的 JSON 数组），提示词强制 **search → inspect → call** 流程，inputSchema 是参数唯一事实来源。oo-cli 1.4.2 提供 `oo connector apps --json --org/--personal` 后，新增 `list_apps` 专门回答当前 workspace 已连接 provider/app 清单，避免把 catalog search 当作连接状态查询。
   - 提示词分层（R4）：稳定人格/工具/契约放 agent.prompt 利于 prompt 缓存；每轮变化的已授权存在性提示走 `body.system` 动态注入，默认不列具体 provider 名。
   - Markdown 用 react-markdown@10 + remark-gfm（不引 rehype-raw，保 HTML 转义防 XSS）；同时主进程新增外链处理（`setWindowOpenHandler` + `will-navigate` 共用 `openExternalUrl`，白名单 http/https/mailto/tel——mailto/tel 是对抗审查发现"可点击但无反应"后补的）。
   - 工具调用 UI 默认折叠一行摘要，点击展开参数/结果。
@@ -72,9 +72,9 @@
 ## 9. 放开 tools 权限并接入两档权限模式
 
 - **背景**：早期 agent 定位"非编码连接器助手"，内置工具全封禁。后果：答不了"我电脑上有哪些文件"，也无法写脚本组合多个 action 的 JSON 结果。
-- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② Build agent、Plan agent 与根级 `WANTA_PERMISSION` 对本地 shell 和 `external_directory` 统一设为 `ask`，`edit` 在 Build 为 `ask`、Plan 仅允许 `.opencode/plans/*.md`；③ `event-translator.ts` 翻译 `permission.asked` / `permission.v2.asked` 与 replied 事件，ChatService 暴露 pending permission 查询和 reply；④ 渲染层保留两档模式：默认权限与完全访问。默认权限下本地 ask 会在聊天内显示当前路径/操作并允许用户批准或拒绝本次；完全访问必须经一次确认弹窗，开启后本会话自动 reply pending permission；⑤ 系统提示词整段重写为双能力（connector 三工具 + 本地工具）并按权限模式动态追加——只放开工具不改提示词，模型仍会自我拒绝。
+- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② Build agent、Plan agent 与根级 `WANTA_PERMISSION` 对本地 shell 和 `external_directory` 统一设为 `ask`，`edit` 在 Build 为 `ask`、Plan 仅允许 `.opencode/plans/*.md`；③ `event-translator.ts` 翻译 `permission.asked` / `permission.v2.asked` 与 replied 事件，ChatService 暴露 pending permission 查询和 reply；④ 渲染层保留两档模式：默认权限与完全访问。默认权限下本地 ask 会在聊天内显示当前路径/操作并允许用户批准或拒绝本次；完全访问必须经一次确认弹窗，开启后本会话自动 reply pending permission；⑤ 系统提示词整段重写为双能力（connector 元工具 + 本地工具）并按权限模式动态追加——只放开工具不改提示词，模型仍会自我拒绝。
 - **理由（关键约束）**：OpenCode permission 取值 `ask | allow | deny`。Wanta 产品层不暴露细粒度权限，避免用户理解每个内置工具规则；但底层仍用 OpenCode ask 闸住高风险本地动作。**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），访问真实文件仍用绝对路径/`~` 并由 `external_directory: "ask"` 触发权限边界。
-- **后果**：当前安全姿态从"任意 shell / 文件读写 / 网络访问全无确认"收紧为"默认权限优先直接回答、Link 工具和 Wanta 内置 API；需要本地 shell、写入或外部目录时由用户逐次批准，用户也可主动切到完全访问减少后续确认"。若将来继续细化敏感路径（如 `.ssh`、浏览器 profile、邮件数据库、`.env`）或区分外部目录读/写，需要同步 `config.ts`、两档权限 UI、事件测试和 [conventions.md §7](conventions.md)。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器三工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。
+- **后果**：当前安全姿态从"任意 shell / 文件读写 / 网络访问全无确认"收紧为"默认权限优先直接回答、Link 工具和 Wanta 内置 API；需要本地 shell、写入或外部目录时由用户逐次批准，用户也可主动切到完全访问减少后续确认"。若将来继续细化敏感路径（如 `.ssh`、浏览器 profile、邮件数据库、`.env`）或区分外部目录读/写，需要同步 `config.ts`、两档权限 UI、事件测试和 [conventions.md §7](conventions.md)。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器元工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。
 
 ## 10. Beta/Stable 双发行渠道
 

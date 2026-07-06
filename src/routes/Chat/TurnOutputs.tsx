@@ -181,10 +181,13 @@ function TurnOutputSummaryRow({
   onOpen: (selection: TurnOutputSelection) => void
 }) {
   const t = useT()
+  const hasProjectChanges = record.summary.changedFileCount > 0
+  const hasProcessFiles = record.summary.processFileCount > 0
+  const splitSummary = hasProjectChanges && hasProcessFiles
 
   return (
-    <div className="grid gap-1.5 sm:grid-cols-2">
-      {record.summary.changedFileCount > 0 ? (
+    <div className={cn("grid gap-1.5", splitSummary && "sm:grid-cols-2")}>
+      {hasProjectChanges ? (
         <button
           type="button"
           className="oo-border-divider flex min-h-12 min-w-0 items-center gap-2 rounded-md border bg-muted/45 px-3 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -205,7 +208,7 @@ function TurnOutputSummaryRow({
           </span>
         </button>
       ) : null}
-      {record.summary.processFileCount > 0 ? (
+      {hasProcessFiles ? (
         <button
           type="button"
           className="oo-border-divider flex min-h-12 min-w-0 items-center gap-2 rounded-md border bg-muted/45 px-3 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"

@@ -545,7 +545,7 @@ export class AgentManager {
     if (!this.started) {
       return []
     }
-    const result = await this.client.question.list()
+    const result = await this.client.v2.session.question.list({ sessionID: sessionId })
     const raw = Array.isArray(result.data) ? result.data : []
     return raw
       .map(normalizeQuestionRequest)
@@ -553,12 +553,16 @@ export class AgentManager {
       .filter((request) => request.sessionId === sessionId)
   }
 
-  public async answerQuestion(_sessionId: string, requestId: string, answers: string[][]): Promise<void> {
-    await this.client.question.reply({ requestID: requestId, answers })
+  public async answerQuestion(sessionId: string, requestId: string, answers: string[][]): Promise<void> {
+    await this.client.v2.session.question.reply({
+      sessionID: sessionId,
+      requestID: requestId,
+      questionV2Reply: { answers },
+    })
   }
 
-  public async rejectQuestion(_sessionId: string, requestId: string): Promise<void> {
-    await this.client.question.reject({ requestID: requestId })
+  public async rejectQuestion(sessionId: string, requestId: string): Promise<void> {
+    await this.client.v2.session.question.reject({ sessionID: sessionId, requestID: requestId })
   }
 
   public async getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]> {
@@ -638,7 +642,7 @@ export class AgentManager {
     return (
       `Some Link providers are already authorized for the active workspace. ` +
       `This is availability awareness only: it is not a recommendation to use Link tools and does not indicate that any provider fits the current task. ` +
-      `When, and only when, the user's request needs private/account-specific SaaS data or actions, use Link tools to discover the appropriate action; search results include whether a provider is authenticated. ` +
+      `For questions about which providers are connected, use list_apps. When, and only when, the user's request needs private/account-specific SaaS data or actions, use Link tools to discover the appropriate action; search results include whether a provider is authenticated. ` +
       `Ignore this note for direct answers, local files, commands, concrete URLs, webpage fetching, and general web browsing.`
     )
   }

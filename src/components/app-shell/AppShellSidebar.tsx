@@ -139,7 +139,19 @@ function WorkspaceMenuContent({
 
   return (
     <div className="absolute bottom-full left-3 z-[90] mb-2 w-72 rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-      <div className="px-2 py-1.5 text-sm font-medium">{t("organizations.workspaceGroup")}</div>
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+        <div className="min-w-0 truncate text-sm font-medium">{t("organizations.workspaceGroup")}</div>
+        <button
+          type="button"
+          className="flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={loading}
+          title={error ? t("organizations.retry") : t("organizations.refreshWorkspaces")}
+          aria-label={error ? t("organizations.retry") : t("organizations.refreshWorkspaces")}
+          onClick={onRefresh}
+        >
+          <RefreshCw className={cn("size-4", loading && "animate-spin")} />
+        </button>
+      </div>
       <button
         type="button"
         className={workspaceItemClassName}
@@ -199,16 +211,6 @@ function WorkspaceMenuContent({
         <div className="oo-text-caption oo-text-muted px-2 py-1.5">{t("organizations.emptyOrganizations")}</div>
       ) : null}
       <div className="-mx-1 my-1 h-px bg-border" />
-      {error ? (
-        <button
-          type="button"
-          className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-          onClick={onRefresh}
-        >
-          <RefreshCw className="size-4" />
-          {t("organizations.retry")}
-        </button>
-      ) : null}
       <button
         type="button"
         className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
@@ -667,6 +669,14 @@ export function SidebarFooterControls({
     setWorkspaceMenuOpen(false)
     setAccountMenuOpen(false)
   }, [])
+  const handleWorkspaceMenuTrigger = React.useCallback(() => {
+    const nextOpen = !workspaceMenuOpen
+    setWorkspaceMenuOpen(nextOpen)
+    if (nextOpen && !workspace.loading) {
+      void workspace.refresh({ forceRefresh: true })
+    }
+    setAccountMenuOpen(false)
+  }, [workspace, workspaceMenuOpen])
 
   return (
     <div
@@ -681,10 +691,7 @@ export function SidebarFooterControls({
         aria-expanded={workspaceMenuOpen}
         disabled={workspaceSwitching}
         title={workspaceButtonTitle}
-        onClick={() => {
-          setWorkspaceMenuOpen((open) => !open)
-          setAccountMenuOpen(false)
-        }}
+        onClick={handleWorkspaceMenuTrigger}
       >
         <WorkspaceAvatar
           accountAvatarUrl={avatarUrl}

@@ -1253,6 +1253,9 @@ export function AppShell() {
 
   const clearActiveProjectIfNeeded = React.useCallback(
     (projectId: string): void => {
+      if (lastChatProjectId.current === projectId) {
+        lastChatProjectId.current = null
+      }
       if (activeProjectId !== projectId) {
         return
       }

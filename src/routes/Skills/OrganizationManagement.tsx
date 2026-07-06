@@ -105,6 +105,7 @@ export function OrganizationManagementRoute({
   const activeWorkspace = workspace?.activeWorkspace
   const selectPersonalWorkspace = workspace?.selectPersonal
   const selectOrganizationWorkspace = workspace?.selectOrganization
+  const syncWorkspaceOverview = workspace?.syncOverview
   const hasWorkspaceController = Boolean(workspace)
   const activeWorkspaceOrganizationId = activeWorkspace?.type === "organization" ? activeWorkspace.organizationId : null
   const activeWorkspaceIsPersonal = activeWorkspace?.type === "personal"
@@ -295,6 +296,7 @@ export function OrganizationManagementRoute({
         if (overviewRequestId.current !== requestId) {
           return
         }
+        syncWorkspaceOverview?.(overview)
         setOverviewState(readyState(overview))
         setSelectedOrganizationId((current) => {
           const listedOrganizations = allOrganizations(overview)
@@ -325,7 +327,7 @@ export function OrganizationManagementRoute({
         }
       }
     },
-    [activeAccountId, activeWorkspaceIsPersonal, activeWorkspaceOrganizationId],
+    [activeAccountId, activeWorkspaceIsPersonal, activeWorkspaceOrganizationId, syncWorkspaceOverview],
   )
 
   const loadSelectedDetails = React.useCallback(

@@ -12,9 +12,9 @@
 ## 2. Agent 内核 = OpenCode 本地 sidecar
 
 - **背景**：调研对比五种模式：云端 loop+薄客户端、本地 sidecar server（OpenCode）、Pi 进程内嵌、AI SDK 薄循环、stdio/ACP。云端 loop 评分最高但被用户否决（不想承担云端运维、要快出 POC）；Claude Agent SDK 被用户明确排除；Pi 落选主因是审批/权限层需全自建且 0.x 破坏性迭代。
-- **决策**：spawn 已发布二进制 `opencode-ai@1.17.11` 作 sidecar，主进程经 `@opencode-ai/sdk@1.17.11` HTTP+SSE 驱动；纯配置定制（自定义 agent prompt 整段替换 + `.opencode/tools/` 自定义工具），零源码改动。**不用 SDK 的 `createOpencodeServer`** 而是自己 spawn：后者不允许控制二进制路径/env/cwd，且生产打包时 opencode-ai 不在 node_modules（二进制走 extraResources）。
+- **决策**：spawn 已发布二进制 `opencode-ai@1.17.13` 作 sidecar，主进程经 `@opencode-ai/sdk@1.17.13` HTTP+SSE 驱动；纯配置定制（自定义 agent prompt 整段替换 + `.opencode/tools/` 自定义工具），零源码改动。**不用 SDK 的 `createOpencodeServer`** 而是自己 spawn：后者不允许控制二进制路径/env/cwd，且生产打包时 opencode-ai 不在 node_modules（二进制走 extraResources）。
 - **理由**：OpenCode 内置权限模型 + 会话基建 + 公司化维护；import 库不可行（调研时 server 相关包全 private，`opencode-ai` 是纯 bin 包）；vendor monorepo 维护负担大（2026-05 调研时上游约 41 commits/天、无 API 兼容承诺）。
-- **后果**：三包版本钉死 `1.17.11` 禁止浮动；sidecar 须隔离目录（`XDG_*` 指向 userData，否则读全局 `~/.config/opencode` 泄漏本机配置）；默认系统提示按模型 ID 选（编码人格），必须用 agent `prompt` 字段整段替换。
+- **后果**：三包版本钉死 `1.17.13` 禁止浮动；sidecar 须隔离目录（`XDG_*` 指向 userData，否则读全局 `~/.config/opencode` 泄漏本机配置）；默认系统提示按模型 ID 选（编码人格），必须用 agent `prompt` 字段整段替换。
 
 ## 3. 连接器调用全经内置 oo 二进制
 

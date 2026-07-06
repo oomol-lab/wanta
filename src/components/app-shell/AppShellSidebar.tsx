@@ -168,12 +168,6 @@ function WorkspaceMenuContent({
           {personalDescription}
         </Badge>
       </button>
-      {loading ? (
-        <div className="relative flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" />
-          {t("organizations.loading")}
-        </div>
-      ) : null}
       {showBlockingError && error ? (
         <div className="px-2 py-1.5">
           <ErrorNotice error={error} compact />

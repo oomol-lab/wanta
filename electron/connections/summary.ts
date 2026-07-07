@@ -316,7 +316,7 @@ function getManageableApps(apps: ConnectionAppSummary[]): ConnectionAppSummary[]
 export function connectionAppDisplayLabel(
   app: Pick<ConnectionAppSummary, "accountLabel" | "alias" | "displayName" | "providerAccountId">,
 ): string | undefined {
-  return app.displayName || app.alias || app.accountLabel || app.providerAccountId
+  return app.alias || app.displayName || app.accountLabel || app.providerAccountId
 }
 
 function pickDefaultOrSingleApp(apps: ConnectionAppSummary[]): ConnectionAppSummary | undefined {

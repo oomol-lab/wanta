@@ -53,6 +53,14 @@ export interface DisconnectTarget {
   provider: ConnectionProviderSummary
 }
 
+export function connectionDetailCacheKey(workspaceKey: string, service: string): string {
+  return `${workspaceKey}\u0000${service}`
+}
+
+export function isConnectionDetailCacheKeyForService(cacheKey: string, service: string): boolean {
+  return cacheKey.endsWith(`\u0000${service}`)
+}
+
 export function isConnected(provider: ConnectionProviderSummary): boolean {
   return provider.status === "connected"
 }
@@ -253,6 +261,10 @@ export function getConnectionAppGeneratedLabel(app: ConnectionAppSummary, index:
 
 export function getConnectionAppDisplayLabel(app: ConnectionAppSummary, index: number, t: TranslateFn): string {
   return connectionAppUiDisplayLabel(app) ?? getConnectionAppGeneratedLabel(app, index, t)
+}
+
+export function normalizeConnectionAliasInput(value: string): string {
+  return value.replaceAll(/[^A-Za-z0-9_-]/g, "").replace(/^-+/, "")
 }
 
 export function getConnectionAppNote(app: ConnectionAppDetail | null | undefined): string {

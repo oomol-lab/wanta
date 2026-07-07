@@ -171,7 +171,7 @@ test("merge exposes connection account labels for UI distinction", () => {
 
   const github = summary.providers.find((provider) => provider.service === "github")
   const gmail = summary.providers.find((provider) => provider.service === "gmail")
-  assert.equal(github?.accountLabel, "Umo Nickname")
+  assert.equal(github?.accountLabel, "umo-nickname")
   assert.equal(gmail?.accountLabel, "user@example.com")
   assert.equal(summary.apps[0]?.accountLabel, undefined)
 })

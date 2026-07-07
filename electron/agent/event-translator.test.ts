@@ -592,6 +592,7 @@ test("normalizeMessage preserves assistant token usage", () => {
       role: "assistant",
       time: { created: 123 },
       tokens: {
+        total: 2410,
         input: 1200,
         output: 320,
         reasoning: 40,
@@ -602,6 +603,7 @@ test("normalizeMessage preserves assistant token usage", () => {
   })
 
   assert.deepEqual(msg?.tokenUsage, {
+    total: 2410,
     input: 1200,
     output: 320,
     reasoning: 40,

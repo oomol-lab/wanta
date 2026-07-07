@@ -141,6 +141,39 @@ test("list hides archived sessions and keeps pinned sessions active", async () =
   )
 })
 
+test("list merges persisted session permission mode", async () => {
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "session",
+        title: "Session",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+    {
+      metadataStore: metadataStore(new Map([["session", { permissionMode: "full_access" }]])),
+    },
+  )
+
+  assert.equal((await service.list())[0]?.permissionMode, "full_access")
+})
+
+test("setPermissionMode persists full access and clears default", async () => {
+  const persistedMetadata = metadataStore()
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    metadataStore: persistedMetadata,
+  })
+
+  await service.setPermissionMode({ id: "session", permissionMode: "full_access" })
+
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { permissionMode: "full_access" }]]))
+
+  await service.setPermissionMode({ id: "session", permissionMode: "default" })
+
+  assert.deepEqual(await persistedMetadata.read(), new Map())
+})
+
 test("list filters sessions by requested scope", async () => {
   const service = new SessionServiceImpl(
     agentWithSessions([

@@ -120,6 +120,7 @@ function EmptyStateActions({
     pendingOrganizationSkillCount > 0
       ? t("chat.emptyOrganizationSkillsAction")
       : t("chat.emptyOrganizationSkillsViewAction")
+  const hasPendingOrganizationSkills = pendingOrganizationSkillCount > 0
 
   return (
     <div className="w-full pl-2 text-muted-foreground">
@@ -147,6 +148,7 @@ function EmptyStateActions({
             meta={organizationSkillMeta}
             actionLabel={organizationSkillAction}
             ariaLabel={t("chat.emptyOrganizationSkillsAria")}
+            highlighted={hasPendingOrganizationSkills}
             onClick={onOpenOrganizations}
           />
         ) : null}
@@ -161,10 +163,12 @@ function EmptyCapabilityAction({
   icon,
   meta,
   title,
+  highlighted = false,
   onClick,
 }: {
   actionLabel: string
   ariaLabel: string
+  highlighted?: boolean
   icon: React.ReactNode
   meta: string
   title: string
@@ -173,7 +177,7 @@ function EmptyCapabilityAction({
   return (
     <button
       type="button"
-      className="group flex min-h-8 max-w-full min-w-0 items-center gap-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="group -ml-2 flex min-h-8 max-w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       aria-label={ariaLabel}
       onClick={onClick}
     >
@@ -188,12 +192,24 @@ function EmptyCapabilityAction({
         <span className="shrink-0 opacity-60" aria-hidden="true">
           ·
         </span>
-        <span className="min-w-0 truncate">{meta}</span>
+        {highlighted ? (
+          <span className="oo-pending-skill-status min-w-0">
+            <span className="oo-pending-skill-dot" aria-hidden="true" />
+            <span className="min-w-0 truncate">{meta}</span>
+          </span>
+        ) : (
+          <span className="min-w-0 truncate">{meta}</span>
+        )}
       </span>
-      <span className="oo-text-control ml-1 shrink-0 font-medium opacity-80 transition-opacity group-hover:opacity-100">
+      <span
+        className={cn(
+          "oo-text-control ml-1 shrink-0 font-medium opacity-80 transition-[color,opacity] group-hover:opacity-100",
+          highlighted && "oo-pending-skill-action",
+        )}
+      >
         {actionLabel}
       </span>
-      <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-opacity group-hover:opacity-90" />
+      <ChevronRight className="size-3.5 shrink-0 opacity-55 transition-[opacity,transform] group-hover:translate-x-px group-hover:opacity-90" />
     </button>
   )
 }

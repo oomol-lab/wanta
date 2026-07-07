@@ -9,9 +9,12 @@ export interface SessionInfo {
   updatedAt: number
   scope?: SessionScope
   projectId?: string
+  permissionMode?: SessionPermissionMode
   pinnedAt?: number
   archivedAt?: number
 }
+
+export type SessionPermissionMode = "default" | "full_access"
 
 export type SessionScope =
   | { type: "personal" }
@@ -46,6 +49,11 @@ export interface AssignSessionProjectRequest {
   sessionId: string
 }
 
+export interface SetSessionPermissionModeRequest {
+  id: string
+  permissionMode: SessionPermissionMode
+}
+
 export interface SessionsChangedEvent {
   sessions: SessionInfo[]
 }
@@ -78,6 +86,7 @@ export const SessionService = serviceName("session-service") as ServiceName<{
     create(req?: CreateSessionRequest): Promise<SessionInfo>
     createProject(req: CreateProjectRequest): Promise<SessionProject>
     assignSessionProject(req: AssignSessionProjectRequest): Promise<void>
+    setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void>
     renameProject(req: { id: string; name: string }): Promise<void>
     pinProject(req: { id: string; pinned: boolean }): Promise<void>
     archiveProject(id: string): Promise<void>

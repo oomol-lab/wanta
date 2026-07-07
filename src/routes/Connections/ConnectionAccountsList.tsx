@@ -1,17 +1,24 @@
-import type { ConnectionAuthType, ConnectionProviderSummary } from "../../../electron/connections/common.ts"
+import type {
+  ConnectionAppSummary,
+  ConnectionAuthType,
+  ConnectionProviderSummary,
+} from "../../../electron/connections/common.ts"
 import type { DisconnectTarget } from "./connection-route-model.ts"
 import type { UseConnections } from "@/hooks/useConnections"
 
-import { KeyRound, Star, Unplug } from "lucide-react"
+import { Edit, KeyRound, Save, Star, Unplug, X } from "lucide-react"
+import * as React from "react"
 import {
   accountActionButtonClassName,
   getConnectionAppDisplayLabel,
   isConnectionAuthType,
+  normalizeConnectionAliasInput,
 } from "./connection-route-model.ts"
 import { authTypeLabel } from "./shared.ts"
 import { Loader } from "@/components/ai-elements/loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
@@ -48,81 +55,223 @@ export function ConnectionAccountsList({
           {t("connections.connectionCount", { count: provider.apps.length })}
         </span>
       </div>
-      {provider.apps.map((app, index) => {
-        const isPolling = servicePolling
-        const reconnectAuthType =
-          app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
-            ? app.authType
-            : null
-        const authLabel = app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown")
-        const accountLabel = getConnectionAppDisplayLabel(app, index, t)
-        return (
-          <article
-            key={app.id}
-            className="grid min-w-0 gap-2.5 rounded-md border bg-card px-3 py-2.5 text-card-foreground"
-          >
-            <div className="grid min-w-0 gap-1">
-              <div className="flex min-w-0 flex-wrap items-start gap-1.5">
-                <span className="oo-text-control max-w-full min-w-0 font-medium break-all">{accountLabel}</span>
-                <span className="flex shrink-0 flex-wrap items-center gap-1.5">
-                  {app.isDefault ? <Badge variant="success">{t("connections.defaultConnection")}</Badge> : null}
-                  {app.status === "reauth_required" || app.status === "error" ? (
-                    <Badge variant="warning">{t("connections.providerNeedsAttention")}</Badge>
-                  ) : null}
-                </span>
-              </div>
-              <div className="oo-text-micro oo-text-muted flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="shrink-0">{authLabel}</span>
-              </div>
-            </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2">
-              {canSetDefault && !app.isDefault && provider.apps.length > 1 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={accountActionButtonClassName}
-                  disabled={servicePolling}
-                  onClick={() => void connections.setDefaultAccount(provider.service, app.id)}
-                >
-                  <Star className="size-3.5" />
-                  {t("connections.setDefaultConnection")}
-                </Button>
-              ) : null}
-              {reconnectAuthType ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={accountActionButtonClassName}
-                  disabled={isPolling || busy === "connect"}
-                  onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
-                >
-                  {isPolling ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
-                  {isPolling ? t("connections.oauthWaiting") : t("connections.reconnect")}
-                </Button>
-              ) : null}
-              {provider.canDisconnect ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={servicePolling || busy === "disconnect"}
-                  className={cn(
-                    accountActionButtonClassName,
-                    "border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive",
-                  )}
-                  onClick={() => onDisconnect({ provider, app })}
-                >
-                  <Unplug className="size-3.5" />
-                  {t("connections.disconnect")}
-                </Button>
-              ) : null}
-            </div>
-          </article>
-        )
-      })}
+      {provider.apps.map((app, index) => (
+        <ConnectionAccountItem
+          key={app.id}
+          app={app}
+          appCount={provider.apps.length}
+          busy={busy}
+          canSetDefault={canSetDefault}
+          connections={connections}
+          index={index}
+          onConnect={onConnect}
+          onDisconnect={onDisconnect}
+          provider={provider}
+          servicePolling={servicePolling}
+        />
+      ))}
     </div>
+  )
+}
+
+function ConnectionAccountItem({
+  app,
+  appCount,
+  busy,
+  canSetDefault,
+  connections,
+  index,
+  onConnect,
+  onDisconnect,
+  provider,
+  servicePolling,
+}: {
+  app: ConnectionAppSummary
+  appCount: number
+  busy: UseConnections["busy"]
+  canSetDefault: boolean
+  connections: UseConnections
+  index: number
+  onConnect: (
+    provider: ConnectionProviderSummary,
+    authType: Exclude<ConnectionAuthType, null>,
+    appId?: string,
+  ) => Promise<void>
+  onDisconnect: (target: DisconnectTarget) => void
+  provider: ConnectionProviderSummary
+  servicePolling: boolean
+}) {
+  const t = useT()
+  const [aliasDraft, setAliasDraft] = React.useState(app.alias ?? "")
+  const [aliasEditing, setAliasEditing] = React.useState(false)
+  const [aliasBusy, setAliasBusy] = React.useState(false)
+  const reconnectAuthType =
+    app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
+      ? app.authType
+      : null
+  const authLabel = app.authType ? authTypeLabel(t, app.authType) : t("connections.authUnknown")
+  const accountLabel = getConnectionAppDisplayLabel(app, index, t)
+  const connectedAccount = app.accountLabel?.trim() || app.providerAccountId?.trim() || ""
+  const aliasValue = aliasDraft.trim()
+  const aliasDirty = aliasValue !== (app.alias?.trim() ?? "")
+  const aliasDisabled = servicePolling || aliasBusy
+  const secondaryItems = [
+    connectedAccount && connectedAccount !== accountLabel ? connectedAccount : null,
+    authLabel,
+  ].filter((item): item is string => Boolean(item))
+
+  React.useEffect(() => {
+    setAliasDraft(app.alias ?? "")
+    setAliasEditing(false)
+    setAliasBusy(false)
+  }, [app.id, app.alias])
+
+  async function saveAlias() {
+    if (!aliasDirty || aliasDisabled) return
+    setAliasBusy(true)
+    try {
+      const updated = await connections.updateAlias(app.id, aliasValue)
+      if (updated) {
+        setAliasEditing(false)
+      }
+    } finally {
+      setAliasBusy(false)
+    }
+  }
+
+  function cancelAliasEditing() {
+    setAliasDraft(app.alias ?? "")
+    setAliasEditing(false)
+  }
+
+  return (
+    <article className="grid min-w-0 gap-2.5 rounded-md border bg-card px-3 py-2.5 text-card-foreground">
+      <div className="grid min-w-0 gap-1">
+        <div className="flex min-w-0 flex-wrap items-start gap-1.5">
+          {aliasEditing ? (
+            <form
+              className="flex min-w-0 flex-1 items-center gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void saveAlias()
+              }}
+            >
+              <Input
+                aria-label={t("connections.alias")}
+                autoFocus
+                className="h-7 min-w-32 flex-1"
+                disabled={aliasDisabled}
+                value={aliasDraft}
+                placeholder={t("connections.aliasPlaceholder")}
+                onChange={(event) => setAliasDraft(normalizeConnectionAliasInput(event.target.value))}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    cancelAliasEditing()
+                  }
+                }}
+              />
+              <Button
+                type="submit"
+                variant={aliasDirty ? "default" : "ghost"}
+                size="icon"
+                className="size-7"
+                aria-label={t("connections.saveAlias")}
+                title={t("connections.saveAlias")}
+                disabled={!aliasDirty || aliasDisabled}
+              >
+                {aliasBusy ? <Loader size={14} /> : <Save className="size-3.5" />}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label={t("common.cancel")}
+                title={t("common.cancel")}
+                disabled={aliasBusy}
+                onClick={cancelAliasEditing}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </form>
+          ) : (
+            <>
+              <span className="oo-text-control max-w-full min-w-0 font-medium break-all">{accountLabel}</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label={t("connections.editAlias")}
+                title={t("connections.editAlias")}
+                disabled={servicePolling}
+                onClick={() => setAliasEditing(true)}
+              >
+                <Edit className="size-3.5" />
+              </Button>
+            </>
+          )}
+          <span className="flex shrink-0 flex-wrap items-center gap-1.5">
+            {app.isDefault ? <Badge variant="success">{t("connections.defaultConnection")}</Badge> : null}
+            {app.status === "reauth_required" || app.status === "error" ? (
+              <Badge variant="warning">{t("connections.providerNeedsAttention")}</Badge>
+            ) : null}
+          </span>
+        </div>
+        <div className="oo-text-micro oo-text-muted flex min-w-0 flex-wrap items-center gap-1.5">
+          {secondaryItems.map((item, itemIndex) => (
+            <span key={`${itemIndex}-${item}`} className="min-w-0 truncate">
+              {item}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t pt-2">
+        {canSetDefault && !app.isDefault && appCount > 1 ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={accountActionButtonClassName}
+            disabled={servicePolling}
+            onClick={() => void connections.setDefaultAccount(provider.service, app.id)}
+          >
+            <Star className="size-3.5" />
+            {t("connections.setDefaultConnection")}
+          </Button>
+        ) : null}
+        {reconnectAuthType ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={accountActionButtonClassName}
+            disabled={servicePolling || busy === "connect"}
+            onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
+          >
+            {servicePolling ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
+            {servicePolling ? t("connections.oauthWaiting") : t("connections.reconnect")}
+          </Button>
+        ) : null}
+        {provider.canDisconnect ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={servicePolling || busy === "disconnect"}
+            className={cn(
+              accountActionButtonClassName,
+              "border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive",
+            )}
+            onClick={() => onDisconnect({ provider, app })}
+          >
+            <Unplug className="size-3.5" />
+            {t("connections.disconnect")}
+          </Button>
+        ) : null}
+      </div>
+    </article>
   )
 }
 

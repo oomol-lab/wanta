@@ -9,6 +9,7 @@ import {
   isBuiltinModelId,
   resolveBuiltinModel,
 } from "./builtin.ts"
+import { DEFAULT_MAX_OUTPUT_TOKENS } from "./limits.ts"
 
 test("built-in model registry has unique ids and matching summaries", () => {
   assert.equal(new Set(BUILTIN_MODEL_IDS).size, BUILTIN_MODEL_IDS.length)
@@ -38,7 +39,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         runtimeKind: "openai-compatible",
         contextWindow: 200_000,
         inputTokenLimit: undefined,
-        maxOutputTokens: undefined,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
         id: "gpt-5.5",
@@ -56,7 +57,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
         inputTokenLimit: undefined,
-        maxOutputTokens: undefined,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
         id: "deepseek-v4-pro",
@@ -65,7 +66,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
         inputTokenLimit: undefined,
-        maxOutputTokens: undefined,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
         id: "qwen3.7-plus",
@@ -74,7 +75,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
         inputTokenLimit: undefined,
-        maxOutputTokens: undefined,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
       {
         id: "qwen3.7-max",
@@ -83,7 +84,7 @@ test("built-in model registry has unique ids and matching summaries", () => {
         runtimeKind: "openai-compatible",
         contextWindow: 1_000_000,
         inputTokenLimit: undefined,
-        maxOutputTokens: undefined,
+        maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
       },
     ],
   )

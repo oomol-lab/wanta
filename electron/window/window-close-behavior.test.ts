@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
-import { createWindowsCloseHandler, revealWindowFromTray } from "./windows-tray-close-behavior.ts"
+import { createHideOnCloseHandler, revealMainWindow } from "./window-close-behavior.ts"
 
-describe("createWindowsCloseHandler", () => {
+describe("createHideOnCloseHandler", () => {
   it("prevents close and hides the window while the app keeps running", () => {
     const preventDefault = vi.fn()
     const hide = vi.fn()
-    const handler = createWindowsCloseHandler({
+    const handler = createHideOnCloseHandler({
       hide,
       isQuitting: () => false,
     })
@@ -19,7 +19,7 @@ describe("createWindowsCloseHandler", () => {
   it("lets the window close during a real app quit", () => {
     const preventDefault = vi.fn()
     const hide = vi.fn()
-    const handler = createWindowsCloseHandler({
+    const handler = createHideOnCloseHandler({
       hide,
       isQuitting: () => true,
     })
@@ -31,13 +31,13 @@ describe("createWindowsCloseHandler", () => {
   })
 })
 
-describe("revealWindowFromTray", () => {
+describe("revealMainWindow", () => {
   it("shows and focuses a hidden window", () => {
     const focus = vi.fn()
     const restore = vi.fn()
     const show = vi.fn()
 
-    revealWindowFromTray({
+    revealMainWindow({
       focus,
       isMinimized: () => false,
       restore,
@@ -54,7 +54,7 @@ describe("revealWindowFromTray", () => {
     const restore = vi.fn()
     const show = vi.fn()
 
-    revealWindowFromTray({
+    revealMainWindow({
       focus,
       isMinimized: () => true,
       restore,

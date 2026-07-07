@@ -6,9 +6,11 @@ import type {
   CreateSessionRequest,
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
+  SetSessionPermissionModeRequest,
   SessionInfo,
   SessionPlacement,
   SessionProject,
+  SessionPermissionMode,
   SessionScope,
   SessionScopeRequest,
   SessionService,
@@ -74,6 +76,10 @@ function createRequestProjectId(req?: CreateSessionRequest | string): string | u
 
 function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {
   return placement === "project" || placement === "task" ? placement : "all"
+}
+
+function normalizeSessionPermissionMode(mode: SessionPermissionMode): SessionPermissionMode {
+  return mode === "full_access" ? "full_access" : "default"
 }
 
 function normalizeProjectPath(projectPath: string): string {
@@ -245,6 +251,27 @@ export class SessionServiceImpl
     this.setMetadataEntry(req.sessionId, next)
     await this.persistMetadata()
     this.broadcastChangedBestEffort("assign session project")
+  }
+
+  public async setPermissionMode(req: SetSessionPermissionModeRequest): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    await this.ensureMetadataLoaded()
+    const current = this.sessionMetadata.get(req.id) ?? {}
+    const next = { ...current }
+    const permissionMode = normalizeSessionPermissionMode(req.permissionMode)
+    if (normalizeSessionPermissionMode(current.permissionMode ?? "default") === permissionMode) {
+      return
+    }
+    if (permissionMode === "full_access") {
+      next.permissionMode = permissionMode
+    } else {
+      delete next.permissionMode
+    }
+    this.setMetadataEntry(req.id, next)
+    await this.persistMetadata()
+    this.broadcastChangedBestEffort("set session permission mode")
   }
 
   public async renameProject(req: { id: string; name: string }): Promise<void> {
@@ -545,7 +572,7 @@ export class SessionServiceImpl
   }
 
   private setMetadataEntry(id: string, metadata: SessionMetadata): void {
-    if (metadata.scope || metadata.projectId || metadata.pinnedAt || metadata.archivedAt) {
+    if (metadata.scope || metadata.projectId || metadata.permissionMode || metadata.pinnedAt || metadata.archivedAt) {
       this.sessionMetadata.set(id, metadata)
     } else {
       this.sessionMetadata.delete(id)
@@ -572,6 +599,7 @@ export class SessionServiceImpl
       ...session,
       scope,
       ...(project ? { projectId: project.id } : {}),
+      ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
       ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
       ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
       ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),
@@ -603,6 +631,7 @@ export class SessionServiceImpl
           ...session,
           scope,
           ...(project ? { projectId: project.id } : {}),
+          ...(metadata?.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
           ...(usedAt && usedAt > session.updatedAt ? { updatedAt: usedAt } : {}),
           ...(metadata?.pinnedAt ? { pinnedAt: metadata.pinnedAt } : {}),
           ...(metadata?.archivedAt ? { archivedAt: metadata.archivedAt } : {}),

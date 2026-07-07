@@ -1,6 +1,6 @@
 import type { BrowserWindow } from "electron"
 
-export function createWindowsCloseHandler(input: {
+export function createHideOnCloseHandler(input: {
   hide: () => void
   isQuitting: () => boolean
 }): (event: Electron.Event) => void {
@@ -14,7 +14,7 @@ export function createWindowsCloseHandler(input: {
   }
 }
 
-export function revealWindowFromTray(window: Pick<BrowserWindow, "focus" | "isMinimized" | "restore" | "show">): void {
+export function revealMainWindow(window: Pick<BrowserWindow, "focus" | "isMinimized" | "restore" | "show">): void {
   window.show()
   if (window.isMinimized()) {
     window.restore()

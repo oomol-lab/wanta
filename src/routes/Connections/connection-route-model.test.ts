@@ -5,11 +5,14 @@ import { test } from "vitest"
 import {
   buildCredentialSummaryDisplayValues,
   buildFederatedCredentialDisplayValues,
+  connectionDetailCacheKey,
   getConnectionAppNote,
   getProviderAccountValue,
   getProviderMeta,
+  isConnectionDetailCacheKeyForService,
   isConnected,
   isNoAuthReadyProvider,
+  normalizeConnectionAliasInput,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
 
@@ -113,4 +116,19 @@ test("getConnectionAppNote trims persisted comments", () => {
     }),
     "developer role",
   )
+})
+
+test("normalizeConnectionAliasInput keeps connector-safe connection names", () => {
+  assert.equal(normalizeConnectionAliasInput("-- prod role @ aliyun "), "prodrolealiyun")
+  assert.equal(normalizeConnectionAliasInput("admin_role-01"), "admin_role-01")
+})
+
+test("connection detail cache keys separate workspaces for the same provider", () => {
+  const personalKey = connectionDetailCacheKey("personal", "canva")
+  const organizationKey = connectionDetailCacheKey("organization:Design", "canva")
+
+  assert.notEqual(personalKey, organizationKey)
+  assert.equal(isConnectionDetailCacheKeyForService(personalKey, "canva"), true)
+  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "canva"), true)
+  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "gmail"), false)
 })

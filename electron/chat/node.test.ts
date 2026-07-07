@@ -562,7 +562,93 @@ test("sendMessage releases a submitted turn when OpenCode never acknowledges it"
   assert.equal(bridge.abort.mock.calls.length, 1)
   assert.ok(events.some((event) => event.event === "generationStopped"))
   const messageError = events.at(-1) as { data: { message?: string }; event: string }
-  assert.equal(messageError.data.message, "Agent runtime did not acknowledge this message. Please retry.")
+  assert.equal(
+    messageError.data.message,
+    "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not acknowledge this message. Please retry.",
+  )
+})
+
+test("sendMessage releases a turn when OpenCode stops sending events before idle", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "tool-1",
+        sessionID: "session-1",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "search_actions",
+        state: { status: "completed", input: {}, output: "{}", time: { start: 1_000, end: 2_000 } },
+      },
+    },
+  })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  await vi.advanceTimersByTimeAsync(2 * 60_000)
+  await vi.waitFor(() => {
+    assert.equal(service.hasActiveGeneration(), false)
+    assert.equal(events.at(-1)?.event, "messageError")
+  })
+
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.ok(events.some((event) => event.event === "generationStopped"))
+  const messageError = events.at(-1) as { data: { message?: string }; event: string }
+  assert.equal(
+    messageError.data.message,
+    "CHAT_COMPLETION_INTERRUPTED: Agent runtime stopped sending updates before the response completed. Please retry.",
+  )
+})
+
+test("sendMessage keeps a silent running tool alive past the short inactivity timeout", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "tool-1",
+        sessionID: "session-1",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "bash",
+        state: { status: "running", input: { command: "sleep 300" }, time: { start: 1_000 } },
+      },
+    },
+  })
+
+  await vi.advanceTimersByTimeAsync(2 * 60_000)
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.at(-1)?.event, "toolCallStarted")
+
+  await vi.advanceTimersByTimeAsync(8 * 60_000)
+  await vi.waitFor(() => {
+    assert.equal(service.hasActiveGeneration(), false)
+    assert.equal(events.at(-1)?.event, "messageError")
+  })
 })
 
 test("rejectQuestion ends the active generation so the session can accept new input", async () => {

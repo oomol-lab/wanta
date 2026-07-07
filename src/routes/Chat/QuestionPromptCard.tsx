@@ -26,6 +26,7 @@ interface QuestionPromptCardProps {
   state?: ChatQuestionState
   busy?: boolean
   isGenerating?: boolean
+  currentGenerationQuestion?: boolean
   onAnswer: (requestId: string, answers: string[][]) => Promise<void>
   onContinue: (request: ChatQuestionRequest, answers: string[][]) => Promise<void>
   onDiscard: (requestId: string) => void
@@ -187,6 +188,7 @@ export function QuestionPromptCard({
   state = "active",
   busy = false,
   isGenerating = false,
+  currentGenerationQuestion = false,
   onAnswer,
   onContinue,
   onDiscard,
@@ -214,7 +216,7 @@ export function QuestionPromptCard({
   const activeDraft = drafts[activeFieldIndex] ?? { value: "", selected: [] }
   const canContinue = activeField ? canSubmitFieldAnswers([activeField], [activeDraft]) : false
   const isLastStep = activeFieldIndex >= fields.length - 1
-  const stopBeforeDiscard = shouldStopBeforeDiscardingQuestion(state, isGenerating)
+  const stopBeforeDiscard = shouldStopBeforeDiscardingQuestion(state, isGenerating, currentGenerationQuestion)
 
   React.useEffect(() => {
     const stored = readStoredQuestionDraft(request.sessionId, request.id, fields.length)

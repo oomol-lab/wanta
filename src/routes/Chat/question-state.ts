@@ -12,6 +12,10 @@ export function questionPromptBusy(state: ChatQuestionState, status: ChatStatus)
   return state === "active" && status === "submitted"
 }
 
-export function shouldStopBeforeDiscardingQuestion(state: ChatQuestionState, isGenerating: boolean): boolean {
-  return state === "active" && isGenerating
+export function shouldStopBeforeDiscardingQuestion(
+  state: ChatQuestionState,
+  isGenerating: boolean,
+  currentGenerationQuestion = false,
+): boolean {
+  return state === "stopped" && isGenerating && currentGenerationQuestion
 }

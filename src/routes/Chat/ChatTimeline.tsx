@@ -1031,6 +1031,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 state={state}
                 busy={questionPromptBusy(state, status)}
                 isGenerating={isGenerating}
+                currentGenerationQuestion={request.tool?.messageId === activeAssistantMessageId}
                 onAnswer={onAnswerQuestion}
                 onContinue={onContinueQuestion}
                 onDiscard={onDiscardQuestion}

@@ -47,6 +47,7 @@ interface ChatAreaProps {
   emptyTitle?: string
   generatedArtifacts?: ArtifactSelection | null
   submitDisabled: boolean
+  willQueueMessage: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
   providers: ConnectionProvider[]
@@ -232,6 +233,7 @@ export const ChatArea = React.memo(function ChatArea({
   emptyTitle,
   generatedArtifacts,
   submitDisabled,
+  willQueueMessage,
   initialComposerState,
   initialSendPending,
   providers,
@@ -315,6 +317,7 @@ export const ChatArea = React.memo(function ChatArea({
       queuedMessages={queuedMessages}
       status={status}
       submitDisabled={submitDisabled}
+      willQueueMessage={willQueueMessage}
       onComposerStateChange={onComposerStateChange}
       onQueuedMessageMove={onQueuedMessageMove}
       onQueuedMessageRemove={onQueuedMessageRemove}

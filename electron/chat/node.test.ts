@@ -23,6 +23,7 @@ function createBridgeAgent(): {
   createProcessDir: ReturnType<typeof vi.fn>
   emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
   promptStreaming: ReturnType<typeof vi.fn>
+  rejectQuestion: ReturnType<typeof vi.fn>
 } {
   let listener:
     | ((event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void)
@@ -32,6 +33,7 @@ function createBridgeAgent(): {
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
   const promptStreaming = vi.fn(async () => undefined)
+  const rejectQuestion = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
     subscribe: (
@@ -46,6 +48,7 @@ function createBridgeAgent(): {
     answerPermission,
     createArtifactDir,
     createProcessDir,
+    rejectQuestion,
     promptStreaming,
     getMessages: vi.fn(async () => []),
   } as unknown as AgentManager
@@ -57,6 +60,7 @@ function createBridgeAgent(): {
     createProcessDir,
     emit: (event) => listener?.(event),
     promptStreaming,
+    rejectQuestion,
   }
 }
 
@@ -508,6 +512,22 @@ test("stopGeneration cancels a submitted turn before prompt streaming starts", a
   await Promise.resolve()
 
   assert.equal(bridge.promptStreaming.mock.calls.length, 0)
+})
+
+test("rejectQuestion ends the active generation so the session can accept new input", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  await service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" })
+
+  assert.deepEqual(bridge.rejectQuestion.mock.calls, [["session-1", "question-1"]])
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.equal(events.at(-1)?.event, "generationStopped")
+  assert.equal(service.hasActiveGeneration(), false)
 })
 
 test("sendMessage passes selected context, organization skills, and project as per-turn system prompt", async () => {

@@ -268,6 +268,7 @@ export const zhCNMessages = {
   "chat.queuePaused": "由于你中断了当前响应，队列已暂停",
   "chat.queueReorder": "拖动调整顺序",
   "chat.queueResume": "继续",
+  "chat.queueSend": "加入队列",
   "chat.queueAttachmentOnly": "附件消息",
   "chat.queueAttachments": "{count} 个附件",
   "chat.imagePreview.open": "预览图片：{name}",

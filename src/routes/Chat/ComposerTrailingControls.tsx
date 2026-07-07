@@ -3,7 +3,7 @@ import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.
 import type { ContextUsageInfo } from "./context-usage.ts"
 import type { ChatStatus } from "ai"
 
-import { Loader2, Mic, RotateCcw, Square, X } from "lucide-react"
+import { ListPlus, Loader2, Mic, RotateCcw, Square, X } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
@@ -36,6 +36,7 @@ interface ComposerTrailingControlsProps {
   voiceRetryBlob: Blob | null
   voiceStarting: boolean
   voiceTranscribing: boolean
+  willQueueMessage: boolean
   onAddModel: () => void
   onCancelVoice: () => void
   onDeleteModel: (id: string) => void
@@ -392,6 +393,7 @@ export function ComposerTrailingControls({
   voiceRetryBlob,
   voiceStarting,
   voiceTranscribing,
+  willQueueMessage,
   onAddModel,
   onCancelVoice,
   onDeleteModel,
@@ -408,7 +410,7 @@ export function ComposerTrailingControls({
   const t = useT()
   const visibleVoiceError = voiceError ?? voiceRecorderError
   const voiceMode = composerVoiceControlMode({ voiceActive, voiceStarting, voiceTranscribing, visibleVoiceError })
-  const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status })
+  const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status, willQueueMessage })
   const retryDisabled = !voiceRetryBlob || voiceTranscribing
   const stopLabel = labelWithShortcut(t("aria.stop"), appCommandShortcutLabel(APP_COMMANDS.stopGeneration))
 
@@ -535,12 +537,18 @@ export function ComposerTrailingControls({
               status={submit.visualStatus}
               disabled={submit.disabled}
               aria-label={
-                submit.aria === "sending" ? t("aria.sending") : submit.aria === "stop" ? t("aria.stop") : t("aria.send")
+                submit.aria === "sending"
+                  ? t("aria.sending")
+                  : submit.aria === "stop"
+                    ? t("aria.stop")
+                    : submit.aria === "queue"
+                      ? t("chat.queueSend")
+                      : t("aria.send")
               }
               aria-keyshortcuts={
                 submit.stopsGeneration ? appCommandAriaShortcut(APP_COMMANDS.stopGeneration) : undefined
               }
-              title={submit.stopsGeneration ? stopLabel : undefined}
+              title={submit.stopsGeneration ? stopLabel : submit.queuesMessage ? t("chat.queueSend") : undefined}
               onClick={
                 submit.stopsGeneration
                   ? (event) => {
@@ -549,7 +557,9 @@ export function ComposerTrailingControls({
                     }
                   : undefined
               }
-            />
+            >
+              {submit.queuesMessage ? <ListPlus className="size-4" /> : undefined}
+            </PromptInputSubmit>
           </>
         )}
       </div>

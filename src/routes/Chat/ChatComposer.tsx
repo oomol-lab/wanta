@@ -79,6 +79,7 @@ interface ChatComposerProps {
   contextBar?: React.ReactNode
   status: ChatStatus
   submitDisabled: boolean
+  willQueueMessage: boolean
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
@@ -203,6 +204,7 @@ export function ChatComposer({
   contextBar,
   status,
   submitDisabled,
+  willQueueMessage,
   onQueuedMessageMove,
   onQueuedMessageRemove,
   onQueuedMessageResume,
@@ -695,6 +697,7 @@ export function ChatComposer({
           voiceRetryBlob={voiceInput.retryBlob}
           voiceStarting={voiceInput.starting}
           voiceTranscribing={voiceInput.transcribing}
+          willQueueMessage={willQueueMessage}
           onAddModel={modelCatalogState.openDialog}
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}

@@ -1173,6 +1173,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       try {
         await chatService.invoke("rejectQuestion", { sessionId, requestId })
         removePendingQuestion(sessionId, requestId)
+        setStatus(sessionId, "ready")
+        setActivity(sessionId, undefined)
       } catch (err) {
         reportRendererHandledError("chat", "rejectQuestion invoke failed", err)
         setStatus(sessionId, "error")

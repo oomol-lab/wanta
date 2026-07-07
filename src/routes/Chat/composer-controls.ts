@@ -7,12 +7,13 @@ export type ComposerVoiceControlMode =
   | "recording-error"
   | "starting"
   | "transcribing"
-export type ComposerSubmitAria = "send" | "sending" | "stop"
+export type ComposerSubmitAria = "queue" | "send" | "sending" | "stop"
 
 export interface ComposerSubmitState {
   aria: ComposerSubmitAria
   disabled: boolean
   stopsGeneration: boolean
+  queuesMessage: boolean
   visualStatus?: ChatStatus
 }
 
@@ -47,17 +48,20 @@ export function composerSubmitState({
   initialSendPending,
   isGenerating,
   status,
+  willQueueMessage,
 }: {
   canSubmit: boolean
   initialSendPending: boolean
   isGenerating: boolean
   status: ChatStatus
+  willQueueMessage: boolean
 }): ComposerSubmitState {
   const canStop = status === "submitted" || status === "streaming"
-  const queueSendAvailable = canStop && canSubmit && !initialSendPending
+  const queueSendAvailable = willQueueMessage && canSubmit && !initialSendPending
   return {
-    aria: initialSendPending ? "sending" : queueSendAvailable ? "send" : canStop ? "stop" : "send",
+    aria: initialSendPending ? "sending" : queueSendAvailable ? "queue" : canStop ? "stop" : "send",
     disabled: initialSendPending ? true : queueSendAvailable ? false : canStop ? false : !canSubmit,
+    queuesMessage: queueSendAvailable,
     stopsGeneration: canStop && !initialSendPending && !queueSendAvailable,
     visualStatus: isGenerating && !queueSendAvailable ? status : undefined,
   }

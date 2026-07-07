@@ -281,6 +281,7 @@ export const enMessages = {
   "chat.queuePaused": "The queue is paused because you interrupted the current response",
   "chat.queueReorder": "Drag to reorder",
   "chat.queueResume": "Continue",
+  "chat.queueSend": "Add to queue",
   "chat.queueAttachmentOnly": "Attachment message",
   "chat.queueAttachments": "{count} attachment(s)",
   "chat.imagePreview.open": "Preview image: {name}",

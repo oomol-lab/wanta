@@ -1635,6 +1635,9 @@ export function AppShell() {
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={artifactSelection}
                       submitDisabled={!ready || chatBootstrapping || !sessionScope}
+                      willQueueMessage={Boolean(
+                        activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current),
+                      )}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
                       composerFocusRequest={composerFocusRequest}

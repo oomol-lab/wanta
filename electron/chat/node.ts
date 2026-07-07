@@ -762,6 +762,59 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return translated.event !== "messageCompleted"
   }
 
+  private hasSessionGenerationState(sessionId: string): boolean {
+    return (
+      this.sessionGenerations.has(sessionId) ||
+      this.pendingArtifactDirs.has(sessionId) ||
+      this.pendingProcessDirs.has(sessionId) ||
+      this.activeTurnOutputs.has(sessionId) ||
+      this.activeAssistantMessages.has(sessionId) ||
+      this.activeToolParts.has(sessionId)
+    )
+  }
+
+  private async stopSessionGeneration(
+    sessionId: string,
+    options: { abortAgent: boolean; throwOnAbortFailure: boolean },
+  ): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    const generation = this.sessionGenerations.get(sessionId)
+    generation?.controller.abort()
+    const messageId = this.activeAssistantMessages.get(sessionId)
+    const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+    if (options.abortAgent) {
+      try {
+        await this.agent.abort(sessionId)
+      } catch (error) {
+        if (options.throwOnAbortFailure && (messageId || !generation)) {
+          this.userStoppedSessions.delete(sessionId)
+          throw error
+        }
+        console.warn("[wanta] generation abort failed:", error)
+      }
+    }
+    if (messageId) {
+      await this.rememberStoppedGeneration(sessionId, messageId, partIds).catch((error: unknown) => {
+        console.warn("[wanta] failed to record stopped generation", error)
+      })
+    }
+    await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
+      console.warn("[wanta] failed to finalize stopped turn output", error)
+    })
+    this.clearSessionGeneration(sessionId, generation?.id)
+    this.pendingArtifactDirs.delete(sessionId)
+    this.pendingProcessDirs.delete(sessionId)
+    this.activeTurnOutputs.delete(sessionId)
+    this.activeAssistantMessages.delete(sessionId)
+    this.activeToolParts.delete(sessionId)
+    await this.send("generationStopped", { sessionId }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit generation stopped:", error)
+      logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
+    })
+  }
+
   public async isReady(): Promise<boolean> {
     return this.agentStatus.status === "ready" && (this.agent?.isReady() ?? false)
   }
@@ -1184,38 +1237,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return
     }
-    const generation = this.sessionGenerations.get(sessionId)
-    generation?.controller.abort()
     this.markUserStopped(sessionId)
-    const messageId = this.activeAssistantMessages.get(sessionId)
-    const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
-    try {
-      await this.agent.abort(sessionId)
-    } catch (error) {
-      if (messageId || !generation) {
-        this.userStoppedSessions.delete(sessionId)
-        throw error
-      }
-      console.warn("[wanta] pending generation abort failed:", error)
-    }
-    if (messageId) {
-      await this.rememberStoppedGeneration(sessionId, messageId, partIds).catch((error: unknown) => {
-        console.warn("[wanta] failed to record stopped generation", error)
-      })
-    }
-    await this.finalizeTurnOutput(sessionId, messageId).catch((error: unknown) => {
-      console.warn("[wanta] failed to finalize stopped turn output", error)
-    })
-    this.clearSessionGeneration(sessionId, generation?.id)
-    this.pendingArtifactDirs.delete(sessionId)
-    this.pendingProcessDirs.delete(sessionId)
-    this.activeTurnOutputs.delete(sessionId)
-    this.activeAssistantMessages.delete(sessionId)
-    this.activeToolParts.delete(sessionId)
-    await this.send("generationStopped", { sessionId }).catch((error: unknown) => {
-      console.warn("[wanta] failed to emit generation stopped:", error)
-      logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
-    })
+    await this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: true })
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -1255,6 +1278,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Agent not configured (sign in first)")
     }
     await this.agent.rejectQuestion(req.sessionId, req.requestId)
+    if (this.hasSessionGenerationState(req.sessionId)) {
+      this.markUserStopped(req.sessionId)
+      await this.stopSessionGeneration(req.sessionId, { abortAgent: true, throwOnAbortFailure: false })
+    }
     this.emitSessionActivity(req.sessionId)
   }
 

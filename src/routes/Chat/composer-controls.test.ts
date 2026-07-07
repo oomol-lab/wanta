@@ -40,26 +40,30 @@ describe("composer controls", () => {
         initialSendPending: false,
         isGenerating: true,
         status: "streaming",
+        willQueueMessage: false,
       }),
     ).toEqual({
       aria: "stop",
       disabled: false,
+      queuesMessage: false,
       stopsGeneration: true,
       visualStatus: "streaming",
     })
   })
 
-  it("shows the send control while streaming when a queued message can be sent", () => {
+  it("shows the queue control while streaming when a queued message can be sent", () => {
     expect(
       composerSubmitState({
         canSubmit: true,
         initialSendPending: false,
         isGenerating: true,
         status: "streaming",
+        willQueueMessage: true,
       }),
     ).toEqual({
-      aria: "send",
+      aria: "queue",
       disabled: false,
+      queuesMessage: true,
       stopsGeneration: false,
       visualStatus: undefined,
     })
@@ -72,10 +76,12 @@ describe("composer controls", () => {
         initialSendPending: true,
         isGenerating: true,
         status: "submitted",
+        willQueueMessage: true,
       }),
     ).toEqual({
       aria: "sending",
       disabled: true,
+      queuesMessage: false,
       stopsGeneration: false,
       visualStatus: "submitted",
     })
@@ -88,10 +94,12 @@ describe("composer controls", () => {
         initialSendPending: false,
         isGenerating: true,
         status: "submitted",
+        willQueueMessage: false,
       }),
     ).toEqual({
       aria: "stop",
       disabled: false,
+      queuesMessage: false,
       stopsGeneration: true,
       visualStatus: "submitted",
     })
@@ -104,10 +112,12 @@ describe("composer controls", () => {
         initialSendPending: false,
         isGenerating: false,
         status: "ready",
+        willQueueMessage: false,
       }),
     ).toEqual({
       aria: "send",
       disabled: true,
+      queuesMessage: false,
       stopsGeneration: false,
       visualStatus: undefined,
     })

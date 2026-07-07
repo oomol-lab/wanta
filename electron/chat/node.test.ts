@@ -213,6 +213,34 @@ test("sendMessage keeps organization scope locked until generation completion", 
   assert.equal(bridge.promptStreaming.mock.calls.length, 2)
 })
 
+test("setAgentOrganization applies only the latest queued idle scope", async () => {
+  const bridge = createBridgeAgent()
+  const scopeCalls: Array<string | undefined> = []
+  const service = new ChatServiceImpl(bridge.agent, {
+    onSetAgentOrganization: async (organizationName) => {
+      scopeCalls.push(organizationName)
+    },
+  })
+  service.startEventBridge()
+
+  await service.sendMessage({
+    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    sessionId: "session-1",
+    text: "first",
+  })
+
+  const firstSync = service.setAgentOrganization({ organizationName: "org-b" })
+  const secondSync = service.setAgentOrganization({ organizationName: "org-c" })
+  await Promise.resolve()
+
+  assert.deepEqual(scopeCalls, ["org-a"])
+
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await Promise.all([firstSync, secondSync])
+
+  assert.deepEqual(scopeCalls, ["org-a", "org-c"])
+})
+
 test("stopGeneration suppresses delayed streaming events until the next send", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

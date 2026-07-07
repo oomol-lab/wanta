@@ -35,6 +35,7 @@ import {
   readOAuthPendingOperationsForWorkspace,
   rememberOAuthPendingOperation,
 } from "./connection-oauth-pending.ts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const POLL_INTERVAL_MS = 2000
 
@@ -287,8 +288,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       return
     }
     appliedWorkspaceKey.current = key
-    const generation = workspaceGeneration.current + 1
-    workspaceGeneration.current = generation
+    workspaceGeneration.current += 1
     summaryRequestSequence.current += 1
     actionSequence.current += 1
     pollSequence.current += 1
@@ -301,21 +301,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     setActionError(null)
     setSummaryError(null)
     setBusy("refresh")
-    void (async () => {
-      try {
-        await chatService.invoke("setAgentOrganization", { organizationName })
-        if (isCurrentWorkspace(generation, key)) {
-          void refresh({ forceRefresh: true })
-        }
-      } catch (err) {
-        if (isCurrentWorkspace(generation, key)) {
-          setSummaryWorkspaceKey(key)
-          setSummaryError(resolveConnectionError(err, "summary"))
-          setBusy((current) => (current === "refresh" ? null : current))
-        }
-      }
-    })()
-  }, [chatService, isCurrentWorkspace, refresh, workspace])
+    void chatService.invoke("setAgentOrganization", { organizationName }).catch((error: unknown) => {
+      reportRendererHandledError("connections", "agent organization scope sync failed", error)
+    })
+    void refresh({ forceRefresh: true })
+  }, [chatService, refresh, workspace])
 
   React.useEffect(
     () => () => {

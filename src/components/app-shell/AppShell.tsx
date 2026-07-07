@@ -35,6 +35,7 @@ import {
   buildSessionTitleInput,
   connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
+  existingSessionComposerDraftKey,
   initialRoute,
   isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
@@ -42,6 +43,7 @@ import {
   projectContextFromProject,
   rememberTurnRetryOptions,
   resolveNewSessionTarget,
+  sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
   shouldClearWorkspaceSwitchTarget,
@@ -218,6 +220,23 @@ export function AppShell() {
     organizationSkillsSettled,
     targetScopeKey: workspaceSwitchTargetKey,
   })
+  const sessionsSettledForCurrentScope = sessionsLoaded && sessionsLoadedScopeKey === currentScopeKey
+  const visibleSessions = React.useMemo(
+    () => (sessionsSettledForCurrentScope ? sessions : []),
+    [sessions, sessionsSettledForCurrentScope],
+  )
+  const visibleTaskSessions = React.useMemo(
+    () => (sessionsSettledForCurrentScope ? taskSessions : []),
+    [sessionsSettledForCurrentScope, taskSessions],
+  )
+  const visibleProjectSessions = React.useMemo(
+    () => (sessionsSettledForCurrentScope ? projectSessions : []),
+    [projectSessions, sessionsSettledForCurrentScope],
+  )
+  const visibleProjects = React.useMemo(
+    () => (sessionsSettledForCurrentScope ? projects : []),
+    [projects, sessionsSettledForCurrentScope],
+  )
   const handleWorkspaceSwitchStart = React.useCallback(
     (targetScopeKey: string): void => {
       if (targetScopeKey === currentScopeKey && !workspaceSwitching) {
@@ -300,6 +319,13 @@ export function AppShell() {
   const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
   const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
+  const selectedSession = activeSessionId
+    ? (visibleSessions.find((session) => session.id === activeSessionId) ?? null)
+    : null
+  const selectedSessionMatchesScope =
+    Boolean(selectedSession) && sessionRecordScopeKey(selectedSession?.scope) === currentScopeKey
+  const activeChatSessionId = selectedSessionMatchesScope ? activeSessionId : null
+  const activeSession = selectedSessionMatchesScope ? (selectedSession ?? undefined) : undefined
 
   const {
     messages,
@@ -319,7 +345,7 @@ export function AppShell() {
     answerQuestion,
     discardQuestion,
     rejectQuestion,
-  } = useChat(activeSessionId, route === "chat" ? activeSessionId : null)
+  } = useChat(activeChatSessionId, route === "chat" ? activeChatSessionId : null)
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
   const activeProvidersLoading = Boolean(currentConnectionWorkspaceKey) && !connectionSummaryMatchesWorkspace
@@ -366,9 +392,11 @@ export function AppShell() {
   const draftProjectFallbacksById = React.useRef<Map<string, SessionProject>>(new Map())
   const lastChatProjectId = React.useRef<string | null>(null)
   const sendInFlightRef = React.useRef(false)
+  const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
+  const previousActiveChatSessionIdRef = React.useRef<string | null>(null)
   const activeSidebarSessions = React.useMemo(
-    () => (sidebarSegment === "projects" ? projectSessions : taskSessions),
-    [projectSessions, sidebarSegment, taskSessions],
+    () => (sidebarSegment === "projects" ? visibleProjectSessions : visibleTaskSessions),
+    [visibleProjectSessions, sidebarSegment, visibleTaskSessions],
   )
   const {
     artifactSelection,
@@ -392,7 +420,7 @@ export function AppShell() {
     turnOutputSelection,
     visibleArtifactsPanelWidth,
   } = useArtifactsPanelState({
-    activeSessionId,
+    activeSessionId: activeChatSessionId,
     appChromeRef,
     route,
     setIsSidebarRestoring,
@@ -454,37 +482,37 @@ export function AppShell() {
 
   // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
   React.useLayoutEffect(() => {
-    if (sessionsLoaded && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0) {
+    if (sessionsSettledForCurrentScope && !isDraftSession && !activeChatSessionId && activeSidebarSessions.length > 0) {
       setActiveSessionId(activeSidebarSessions[0].id)
     }
-  }, [activeSidebarSessions, sessionsLoaded, activeSessionId, isDraftSession])
+  }, [activeSidebarSessions, sessionsSettledForCurrentScope, activeChatSessionId, isDraftSession])
 
   React.useEffect(() => {
-    if (!sessionsLoaded || isDraftSession || !activeSessionId) {
+    if (!sessionsSettledForCurrentScope || isDraftSession || !activeSessionId) {
       return
     }
     if (activeSidebarSessions.some((session) => session.id === activeSessionId)) {
       return
     }
-    if (sessions.some((session) => session.id === activeSessionId)) {
+    if (visibleSessions.some((session) => session.id === activeSessionId)) {
       return
     }
     setActiveSessionId(activeSidebarSessions[0]?.id ?? null)
     setDraftProjectId(null)
     setPendingChatTransition(null)
-  }, [activeSessionId, activeSidebarSessions, isDraftSession, sessions, sessionsLoaded])
+  }, [activeSessionId, activeSidebarSessions, isDraftSession, sessionsSettledForCurrentScope, visibleSessions])
 
   React.useEffect(() => {
-    if (!sessionsLoaded || !activeSessionId) {
+    if (!sessionsSettledForCurrentScope || !activeSessionId) {
       return
     }
-    if (sessions.some((session) => session.id === activeSessionId)) {
+    if (visibleSessions.some((session) => session.id === activeSessionId)) {
       return
     }
     setActiveSessionId(null)
     setIsDraftSession(false)
     setPendingChatTransition(null)
-  }, [activeSessionId, sessions, sessionsLoaded])
+  }, [activeSessionId, sessionsSettledForCurrentScope, visibleSessions])
 
   // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
   React.useEffect(() => {
@@ -562,13 +590,12 @@ export function AppShell() {
     }
   }, [connections.summary, send, sessionScope])
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId)
   React.useEffect(() => {
-    if (!activeSessionId || !activeSession) {
+    if (!activeChatSessionId || !activeSession) {
       return
     }
-    setChatPermissionMode(activeSessionId, activeSession.permissionMode ?? "default")
-  }, [activeSession, activeSessionId, setChatPermissionMode])
+    setChatPermissionMode(activeChatSessionId, activeSession.permissionMode ?? "default")
+  }, [activeChatSessionId, activeSession, setChatPermissionMode])
 
   const setAndPersistPermissionMode = React.useCallback(
     (sessionId: string, mode: AgentPermissionMode): void => {
@@ -593,7 +620,7 @@ export function AppShell() {
     messages,
     messagesLoaded,
     rename,
-    sessions,
+    sessions: visibleSessions,
   })
   const activeProjectId = React.useMemo(
     () => activeProjectIdForComposer({ activeSession, draftProjectId }),
@@ -604,10 +631,10 @@ export function AppShell() {
       return undefined
     }
     return (
-      projects.find((project) => project.id === activeProjectId) ??
+      visibleProjects.find((project) => project.id === activeProjectId) ??
       draftProjectFallbacksById.current.get(activeProjectId)
     )
-  }, [activeProjectId, projects])
+  }, [activeProjectId, visibleProjects])
   const projectGit = useProjectGit(activeProject)
   const activeProjectContext = React.useMemo(
     () => projectContextFromProject(activeProject, projectGit.state),
@@ -618,19 +645,19 @@ export function AppShell() {
       lastChatProjectId.current = activeProjectId ?? null
     }
   }, [activeProjectId, route])
-  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(taskSessions), [taskSessions])
+  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(visibleTaskSessions), [visibleTaskSessions])
   const projectPinnedSessions = React.useMemo(() => {
-    const pinnedProjectIds = new Set(projects.filter((project) => project.pinnedAt).map((project) => project.id))
-    return projectSessions
+    const pinnedProjectIds = new Set(visibleProjects.filter((project) => project.pinnedAt).map((project) => project.id))
+    return visibleProjectSessions
       .filter(
         (session) =>
           session.projectId && !pinnedProjectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
       )
       .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
-  }, [projectSessions, projects])
+  }, [visibleProjectSessions, visibleProjects])
   const projectSidebarGroups = React.useMemo(
-    () => buildProjectSidebarGroups(projects, projectSessions),
-    [projectSessions, projects],
+    () => buildProjectSidebarGroups(visibleProjects, visibleProjectSessions),
+    [visibleProjectSessions, visibleProjects],
   )
   const projectPinnedGroups = React.useMemo(
     () => projectSidebarGroups.filter((group) => group.project.pinnedAt),
@@ -642,17 +669,19 @@ export function AppShell() {
   )
   const { collapsedProjectIds, handleProjectSidebarExpandedChange } = useProjectSidebarCollapseState({
     accountId: auth.state?.account?.id,
-    projects,
+    projects: visibleProjects,
     sessionScope,
-    sessionsLoaded,
+    sessionsLoaded: sessionsSettledForCurrentScope,
   })
-  const activeComposerDraftKey = activeSessionId ?? newSessionComposerDraftKey(sessionScope, activeProjectId)
+  const activeComposerDraftKey = activeChatSessionId
+    ? existingSessionComposerDraftKey(currentScopeKey, activeChatSessionId)
+    : newSessionComposerDraftKey(sessionScope, activeProjectId)
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
-  const renameSession = sessions.find((s) => s.id === renameSessionId) ?? null
-  const renameProjectTarget = projects.find((project) => project.id === renameProjectId) ?? null
-  const archiveProjectTarget = projects.find((project) => project.id === archiveProjectId) ?? null
-  const removeProjectTarget = projects.find((project) => project.id === removeProjectId) ?? null
-  const archiveSession = sessions.find((s) => s.id === archiveSessionId) ?? null
+  const renameSession = visibleSessions.find((s) => s.id === renameSessionId) ?? null
+  const renameProjectTarget = visibleProjects.find((project) => project.id === renameProjectId) ?? null
+  const archiveProjectTarget = visibleProjects.find((project) => project.id === archiveProjectId) ?? null
+  const removeProjectTarget = visibleProjects.find((project) => project.id === removeProjectId) ?? null
+  const archiveSession = visibleSessions.find((s) => s.id === archiveSessionId) ?? null
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
   const chatConnectionSelectedService = activeChatConnectionDrawer?.selectedService ?? null
@@ -660,24 +689,27 @@ export function AppShell() {
     route === "chat" &&
     activeChatConnectionDrawer?.open === true &&
     Boolean(chatConnectionAuthIntent || chatConnectionSelectedService)
-  const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeSessionId, messages)
+  const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeChatSessionId, messages)
   const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
-  const displayedPermissionMode = activeSessionId ? permissionMode : draftPermissionMode
+  const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
-    sessionsLoaded && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0
+    sessionsSettledForCurrentScope && !isDraftSession && !activeChatSessionId && activeSidebarSessions.length > 0
   const startupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
-  const hasVisibleLoadedSession = Boolean(activeSessionId && messagesLoaded)
+  const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
   const chatBootstrapping =
     !startupError &&
     ((!ready && !hasVisibleLoadedSession) ||
-      !sessionsLoaded ||
+      !sessionsSettledForCurrentScope ||
       needsDefaultSessionSelection ||
-      Boolean(activeSessionId && !messagesLoaded && !pendingChatTransition))
+      Boolean(activeChatSessionId && !messagesLoaded && !pendingChatTransition))
   const showChatEmptyState =
-    ready && sessionsLoaded && !pendingChatTransition && (!activeSessionId || (messagesLoaded && messages.length === 0))
+    ready &&
+    sessionsSettledForCurrentScope &&
+    !pendingChatTransition &&
+    (!activeChatSessionId || (messagesLoaded && messages.length === 0))
   const showComposerProjectContext = route === "chat"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
@@ -686,10 +718,10 @@ export function AppShell() {
       return (
         sessionStatus === "submitted" ||
         sessionStatus === "streaming" ||
-        (sessionId === activeSessionId && pendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
+        (sessionId === activeChatSessionId && pendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
       )
     },
-    [activeSessionId, getSessionStatus, pendingCaughtUp, pendingChatTransition],
+    [activeChatSessionId, getSessionStatus, pendingCaughtUp, pendingChatTransition],
   )
   const titlebarTitle =
     route === "settings"
@@ -751,21 +783,21 @@ export function AppShell() {
     if (
       draftProjectId &&
       draftProjectId !== NO_DRAFT_PROJECT_ID &&
-      !projects.some((project) => project.id === draftProjectId) &&
+      !visibleProjects.some((project) => project.id === draftProjectId) &&
       !draftProjectFallbacksById.current.has(draftProjectId)
     ) {
       setDraftProjectId(null)
     }
-  }, [draftProjectId, projects])
+  }, [draftProjectId, visibleProjects])
 
   React.useEffect(() => {
     if (!draftProjectId || draftProjectId === NO_DRAFT_PROJECT_ID) {
       return
     }
-    if (projects.some((project) => project.id === draftProjectId)) {
+    if (visibleProjects.some((project) => project.id === draftProjectId)) {
       draftProjectFallbacksById.current.delete(draftProjectId)
     }
-  }, [draftProjectId, projects])
+  }, [draftProjectId, visibleProjects])
 
   React.useEffect(() => {
     draftProjectFallbacksById.current.clear()
@@ -880,9 +912,9 @@ export function AppShell() {
 
   const handleSelectComposerProject = React.useCallback(
     async (projectId: string | undefined): Promise<void> => {
-      if (activeSessionId && !isDraftSession) {
+      if (activeChatSessionId && !isDraftSession) {
         try {
-          await assignSessionProject(activeSessionId, projectId)
+          await assignSessionProject(activeChatSessionId, projectId)
           await refreshSessions()
           setSidebarSegment(projectId ? "projects" : "tasks")
         } catch (cause) {
@@ -904,7 +936,7 @@ export function AppShell() {
     },
     [
       activeComposerDraftKey,
-      activeSessionId,
+      activeChatSessionId,
       assignSessionProject,
       clearComposerDraft,
       isDraftSession,
@@ -988,7 +1020,7 @@ export function AppShell() {
       sendInFlightRef.current = true
       try {
         setRoute("chat")
-        let sessionId = activeSessionId
+        let sessionId = activeChatSessionId
         const titleInput = buildSessionTitleInput(messages, text, attachments)
         const fallbackTitle = buildFallbackSessionTitle(titleInput)
         const autoFallbackTitle = sessionId ? getAutoFallbackTitle(sessionId) : undefined
@@ -1037,7 +1069,7 @@ export function AppShell() {
             sessionId,
             titleInput,
             allowPlaceholderTitle,
-            !activeSessionId ? fallbackTitle : autoFallbackTitle,
+            !activeChatSessionId ? fallbackTitle : autoFallbackTitle,
           )
         }
         lastModelBySession.current.set(sessionId, model)
@@ -1086,7 +1118,7 @@ export function AppShell() {
     },
     [
       activeSession,
-      activeSessionId,
+      activeChatSessionId,
       activeProject?.id,
       activeProjectContext,
       create,
@@ -1113,10 +1145,11 @@ export function AppShell() {
     handleQueuedMessageRemove,
     handleQueuedMessageResume,
     holdActiveQueueIfQueued,
+    holdQueuedSessionIfQueued,
     queueActiveMessage,
     releaseActiveQueue,
   } = useChatQueueState({
-    activeSessionId,
+    activeSessionId: activeChatSessionId,
     initialSendPending,
     isSendInFlight,
     sendQueuedMessage: sendNow,
@@ -1124,20 +1157,56 @@ export function AppShell() {
   })
 
   React.useEffect(() => {
-    if (!sessionsLoaded || !activeSessionId) {
+    if (activeChatSessionId) {
+      previousActiveChatSessionIdRef.current = activeChatSessionId
+    }
+  }, [activeChatSessionId])
+
+  React.useEffect(() => {
+    const previousWorkspaceKey = workspaceResetKeyRef.current
+    if (previousWorkspaceKey === activeWorkspaceKey) {
       return
     }
-    if (sessions.some((session) => session.id === activeSessionId)) {
+    workspaceResetKeyRef.current = activeWorkspaceKey
+    const previousSessionId = previousActiveChatSessionIdRef.current
+    if (previousSessionId) {
+      holdQueuedSessionIfQueued(previousSessionId)
+    }
+    previousActiveChatSessionIdRef.current = null
+    pendingRetry.current = null
+    setPendingRetryWatch(null)
+    setChatConnectionDrawers({})
+    setSelectedService(null)
+    setActiveSessionId(null)
+    setIsDraftSession(false)
+    setDraftPermissionMode("default")
+    setDraftProjectId(null)
+    setPendingChatTransition(null)
+    setRenameSessionId(null)
+    setArchiveSessionId(null)
+    setRenameProjectId(null)
+    setArchiveProjectId(null)
+    setRemoveProjectId(null)
+    draftProjectFallbacksById.current.clear()
+    handleArtifactsReset()
+    releaseTransientFocus()
+  }, [activeWorkspaceKey, handleArtifactsReset, holdQueuedSessionIfQueued])
+
+  React.useEffect(() => {
+    if (!sessionsSettledForCurrentScope || !activeChatSessionId) {
       return
     }
-    clearQueuedSession(activeSessionId)
-  }, [activeSessionId, clearQueuedSession, sessions, sessionsLoaded])
+    if (visibleSessions.some((session) => session.id === activeChatSessionId)) {
+      return
+    }
+    clearQueuedSession(activeChatSessionId)
+  }, [activeChatSessionId, clearQueuedSession, sessionsSettledForCurrentScope, visibleSessions])
 
   const handleSend = React.useCallback(
     async (request: ChatSendRequest): Promise<boolean> => {
       const { attachments = [], contextMentions = [], mode, model, permissionMode, reasoningLevel, text } = request
-      const draftKey = activeSessionId ?? activeComposerDraftKey
-      if (activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current)) {
+      const draftKey = activeComposerDraftKey
+      if (activeChatSessionId && (isSessionRunning(activeChatSessionId) || sendInFlightRef.current)) {
         queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
         clearComposerDraft(draftKey)
         return true
@@ -1159,7 +1228,7 @@ export function AppShell() {
     },
     [
       activeComposerDraftKey,
-      activeSessionId,
+      activeChatSessionId,
       clearComposerDraft,
       isSessionRunning,
       queueActiveMessage,
@@ -1170,19 +1239,19 @@ export function AppShell() {
 
   const handleAnswerQuestion = React.useCallback(
     (requestId: string, answers: string[][]): Promise<void> =>
-      activeSessionId ? answerQuestion(activeSessionId, requestId, answers) : Promise.resolve(),
-    [activeSessionId, answerQuestion],
+      activeChatSessionId ? answerQuestion(activeChatSessionId, requestId, answers) : Promise.resolve(),
+    [activeChatSessionId, answerQuestion],
   )
 
   const handleAnswerPermission = React.useCallback(
     (requestId: string, reply: ChatPermissionReply): Promise<void> =>
-      activeSessionId ? answerPermission(activeSessionId, requestId, reply) : Promise.resolve(),
-    [activeSessionId, answerPermission],
+      activeChatSessionId ? answerPermission(activeChatSessionId, requestId, reply) : Promise.resolve(),
+    [activeChatSessionId, answerPermission],
   )
 
   const handleContinueQuestion = React.useCallback(
     async (request: ChatQuestionRequest, answers: string[][]): Promise<void> => {
-      const sessionId = activeSessionId
+      const sessionId = activeChatSessionId
       if (!sessionId) {
         return
       }
@@ -1191,22 +1260,22 @@ export function AppShell() {
         discardQuestion(sessionId, request.id)
       }
     },
-    [activeSessionId, discardQuestion, handleSend, t],
+    [activeChatSessionId, discardQuestion, handleSend, t],
   )
 
   const handleDiscardQuestion = React.useCallback(
     (requestId: string): void => {
-      if (activeSessionId) {
-        discardQuestion(activeSessionId, requestId)
+      if (activeChatSessionId) {
+        discardQuestion(activeChatSessionId, requestId)
       }
     },
-    [activeSessionId, discardQuestion],
+    [activeChatSessionId, discardQuestion],
   )
 
   const handleRejectQuestion = React.useCallback(
     (requestId: string): Promise<void> =>
-      activeSessionId ? rejectQuestion(activeSessionId, requestId) : Promise.resolve(),
-    [activeSessionId, rejectQuestion],
+      activeChatSessionId ? rejectQuestion(activeChatSessionId, requestId) : Promise.resolve(),
+    [activeChatSessionId, rejectQuestion],
   )
 
   const handlePinSession = async (session: SessionInfo): Promise<void> => {
@@ -1240,7 +1309,7 @@ export function AppShell() {
     } finally {
       setArchiveConfirming(false)
     }
-    if (activeSessionId === session.id) {
+    if (activeChatSessionId === session.id) {
       setActiveSessionId(nextActiveSessionIdAfterArchive(activeSidebarSessions, session.id))
       setIsDraftSession(false)
       setPendingChatTransition(null)
@@ -1283,7 +1352,7 @@ export function AppShell() {
       if (activeProjectId !== projectId) {
         return
       }
-      if (activeSessionId) {
+      if (activeChatSessionId) {
         setActiveSessionId(null)
       }
       setIsDraftSession(true)
@@ -1291,7 +1360,7 @@ export function AppShell() {
       setPendingChatTransition(null)
       setRoute("chat")
     },
-    [activeProjectId, activeSessionId],
+    [activeProjectId, activeChatSessionId],
   )
 
   const handleArchiveProject = async (project: SessionProject): Promise<void> => {
@@ -1346,30 +1415,31 @@ export function AppShell() {
           selectedService: auth.service,
         },
       }))
-      if (activeSessionId && sessionScope && source && (source.text || source.attachments.length > 0)) {
+      if (activeChatSessionId && sessionScope && source && (source.text || source.attachments.length > 0)) {
         const retryKey = chatTurnInputKey(source)
-        const storedOptions = turnRetryOptionsBySession.current.get(activeSessionId)?.get(retryKey)
+        const storedOptions = turnRetryOptionsBySession.current.get(activeChatSessionId)?.get(retryKey)
         pendingRetry.current = {
-          sessionId: activeSessionId,
+          sessionId: activeChatSessionId,
           service: auth.service,
           text: source.text,
           attachments: source.attachments,
-          contextMentions: storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeSessionId),
+          contextMentions:
+            storedOptions?.contextMentions ?? lastContextMentionsBySession.current.get(activeChatSessionId),
           organizationSkills: storedOptions?.organizationSkills ?? organizationSkills.chatContextSkills,
           projectContext: storedOptions?.projectContext ?? activeProjectContext,
-          model: storedOptions?.model ?? lastModelBySession.current.get(activeSessionId),
-          reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeSessionId),
+          model: storedOptions?.model ?? lastModelBySession.current.get(activeChatSessionId),
+          reasoningLevel: storedOptions?.reasoningLevel ?? lastReasoningLevelBySession.current.get(activeChatSessionId),
           sessionScope: storedOptions?.sessionScope ?? sessionScope,
-          mode: storedOptions?.mode ?? lastModeBySession.current.get(activeSessionId),
+          mode: storedOptions?.mode ?? lastModeBySession.current.get(activeChatSessionId),
           permissionMode:
             storedOptions?.permissionMode ??
-            lastPermissionModeBySession.current.get(activeSessionId) ??
+            lastPermissionModeBySession.current.get(activeChatSessionId) ??
             displayedPermissionMode,
         }
         setPendingRetryWatch({
           drawerKey: activeComposerDraftKey,
           service: auth.service,
-          sessionId: activeSessionId,
+          sessionId: activeChatSessionId,
           startedAt: Date.now(),
         })
         void connections.refresh({ forceRefresh: true })
@@ -1378,7 +1448,7 @@ export function AppShell() {
     [
       activeComposerDraftKey,
       activeProjectContext,
-      activeSessionId,
+      activeChatSessionId,
       connections.refresh,
       displayedPermissionMode,
       organizationSkills.chatContextSkills,
@@ -1395,20 +1465,20 @@ export function AppShell() {
     })
   }
   const handleChatStop = React.useCallback(() => {
-    if (activeSessionId) {
+    if (activeChatSessionId) {
       holdActiveQueueIfQueued()
-      void stop(activeSessionId)
+      void stop(activeChatSessionId)
     }
-  }, [activeSessionId, holdActiveQueueIfQueued, stop])
+  }, [activeChatSessionId, holdActiveQueueIfQueued, stop])
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
-      if (activeSessionId) {
-        setAndPersistPermissionMode(activeSessionId, mode)
+      if (activeChatSessionId) {
+        setAndPersistPermissionMode(activeChatSessionId, mode)
         return
       }
       setDraftPermissionMode(mode)
     },
-    [activeSessionId, setAndPersistPermissionMode],
+    [activeChatSessionId, setAndPersistPermissionMode],
   )
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {
@@ -1522,7 +1592,7 @@ export function AppShell() {
       <AppShellNavigationSidebar
         accountName={auth.state?.account?.name}
         activeRoute={route}
-        activeSessionId={activeSessionId}
+        activeSessionId={activeChatSessionId}
         avatarUrl={auth.state?.account?.avatarUrl}
         collapsed={sidebarCollapsed}
         collapsedProjectIds={collapsedProjectIds}
@@ -1534,12 +1604,12 @@ export function AppShell() {
         projectPinnedGroups={projectPinnedGroups}
         projectPinnedSessions={projectPinnedSessions}
         projectRegularGroups={projectRegularGroups}
-        projectSessions={projectSessions}
+        projectSessions={visibleProjectSessions}
         projectSidebarGroups={projectSidebarGroups}
         sessionsError={sessionsError}
         sidebarSegment={sidebarSegment}
         sidebarSessionGroups={sidebarSessionGroups}
-        taskSessions={taskSessions}
+        taskSessions={visibleTaskSessions}
         width={sidebarWidth}
         workspace={organizationWorkspace}
         workspaceSwitching={workspaceSwitching}
@@ -1619,7 +1689,7 @@ export function AppShell() {
                 <div className="flex h-full min-h-0 overflow-hidden">
                   <div className="min-w-0 flex-1">
                     <ChatArea
-                      activeSessionId={activeSessionId}
+                      activeSessionId={activeChatSessionId}
                       billingCacheScope={billingCacheScope}
                       composerDraftKey={activeComposerDraftKey}
                       messages={bridgeInitialSendPending ? [] : messages}
@@ -1634,9 +1704,9 @@ export function AppShell() {
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={artifactSelection}
-                      submitDisabled={!ready || chatBootstrapping || !sessionScope}
+                      submitDisabled={!ready || chatBootstrapping || workspaceSwitching || !sessionScope}
                       willQueueMessage={Boolean(
-                        activeSessionId && (isSessionRunning(activeSessionId) || sendInFlightRef.current),
+                        activeChatSessionId && (isSessionRunning(activeChatSessionId) || sendInFlightRef.current),
                       )}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
@@ -1653,11 +1723,11 @@ export function AppShell() {
                         showComposerProjectContext ? (
                           <ProjectContextBar
                             activeProject={activeProject}
-                            disabled={!ready || Boolean(activeSessionId && isSessionRunning(activeSessionId))}
+                            disabled={!ready || Boolean(activeChatSessionId && isSessionRunning(activeChatSessionId))}
                             gitError={projectGit.error}
                             gitLoading={projectGit.loading}
                             gitState={projectGit.state}
-                            projects={projects}
+                            projects={visibleProjects}
                             onCheckoutBranch={projectGit.checkoutBranch}
                             onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
                             onCreateProject={() => void handleSelectComposerProjectFolder()}
@@ -1738,7 +1808,7 @@ export function AppShell() {
         removeProjectTarget={removeProjectTarget}
         renameProjectTarget={renameProjectTarget}
         renameSession={renameSession}
-        sessions={sessions}
+        sessions={visibleSessions}
         onArchiveProject={(project) => void handleArchiveProject(project)}
         onArchiveSession={(session) => void handleArchiveSession(session)}
         onCloseArchiveProject={() => setArchiveProjectId(null)}

@@ -87,19 +87,28 @@ export function useChatQueueState({
     })
   }, [activeSessionId])
 
-  const holdActiveQueueIfQueued = React.useCallback((): void => {
-    if (!activeSessionId || (queuedMessagesBySession[activeSessionId] ?? []).length === 0) {
-      return
-    }
-    setHeldQueuedSessions((current) => {
-      if (current.has(activeSessionId)) {
-        return current
+  const holdQueuedSessionIfQueued = React.useCallback(
+    (sessionId: string): void => {
+      if ((queuedMessagesBySession[sessionId] ?? []).length === 0) {
+        return
       }
-      const next = new Set(current)
-      next.add(activeSessionId)
-      return next
-    })
-  }, [activeSessionId, queuedMessagesBySession])
+      setHeldQueuedSessions((current) => {
+        if (current.has(sessionId)) {
+          return current
+        }
+        const next = new Set(current)
+        next.add(sessionId)
+        return next
+      })
+    },
+    [queuedMessagesBySession],
+  )
+
+  const holdActiveQueueIfQueued = React.useCallback((): void => {
+    if (activeSessionId) {
+      holdQueuedSessionIfQueued(activeSessionId)
+    }
+  }, [activeSessionId, holdQueuedSessionIfQueued])
 
   const clearQueuedSession = React.useCallback((sessionId: string): void => {
     setQueuedMessagesBySession((current) => clearQueuedMessages(current, sessionId))
@@ -216,6 +225,7 @@ export function useChatQueueState({
     handleQueuedMessageRemove,
     handleQueuedMessageResume,
     holdActiveQueueIfQueued,
+    holdQueuedSessionIfQueued,
     queueActiveMessage,
     releaseActiveQueue,
   }

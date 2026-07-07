@@ -246,7 +246,8 @@ export function ChatComposer({
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
   const composerAttachmentsDisabled = Boolean(activePendingQuestion)
   const submitBlocked = submitDisabled || initialSendPending
-  const composerDisabled = voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
+  const composerDisabled =
+    submitDisabled || voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
   const modelCatalog = modelCatalogState.catalog
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({

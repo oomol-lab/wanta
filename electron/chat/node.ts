@@ -215,6 +215,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private turnOutputWritePromise: Promise<void> = Promise.resolve()
   private agentScopeQueue: Promise<void> = Promise.resolve()
   private generationScopeReleases = new Map<string, () => void>()
+  private desiredIdleOrganizationName: string | undefined
+  private syncedIdleOrganizationName: string | undefined
+  private idleOrganizationSyncPromise: Promise<void> | null = null
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -250,6 +253,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.turnOutputs.clear()
     this.turnOutputsLoaded = false
     this.turnOutputsLoadPromise = null
+    this.desiredIdleOrganizationName = undefined
+    this.syncedIdleOrganizationName = undefined
+    this.idleOrganizationSyncPromise = null
     this.releaseAllGenerationScopeLocks()
   }
 
@@ -714,6 +720,36 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.generationScopeReleases.clear()
   }
 
+  private syncLatestIdleOrganization(): Promise<void> {
+    if (this.idleOrganizationSyncPromise) {
+      return this.idleOrganizationSyncPromise
+    }
+
+    const sync = async (): Promise<void> => {
+      while (true) {
+        const releaseScope = await this.acquireAgentScopeLock()
+        try {
+          const organizationName = this.desiredIdleOrganizationName
+          await this.deps.onSetAgentOrganization?.(organizationName)
+          this.syncedIdleOrganizationName = organizationName
+          if (this.desiredIdleOrganizationName === organizationName) {
+            return
+          }
+        } finally {
+          releaseScope()
+        }
+      }
+    }
+
+    const promise = sync().finally(() => {
+      if (this.idleOrganizationSyncPromise === promise) {
+        this.idleOrganizationSyncPromise = null
+      }
+    })
+    this.idleOrganizationSyncPromise = promise
+    return promise
+  }
+
   private markUserStopped(sessionId: string): void {
     const expiresAt = Date.now() + userStopAbortWindowMs
     this.userStoppedSessions.set(sessionId, expiresAt)
@@ -827,12 +863,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    const organizationName = organizationNameFromRequest(req)
+    this.desiredIdleOrganizationName = organizationName
     const releaseScope = await this.acquireAgentScopeLock()
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
     try {
-      await this.deps.onSetAgentOrganization?.(organizationNameFromRequest(req))
+      await this.deps.onSetAgentOrganization?.(organizationName)
+      this.syncedIdleOrganizationName = organizationName
       generation = this.beginSessionGeneration(req.sessionId)
       this.generationScopeReleases.set(generation.id, releaseScope)
       this.userStoppedSessions.delete(req.sessionId)
@@ -1225,11 +1264,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
     const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
-    const releaseScope = await this.acquireAgentScopeLock()
-    try {
-      await this.deps.onSetAgentOrganization?.(organizationName)
-    } finally {
-      releaseScope()
+    this.desiredIdleOrganizationName = organizationName
+    while (true) {
+      await this.syncLatestIdleOrganization()
+      if (this.desiredIdleOrganizationName !== organizationName) {
+        return
+      }
+      if (this.syncedIdleOrganizationName === organizationName) {
+        return
+      }
     }
   }
 

@@ -237,6 +237,13 @@ export function sessionScopeKey(scope: SessionScope | null): string {
   return scope.type === "organization" ? `organization:${scope.organizationId}` : "personal"
 }
 
+export function sessionRecordScopeKey(scope: SessionScope | undefined): string {
+  if (scope?.type !== "organization") {
+    return "personal"
+  }
+  return `organization:${scope.organizationId}`
+}
+
 export interface WorkspaceSwitchPendingInput {
   connectionSettledWorkspaceKey: string | null
   connectionWorkspaceKey: string | null
@@ -393,4 +400,8 @@ export function resolveNewSessionTarget({
 
 export function newSessionComposerDraftKey(scope: SessionScope | null, projectId: string | undefined): string {
   return `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(scope)}:${projectId ?? "none"}`
+}
+
+export function existingSessionComposerDraftKey(scopeKey: string, sessionId: string): string {
+  return `session:${scopeKey}:${sessionId}`
 }

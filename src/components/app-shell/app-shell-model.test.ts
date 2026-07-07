@@ -1,8 +1,11 @@
 import { describe, expect, test } from "vitest"
 import {
+  existingSessionComposerDraftKey,
   NO_DRAFT_PROJECT_ID,
   isWorkspaceSwitchPending,
+  newSessionComposerDraftKey,
   resolveNewSessionTarget,
+  sessionRecordScopeKey,
   shouldClearWorkspaceSwitchTarget,
 } from "./app-shell-model.ts"
 
@@ -155,5 +158,29 @@ describe("new session target resolution", () => {
     expect(resolveNewSessionTarget({ draftProjectId: null, lastProjectId: "project-d" })).toEqual({
       sidebarSegment: "tasks",
     })
+  })
+})
+
+describe("composer draft scope keys", () => {
+  test("separates existing session drafts by workspace scope", () => {
+    expect(existingSessionComposerDraftKey("organization:org-a", "session-1")).not.toBe(
+      existingSessionComposerDraftKey("organization:org-b", "session-1"),
+    )
+    expect(existingSessionComposerDraftKey("organization:org-a", "session-1")).not.toBe(
+      existingSessionComposerDraftKey("personal", "session-1"),
+    )
+  })
+
+  test("separates new session drafts by workspace scope", () => {
+    expect(
+      newSessionComposerDraftKey({ type: "organization", organizationId: "org-a", organizationName: "A" }, undefined),
+    ).not.toBe(newSessionComposerDraftKey({ type: "personal" }, undefined))
+  })
+
+  test("normalizes persisted sessions without scope as personal sessions", () => {
+    expect(sessionRecordScopeKey(undefined)).toBe("personal")
+    expect(sessionRecordScopeKey({ type: "organization", organizationId: "org-a", organizationName: "A" })).toBe(
+      "organization:org-a",
+    )
   })
 })

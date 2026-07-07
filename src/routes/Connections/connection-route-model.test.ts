@@ -12,6 +12,7 @@ import {
   isConnectionDetailCacheKeyForService,
   isConnected,
   isNoAuthReadyProvider,
+  normalizeConnectionAliasInput,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
 
@@ -115,6 +116,11 @@ test("getConnectionAppNote trims persisted comments", () => {
     }),
     "developer role",
   )
+})
+
+test("normalizeConnectionAliasInput keeps connector-safe connection names", () => {
+  assert.equal(normalizeConnectionAliasInput("-- prod role @ aliyun "), "prodrolealiyun")
+  assert.equal(normalizeConnectionAliasInput("admin_role-01"), "admin_role-01")
 })
 
 test("connection detail cache keys separate workspaces for the same provider", () => {

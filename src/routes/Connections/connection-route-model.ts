@@ -263,6 +263,10 @@ export function getConnectionAppDisplayLabel(app: ConnectionAppSummary, index: n
   return connectionAppUiDisplayLabel(app) ?? getConnectionAppGeneratedLabel(app, index, t)
 }
 
+export function normalizeConnectionAliasInput(value: string): string {
+  return value.replaceAll(/[^A-Za-z0-9_-]/g, "").replace(/^-+/, "")
+}
+
 export function getConnectionAppNote(app: ConnectionAppDetail | null | undefined): string {
   return app?.comment?.trim() ?? ""
 }

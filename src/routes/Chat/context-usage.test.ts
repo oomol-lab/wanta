@@ -166,6 +166,45 @@ describe("chat context usage", () => {
     })
   })
 
+  it("preserves a zero compaction threshold", () => {
+    const customCatalog: ModelCatalog = {
+      ...catalog,
+      selected: { kind: "custom", id: "custom-1" },
+      customModels: [
+        {
+          id: "custom-1",
+          providerId: "custom",
+          providerName: "Custom",
+          baseUrl: "",
+          modelName: "custom-model",
+          displayName: "Custom",
+          apiKeyConfigured: true,
+          supportsImages: false,
+          supportsToolCalls: true,
+          contextWindow: 10_000,
+        },
+      ],
+    }
+    const messages: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [],
+        tokenUsage: { input: 40, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+    ]
+
+    expect(buildContextUsageInfo(messages, customCatalog)).toEqual({
+      usedTokens: 50,
+      contextWindowTokens: 10_000,
+      limitTokens: 0,
+      limitKind: "compaction",
+      compactionThresholdTokens: 0,
+      percent: 100,
+    })
+  })
+
   it("prefers the input token limit over the full context window", () => {
     const customCatalog: ModelCatalog = {
       ...catalog,

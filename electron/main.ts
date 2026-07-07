@@ -820,11 +820,7 @@ function showMainWindow(): void {
     createMainWindow()
     return
   }
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore()
-  }
-  mainWindow.show()
-  mainWindow.focus()
+  revealMainWindow(mainWindow)
 }
 
 async function handleDeepLink(url: string): Promise<boolean> {

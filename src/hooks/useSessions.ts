@@ -79,6 +79,8 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const enabledRef = React.useRef(enabled)
   const requestSequenceRef = React.useRef(0)
   const localCreatedSessionsRef = React.useRef(new Map<string, SessionInfo>())
+  const permissionModeWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
+  const permissionModeWriteVersionsRef = React.useRef(new Map<string, number>())
   const scopeKey = sessionScopeKey(requestScope)
 
   React.useEffect(() => {
@@ -251,13 +253,31 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const setSessionPermissionMode = React.useCallback(
     async (id: string, permissionMode: SessionInfo["permissionMode"]) => {
-      await sessionService.invoke("setPermissionMode", { id, permissionMode: permissionMode ?? "default" })
+      const normalizedPermissionMode = permissionMode ?? "default"
+      const version = (permissionModeWriteVersionsRef.current.get(id) ?? 0) + 1
+      permissionModeWriteVersionsRef.current.set(id, version)
+      const previousWrite = permissionModeWriteQueuesRef.current.get(id) ?? Promise.resolve()
+      const queuedWrite = previousWrite
+        .catch(() => undefined)
+        .then(() => sessionService.invoke("setPermissionMode", { id, permissionMode: normalizedPermissionMode }))
+      const trackedWrite = queuedWrite.catch(() => undefined).then(() => undefined)
+      permissionModeWriteQueuesRef.current.set(id, trackedWrite)
+      void trackedWrite.finally(() => {
+        if (permissionModeWriteQueuesRef.current.get(id) === trackedWrite) {
+          permissionModeWriteQueuesRef.current.delete(id)
+        }
+      })
+
+      await queuedWrite
+      if (permissionModeWriteVersionsRef.current.get(id) !== version) {
+        return
+      }
       const applyPermissionMode = (session: SessionInfo): SessionInfo =>
         session.id === id
           ? (() => {
               const next = { ...session }
-              if (permissionMode === "full_access") {
-                next.permissionMode = permissionMode
+              if (normalizedPermissionMode === "full_access") {
+                next.permissionMode = normalizedPermissionMode
               } else {
                 delete next.permissionMode
               }

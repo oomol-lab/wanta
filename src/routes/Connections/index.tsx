@@ -105,7 +105,7 @@ export function ConnectionsPanel({
   const [selectedProviderService, setSelectedProviderService] = React.useState<string | null>(null)
   const [narrowPane, setNarrowPane] = React.useState<"detail" | "list">("list")
   const [detail, setDetail] = React.useState<ConnectionProviderDetail | null>(null)
-  const [detailService, setDetailService] = React.useState<string | null>(null)
+  const [detailCacheKey, setDetailCacheKey] = React.useState<string | null>(null)
   const [detailLoading, setDetailLoading] = React.useState(false)
   const [detailError, setDetailError] = React.useState<UserFacingError | null>(null)
   const [detailPaneClosing, setDetailPaneClosing] = React.useState(false)
@@ -148,7 +148,7 @@ export function ConnectionsPanel({
     summaryWorkspaceKey && selectedDetailService
       ? connectionDetailCacheKey(summaryWorkspaceKey, selectedDetailService)
       : null
-  const selectedProviderDetail = selectedDetailCacheKey && detailService === selectedDetailService ? detail : null
+  const selectedProviderDetail = selectedDetailCacheKey && detailCacheKey === selectedDetailCacheKey ? detail : null
   const selectedProviderDetailLoading = Boolean(selectedDetailCacheKey) && detailLoading
   const selectedProviderDetailError = selectedDetailCacheKey ? detailError : null
   const detailErrorNotice = selectedProvider
@@ -159,13 +159,20 @@ export function ConnectionsPanel({
     detailError: detailErrorNotice?.error ?? null,
   })
 
-  const deleteCachedDetailForService = React.useCallback((service: string): void => {
-    for (const cacheKey of detailCacheRef.current.keys()) {
-      if (isConnectionDetailCacheKeyForService(cacheKey, service)) {
-        detailCacheRef.current.delete(cacheKey)
+  const deleteCachedDetailForService = React.useCallback(
+    (service: string): void => {
+      if (!summaryWorkspaceKey) {
+        return
       }
-    }
-  }, [])
+      const activeCacheKey = connectionDetailCacheKey(summaryWorkspaceKey, service)
+      for (const cacheKey of detailCacheRef.current.keys()) {
+        if (cacheKey === activeCacheKey && isConnectionDetailCacheKeyForService(cacheKey, service)) {
+          detailCacheRef.current.delete(cacheKey)
+        }
+      }
+    },
+    [summaryWorkspaceKey],
+  )
 
   const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
   React.useEffect(() => {
@@ -176,6 +183,10 @@ export function ConnectionsPanel({
     connectRequestIdRef.current += 1
     setDialog(null)
     setConfirmDisconnect(null)
+    setDetail(null)
+    setDetailCacheKey(null)
+    setDetailError(null)
+    setDetailLoading(false)
   }, [summaryWorkspaceKey])
 
   const clearDetailCloseTimer = React.useCallback(() => {
@@ -256,7 +267,7 @@ export function ConnectionsPanel({
     if (!selectedDetailService || !selectedDetailCacheKey) {
       detailRequestIdRef.current += 1
       setDetail(null)
-      setDetailService(null)
+      setDetailCacheKey(null)
       setDetailError(null)
       setDetailLoading(false)
       return
@@ -268,12 +279,14 @@ export function ConnectionsPanel({
     const cached = detailCacheRef.current.get(selectedDetailCacheKey)
     if (cached) {
       setDetail(cached)
-      setDetailService(selectedDetailService)
+      setDetailCacheKey(selectedDetailCacheKey)
       setDetailError(null)
       setDetailLoading(false)
       return
     }
 
+    setDetail(null)
+    setDetailCacheKey(null)
     setDetailLoading(true)
     setDetailError(null)
     void getProviderDetail(selectedDetailService)
@@ -281,14 +294,14 @@ export function ConnectionsPanel({
         if (!cancelled && detailRequestIdRef.current === requestId) {
           detailCacheRef.current.set(selectedDetailCacheKey, next)
           setDetail(next)
-          setDetailService(selectedDetailService)
+          setDetailCacheKey(selectedDetailCacheKey)
           setDetailError(null)
         }
       })
       .catch((err) => {
         if (!cancelled && detailRequestIdRef.current === requestId) {
           setDetail(null)
-          setDetailService(null)
+          setDetailCacheKey(null)
           setDetailError(resolveConnectionError(err, "detail"))
         }
       })
@@ -312,12 +325,29 @@ export function ConnectionsPanel({
       const requestId = connectRequestIdRef.current + 1
       connectRequestIdRef.current = requestId
       const requestIsCurrent = (): boolean => connectRequestIdRef.current === requestId
+      const loadProviderDetail = async (): Promise<ConnectionProviderDetail> => {
+        const providerDetailCacheKey = summaryWorkspaceKey
+          ? connectionDetailCacheKey(summaryWorkspaceKey, provider.service)
+          : null
+        if (providerDetailCacheKey) {
+          if (detailCacheKey === providerDetailCacheKey && detail) {
+            return detail
+          }
+          const cached = detailCacheRef.current.get(providerDetailCacheKey)
+          if (cached) {
+            return cached
+          }
+        }
+
+        const loaded = await getProviderDetail(provider.service)
+        if (providerDetailCacheKey && requestIsCurrent()) {
+          detailCacheRef.current.set(providerDetailCacheKey, loaded)
+        }
+        return loaded
+      }
       try {
         if (authType === "oauth2") {
-          const loaded =
-            selectedDetailCacheKey && detailService === provider.service && detail
-              ? detail
-              : await getProviderDetail(provider.service)
+          const loaded = await loadProviderDetail()
           const oauthClientConfig = loaded.oauthClientConfig ? await getOAuthClientConfig(provider.service) : null
           if (!requestIsCurrent()) {
             return
@@ -354,9 +384,7 @@ export function ConnectionsPanel({
         }
 
         const [loaded, appDetail] = await Promise.all([
-          selectedDetailCacheKey && detailService === provider.service && detail
-            ? Promise.resolve(detail)
-            : getProviderDetail(provider.service),
+          loadProviderDetail(),
           appId ? getAppDetail(appId).catch(() => null) : Promise.resolve(null),
         ])
         if (!requestIsCurrent()) {
@@ -373,10 +401,10 @@ export function ConnectionsPanel({
       connect,
       deleteCachedDetailForService,
       detail,
-      detailService,
+      detailCacheKey,
       getAppDetail,
       getProviderDetail,
-      selectedDetailCacheKey,
+      summaryWorkspaceKey,
     ],
   )
 
@@ -463,9 +491,12 @@ export function ConnectionsPanel({
               : await disconnect(target.provider.service)
             if (ok) {
               deleteCachedDetailForService(target.provider.service)
-              if (detailService === target.provider.service) {
+              if (
+                summaryWorkspaceKey &&
+                detailCacheKey === connectionDetailCacheKey(summaryWorkspaceKey, target.provider.service)
+              ) {
                 setDetail(null)
-                setDetailService(null)
+                setDetailCacheKey(null)
               }
               setConfirmDisconnect(null)
             }
@@ -594,9 +625,12 @@ export function ConnectionsPanel({
             : await disconnect(target.provider.service)
           if (ok) {
             deleteCachedDetailForService(target.provider.service)
-            if (detailService === target.provider.service) {
+            if (
+              summaryWorkspaceKey &&
+              detailCacheKey === connectionDetailCacheKey(summaryWorkspaceKey, target.provider.service)
+            ) {
               setDetail(null)
-              setDetailService(null)
+              setDetailCacheKey(null)
             }
             setConfirmDisconnect(null)
           }

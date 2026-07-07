@@ -136,7 +136,7 @@ function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; heigh
 
 function contextUsageTitle(usage: ContextUsageInfo, t: ReturnType<typeof useT>): string {
   const used = formatTokenCount(usage.usedTokens)
-  if (usage.limitTokens) {
+  if (usage.limitTokens !== undefined) {
     if (usage.limitKind === "compaction") {
       return t("chat.contextUsageCompaction", {
         limit: formatTokenCount(usage.limitTokens),
@@ -172,7 +172,7 @@ function contextPanelTokenCount(value: number): string {
 
 function contextUsagePanelTokens(usage: ContextUsageInfo, t: ReturnType<typeof useT>): string {
   const used = contextPanelTokenCount(usage.usedTokens)
-  if (usage.limitTokens) {
+  if (usage.limitTokens !== undefined) {
     if (usage.limitKind === "compaction") {
       return t("chat.contextUsagePanelTokensWithThreshold", {
         limit: contextPanelTokenCount(usage.limitTokens),

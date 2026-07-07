@@ -84,16 +84,23 @@ export function buildContextUsageInfo(messages: ChatMessage[], catalog: ModelCat
     return null
   }
   const limitTokens = budget?.compactionThresholdTokens ?? budget?.contextLimitTokens
-  const percent = limitTokens ? Math.min(100, Math.max(0, Math.round((usedTokens / limitTokens) * 100))) : undefined
+  const percent =
+    limitTokens === undefined
+      ? undefined
+      : limitTokens <= 0
+        ? usedTokens > 0
+          ? 100
+          : 0
+        : Math.min(100, Math.max(0, Math.round((usedTokens / limitTokens) * 100)))
   return {
     usedTokens,
     ...(budget?.contextWindowTokens ? { contextWindowTokens: budget.contextWindowTokens } : {}),
     ...(budget?.inputLimitTokens ? { inputLimitTokens: budget.inputLimitTokens } : {}),
-    ...(limitTokens ? { limitTokens } : {}),
+    ...(limitTokens === undefined ? {} : { limitTokens }),
     ...(budget?.maxOutputTokens ? { maxOutputTokens: budget.maxOutputTokens } : {}),
     ...(budget?.compactionThresholdTokens !== undefined
       ? { compactionThresholdTokens: budget.compactionThresholdTokens, limitKind: "compaction" as const }
-      : limitTokens
+      : limitTokens !== undefined
         ? { limitKind: "context" as const }
         : {}),
     ...(percent === undefined ? {} : { percent }),

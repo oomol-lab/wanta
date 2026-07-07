@@ -193,9 +193,9 @@ function EmptyCapabilityAction({
           ·
         </span>
         {highlighted ? (
-          <span className="oo-pending-skill-status min-w-0 truncate">
+          <span className="oo-pending-skill-status min-w-0">
             <span className="oo-pending-skill-dot" aria-hidden="true" />
-            {meta}
+            <span className="min-w-0 truncate">{meta}</span>
           </span>
         ) : (
           <span className="min-w-0 truncate">{meta}</span>

@@ -38,6 +38,10 @@ function sourceForTurn(
   }
 }
 
+function hasLocalPathReference(text: string): boolean {
+  return /`(?:file:\/\/|~?\/|[A-Za-z]:[\\/])/.test(text) || /(?:^|\s)(?:file:\/\/|~?\/|[A-Za-z]:[\\/])/.test(text)
+}
+
 export function collectGeneratedArtifactSources(messages: ChatMessage[]): GeneratedArtifactSource[] {
   const sources: GeneratedArtifactSource[] = []
   let latestArtifactRoot: string | undefined
@@ -91,5 +95,9 @@ export function collectVisibleGeneratedArtifactSources(
   if (isGenerating) {
     return []
   }
-  return collectGeneratedArtifactSources(messages)
+  const sources = collectGeneratedArtifactSources(messages).filter(
+    (source) => source.artifactRoot || hasLocalPathReference(source.text),
+  )
+  const latest = sources.at(-1)
+  return latest ? [latest] : []
 }

@@ -137,6 +137,13 @@ function VoiceWaveCanvas({ bars, height = 32 }: { bars: readonly number[]; heigh
 function contextUsageTitle(usage: ContextUsageInfo, t: ReturnType<typeof useT>): string {
   const used = formatTokenCount(usage.usedTokens)
   if (usage.limitTokens) {
+    if (usage.limitKind === "compaction") {
+      return t("chat.contextUsageCompaction", {
+        limit: formatTokenCount(usage.limitTokens),
+        percent: String(usage.percent ?? 0),
+        used,
+      })
+    }
     return t("chat.contextUsage", {
       limit: formatTokenCount(usage.limitTokens),
       percent: String(usage.percent ?? 0),
@@ -166,6 +173,12 @@ function contextPanelTokenCount(value: number): string {
 function contextUsagePanelTokens(usage: ContextUsageInfo, t: ReturnType<typeof useT>): string {
   const used = contextPanelTokenCount(usage.usedTokens)
   if (usage.limitTokens) {
+    if (usage.limitKind === "compaction") {
+      return t("chat.contextUsagePanelTokensWithThreshold", {
+        limit: contextPanelTokenCount(usage.limitTokens),
+        used,
+      })
+    }
     return t("chat.contextUsagePanelTokens", { limit: contextPanelTokenCount(usage.limitTokens), used })
   }
   return t("chat.contextUsagePanelTokensUnknown", { used })
@@ -175,6 +188,14 @@ function contextUsagePanelPercent(usage: ContextUsageInfo, t: ReturnType<typeof 
   if (usage.percent === undefined) {
     return null
   }
+  if (usage.limitKind === "compaction") {
+    if (usage.compactionThresholdTokens !== undefined && usage.usedTokens >= usage.compactionThresholdTokens) {
+      return t("chat.contextUsagePanelOverThreshold")
+    }
+    return t("chat.contextUsagePanelThresholdPercent", {
+      percent: String(usage.percent),
+    })
+  }
   const remaining = Math.max(0, 100 - usage.percent)
   return t("chat.contextUsagePanelPercent", {
     percent: String(usage.percent),
@@ -182,9 +203,19 @@ function contextUsagePanelPercent(usage: ContextUsageInfo, t: ReturnType<typeof 
   })
 }
 
+function contextUsagePanelWindow(usage: ContextUsageInfo, t: ReturnType<typeof useT>): string | null {
+  if (usage.inputLimitTokens) {
+    return t("chat.contextUsagePanelInputLimit", { limit: contextPanelTokenCount(usage.inputLimitTokens) })
+  }
+  if (usage.contextWindowTokens) {
+    return t("chat.contextUsagePanelWindow", { limit: contextPanelTokenCount(usage.contextWindowTokens) })
+  }
+  return null
+}
+
 function contextPanelPlacement(rect: DOMRect): React.CSSProperties {
   const margin = 12
-  const width = 172
+  const width = 228
   const left = Math.min(Math.max(rect.left + rect.width / 2 - width / 2, margin), window.innerWidth - width - margin)
   const bottom = Math.max(margin, window.innerHeight - rect.top + 8)
   return { left, bottom, width }
@@ -250,6 +281,7 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageInfo | null }) {
   }
   const title = contextUsageTitle(usage, t)
   const panelPercent = contextUsagePanelPercent(usage, t)
+  const panelWindow = contextUsagePanelWindow(usage, t)
   const progress = Math.min(100, Math.max(0, usage.percent ?? 0))
   const radius = 8
   const circumference = 2 * Math.PI * radius
@@ -267,6 +299,9 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageInfo | null }) {
           </div>
           {panelPercent ? <div className="oo-text-control mt-1 font-semibold">{panelPercent}</div> : null}
           <div className="oo-text-control mt-1 leading-snug font-semibold">{contextUsagePanelTokens(usage, t)}</div>
+          {panelWindow ? (
+            <div className="oo-text-caption-compact mt-1 leading-snug text-muted-foreground">{panelWindow}</div>
+          ) : null}
         </div>,
         document.body,
       )

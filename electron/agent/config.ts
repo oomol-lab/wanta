@@ -9,6 +9,7 @@ import {
   DEFAULT_BUILTIN_MODEL_ID,
   resolveBuiltinModel,
 } from "../models/builtin.ts"
+import { effectiveMaxOutputTokens } from "../models/limits.ts"
 import { customModelDisplayName } from "../models/store.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
 import { OO_CLI_BASH_PERMISSION } from "./oo-command-permission.ts"
@@ -194,14 +195,13 @@ function modelCapabilities({
   toolCall: boolean
 }): OpencodeModelConfig {
   const limitContext = contextWindow ?? inputTokenLimit
-  const limit =
-    limitContext && maxOutputTokens
-      ? {
-          context: limitContext,
-          ...(inputTokenLimit ? { input: inputTokenLimit } : {}),
-          output: maxOutputTokens,
-        }
-      : undefined
+  const limit = limitContext
+    ? {
+        context: limitContext,
+        ...(inputTokenLimit ? { input: inputTokenLimit } : {}),
+        output: effectiveMaxOutputTokens(maxOutputTokens),
+      }
+    : undefined
   return {
     name,
     ...(limit ? { limit } : {}),

@@ -576,12 +576,15 @@ function messageTokenUsage(info: unknown): ChatTokenUsage | undefined {
     return undefined
   }
   const tokens = message.tokens as {
+    total?: unknown
     input?: unknown
     output?: unknown
     reasoning?: unknown
     cache?: { read?: unknown; write?: unknown }
   }
+  const total = numberOrZero(tokens.total)
   return {
+    ...(total ? { total } : {}),
     input: numberOrZero(tokens.input),
     output: numberOrZero(tokens.output),
     reasoning: numberOrZero(tokens.reasoning),

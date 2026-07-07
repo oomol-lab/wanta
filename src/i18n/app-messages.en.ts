@@ -867,6 +867,7 @@ export const enMessages = {
   "artifacts.emptyDescription":
     "Markdown, images, videos, audio, and other generated files will appear here when this conversation has them.",
   "artifacts.viewAll": "View all {count}",
+  "artifacts.viewAllOutputs": "View all outputs ({count})",
   "artifacts.count": "{count} items",
   "artifacts.imageCount": "{count} images",
   "artifacts.truncated": "Only the first items are shown. Open the folder to see everything.",
@@ -922,6 +923,8 @@ export const enMessages = {
   "turnOutputs.processFiles": "Process files",
   "turnOutputs.changesSummary": "{count} changed file(s)",
   "turnOutputs.processSummary": "{count} process file(s)",
+  "turnOutputs.viewChanges": "View all changes ({count})",
+  "turnOutputs.viewProcess": "View process ({count})",
   "turnOutputs.reviewProcessFiles": "Review intermediate scripts and execution files",
   "turnOutputs.processCaution":
     "Process files may include raw data used during the task. Review them only when you need implementation details.",

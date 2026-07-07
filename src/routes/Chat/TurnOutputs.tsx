@@ -40,7 +40,7 @@ export interface TurnOutputSelection {
 }
 
 interface GeneratedTurnOutputsProps {
-  isGenerating: boolean
+  layout?: "stack" | "shelf"
   messages: ChatMessage[]
   onAvailable: (selection: TurnOutputSelection) => void
   onOpen: (selection: TurnOutputSelection) => void
@@ -90,11 +90,7 @@ function ChangeCountLabel({
   )
 }
 
-function useTurnOutputRecords(
-  sessionId: string | null,
-  messages: ChatMessage[],
-  isGenerating: boolean,
-): TurnOutputRecord[] {
+function useTurnOutputRecords(sessionId: string | null, messages: ChatMessage[]): TurnOutputRecord[] {
   const chatService = useChatService()
   const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
   const [refreshToken, setRefreshToken] = React.useState(0)
@@ -111,7 +107,7 @@ function useTurnOutputRecords(
 
   React.useEffect(() => {
     let cancelled = false
-    if (!sessionId || isGenerating || messageIds.length === 0) {
+    if (!sessionId || messageIds.length === 0) {
       setRecords([])
       return
     }
@@ -134,20 +130,20 @@ function useTurnOutputRecords(
     return () => {
       cancelled = true
     }
-  }, [chatService, isGenerating, key, messageIds, refreshToken, sessionId])
+  }, [chatService, key, messageIds, refreshToken, sessionId])
 
   return records
 }
 
 export function GeneratedTurnOutputs({
-  isGenerating,
+  layout = "stack",
   messages,
   onAvailable,
   onOpen,
   sessionId,
 }: GeneratedTurnOutputsProps) {
   const t = useT()
-  const records = useTurnOutputRecords(sessionId, messages, isGenerating)
+  const records = useTurnOutputRecords(sessionId, messages)
 
   React.useEffect(() => {
     const latest = records.at(-1)
@@ -161,6 +157,11 @@ export function GeneratedTurnOutputs({
     return null
   }
 
+  if (layout === "shelf") {
+    const latest = records.at(-1)
+    return latest ? <TurnOutputShelf record={latest} onOpen={onOpen} /> : null
+  }
+
   return (
     <section className="not-prose -mt-1 grid gap-1.5">
       <div className="oo-text-caption-compact font-medium text-muted-foreground">{t("turnOutputs.title")}</div>
@@ -170,6 +171,47 @@ export function GeneratedTurnOutputs({
         ))}
       </div>
     </section>
+  )
+}
+
+function TurnOutputShelf({
+  record,
+  onOpen,
+}: {
+  record: TurnOutputRecord
+  onOpen: (selection: TurnOutputSelection) => void
+}) {
+  const t = useT()
+  const hasProjectChanges = record.summary.changedFileCount > 0
+  const hasProcessFiles = record.summary.processFileCount > 0
+
+  if (!hasProjectChanges && !hasProcessFiles) {
+    return null
+  }
+
+  return (
+    <div className="not-prose mt-1 flex min-w-0 flex-wrap items-center gap-3">
+      {hasProjectChanges ? (
+        <button
+          type="button"
+          className="oo-text-caption flex h-8 min-w-0 items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
+          onClick={() => onOpen({ record, initialRole: "project_change" })}
+        >
+          <span>{t("turnOutputs.viewChanges", { count: record.summary.changedFileCount })}</span>
+          <ChevronRight className="size-4 shrink-0" />
+        </button>
+      ) : null}
+      {hasProcessFiles ? (
+        <button
+          type="button"
+          className="oo-text-caption flex h-8 min-w-0 items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
+          onClick={() => onOpen({ record, initialRole: "process" })}
+        >
+          <span>{t("turnOutputs.viewProcess", { count: record.summary.processFileCount })}</span>
+          <ChevronRight className="size-4 shrink-0" />
+        </button>
+      ) : null}
+    </div>
   )
 }
 

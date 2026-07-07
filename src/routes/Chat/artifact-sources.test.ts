@@ -107,13 +107,39 @@ describe("collectGeneratedArtifactSources", () => {
 })
 
 describe("collectVisibleGeneratedArtifactSources", () => {
-  it("hides all artifact sources while a new turn is generating", () => {
+  it("hides only the active assistant artifact source while a turn is generating", () => {
     const messages = [
       user("user-1", "Create an image"),
       assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
+      user("user-2", "Create another image"),
+      assistant("assistant-2", "Output file: `/tmp/wanta/second.png`"),
     ]
 
-    expect(collectVisibleGeneratedArtifactSources(messages, true)).toEqual([])
+    expect(collectVisibleGeneratedArtifactSources(messages, true)).toEqual([
+      {
+        messageId: "assistant-1",
+        requestText: "Create an image",
+        sourcePaths: [],
+        text: "Output file: `/tmp/wanta/image.png`",
+      },
+    ])
+  })
+
+  it("keeps historical artifact sources while waiting for the first active assistant event", () => {
+    const messages = [
+      user("user-1", "Create an image"),
+      assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
+      user("user-2", "Create another image"),
+    ]
+
+    expect(collectVisibleGeneratedArtifactSources(messages, true)).toEqual([
+      {
+        messageId: "assistant-1",
+        requestText: "Create an image",
+        sourcePaths: [],
+        text: "Output file: `/tmp/wanta/image.png`",
+      },
+    ])
   })
 
   it("keeps historical candidates after generation has stopped", () => {

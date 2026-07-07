@@ -55,10 +55,13 @@ import {
   requestMatchesSessionGrant,
 } from "@/routes/Chat/permission-request"
 import {
+  addStoredDismissedQuestions,
   addStoredRecoverableQuestions,
   addStoredStoppedQuestions,
+  isQuestionDismissed,
   mergePendingQuestionsWithStopped,
   questionRequestToolKey,
+  readStoredDismissedQuestions,
   readStoredRecoverableQuestions,
   readStoredStoppedQuestions,
   recoverQuestionsFromMessageTools,
@@ -491,6 +494,17 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [clearStoppedQuestion, markPendingQuestionsMutated, updatePendingQuestionsMap],
   )
 
+  const dismissPendingQuestion = React.useCallback(
+    (sessionId: string, requestId: string) => {
+      const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
+      if (request) {
+        addStoredDismissedQuestions(sessionId, [request])
+      }
+      removePendingQuestion(sessionId, requestId)
+    },
+    [removePendingQuestion],
+  )
+
   const markPendingPermissionsMutated = React.useCallback((sessionId: string) => {
     pendingPermissionsMutationVersions.current.set(
       sessionId,
@@ -676,14 +690,16 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
           return
         }
-        const fetchedIds = new Set(questions.map((request) => request.id))
+        const dismissedQuestions = readStoredDismissedQuestions(sessionId)
+        const activeQuestions = questions.filter((request) => !isQuestionDismissed(request, dismissedQuestions))
+        const fetchedIds = new Set(activeQuestions.map((request) => request.id))
         const fetchedToolKeys = new Set(
-          questions
+          activeQuestions
             .map(questionRequestToolKey)
             .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
         )
         const recoveredStoppedQuestions = currentMessages
-          ? recoverQuestionsFromMessageTools(sessionId, currentMessages, questions)
+          ? recoverQuestionsFromMessageTools(sessionId, currentMessages, activeQuestions, dismissedQuestions)
           : []
         if (recoveredStoppedQuestions.length > 0) {
           addStoredStoppedQuestions(sessionId, recoveredStoppedQuestions)
@@ -691,6 +707,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         const messagesForRecovery = currentMessages ?? []
         const storedStoppedQuestions = readStoredStoppedQuestions(sessionId).filter((request) => {
           const toolKey = questionRequestToolKey(request)
+          if (isQuestionDismissed(request, dismissedQuestions)) {
+            removeStoredStoppedQuestion(sessionId, request.id)
+            return false
+          }
           if (fetchedIds.has(request.id) || (toolKey && fetchedToolKeys.has(toolKey))) {
             removeStoredStoppedQuestion(sessionId, request.id)
             return false
@@ -699,6 +719,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         })
         const storedRecoverableQuestions = readStoredRecoverableQuestions(sessionId).filter((request) => {
           const toolKey = questionRequestToolKey(request)
+          if (isQuestionDismissed(request, dismissedQuestions)) {
+            removeStoredRecoverableQuestion(sessionId, request.id)
+            return false
+          }
           if (fetchedIds.has(request.id) || (toolKey && fetchedToolKeys.has(toolKey))) {
             removeStoredRecoverableQuestion(sessionId, request.id)
             return false
@@ -735,7 +759,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         updatePendingQuestionsMap((prev) => ({
           ...prev,
           [sessionId]: mergePendingQuestionsWithStopped({
-            fetchedQuestions: questions,
+            dismissedQuestions,
+            fetchedQuestions: activeQuestions,
             previousQuestions: prev[sessionId] ?? [],
             storedRecoverableQuestions,
             stoppedQuestionIds: (stoppedQuestionsMapRef.current[sessionId] ?? []).filter(
@@ -751,10 +776,17 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
           return
         }
+        const dismissedQuestions = readStoredDismissedQuestions(sessionId)
         const recoveredStoppedQuestions = currentMessages
-          ? recoverQuestionsFromMessageTools(sessionId, currentMessages)
+          ? recoverQuestionsFromMessageTools(sessionId, currentMessages, [], dismissedQuestions)
           : []
-        const storedRecoverableQuestions = readStoredRecoverableQuestions(sessionId)
+        const storedRecoverableQuestions = readStoredRecoverableQuestions(sessionId).filter((request) => {
+          if (isQuestionDismissed(request, dismissedQuestions)) {
+            removeStoredRecoverableQuestion(sessionId, request.id)
+            return false
+          }
+          return true
+        })
         if (recoveredStoppedQuestions.length > 0 || storedRecoverableQuestions.length > 0) {
           addStoredStoppedQuestions(sessionId, recoveredStoppedQuestions)
           const recoveredIds = recoveredStoppedQuestions.map((request) => request.id)
@@ -772,6 +804,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           updatePendingQuestionsMap((prev) => ({
             ...prev,
             [sessionId]: mergePendingQuestionsWithStopped({
+              dismissedQuestions,
               fetchedQuestions: [],
               previousQuestions: prev[sessionId] ?? [],
               storedRecoverableQuestions,
@@ -1161,9 +1194,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const discardQuestion = React.useCallback(
     (sessionId: string, requestId: string) => {
-      removePendingQuestion(sessionId, requestId)
+      dismissPendingQuestion(sessionId, requestId)
     },
-    [removePendingQuestion],
+    [dismissPendingQuestion],
   )
 
   const rejectQuestion = React.useCallback(

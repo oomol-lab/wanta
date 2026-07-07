@@ -13,9 +13,9 @@ describe("question-state", () => {
     expect(questionPromptBusy("active", "ready")).toBe(false)
   })
 
-  it("stops the running session before discarding a stopped question", () => {
-    expect(shouldStopBeforeDiscardingQuestion("stopped", true)).toBe(true)
+  it("does not stop the running session before discarding an old stopped question", () => {
+    expect(shouldStopBeforeDiscardingQuestion("stopped", true)).toBe(false)
     expect(shouldStopBeforeDiscardingQuestion("stopped", false)).toBe(false)
-    expect(shouldStopBeforeDiscardingQuestion("active", true)).toBe(false)
+    expect(shouldStopBeforeDiscardingQuestion("active", true)).toBe(true)
   })
 })

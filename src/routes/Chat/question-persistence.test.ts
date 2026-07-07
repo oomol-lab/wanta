@@ -2,9 +2,12 @@ import type { ChatMessage, ChatQuestionRequest } from "../../../electron/chat/co
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
+  addStoredDismissedQuestions,
   addStoredRecoverableQuestions,
   addStoredStoppedQuestions,
+  isQuestionDismissed,
   mergePendingQuestionsWithStopped,
+  readStoredDismissedQuestions,
   readStoredRecoverableQuestions,
   recoverQuestionsFromMessageTools,
   readStoredQuestionDraft,
@@ -40,6 +43,7 @@ function question(id: string): ChatQuestionRequest {
 const stoppedQuestionsStorageKey = "wanta:chat:stopped-questions:v1"
 const recoverableQuestionsStorageKey = "wanta:chat:recoverable-questions:v1"
 const questionDraftsStorageKey = "wanta:chat:question-drafts:v1"
+const dismissedQuestionsStorageKey = "wanta:chat:dismissed-questions:v1"
 const staleUpdatedAt = Date.now() - 15 * 24 * 60 * 60 * 1000
 
 describe("question persistence", () => {
@@ -83,6 +87,18 @@ describe("question persistence", () => {
 
     expect(readStoredRecoverableQuestions("s1").map((request) => request.id)).toEqual(["q2"])
     expect(readStoredRecoverableQuestions("s2").map((request) => request.id)).toEqual(["q3"])
+  })
+
+  it("stores dismissed questions by tool identity", () => {
+    const dismissed = { ...question("q1"), tool: { messageId: "m1", callId: "call-1" } }
+    const recovered = { ...question("recovered:m1:call-1"), tool: { messageId: "m1", callId: "call-1" } }
+
+    addStoredDismissedQuestions("s1", [dismissed])
+
+    const dismissals = readStoredDismissedQuestions("s1")
+    expect(dismissals).toEqual([{ requestId: "q1", toolKey: "m1\0call-1" }])
+    expect(isQuestionDismissed(dismissed, dismissals)).toBe(true)
+    expect(isQuestionDismissed(recovered, dismissals)).toBe(true)
   })
 
   it("stores and removes field drafts by request", () => {
@@ -171,6 +187,24 @@ describe("question persistence", () => {
     ).toEqual(["active"])
   })
 
+  it("filters dismissed questions from merged stopped, recoverable, and fetched lists", () => {
+    const dismissed = { ...question("old"), tool: { messageId: "m1", callId: "call-1" } }
+    const recovered = { ...question("recovered"), tool: { messageId: "m1", callId: "call-1" } }
+    const active = { ...question("active"), tool: { messageId: "m1", callId: "call-1" } }
+    const visible = { ...question("visible"), tool: { messageId: "m2", callId: "call-2" } }
+
+    expect(
+      mergePendingQuestionsWithStopped({
+        dismissedQuestions: [{ requestId: dismissed.id, toolKey: "m1\0call-1" }],
+        fetchedQuestions: [active, visible],
+        previousQuestions: [dismissed],
+        storedRecoverableQuestions: [recovered],
+        stoppedQuestionIds: [dismissed.id],
+        storedStoppedQuestions: [dismissed],
+      }).map((request) => request.id),
+    ).toEqual(["visible"])
+  })
+
   it("recovers stopped questions from waiting question tool parts", () => {
     const messages: ChatMessage[] = [
       {
@@ -237,6 +271,30 @@ describe("question persistence", () => {
     expect(recoverQuestionsFromMessageTools("s1", messages, [fetched])).toEqual([])
   })
 
+  it("does not recover a dismissed waiting question tool part", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "m1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "part-1",
+            callId: "call-1",
+            tool: "question",
+            status: "running",
+            input: { questions: [{ header: "Email", question: "Recipient email", options: [] }] },
+          },
+        ],
+      },
+    ]
+
+    expect(recoverQuestionsFromMessageTools("s1", messages, [], [{ requestId: "q1", toolKey: "m1\0call-1" }])).toEqual(
+      [],
+    )
+  })
+
   it("prunes expired stopped questions and drafts during reads", () => {
     globalThis.localStorage.setItem(
       stoppedQuestionsStorageKey,
@@ -262,9 +320,16 @@ describe("question persistence", () => {
         },
       }),
     )
+    globalThis.localStorage.setItem(
+      dismissedQuestionsStorageKey,
+      JSON.stringify({
+        s1: [{ requestId: "q1", toolKey: "m1\0call-1", updatedAt: staleUpdatedAt }],
+      }),
+    )
 
     expect(readStoredStoppedQuestions("s1")).toEqual([])
     expect(readStoredRecoverableQuestions("s1")).toEqual([])
     expect(readStoredQuestionDraft("s1", "q1", 1)).toBeNull()
+    expect(readStoredDismissedQuestions("s1")).toEqual([])
   })
 })

@@ -10,6 +10,7 @@ import type { QuestionFieldDraft } from "./question-fields.ts"
 const stoppedQuestionsStorageKey = "wanta:chat:stopped-questions:v1"
 const recoverableQuestionsStorageKey = "wanta:chat:recoverable-questions:v1"
 const questionDraftsStorageKey = "wanta:chat:question-drafts:v1"
+const dismissedQuestionsStorageKey = "wanta:chat:dismissed-questions:v1"
 const questionPersistenceMaxAgeMs = 14 * 24 * 60 * 60 * 1000
 
 interface StoredQuestionDraft {
@@ -23,8 +24,20 @@ interface StoredStoppedQuestion {
   updatedAt: number
 }
 
+interface StoredDismissedQuestion {
+  requestId: string
+  toolKey?: string
+  updatedAt: number
+}
+
 type StoredQuestionDraftsBySession = Record<string, Record<string, StoredQuestionDraft>>
 type StoredStoppedQuestionsBySession = Record<string, Array<ChatQuestionRequest | StoredStoppedQuestion>>
+type StoredDismissedQuestionsBySession = Record<string, StoredDismissedQuestion[]>
+
+export interface QuestionDismissal {
+  requestId: string
+  toolKey: string | null
+}
 
 export interface StoredQuestionDraftSnapshot {
   activeFieldIndex: number
@@ -130,6 +143,26 @@ export function questionRequestToolKey(request: ChatQuestionRequest): string | n
   return request.tool ? `${request.tool.messageId}\0${request.tool.callId}` : null
 }
 
+function dismissalStorageKey(dismissal: QuestionDismissal): string {
+  return dismissal.toolKey ? `tool:${dismissal.toolKey}` : `id:${dismissal.requestId}`
+}
+
+function questionDismissal(request: ChatQuestionRequest): QuestionDismissal {
+  return {
+    requestId: request.id,
+    toolKey: questionRequestToolKey(request),
+  }
+}
+
+export function isQuestionDismissed(request: ChatQuestionRequest, dismissals: QuestionDismissal[] = []): boolean {
+  const requestToolKey = questionRequestToolKey(request)
+  return dismissals.some(
+    (dismissal) =>
+      dismissal.requestId === request.id ||
+      (typeof requestToolKey === "string" && dismissal.toolKey === requestToolKey),
+  )
+}
+
 function isWaitingQuestionToolPart(part: ChatMessagePart): boolean {
   return (
     part.kind === "tool" &&
@@ -172,6 +205,7 @@ export function recoverQuestionsFromMessageTools(
   sessionId: string,
   messages: ChatMessage[],
   fetchedQuestions: ChatQuestionRequest[] = [],
+  dismissedQuestions: QuestionDismissal[] = [],
 ): ChatQuestionRequest[] {
   const fetchedToolKeys = new Set(
     fetchedQuestions
@@ -187,6 +221,9 @@ export function recoverQuestionsFromMessageTools(
       }
       const toolKey = questionRequestToolKey(request)
       if (toolKey && fetchedToolKeys.has(toolKey)) {
+        continue
+      }
+      if (isQuestionDismissed(request, dismissedQuestions)) {
         continue
       }
       recovered.set(toolKey ?? request.id, request)
@@ -289,6 +326,43 @@ function pruneQuestionDrafts(stored: StoredQuestionDraftsBySession, now = Date.n
   return changed ? next : stored
 }
 
+function normalizeStoredDismissedQuestion(value: unknown): StoredDismissedQuestion | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const item = value as { requestId?: unknown; toolKey?: unknown; updatedAt?: unknown }
+  if (typeof item.requestId !== "string" || typeof item.updatedAt !== "number" || !isFresh(item.updatedAt)) {
+    return null
+  }
+  return {
+    requestId: item.requestId,
+    ...(typeof item.toolKey === "string" && item.toolKey ? { toolKey: item.toolKey } : {}),
+    updatedAt: item.updatedAt,
+  }
+}
+
+function pruneDismissedQuestions(
+  stored: StoredDismissedQuestionsBySession,
+  now = Date.now(),
+): StoredDismissedQuestionsBySession {
+  let changed = false
+  const next: StoredDismissedQuestionsBySession = {}
+  for (const [sessionId, items] of Object.entries(stored)) {
+    const freshItems = Array.isArray(items)
+      ? items.filter((item) => typeof item.updatedAt === "number" && isFresh(item.updatedAt, now))
+      : []
+    if (freshItems.length !== items.length) {
+      changed = true
+    }
+    if (freshItems.length > 0) {
+      next[sessionId] = freshItems
+    } else if (items.length > 0) {
+      changed = true
+    }
+  }
+  return changed ? next : stored
+}
+
 export function readStoredStoppedQuestions(sessionId: string): ChatQuestionRequest[] {
   return readStoredQuestionRequests(stoppedQuestionsStorageKey, sessionId)
 }
@@ -311,6 +385,42 @@ export function addStoredRecoverableQuestions(sessionId: string, requests: ChatQ
 
 export function removeStoredRecoverableQuestion(sessionId: string, requestId: string): void {
   removeStoredQuestionRequest(recoverableQuestionsStorageKey, sessionId, requestId)
+}
+
+export function readStoredDismissedQuestions(sessionId: string): QuestionDismissal[] {
+  const stored = readJson<StoredDismissedQuestionsBySession>(dismissedQuestionsStorageKey, {})
+  const pruned = pruneDismissedQuestions(stored)
+  if (pruned !== stored) {
+    writeJson(dismissedQuestionsStorageKey, pruned)
+  }
+  return Array.isArray(pruned[sessionId])
+    ? pruned[sessionId]
+        .map(normalizeStoredDismissedQuestion)
+        .filter((item): item is StoredDismissedQuestion => Boolean(item))
+        .map((item) => ({ requestId: item.requestId, toolKey: item.toolKey ?? null }))
+    : []
+}
+
+export function addStoredDismissedQuestions(sessionId: string, requests: ChatQuestionRequest[]): void {
+  if (requests.length === 0) {
+    return
+  }
+  const stored = pruneDismissedQuestions(readJson<StoredDismissedQuestionsBySession>(dismissedQuestionsStorageKey, {}))
+  const byKey = new Map(
+    (stored[sessionId] ?? []).map((item) => [
+      dismissalStorageKey({ requestId: item.requestId, toolKey: item.toolKey ?? null }),
+      item,
+    ]),
+  )
+  for (const request of requests) {
+    const dismissal = questionDismissal(request)
+    byKey.set(dismissalStorageKey(dismissal), {
+      requestId: dismissal.requestId,
+      ...(dismissal.toolKey ? { toolKey: dismissal.toolKey } : {}),
+      updatedAt: Date.now(),
+    })
+  }
+  writeJson(dismissedQuestionsStorageKey, { ...stored, [sessionId]: Array.from(byKey.values()) })
 }
 
 export function readStoredQuestionDraft(
@@ -378,21 +488,26 @@ export function removeStoredQuestionDraft(sessionId: string, requestId: string):
 }
 
 export function mergePendingQuestionsWithStopped({
+  dismissedQuestions = [],
   fetchedQuestions,
   previousQuestions,
   storedRecoverableQuestions = [],
   stoppedQuestionIds,
   storedStoppedQuestions,
 }: {
+  dismissedQuestions?: QuestionDismissal[]
   fetchedQuestions: ChatQuestionRequest[]
   previousQuestions: ChatQuestionRequest[]
   storedRecoverableQuestions?: ChatQuestionRequest[]
   stoppedQuestionIds: string[]
   storedStoppedQuestions: ChatQuestionRequest[]
 }): ChatQuestionRequest[] {
-  const fetchedIds = new Set(fetchedQuestions.map((request) => request.id))
+  const visibleFetchedQuestions = fetchedQuestions.filter(
+    (request) => !isQuestionDismissed(request, dismissedQuestions),
+  )
+  const fetchedIds = new Set(visibleFetchedQuestions.map((request) => request.id))
   const fetchedToolKeys = new Set(
-    fetchedQuestions
+    visibleFetchedQuestions
       .map(questionRequestToolKey)
       .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
   )
@@ -403,7 +518,12 @@ export function mergePendingQuestionsWithStopped({
   const stoppedQuestions = new Map<string, ChatQuestionRequest>()
   for (const request of [...storedStoppedQuestions, ...previousQuestions]) {
     const toolKey = questionRequestToolKey(request)
-    if (stoppedIds.has(request.id) && !fetchedIds.has(request.id) && (!toolKey || !fetchedToolKeys.has(toolKey))) {
+    if (
+      stoppedIds.has(request.id) &&
+      !isQuestionDismissed(request, dismissedQuestions) &&
+      !fetchedIds.has(request.id) &&
+      (!toolKey || !fetchedToolKeys.has(toolKey))
+    ) {
       stoppedQuestions.set(request.id, request)
     }
   }
@@ -418,10 +538,15 @@ export function mergePendingQuestionsWithStopped({
     if (
       !fetchedIds.has(request.id) &&
       !stoppedQuestions.has(request.id) &&
+      !isQuestionDismissed(request, dismissedQuestions) &&
       (!toolKey || (!fetchedToolKeys.has(toolKey) && !stoppedToolKeys.has(toolKey)))
     ) {
       recoverableQuestions.set(request.id, request)
     }
   }
-  return dedupeQuestionRequests([...stoppedQuestions.values(), ...recoverableQuestions.values(), ...fetchedQuestions])
+  return dedupeQuestionRequests([
+    ...stoppedQuestions.values(),
+    ...recoverableQuestions.values(),
+    ...visibleFetchedQuestions,
+  ])
 }

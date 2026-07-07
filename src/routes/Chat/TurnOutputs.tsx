@@ -120,11 +120,11 @@ function useTurnOutputRecords(
         if (cancelled) {
           return
         }
-        const sorted = visibleRecords(results.filter((record): record is TurnOutputRecord => Boolean(record))).sort(
-          (a, b) => recordSortValue(a) - recordSortValue(b),
+        setRecords(
+          visibleRecords(results.filter((record): record is TurnOutputRecord => Boolean(record))).sort(
+            (a, b) => recordSortValue(a) - recordSortValue(b),
+          ),
         )
-        const latest = sorted.at(-1)
-        setRecords(latest ? [latest] : [])
       })
       .catch(() => {
         if (!cancelled) {

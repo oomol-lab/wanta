@@ -25,7 +25,6 @@ interface QuestionPromptCardProps {
   state?: ChatQuestionState
   busy?: boolean
   onAnswer: (requestId: string, answers: string[][]) => Promise<void>
-  continueDisabled?: boolean
   onContinue: (request: ChatQuestionRequest, answers: string[][]) => Promise<void>
   onDiscard: (requestId: string) => void
   onReject: (requestId: string) => Promise<void>
@@ -184,7 +183,6 @@ export function QuestionPromptCard({
   request,
   state = "active",
   busy = false,
-  continueDisabled = false,
   onAnswer,
   onContinue,
   onDiscard,
@@ -273,7 +271,7 @@ export function QuestionPromptCard({
   )
 
   const handleSubmit = React.useCallback(async () => {
-    if (!canSubmit || disabled || (isStopped && continueDisabled)) {
+    if (!canSubmit || disabled) {
       return
     }
     setSubmitting("answer")
@@ -291,7 +289,7 @@ export function QuestionPromptCard({
     } finally {
       setSubmitting(null)
     }
-  }, [canSubmit, continueDisabled, disabled, drafts, fields, isStopped, onAnswer, onContinue, request, t])
+  }, [canSubmit, disabled, drafts, fields, isStopped, onAnswer, onContinue, request, t])
 
   const handleReject = React.useCallback(async () => {
     if (disabled) {
@@ -349,9 +347,7 @@ export function QuestionPromptCard({
         {isStopped ? (
           <div className="rounded-md border border-border/80 bg-muted/35 px-3 py-2.5">
             <div className="oo-text-label font-medium text-foreground">{t("chat.questionStoppedStatus")}</div>
-            <div className="oo-text-caption mt-0.5 text-muted-foreground">
-              {continueDisabled ? t("chat.questionStoppedBusyHint") : t("chat.questionStoppedHint")}
-            </div>
+            <div className="oo-text-caption mt-0.5 text-muted-foreground">{t("chat.questionStoppedHint")}</div>
           </div>
         ) : null}
 
@@ -486,12 +482,7 @@ export function QuestionPromptCard({
               {t("chat.questionNext")}
             </Button>
           ) : (
-            <Button
-              size="sm"
-              type="submit"
-              className="h-8 px-2.5"
-              disabled={!canSubmit || disabled || (isStopped && continueDisabled)}
-            >
+            <Button size="sm" type="submit" className="h-8 px-2.5" disabled={!canSubmit || disabled}>
               {submitting === "answer"
                 ? t("chat.questionSubmitting")
                 : isStopped

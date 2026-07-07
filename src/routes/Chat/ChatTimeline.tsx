@@ -51,6 +51,7 @@ import {
   visibleUserText,
 } from "./message-text.ts"
 import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
+import { questionPromptBusy } from "./question-state.ts"
 import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
 import { renderBlocks } from "./render-blocks.ts"
 import { formatToolActivityDuration, formatWholeSecondDuration } from "./tool-activity.ts"
@@ -936,8 +937,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
               <QuestionPromptCard
                 request={request}
                 state={state}
-                busy={status === "submitted"}
-                continueDisabled={state === "stopped" && (status === "submitted" || status === "streaming")}
+                busy={questionPromptBusy(state, status)}
                 onAnswer={onAnswerQuestion}
                 onContinue={onContinueQuestion}
                 onDiscard={onDiscardQuestion}

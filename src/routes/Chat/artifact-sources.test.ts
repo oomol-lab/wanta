@@ -116,30 +116,36 @@ describe("collectVisibleGeneratedArtifactSources", () => {
     expect(collectVisibleGeneratedArtifactSources(messages, true)).toEqual([])
   })
 
-  it("shows only the latest concrete artifact source after generation has stopped", () => {
+  it("keeps historical candidates after generation has stopped", () => {
     const messages = [
       user("user-1", "Create an image"),
       assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
       user("user-2", "Describe the result"),
-      assistant("assistant-2", "Output file: `/tmp/wanta/image-webp.webp`"),
+      assistant("assistant-2", "The image is ready."),
     ]
 
     expect(collectVisibleGeneratedArtifactSources(messages, false)).toEqual([
       {
+        messageId: "assistant-1",
+        requestText: "Create an image",
+        sourcePaths: [],
+        text: "Output file: `/tmp/wanta/image.png`",
+      },
+      {
         messageId: "assistant-2",
         requestText: "Describe the result",
         sourcePaths: [],
-        text: "Output file: `/tmp/wanta/image-webp.webp`",
+        text: "The image is ready.",
       },
     ])
   })
 
-  it("keeps older artifact sources when the latest assistant turn has no artifact path", () => {
+  it("keeps older artifact sources when the latest assistant turn is empty", () => {
     const messages = [
       user("user-1", "Create an image"),
       assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
-      user("user-2", "Describe it"),
-      assistant("assistant-2", "The image is ready."),
+      user("user-2", "Say nothing"),
+      assistant("assistant-2", ""),
     ]
 
     expect(collectVisibleGeneratedArtifactSources(messages, false)).toEqual([

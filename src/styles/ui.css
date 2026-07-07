@@ -306,6 +306,29 @@
     color: var(--muted-foreground);
   }
 
+  .oo-pending-skill-status {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+    align-items: center;
+    gap: 0.3125rem;
+    color: var(--oo-pending-skill-foreground);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .oo-pending-skill-dot {
+    width: 0.3125rem;
+    height: 0.3125rem;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--oo-pending-skill-dot);
+  }
+
+  .oo-pending-skill-action {
+    color: var(--oo-pending-skill-action);
+  }
+
   /* 徽章：状态 / scope / 鉴权类型。柔和底色由对应语义色混合背景得到。 */
   .oo-badge {
     display: inline-flex;

@@ -179,6 +179,9 @@
   --oo-warning-surface: color-mix(in oklab, var(--warning) 12%, var(--background));
   --oo-warning-border: color-mix(in oklab, var(--warning) 32%, transparent);
   --oo-warning-foreground: var(--warning);
+  --oo-pending-skill-foreground: color-mix(in oklab, var(--info) 44%, var(--muted-foreground));
+  --oo-pending-skill-dot: color-mix(in oklab, var(--info) 62%, var(--muted-foreground));
+  --oo-pending-skill-action: color-mix(in oklab, var(--foreground) 62%, var(--muted-foreground));
   --oo-info-surface: color-mix(in oklab, var(--info) 12%, var(--background));
   --oo-info-border: color-mix(in oklab, var(--info) 28%, var(--border));
   --oo-info-foreground: oklch(0.42 0.14 255);
@@ -301,6 +304,9 @@
   --oo-warning-surface: color-mix(in oklab, var(--warning) 14%, var(--background));
   --oo-warning-border: color-mix(in oklab, var(--warning) 34%, transparent);
   --oo-warning-foreground: var(--warning);
+  --oo-pending-skill-foreground: color-mix(in oklab, var(--info) 52%, var(--muted-foreground));
+  --oo-pending-skill-dot: color-mix(in oklab, var(--info) 68%, var(--muted-foreground));
+  --oo-pending-skill-action: color-mix(in oklab, var(--foreground) 66%, var(--muted-foreground));
   --oo-info-surface: color-mix(in oklab, var(--info) 18%, var(--background));
   --oo-info-border: color-mix(in oklab, var(--info) 38%, var(--border));
   --oo-info-foreground: var(--info);

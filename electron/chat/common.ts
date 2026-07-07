@@ -132,6 +132,7 @@ export interface QuestionAskedEvent {
 export interface QuestionResolvedEvent {
   sessionId: string
   requestId: string
+  answers?: string[][]
 }
 export interface AnswerQuestionRequest {
   sessionId: string

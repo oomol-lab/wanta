@@ -4,6 +4,7 @@ import type {
   AgentConnectionChangedEvent,
   ChatMessage,
   ChatMessagePart,
+  ChatQuestionRequest,
   ChatRole,
   MessageAttachmentEvent,
   MessageArtifactsEvent,
@@ -188,6 +189,92 @@ function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessag
     cancelled: true,
     ...(shouldFreezeTiming ? { timing: { ...part.timing, end: stoppedAt } } : {}),
   }
+}
+
+function isQuestionToolPartForRequest(part: ChatMessagePart, request: ChatQuestionRequest): boolean {
+  return Boolean(
+    request.tool && part.kind === "tool" && part.tool === "question" && part.callId === request.tool.callId,
+  )
+}
+
+function withFinishedTiming(part: ChatMessagePart, endedAt: number): ChatMessagePart {
+  return typeof part.timing?.end === "number" ? part : { ...part, timing: { ...part.timing, end: endedAt } }
+}
+
+export function markQuestionToolAnswered(
+  msgs: ChatMessage[],
+  request: ChatQuestionRequest,
+  answers: string[][] | undefined,
+  answeredAt = Date.now(),
+): ChatMessage[] {
+  if (!request.tool) {
+    return msgs
+  }
+  let changed = false
+  const messages = msgs.map((message) => {
+    if (message.id !== request.tool?.messageId || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (!isQuestionToolPartForRequest(part, request)) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      return withFinishedTiming(
+        {
+          ...part,
+          status: "completed",
+          cancelled: false,
+          ...(answers ? { metadata: { ...part.metadata, answers } } : {}),
+        },
+        answeredAt,
+      )
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return changed ? messages : msgs
+}
+
+export function markQuestionToolsCancelled(
+  msgs: ChatMessage[],
+  requests: readonly ChatQuestionRequest[],
+  stoppedAt = Date.now(),
+): { messages: ChatMessage[]; partIds: string[] } {
+  const byMessageId = new Map<string, ChatQuestionRequest[]>()
+  for (const request of requests) {
+    if (!request.tool) {
+      continue
+    }
+    byMessageId.set(request.tool.messageId, [...(byMessageId.get(request.tool.messageId) ?? []), request])
+  }
+  if (byMessageId.size === 0) {
+    return { messages: msgs, partIds: [] }
+  }
+  let changed = false
+  const cancelledPartIds: string[] = []
+  const messages = msgs.map((message) => {
+    const messageRequests = byMessageId.get(message.id)
+    if (!messageRequests || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (
+        !messageRequests.some((request) => isQuestionToolPartForRequest(part, request)) ||
+        !shouldCancelToolPart(part)
+      ) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      cancelledPartIds.push(part.partId)
+      return cancelledToolPart(part, stoppedAt)
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return { messages: changed ? messages : msgs, partIds: cancelledPartIds }
 }
 
 export function markLatestAssistantToolsCancelled(

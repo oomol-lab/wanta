@@ -4,6 +4,7 @@ import type {
   ChatPermissionReply,
   ChatPermissionRequest,
   ChatQuestionRequest,
+  QuestionResolvedEvent,
   ChatMessage,
   ChatMessagePart,
   ChatRole,
@@ -33,8 +34,8 @@ export type ChatEmit =
   | { event: "toolCallStarted"; data: ToolCallStartedEvent }
   | { event: "toolCallResult"; data: ToolCallResultEvent }
   | { event: "questionAsked"; data: { sessionId: string; request: ChatQuestionRequest } }
-  | { event: "questionReplied"; data: { sessionId: string; requestId: string } }
-  | { event: "questionRejected"; data: { sessionId: string; requestId: string } }
+  | { event: "questionReplied"; data: QuestionResolvedEvent }
+  | { event: "questionRejected"; data: QuestionResolvedEvent }
   | { event: "permissionAsked"; data: { sessionId: string; request: ChatPermissionRequest } }
   | { event: "permissionReplied"; data: { sessionId: string; requestId: string } }
   | { event: "messageCompleted"; data: MessageCompletedEvent }
@@ -177,6 +178,13 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
 }
 
+function normalizeQuestionAnswers(value: unknown): string[][] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+  return value.map(normalizeStringArray)
+}
+
 function normalizePermissionTool(value: unknown): { messageId: string; callId: string } | undefined {
   if (!value || typeof value !== "object") {
     return undefined
@@ -238,13 +246,20 @@ function normalizeQuestionResolved(value: unknown, event: "questionReplied" | "q
   if (!value || typeof value !== "object") {
     return []
   }
-  const resolved = value as { requestID?: unknown; requestId?: unknown; sessionID?: unknown; sessionId?: unknown }
+  const resolved = value as {
+    answers?: unknown
+    requestID?: unknown
+    requestId?: unknown
+    sessionID?: unknown
+    sessionId?: unknown
+  }
   const requestId = typeof resolved.requestID === "string" ? resolved.requestID : resolved.requestId
   const sessionId = typeof resolved.sessionID === "string" ? resolved.sessionID : resolved.sessionId
   if (typeof requestId !== "string" || typeof sessionId !== "string") {
     return []
   }
-  return [{ event, data: { sessionId, requestId } }]
+  const answers = normalizeQuestionAnswers(resolved.answers)
+  return [{ event, data: { sessionId, requestId, ...(answers ? { answers } : {}) } }]
 }
 
 function normalizePermissionResolved(value: unknown): ChatEmit[] {

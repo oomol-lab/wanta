@@ -56,7 +56,7 @@ import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
 import { questionPromptBusy } from "./question-state.ts"
 import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
 import { renderBlocks } from "./render-blocks.ts"
-import { formatToolActivityDuration, formatWholeSecondDuration } from "./tool-activity.ts"
+import { formatWholeSecondDuration } from "./tool-activity.ts"
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
 import { hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
@@ -94,7 +94,7 @@ type TurnProcessStatus =
   | "stopped"
 
 function isLiveProcess(process: ReturnType<typeof summarizeTurnProcess>, live = false): boolean {
-  return process.hasActiveTool || Boolean(process.activity) || live
+  return live && (process.hasActiveTool || Boolean(process.activity))
 }
 
 function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = false): TurnProcessStatus {
@@ -116,7 +116,25 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = 
   if (process.hasStoppedTool) {
     return "stopped"
   }
+  if (process.hasActiveTool) {
+    return "stopped"
+  }
   return "completed"
+}
+
+function formatSettledToolActivityDuration(parts: ChatMessagePart[]): string | null {
+  let start: number | undefined
+  let end: number | undefined
+  for (const part of parts) {
+    const partStart = part.timing?.start
+    const partEnd = part.timing?.end
+    if (typeof partStart !== "number" || typeof partEnd !== "number" || partEnd < partStart) {
+      continue
+    }
+    start = start === undefined ? partStart : Math.min(start, partStart)
+    end = end === undefined ? partEnd : Math.max(end, partEnd)
+  }
+  return start === undefined || end === undefined ? null : formatWholeSecondDuration(end - start)
 }
 
 function formatProcessDuration(
@@ -125,7 +143,7 @@ function formatProcessDuration(
   live = false,
 ): string | null {
   const isLive = isLiveProcess(process, live)
-  const toolDuration = !isLive && process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
+  const toolDuration = !isLive && process.tools.length > 0 ? formatSettledToolActivityDuration(process.tools) : null
   if (!isLive && toolDuration) {
     return toolDuration
   }
@@ -261,6 +279,7 @@ function TurnProcessActivity({
               smoothText={false}
               providerByService={providerByService}
               settlingToolPartId={settlingToolPartId}
+              liveTools={live}
               showAuthorizationPrompt={!live}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
@@ -400,6 +419,7 @@ function AssistantBlock({
   smoothText,
   providerByService,
   settlingToolPartId,
+  liveTools = true,
   showAuthorizationPrompt = true,
   onAuthorize,
   onViewBilling,
@@ -410,6 +430,7 @@ function AssistantBlock({
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
   settlingToolPartId?: string
+  liveTools?: boolean
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
@@ -441,6 +462,7 @@ function AssistantBlock({
                 key={part.partId}
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
+                live={liveTools}
                 shimmer={part.partId === settlingToolPartId}
                 settling={part.partId === settlingToolPartId}
                 showAuthorizationPrompt={showAuthorizationPrompt}
@@ -463,6 +485,7 @@ function MessageBubble({
   providerByService,
   onAuthorize,
   suggestedAuthorization,
+  liveTools = false,
 }: {
   billingCacheScope: string
   message: ChatMessage
@@ -472,6 +495,7 @@ function MessageBubble({
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
   suggestedAuthorization?: AuthorizationInfo
+  liveTools?: boolean
 }) {
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
@@ -557,6 +581,7 @@ function MessageBubble({
             billingCacheScope={billingCacheScope}
             smoothText={smoothText}
             providerByService={providerByService}
+            liveTools={liveTools}
             onAuthorize={onAuthorize}
             onViewBilling={onViewBilling}
           />
@@ -582,6 +607,7 @@ function AssistantTimelineMessage({
   smoothAssistantMessageId,
   assistantActionsText,
   assistantCancelled,
+  activeAssistantMessageId,
   providerByService,
   onAuthorize,
   suggestedAuthorization,
@@ -592,6 +618,7 @@ function AssistantTimelineMessage({
   smoothAssistantMessageId?: string
   assistantActionsText: string | null
   assistantCancelled: boolean
+  activeAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
   suggestedAuthorization?: AuthorizationInfo
@@ -614,6 +641,7 @@ function AssistantTimelineMessage({
             billingCacheScope={billingCacheScope}
             smoothText={message.id === smoothAssistantMessageId}
             providerByService={providerByService}
+            liveTools={message.id === activeAssistantMessageId}
             onAuthorize={onAuthorize}
             onViewBilling={onViewBilling}
           />
@@ -794,6 +822,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               smoothAssistantMessageId={smoothAssistantMessageId}
               assistantActionsText={responseActionsText}
               assistantCancelled={assistantCancelled}
+              activeAssistantMessageId={activeAssistantMessageId}
               providerByService={providerByService}
               onAuthorize={handleAuthorize}
               suggestedAuthorization={responseSuggestedAuthorization}
@@ -813,6 +842,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               onViewBilling={onViewBilling}
               assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               providerByService={providerByService}
+              liveTools={message.id === activeAssistantMessageId}
               onAuthorize={handleAuthorize}
               suggestedAuthorization={message.id === lastAssistant?.id ? process.suggestedAuthorization : undefined}
             />

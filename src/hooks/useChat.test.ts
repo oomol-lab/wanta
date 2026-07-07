@@ -1,4 +1,9 @@
-import type { ChatAttachment, ChatContextMention, ChatMessage } from "../../electron/chat/common.ts"
+import type {
+  ChatAttachment,
+  ChatContextMention,
+  ChatMessage,
+  ChatQuestionRequest,
+} from "../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
 import {
@@ -9,6 +14,8 @@ import {
   hasVisibleMessageDelta,
   markAssistantMessageToolsCancelled,
   markLatestAssistantToolsCancelled,
+  markQuestionToolAnswered,
+  markQuestionToolsCancelled,
   markSessionCompletedUnread,
   markSessionViewed,
   mergeFetchedMessages,
@@ -340,6 +347,89 @@ describe("chat message identity reconciliation", () => {
       timing: { start: 1000, end: 2600 },
     })
     expect(messages[1]?.parts[0]).not.toHaveProperty("cancelled")
+  })
+
+  it("marks an answered question tool as completed and keeps the submitted answers", () => {
+    const request: ChatQuestionRequest = {
+      id: "question-1",
+      sessionId: "s1",
+      questions: [{ header: "文章标题", question: "标题叫什么？", options: [] }],
+      tool: { messageId: "assistant-1", callId: "call-1" },
+    }
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "question-tool",
+            callId: "call-1",
+            tool: "question",
+            status: "running",
+            input: {},
+            timing: { start: 1000 },
+          },
+        ],
+      },
+    ]
+
+    const messages = markQuestionToolAnswered(current, request, [["测试文章"]], 2600)
+
+    expect(messages[0]?.parts[0]).toMatchObject({
+      partId: "question-tool",
+      status: "completed",
+      cancelled: false,
+      metadata: { answers: [["测试文章"]] },
+      timing: { start: 1000, end: 2600 },
+    })
+  })
+
+  it("marks only linked question tools as cancelled", () => {
+    const request: ChatQuestionRequest = {
+      id: "question-1",
+      sessionId: "s1",
+      questions: [{ header: "文章标题", question: "标题叫什么？", options: [] }],
+      tool: { messageId: "assistant-1", callId: "call-1" },
+    }
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "question-tool",
+            callId: "call-1",
+            tool: "question",
+            status: "running",
+            input: {},
+            timing: { start: 1000 },
+          },
+          {
+            kind: "tool",
+            partId: "other-tool",
+            callId: "call-2",
+            tool: "bash",
+            status: "running",
+            input: {},
+            timing: { start: 1200 },
+          },
+        ],
+      },
+    ]
+
+    const { messages, partIds } = markQuestionToolsCancelled(current, [request], 2600)
+
+    expect(partIds).toEqual(["question-tool"])
+    expect(messages[0]?.parts[0]).toMatchObject({
+      partId: "question-tool",
+      cancelled: true,
+      timing: { start: 1000, end: 2600 },
+    })
+    expect(messages[0]?.parts[1]).not.toHaveProperty("cancelled")
   })
 
   it("reapplies cancelled tool overlays with frozen timing after reload", () => {

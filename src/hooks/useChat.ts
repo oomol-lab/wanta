@@ -35,6 +35,8 @@ import {
   hasVisibleMessageDelta,
   markAssistantMessageToolsCancelled,
   markLatestAssistantToolsCancelled,
+  markQuestionToolAnswered,
+  markQuestionToolsCancelled,
   markSessionCompletedUnread,
   markSessionViewed,
   mergeFetchedMessages,
@@ -651,6 +653,30 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [flushPendingToolParts, patch, rememberCancelledToolParts],
   )
 
+  const markQuestionRequestsCancelled = React.useCallback(
+    (sessionId: string, requests: readonly ChatQuestionRequest[]) => {
+      if (requests.length === 0) {
+        return
+      }
+      patch(sessionId, (msgs) => {
+        const { messages, partIds } = markQuestionToolsCancelled(msgs, requests)
+        rememberCancelledToolParts(sessionId, partIds)
+        return messages
+      })
+    },
+    [patch, rememberCancelledToolParts],
+  )
+
+  const markQuestionRequestAnswered = React.useCallback(
+    (sessionId: string, request: ChatQuestionRequest | undefined, answers: string[][] | undefined) => {
+      if (!request) {
+        return
+      }
+      patch(sessionId, (msgs) => markQuestionToolAnswered(msgs, request, answers))
+    },
+    [patch],
+  )
+
   const reload = React.useCallback(
     async (sessionId: string): Promise<ChatMessage[] | null> => {
       flushPendingToolParts()
@@ -707,6 +733,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           : []
         if (recoveredStoppedQuestions.length > 0) {
           addStoredStoppedQuestions(sessionId, recoveredStoppedQuestions)
+          markQuestionRequestsCancelled(sessionId, recoveredStoppedQuestions)
         }
         const messagesForRecovery = currentMessages ?? []
         const storedStoppedQuestions = readStoredStoppedQuestions(sessionId).filter((request) => {
@@ -820,12 +847,13 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
               storedStoppedQuestions: readStoredStoppedQuestions(sessionId),
             }),
           }))
+          markQuestionRequestsCancelled(sessionId, [...recoveredStoppedQuestions, ...storedRecoverableQuestions])
         }
         console.error("[wanta] getPendingQuestions failed", err)
         reportRendererHandledError("chat", "getPendingQuestions failed", err)
       }
     },
-    [chatService, updatePendingQuestionsMap],
+    [chatService, markQuestionRequestsCancelled, updatePendingQuestionsMap],
   )
 
   const reloadPendingPermissions = React.useCallback(
@@ -932,9 +960,13 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         })
       }),
       chatService.serverEvents.on("questionReplied", (e) => {
+        const request = (pendingQuestionsMapRef.current[e.sessionId] ?? []).find((item) => item.id === e.requestId)
+        markQuestionRequestAnswered(e.sessionId, request, e.answers)
         removePendingQuestion(e.sessionId, e.requestId)
       }),
       chatService.serverEvents.on("questionRejected", (e) => {
+        const request = (pendingQuestionsMapRef.current[e.sessionId] ?? []).find((item) => item.id === e.requestId)
+        markQuestionRequestsCancelled(e.sessionId, request ? [request] : [])
         removePendingQuestion(e.sessionId, e.requestId)
       }),
       chatService.serverEvents.on("permissionAsked", (e) => {
@@ -1044,6 +1076,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     markPendingPermissionsMutated,
     markPendingQuestionsMutated,
     markPendingQuestionsStopped,
+    markQuestionRequestAnswered,
+    markQuestionRequestsCancelled,
     patch,
     reload,
     rememberCancelledToolParts,
@@ -1157,10 +1191,12 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     async (sessionId: string, requestId: string, answers: string[][]) => {
       setGlobalError(null)
       clearSessionError(sessionId)
+      const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
       setStatus(sessionId, "streaming")
       setActivity(sessionId, { sessionId, phase: "thinking" })
       try {
         await chatService.invoke("answerQuestion", { sessionId, requestId, answers })
+        markQuestionRequestAnswered(sessionId, request, answers)
         removePendingQuestion(sessionId, requestId)
       } catch (err) {
         reportRendererHandledError("chat", "answerQuestion invoke failed", err)
@@ -1170,7 +1206,15 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         throw err
       }
     },
-    [chatService, clearSessionError, removePendingQuestion, setActivity, setSessionError, setStatus],
+    [
+      chatService,
+      clearSessionError,
+      markQuestionRequestAnswered,
+      removePendingQuestion,
+      setActivity,
+      setSessionError,
+      setStatus,
+    ],
   )
 
   const answerPermission = React.useCallback(
@@ -1198,9 +1242,11 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const discardQuestion = React.useCallback(
     (sessionId: string, requestId: string) => {
+      const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
+      markQuestionRequestsCancelled(sessionId, request ? [request] : [])
       dismissPendingQuestion(sessionId, requestId)
     },
-    [dismissPendingQuestion],
+    [dismissPendingQuestion, markQuestionRequestsCancelled],
   )
 
   const rejectQuestion = React.useCallback(

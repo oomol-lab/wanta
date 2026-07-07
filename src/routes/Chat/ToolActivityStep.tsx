@@ -55,7 +55,10 @@ function toolStatusLabel(t: TranslateFn, status: ToolStatus | undefined): string
   }
 }
 
-function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart): string {
+function toolPartStatusLabel(t: TranslateFn, part: ChatMessagePart, stopped = false): string {
+  if (stopped) {
+    return t("chat.toolStatusStopped")
+  }
   if (part.tool === "question" && (part.status === "pending" || part.status === "running")) {
     return t("chat.toolStatusWaitingForAnswer")
   }
@@ -176,8 +179,15 @@ function ToolActionIcon({ part }: { part: ChatMessagePart }) {
   }
 }
 
-function ToolStepIcon({ part, provider }: { part: ChatMessagePart; provider?: ConnectionProvider }) {
-  const stopped = isToolCancellation(part)
+function ToolStepIcon({
+  part,
+  provider,
+  stopped = false,
+}: {
+  part: ChatMessagePart
+  provider?: ConnectionProvider
+  stopped?: boolean
+}) {
   if (provider && part.status !== "error" && !stopped) {
     return <ProviderIcon iconUrl={provider.iconUrl} displayName={provider.displayName} size="compact" />
   }
@@ -209,8 +219,12 @@ function ToolPre({ children, tone = "default" }: { children: string; tone?: "def
   )
 }
 
-function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null, answerSummary: string): boolean {
-  const stopped = isToolCancellation(part)
+function hasToolDetails(
+  part: ChatMessagePart,
+  auth: AuthorizationInfo | null,
+  answerSummary: string,
+  stopped = false,
+): boolean {
   if (part.tool === "question") {
     return Boolean(answerSummary)
   }
@@ -220,7 +234,7 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null, a
     Boolean(part.output && !auth) ||
     Boolean(part.error && !stopped) ||
     Boolean(auth?.message) ||
-    shouldShowRunningNoOutput(part) ||
+    (!stopped && shouldShowRunningNoOutput(part)) ||
     Boolean(part.attachmentsCount)
   )
 }
@@ -228,6 +242,7 @@ function hasToolDetails(part: ChatMessagePart, auth: AuthorizationInfo | null, a
 export function ToolActivityStep({
   part,
   provider,
+  live = true,
   shimmer = false,
   settling = false,
   showAuthorizationPrompt = true,
@@ -235,6 +250,7 @@ export function ToolActivityStep({
 }: {
   part: ChatMessagePart
   provider?: ConnectionProvider
+  live?: boolean
   shimmer?: boolean
   settling?: boolean
   showAuthorizationPrompt?: boolean
@@ -242,13 +258,14 @@ export function ToolActivityStep({
 }) {
   const t = useT()
   const auth = parseToolAuthorization(part)
-  const stopped = isToolCancellation(part)
+  const activePart = isActiveToolPart(part)
+  const stopped = isToolCancellation(part) || (!live && activePart)
   const answerSummary = questionAnswerSummary(part)
-  const details = hasToolDetails(part, auth, answerSummary)
+  const details = hasToolDetails(part, auth, answerSummary, stopped)
   const [open, setOpen] = React.useState(false)
   const statusText =
-    settling && part.status === "completed" ? t("chat.toolStatusFinalizing") : toolPartStatusLabel(t, part)
-  const active = isActiveToolPart(part)
+    settling && part.status === "completed" ? t("chat.toolStatusFinalizing") : toolPartStatusLabel(t, part, stopped)
+  const active = live && activePart
   const showShimmer = active || shimmer
   const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
@@ -260,7 +277,7 @@ export function ToolActivityStep({
         className="flex size-5 shrink-0 items-center justify-center"
         title={provider ? `${provider.displayName} · ${statusText}` : statusText}
       >
-        <ToolStepIcon part={part} provider={provider} />
+        <ToolStepIcon part={part} provider={provider} stopped={stopped} />
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
         {showShimmer ? (
@@ -345,7 +362,7 @@ export function ToolActivityStep({
                 <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
               </ToolDetailSection>
             )}
-            {open && shouldShowRunningNoOutput(part) && (
+            {open && !stopped && shouldShowRunningNoOutput(part) && (
               <div className="oo-text-caption text-muted-foreground">{t("chat.toolRunningNoOutput")}</div>
             )}
             {open && part.error && !stopped && (

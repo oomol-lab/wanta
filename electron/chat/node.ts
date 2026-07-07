@@ -646,21 +646,26 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent || !projectRoot || !projectPermissionRequestInsideRoot(request, projectRoot)) {
       return false
     }
-    void this.agent.answerPermission(request.sessionId, request.id, "once").catch((error: unknown) => {
-      console.warn("[wanta] failed to approve trusted project permission:", error)
-      logDiagnostic(
-        "chat-service",
-        "failed to approve trusted project permission",
-        { action: request.action, error, sessionId: request.sessionId },
-        "warn",
-      )
-      this.sendBestEffort(
-        emit,
-        "permissionAsked",
-        { sessionId: request.sessionId, request },
-        { sessionId: request.sessionId },
-      )
-    })
+    void this.agent
+      .answerPermission(request.sessionId, request.id, "once")
+      .then(() => {
+        this.scheduleGenerationInactivityWatchdogAfterReply(request.sessionId)
+      })
+      .catch((error: unknown) => {
+        console.warn("[wanta] failed to approve trusted project permission:", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to approve trusted project permission",
+          { action: request.action, error, sessionId: request.sessionId },
+          "warn",
+        )
+        this.sendBestEffort(
+          emit,
+          "permissionAsked",
+          { sessionId: request.sessionId, request },
+          { sessionId: request.sessionId },
+        )
+      })
     return true
   }
 
@@ -812,6 +817,25 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }, timeoutMs)
     timer.unref?.()
     this.generationInactivityWatchdogs.set(sessionId, timer)
+  }
+
+  private generationWatchdogSessionId(sessionId: string): string | null {
+    if (this.sessionGenerations.has(sessionId)) {
+      return sessionId
+    }
+    for (const [parentSessionId, childSessionIds] of this.trustedSubagentSessionsByParent) {
+      if (childSessionIds.has(sessionId) && this.sessionGenerations.has(parentSessionId)) {
+        return parentSessionId
+      }
+    }
+    return null
+  }
+
+  private scheduleGenerationInactivityWatchdogAfterReply(sessionId: string): void {
+    const generationSessionId = this.generationWatchdogSessionId(sessionId)
+    if (generationSessionId) {
+      this.scheduleGenerationInactivityWatchdog(generationSessionId)
+    }
   }
 
   private clearGenerationInactivityWatchdog(sessionId: string): void {
@@ -1025,7 +1049,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.syncedIdleOrganizationName = organizationName
       generation = this.beginSessionGeneration(req.sessionId)
       this.generationScopeReleases.set(generation.id, releaseScope)
-      this.scheduleGenerationStartWatchdog(req.sessionId, generation.id)
       this.userStoppedSessions.delete(req.sessionId)
       this.connectionFailedSessions.delete(req.sessionId)
       this.clearMessageErrorSignatures(req.sessionId)
@@ -1057,6 +1080,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       })
       const promptGeneration = generation
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
+      this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
       void this.agent
         .promptStreaming(req.sessionId, req.text, {
           attachments: req.attachments,
@@ -1470,6 +1494,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Agent not configured (sign in first)")
     }
     await this.agent.answerQuestion(req.sessionId, req.requestId, req.answers)
+    this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
     this.emitSessionActivity(req.sessionId)
   }
 
@@ -1522,6 +1547,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       throw new Error("Agent not configured (sign in first)")
     }
     await this.agent.answerPermission(req.sessionId, req.requestId, req.reply)
+    this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
     this.emitSessionActivity(req.sessionId)
   }
 }

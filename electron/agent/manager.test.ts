@@ -229,15 +229,57 @@ describe("AgentManager", () => {
 
     await vi.waitFor(() => {
       expect(subscribe).toHaveBeenCalledTimes(1)
-      expect(statuses).toContain("failed")
       expect(statuses).toContain("reconnecting")
     })
+    expect(statuses).not.toContain("failed")
 
     await vi.advanceTimersByTimeAsync(500)
     await vi.waitFor(() => {
       expect(subscribe).toHaveBeenCalledTimes(2)
       expect(events).toEqual([{ type: "session.idle", properties: { sessionID: "session-1" } }])
     })
+
+    unsubscribe()
+  })
+
+  it("reports a failed OpenCode event stream after reconnect attempts are exhausted", async () => {
+    vi.useFakeTimers()
+    const subscribe = vi.fn().mockRejectedValue(new Error("stream disconnected"))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown; started: boolean }).sidecar = {
+      client: { event: { subscribe } },
+    }
+    ;(manager as unknown as { started: boolean }).started = true
+
+    const statuses: Array<{ attempt?: number; status: string }> = []
+    const unsubscribe = manager.subscribe(
+      () => undefined,
+      (status) => statuses.push({ attempt: status.attempt, status: status.status }),
+    )
+
+    await vi.waitFor(() => {
+      expect(subscribe).toHaveBeenCalledTimes(1)
+      expect(statuses).toContainEqual({ attempt: 1, status: "reconnecting" })
+    })
+
+    const delays = [500, 1_000, 2_000, 4_000, 5_000]
+    for (const [index, delay] of delays.entries()) {
+      await vi.advanceTimersByTimeAsync(delay)
+      await vi.waitFor(() => {
+        expect(subscribe).toHaveBeenCalledTimes(index + 2)
+      })
+    }
+
+    await vi.waitFor(() => {
+      expect(statuses.at(-1)).toEqual({ attempt: 5, status: "failed" })
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(subscribe).toHaveBeenCalledTimes(6)
 
     unsubscribe()
   })

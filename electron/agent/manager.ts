@@ -366,6 +366,7 @@ export class AgentManager {
     let reconnectFailures = 0
     let reconnecting = false
     let reconnectFailedAnnounced = false
+    let restartMessage = "OpenCode event stream disconnected; reconnecting."
     try {
       const subscription = await this.client.event.subscribe(undefined, {
         signal: controller.signal,
@@ -442,12 +443,7 @@ export class AgentManager {
       if (!this.eventLoopStopped && !controller.signal.aborted) {
         console.error("[wanta] opencode event stream ended:", error)
         logDiagnostic("opencode-event-stream", "opencode event stream ended", { error }, "error")
-        subscriber.onConnectionStatus?.({
-          status: "failed",
-          attempt: eventStreamMaxReconnectAttempts,
-          maxAttempts: eventStreamMaxReconnectAttempts,
-          message: error instanceof Error ? error.message : String(error),
-        })
+        restartMessage = error instanceof Error ? error.message : String(error)
       }
     } finally {
       const shouldRestart =
@@ -461,23 +457,33 @@ export class AgentManager {
         this.eventStreamAbort = null
       }
       if (shouldRestart) {
-        this.scheduleEventLoopRestart(subscriber)
+        this.scheduleEventLoopRestart(subscriber, restartMessage)
       }
     }
   }
 
-  private scheduleEventLoopRestart(subscriber: AgentEventSubscriber): void {
-    const attempt = Math.min(this.eventLoopRestartFailures + 1, eventStreamMaxReconnectAttempts)
-    this.eventLoopRestartFailures = attempt
+  private scheduleEventLoopRestart(subscriber: AgentEventSubscriber, message: string): void {
+    const nextAttempt = this.eventLoopRestartFailures + 1
+    if (nextAttempt > eventStreamMaxReconnectAttempts) {
+      this.eventLoopRestartFailures = eventStreamMaxReconnectAttempts
+      subscriber.onConnectionStatus?.({
+        status: "failed",
+        attempt: eventStreamMaxReconnectAttempts,
+        maxAttempts: eventStreamMaxReconnectAttempts,
+        message,
+      })
+      return
+    }
+    this.eventLoopRestartFailures = nextAttempt
     const delayMs = Math.min(
-      eventStreamRestartInitialDelayMs * 2 ** Math.max(0, attempt - 1),
+      eventStreamRestartInitialDelayMs * 2 ** Math.max(0, nextAttempt - 1),
       eventStreamRestartMaxDelayMs,
     )
     subscriber.onConnectionStatus?.({
       status: "reconnecting",
-      attempt,
+      attempt: nextAttempt,
       maxAttempts: eventStreamMaxReconnectAttempts,
-      message: "OpenCode event stream disconnected; reconnecting.",
+      message,
     })
     const timer = setTimeout(() => {
       if (

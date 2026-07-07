@@ -363,6 +363,7 @@ export function AppShell() {
   )
   // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
   const pendingRetry = React.useRef<{
+    drawerKey: string
     sessionId: string
     service: string
     text: string
@@ -570,11 +571,11 @@ export function AppShell() {
       pendingRetry.current = null
       setPendingRetryWatch(null)
       setChatConnectionDrawers((current) => {
-        if (!Object.hasOwn(current, pending.sessionId)) {
+        if (!Object.hasOwn(current, pending.drawerKey)) {
           return current
         }
         const next = { ...current }
-        delete next[pending.sessionId]
+        delete next[pending.drawerKey]
         return next
       })
       setRoute("chat")
@@ -1336,7 +1337,7 @@ export function AppShell() {
     setArchiveConfirming(true)
     try {
       await archive(session.id)
-      clearComposerDraft(session.id)
+      clearComposerDraft(existingSessionComposerDraftKey(sessionRecordScopeKey(session.scope), session.id))
     } catch (cause) {
       const notice = resolveUserFacingError(cause, { area: "session" })
       toast.error(userFacingErrorDescription(notice, t))
@@ -1454,6 +1455,7 @@ export function AppShell() {
         const retryKey = chatTurnInputKey(source)
         const storedOptions = turnRetryOptionsBySession.current.get(activeChatSessionId)?.get(retryKey)
         pendingRetry.current = {
+          drawerKey: activeComposerDraftKey,
           sessionId: activeChatSessionId,
           service: auth.service,
           text: source.text,

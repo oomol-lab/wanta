@@ -53,6 +53,14 @@ export interface DisconnectTarget {
   provider: ConnectionProviderSummary
 }
 
+export function connectionDetailCacheKey(workspaceKey: string, service: string): string {
+  return `${workspaceKey}\u0000${service}`
+}
+
+export function isConnectionDetailCacheKeyForService(cacheKey: string, service: string): boolean {
+  return cacheKey.endsWith(`\u0000${service}`)
+}
+
 export function isConnected(provider: ConnectionProviderSummary): boolean {
   return provider.status === "connected"
 }

@@ -5,9 +5,11 @@ import { test } from "vitest"
 import {
   buildCredentialSummaryDisplayValues,
   buildFederatedCredentialDisplayValues,
+  connectionDetailCacheKey,
   getConnectionAppNote,
   getProviderAccountValue,
   getProviderMeta,
+  isConnectionDetailCacheKeyForService,
   isConnected,
   isNoAuthReadyProvider,
 } from "./connection-route-model.ts"
@@ -113,4 +115,14 @@ test("getConnectionAppNote trims persisted comments", () => {
     }),
     "developer role",
   )
+})
+
+test("connection detail cache keys separate workspaces for the same provider", () => {
+  const personalKey = connectionDetailCacheKey("personal", "canva")
+  const organizationKey = connectionDetailCacheKey("organization:Design", "canva")
+
+  assert.notEqual(personalKey, organizationKey)
+  assert.equal(isConnectionDetailCacheKeyForService(personalKey, "canva"), true)
+  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "canva"), true)
+  assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "gmail"), false)
 })

@@ -20,12 +20,14 @@ import {
   buildCategoryFilters,
   categoryFilterLimit,
   categoryFilterPrefix,
+  connectionDetailCacheKey,
   detailPaneAnimationMs,
   getFilterValue,
   getProviderActionLabel,
   getProviderMeta,
   getProviderStatusDisplayLabel,
   getProviderStatusTone,
+  isConnectionDetailCacheKeyForService,
   isConnected,
   matchesProviderFilter,
   matchesProviderQuery,
@@ -95,6 +97,7 @@ export function ConnectionsPanel({
     getProviderDetail,
     polling,
     summary,
+    summaryWorkspaceKey,
     summaryError,
   } = connections
   const [query, setQuery] = React.useState("")
@@ -141,11 +144,39 @@ export function ConnectionsPanel({
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
   const selectedDetailService = selectedProvider?.service ?? null
-  const detailErrorNotice = selectedProvider ? getConnectionDetailErrorNotice({ actionError, detailError }) : null
+  const selectedDetailCacheKey =
+    summaryWorkspaceKey && selectedDetailService
+      ? connectionDetailCacheKey(summaryWorkspaceKey, selectedDetailService)
+      : null
+  const selectedProviderDetail = selectedDetailCacheKey && detailService === selectedDetailService ? detail : null
+  const selectedProviderDetailLoading = Boolean(selectedDetailCacheKey) && detailLoading
+  const selectedProviderDetailError = selectedDetailCacheKey ? detailError : null
+  const detailErrorNotice = selectedProvider
+    ? getConnectionDetailErrorNotice({ actionError, detailError: selectedProviderDetailError })
+    : null
   const listErrorNotice = getConnectionListErrorNotice({
     summaryError,
     detailError: detailErrorNotice?.error ?? null,
   })
+
+  const deleteCachedDetailForService = React.useCallback((service: string): void => {
+    for (const cacheKey of detailCacheRef.current.keys()) {
+      if (isConnectionDetailCacheKeyForService(cacheKey, service)) {
+        detailCacheRef.current.delete(cacheKey)
+      }
+    }
+  }, [])
+
+  const detailWorkspaceKeyRef = React.useRef<string | null>(summaryWorkspaceKey)
+  React.useEffect(() => {
+    if (detailWorkspaceKeyRef.current === summaryWorkspaceKey) {
+      return
+    }
+    detailWorkspaceKeyRef.current = summaryWorkspaceKey
+    connectRequestIdRef.current += 1
+    setDialog(null)
+    setConfirmDisconnect(null)
+  }, [summaryWorkspaceKey])
 
   const clearDetailCloseTimer = React.useCallback(() => {
     if (detailCloseTimerRef.current === null) {
@@ -222,7 +253,7 @@ export function ConnectionsPanel({
   }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
 
   React.useEffect(() => {
-    if (!selectedDetailService) {
+    if (!selectedDetailService || !selectedDetailCacheKey) {
       detailRequestIdRef.current += 1
       setDetail(null)
       setDetailService(null)
@@ -234,7 +265,7 @@ export function ConnectionsPanel({
     let cancelled = false
     const requestId = detailRequestIdRef.current + 1
     detailRequestIdRef.current = requestId
-    const cached = detailCacheRef.current.get(selectedDetailService)
+    const cached = detailCacheRef.current.get(selectedDetailCacheKey)
     if (cached) {
       setDetail(cached)
       setDetailService(selectedDetailService)
@@ -248,9 +279,10 @@ export function ConnectionsPanel({
     void getProviderDetail(selectedDetailService)
       .then((next) => {
         if (!cancelled && detailRequestIdRef.current === requestId) {
-          detailCacheRef.current.set(selectedDetailService, next)
+          detailCacheRef.current.set(selectedDetailCacheKey, next)
           setDetail(next)
           setDetailService(selectedDetailService)
+          setDetailError(null)
         }
       })
       .catch((err) => {
@@ -269,7 +301,7 @@ export function ConnectionsPanel({
     return () => {
       cancelled = true
     }
-  }, [getProviderDetail, selectedDetailService])
+  }, [getProviderDetail, selectedDetailCacheKey, selectedDetailService])
 
   const connectProvider = React.useCallback(
     async (
@@ -283,7 +315,9 @@ export function ConnectionsPanel({
       try {
         if (authType === "oauth2") {
           const loaded =
-            detailService === provider.service && detail ? detail : await getProviderDetail(provider.service)
+            selectedDetailCacheKey && detailService === provider.service && detail
+              ? detail
+              : await getProviderDetail(provider.service)
           const oauthClientConfig = loaded.oauthClientConfig ? await getOAuthClientConfig(provider.service) : null
           if (!requestIsCurrent()) {
             return
@@ -303,7 +337,7 @@ export function ConnectionsPanel({
             return
           }
           if (ok) {
-            detailCacheRef.current.delete(provider.service)
+            deleteCachedDetailForService(provider.service)
           }
           return
         }
@@ -314,13 +348,15 @@ export function ConnectionsPanel({
             return
           }
           if (ok) {
-            detailCacheRef.current.delete(provider.service)
+            deleteCachedDetailForService(provider.service)
           }
           return
         }
 
         const [loaded, appDetail] = await Promise.all([
-          detailService === provider.service && detail ? Promise.resolve(detail) : getProviderDetail(provider.service),
+          selectedDetailCacheKey && detailService === provider.service && detail
+            ? Promise.resolve(detail)
+            : getProviderDetail(provider.service),
           appId ? getAppDetail(appId).catch(() => null) : Promise.resolve(null),
         ])
         if (!requestIsCurrent()) {
@@ -333,7 +369,15 @@ export function ConnectionsPanel({
         }
       }
     },
-    [connect, detail, detailService, getAppDetail, getProviderDetail],
+    [
+      connect,
+      deleteCachedDetailForService,
+      detail,
+      detailService,
+      getAppDetail,
+      getProviderDetail,
+      selectedDetailCacheKey,
+    ],
   )
 
   const submitConnectDialog = React.useCallback(
@@ -341,7 +385,7 @@ export function ConnectionsPanel({
       void (async () => {
         const ok = await connect(input)
         if (ok) {
-          detailCacheRef.current.delete(input.service)
+          deleteCachedDetailForService(input.service)
           setDialog(null)
         }
       })()
@@ -349,7 +393,7 @@ export function ConnectionsPanel({
         setDialog(null)
       }
     },
-    [connect],
+    [connect, deleteCachedDetailForService],
   )
 
   if (presentation === "drawer") {
@@ -359,9 +403,9 @@ export function ConnectionsPanel({
           <ProviderDetail
             authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
             busy={busy}
-            detail={detailService === selectedProvider.service ? detail : null}
+            detail={selectedProviderDetail}
             errorNotice={detailErrorNotice}
-            detailLoading={detailLoading}
+            detailLoading={selectedProviderDetailLoading}
             connections={connections}
             onCancelPolling={cancelPolling}
             onClose={onClose ?? closeDetail}
@@ -418,7 +462,7 @@ export function ConnectionsPanel({
               ? await connections.disconnectAccount(target.app.id)
               : await disconnect(target.provider.service)
             if (ok) {
-              detailCacheRef.current.delete(target.provider.service)
+              deleteCachedDetailForService(target.provider.service)
               if (detailService === target.provider.service) {
                 setDetail(null)
                 setDetailService(null)
@@ -484,9 +528,9 @@ export function ConnectionsPanel({
             <ProviderDetail
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
-              detail={detailService === selectedProvider.service ? detail : null}
+              detail={selectedProviderDetail}
               errorNotice={detailErrorNotice}
-              detailLoading={detailLoading}
+              detailLoading={selectedProviderDetailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
               onClose={closeDetail}
@@ -511,9 +555,9 @@ export function ConnectionsPanel({
             <ProviderDetail
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
-              detail={detailService === selectedProvider.service ? detail : null}
+              detail={selectedProviderDetail}
               errorNotice={detailErrorNotice}
-              detailLoading={detailLoading}
+              detailLoading={selectedProviderDetailLoading}
               connections={connections}
               onCancelPolling={cancelPolling}
               onClose={closeDetail}
@@ -549,7 +593,7 @@ export function ConnectionsPanel({
             ? await connections.disconnectAccount(target.app.id)
             : await disconnect(target.provider.service)
           if (ok) {
-            detailCacheRef.current.delete(target.provider.service)
+            deleteCachedDetailForService(target.provider.service)
             if (detailService === target.provider.service) {
               setDetail(null)
               setDetailService(null)

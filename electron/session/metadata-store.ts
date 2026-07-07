@@ -1,4 +1,5 @@
 import type { SessionScope } from "./common.ts"
+import type { SessionPermissionMode } from "./common.ts"
 
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
@@ -8,6 +9,7 @@ import { logStoreReadFailure } from "../store-diagnostics.ts"
 export interface SessionMetadata {
   scope?: SessionScope
   projectId?: string
+  permissionMode?: SessionPermissionMode
   pinnedAt?: number
   archivedAt?: number
 }
@@ -19,6 +21,10 @@ export interface PersistedSessionMetadata {
 
 function validTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0
+}
+
+function normalizePermissionMode(value: unknown): SessionPermissionMode | undefined {
+  return value === "full_access" || value === "default" ? value : undefined
 }
 
 function normalizeScope(value: unknown): SessionScope | undefined {
@@ -62,13 +68,17 @@ function normalizeMetadata(value: unknown): Map<string, SessionMetadata> {
     if (typeof source.projectId === "string" && source.projectId.trim()) {
       next.projectId = source.projectId.trim()
     }
+    const permissionMode = normalizePermissionMode(source.permissionMode)
+    if (permissionMode) {
+      next.permissionMode = permissionMode
+    }
     if (validTimestamp(source.pinnedAt)) {
       next.pinnedAt = source.pinnedAt
     }
     if (validTimestamp(source.archivedAt)) {
       next.archivedAt = source.archivedAt
     }
-    if (next.scope || next.projectId || next.pinnedAt || next.archivedAt) {
+    if (next.scope || next.projectId || next.permissionMode || next.pinnedAt || next.archivedAt) {
       metadata.set(id, next)
     }
   }
@@ -89,13 +99,17 @@ function serializeMetadata(metadata: Map<string, SessionMetadata>): PersistedSes
     if (typeof entry.projectId === "string" && entry.projectId.trim()) {
       next.projectId = entry.projectId.trim()
     }
+    const permissionMode = normalizePermissionMode(entry.permissionMode)
+    if (permissionMode) {
+      next.permissionMode = permissionMode
+    }
     if (validTimestamp(entry.pinnedAt)) {
       next.pinnedAt = entry.pinnedAt
     }
     if (validTimestamp(entry.archivedAt)) {
       next.archivedAt = entry.archivedAt
     }
-    if (next.scope || next.projectId || next.pinnedAt || next.archivedAt) {
+    if (next.scope || next.projectId || next.permissionMode || next.pinnedAt || next.archivedAt) {
       sessions[id] = next
     }
   }

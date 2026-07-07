@@ -44,6 +44,7 @@ export interface UseSessions {
   listArchived: () => Promise<SessionInfo[]>
   createProject: (req: CreateProjectRequest) => Promise<SessionProject>
   assignSessionProject: (sessionId: string, projectId?: string) => Promise<void>
+  setSessionPermissionMode: (id: string, permissionMode: SessionInfo["permissionMode"]) => Promise<void>
   renameProject: (id: string, name: string) => Promise<void>
   pinProject: (id: string, pinned: boolean) => Promise<void>
   archiveProject: (id: string) => Promise<void>
@@ -248,6 +249,29 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     [sessionService, refresh, sessions],
   )
 
+  const setSessionPermissionMode = React.useCallback(
+    async (id: string, permissionMode: SessionInfo["permissionMode"]) => {
+      await sessionService.invoke("setPermissionMode", { id, permissionMode: permissionMode ?? "default" })
+      const applyPermissionMode = (session: SessionInfo): SessionInfo =>
+        session.id === id
+          ? (() => {
+              const next = { ...session }
+              if (permissionMode === "full_access") {
+                next.permissionMode = permissionMode
+              } else {
+                delete next.permissionMode
+              }
+              return next
+            })()
+          : session
+      setSessions((current) => current.map(applyPermissionMode))
+      setTaskSessions((current) => current.map(applyPermissionMode))
+      setProjectSessions((current) => current.map(applyPermissionMode))
+      await refresh()
+    },
+    [sessionService, refresh],
+  )
+
   const removeProject = React.useCallback(
     async (id: string) => {
       await sessionService.invoke("removeProject", id)
@@ -345,6 +369,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     listArchived,
     createProject,
     assignSessionProject,
+    setSessionPermissionMode,
     renameProject,
     pinProject,
     archiveProject,

@@ -179,6 +179,7 @@ export function AppShell() {
     create,
     createProject,
     assignSessionProject,
+    setSessionPermissionMode,
     renameProject: renameProjectAction,
     pinProject: pinProjectAction,
     archiveProject: archiveProjectAction,
@@ -311,7 +312,7 @@ export function AppShell() {
     getSessionStatus,
     hasUnreadSession,
     permissionMode,
-    setPermissionMode,
+    setPermissionMode: setChatPermissionMode,
     send,
     stop,
     answerPermission,
@@ -562,6 +563,24 @@ export function AppShell() {
   }, [connections.summary, send, sessionScope])
 
   const activeSession = sessions.find((s) => s.id === activeSessionId)
+  React.useEffect(() => {
+    if (!activeSessionId || !activeSession) {
+      return
+    }
+    setChatPermissionMode(activeSessionId, activeSession.permissionMode ?? "default")
+  }, [activeSession, activeSessionId, setChatPermissionMode])
+
+  const setAndPersistPermissionMode = React.useCallback(
+    (sessionId: string, mode: AgentPermissionMode): void => {
+      setChatPermissionMode(sessionId, mode)
+      void setSessionPermissionMode(sessionId, mode).catch((cause: unknown) => {
+        console.error("[wanta] persist session permission mode failed", cause)
+        reportRendererHandledError("appShell.permissionMode", "Failed to persist session permission mode", cause)
+        toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "session" }), t))
+      })
+    },
+    [setChatPermissionMode, setSessionPermissionMode, t],
+  )
   const {
     clearAutoFallbackTitle,
     getAutoFallbackTitle,
@@ -1012,7 +1031,7 @@ export function AppShell() {
             pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
           )
         }
-        setPermissionMode(sessionId, selectedPermissionMode)
+        setAndPersistPermissionMode(sessionId, selectedPermissionMode)
         if (shouldRefreshTitle) {
           void refreshGeneratedTitle(
             sessionId,
@@ -1081,7 +1100,7 @@ export function AppShell() {
       rememberAutoFallbackTitle,
       send,
       sessionScope,
-      setPermissionMode,
+      setAndPersistPermissionMode,
     ],
   )
 
@@ -1384,12 +1403,12 @@ export function AppShell() {
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
       if (activeSessionId) {
-        setPermissionMode(activeSessionId, mode)
+        setAndPersistPermissionMode(activeSessionId, mode)
         return
       }
       setDraftPermissionMode(mode)
     },
-    [activeSessionId, setPermissionMode],
+    [activeSessionId, setAndPersistPermissionMode],
   )
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {

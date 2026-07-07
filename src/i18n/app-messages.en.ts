@@ -801,13 +801,15 @@ export const enMessages = {
   "chat.questionComposerPlaceholder": "Answer Wanta's question...",
   "chat.questionComposerBlockedPlaceholder": "Complete the question above first...",
   "chat.questionAttachmentUnsupported": "Remove attachments to answer Wanta's question.",
-  "chat.questionStoppedStatus": "Stopped",
-  "chat.questionStoppedHint":
-    "Your entries are preserved. Continue will resend them in a new message. If the current task is still running, it will be queued.",
+  "chat.questionStoppedStatus": "Question saved",
+  "chat.questionStoppedHint": "Your entries are preserved. Continue will resend them in a new message.",
+  "chat.questionStoppedRunningHint":
+    "Your entries are preserved. Continue will resend them in a new message; stop and discard will stop the current task and remove this question.",
   "chat.questionSubmit": "Submit",
   "chat.questionSubmitting": "Submitting",
   "chat.questionContinue": "Continue",
   "chat.questionDiscard": "Discard",
+  "chat.questionDiscardAndStop": "Stop and discard",
   "chat.questionNext": "Next",
   "chat.questionPrevious": "Back",
   "chat.questionCancel": "Cancel",

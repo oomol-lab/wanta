@@ -68,7 +68,7 @@ interface ChatAreaProps {
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
-  onStop: () => void
+  onStop: () => Promise<void> | void
   onComposerStateChange?: (state: ComposerState) => void
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
   onQueuedMessageRemove: (id: string) => void
@@ -393,6 +393,7 @@ export const ChatArea = React.memo(function ChatArea({
       onContinueQuestion={onContinueQuestion}
       onDiscardQuestion={onDiscardQuestion}
       onRejectQuestion={onRejectQuestion}
+      onStop={onStop}
       onViewBilling={onViewBilling}
     />
   )

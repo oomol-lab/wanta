@@ -90,7 +90,7 @@ interface ChatComposerProps {
   onPermissionModeFullAccess: () => void
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onOpenConnectionProvider?: (service: string, displayName: string) => void
-  onStop: () => void
+  onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
 

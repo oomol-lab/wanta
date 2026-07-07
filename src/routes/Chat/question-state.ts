@@ -11,3 +11,7 @@ export interface ChatPendingQuestion {
 export function questionPromptBusy(state: ChatQuestionState, status: ChatStatus): boolean {
   return state === "active" && status === "submitted"
 }
+
+export function shouldStopBeforeDiscardingQuestion(state: ChatQuestionState, isGenerating: boolean): boolean {
+  return state === "stopped" && isGenerating
+}

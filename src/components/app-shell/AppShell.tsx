@@ -1464,10 +1464,10 @@ export function AppShell() {
       toast.error(t("session.renameFailed"))
     })
   }
-  const handleChatStop = React.useCallback(() => {
+  const handleChatStop = React.useCallback(async (): Promise<void> => {
     if (activeChatSessionId) {
       holdActiveQueueIfQueued()
-      void stop(activeChatSessionId)
+      await stop(activeChatSessionId)
     }
   }, [activeChatSessionId, holdActiveQueueIfQueued, stop])
   const handlePermissionModeChange = React.useCallback(
@@ -1501,7 +1501,7 @@ export function AppShell() {
           setRoute("settings")
           return
         case APP_COMMANDS.stopGeneration:
-          handleChatStop()
+          void handleChatStop()
           return
         case APP_COMMANDS.toggleSidebar:
           handleToggleSidebar()

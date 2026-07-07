@@ -47,7 +47,7 @@ interface ComposerTrailingControlsProps {
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
   onStartVoice: () => void
-  onStop: () => void
+  onStop: () => Promise<void> | void
   onStopVoice: () => void
 }
 
@@ -553,7 +553,7 @@ export function ComposerTrailingControls({
                 submit.stopsGeneration
                   ? (event) => {
                       event.preventDefault()
-                      onStop()
+                      void onStop()
                     }
                   : undefined
               }

@@ -819,6 +819,7 @@ interface ChatTimelineProps {
   onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
+  onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
 
@@ -842,6 +843,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   onContinueQuestion,
   onDiscardQuestion,
   onRejectQuestion,
+  onStop,
   onViewBilling,
 }: ChatTimelineProps) {
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
@@ -938,10 +940,12 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 request={request}
                 state={state}
                 busy={questionPromptBusy(state, status)}
+                isGenerating={isGenerating}
                 onAnswer={onAnswerQuestion}
                 onContinue={onContinueQuestion}
                 onDiscard={onDiscardQuestion}
                 onReject={onRejectQuestion}
+                onStop={onStop}
               />
             </div>
           </div>

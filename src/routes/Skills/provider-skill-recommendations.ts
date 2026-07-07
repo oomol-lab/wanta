@@ -9,7 +9,6 @@ import {
 } from "./skill-route-model.ts"
 
 export interface ProviderSkillCandidate {
-  packageName: string
   providerDisplayName: string
   providerIconUrl?: string
   service: string
@@ -18,25 +17,102 @@ export interface ProviderSkillCandidate {
 export interface ProviderSkillRecommendation extends ProviderSkillCandidate {
   installState: PublicSkillInstallState
   package: PublicSkillPackage
+  packageName: string
   skillId: string
 }
 
-const officialProviderSkillPackageNameByService = new Map<string, string>([
-  ["amap", "oo-amap"],
-  ["dida365", "oo-dida365"],
-  ["github", "oo-github"],
-  ["gmail", "oo-gmail"],
-  ["googlecalendar", "oo-googlecalendar"],
-  ["notion", "oo-notion"],
-  ["slack", "oo-slack"],
-])
+const providerServicePattern = /^[a-z0-9][a-z0-9._-]*$/
 
-export function resolveOfficialProviderSkillPackageName(service: string): string | null {
-  const normalizedService = service.trim()
-  if (!normalizedService) {
-    return null
+function normalizeProviderService(service: string): string {
+  return service.trim().toLowerCase()
+}
+
+function uniqueSearchValues(values: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    const normalized = value.trim()
+    const key = normalized.toLowerCase()
+    if (!key || seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    result.push(normalized)
   }
-  return officialProviderSkillPackageNameByService.get(normalizedService) ?? null
+  return result
+}
+
+function compactSearchText(value: string | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "")
+}
+
+function packageSkillTexts(pkg: PublicSkillPackage): string[] {
+  return [
+    pkg.name,
+    pkg.displayName,
+    pkg.description ?? "",
+    ...pkg.skills.flatMap((skill) => [skill.name, skill.title, skill.description ?? ""]),
+  ]
+}
+
+export function getProviderSkillSearchQueries(candidate: ProviderSkillCandidate): string[] {
+  const serviceWords = candidate.service.replace(/[._-]+/g, " ")
+  return uniqueSearchValues([candidate.providerDisplayName, serviceWords, candidate.service])
+}
+
+export function getConventionalProviderSkillPackageName(candidate: ProviderSkillCandidate): string | null {
+  const normalizedService = normalizeProviderService(candidate.service)
+  return providerServicePattern.test(normalizedService) ? `oo-${normalizedService}` : null
+}
+
+export function scoreProviderSkillPackage(candidate: ProviderSkillCandidate, pkg: PublicSkillPackage): number {
+  const providerNames = uniqueSearchValues([
+    candidate.providerDisplayName,
+    candidate.service,
+    candidate.service.replace(/[._-]+/g, " "),
+  ]).map(compactSearchText)
+  const searchableTexts = packageSkillTexts(pkg).map(compactSearchText).filter(Boolean)
+  const packageName = compactSearchText(pkg.name)
+  let score = 0
+
+  for (const providerName of providerNames) {
+    if (!providerName) {
+      continue
+    }
+    for (const text of searchableTexts) {
+      if (text === providerName) {
+        score += 100
+      } else if (text.includes(providerName)) {
+        score += 20
+      }
+    }
+    if (packageName === `oo${providerName}`) {
+      score += 40
+    }
+  }
+
+  if (pkg.maintainers.some((maintainer) => maintainer.name.trim().toLowerCase() === "oomol")) {
+    score += 5
+  }
+
+  return score
+}
+
+export function selectProviderSkillPackage(
+  candidate: ProviderSkillCandidate,
+  packages: readonly PublicSkillPackage[],
+): PublicSkillPackage | null {
+  let best: { pkg: PublicSkillPackage; score: number } | null = null
+  for (const pkg of packages) {
+    const score = scoreProviderSkillPackage(candidate, pkg)
+    if (score <= 0) {
+      continue
+    }
+    if (!best || score > best.score) {
+      best = { pkg, score }
+    }
+  }
+  return best?.pkg ?? null
 }
 
 export function getConnectedProviderSkillCandidates(
@@ -46,8 +122,8 @@ export function getConnectedProviderSkillCandidates(
   const candidates: ProviderSkillCandidate[] = []
 
   for (const provider of providers) {
-    const service = provider.service.trim()
-    if (!service || provider.status !== "connected") {
+    const service = normalizeProviderService(provider.service)
+    if (!service || !providerServicePattern.test(service) || provider.status !== "connected") {
       continue
     }
     if (provider.appStatus && provider.appStatus !== "active") {
@@ -56,13 +132,8 @@ export function getConnectedProviderSkillCandidates(
     if (seen.has(service)) {
       continue
     }
-    const packageName = resolveOfficialProviderSkillPackageName(service)
-    if (!packageName) {
-      continue
-    }
     seen.add(service)
     candidates.push({
-      packageName,
       providerDisplayName: provider.displayName || service,
       ...(provider.iconUrl ? { providerIconUrl: provider.iconUrl } : {}),
       service,
@@ -98,6 +169,7 @@ export function buildProviderSkillRecommendations({
         ...candidate,
         installState,
         package: pkg,
+        packageName: pkg.name,
         skillId: skill.name,
       }
     })

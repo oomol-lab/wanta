@@ -6,17 +6,9 @@ import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
 import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model.ts"
 
-import {
-  Building2Icon,
-  CheckIcon,
-  ChevronsUpDownIcon,
-  PackageIcon,
-  PencilIcon,
-  PlusIcon,
-  RefreshCwIcon,
-} from "lucide-react"
+import { Building2Icon, CheckIcon, ChevronsUpDownIcon, PencilIcon, PlusIcon } from "lucide-react"
 import * as React from "react"
-import { organizationRole, planOrganizationSkillBulkLinks } from "./organization-management-model.ts"
+import { organizationRole } from "./organization-management-model.ts"
 import {
   AccountWorkspaceAvatar,
   OrganizationAvatar,
@@ -40,7 +32,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
-import { canInstallPublicSkill, getOrganizationSkillRuntimeStatus } from "@/routes/Skills/skill-route-model"
 
 export function OrganizationSwitcherPanel({
   activeWorkspace,
@@ -300,6 +291,7 @@ export function OrganizationSkillGuidePanel({
   busyAction,
   groupById,
   organizationSkills,
+  providerRecommendationsLoading,
   providerRecommendations,
   onAddRecommendation,
   onAddRecommendationBatch,
@@ -311,6 +303,7 @@ export function OrganizationSkillGuidePanel({
   busyAction: BusyAction | null
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   organizationSkills: UseOrganizationSkills
+  providerRecommendationsLoading: boolean
   providerRecommendations: ProviderSkillRecommendation[]
   onAddRecommendation: (
     recommendation: ProviderSkillRecommendation,
@@ -330,34 +323,6 @@ export function OrganizationSkillGuidePanel({
 }) {
   const { t } = useAppI18n()
   const statusLabel = organizationSkillGuideStatus(organizationSkills, t)
-  const recommendedPlan = React.useMemo(
-    () => planOrganizationSkillBulkLinks(providerRecommendations, organizationSkills.skills),
-    [organizationSkills.skills, providerRecommendations],
-  )
-  const installableHeaderSkills = React.useMemo(() => {
-    const configuredSkills = organizationSkills.skills
-      .filter((skill) => {
-        const state = getOrganizationSkillRuntimeStatus(groupById, skill).state
-        return skill.enabled && (state === "missing" || state === "external-only")
-      })
-      .map((skill) => ({ packageName: skill.packageName, skillName: skill.skillName }))
-    const recommendedSkills = recommendedPlan.linkable
-      .filter((recommendation) => canInstallPublicSkill(recommendation.installState))
-      .map((recommendation) => ({
-        packageName: recommendation.packageName,
-        skillName: recommendation.skillId,
-      }))
-    const seen = new Set<string>()
-    return [...configuredSkills, ...recommendedSkills].filter((skill) => {
-      const key = `${skill.packageName}\u0000${skill.skillName}`
-      if (seen.has(key)) {
-        return false
-      }
-      seen.add(key)
-      return true
-    })
-  }, [groupById, organizationSkills.skills, recommendedPlan.linkable])
-  const installBusy = busyAction === "installSkillBatch"
 
   return (
     <section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-md border border-[var(--oo-divider)] bg-background">
@@ -373,22 +338,13 @@ export function OrganizationSkillGuidePanel({
             {t("organizations.skillGuideDescription")}
           </p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          className="shrink-0"
-          disabled={installableHeaderSkills.length === 0 || Boolean(busyAction)}
-          onClick={() => onInstallRuntimeSkills(installableHeaderSkills)}
-        >
-          {installBusy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
-          {t("organizations.skillManageInstallAll")}
-        </Button>
       </div>
       <div className="min-h-0">
         <OrganizationSkillManageDialog
           busyAction={busyAction}
           groupById={groupById}
           organizationSkills={organizationSkills}
+          providerRecommendationsLoading={providerRecommendationsLoading}
           providerRecommendations={providerRecommendations}
           variant="inline"
           onAddRecommendation={onAddRecommendation}

@@ -5,35 +5,68 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import {
   buildProviderSkillRecommendations,
+  getConventionalProviderSkillPackageName,
   getConnectedProviderSkillCandidates,
   getInstallableProviderSkillRecommendations,
-  resolveOfficialProviderSkillPackageName,
+  getProviderSkillSearchQueries,
+  scoreProviderSkillPackage,
+  selectProviderSkillPackage,
 } from "./provider-skill-recommendations.ts"
 
-test("resolveOfficialProviderSkillPackageName only returns explicitly mapped packages", () => {
-  assert.equal(resolveOfficialProviderSkillPackageName("gmail"), "oo-gmail")
-  assert.equal(resolveOfficialProviderSkillPackageName(" googlecalendar "), "oo-googlecalendar")
-  assert.equal(resolveOfficialProviderSkillPackageName("google_bigquery"), null)
-  assert.equal(resolveOfficialProviderSkillPackageName(""), null)
+test("getProviderSkillSearchQueries derives registry search terms from provider metadata", () => {
+  assert.deepEqual(
+    getProviderSkillSearchQueries({
+      providerDisplayName: "Google BigQuery",
+      service: "google_bigquery",
+    }),
+    ["Google BigQuery", "google_bigquery"],
+  )
 })
 
-test("getConnectedProviderSkillCandidates only keeps active connected providers with mapped packages", () => {
+test("getConventionalProviderSkillPackageName derives the official package convention without a mapping table", () => {
+  assert.equal(getConventionalProviderSkillPackageName(providerCandidate("posthog", "PostHog")), "oo-posthog")
+  assert.equal(
+    getConventionalProviderSkillPackageName(providerCandidate("google_bigquery", "Google BigQuery")),
+    "oo-google_bigquery",
+  )
+  assert.equal(getConventionalProviderSkillPackageName(providerCandidate("bad service", "Bad Service")), null)
+})
+
+test("getConnectedProviderSkillCandidates keeps active connected providers as package candidates", () => {
   const candidates = getConnectedProviderSkillCandidates([
-    provider("gmail"),
+    provider("Gmail"),
     provider("github", { appStatus: "reauth_required" }),
     provider("notion", { status: "available" }),
     provider("gmail", { displayName: "Gmail Duplicate" }),
     provider("amap", { appStatus: undefined }),
+    provider("posthog", { displayName: "PostHog" }),
     provider("google_bigquery"),
+    provider("bad service"),
   ])
 
   assert.deepEqual(
-    candidates.map((candidate) => [candidate.service, candidate.packageName, candidate.providerDisplayName]),
+    candidates.map((candidate) => [candidate.service, candidate.providerDisplayName]),
     [
-      ["gmail", "oo-gmail", "Gmail"],
-      ["amap", "oo-amap", "Amap"],
+      ["gmail", "Gmail"],
+      ["amap", "Amap"],
+      ["posthog", "PostHog"],
+      ["google_bigquery", "Google_bigquery"],
     ],
   )
+})
+
+test("selectProviderSkillPackage ranks registry search results without a provider mapping table", () => {
+  const candidate = providerCandidate("posthog", "PostHog")
+  const selected = selectProviderSkillPackage(candidate, [
+    publicPackageWithOptions("analytics-helper", { description: "Generic product analytics workflows" }),
+    publicPackageWithOptions("oo-posthog", {
+      description: "PostHog connector workflows",
+      displayName: "PostHog",
+    }),
+  ])
+
+  assert.equal(selected?.name, "oo-posthog")
+  assert.equal(scoreProviderSkillPackage(candidate, publicPackage("unrelated")), 0)
 })
 
 test("buildProviderSkillRecommendations reads packages by provider service and classifies install state", () => {
@@ -41,6 +74,8 @@ test("buildProviderSkillRecommendations reads packages by provider service and c
     ["gmail", publicPackage("oo-gmail")],
     ["github", publicPackage("oo-github")],
     ["notion", publicPackage("oo-notion")],
+    ["posthog", publicPackage("oo-posthog")],
+    ["unmapped", publicPackage("oo-unmapped")],
   ])
   const groupById = new Map([
     ["oo-gmail", managedSkillGroup("oo-gmail", "oo-gmail")],
@@ -50,7 +85,14 @@ test("buildProviderSkillRecommendations reads packages by provider service and c
   const recommendations = buildProviderSkillRecommendations({
     groupById,
     packagesByService,
-    providers: [provider("gmail"), provider("github"), provider("notion"), provider("missing")],
+    providers: [
+      provider("gmail"),
+      provider("github"),
+      provider("notion"),
+      provider("posthog"),
+      provider("unmapped"),
+      provider("missing"),
+    ],
   })
 
   assert.deepEqual(
@@ -64,11 +106,13 @@ test("buildProviderSkillRecommendations reads packages by provider service and c
       ["gmail", "oo-gmail", "oo-gmail", "installed"],
       ["github", "oo-github", "oo-github", "name-conflict"],
       ["notion", "oo-notion", "oo-notion", "installable"],
+      ["posthog", "oo-posthog", "oo-posthog", "installable"],
+      ["unmapped", "oo-unmapped", "oo-unmapped", "installable"],
     ],
   )
   assert.deepEqual(
     getInstallableProviderSkillRecommendations(recommendations).map((recommendation) => recommendation.service),
-    ["notion"],
+    ["notion", "posthog", "unmapped"],
   )
 })
 
@@ -91,16 +135,26 @@ function provider(
 }
 
 function publicPackage(name: string): PublicSkillPackage {
+  return publicPackageWithOptions(name, {})
+}
+
+function publicPackageWithOptions(name: string, options: Partial<PublicSkillPackage>): PublicSkillPackage {
   return {
+    description: options.description,
     displayName: name,
     id: `${name}@1.0.0`,
     isTemplate: false,
-    maintainers: [],
+    maintainers: options.maintainers ?? [],
     name,
     skills: [{ name, title: name }],
     version: "1.0.0",
     visibility: "public",
+    ...options,
   }
+}
+
+function providerCandidate(service: string, providerDisplayName: string) {
+  return { providerDisplayName, service }
 }
 
 function managedSkillGroup(name: string, packageName: string): ManagedSkillGroup {

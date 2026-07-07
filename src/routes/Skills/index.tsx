@@ -98,11 +98,13 @@ function visibleSkillOperationError(
 
 export function SkillsRoute({
   connectedProviders,
+  connectedProvidersLoading = false,
   focusRequest,
   organizationSkills,
   workspace,
 }: {
   connectedProviders: ConnectionProvider[]
+  connectedProvidersLoading?: boolean
   focusRequest?: { nonce: number; tab: SkillPageTab } | null
   organizationSkills: UseOrganizationSkills
   workspace: UseOrganizationWorkspace
@@ -771,6 +773,7 @@ export function SkillsRoute({
             organizationFilter={organizationFilter}
             organizationQuery={organizationQuery}
             organizationSkills={organizationSkills}
+            providerRecommendationsLoading={connectedProvidersLoading || providerSkillPackageLookup.isLoading}
             providerRecommendations={providerSkillRecommendations}
             workspace={workspace}
             onAddRecommendation={addOrganizationSkillFromRecommendation}

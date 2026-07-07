@@ -1,4 +1,5 @@
 import type { BusyAction } from "./organization-management-model.ts"
+import type { OrganizationSkillRecommendationItem } from "./organization-skill-manage-helpers.ts"
 import type { ProviderSkillRecommendation } from "./provider-skill-recommendations.ts"
 import type { ManagedSkillGroupById } from "./skill-route-model.ts"
 import type { OrganizationSkillFilter } from "./SkillPageHeader.tsx"
@@ -8,7 +9,11 @@ import type { TranslateFn as TFunction } from "@/i18n"
 
 import * as React from "react"
 import { toast } from "sonner"
-import { planOrganizationSkillBulkLinks } from "./organization-management-model.ts"
+import {
+  organizationSkillIdentityKey,
+  planProviderSkillRecommendationBulkLinks,
+} from "./organization-management-model.ts"
+import { buildOrganizationSkillRecommendationItems } from "./organization-skill-manage-helpers.ts"
 import {
   getOrganizationSkillRuntimeStatus,
   getPublicSkillInstallStateLabel,
@@ -44,6 +49,7 @@ interface OrganizationSkillsPaneProps {
   organizationFilter: OrganizationSkillFilter
   organizationQuery: string
   organizationSkills: UseOrganizationSkills
+  providerRecommendationsLoading: boolean
   providerRecommendations: ProviderSkillRecommendation[]
   workspace: UseOrganizationWorkspace
 }
@@ -58,6 +64,7 @@ export function OrganizationSkillsPane({
   organizationFilter,
   organizationQuery,
   organizationSkills,
+  providerRecommendationsLoading,
   providerRecommendations,
   workspace,
 }: OrganizationSkillsPaneProps) {
@@ -80,23 +87,48 @@ export function OrganizationSkillsPane({
 
   const normalizedQuery = organizationQuery.trim().toLowerCase()
   const recommendedPlan = selectedOrganizationSkills
-    ? planOrganizationSkillBulkLinks(providerRecommendations, selectedOrganizationSkills.skills)
+    ? planProviderSkillRecommendationBulkLinks(providerRecommendations, selectedOrganizationSkills.skills)
     : null
   const recommendedOrganizationSkills = recommendedPlan?.linkable ?? []
-  const filteredOrganizationItems = selectedOrganizationSkills
-    ? buildOrganizationRecommendationItems({
+  const allOrganizationItems = selectedOrganizationSkills
+    ? buildOrganizationSkillRecommendationItems({
         filter: organizationFilter,
-        normalizedQuery,
-        recommendedSkills: recommendedOrganizationSkills,
+        normalizedQuery: "",
+        providerRecommendations: recommendedOrganizationSkills,
         skills: selectedOrganizationSkills.skills,
       })
     : []
-  const installableConfiguredSkills = selectedOrganizationSkills
-    ? selectedOrganizationSkills.skills.filter((skill) => {
-        const state = getOrganizationSkillRuntimeStatus(groupById, skill).state
-        return skill.enabled && (state === "missing" || state === "external-only")
+  const filteredOrganizationItems = selectedOrganizationSkills
+    ? buildOrganizationSkillRecommendationItems({
+        filter: organizationFilter,
+        normalizedQuery,
+        providerRecommendations: recommendedOrganizationSkills,
+        skills: selectedOrganizationSkills.skills,
       })
     : []
+  const installableSkillKeys = new Set<string>()
+  const installableRecommendationSkills = allOrganizationItems
+    .flatMap((item) => {
+      if (item.type === "configured") {
+        const state = getOrganizationSkillRuntimeStatus(groupById, item.skill).state
+        return item.skill.enabled && (state === "missing" || state === "external-only")
+          ? [{ packageName: item.skill.packageName, skillName: item.skill.skillName }]
+          : []
+      }
+      return item.recommendation.installState === "installable" ||
+        item.recommendation.installState === "partially-installed" ||
+        item.recommendation.installState === "external-installed"
+        ? [{ packageName: item.recommendation.packageName, skillName: item.recommendation.skillId }]
+        : []
+    })
+    .filter((skill) => {
+      const key = organizationSkillIdentityKey(skill.packageName, skill.skillName)
+      if (!key || installableSkillKeys.has(key)) {
+        return false
+      }
+      installableSkillKeys.add(key)
+      return true
+    })
   const selectedOrganizationItem = selectedItemId
     ? filteredOrganizationItems.find((item) => item.id === selectedItemId)
     : undefined
@@ -169,25 +201,27 @@ export function OrganizationSkillsPane({
               </Button>
             </div>
           ) : null}
-          {installableConfiguredSkills.length > 1 ? (
+          {installableRecommendationSkills.length > 1 ? (
             <div className="flex justify-end">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 disabled={Boolean(busyAction)}
-                onClick={() => onInstallRuntimeSkills(installableConfiguredSkills)}
+                onClick={() => onInstallRuntimeSkills(installableRecommendationSkills)}
               >
                 {busyAction === "installSkillBatch" ? (
                   <AppIcons.status.loading className="animate-spin" />
                 ) : (
                   <AppIcons.action.installPackage />
                 )}
-                {t("organizations.skillManageInstallMissingAll", { count: installableConfiguredSkills.length })}
+                {t("organizations.skillManageInstallMissingAll", { count: installableRecommendationSkills.length })}
               </Button>
             </div>
           ) : null}
           {selectedOrganizationSkills.loading && !selectedOrganizationSkills.hasLoaded ? (
+            <OrganizationSkillListSkeleton />
+          ) : providerRecommendationsLoading && organizationFilter !== "configured" ? (
             <OrganizationSkillListSkeleton />
           ) : filteredOrganizationItems.length === 0 ? (
             <OrganizationRecommendationEmptyState
@@ -196,14 +230,18 @@ export function OrganizationSkillsPane({
                   ? t("skills.organizationSearchEmptyDescription")
                   : organizationFilter === "recommended"
                     ? t("organizations.skillManageRecommendedEmpty")
-                    : t("skills.organizationEmptyDescription")
+                    : organizationFilter === "configured"
+                      ? t("skills.organizationEmptyDescription")
+                      : t("organizations.skillManageRecommendationsEmptyDescription")
               }
               title={
                 normalizedQuery
                   ? t("skills.organizationSearchEmpty")
                   : organizationFilter === "recommended"
-                    ? t("organizations.skillManageRecommended")
-                    : t("skills.organizationEmpty")
+                    ? t("organizations.skillManageRecommendedEmptyTitle")
+                    : organizationFilter === "configured"
+                      ? t("skills.organizationEmpty")
+                      : t("organizations.skillManageRecommendationsEmptyTitle")
               }
             />
           ) : (
@@ -301,81 +339,6 @@ function OrganizationSkillListSkeleton() {
       ))}
     </div>
   )
-}
-
-type OrganizationRecommendationItem =
-  | {
-      id: string
-      skill: UseOrganizationSkills["skills"][number]
-      type: "configured"
-    }
-  | {
-      id: string
-      recommendation: ProviderSkillRecommendation
-      type: "recommended"
-    }
-
-function buildOrganizationRecommendationItems({
-  filter,
-  normalizedQuery,
-  recommendedSkills,
-  skills,
-}: {
-  filter: OrganizationSkillFilter
-  normalizedQuery: string
-  recommendedSkills: ProviderSkillRecommendation[]
-  skills: UseOrganizationSkills["skills"]
-}): OrganizationRecommendationItem[] {
-  const configuredItems: OrganizationRecommendationItem[] =
-    filter === "recommended"
-      ? []
-      : skills
-          .filter((skill) => organizationSkillMatchesSearchQuery(skill, normalizedQuery))
-          .map((skill) => ({ id: `configured:${skill.id}`, skill, type: "configured" }))
-
-  const recommendedItems: OrganizationRecommendationItem[] =
-    filter === "configured"
-      ? []
-      : recommendedSkills
-          .filter((recommendation) => providerRecommendationMatchesSearchQuery(recommendation, normalizedQuery))
-          .map((recommendation) => ({
-            id: `recommended:${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`,
-            recommendation,
-            type: "recommended",
-          }))
-
-  return [...recommendedItems, ...configuredItems]
-}
-
-function organizationSkillMatchesSearchQuery(
-  skill: UseOrganizationSkills["skills"][number],
-  normalizedQuery: string,
-): boolean {
-  if (!normalizedQuery) {
-    return true
-  }
-  return [skill.displayName, skill.skillName, skill.packageName, skill.description ?? "", skill.version]
-    .filter(Boolean)
-    .some((value) => String(value).toLowerCase().includes(normalizedQuery))
-}
-
-function providerRecommendationMatchesSearchQuery(
-  recommendation: ProviderSkillRecommendation,
-  normalizedQuery: string,
-): boolean {
-  if (!normalizedQuery) {
-    return true
-  }
-  const skillDescription =
-    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ?? ""
-  return [
-    recommendation.providerDisplayName,
-    recommendation.package.displayName,
-    recommendation.packageName,
-    recommendation.skillId,
-    recommendation.package.description ?? "",
-    skillDescription,
-  ].some((value) => value.toLowerCase().includes(normalizedQuery))
 }
 
 function OrganizationRecommendationEmptyState({ description, title }: { description: string; title: string }) {
@@ -613,7 +576,7 @@ function OrganizationSkillDetail({
   busyConfigId: string | null
   canManage: boolean
   groupById: ManagedSkillGroupById
-  item: OrganizationRecommendationItem
+  item: OrganizationSkillRecommendationItem
   onAddRecommendation: (recommendation: ProviderSkillRecommendation) => Promise<void>
   onDisableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void
   onEnableConfiguredSkill: (skill: UseOrganizationSkills["skills"][number]) => void

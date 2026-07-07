@@ -89,6 +89,10 @@ export interface OrganizationSkillPackageItem {
   packageName: string
 }
 
+export interface OrganizationSkillIdentityItem extends OrganizationSkillPackageItem {
+  skillName: string
+}
+
 export interface OrganizationSkillLinkInput {
   packageName: string
   skillName: string
@@ -232,6 +236,12 @@ export function organizationSkillPackageLinked(linkedPackageKeys: ReadonlySet<st
   return Boolean(key) && linkedPackageKeys.has(key)
 }
 
+export function organizationSkillIdentityKey(packageName: string, skillName: string): string {
+  const normalizedPackageName = organizationSkillPackageKey(packageName)
+  const normalizedSkillName = skillName.trim().toLowerCase()
+  return normalizedPackageName && normalizedSkillName ? `${normalizedPackageName}\u0000${normalizedSkillName}` : ""
+}
+
 export function runtimeSkillRemoveBusyKey(target: RuntimeSkillRemoveTarget): BusyAction {
   return `removeSkill:${target.packageName ?? ""}:${target.skillName}`
 }
@@ -252,6 +262,33 @@ export function planOrganizationSkillBulkLinks<T extends OrganizationSkillPackag
     }
     seenPackageKeys.add(packageKey)
     if (linkedPackageKeys.has(packageKey)) {
+      linked.push(item)
+    } else {
+      linkable.push(item)
+    }
+  }
+
+  return { linkable, linked }
+}
+
+export function planProviderSkillRecommendationBulkLinks<T extends { packageName: string; skillId: string }>(
+  items: readonly T[],
+  linkedSkills: readonly OrganizationSkillIdentityItem[],
+): OrganizationSkillBulkPlan<T> {
+  const linkedSkillKeys = new Set(
+    linkedSkills.map((skill) => organizationSkillIdentityKey(skill.packageName, skill.skillName)).filter(Boolean),
+  )
+  const seenSkillKeys = new Set<string>()
+  const linkable: T[] = []
+  const linked: T[] = []
+
+  for (const item of items) {
+    const key = organizationSkillIdentityKey(item.packageName, item.skillId)
+    if (!key || seenSkillKeys.has(key)) {
+      continue
+    }
+    seenSkillKeys.add(key)
+    if (linkedSkillKeys.has(key)) {
       linked.push(item)
     } else {
       linkable.push(item)

@@ -53,6 +53,7 @@ export interface TurnRetryOptions {
 }
 
 export interface ChatSendRequest {
+  afterOptimisticSubmit?: () => void
   attachments?: ChatAttachment[]
   contextMentions?: ChatContextMention[]
   mode?: AgentMode
@@ -399,7 +400,11 @@ export function resolveNewSessionTarget({
 }
 
 export function newSessionComposerDraftKey(scope: SessionScope | null, projectId: string | undefined): string {
-  return `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${sessionScopeKey(scope)}:${projectId ?? "none"}`
+  return newSessionComposerDraftKeyForScopeKey(sessionScopeKey(scope), projectId)
+}
+
+export function newSessionComposerDraftKeyForScopeKey(scopeKey: string, projectId: string | undefined): string {
+  return `${NEW_SESSION_COMPOSER_DRAFT_KEY}:${scopeKey}:${projectId ?? "none"}`
 }
 
 export function existingSessionComposerDraftKey(scopeKey: string, sessionId: string): string {

@@ -12,6 +12,7 @@ import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from
 import { TurnOutputStore } from "./turn-outputs.ts"
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -540,6 +541,28 @@ test("stopGeneration cancels a submitted turn before prompt streaming starts", a
   await Promise.resolve()
 
   assert.equal(bridge.promptStreaming.mock.calls.length, 0)
+})
+
+test("sendMessage releases a submitted turn when OpenCode never acknowledges it", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  await vi.advanceTimersByTimeAsync(45_000)
+  await vi.waitFor(() => {
+    assert.equal(service.hasActiveGeneration(), false)
+    assert.equal(events.at(-1)?.event, "messageError")
+  })
+
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.ok(events.some((event) => event.event === "generationStopped"))
+  const messageError = events.at(-1) as { data: { message?: string }; event: string }
+  assert.equal(messageError.data.message, "Agent runtime did not acknowledge this message. Please retry.")
 })
 
 test("rejectQuestion ends the active generation so the session can accept new input", async () => {

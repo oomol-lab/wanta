@@ -4,6 +4,7 @@ import {
   NO_DRAFT_PROJECT_ID,
   isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
+  newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
   sessionRecordScopeKey,
   shouldClearWorkspaceSwitchTarget,
@@ -158,6 +159,18 @@ describe("new session target resolution", () => {
     expect(resolveNewSessionTarget({ draftProjectId: null, lastProjectId: "project-d" })).toEqual({
       sidebarSegment: "tasks",
     })
+  })
+})
+
+describe("composer draft keys", () => {
+  test("keeps loading organization draft keys separated by selected workspace", () => {
+    expect(newSessionComposerDraftKey(null, undefined)).toBe("__new_session__:workspace-loading:none")
+    expect(newSessionComposerDraftKeyForScopeKey("organization:org-a", undefined)).toBe(
+      "__new_session__:organization:org-a:none",
+    )
+    expect(newSessionComposerDraftKeyForScopeKey("organization:org-b", "project-1")).toBe(
+      "__new_session__:organization:org-b:project-1",
+    )
   })
 })
 

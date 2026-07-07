@@ -10,6 +10,7 @@ import type { ModelChoice } from "../../../electron/models/common.ts"
 
 export interface PendingChatTransition {
   sessionId: string | null
+  scopeKey: string
   text: string
   attachments: ChatAttachment[]
   contextMentions?: ChatContextMention[]

@@ -537,22 +537,41 @@ export function ChatComposer({
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
-    const accepted = await onSend({
-      attachments: attachments.map(stripDraftAttachment),
-      contextMentions,
-      mode: agentMode,
-      model: modelCatalog?.selected,
-      permissionMode,
-      reasoningLevel,
-      text,
-    })
-    if (!accepted) {
-      setInputError(t("chat.sendNotAccepted"))
+    let clearedAfterSubmit = false
+    const clearAfterOptimisticSubmit = (): void => {
+      if (clearedAfterSubmit) {
+        return
+      }
+      clearedAfterSubmit = true
+      composerAttachments.revokeCurrentPreviews()
+      dispatchComposer({ type: "reset-after-submit" })
+      setInputError(null)
+    }
+    let accepted = false
+    try {
+      accepted = await onSend({
+        afterOptimisticSubmit: clearAfterOptimisticSubmit,
+        attachments: attachments.map(stripDraftAttachment),
+        contextMentions,
+        mode: agentMode,
+        model: modelCatalog?.selected,
+        permissionMode,
+        reasoningLevel,
+        text,
+      })
+    } catch (err) {
+      if (!clearedAfterSubmit) {
+        setInputError(err instanceof Error ? err.message : String(err))
+      }
       return
     }
-    composerAttachments.revokeCurrentPreviews()
-    dispatchComposer({ type: "reset-after-submit" })
-    setInputError(null)
+    if (!accepted) {
+      if (!clearedAfterSubmit) {
+        setInputError(t("chat.sendNotAccepted"))
+      }
+      return
+    }
+    clearAfterOptimisticSubmit()
   }
 
   const visibleError = React.useMemo<VisibleComposerError | null>(() => {

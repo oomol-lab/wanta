@@ -143,6 +143,8 @@ const sessionTitleSystemPrompt = [
 ].join("\n")
 const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
 const eventStreamMaxReconnectAttempts = 5
+const eventStreamRestartInitialDelayMs = 500
+const eventStreamRestartMaxDelayMs = 5_000
 const runtimeRestartMaxAttempts = 5
 const runtimeRestartInitialDelayMs = 1_000
 const runtimeRestartMaxDelayMs = 10_000
@@ -171,6 +173,7 @@ export class AgentManager {
   private sidecar: OpencodeSidecar | null = null
   private eventStreamAbort: AbortController | null = null
   private eventSubscriber: AgentEventSubscriber | null = null
+  private eventLoopRestartFailures = 0
   private disposed = false
   private runtimeRecovery: Promise<void> | null = null
   private started = false
@@ -338,6 +341,7 @@ export class AgentManager {
   ): () => void {
     this.eventLoopStopped = false
     this.eventSubscriber = { onEvent, onConnectionStatus }
+    this.eventLoopRestartFailures = 0
     this.restartEventLoop()
     return () => {
       this.eventLoopStopped = true
@@ -402,6 +406,7 @@ export class AgentManager {
           reconnectFailures = 0
           reconnecting = false
           reconnectFailedAnnounced = false
+          this.eventLoopRestartFailures = 0
         },
       })
       const stream = (
@@ -413,6 +418,7 @@ export class AgentManager {
         if (this.eventLoopStopped) {
           break
         }
+        this.eventLoopRestartFailures = 0
         try {
           subscriber.onEvent(event)
         } catch (error) {
@@ -428,8 +434,12 @@ export class AgentManager {
           )
         }
       }
+      if (!this.eventLoopStopped && !controller.signal.aborted) {
+        console.warn("[wanta] opencode event stream ended without error")
+        logDiagnostic("opencode-event-stream", "opencode event stream ended without error", {}, "warn")
+      }
     } catch (error) {
-      if (!this.eventLoopStopped) {
+      if (!this.eventLoopStopped && !controller.signal.aborted) {
         console.error("[wanta] opencode event stream ended:", error)
         logDiagnostic("opencode-event-stream", "opencode event stream ended", { error }, "error")
         subscriber.onConnectionStatus?.({
@@ -440,10 +450,48 @@ export class AgentManager {
         })
       }
     } finally {
+      const shouldRestart =
+        this.eventStreamAbort === controller &&
+        !this.eventLoopStopped &&
+        !this.disposed &&
+        this.started &&
+        this.eventSubscriber === subscriber &&
+        !controller.signal.aborted
       if (this.eventStreamAbort === controller) {
         this.eventStreamAbort = null
       }
+      if (shouldRestart) {
+        this.scheduleEventLoopRestart(subscriber)
+      }
     }
+  }
+
+  private scheduleEventLoopRestart(subscriber: AgentEventSubscriber): void {
+    const attempt = Math.min(this.eventLoopRestartFailures + 1, eventStreamMaxReconnectAttempts)
+    this.eventLoopRestartFailures = attempt
+    const delayMs = Math.min(
+      eventStreamRestartInitialDelayMs * 2 ** Math.max(0, attempt - 1),
+      eventStreamRestartMaxDelayMs,
+    )
+    subscriber.onConnectionStatus?.({
+      status: "reconnecting",
+      attempt,
+      maxAttempts: eventStreamMaxReconnectAttempts,
+      message: "OpenCode event stream disconnected; reconnecting.",
+    })
+    const timer = setTimeout(() => {
+      if (
+        this.eventLoopStopped ||
+        this.disposed ||
+        !this.started ||
+        this.eventSubscriber !== subscriber ||
+        this.eventStreamAbort
+      ) {
+        return
+      }
+      this.restartEventLoop()
+    }, delayMs)
+    timer.unref?.()
   }
 
   public async listSessions(): Promise<SessionInfo[]> {

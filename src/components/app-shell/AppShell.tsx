@@ -39,6 +39,7 @@ import {
   initialRoute,
   isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
+  newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
   rememberTurnRetryOptions,
@@ -391,7 +392,7 @@ export function AppShell() {
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
   const draftProjectFallbacksById = React.useRef<Map<string, SessionProject>>(new Map())
   const lastChatProjectId = React.useRef<string | null>(null)
-  const sendInFlightRef = React.useRef(false)
+  const sendInFlightKeysRef = React.useRef(new Set<string>())
   const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
   const previousActiveChatSessionIdRef = React.useRef<string | null>(null)
   const activeSidebarSessions = React.useMemo(
@@ -673,9 +674,14 @@ export function AppShell() {
     sessionScope,
     sessionsLoaded: sessionsSettledForCurrentScope,
   })
+  const newSessionDraftScopeKey = sessionScope ? currentScopeKey : activeWorkspaceKey
   const activeComposerDraftKey = activeChatSessionId
     ? existingSessionComposerDraftKey(currentScopeKey, activeChatSessionId)
-    : newSessionComposerDraftKey(sessionScope, activeProjectId)
+    : newSessionComposerDraftKeyForScopeKey(newSessionDraftScopeKey, activeProjectId)
+  const activeComposerDraftKeyRef = React.useRef(activeComposerDraftKey)
+  activeComposerDraftKeyRef.current = activeComposerDraftKey
+  const currentScopeKeyRef = React.useRef(currentScopeKey)
+  currentScopeKeyRef.current = currentScopeKey
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = visibleSessions.find((s) => s.id === renameSessionId) ?? null
   const renameProjectTarget = visibleProjects.find((project) => project.id === renameProjectId) ?? null
@@ -689,8 +695,9 @@ export function AppShell() {
     route === "chat" &&
     activeChatConnectionDrawer?.open === true &&
     Boolean(chatConnectionAuthIntent || chatConnectionSelectedService)
-  const pendingCaughtUp = isPendingChatCaughtUp(pendingChatTransition, activeChatSessionId, messages)
-  const initialSendPending = Boolean(pendingChatTransition && !pendingCaughtUp)
+  const activePendingChatTransition = pendingChatTransition?.scopeKey === currentScopeKey ? pendingChatTransition : null
+  const pendingCaughtUp = isPendingChatCaughtUp(activePendingChatTransition, activeChatSessionId, messages)
+  const initialSendPending = Boolean(activePendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
@@ -704,11 +711,11 @@ export function AppShell() {
     ((!ready && !hasVisibleLoadedSession) ||
       !sessionsSettledForCurrentScope ||
       needsDefaultSessionSelection ||
-      Boolean(activeChatSessionId && !messagesLoaded && !pendingChatTransition))
+      Boolean(activeChatSessionId && !messagesLoaded && !activePendingChatTransition))
   const showChatEmptyState =
     ready &&
     sessionsSettledForCurrentScope &&
-    !pendingChatTransition &&
+    !activePendingChatTransition &&
     (!activeChatSessionId || (messagesLoaded && messages.length === 0))
   const showComposerProjectContext = route === "chat"
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
@@ -718,10 +725,10 @@ export function AppShell() {
       return (
         sessionStatus === "submitted" ||
         sessionStatus === "streaming" ||
-        (sessionId === activeChatSessionId && pendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
+        (sessionId === activeChatSessionId && activePendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
       )
     },
-    [activeChatSessionId, getSessionStatus, pendingCaughtUp, pendingChatTransition],
+    [activeChatSessionId, activePendingChatTransition, getSessionStatus, pendingCaughtUp],
   )
   const titlebarTitle =
     route === "settings"
@@ -805,10 +812,10 @@ export function AppShell() {
   }, [sessionScope])
 
   React.useEffect(() => {
-    if (pendingChatTransition && status === "error") {
+    if (activePendingChatTransition && status === "error") {
       setPendingChatTransition(null)
     }
-  }, [pendingChatTransition, status])
+  }, [activePendingChatTransition, status])
 
   const handleComposerStateChange = React.useCallback(
     (state: ComposerState): void => {
@@ -1000,7 +1007,7 @@ export function AppShell() {
   }, [])
 
   const sendNow = React.useCallback(
-    async (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }): Promise<boolean> => {
+    async (request: ChatSendRequest): Promise<boolean> => {
       const {
         afterOptimisticSubmit,
         attachments = [],
@@ -1011,13 +1018,17 @@ export function AppShell() {
         reasoningLevel,
         text,
       } = request
-      if (sendInFlightRef.current) {
+      const sendKey = activeComposerDraftKey
+      const sendScopeKey = currentScopeKey
+      const isCurrentSendTarget = (): boolean =>
+        activeComposerDraftKeyRef.current === sendKey && currentScopeKeyRef.current === sendScopeKey
+      if (sendInFlightKeysRef.current.has(sendKey)) {
         return false
       }
       if (!sessionScope) {
         return false
       }
-      sendInFlightRef.current = true
+      sendInFlightKeysRef.current.add(sendKey)
       try {
         setRoute("chat")
         let sessionId = activeChatSessionId
@@ -1031,9 +1042,10 @@ export function AppShell() {
         const bridgeEmptySend = messagesLoaded && messages.length === 0
         const createdAt = Date.now()
         const selectedPermissionMode = permissionModeArg ?? displayedPermissionMode
-        if (bridgeEmptySend) {
+        if (bridgeEmptySend && isCurrentSendTarget()) {
           setPendingChatTransition({
             sessionId,
+            scopeKey: sendScopeKey,
             text,
             attachments,
             contextMentions,
@@ -1049,19 +1061,23 @@ export function AppShell() {
           try {
             info = await create(fallbackTitle, activeProject?.id)
           } catch (error) {
-            if (bridgeEmptySend) {
+            if (bridgeEmptySend && isCurrentSendTarget()) {
               setPendingChatTransition(null)
             }
             throw error
           }
           sessionId = info.id
           rememberAutoFallbackTitle(sessionId, fallbackTitle)
-          setActiveSessionId(sessionId)
-          setIsDraftSession(false)
-          setSidebarSegment(info.projectId ? "projects" : "tasks")
-          setPendingChatTransition((pending) =>
-            pending?.createdAt === createdAt ? { ...pending, sessionId: info.id } : pending,
-          )
+          if (isCurrentSendTarget()) {
+            setActiveSessionId(sessionId)
+            setIsDraftSession(false)
+            setSidebarSegment(info.projectId ? "projects" : "tasks")
+            setPendingChatTransition((pending) =>
+              pending?.createdAt === createdAt && pending.scopeKey === sendScopeKey
+                ? { ...pending, sessionId: info.id }
+                : pending,
+            )
+          }
         }
         setAndPersistPermissionMode(sessionId, selectedPermissionMode)
         if (shouldRefreshTitle) {
@@ -1106,22 +1122,24 @@ export function AppShell() {
           afterOptimisticSubmit?.()
           await sendPromise
         } catch (error) {
-          if (bridgeEmptySend) {
+          if (bridgeEmptySend && isCurrentSendTarget()) {
             setPendingChatTransition(null)
           }
           throw error
         }
         return true
       } finally {
-        sendInFlightRef.current = false
+        sendInFlightKeysRef.current.delete(sendKey)
       }
     },
     [
       activeSession,
       activeChatSessionId,
+      activeComposerDraftKey,
       activeProject?.id,
       activeProjectContext,
       create,
+      currentScopeKey,
       displayedPermissionMode,
       getAutoFallbackTitle,
       isAutoRefreshable,
@@ -1136,7 +1154,10 @@ export function AppShell() {
     ],
   )
 
-  const isSendInFlight = React.useCallback((): boolean => sendInFlightRef.current, [])
+  const isSendInFlight = React.useCallback(
+    (): boolean => sendInFlightKeysRef.current.has(activeComposerDraftKey),
+    [activeComposerDraftKey],
+  )
   const {
     activeQueueHeld,
     activeQueuedMessages,
@@ -1162,7 +1183,7 @@ export function AppShell() {
     }
   }, [activeChatSessionId])
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const previousWorkspaceKey = workspaceResetKeyRef.current
     if (previousWorkspaceKey === activeWorkspaceKey) {
       return
@@ -1204,14 +1225,28 @@ export function AppShell() {
 
   const handleSend = React.useCallback(
     async (request: ChatSendRequest): Promise<boolean> => {
-      const { attachments = [], contextMentions = [], mode, model, permissionMode, reasoningLevel, text } = request
+      const {
+        afterOptimisticSubmit,
+        attachments = [],
+        contextMentions = [],
+        mode,
+        model,
+        permissionMode,
+        reasoningLevel,
+        text,
+      } = request
       const draftKey = activeComposerDraftKey
-      if (activeChatSessionId && (isSessionRunning(activeChatSessionId) || sendInFlightRef.current)) {
-        queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
+      const clearSubmittedDraft = (): void => {
         clearComposerDraft(draftKey)
+        afterOptimisticSubmit?.()
+      }
+      if (activeChatSessionId && (isSessionRunning(activeChatSessionId) || sendInFlightKeysRef.current.has(draftKey))) {
+        queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
+        clearSubmittedDraft()
         return true
       }
       const accepted = await sendNow({
+        afterOptimisticSubmit: clearSubmittedDraft,
         attachments,
         contextMentions,
         mode,
@@ -1706,7 +1741,7 @@ export function AppShell() {
                       generatedArtifacts={artifactSelection}
                       submitDisabled={!ready || chatBootstrapping || workspaceSwitching || !sessionScope}
                       willQueueMessage={Boolean(
-                        activeChatSessionId && (isSessionRunning(activeChatSessionId) || sendInFlightRef.current),
+                        activeChatSessionId && (isSessionRunning(activeChatSessionId) || isSendInFlight()),
                       )}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}

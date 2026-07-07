@@ -76,6 +76,7 @@ import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 export { buildContextMentionsSystem } from "./context-system.ts"
 
 const userStopAbortWindowMs = 30_000
+const generationStartAckTimeoutMs = 45_000
 const defaultMaxDirectoryItems = 80
 
 interface ActiveTurnOutput {
@@ -194,6 +195,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeTurnOutputs = new Map<string, ActiveTurnOutput>()
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
+  private generationStartWatchdogs = new Map<string, NodeJS.Timeout>()
   private connectionFailedSessions = new Set<string>()
   private trustedProjectRoots = new Map<string, string>()
   private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
@@ -238,6 +240,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeTurnOutputs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
+    this.clearAllGenerationStartWatchdogs()
     this.connectionFailedSessions.clear()
     this.trustedProjectRoots.clear()
     this.trustedSubagentSessionsByParent.clear()
@@ -313,6 +316,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (this.shouldSuppressUserStoppedEvent(translated)) {
           continue
+        }
+        if (translated.data.sessionId) {
+          this.clearGenerationStartWatchdog(translated.data.sessionId)
         }
         if (translated.event === "messageStarted") {
           this.emitSessionActivity(translated.data.sessionId)
@@ -679,8 +685,47 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (generation) {
       this.releaseGenerationScopeLock(generation.id)
     }
+    this.clearGenerationStartWatchdog(sessionId)
     this.forgetTrustedSubagentSessions(sessionId)
     this.sessionGenerations.delete(sessionId)
+  }
+
+  private scheduleGenerationStartWatchdog(sessionId: string, generationId: string): void {
+    this.clearGenerationStartWatchdog(sessionId)
+    const timer = setTimeout(() => {
+      if (!this.isCurrentGeneration(sessionId, generationId)) {
+        return
+      }
+      console.warn("[wanta] generation did not receive an OpenCode event before timeout:", { sessionId })
+      logDiagnostic("chat-service", "generation did not receive opencode event before timeout", { sessionId }, "warn")
+      const messageId = this.activeAssistantMessages.get(sessionId)
+      void this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: false }).finally(() => {
+        this.emitMessageError(
+          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+          sessionId,
+          "Agent runtime did not acknowledge this message. Please retry.",
+          messageId,
+        )
+      })
+    }, generationStartAckTimeoutMs)
+    timer.unref?.()
+    this.generationStartWatchdogs.set(sessionId, timer)
+  }
+
+  private clearGenerationStartWatchdog(sessionId: string): void {
+    const timer = this.generationStartWatchdogs.get(sessionId)
+    if (!timer) {
+      return
+    }
+    clearTimeout(timer)
+    this.generationStartWatchdogs.delete(sessionId)
+  }
+
+  private clearAllGenerationStartWatchdogs(): void {
+    for (const timer of this.generationStartWatchdogs.values()) {
+      clearTimeout(timer)
+    }
+    this.generationStartWatchdogs.clear()
   }
 
   private async acquireAgentScopeLock(): Promise<() => void> {
@@ -874,6 +919,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.syncedIdleOrganizationName = organizationName
       generation = this.beginSessionGeneration(req.sessionId)
       this.generationScopeReleases.set(generation.id, releaseScope)
+      this.scheduleGenerationStartWatchdog(req.sessionId, generation.id)
       this.userStoppedSessions.delete(req.sessionId)
       this.connectionFailedSessions.delete(req.sessionId)
       this.clearMessageErrorSignatures(req.sessionId)

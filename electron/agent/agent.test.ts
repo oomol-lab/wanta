@@ -6,6 +6,7 @@ import { test } from "vitest"
 import { branding } from "../branding.ts"
 import { llmBaseUrl, ooEndpoint } from "../domain.ts"
 import { BUILTIN_MODEL_DEFINITIONS, BUILTIN_PROVIDER_DEFINITIONS, resolveBuiltinModel } from "../models/builtin.ts"
+import { DEFAULT_MAX_OUTPUT_TOKENS } from "../models/limits.ts"
 import { buildOpencodeConfig, customProviderId, WANTA_MODEL_ID, WANTA_PROVIDER_ID } from "./config.ts"
 import { AgentManager, persistOrganizationScopeUpdate } from "./manager.ts"
 import { WANTA_BUILD_AGENT_NAME, WANTA_PLAN_AGENT_NAME } from "./mode.ts"
@@ -56,6 +57,7 @@ test("buildOpencodeConfig wires the default Auto OOMOL compatible model", () => 
   assert.equal(model.reasoning, true)
   assert.deepEqual(modelVariantKeys(model), ["low", "medium", "high", "max"])
   assert.equal(modelVariantReasoningEffort(model, "max"), "max")
+  assert.deepEqual(modelLimit(model), { context: 200_000, output: DEFAULT_MAX_OUTPUT_TOKENS })
   assert.equal(model.attachment, true)
   assert.deepEqual(model.modalities, { input: ["text", "image"], output: ["text"] })
 })
@@ -98,6 +100,13 @@ test("buildOpencodeConfig covers every registered built-in model runtime", () =>
     assert.deepEqual(modelVariantKeys(model), expectedVariantKeys)
     assert.equal(model.tool_call, definition.capabilities.toolCall)
     assert.equal(model.attachment, definition.capabilities.supportsImages ? true : undefined)
+    if (definition.contextWindow || definition.inputTokenLimit) {
+      assert.deepEqual(modelLimit(model), {
+        context: definition.contextWindow ?? definition.inputTokenLimit,
+        ...(definition.inputTokenLimit ? { input: definition.inputTokenLimit } : {}),
+        output: definition.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+      })
+    }
     assertPositiveLimit(model, `${definition.runtime.providerID}/${definition.runtime.modelID}`)
   }
 })
@@ -152,7 +161,7 @@ test("buildOpencodeConfig wires text-only custom openai-compatible providers wit
   assert.equal(model?.modalities, undefined)
 })
 
-test("buildOpencodeConfig does not emit incomplete model limits", () => {
+test("buildOpencodeConfig completes partial model limits with the default output limit", () => {
   const config = buildOpencodeConfig({
     authToken: "api-test",
     customModels: [
@@ -175,14 +184,15 @@ test("buildOpencodeConfig does not emit incomplete model limits", () => {
     ],
   })
 
-  assert.equal(
+  assert.deepEqual(
     modelLimit(config.provider?.[customProviderId("custom-context-only")]?.models?.["context-only-model"]),
-    undefined,
+    { context: 128_000, output: DEFAULT_MAX_OUTPUT_TOKENS },
   )
-  assert.equal(
-    modelLimit(config.provider?.[customProviderId("custom-input-only")]?.models?.["input-only-model"]),
-    undefined,
-  )
+  assert.deepEqual(modelLimit(config.provider?.[customProviderId("custom-input-only")]?.models?.["input-only-model"]), {
+    context: 96_000,
+    input: 96_000,
+    output: DEFAULT_MAX_OUTPUT_TOKENS,
+  })
 })
 
 test("buildOpencodeConfig maps Qwen custom reasoning variants to enable_thinking", () => {

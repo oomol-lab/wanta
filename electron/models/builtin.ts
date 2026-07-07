@@ -2,6 +2,7 @@ import type { WantaReasoningVariant } from "../agent/reasoning.ts"
 
 import { WANTA_REASONING_VARIANT_LEVELS } from "../agent/reasoning.ts"
 import { branding } from "../branding.ts"
+import { DEFAULT_MAX_OUTPUT_TOKENS } from "./limits.ts"
 
 export type BuiltinProviderKind = "openai-compatible" | "openai-responses"
 
@@ -85,6 +86,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: autoContextWindow,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
     id: "gpt-5.5",
@@ -117,6 +119,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
     id: "deepseek-v4-pro",
@@ -132,6 +135,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
     id: "qwen3.7-plus",
@@ -147,6 +151,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
   {
     id: "qwen3.7-max",
@@ -162,6 +167,7 @@ export const BUILTIN_MODEL_DEFINITIONS: BuiltinModelDefinition[] = [
       toolCall: true,
     },
     contextWindow: millionTokenContextWindow,
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
   },
 ]
 

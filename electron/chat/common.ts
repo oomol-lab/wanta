@@ -255,6 +255,7 @@ export interface ChatMessage {
 }
 
 export interface ChatTokenUsage {
+  total?: number
   input: number
   output: number
   reasoning: number

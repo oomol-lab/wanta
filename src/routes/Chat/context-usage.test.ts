@@ -7,6 +7,7 @@ import {
   contextTokensFromUsage,
   formatTokenCount,
   latestContextTokenUsage,
+  selectedModelContextBudget,
   selectedModelContextWindow,
 } from "./context-usage.ts"
 
@@ -23,6 +24,7 @@ const catalog: ModelCatalog = {
       toolCall: true,
       runtimeKind: "openai-compatible",
       contextWindow: 200_000,
+      maxOutputTokens: 32_000,
     },
   ],
 }
@@ -54,13 +56,17 @@ describe("chat context usage", () => {
 
     expect(latestContextTokenUsage(messages)).toEqual(messages[2]?.tokenUsage)
     expect(buildContextUsageInfo(messages, catalog)).toEqual({
-      usedTokens: 1575,
-      limitTokens: 200_000,
+      usedTokens: 1525,
+      contextWindowTokens: 200_000,
+      limitTokens: 180_000,
+      limitKind: "compaction",
+      maxOutputTokens: 32_000,
+      compactionThresholdTokens: 180_000,
       percent: 1,
     })
   })
 
-  it("adds token components from one assistant usage snapshot", () => {
+  it("matches the OpenCode overflow fallback when total tokens are absent", () => {
     expect(
       contextTokensFromUsage({
         input: 10,
@@ -68,7 +74,19 @@ describe("chat context usage", () => {
         reasoning: 2,
         cache: { read: 5, write: 1 },
       }),
-    ).toBe(21)
+    ).toBe(19)
+  })
+
+  it("prefers provider total tokens when present", () => {
+    expect(
+      contextTokensFromUsage({
+        total: 42,
+        input: 10,
+        output: 3,
+        reasoning: 2,
+        cache: { read: 5, write: 1 },
+      }),
+    ).toBe(42)
   })
 
   it("does not invent a percentage for custom models without a known context window", () => {
@@ -103,7 +121,7 @@ describe("chat context usage", () => {
     expect(buildContextUsageInfo(messages, customCatalog)).toEqual({ usedTokens: 1700 })
   })
 
-  it("uses a custom model context window when configured", () => {
+  it("uses the custom model compaction threshold when a context window is configured", () => {
     const customCatalog: ModelCatalog = {
       ...catalog,
       selected: { kind: "custom", id: "custom-1" },
@@ -118,7 +136,7 @@ describe("chat context usage", () => {
           apiKeyConfigured: true,
           supportsImages: false,
           supportsToolCalls: true,
-          contextWindow: 10_000,
+          contextWindow: 100_000,
         },
       ],
     }
@@ -132,11 +150,19 @@ describe("chat context usage", () => {
       },
     ]
 
-    expect(selectedModelContextWindow(customCatalog)).toBe(10_000)
+    expect(selectedModelContextWindow(customCatalog)).toBe(100_000)
+    expect(selectedModelContextBudget(customCatalog)).toEqual({
+      contextLimitTokens: 100_000,
+      contextWindowTokens: 100_000,
+      compactionThresholdTokens: 80_000,
+    })
     expect(buildContextUsageInfo(messages, customCatalog)).toEqual({
       usedTokens: 2000,
-      limitTokens: 10_000,
-      percent: 20,
+      contextWindowTokens: 100_000,
+      limitTokens: 80_000,
+      limitKind: "compaction",
+      compactionThresholdTokens: 80_000,
+      percent: 3,
     })
   })
 

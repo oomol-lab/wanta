@@ -6,6 +6,7 @@ import type {
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
+  TurnOutputRecord,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
@@ -59,6 +60,13 @@ import { formatToolActivityDuration, formatWholeSecondDuration } from "./tool-ac
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
 import { hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
+import {
+  turnOutputInitialRole,
+  turnOutputRecordsByMessageId,
+  turnOutputRecordsByTurnId,
+  useTurnOutputRecords,
+} from "./turn-output-records.ts"
+import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
@@ -68,20 +76,12 @@ import { cn } from "@/lib/utils"
 const GeneratedArtifacts = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
 )
-const GeneratedTurnOutputs = React.lazy(() =>
-  import("@/routes/Chat/TurnOutputs").then((module) => ({ default: module.GeneratedTurnOutputs })),
-)
-
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
 const EMPTY_ARTIFACT_SOURCES: GeneratedArtifactSource[] = []
 
 function noopArtifactsAvailable(_selection: ArtifactSelection): void {
   // 只有最新的产物需要自动成为右侧面板的默认选择。
-}
-
-function noopTurnOutputAvailable(_selection: TurnOutputSelection): void {
-  // 只有最新轮次的变更需要自动成为右侧面板的默认选择。
 }
 
 type TurnProcessStatus =
@@ -651,6 +651,7 @@ interface ChatTurnViewProps {
   activeSessionId: string | null
   artifactSources: GeneratedArtifactSource[]
   billingCacheScope: string
+  turnOutputRecord: TurnOutputRecord | null
   turn: ChatTurn
   activity: AssistantActivityEvent | null
   activeAssistantMessageId?: string
@@ -659,7 +660,6 @@ interface ChatTurnViewProps {
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
-  onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onViewBilling?: () => void
   assistantActionTextByMessageId: Map<string, string>
@@ -683,6 +683,7 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
     previous.activeSessionId === next.activeSessionId &&
     previous.artifactSources === next.artifactSources &&
     previous.billingCacheScope === next.billingCacheScope &&
+    previous.turnOutputRecord === next.turnOutputRecord &&
     previous.turn === next.turn &&
     previous.activity === next.activity &&
     previous.activeAssistantMessageId === next.activeAssistantMessageId &&
@@ -691,7 +692,6 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
     previous.onAuthorize === next.onAuthorize &&
     previous.onArtifactsAvailable === next.onArtifactsAvailable &&
     previous.onArtifactsOpen === next.onArtifactsOpen &&
-    previous.onTurnOutputAvailable === next.onTurnOutputAvailable &&
     previous.onTurnOutputOpen === next.onTurnOutputOpen &&
     previous.onViewBilling === next.onViewBilling &&
     assistantActionTextsEqual(previous, next)
@@ -702,6 +702,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
   activeSessionId,
   artifactSources,
   billingCacheScope,
+  turnOutputRecord,
   turn,
   activity,
   activeAssistantMessageId,
@@ -710,7 +711,6 @@ const ChatTurnView = React.memo(function ChatTurnView({
   onAuthorize,
   onArtifactsAvailable,
   onArtifactsOpen,
-  onTurnOutputAvailable,
   onTurnOutputOpen,
   onViewBilling,
   assistantActionTextByMessageId,
@@ -829,15 +829,9 @@ const ChatTurnView = React.memo(function ChatTurnView({
           />
         </React.Suspense>
       ) : null}
-      <React.Suspense fallback={null}>
-        <GeneratedTurnOutputs
-          layout="shelf"
-          sessionId={activeSessionId}
-          messages={turn.assistants}
-          onOpen={onTurnOutputOpen}
-          onAvailable={onTurnOutputAvailable}
-        />
-      </React.Suspense>
+      {activeSessionId && turnOutputRecord ? (
+        <TurnOutputShelf record={turnOutputRecord} onOpen={onTurnOutputOpen} />
+      ) : null}
     </React.Fragment>
   )
 }, chatTurnViewPropsEqual)
@@ -904,6 +898,16 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     stableTurnsRef.current = stableTurns
     return stableTurns
   }, [groupedTurns])
+  const turnOutputRecords = useTurnOutputRecords(activeSessionId, messages)
+  const turnOutputRecordsByMessage = React.useMemo(
+    () => turnOutputRecordsByMessageId(turnOutputRecords),
+    [turnOutputRecords],
+  )
+  const turnOutputRecordsByTurn = React.useMemo(
+    () => turnOutputRecordsByTurnId(turns, turnOutputRecordsByMessage),
+    [turnOutputRecordsByMessage, turns],
+  )
+  const latestTurnOutputRecord = turnOutputRecords.at(-1)
   const providerByService = React.useMemo(
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
     [providers],
@@ -956,6 +960,15 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   }, [artifactSourcesByMessageId, turns])
   const latestArtifactSourceMessageId = visibleArtifactSources.at(-1)?.messageId
   React.useEffect(() => {
+    if (latestTurnOutputRecord) {
+      onTurnOutputAvailable({
+        record: latestTurnOutputRecord,
+        initialRole: turnOutputInitialRole(latestTurnOutputRecord),
+      })
+    }
+  }, [latestTurnOutputRecord, onTurnOutputAvailable])
+
+  React.useEffect(() => {
     const lastMessage = messages.at(-1)
     if (
       !isGenerating ||
@@ -996,6 +1009,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
               artifactSources={turnArtifactSources}
               turn={turn}
               billingCacheScope={billingCacheScope}
+              turnOutputRecord={turnOutputRecordsByTurn.get(turn.id) ?? null}
               activity={activityForChatTurn(turn, activity, activeAssistantMessageId, index === turns.length - 1)}
               activeAssistantMessageId={turnActiveAssistantMessageId}
               smoothAssistantMessageId={turnSmoothAssistantMessageId}
@@ -1004,7 +1018,6 @@ export const ChatTimeline = React.memo(function ChatTimeline({
               onArtifactsOpen={onArtifactsOpen}
               onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
               onTurnOutputOpen={onTurnOutputOpen}
-              onTurnOutputAvailable={index === turns.length - 1 ? onTurnOutputAvailable : noopTurnOutputAvailable}
               onViewBilling={onViewBilling}
               assistantActionTextByMessageId={assistantActionTextByMessageId}
             />

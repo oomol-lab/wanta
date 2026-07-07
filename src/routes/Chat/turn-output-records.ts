@@ -1,0 +1,92 @@
+import type { ChatMessage, TurnOutputRecord, TurnOutputFileRole } from "../../../electron/chat/common.ts"
+import type { ChatTurn } from "./chat-turns.ts"
+
+import * as React from "react"
+import { useChatService } from "@/components/AppContext"
+
+function assistantMessageIds(messages: ChatMessage[]): string[] {
+  return messages.filter((message) => message.role === "assistant").map((message) => message.id)
+}
+
+function visibleTurnOutputRecords(records: TurnOutputRecord[]): TurnOutputRecord[] {
+  return records.filter((record) => record.summary.changedFileCount > 0 || record.summary.processFileCount > 0)
+}
+
+export function turnOutputRecordSortValue(record: TurnOutputRecord): number {
+  return record.completedAt ?? record.createdAt
+}
+
+export function turnOutputInitialRole(record: TurnOutputRecord): Exclude<TurnOutputFileRole, "artifact"> {
+  return record.summary.changedFileCount > 0 ? "project_change" : "process"
+}
+
+export function turnOutputRecordsByMessageId(records: TurnOutputRecord[]): Map<string, TurnOutputRecord> {
+  const byMessageId = new Map<string, TurnOutputRecord>()
+  for (const record of records) {
+    byMessageId.set(record.messageId, record)
+  }
+  return byMessageId
+}
+
+export function turnOutputRecordsByTurnId(
+  turns: ChatTurn[],
+  recordsByMessageId: Map<string, TurnOutputRecord>,
+): Map<string, TurnOutputRecord> {
+  const byTurnId = new Map<string, TurnOutputRecord>()
+  for (const turn of turns) {
+    const records = turn.assistants
+      .map((message) => recordsByMessageId.get(message.id))
+      .filter((record): record is TurnOutputRecord => Boolean(record))
+      .sort((left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right))
+    const latest = records.at(-1)
+    if (latest) {
+      byTurnId.set(turn.id, latest)
+    }
+  }
+  return byTurnId
+}
+
+export function useTurnOutputRecords(sessionId: string | null, messages: ChatMessage[]): TurnOutputRecord[] {
+  const chatService = useChatService()
+  const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
+  const [refreshToken, setRefreshToken] = React.useState(0)
+  const messageIds = React.useMemo(() => assistantMessageIds(messages).slice(-40), [messages])
+  const key = messageIds.join("\n")
+
+  React.useEffect(() => {
+    return chatService.serverEvents.on("turnOutputUpdated", (event) => {
+      if (!sessionId || event.sessionId === sessionId) {
+        setRefreshToken((value) => value + 1)
+      }
+    })
+  }, [chatService, sessionId])
+
+  React.useEffect(() => {
+    let cancelled = false
+    if (!sessionId || messageIds.length === 0) {
+      setRecords([])
+      return
+    }
+    void Promise.all(messageIds.map((messageId) => chatService.invoke("getTurnOutput", { sessionId, messageId })))
+      .then((results) => {
+        if (cancelled) {
+          return
+        }
+        setRecords(
+          visibleTurnOutputRecords(results.filter((record): record is TurnOutputRecord => Boolean(record))).sort(
+            (left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right),
+          ),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRecords([])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chatService, key, messageIds, refreshToken, sessionId])
+
+  return records
+}

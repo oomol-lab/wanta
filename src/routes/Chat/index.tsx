@@ -278,12 +278,6 @@ export const ChatArea = React.memo(function ChatArea({
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])
 
-  React.useEffect(() => {
-    if (isGenerating) {
-      onArtifactsReset()
-    }
-  }, [isGenerating, onArtifactsReset])
-
   const requestFullAccess = React.useCallback((): void => {
     if (permissionMode === "full_access") {
       return

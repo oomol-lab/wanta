@@ -25,6 +25,8 @@ import { Diff as ReactDiff, Hunk, parseDiff } from "react-diff-view"
 import "react-diff-view/style/index.css"
 
 import { toast } from "sonner"
+import { turnOutputInitialRole, useTurnOutputRecords } from "./turn-output-records.ts"
+import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
@@ -54,18 +56,6 @@ interface TurnOutputsPanelProps {
   selection: TurnOutputSelection | null
 }
 
-function assistantMessageIds(messages: ChatMessage[]): string[] {
-  return messages.filter((message) => message.role === "assistant").map((message) => message.id)
-}
-
-function visibleRecords(records: TurnOutputRecord[]): TurnOutputRecord[] {
-  return records.filter((record) => record.summary.changedFileCount > 0 || record.summary.processFileCount > 0)
-}
-
-function recordSortValue(record: TurnOutputRecord): number {
-  return record.completedAt ?? record.createdAt
-}
-
 function roleFiles(record: TurnOutputRecord, role: Exclude<TurnOutputFileRole, "artifact">): TurnOutputFile[] {
   return record.files.filter((file) => file.role === role)
 }
@@ -90,51 +80,6 @@ function ChangeCountLabel({
   )
 }
 
-function useTurnOutputRecords(sessionId: string | null, messages: ChatMessage[]): TurnOutputRecord[] {
-  const chatService = useChatService()
-  const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
-  const [refreshToken, setRefreshToken] = React.useState(0)
-  const messageIds = React.useMemo(() => assistantMessageIds(messages).slice(-40), [messages])
-  const key = messageIds.join("\n")
-
-  React.useEffect(() => {
-    return chatService.serverEvents.on("turnOutputUpdated", (event) => {
-      if (!sessionId || event.sessionId === sessionId) {
-        setRefreshToken((value) => value + 1)
-      }
-    })
-  }, [chatService, sessionId])
-
-  React.useEffect(() => {
-    let cancelled = false
-    if (!sessionId || messageIds.length === 0) {
-      setRecords([])
-      return
-    }
-    void Promise.all(messageIds.map((messageId) => chatService.invoke("getTurnOutput", { sessionId, messageId })))
-      .then((results) => {
-        if (cancelled) {
-          return
-        }
-        setRecords(
-          visibleRecords(results.filter((record): record is TurnOutputRecord => Boolean(record))).sort(
-            (a, b) => recordSortValue(a) - recordSortValue(b),
-          ),
-        )
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRecords([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [chatService, key, messageIds, refreshToken, sessionId])
-
-  return records
-}
-
 export function GeneratedTurnOutputs({
   layout = "stack",
   messages,
@@ -148,8 +93,7 @@ export function GeneratedTurnOutputs({
   React.useEffect(() => {
     const latest = records.at(-1)
     if (latest) {
-      const initialRole = latest.summary.changedFileCount > 0 ? "project_change" : "process"
-      onAvailable({ record: latest, initialRole })
+      onAvailable({ record: latest, initialRole: turnOutputInitialRole(latest) })
     }
   }, [onAvailable, records])
 
@@ -171,47 +115,6 @@ export function GeneratedTurnOutputs({
         ))}
       </div>
     </section>
-  )
-}
-
-function TurnOutputShelf({
-  record,
-  onOpen,
-}: {
-  record: TurnOutputRecord
-  onOpen: (selection: TurnOutputSelection) => void
-}) {
-  const t = useT()
-  const hasProjectChanges = record.summary.changedFileCount > 0
-  const hasProcessFiles = record.summary.processFileCount > 0
-
-  if (!hasProjectChanges && !hasProcessFiles) {
-    return null
-  }
-
-  return (
-    <div className="not-prose mt-1 flex min-w-0 flex-wrap items-center gap-3">
-      {hasProjectChanges ? (
-        <button
-          type="button"
-          className="oo-text-caption flex h-8 min-w-0 items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
-          onClick={() => onOpen({ record, initialRole: "project_change" })}
-        >
-          <span>{t("turnOutputs.viewChanges", { count: record.summary.changedFileCount })}</span>
-          <ChevronRight className="size-4 shrink-0" />
-        </button>
-      ) : null}
-      {hasProcessFiles ? (
-        <button
-          type="button"
-          className="oo-text-caption flex h-8 min-w-0 items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
-          onClick={() => onOpen({ record, initialRole: "process" })}
-        >
-          <span>{t("turnOutputs.viewProcess", { count: record.summary.processFileCount })}</span>
-          <ChevronRight className="size-4 shrink-0" />
-        </button>
-      ) : null}
-    </div>
   )
 }
 

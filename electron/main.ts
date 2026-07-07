@@ -56,7 +56,7 @@ import {
   resolveWindowsTitleBarTheme,
   windowBackgroundColorForMaterial,
 } from "./window/title-bar-overlay.ts"
-import { createWindowsCloseHandler, revealWindowFromTray } from "./window/windows-tray-close-behavior.ts"
+import { createHideOnCloseHandler, revealMainWindow } from "./window/window-close-behavior.ts"
 import { createWindowsTrayLifecycle } from "./window/windows-tray-lifecycle.ts"
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -251,7 +251,9 @@ if (isLocked) {
         })
 
       app.on("activate", () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
+        if (mainWindow) {
+          revealMainWindow(mainWindow)
+        } else if (BrowserWindow.getAllWindows().length === 0) {
           createMainWindow()
         }
       })
@@ -712,15 +714,17 @@ function createMainWindow(): void {
 
   mainWindow.once("ready-to-show", () => mainWindow?.show())
 
-  if (process.platform === "win32") {
+  if (process.platform === "darwin" || process.platform === "win32") {
     mainWindow.on(
       "close",
-      createWindowsCloseHandler({
+      createHideOnCloseHandler({
         hide: () => mainWindow?.hide(),
         isQuitting: () => isQuitting,
       }),
     )
+  }
 
+  if (process.platform === "win32") {
     if (!windowsTrayLifecycle) {
       try {
         windowsTrayLifecycle = createWindowsTrayLifecycle({
@@ -732,7 +736,7 @@ function createMainWindow(): void {
           },
           onOpen: () => {
             if (mainWindow) {
-              revealWindowFromTray(mainWindow)
+              revealMainWindow(mainWindow)
             } else {
               createMainWindow()
             }
@@ -819,9 +823,7 @@ function showMainWindow(): void {
   if (mainWindow.isMinimized()) {
     mainWindow.restore()
   }
-  if (process.platform === "win32") {
-    mainWindow.show()
-  }
+  mainWindow.show()
   mainWindow.focus()
 }
 

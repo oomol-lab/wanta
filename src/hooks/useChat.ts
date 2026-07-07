@@ -4,6 +4,7 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
+  GenerationStoppedEvent,
   ChatMessage,
   ChatMessagePart,
   ChatOrganizationSkillContext,
@@ -32,6 +33,7 @@ import {
   coalesceTextDeltaEvent,
   ensureMessage,
   hasVisibleMessageDelta,
+  markAssistantMessageToolsCancelled,
   markLatestAssistantToolsCancelled,
   markSessionCompletedUnread,
   markSessionViewed,
@@ -636,10 +638,12 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   }, [])
 
   const markCurrentToolsCancelled = React.useCallback(
-    (sessionId: string) => {
+    (sessionId: string, stopped?: Pick<GenerationStoppedEvent, "messageId" | "partIds" | "stoppedAt">) => {
       flushPendingToolParts()
       patch(sessionId, (msgs) => {
-        const { messages, partIds } = markLatestAssistantToolsCancelled(msgs)
+        const { messages, partIds } = stopped?.messageId
+          ? markAssistantMessageToolsCancelled(msgs, stopped.messageId, stopped.partIds, stopped.stoppedAt)
+          : markLatestAssistantToolsCancelled(msgs, stopped?.stoppedAt)
         rememberCancelledToolParts(sessionId, partIds)
         return messages
       })
@@ -1002,7 +1006,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         setStatus(e.sessionId, "ready")
         setActivity(e.sessionId, undefined)
         clearSessionError(e.sessionId)
-        markCurrentToolsCancelled(e.sessionId)
+        markCurrentToolsCancelled(e.sessionId, e)
         markPendingQuestionsStopped(e.sessionId)
         void reload(e.sessionId)
       }),
@@ -1203,11 +1207,14 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     async (sessionId: string, requestId: string) => {
       setGlobalError(null)
       clearSessionError(sessionId)
+      const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
+      markSessionUserStopped(sessionId)
+      removePendingQuestion(sessionId, requestId)
+      markCurrentToolsCancelled(sessionId, request?.tool ? { messageId: request.tool.messageId } : undefined)
+      setStatus(sessionId, "ready")
+      setActivity(sessionId, undefined)
       try {
         await chatService.invoke("rejectQuestion", { sessionId, requestId })
-        removePendingQuestion(sessionId, requestId)
-        setStatus(sessionId, "ready")
-        setActivity(sessionId, undefined)
       } catch (err) {
         reportRendererHandledError("chat", "rejectQuestion invoke failed", err)
         setStatus(sessionId, "error")
@@ -1216,7 +1223,16 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         throw err
       }
     },
-    [chatService, clearSessionError, removePendingQuestion, setActivity, setSessionError, setStatus],
+    [
+      chatService,
+      clearSessionError,
+      markCurrentToolsCancelled,
+      markSessionUserStopped,
+      removePendingQuestion,
+      setActivity,
+      setSessionError,
+      setStatus,
+    ],
   )
 
   const messages = activeSessionId ? (messagesMap[activeSessionId] ?? []) : []

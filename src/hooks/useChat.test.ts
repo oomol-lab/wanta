@@ -7,6 +7,7 @@ import {
   coalesceTextDeltaEvent,
   ensureMessage,
   hasVisibleMessageDelta,
+  markAssistantMessageToolsCancelled,
   markLatestAssistantToolsCancelled,
   markSessionCompletedUnread,
   markSessionViewed,
@@ -292,6 +293,53 @@ describe("chat message identity reconciliation", () => {
       cancelled: true,
       timing: { start: 1000, end: 2600 },
     })
+  })
+
+  it("marks stopped tools on the event target assistant instead of the latest assistant", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "question-tool",
+            callId: "question-tool",
+            tool: "question",
+            status: "running",
+            input: {},
+            timing: { start: 1000 },
+          },
+        ],
+      },
+      {
+        id: "assistant-2",
+        role: "assistant",
+        createdAt: 2,
+        parts: [
+          {
+            kind: "tool",
+            partId: "new-tool",
+            callId: "new-tool",
+            tool: "search_actions",
+            status: "running",
+            input: {},
+            timing: { start: 2000 },
+          },
+        ],
+      },
+    ]
+
+    const { messages, partIds } = markAssistantMessageToolsCancelled(current, "assistant-1", ["question-tool"], 2600)
+
+    expect(partIds).toEqual(["question-tool"])
+    expect(messages[0]?.parts[0]).toMatchObject({
+      partId: "question-tool",
+      cancelled: true,
+      timing: { start: 1000, end: 2600 },
+    })
+    expect(messages[1]?.parts[0]).not.toHaveProperty("cancelled")
   })
 
   it("reapplies cancelled tool overlays with frozen timing after reload", () => {

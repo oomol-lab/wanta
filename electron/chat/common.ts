@@ -186,6 +186,9 @@ export interface MessageErrorEvent {
 }
 export interface GenerationStoppedEvent {
   sessionId: string
+  messageId?: string
+  partIds?: string[]
+  stoppedAt?: number
 }
 export interface AgentConnectionChangedEvent {
   sessionId: string

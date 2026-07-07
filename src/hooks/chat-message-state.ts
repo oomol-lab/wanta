@@ -218,6 +218,37 @@ export function markLatestAssistantToolsCancelled(
   return { messages, partIds }
 }
 
+export function markAssistantMessageToolsCancelled(
+  msgs: ChatMessage[],
+  messageId: string | undefined,
+  targetPartIds: readonly string[] | undefined,
+  stoppedAt = Date.now(),
+): { messages: ChatMessage[]; partIds: string[] } {
+  if (!messageId) {
+    return markLatestAssistantToolsCancelled(msgs, stoppedAt)
+  }
+  const targetPartIdSet = targetPartIds && targetPartIds.length > 0 ? new Set(targetPartIds) : null
+  let changed = false
+  const cancelledPartIds: string[] = []
+  const messages = msgs.map((message) => {
+    if (message.id !== messageId || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (!shouldCancelToolPart(part) || (targetPartIdSet && !targetPartIdSet.has(part.partId))) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      cancelledPartIds.push(part.partId)
+      return cancelledToolPart(part, stoppedAt)
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return { messages: changed ? messages : msgs, partIds: cancelledPartIds }
+}
+
 export function applyCancelledToolParts(
   msgs: ChatMessage[],
   partIds: Set<string> | undefined,

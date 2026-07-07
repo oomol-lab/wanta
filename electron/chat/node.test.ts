@@ -655,13 +655,61 @@ test("rejectQuestion ends the active generation so the session can accept new in
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
   const events = captureServiceEvents(service)
+  service.startEventBridge()
 
   await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "question-tool",
+        sessionID: "session-1",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "question-tool",
+        tool: "question",
+        state: { status: "running", input: {} },
+      },
+    },
+  })
   assert.equal(service.hasActiveGeneration(), true)
 
   await service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" })
 
   assert.deepEqual(bridge.rejectQuestion.mock.calls, [["session-1", "question-1"]])
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.equal(events.at(-1)?.event, "generationStopped")
+  const stopped = events.at(-1)?.data as {
+    messageId?: string
+    partIds?: string[]
+    sessionId?: string
+    stoppedAt?: number
+  }
+  assert.equal(stopped.sessionId, "session-1")
+  assert.equal(stopped.messageId, "assistant-1")
+  assert.deepEqual(stopped.partIds, ["question-tool"])
+  assert.equal(typeof stopped.stoppedAt, "number")
+  assert.equal(service.hasActiveGeneration(), false)
+})
+
+test("rejectQuestion still stops the generation when OpenCode does not acknowledge the rejection", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.rejectQuestion.mockImplementationOnce(() => new Promise<void>(() => undefined))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  const request = service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" })
+  await vi.advanceTimersByTimeAsync(5_000)
+  await request
+
   assert.equal(bridge.abort.mock.calls.length, 1)
   assert.equal(events.at(-1)?.event, "generationStopped")
   assert.equal(service.hasActiveGeneration(), false)

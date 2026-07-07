@@ -79,6 +79,7 @@ const userStopAbortWindowMs = 30_000
 const generationStartAckTimeoutMs = 45_000
 const generationInactivityTimeoutMs = 2 * 60_000
 const generationActiveToolInactivityTimeoutMs = 10 * 60_000
+const questionRejectTimeoutMs = 5_000
 const defaultMaxDirectoryItems = 80
 
 interface ActiveTurnOutput {
@@ -109,6 +110,21 @@ function ensureExternalHttpUrl(rawUrl: string): string {
 
 function createErrorPartId(): string {
   return `agent-error-${Date.now()}-${crypto.randomUUID()}`
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Timed out (${label}, ${timeoutMs}ms)`))
+    }, timeoutMs)
+    timer.unref?.()
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  })
 }
 
 function createMessageErrorPayload(sessionId: string, message: string, messageId?: string): MessageErrorEvent {
@@ -305,6 +321,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ) {
           const sessionId = translated.data.sessionId
           const messageId = this.activeAssistantMessages.get(sessionId)
+          const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+          const stoppedAt = Date.now()
+          if (messageId) {
+            void this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
+              console.warn("[wanta] failed to record stopped generation", error)
+            })
+          }
           void this.finalizeTurnOutput(sessionId, messageId)
             .catch((error: unknown) => {
               console.warn("[wanta] failed to finalize stopped turn output", error)
@@ -314,7 +337,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               this.activeAssistantMessages.delete(sessionId)
               this.activeToolParts.delete(sessionId)
               this.emitSessionActivity(sessionId)
-              this.sendBestEffort(emit, "generationStopped", { sessionId }, { sessionId })
+              this.sendBestEffort(
+                emit,
+                "generationStopped",
+                { sessionId, ...(messageId ? { messageId, partIds, stoppedAt } : {}) },
+                { sessionId },
+              )
             })
           continue
         }
@@ -939,6 +967,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     generation?.controller.abort()
     const messageId = this.activeAssistantMessages.get(sessionId)
     const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+    const stoppedAt = Date.now()
     if (options.abortAgent) {
       try {
         await this.agent.abort(sessionId)
@@ -951,7 +980,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     if (messageId) {
-      await this.rememberStoppedGeneration(sessionId, messageId, partIds).catch((error: unknown) => {
+      await this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
         console.warn("[wanta] failed to record stopped generation", error)
       })
     }
@@ -964,7 +993,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeTurnOutputs.delete(sessionId)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
-    await this.send("generationStopped", { sessionId }).catch((error: unknown) => {
+    await this.send("generationStopped", {
+      sessionId,
+      ...(messageId ? { messageId, partIds, stoppedAt } : {}),
+    }).catch((error: unknown) => {
       console.warn("[wanta] failed to emit generation stopped:", error)
       logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
     })
@@ -1172,9 +1204,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await write
   }
 
-  private async rememberStoppedGeneration(sessionId: string, messageId: string, partIds: string[]): Promise<void> {
+  private async rememberStoppedGeneration(
+    sessionId: string,
+    messageId: string,
+    partIds: string[],
+    stoppedAt = Date.now(),
+  ): Promise<void> {
     await this.ensureStoppedGenerationsLoaded()
-    if (!recordStoppedGeneration(this.stoppedGenerations, sessionId, messageId, partIds)) {
+    if (!recordStoppedGeneration(this.stoppedGenerations, sessionId, messageId, partIds, stoppedAt)) {
       return
     }
     await this.deps.stoppedGenerationStore?.write(this.stoppedGenerations)
@@ -1440,10 +1477,35 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    await this.agent.rejectQuestion(req.sessionId, req.requestId)
-    if (this.hasSessionGenerationState(req.sessionId)) {
+    const hadGenerationState = this.hasSessionGenerationState(req.sessionId)
+    let rejectError: unknown
+    try {
+      await withTimeout(
+        this.agent.rejectQuestion(req.sessionId, req.requestId),
+        questionRejectTimeoutMs,
+        "question rejection",
+      )
+    } catch (error) {
+      rejectError = error
+      console.warn("[wanta] question rejection failed before generation stop:", error)
+      logDiagnostic(
+        "chat-service",
+        "question rejection failed before generation stop",
+        {
+          error,
+          requestId: req.requestId,
+          sessionId: req.sessionId,
+        },
+        "warn",
+      )
+    }
+    const shouldStopGeneration = hadGenerationState || this.hasSessionGenerationState(req.sessionId)
+    if (shouldStopGeneration) {
       this.markUserStopped(req.sessionId)
       await this.stopSessionGeneration(req.sessionId, { abortAgent: true, throwOnAbortFailure: false })
+    }
+    if (rejectError && !shouldStopGeneration) {
+      throw rejectError
     }
     this.emitSessionActivity(req.sessionId)
   }

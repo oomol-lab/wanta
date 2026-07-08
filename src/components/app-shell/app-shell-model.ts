@@ -15,6 +15,7 @@ import type { SessionInfo, SessionProject, SessionScope } from "../../../electro
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { QueuedChatMessage } from "./chat-queue.ts"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { visibleUserText } from "@/routes/Chat/message-text"
@@ -292,8 +293,8 @@ export function sessionRecordScopeKey(scope: SessionScope | undefined): string {
   return `organization:${scope.organizationId}`
 }
 
-export interface WorkspaceSwitchPendingInput {
-  agentScopeSyncFailed: boolean
+export interface WorkspaceActivationInput {
+  agentScopeSyncError: UserFacingError | null
   agentScopeWorkspaceKey: string | null
   connectionSettledWorkspaceKey: string | null
   connectionWorkspaceKey: string | null
@@ -302,26 +303,47 @@ export interface WorkspaceSwitchPendingInput {
   loadedSessionScopeKey: string | null
   organizationSkillsSettled: boolean
   targetScopeKey: string | null
+  workspaceMetadataError: UserFacingError | null
 }
+
+export type WorkspaceSwitchPendingInput = WorkspaceActivationInput
 
 export type WorkspaceActivationPhase =
   | "session_scope"
   | "sessions"
-  | "connection_workspace"
+  | "workspace_metadata"
   | "agent_scope"
   | "connections"
   | "organization_skills"
 
-export type WorkspaceActivationFailureReason = "agent_scope"
+export type WorkspaceActivationFailureReason = "agent_scope" | "workspace_metadata"
 
 export type WorkspaceActivationState =
   | { status: "idle"; targetScopeKey: string | null }
   | { phase: WorkspaceActivationPhase; status: "activating"; targetScopeKey: string }
-  | { reason: WorkspaceActivationFailureReason; status: "failed"; targetScopeKey: string | null }
+  | {
+      error: UserFacingError
+      reason: WorkspaceActivationFailureReason
+      status: "failed"
+      targetScopeKey: string | null
+    }
 
-export function resolveWorkspaceActivationState(input: WorkspaceSwitchPendingInput): WorkspaceActivationState {
-  if (input.agentScopeSyncFailed) {
-    return { reason: "agent_scope", status: "failed", targetScopeKey: input.targetScopeKey }
+export function resolveWorkspaceActivationState(input: WorkspaceActivationInput): WorkspaceActivationState {
+  if (!input.connectionWorkspaceKey && input.workspaceMetadataError) {
+    return {
+      error: input.workspaceMetadataError,
+      reason: "workspace_metadata",
+      status: "failed",
+      targetScopeKey: input.targetScopeKey,
+    }
+  }
+  if (input.agentScopeSyncError) {
+    return {
+      error: input.agentScopeSyncError,
+      reason: "agent_scope",
+      status: "failed",
+      targetScopeKey: input.targetScopeKey,
+    }
   }
   if (!input.targetScopeKey) {
     return { status: "idle", targetScopeKey: null }
@@ -333,7 +355,7 @@ export function resolveWorkspaceActivationState(input: WorkspaceSwitchPendingInp
     return { phase: "sessions", status: "activating", targetScopeKey: input.targetScopeKey }
   }
   if (!input.connectionWorkspaceKey) {
-    return { phase: "connection_workspace", status: "activating", targetScopeKey: input.targetScopeKey }
+    return { phase: "workspace_metadata", status: "activating", targetScopeKey: input.targetScopeKey }
   }
   if (input.agentScopeWorkspaceKey !== input.connectionWorkspaceKey) {
     return { phase: "agent_scope", status: "activating", targetScopeKey: input.targetScopeKey }
@@ -353,6 +375,10 @@ export function workspaceActivationIsPending(state: WorkspaceActivationState): b
 
 export function workspaceActivationBlocksInput(state: WorkspaceActivationState): boolean {
   return state.status !== "idle"
+}
+
+export function workspaceActivationHasFailed(state: WorkspaceActivationState): boolean {
+  return state.status === "failed"
 }
 
 export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): boolean {

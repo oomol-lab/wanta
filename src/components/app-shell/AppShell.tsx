@@ -51,6 +51,7 @@ import {
   shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
   workspaceActivationBlocksInput,
+  workspaceActivationHasFailed,
   workspaceActivationIsPending,
   workspaceSelectionSwitchKey,
   WORKSPACE_SWITCH_TIMEOUT_MS,
@@ -202,7 +203,7 @@ export function AppShell() {
       !organizationSkills.loading &&
       (organizationSkills.hasLoaded || organizationSkills.error !== null))
   const workspaceActivationState = resolveWorkspaceActivationState({
-    agentScopeSyncFailed: Boolean(connections.scopeSyncError),
+    agentScopeSyncError: connections.scopeSyncError,
     agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
     connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
     connectionWorkspaceKey: currentConnectionWorkspaceKey,
@@ -211,6 +212,7 @@ export function AppShell() {
     loadedSessionScopeKey: sessionsLoadedScopeKey,
     organizationSkillsSettled,
     targetScopeKey: workspaceSwitchTargetKey,
+    workspaceMetadataError: organizationWorkspace.error,
   })
   const workspaceSwitching = workspaceActivationIsPending(workspaceActivationState)
   const workspaceSwitchTimedOut = Boolean(
@@ -351,7 +353,9 @@ export function AppShell() {
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
   const activeProvidersLoading =
-    Boolean(currentConnectionWorkspaceKey) && !connectionSummaryMatchesWorkspace && !connections.scopeSyncError
+    Boolean(currentConnectionWorkspaceKey) &&
+    !connectionSummaryMatchesWorkspace &&
+    !workspaceActivationHasFailed(workspaceActivationState)
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS

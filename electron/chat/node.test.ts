@@ -240,7 +240,8 @@ test("active run snapshots track permission waits and completion", async () => {
     properties: {
       action: "bash",
       id: "permission-1",
-      resources: ["/tmp/project"],
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
       sessionID: "session-1",
     },
   })
@@ -979,7 +980,8 @@ test("answerPermission restarts inactivity monitoring after a waiting permission
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm test"],
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
     },
   })
 
@@ -1357,7 +1359,7 @@ test("task subagent permission prompts pause the parent generation inactivity wa
       id: "permission-1",
       sessionID: "child-session",
       action: "external_directory",
-      resources: ["/tmp/outside-project"],
+      resources: ["/Users/example/.ssh"],
     },
   })
 
@@ -1469,7 +1471,8 @@ test("full access permissions are approved in the main process", async () => {
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm test"],
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
     },
   })
 
@@ -1495,7 +1498,8 @@ test("stale permission mode updates do not override newer modes", async () => {
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm test"],
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
     },
   })
 
@@ -1522,7 +1526,8 @@ test("automatic permission replies are deduplicated across pending reload and ev
       id: "permission-1",
       sessionId: "session-1",
       action: "bash",
-      resources: ["npm test"],
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
     },
   ])
 
@@ -1533,7 +1538,8 @@ test("automatic permission replies are deduplicated across pending reload and ev
       id: "permission-1",
       sessionID: "session-1",
       action: "bash",
-      resources: ["npm test"],
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
     },
   })
 
@@ -1579,7 +1585,7 @@ test("always permission reply stores a main-process session grant", async () => 
       id: "permission-1",
       sessionID: "session-1",
       action: "external_directory",
-      resources: ["/Users/example/Desktop/reports"],
+      resources: ["/Users/example/.ssh"],
     },
   })
 
@@ -1592,7 +1598,7 @@ test("always permission reply stores a main-process session grant", async () => 
       id: "permission-2",
       sessionID: "session-1",
       action: "external_directory",
-      resources: ["/Users/example/Desktop/reports/q1.csv"],
+      resources: ["/Users/example/.ssh/config"],
     },
   })
 
@@ -1606,7 +1612,7 @@ test("always permission reply stores a main-process session grant", async () => 
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
 })
 
-test("always permission reply broadens project dev commands for the current chat", async () => {
+test("default command approvals still prompt unsafe package mutations", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"
   const service = new ChatServiceImpl(bridge.agent, {
@@ -1642,10 +1648,6 @@ test("always permission reply broadens project dev commands for the current chat
       metadata: { command: "npm test" },
     },
   })
-
-  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
-
-  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
   bridge.emit({
     type: "permission.v2.asked",
     properties: {
@@ -1668,7 +1670,7 @@ test("always permission reply broadens project dev commands for the current chat
   })
 
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
-  await waitForCondition(() => events.filter((event) => event.event === "permissionAsked").length === 2)
+  await waitForCondition(() => events.filter((event) => event.event === "permissionAsked").length === 1)
 
   assert.deepEqual(bridge.answerPermission.mock.calls, [
     ["session-1", "permission-1", "once"],

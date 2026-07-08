@@ -117,12 +117,11 @@ export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined)
   }
   return [
     "Permission mode for this turn: Default Access.",
-    "- Prefer direct answers, Wanta Link tools, Wanta-controlled app APIs, concrete URL fetching, and selected local context.",
-    "- Single direct oo CLI commands are pre-approved; do not ask the user to approve `oo ...` when it is the right path.",
-    "- File and directory requests inside the selected local project, and read-only inspection commands scoped to that project, may be approved automatically by Wanta.",
-    "- Project development commands such as tests, lint, type checks, and builds are not auto-approved by default; if the user allows project dev commands in this chat, related safe project-scoped commands can continue without repeated prompts.",
-    "- Use local shell commands, file edits, or external filesystem paths only when they are useful for the task.",
-    "- Local shell commands and paths outside the selected project may still require approval; ask for the specific command or path instead of asking the user to enable Full Access.",
+    "- Prefer the simplest reliable path across direct answers, local shell/files, Wanta Link tools, Wanta-controlled app APIs, concrete URL fetching, and selected local context.",
+    "- Use bash normally when it is useful for the task. Ordinary shell commands, scripts, project checks, data processing, and simple output filtering are expected to run without user-visible approval.",
+    "- Ordinary file reads/writes and concrete non-sensitive paths may also be approved automatically by Wanta, including paths outside the selected project when the task calls for them.",
+    "- Wanta may pause only for basic safety boundaries such as credential/secret paths, broad home/system roots, destructive deletion, dependency installation, privilege escalation, git push/reset/clean, publishing/deployment, or infrastructure mutations.",
+    "- Do not ask the user to approve ordinary local tool calls or switch modes. If Wanta pauses for a protected operation, ask only for that specific operation.",
   ].join("\n")
 }
 

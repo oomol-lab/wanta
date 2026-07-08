@@ -52,21 +52,35 @@ const HIGH_RISK_COMMAND_PATTERNS: readonly RegExp[] = [
   /\bsudo\b/i,
   /\brm\s+[^;&|]*-[^\s;&|]*r[^\s;&|]*f/i,
   /\brm\s+[^;&|]*-[^\s;&|]*f[^\s;&|]*r/i,
+  /\brm\s+[^;&|]*-[^\s;&|]*r\b/i,
+  /\bfind\b[^;&|]*\s-delete\b/i,
   /\bchmod\s+(?:-[^\s]+\s+)*777\b/i,
+  /\bchmod\s+(?:-[^\s]+\s+)*-R\b/i,
   /\bchown\s+(?:-[^\s]+\s+)*(?:root|[^;&|]*\/(?:etc|bin|sbin|usr|system|library))/i,
   /\b(?:curl|wget)\b[^|;&]*\|\s*(?:sh|bash|zsh)\b/i,
-  /\bgit\s+push\b/i,
-  /\bgit\s+reset\s+--hard\b/i,
-  /\bgit\s+clean\s+-[^\s;&|]*f/i,
-  /\b(?:kubectl|helm)\s+(?:delete|apply|patch|replace|upgrade|rollback)\b/i,
-  /\bdocker\s+(?:rm|rmi|system\s+prune|volume\s+rm)\b/i,
+  /\b(?:npx|bunx)\b/i,
+  /\b(?:pnpm|yarn)\s+dlx\b/i,
+  /\b(?:npm|pnpm|yarn|bun)\b[^;&|]*\b(?:add|ci|install|i|link|publish|remove|rm|uninstall|update|upgrade)\b/i,
+  /\b(?:pip|pip3|uv|poetry)\b[^;&|]*\b(?:install|add|publish|remove)\b/i,
+  /\bbrew\b[^;&|]*\b(?:install|uninstall|upgrade|remove)\b/i,
+  /\bgit\b[^;&|]*\bpush\b/i,
+  /\bgit\b[^;&|]*\breset\s+--hard\b/i,
+  /\bgit\b[^;&|]*\b(?:checkout|restore)\s+[^;&|]*--\s+/i,
+  /\bgit\b[^;&|]*\bclean\s+-[^\s;&|]*f/i,
+  /\b(?:kubectl|helm)\b[^;&|]*\b(?:delete|apply|patch|replace|upgrade|rollback)\b/i,
+  /\bdocker\b[^;&|]*\b(?:rm|rmi|system\s+prune|volume\s+rm)\b/i,
   /\b(?:npm|pnpm|yarn)\s+publish\b/i,
   /\b(?:vercel|wrangler|firebase|netlify|sst|serverless)\s+(?:deploy|publish)\b/i,
+  /\bsecurity\s+find-(?:generic|internet)-password\b/i,
+  /\b(?:launchctl|systemctl)\s+(?:bootstrap|bootout|disable|enable|load|reload|restart|start|stop|unload)\b/i,
 ]
 
-const HIGH_RISK_PATH_PATTERNS: readonly RegExp[] = [
-  /(^|\s)\/(?:etc|bin|sbin|usr|system|library)(?:\/|\s|$)/i,
-  /(^|\s)~\/(?:\.ssh|\.aws|\.gnupg|\.config\/gh)(?:\/|\s|$)/i,
+const HIGH_RISK_COMMAND_PATH_PATTERNS: readonly RegExp[] = [
+  /(^|[\s"'=])(?:~|\$HOME)\/(?:\.ssh|\.aws|\.gnupg|\.config\/gh)(?:\/|[\s"';&|<>]|$)/i,
+  /(^|[\s"'=])\/Users\/[^/\s"']+\/(?:\.ssh|\.aws|\.gnupg|\.config\/gh)(?:\/|[\s"';&|<>]|$)/i,
+  /(^|[\s"'=])(?:\.\/)?\.env(?:\.[^\s"';&|<>/]*)?(?=$|[\s"';&|<>])/i,
+  /(^|[/\s"'=])(?:\.netrc|\.npmrc|\.pypirc|credentials|id_dsa|id_ecdsa|id_ed25519|id_rsa)(?=$|[/\s"';&|<>])/i,
+  /(^|[/\s"'=])(?:cookies|login data|keychain|keychains)(?=$|[/\s"';&|<>])/i,
 ]
 
 export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boolean {
@@ -79,12 +93,115 @@ export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boo
   }
   return (
     HIGH_RISK_COMMAND_PATTERNS.some((pattern) => pattern.test(command)) ||
-    HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(command))
+    HIGH_RISK_COMMAND_PATH_PATTERNS.some((pattern) => pattern.test(command))
   )
 }
 
 export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolean {
   return permissionRequestKind(request) === "command" && isPureOoCliCommand(commandText(request))
+}
+
+function normalizeResourceText(resource: string): string {
+  return resource
+    .trim()
+    .replace(/^file:\/\//iu, "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/u, "")
+}
+
+function normalizedLowerResource(resource: string): string {
+  return normalizeResourceText(resource).toLowerCase()
+}
+
+function resourceBasename(resource: string): string {
+  const normalized = normalizedLowerResource(resource)
+  const parts = normalized.split("/")
+  return parts[parts.length - 1] ?? ""
+}
+
+function resourceSegments(resource: string): string[] {
+  return normalizedLowerResource(resource)
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+}
+
+function containsSegmentSequence(segments: readonly string[], sequence: readonly string[]): boolean {
+  return segments.some((_, index) => sequence.every((segment, offset) => segments[index + offset] === segment))
+}
+
+function isSensitiveResource(resource: string): boolean {
+  const basename = resourceBasename(resource)
+  if (
+    basename === ".env" ||
+    basename.startsWith(".env.") ||
+    basename === ".netrc" ||
+    basename === ".npmrc" ||
+    basename === ".pypirc" ||
+    basename === "credentials" ||
+    basename === "cookies" ||
+    basename === "id_dsa" ||
+    basename === "id_ecdsa" ||
+    basename === "id_ed25519" ||
+    basename === "id_rsa" ||
+    basename === "login data"
+  ) {
+    return true
+  }
+  const segments = resourceSegments(resource)
+  return (
+    segments.includes(".ssh") ||
+    segments.includes(".aws") ||
+    segments.includes(".gnupg") ||
+    containsSegmentSequence(segments, [".config", "gh"]) ||
+    containsSegmentSequence(segments, ["library", "keychains"]) ||
+    containsSegmentSequence(segments, ["library", "application support", "google", "chrome"]) ||
+    containsSegmentSequence(segments, ["library", "application support", "firefox"]) ||
+    containsSegmentSequence(segments, ["library", "application support", "brave"]) ||
+    containsSegmentSequence(segments, ["library", "application support", "microsoft edge"])
+  )
+}
+
+function isBroadResource(resource: string): boolean {
+  const normalized = normalizedLowerResource(resource)
+  if (
+    !normalized ||
+    normalized === "/" ||
+    normalized === "~" ||
+    normalized === "$home" ||
+    /^[a-z]:$/iu.test(normalized)
+  ) {
+    return true
+  }
+  if (
+    normalized === "/users" ||
+    /^\/users\/[^/]+$/iu.test(normalized) ||
+    normalized === "/applications" ||
+    normalized === "/library" ||
+    normalized === "/system" ||
+    normalized === "/etc" ||
+    normalized === "/bin" ||
+    normalized === "/sbin" ||
+    normalized === "/usr"
+  ) {
+    return true
+  }
+  return false
+}
+
+export function permissionRequestNeedsDefaultPrompt(request: ChatPermissionRequest): boolean {
+  if (isHighRiskPermissionRequest(request)) {
+    return true
+  }
+  const kind = permissionRequestKind(request)
+  if (kind === "network") {
+    return false
+  }
+  const values = [...request.resources, ...(request.save ?? [])].filter((value) => value.trim())
+  if (kind === "command") {
+    return false
+  }
+  return values.some((resource) => isSensitiveResource(resource) || isBroadResource(resource))
 }
 
 function escapeRegExp(value: string): string {

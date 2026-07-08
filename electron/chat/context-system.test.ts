@@ -6,10 +6,10 @@ test("buildPermissionModeSystem describes default access", () => {
   const prompt = buildPermissionModeSystem("default")
 
   assert.match(prompt, /Default Access/)
-  assert.match(prompt, /Wanta-controlled app APIs/)
-  assert.match(prompt, /oo CLI commands are pre-approved/)
-  assert.match(prompt, /read-only inspection commands scoped to that project/)
-  assert.match(prompt, /specific command or path/)
+  assert.match(prompt, /Use bash normally/)
+  assert.match(prompt, /Ordinary shell commands/)
+  assert.match(prompt, /credential\/secret paths/)
+  assert.match(prompt, /dependency installation/)
   assert.doesNotMatch(prompt, /user has enabled Full Access/)
 })
 

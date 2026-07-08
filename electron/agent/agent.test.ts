@@ -255,7 +255,7 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
   for (const builtin of ["bash", "edit", "write", "read", "webfetch"]) {
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
-  // Build/Plan 除单条 oo CLI 外都进入 ChatService 访问策略；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
+  // Build/Plan 的本地 ask 进入 ChatService 访问策略；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
   // v2 的 PermissionConfig 是 "allow" | "deny" | {对象} 联合，断言对象字段前先按对象形态取出。
   const buildPermission = buildAgent.permission as unknown as Record<string, unknown> | undefined
   const planPermission = planAgent.permission as unknown as Record<string, unknown> | undefined
@@ -292,7 +292,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
   assert.match(WANTA_SYSTEM_PROMPT, /inline Connect button/)
   assert.match(WANTA_SYSTEM_PROMPT, /avoid writing manual navigation paths/)
-  assert.match(WANTA_SYSTEM_PROMPT, /first shell token is exactly oo, \$WANTA_OO_BIN, or \$\{WANTA_OO_BIN\}/)
+  assert.match(WANTA_SYSTEM_PROMPT, /use bash normally/)
+  assert.match(WANTA_SYSTEM_PROMPT, /basic safety boundaries/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {

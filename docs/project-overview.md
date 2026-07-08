@@ -25,14 +25,14 @@ Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言
 
 原始计划文档 `WANTA_PROJECT_PLAN.md`（历史文档，仅存于原开发机、仓库内无副本；其规则与阶段编号已沉淀到 [conventions.md §1](conventions.md)）定义了 7 个阶段（阶段 0–6）与 8 条全局规则 R1–R8。会话记录显示最初 7 个 commit 即按阶段 0–6 逐一交付，其后是计划外的修正与演进（弧线见 §4）。计划与现状的主要偏离：
 
-| 计划                                                                                | 实际（现状）                                                                                                                          |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 凭证经 `OO_API_KEY` 环境变量注入，免登录直跑                                        | 改为浏览器登录流（console launcher → deep-link 回跳 → 换 `oomol-token` 会话 token；全程只用它，`auth.json` 只存 profile、不落盘凭证） |
-| endpoint 运行时可切换 `oomol.com` / `oomol.dev`（阶段 5 还做了 `setEndpoint` 联动） | **已整体移除**：endpoint 是构建期常量 `__OO_ENDPOINT__`，App 层不可见不可切换                                                         |
-| 严格非编码 agent：deny 所有内置编码工具，只留连接器工具                             | **已放开但受控**：OpenCode 内置工具启用；读/搜索/网页直接可用，shell/写入/外部目录访问经聊天内确认卡片批准                            |
-| 自定义工具只有 `search_actions` / `call_action`                                     | 新增 `inspect_action` 强制 inspect-before-call；新增 `list_apps` 直接列 active workspace 已连接 apps                                  |
-| 前端 shadcn/ui 手写聊天界面                                                         | 聊天界面迁移到 vendored ai-elements 组件，Markdown 渲染从 react-markdown 换为 streamdown                                              |
-| 测试用 Node 原生 `node --test`                                                      | 迁移到 vitest（随 endpoint 常量化，vitest 原生套用 vite define）                                                                      |
+| 计划                                                                                | 实际（现状）                                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 凭证经 `OO_API_KEY` 环境变量注入，免登录直跑                                        | 改为浏览器登录流（console launcher → deep-link 回跳 → 换 `oomol-token` 会话 token；全程只用它，`auth.json` 只存 profile、不落盘凭证）                                                          |
+| endpoint 运行时可切换 `oomol.com` / `oomol.dev`（阶段 5 还做了 `setEndpoint` 联动） | **已整体移除**：endpoint 是构建期常量 `__OO_ENDPOINT__`，App 层不可见不可切换                                                                                                                  |
+| 严格非编码 agent：deny 所有内置编码工具，只留连接器工具                             | **已放开但受控**：OpenCode 内置工具启用；默认访问下 bash、普通文件读写和具体非敏感路径顺滑可用，仅凭证/密钥路径、破坏性删除、依赖安装、提权、推送、发布/部署等基础安全边界经聊天内确认卡片批准 |
+| 自定义工具只有 `search_actions` / `call_action`                                     | 新增 `inspect_action` 强制 inspect-before-call；新增 `list_apps` 直接列 active workspace 已连接 apps                                                                                           |
+| 前端 shadcn/ui 手写聊天界面                                                         | 聊天界面迁移到 vendored ai-elements 组件，Markdown 渲染从 react-markdown 换为 streamdown                                                                                                       |
+| 测试用 Node 原生 `node --test`                                                      | 迁移到 vitest（随 endpoint 常量化，vitest 原生套用 vite define）                                                                                                                               |
 
 未变的锁定决策：Agent 内核 = OpenCode sidecar、连接器全经 oo CLI、LLM 网关由 endpoint 派生、已授权状态来源 `/v1/apps`、三栏不可拖拽、deep-link `wanta://signin`（dev `wanta-local`）、IPC 用 `@oomol/connection`。
 

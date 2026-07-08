@@ -15,10 +15,16 @@ function permission(overrides: Partial<ChatPermissionRequest>): ChatPermissionRe
   }
 }
 
-test("local access policy prompts ordinary commands in default mode", () => {
+test("local access policy allows ordinary commands in default mode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "npm test" } }), { permissionMode: "default" }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "oo connector apps posthog 2>&1 | head -80" } }), {
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
@@ -46,11 +52,11 @@ test("local access policy allows trusted project read-only commands", () => {
       permissionMode: "default",
       trustedProjectRoot: root,
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 
-test("local access policy allows trusted project file requests only inside the root", () => {
+test("local access policy allows ordinary file requests and protects sensitive paths", () => {
   const root = "/Users/example/code/wanta"
 
   assert.deepEqual(
@@ -61,11 +67,38 @@ test("local access policy allows trusted project file requests only inside the r
     { type: "allow", reason: "trusted_project", kind: "path", highRisk: false },
   )
   assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "external_directory", resources: ["/Users/example/Desktop"] }), {
+      permissionMode: "default",
+      trustedProjectRoot: root,
+    }),
+    { type: "allow", reason: "default_local", kind: "path", highRisk: false },
+  )
+  assert.deepEqual(
     evaluateLocalAccessRequest(permission({ action: "external_directory", resources: ["/Users/example/.ssh"] }), {
       permissionMode: "default",
       trustedProjectRoot: root,
     }),
     { type: "prompt", kind: "path", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ action: "edit", resources: [path.join(root, ".env")] }), {
+      permissionMode: "default",
+      trustedProjectRoot: root,
+    }),
+    { type: "prompt", kind: "edit", highRisk: false },
+  )
+})
+
+test("local access policy prompts high-risk commands in default mode", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm install" } }), { permissionMode: "default" }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "cat ~/.ssh/id_rsa" } }), {
+      permissionMode: "default",
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
   )
 })
 
@@ -80,13 +113,13 @@ test("local access policy allows requests in full access mode", () => {
 
 test("local access policy allows requests covered by a session grant", () => {
   const grant = localAccessGrantForRequest(
-    permission({ action: "external_directory", resources: ["/Users/example/Desktop/reports"] }),
+    permission({ action: "external_directory", resources: ["/Users/example/.ssh"] }),
   )
 
   assert.ok(grant)
   assert.deepEqual(
     evaluateLocalAccessRequest(
-      permission({ action: "external_directory", resources: ["/Users/example/Desktop/reports/q1.csv"] }),
+      permission({ action: "external_directory", resources: ["/Users/example/.ssh/config"] }),
       {
         permissionMode: "default",
         sessionGrants: [grant],
@@ -96,7 +129,7 @@ test("local access policy allows requests covered by a session grant", () => {
   )
 })
 
-test("local access policy broadens an explicit project dev command grant", () => {
+test("local access policy keeps project dev grants compatible but prompts unsafe package mutations", () => {
   const root = "/Users/example/code/wanta"
   const grant = localAccessGrantForRequest(permission({ metadata: { command: "npm test" } }), {
     trustedProjectRoot: root,
@@ -118,13 +151,13 @@ test("local access policy broadens an explicit project dev command grant", () =>
       sessionGrants: [grant],
       trustedProjectRoot: root,
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "prompt", kind: "command", highRisk: true },
   )
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "pnpm lint" } }), {
       permissionMode: "default",
       sessionGrants: [grant],
     }),
-    { type: "prompt", kind: "command", highRisk: false },
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })

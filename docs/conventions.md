@@ -60,10 +60,10 @@
 
 - **能力三处同步**：`config.ts` 的 tools 配置（现状：无禁用表，内置工具全启用）、permission（agent 级 + 根级）、`system-prompt.ts` 提示词。改任何能力策略三处必须一起改。
 - **permission 的 `"ask"` 必须有 UI 验证**：`permission.asked` / `permission.v2.asked`
-  先经 ChatService 主进程本地访问策略处理；默认访问可自动批准纯 `oo` CLI、已信任项目内文件/目录、项目内只读检查命令、本会话 grant；项目测试 / lint / typecheck / build 等开发命令默认不自动批准，但用户允许"项目开发命令"后可作为本会话 grant 继续自动批准；剩余 ask 才进入两档访问 UI；完全访问 = 会话级本地 YOLO，确认后由主进程自动 reply 本会话本地 permission，不再逐次做本地风险判断。
+  先经 ChatService 主进程本地访问策略处理；默认访问把 bash 作为正常工作通道，自动批准普通 shell 命令、脚本、项目检查、数据处理、简单输出过滤、普通文件读写与具体非敏感路径；只把基础安全边界推给 UI：凭证/密钥路径、宽泛 home/system 根、破坏性删除、依赖安装、提权、`git push/reset/clean`、发布/部署、基础设施变更等。本会话 grant 仍可覆盖用户已明确允许的请求；完全访问 = 会话级本地 YOLO，确认后由主进程自动 reply 本会话本地 permission，不再逐次做本地风险判断。
   新增 ask 规则要验证 pending permission 查询、事件推送、自动审批去重与 reply。
-- **oo CLI 单命令例外**：仅当首 token 是 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 时才放行；
-  ChatService 还会用纯命令判定兜底自动 reply。不要放行 shell 串联、重定向、命令替换或 `sudo oo`。
+- **oo CLI 快速路径**：OpenCode 配置仍保留首 token 为 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 的快速放行；
+  ChatService 的默认访问策略才是最终用户可见边界。shell 管道/重定向本身不是提示理由，只有命中基础安全风险时才提示；`sudo`、管道执行 shell、写入敏感路径等仍需确认。
 - **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器元工具照常 spawn oo，不受影响。
 - 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 list/search/inspect/call 的职责边界与交叉引用。
 - sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界走 `external_directory: "ask"`，由 ChatService 本地访问策略处理。

@@ -24,6 +24,10 @@ interface AppUpdateSnapshot {
 
 type AppUpdateListener = () => void
 
+const installFallbackResetMs = 15_000
+let installAttemptGeneration = 0
+let installFallbackTimer: number | undefined
+
 const appUpdateStore = {
   listeners: new Set<AppUpdateListener>(),
   snapshot: {
@@ -148,6 +152,12 @@ export function useAppUpdate(): UseAppUpdate {
     if (appUpdateStore.snapshot.isInstallTriggered) {
       return
     }
+    installAttemptGeneration += 1
+    const generation = installAttemptGeneration
+    if (installFallbackTimer !== undefined) {
+      window.clearTimeout(installFallbackTimer)
+      installFallbackTimer = undefined
+    }
     appUpdateStore.patch({ isInstallTriggered: true })
     await service.invoke("installDownloadedAppUpdate").catch((error: unknown) => {
       appUpdateStore.patch({ isInstallTriggered: false })
@@ -155,7 +165,20 @@ export function useAppUpdate(): UseAppUpdate {
       reportRendererHandledError("update", "update install failed", error)
       patchUpdateError(error)
     })
-  }, [service])
+    installFallbackTimer = window.setTimeout(() => {
+      if (installAttemptGeneration !== generation) {
+        return
+      }
+      installFallbackTimer = undefined
+      if (!appUpdateStore.snapshot.isInstallTriggered) {
+        return
+      }
+      appUpdateStore.patch({ isInstallTriggered: false })
+      void refreshState().catch((error: unknown) => {
+        reportRendererHandledError("update", "update state refresh after install timeout failed", error)
+      })
+    }, installFallbackResetMs)
+  }, [refreshState, service])
 
   const setChannel = React.useCallback(
     async (channel: UpdateChannel) => {

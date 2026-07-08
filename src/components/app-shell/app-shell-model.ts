@@ -304,32 +304,59 @@ export interface WorkspaceSwitchPendingInput {
   targetScopeKey: string | null
 }
 
-export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): boolean {
+export type WorkspaceActivationPhase =
+  | "session_scope"
+  | "sessions"
+  | "connection_workspace"
+  | "agent_scope"
+  | "connections"
+  | "organization_skills"
+
+export type WorkspaceActivationFailureReason = "agent_scope"
+
+export type WorkspaceActivationState =
+  | { status: "idle"; targetScopeKey: string | null }
+  | { phase: WorkspaceActivationPhase; status: "activating"; targetScopeKey: string }
+  | { reason: WorkspaceActivationFailureReason; status: "failed"; targetScopeKey: string | null }
+
+export function resolveWorkspaceActivationState(input: WorkspaceSwitchPendingInput): WorkspaceActivationState {
+  if (input.agentScopeSyncFailed) {
+    return { reason: "agent_scope", status: "failed", targetScopeKey: input.targetScopeKey }
+  }
   if (!input.targetScopeKey) {
-    return false
+    return { status: "idle", targetScopeKey: null }
   }
   if (input.currentScopeKey !== input.targetScopeKey) {
-    return true
+    return { phase: "session_scope", status: "activating", targetScopeKey: input.targetScopeKey }
   }
   if (input.loadedSessionScopeKey !== input.targetScopeKey) {
-    return true
+    return { phase: "sessions", status: "activating", targetScopeKey: input.targetScopeKey }
   }
   if (!input.connectionWorkspaceKey) {
-    return true
-  }
-  if (input.agentScopeSyncFailed) {
-    return false
+    return { phase: "connection_workspace", status: "activating", targetScopeKey: input.targetScopeKey }
   }
   if (input.agentScopeWorkspaceKey !== input.connectionWorkspaceKey) {
-    return true
+    return { phase: "agent_scope", status: "activating", targetScopeKey: input.targetScopeKey }
   }
-  if (input.connectionsRefreshing) {
-    return true
+  if (input.connectionsRefreshing || input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
+    return { phase: "connections", status: "activating", targetScopeKey: input.targetScopeKey }
   }
-  if (input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
-    return true
+  if (!input.organizationSkillsSettled) {
+    return { phase: "organization_skills", status: "activating", targetScopeKey: input.targetScopeKey }
   }
-  return !input.organizationSkillsSettled
+  return { status: "idle", targetScopeKey: input.targetScopeKey }
+}
+
+export function workspaceActivationIsPending(state: WorkspaceActivationState): boolean {
+  return state.status === "activating"
+}
+
+export function workspaceActivationBlocksInput(state: WorkspaceActivationState): boolean {
+  return state.status !== "idle"
+}
+
+export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): boolean {
+  return workspaceActivationIsPending(resolveWorkspaceActivationState(input))
 }
 
 export interface WorkspaceSwitchTargetReachableInput {

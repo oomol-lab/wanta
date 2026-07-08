@@ -38,18 +38,20 @@ import {
   existingSessionComposerDraftKey,
   getUnlinkedProviderSkillRecommendations,
   initialRoute,
-  isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
   rememberTurnRetryOptions,
   resolveNewSessionTarget,
+  resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
   shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
+  workspaceActivationBlocksInput,
+  workspaceActivationIsPending,
   workspaceSelectionSwitchKey,
   WORKSPACE_SWITCH_TIMEOUT_MS,
 } from "./app-shell-model.ts"
@@ -199,7 +201,7 @@ export function AppShell() {
     (organizationSkills.organizationId === activeOrganizationId &&
       !organizationSkills.loading &&
       (organizationSkills.hasLoaded || organizationSkills.error !== null))
-  const workspaceSwitching = isWorkspaceSwitchPending({
+  const workspaceActivationState = resolveWorkspaceActivationState({
     agentScopeSyncFailed: Boolean(connections.scopeSyncError),
     agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
     connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
@@ -210,11 +212,12 @@ export function AppShell() {
     organizationSkillsSettled,
     targetScopeKey: workspaceSwitchTargetKey,
   })
+  const workspaceSwitching = workspaceActivationIsPending(workspaceActivationState)
   const workspaceSwitchTimedOut = Boolean(
     workspaceSwitchTargetKey && workspaceSwitchTimedOutKey === workspaceSwitchTargetKey,
   )
   const workspaceNavigationSwitching = workspaceSwitching && !workspaceSwitchTimedOut
-  const workspaceActivationBlocked = workspaceSwitching || Boolean(connections.scopeSyncError)
+  const workspaceActivationBlocked = workspaceActivationBlocksInput(workspaceActivationState)
   const sessionsSettledForCurrentScope = sessionsLoaded && sessionsLoadedScopeKey === currentScopeKey
   const visibleSessions = React.useMemo(
     () => (sessionsSettledForCurrentScope ? sessions : []),

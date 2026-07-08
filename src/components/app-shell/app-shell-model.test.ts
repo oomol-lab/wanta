@@ -7,9 +7,12 @@ import {
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
+  resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
+  workspaceActivationBlocksInput,
+  workspaceActivationIsPending,
 } from "./app-shell-model.ts"
 
 const readyInput = {
@@ -76,6 +79,55 @@ describe("workspace switch pending state", () => {
 
   test("settles when all target-scoped requests are done", () => {
     expect(isWorkspaceSwitchPending(readyInput)).toBe(false)
+  })
+})
+
+describe("workspace activation state", () => {
+  test("is idle without a switch target", () => {
+    const state = resolveWorkspaceActivationState({ ...readyInput, targetScopeKey: null })
+
+    expect(state).toEqual({ status: "idle", targetScopeKey: null })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(false)
+  })
+
+  test("reports the first pending activation phase", () => {
+    const state = resolveWorkspaceActivationState({ ...readyInput, loadedSessionScopeKey: "organization:old" })
+
+    expect(state).toEqual({ phase: "sessions", status: "activating", targetScopeKey: "personal" })
+    expect(workspaceActivationIsPending(state)).toBe(true)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+  })
+
+  test("blocks input but stops spinner semantics after agent scope sync failure", () => {
+    const state = resolveWorkspaceActivationState({
+      ...readyInput,
+      agentScopeSyncFailed: true,
+      agentScopeWorkspaceKey: null,
+      connectionSettledWorkspaceKey: null,
+    })
+
+    expect(state).toEqual({ reason: "agent_scope", status: "failed", targetScopeKey: "personal" })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+  })
+
+  test("keeps agent scope sync failure blocking after the switch target is cleared", () => {
+    const state = resolveWorkspaceActivationState({
+      ...readyInput,
+      agentScopeSyncFailed: true,
+      targetScopeKey: null,
+    })
+
+    expect(state).toEqual({ reason: "agent_scope", status: "failed", targetScopeKey: null })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+  })
+
+  test("is idle once every target-scoped dependency settles", () => {
+    const state = resolveWorkspaceActivationState(readyInput)
+
+    expect(state).toEqual({ status: "idle", targetScopeKey: "personal" })
   })
 })
 

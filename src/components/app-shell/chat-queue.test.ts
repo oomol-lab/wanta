@@ -130,4 +130,9 @@ describe("chat queue", () => {
     assert.equal(shouldDispatchQueuedMessage("streaming", false, false), false)
     assert.equal(shouldDispatchQueuedMessage("error", false, false), false)
   })
+
+  test("resumes queued messages after a manual stop returns the session to ready", () => {
+    assert.equal(shouldDispatchQueuedMessage("streaming", false, false), false)
+    assert.equal(shouldDispatchQueuedMessage("ready", false, false), true)
+  })
 })

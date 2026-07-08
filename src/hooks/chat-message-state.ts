@@ -435,14 +435,14 @@ export function setMessageArtifactRoot(msgs: ChatMessage[], event: MessageArtifa
   )
 }
 
-function messageText(message: ChatMessage): string {
+function messageText(message: Pick<ChatMessage, "parts">): string {
   return message.parts
     .filter((part) => part.kind === "text")
     .map((part) => part.text ?? "")
     .join("")
 }
 
-function messageAttachments(message: ChatMessage): ChatAttachment[] {
+function messageAttachments(message: Pick<ChatMessage, "parts">): ChatAttachment[] {
   return message.parts
     .filter((part) => part.kind === "attachment" && part.attachment)
     .map((part) => part.attachment as ChatAttachment)
@@ -455,14 +455,57 @@ function attachmentsKey(attachments: ChatAttachment[] | undefined): string {
     .join("\n")
 }
 
-function hasUserMessage(msgs: ChatMessage[], text: string, attachments?: ChatAttachment[]): boolean {
+function userMessageContentKey(message: Pick<ChatMessage, "parts">): string {
+  return `${messageText(message)}\n---\n${attachmentsKey(messageAttachments(message))}`
+}
+
+function hasLocalUserMessage(msgs: ChatMessage[], text: string, attachments?: ChatAttachment[]): boolean {
   const expectedAttachments = attachmentsKey(attachments)
   return msgs.some(
     (message) =>
       message.role === "user" &&
+      message.id.startsWith("local-user-") &&
       messageText(message) === text &&
       attachmentsKey(messageAttachments(message)) === expectedAttachments,
   )
+}
+
+function userMessageCountsByContent(messages: ChatMessage[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue
+    }
+    const key = userMessageContentKey(message)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return counts
+}
+
+function missingLocalUserMessages(current: ChatMessage[], fetched: ChatMessage[]): ChatMessage[] {
+  const fetchedCounts = userMessageCountsByContent(fetched)
+  const currentCounts = new Map<string, number>()
+  return current.filter((message) => {
+    if (message.role !== "user") {
+      return false
+    }
+    const key = userMessageContentKey(message)
+    const seen = (currentCounts.get(key) ?? 0) + 1
+    currentCounts.set(key, seen)
+    return message.id.startsWith("local-user-") && seen > (fetchedCounts.get(key) ?? 0)
+  })
+}
+
+function localUsersByContent(current: ChatMessage[]): Map<string, ChatMessage[]> {
+  const localUsers = new Map<string, ChatMessage[]>()
+  for (const message of current) {
+    if (message.role !== "user" || !message.id.startsWith("local-user-")) {
+      continue
+    }
+    const key = userMessageContentKey(message)
+    localUsers.set(key, [...(localUsers.get(key) ?? []), message])
+  }
+  return localUsers
 }
 
 export function appendOptimisticConversationTurn(
@@ -471,7 +514,7 @@ export function appendOptimisticConversationTurn(
   attachments?: ChatAttachment[],
   contextMentions?: ChatContextMention[],
 ): ChatMessage[] {
-  if (hasUserMessage(msgs, text, attachments)) {
+  if (hasLocalUserMessage(msgs, text, attachments)) {
     return msgs
   }
   const now = Date.now()
@@ -532,26 +575,15 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
       message.id.startsWith("local-assistant-") &&
       message.parts.some((part) => part.kind === "error" && Boolean(part.errorText)),
   )
-  const missingLocalUsers = current.filter(
-    (message) =>
-      message.role === "user" &&
-      message.id.startsWith("local-user-") &&
-      !hasUserMessage(fetched, messageText(message), messageAttachments(message)),
-  )
-  const localUserByContent = new Map(
-    current
-      .filter((message) => message.role === "user" && message.id.startsWith("local-user-"))
-      .map((message) => [`${messageText(message)}\n---\n${attachmentsKey(messageAttachments(message))}`, message]),
-  )
+  const missingLocalUsers = missingLocalUserMessages(current, fetched)
+  const localUserByContent = localUsersByContent(current)
   const currentById = new Map(current.map((message) => [message.id, message]))
   const artifactRootByMessageId = new Map(
     current.flatMap((message) => (message.artifactRoot ? [[message.id, message.artifactRoot] as const] : [])),
   )
   const fetchedWithLocalState = fetched.map((message) => {
     const matchedLocalUser =
-      message.role === "user"
-        ? localUserByContent.get(`${messageText(message)}\n---\n${attachmentsKey(messageAttachments(message))}`)
-        : undefined
+      message.role === "user" ? localUserByContent.get(userMessageContentKey(message))?.shift() : undefined
     const currentMessage = currentById.get(message.id) ?? matchedLocalUser
     const artifactRoot = artifactRootByMessageId.get(message.id)
     return {
@@ -564,8 +596,33 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
       ...(artifactRoot && !message.artifactRoot ? { artifactRoot } : {}),
     }
   })
-  const merged = missingLocalUsers.length > 0 ? [...missingLocalUsers, ...fetchedWithLocalState] : fetchedWithLocalState
+  const merged = insertMessagesByCreatedAt(fetchedWithLocalState, missingLocalUsers)
   return missingLocalAssistants.length > 0 ? [...merged, ...missingLocalAssistants] : merged
+}
+
+function messageCreatedAt(message: ChatMessage): number {
+  return Number.isFinite(message.createdAt) ? message.createdAt : 0
+}
+
+function insertMessagesByCreatedAt(base: ChatMessage[], additions: ChatMessage[]): ChatMessage[] {
+  if (additions.length === 0) {
+    return base
+  }
+  const sortedAdditions = additions
+    .map((message, index) => ({ index, message }))
+    .sort((left, right) => messageCreatedAt(left.message) - messageCreatedAt(right.message) || left.index - right.index)
+    .map((item) => item.message)
+  const merged = base.slice()
+  for (const message of sortedAdditions) {
+    const createdAt = messageCreatedAt(message)
+    const insertAt = merged.findIndex((item) => messageCreatedAt(item) > createdAt)
+    if (insertAt === -1) {
+      merged.push(message)
+    } else {
+      merged.splice(insertAt, 0, message)
+    }
+  }
+  return merged
 }
 
 function preserveLocalErrorParts(

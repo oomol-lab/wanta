@@ -41,6 +41,53 @@ export const NO_DRAFT_PROJECT_ID = "__no_project__"
 
 export { connectionWorkspaceKey as connectionWorkspaceSwitchKey } from "@/hooks/connection-oauth-pending"
 
+export interface RecommendedSkillIdentity {
+  packageName?: string
+  skillName: string
+}
+
+export interface ProviderRecommendedSkillIdentity {
+  packageName: string
+  skillId: string
+}
+
+function recommendedSkillKey(packageName: string | undefined, skillName: string): string | null {
+  const normalizedPackageName = packageName?.trim().toLowerCase()
+  const normalizedSkillName = skillName.trim().toLowerCase()
+  if (!normalizedPackageName || !normalizedSkillName) {
+    return null
+  }
+  return `${normalizedPackageName}\u0000${normalizedSkillName}`
+}
+
+export function getUnlinkedProviderSkillRecommendations<T extends ProviderRecommendedSkillIdentity>(
+  organizationSkills: readonly RecommendedSkillIdentity[],
+  providerRecommendations: readonly T[],
+): T[] {
+  const organizationSkillKeys = new Set(
+    organizationSkills
+      .map((skill) => recommendedSkillKey(skill.packageName, skill.skillName))
+      .filter((key): key is string => Boolean(key)),
+  )
+
+  return providerRecommendations.filter((recommendation) => {
+    const key = recommendedSkillKey(recommendation.packageName, recommendation.skillId)
+    return !key || !organizationSkillKeys.has(key)
+  })
+}
+
+export function shouldShowRecommendedSkillEntry({
+  organizationId,
+  organizationSkillCount,
+  providerRecommendationCount,
+}: {
+  organizationId: string | null
+  organizationSkillCount: number
+  providerRecommendationCount: number
+}): boolean {
+  return Boolean(organizationId && (organizationSkillCount > 0 || providerRecommendationCount > 0))
+}
+
 export interface TurnRetryOptions {
   contextMentions?: ChatContextMention[]
   organizationSkills?: ChatOrganizationSkillContext[]

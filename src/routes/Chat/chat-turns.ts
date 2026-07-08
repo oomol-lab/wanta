@@ -206,6 +206,17 @@ function suggestedAuthorizationFromTools(tools: ChatMessagePart[]): Authorizatio
   return undefined
 }
 
+function searchAuthorizationContext(
+  input: Record<string, unknown> | undefined,
+  userText: string,
+): { keywords?: unknown; query?: unknown; userText?: string } {
+  return {
+    keywords: input?.keywords,
+    query: input?.query,
+    ...(userText ? { userText } : {}),
+  }
+}
+
 export function shouldShowSuggestedAuthorization(
   process: Pick<ChatTurnProcess, "activity" | "hasActiveTool" | "suggestedAuthorization">,
   turnIsActive: boolean,
@@ -249,6 +260,7 @@ export function summarizeTurnProcess(
   const hasToolError = hasBlockingToolError(tools)
   const hasAuthorization = tools.some((part) => Boolean(parseToolAuthorization(part)))
   const hasSuccessfulConnectorCall = successfulCallActionServices(tools).size > 0
+  const userText = turn.user ? userMessageText(turn.user) : ""
 
   return {
     tools,
@@ -260,7 +272,17 @@ export function summarizeTurnProcess(
     hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization,
     hasSuccessfulConnectorCall,
-    ...(hasAuthorization ? {} : { suggestedAuthorization: suggestedAuthorizationFromTools(tools) }),
+    ...(hasAuthorization
+      ? {}
+      : {
+          suggestedAuthorization: suggestedAuthorizationFromTools(
+            tools.map((part) =>
+              part.tool === "search_actions"
+                ? { ...part, input: searchAuthorizationContext(part.input, userText) }
+                : part,
+            ),
+          ),
+        }),
     activity: activeTurnActivity,
     startedAt,
     endedAt,

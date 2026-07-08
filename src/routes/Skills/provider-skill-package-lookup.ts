@@ -29,6 +29,7 @@ export interface ProviderSkillPackageLookup {
 }
 
 const providerSkillPackageCache = new Map<string, ProviderSkillPackageCacheEntry>()
+const providerSkillPackagePendingRequests = new Map<string, Promise<PublicSkillPackage | null>>()
 const emptyProviderSkillPackages = new Map<string, PublicSkillPackage | null>()
 
 function providerSkillPackageCacheKey(candidate: ProviderSkillCandidate): string {
@@ -86,11 +87,7 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
         }
 
         try {
-          const pkg = await searchProviderSkillPackage(candidate)
-          providerSkillPackageCache.set(cacheKey, {
-            expiresAt: Date.now() + (pkg ? providerSkillPackageCacheMs : missingProviderSkillPackageCacheMs),
-            package: pkg,
-          })
+          const pkg = await readProviderSkillPackage(candidate)
           next.set(candidate.service, pkg)
         } catch (cause) {
           console.warn("[wanta] failed to read provider Skill recommendation:", cause)
@@ -133,6 +130,39 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
     isStale,
     packagesByService: isStale ? emptyProviderSkillPackages : packagesByService,
   }
+}
+
+export function clearProviderSkillPackageLookupCacheForTest(): void {
+  providerSkillPackageCache.clear()
+  providerSkillPackagePendingRequests.clear()
+}
+
+export async function readProviderSkillPackage(candidate: ProviderSkillCandidate): Promise<PublicSkillPackage | null> {
+  const cacheKey = providerSkillPackageCacheKey(candidate)
+  const cached = providerSkillPackageCache.get(cacheKey)
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.package
+  }
+  const pending = providerSkillPackagePendingRequests.get(cacheKey)
+  if (pending) {
+    return pending
+  }
+
+  const request = searchProviderSkillPackage(candidate)
+    .then((pkg) => {
+      providerSkillPackageCache.set(cacheKey, {
+        expiresAt: Date.now() + (pkg ? providerSkillPackageCacheMs : missingProviderSkillPackageCacheMs),
+        package: pkg,
+      })
+      return pkg
+    })
+    .finally(() => {
+      if (providerSkillPackagePendingRequests.get(cacheKey) === request) {
+        providerSkillPackagePendingRequests.delete(cacheKey)
+      }
+    })
+  providerSkillPackagePendingRequests.set(cacheKey, request)
+  return request
 }
 
 async function searchProviderSkillPackage(candidate: ProviderSkillCandidate): Promise<PublicSkillPackage | null> {

@@ -1,5 +1,5 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
-import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
+import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { ManagedSkillGroupById, PublicSkillInstallState } from "./skill-route-model.ts"
 
 import {
@@ -148,7 +148,7 @@ export function buildProviderSkillRecommendations({
   packagesByService,
   providers,
 }: {
-  groupById: ManagedSkillGroupById | ReadonlyMap<string, ManagedSkillGroup> | undefined
+  groupById: ManagedSkillGroupById | undefined
   packagesByService: ReadonlyMap<string, PublicSkillPackage | null | undefined>
   providers: readonly ConnectionProvider[]
 }): ProviderSkillRecommendation[] {

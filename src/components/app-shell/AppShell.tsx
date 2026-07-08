@@ -27,6 +27,7 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
+import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
@@ -621,7 +622,10 @@ export function AppShell() {
       return
     }
     const connected = connections.summary?.providers.some(
-      (p) => p.service === pending.service && p.status === "connected" && p.appStatus === "active",
+      (p) =>
+        p.service === pending.service &&
+        p.status === "connected" &&
+        (p.appStatus === "active" || isConnectionlessNoAuthProvider(p)),
     )
     if (connected) {
       pendingRetry.current = null

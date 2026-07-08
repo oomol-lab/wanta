@@ -381,6 +381,8 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("On success, returns a JSON array"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("On failure, returns a JSON object"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes('connector", "apps'))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("WANTA_CONNECTOR_URL"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("noAuthReady"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("--personal"))
   assert.doesNotMatch(AGENT_TOOL_FILES["search_actions.ts"] ?? "", /--keywords|args\.keywords|keywords: tool\.schema/)
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("List connected OOMOL Link provider apps"))

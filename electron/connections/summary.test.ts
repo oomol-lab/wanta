@@ -99,6 +99,23 @@ test("virtual no_auth app in active status marks provider ready without a manage
   assert.equal(quickchart?.canDisconnect, false)
 })
 
+test("pure no_auth provider is ready even when the workspace has no app row", () => {
+  const summary = mergeConnectionSummary({
+    apps: [],
+    meta: { summary: { connectedProviderCount: 0 } },
+    providers: [{ service: "quickchart", displayName: "QuickChart", authTypes: ["no_auth" as const] }],
+    usage: emptyUsage,
+  })
+  const quickchart = summary.providers.find((provider) => provider.service === "quickchart")
+
+  assert.equal(quickchart?.status, "connected")
+  assert.equal(quickchart?.appStatus, undefined)
+  assert.equal(quickchart?.appCount, 0)
+  assert.deepEqual(quickchart?.apps, [])
+  assert.equal(quickchart?.canDisconnect, false)
+  assert.equal(summary.connectedProviderCount, 1)
+})
+
 test("merge preserves multiple apps for one provider", () => {
   const summary = mergeConnectionSummary({
     apps: [
@@ -128,7 +145,7 @@ test("merge preserves multiple apps for one provider", () => {
   const gmail = summary.providers.find((provider) => provider.service === "gmail")
 
   assert.equal(summary.activeConnections, 2)
-  assert.equal(summary.connectedProviderCount, 1)
+  assert.equal(summary.connectedProviderCount, 2)
   assert.equal(gmail?.status, "connected")
   assert.equal(gmail?.appCount, 2)
   assert.equal(gmail?.accountLabel, "second@example.com")

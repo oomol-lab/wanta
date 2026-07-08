@@ -510,6 +510,12 @@ function getProviderActionKind(authTypes: Exclude<ConnectionAuthType, null>[]): 
   return "unavailable"
 }
 
+export function isConnectionlessNoAuthProvider(
+  provider: Pick<ConnectionProviderSummary, "actionKind" | "appCount" | "status">,
+): boolean {
+  return provider.status === "connected" && provider.actionKind === "no_auth" && provider.appCount === 0
+}
+
 export function normalizeApp(item: RawApp): ConnectionAppSummary | undefined {
   const id = asString(item.id)
   const service = asString(item.service)
@@ -563,7 +569,11 @@ export function normalizeProvider(
   const apps = appsByService.get(service) ?? []
   const manageableApps = getManageableApps(apps)
   const app = pickStatusApp(manageableApps)
-  const hasNoAuthReadyApp = apps.some((candidate) => isVirtualNoAuthApp(candidate) && candidate.status === "active")
+  const normalizedAuthTypes = normalizeAuthTypes(item.authTypes)
+  const isPureNoAuthProvider = normalizedAuthTypes.length === 1 && normalizedAuthTypes[0] === "no_auth"
+  const hasNoAuthReadyApp =
+    apps.some((candidate) => isVirtualNoAuthApp(candidate) && candidate.status === "active") ||
+    (isPureNoAuthProvider && apps.length === 0)
   const status: ConnectionProviderStatus = apps.some(
     (candidate) => candidate.status === "reauth_required" || candidate.status === "error",
   )
@@ -571,8 +581,6 @@ export function normalizeProvider(
     : manageableApps.some((candidate) => candidate.status === "active") || hasNoAuthReadyApp
       ? "connected"
       : "available"
-  const normalizedAuthTypes = normalizeAuthTypes(item.authTypes)
-  const isPureNoAuthProvider = normalizedAuthTypes.length === 1 && normalizedAuthTypes[0] === "no_auth"
 
   return {
     service,
@@ -645,13 +653,18 @@ export function mergeConnectionSummary({
     throw new Error("Connector provider catalog returned no usable providers.")
   }
 
+  const computedConnectedProviderCount = providers.filter(
+    (provider) => provider.status === "connected" || provider.status === "needs_attention",
+  ).length
+
   return {
     ...createEmptyConnectionSummary("ready", undefined, workspace),
     activeConnections: visibleApps.filter((app) => app.status === "active").length,
     apps: visibleApps,
-    connectedProviderCount:
-      asNumber(appListSummary?.connectedProviderCount) ??
-      providers.filter((provider) => provider.status === "connected" || provider.status === "needs_attention").length,
+    connectedProviderCount: Math.max(
+      asNumber(appListSummary?.connectedProviderCount) ?? 0,
+      computedConnectedProviderCount,
+    ),
     connectableProviderCount: asNumber(appListSummary?.connectableProviderCount) ?? 0,
     needsAttention: visibleApps.filter((app) => app.status === "reauth_required" || app.status === "error").length,
     providerCount,

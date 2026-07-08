@@ -21,6 +21,7 @@ import type { StickToBottomContext } from "use-stick-to-bottom"
 
 import { ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
 import * as React from "react"
+import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
 import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { attachmentWithPreview } from "./chat-attachment-utils.ts"
@@ -78,6 +79,20 @@ const GeneratedArtifacts = React.lazy(() =>
 )
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
+
+function shouldRenderConnectionSuggestion(
+  authorization: AuthorizationInfo | undefined,
+  providerByService: Map<string, ConnectionProvider>,
+): AuthorizationInfo | undefined {
+  if (!authorization) {
+    return undefined
+  }
+  const provider = providerByService.get(normalizeServiceSlug(authorization.service))
+  if (!provider) {
+    return authorization
+  }
+  return provider.status === "connected" || isConnectionlessNoAuthProvider(provider) ? undefined : authorization
+}
 const EMPTY_ARTIFACT_SOURCES: GeneratedArtifactSource[] = []
 
 function noopArtifactsAvailable(_selection: ArtifactSelection): void {
@@ -820,10 +835,14 @@ const ChatTurnView = React.memo(function ChatTurnView({
     lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseRenderBlocks) || null
   const processActionsText = responseRenderBlocks.length > 0 ? null : assistantActionsText
   const showSuggestedAuthorization = shouldShowSuggestedAuthorization(process, turnIsActive)
+  const suggestedAuthorization = shouldRenderConnectionSuggestion(
+    showSuggestedAuthorization ? process.suggestedAuthorization : undefined,
+    providerByService,
+  )
   const responseSuggestedAuthorization =
-    showSuggestedAuthorization && responseRenderBlocks.length > 0 ? process.suggestedAuthorization : undefined
+    suggestedAuthorization && responseRenderBlocks.length > 0 ? suggestedAuthorization : undefined
   const processSuggestedAuthorization =
-    showSuggestedAuthorization && responseRenderBlocks.length === 0 ? process.suggestedAuthorization : undefined
+    suggestedAuthorization && responseRenderBlocks.length === 0 ? suggestedAuthorization : undefined
   const retrySource = React.useMemo(() => retrySourceFromTurn(turn), [turn])
   const handleAuthorize = React.useCallback(
     (auth: AuthorizationInfo) => {

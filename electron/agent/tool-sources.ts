@@ -84,6 +84,8 @@ function parseApps(stdout) {
 
 let authorizedServicesCache = null
 const AUTHORIZED_SERVICES_CACHE_MS = 5 * 1000
+let providerAuthTypesCache = null
+const PROVIDER_AUTH_TYPES_CACHE_MS = 30 * 1000
 
 async function authorizedServices() {
   const now = Date.now()
@@ -114,6 +116,72 @@ async function authorizedServices() {
   }
 }
 
+function parseProviders(payload) {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+  if (Array.isArray(payload && payload.data)) {
+    return payload.data
+  }
+  if (Array.isArray(payload && payload.providers)) {
+    return payload.providers
+  }
+  return Array.isArray(payload && payload.items) ? payload.items : []
+}
+
+function authTypesFromProvider(provider) {
+  if (!provider || typeof provider !== "object" || !Array.isArray(provider.authTypes)) {
+    return []
+  }
+  return provider.authTypes.filter((authType) => typeof authType === "string")
+}
+
+function isNoAuthOnly(authTypes) {
+  return authTypes.length === 1 && authTypes[0] === "no_auth"
+}
+
+async function providerAuthTypes() {
+  const connectorUrl = String(process.env.WANTA_CONNECTOR_URL || "").replace(/\/+$/, "")
+  const token = String(process.env.OO_API_KEY || "")
+  if (!connectorUrl || !token) {
+    return null
+  }
+  const now = Date.now()
+  const identity = await currentIdentity()
+  const cacheKey = identity.cacheKey
+  if (
+    providerAuthTypesCache &&
+    providerAuthTypesCache.cacheKey === cacheKey &&
+    now - providerAuthTypesCache.createdAt < PROVIDER_AUTH_TYPES_CACHE_MS
+  ) {
+    return providerAuthTypesCache.authTypesByService
+  }
+  try {
+    const headers = { authorization: "Bearer " + token }
+    if (identity.organizationName) {
+      headers["x-oo-organization-name"] = identity.organizationName
+    }
+    const response = await fetch(connectorUrl + "/v1/providers", { headers: headers })
+    if (!response.ok) {
+      providerAuthTypesCache = { cacheKey: cacheKey, createdAt: now, authTypesByService: null }
+      return null
+    }
+    const providers = parseProviders(await response.json())
+    const authTypesByService = new Map()
+    for (const provider of providers) {
+      if (!provider || typeof provider !== "object" || typeof provider.service !== "string") {
+        continue
+      }
+      authTypesByService.set(provider.service, authTypesFromProvider(provider))
+    }
+    providerAuthTypesCache = { cacheKey: cacheKey, createdAt: now, authTypesByService: authTypesByService }
+    return authTypesByService
+  } catch {
+    providerAuthTypesCache = { cacheKey: cacheKey, createdAt: now, authTypesByService: null }
+    return null
+  }
+}
+
 async function normalizeSearchOutput(stdout) {
   const text = (stdout || "").trim()
   try {
@@ -122,6 +190,7 @@ async function normalizeSearchOutput(stdout) {
       return text || "[]"
     }
     const authorization = await authorizedServices()
+    const authTypesByService = await providerAuthTypes()
     return JSON.stringify(
       parsed.map((item) => {
         if (!item || typeof item !== "object") {
@@ -131,10 +200,13 @@ async function normalizeSearchOutput(stdout) {
         if (!authorization) {
           return { ...item, authenticatedReliable: false, authenticatedScope: "active_workspace_unknown" }
         }
+        const authTypes = authTypesByService ? authTypesByService.get(service) : null
+        const noAuthReady = Array.isArray(authTypes) && isNoAuthOnly(authTypes)
         return {
           ...item,
-          authenticated: authorization.services.has(service),
+          authenticated: noAuthReady || authorization.services.has(service),
           authenticatedReliable: true,
+          noAuthReady: noAuthReady,
           authenticatedScope: authorization.scope,
         }
       }),

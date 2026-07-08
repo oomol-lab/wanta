@@ -107,11 +107,12 @@ export function buildProjectContextSystem(project: ChatProjectContext | undefine
 export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined): string {
   if (mode === "full_access") {
     return [
-      "Permission mode for this turn: Full Access.",
-      "- The user has enabled Full Access for this session.",
+      "Permission mode for this turn: Full Access (session-scoped local YOLO).",
+      "- The user has enabled Full Access for this session; treat it as YOLO for local tools.",
       "- You may use local shell commands, edit files, and access external filesystem paths when needed for the task.",
-      "- Local permission requests are auto-approved in this mode, including shell commands, file edits, deletes, and external paths.",
-      "- Do not ask the user to switch modes or approve local tool calls unless a non-local business workflow explicitly requires user confirmation.",
+      "- Local permission requests are auto-approved in this mode, including shell commands, file reads/writes/deletes, and external paths.",
+      "- Do not ask the user to switch modes or approve local tool calls in this chat.",
+      "- Still ask for confirmation when a non-local business workflow explicitly requires user approval.",
     ].join("\n")
   }
   return [

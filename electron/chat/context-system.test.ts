@@ -16,10 +16,11 @@ test("buildPermissionModeSystem describes default access", () => {
 test("buildPermissionModeSystem describes full access", () => {
   const prompt = buildPermissionModeSystem("full_access")
 
-  assert.match(prompt, /Full Access/)
+  assert.match(prompt, /Full Access \(session-scoped local YOLO\)/)
+  assert.match(prompt, /YOLO for local tools/)
   assert.match(prompt, /edit files/)
   assert.match(prompt, /access external filesystem paths/)
   assert.match(prompt, /Local permission requests are auto-approved/)
-  assert.doesNotMatch(prompt, /High-risk destructive shell commands/)
-  assert.doesNotMatch(prompt, /confirm destructive business actions/)
+  assert.match(prompt, /Do not ask the user to switch modes or approve local tool calls/)
+  assert.match(prompt, /non-local business workflow explicitly requires user approval/)
 })

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import {
   existingSessionComposerDraftKey,
+  chatSendAccepted,
   getUnlinkedProviderSkillRecommendations,
   NO_DRAFT_PROJECT_ID,
   isWorkspaceSwitchPending,
@@ -89,6 +90,14 @@ describe("workspace switch pending state", () => {
 
   test("settles when all target-scoped requests are done", () => {
     expect(isWorkspaceSwitchPending(readyInput)).toBe(false)
+  })
+})
+
+describe("chat send result", () => {
+  test("only treats accepted send results as accepted", () => {
+    expect(chatSendAccepted({ status: "accepted" })).toBe(true)
+    expect(chatSendAccepted({ reason: "workspace_not_ready", status: "rejected" })).toBe(false)
+    expect(chatSendAccepted({ error: new Error("failed"), status: "failed" })).toBe(false)
   })
 })
 

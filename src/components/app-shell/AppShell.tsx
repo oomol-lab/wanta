@@ -15,7 +15,7 @@ import type {
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
-import type { ChatSendRequest, TurnRetryOptions } from "./app-shell-model.ts"
+import type { ChatSendRequest, ChatSendResult, TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -33,6 +33,7 @@ import {
   AUTH_RETRY_POLL_INTERVAL_MS,
   AUTH_RETRY_POLL_TIMEOUT_MS,
   buildSessionTitleInput,
+  chatSendAccepted,
   connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
   existingSessionComposerDraftKey,
@@ -1066,7 +1067,7 @@ export function AppShell() {
   }, [])
 
   const sendNow = React.useCallback(
-    async (request: ChatSendRequest): Promise<boolean> => {
+    async (request: ChatSendRequest): Promise<ChatSendResult> => {
       const {
         afterOptimisticSubmit,
         attachments = [],
@@ -1082,10 +1083,10 @@ export function AppShell() {
       const isCurrentSendTarget = (): boolean =>
         activeComposerDraftKeyRef.current === sendKey && currentScopeKeyRef.current === sendScopeKey
       if (sendInFlightKeysRef.current.has(sendKey)) {
-        return false
+        return { reason: "send_in_flight", status: "rejected" }
       }
       if (!sessionScope) {
-        return false
+        return { reason: "workspace_not_ready", status: "rejected" }
       }
       sendInFlightKeysRef.current.add(sendKey)
       try {
@@ -1123,7 +1124,7 @@ export function AppShell() {
             if (bridgeEmptySend && isCurrentSendTarget()) {
               setPendingChatTransition(null)
             }
-            throw error
+            return { error, status: "failed" }
           }
           sessionId = info.id
           rememberAutoFallbackTitle(sessionId, fallbackTitle)
@@ -1184,9 +1185,9 @@ export function AppShell() {
           if (bridgeEmptySend && isCurrentSendTarget()) {
             setPendingChatTransition(null)
           }
-          throw error
+          return { error, status: "failed" }
         }
-        return true
+        return { status: "accepted" }
       } finally {
         sendInFlightKeysRef.current.delete(sendKey)
       }
@@ -1283,7 +1284,7 @@ export function AppShell() {
   }, [activeChatSessionId, clearQueuedSession, sessionsSettledForCurrentScope, visibleSessions])
 
   const handleSend = React.useCallback(
-    async (request: ChatSendRequest): Promise<boolean> => {
+    async (request: ChatSendRequest): Promise<ChatSendResult> => {
       const {
         afterOptimisticSubmit,
         attachments = [],
@@ -1305,9 +1306,9 @@ export function AppShell() {
       ) {
         queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
         clearSubmittedDraft()
-        return true
+        return { status: "accepted" }
       }
-      const accepted = await sendNow({
+      const result = await sendNow({
         afterOptimisticSubmit: clearSubmittedDraft,
         attachments,
         contextMentions,
@@ -1317,11 +1318,11 @@ export function AppShell() {
         reasoningLevel,
         text,
       })
-      if (accepted) {
+      if (chatSendAccepted(result)) {
         releaseActiveQueue()
         clearComposerDraft(draftKey)
       }
-      return accepted
+      return result
     },
     [
       activeComposerDraftKey,
@@ -1352,8 +1353,8 @@ export function AppShell() {
       if (!sessionId) {
         return
       }
-      const accepted = await handleSend({ text: formatQuestionResumeMessage(t, request, answers) })
-      if (accepted) {
+      const result = await handleSend({ text: formatQuestionResumeMessage(t, request, answers) })
+      if (chatSendAccepted(result)) {
         discardQuestion(sessionId, request.id)
       }
     },

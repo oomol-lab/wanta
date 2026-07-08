@@ -111,6 +111,17 @@ export interface ChatSendRequest {
   text: string
 }
 
+export type ChatSendRejectedReason = "send_in_flight" | "workspace_not_ready"
+
+export type ChatSendResult =
+  | { status: "accepted" }
+  | { reason: ChatSendRejectedReason; status: "rejected" }
+  | { error: unknown; status: "failed" }
+
+export function chatSendAccepted(result: ChatSendResult): boolean {
+  return result.status === "accepted"
+}
+
 export function rememberTurnRetryOptions(
   store: Map<string, Map<string, TurnRetryOptions>>,
   sessionId: string,

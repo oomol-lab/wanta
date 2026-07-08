@@ -6,7 +6,7 @@ import type {
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { ChatSendRequest } from "./app-shell-model.ts"
+import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { ChatQueueMap, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { ChatStatus } from "ai"
 
@@ -21,7 +21,7 @@ import {
 } from "./chat-queue.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
-type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }) => Promise<boolean>
+type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }) => Promise<ChatSendResult>
 
 interface UseChatQueueStateOptions {
   activeSessionId: string | null
@@ -165,8 +165,8 @@ export function useChatQueueState({
       reasoningLevel: message.reasoningLevel,
       text: message.text,
     })
-      .then((accepted) => {
-        if (!accepted) {
+      .then((result) => {
+        if (result.status !== "accepted") {
           setQueuedMessagesBySession((current) =>
             current[activeSessionId]?.some((item) => item.id === message.id)
               ? current

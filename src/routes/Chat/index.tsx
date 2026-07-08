@@ -11,7 +11,7 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ChatPendingQuestion } from "./question-state.ts"
-import type { ChatSendRequest } from "@/components/app-shell/app-shell-model"
+import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -61,7 +61,7 @@ interface ChatAreaProps {
   organizationSkillPendingInstallCount?: number
   organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
   organizationSkills?: ChatOrganizationSkillContext[]
-  onSend: (request: ChatSendRequest) => Promise<boolean>
+  onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onPermissionModeChange: (mode: AgentPermissionMode) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>

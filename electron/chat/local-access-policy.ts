@@ -9,8 +9,14 @@ import {
   requestMatchesSessionGrant,
 } from "./permission-request.ts"
 import { projectPermissionRequestInsideRoot } from "./project-permission.ts"
+import { isProjectReadOnlyCommandRequest } from "./project-read-command.ts"
 
-export type LocalAccessAllowReason = "oo_cli" | "trusted_project" | "session_grant" | "full_access"
+export type LocalAccessAllowReason =
+  | "oo_cli"
+  | "project_read_command"
+  | "trusted_project"
+  | "session_grant"
+  | "full_access"
 
 export type LocalAccessDecision =
   | {
@@ -49,6 +55,9 @@ export function evaluateLocalAccessRequest(
   }
   if (context.trustedProjectRoot && projectPermissionRequestInsideRoot(request, context.trustedProjectRoot)) {
     return { type: "allow", reason: "trusted_project", kind, highRisk }
+  }
+  if (context.trustedProjectRoot && !highRisk && isProjectReadOnlyCommandRequest(request, context.trustedProjectRoot)) {
+    return { type: "allow", reason: "project_read_command", kind, highRisk }
   }
   if (hasMatchingSessionGrant(request, context.sessionGrants)) {
     return { type: "allow", reason: "session_grant", kind, highRisk }

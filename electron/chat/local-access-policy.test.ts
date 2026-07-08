@@ -31,6 +31,25 @@ test("local access policy allows pure oo commands without a renderer prompt", ()
   )
 })
 
+test("local access policy allows trusted project read-only commands", () => {
+  const root = "/Users/example/code/wanta"
+
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `rg "permissionMode" ${root}` } }), {
+      permissionMode: "default",
+      trustedProjectRoot: root,
+    }),
+    { type: "allow", reason: "project_read_command", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm test" } }), {
+      permissionMode: "default",
+      trustedProjectRoot: root,
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})
+
 test("local access policy allows trusted project file requests only inside the root", () => {
   const root = "/Users/example/code/wanta"
 

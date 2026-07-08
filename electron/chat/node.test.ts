@@ -1334,6 +1334,52 @@ test("trusted project permission approval does not cover paths outside the proje
   assert.equal(bridge.answerPermission.mock.calls.length, 0)
 })
 
+test("trusted project read-only shell commands are approved without showing a permission card", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    projectContext: {
+      id: "project-1",
+      name: "wanta",
+      path: projectPath,
+    },
+    sessionId: "session-1",
+    text: "Inspect this project",
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [`rg "permissionMode" ${projectPath}`],
+      metadata: { command: `rg "permissionMode" ${projectPath}` },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(
+    events.some((event) => event.event === "permissionAsked"),
+    false,
+  )
+})
+
 test("full access permissions are approved in the main process", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

@@ -215,7 +215,7 @@ export const zhCNMessages = {
   "chat.emptySharedConnectorsMetaFallback": "来自组织的资源",
   "chat.emptySharedConnectorsAction": "查看",
   "chat.emptyOrganizationsAria": "打开组织，查看团队共享的连接器",
-  "chat.emptyOrganizationSkillsTitle": "组织推荐 Skill",
+  "chat.emptyOrganizationSkillsTitle": "推荐 Skill",
   "chat.emptyOrganizationSkillsMeta": "{count} 个待安装",
   "chat.emptyOrganizationSkillsRecommendedMeta": "{count} 个推荐",
   "chat.emptyOrganizationSkillsAction": "安装",

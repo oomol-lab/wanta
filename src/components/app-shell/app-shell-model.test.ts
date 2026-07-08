@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 import {
   existingSessionComposerDraftKey,
+  getUnlinkedProviderSkillRecommendations,
   NO_DRAFT_PROJECT_ID,
   isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
@@ -8,6 +9,7 @@ import {
   resolveNewSessionTarget,
   sessionRecordScopeKey,
   shouldClearWorkspaceSwitchTarget,
+  shouldShowRecommendedSkillEntry,
 } from "./app-shell-model.ts"
 
 const readyInput = {
@@ -57,6 +59,40 @@ describe("workspace switch pending state", () => {
 
   test("settles when all target-scoped requests are done", () => {
     expect(isWorkspaceSwitchPending(readyInput)).toBe(false)
+  })
+})
+
+describe("recommended Skill empty state entry", () => {
+  test("shows when a provider recommendation is installable without organization configured Skills", () => {
+    expect(
+      shouldShowRecommendedSkillEntry({
+        organizationId: "org-1",
+        organizationSkillCount: 0,
+        providerRecommendationCount: 1,
+      }),
+    ).toBe(true)
+  })
+
+  test("stays hidden outside an organization workspace", () => {
+    expect(
+      shouldShowRecommendedSkillEntry({
+        organizationId: null,
+        organizationSkillCount: 0,
+        providerRecommendationCount: 1,
+      }),
+    ).toBe(false)
+  })
+
+  test("deduplicates provider recommendations already configured by the organization", () => {
+    const recommendations = getUnlinkedProviderSkillRecommendations(
+      [{ packageName: "oo-posthog", skillName: "posthog" }],
+      [
+        { packageName: "oo-posthog", service: "posthog", skillId: "posthog" },
+        { packageName: "oo-gmail", service: "gmail", skillId: "gmail" },
+      ],
+    )
+
+    expect(recommendations).toEqual([{ packageName: "oo-gmail", service: "gmail", skillId: "gmail" }])
   })
 })
 

@@ -20,11 +20,6 @@ import { toast } from "sonner"
 import { DiscoverSkillsPane } from "./DiscoverSkillsPane.tsx"
 import { InstalledSkillsPane } from "./InstalledSkillsPane.tsx"
 import { OrganizationSkillsPane } from "./OrganizationSkillsPane.tsx"
-import { useProviderSkillPackageLookup } from "./provider-skill-package-lookup.ts"
-import {
-  buildProviderSkillRecommendations,
-  getInstallableProviderSkillRecommendations,
-} from "./provider-skill-recommendations.ts"
 import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupStatus,
@@ -55,6 +50,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useSkillObjectActions } from "@/components/useSkillObjectActions"
+import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecommendations"
 import { useAppI18n } from "@/i18n"
 import { addOrganizationSkill } from "@/lib/organization-skills-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -119,20 +115,12 @@ export function SkillsRoute({
   const installedSkillGroupById = React.useMemo<ManagedSkillGroupById>(() => {
     return new Map((inventory?.groups ?? []).map((group) => [group.id, group]))
   }, [inventory?.groups])
-  const providerSkillPackageLookup = useProviderSkillPackageLookup(connectedProviders)
-  const providerSkillRecommendations = React.useMemo(
-    () =>
-      buildProviderSkillRecommendations({
-        groupById: installedSkillGroupById,
-        packagesByService: providerSkillPackageLookup.packagesByService,
-        providers: connectedProviders,
-      }),
-    [connectedProviders, installedSkillGroupById, providerSkillPackageLookup.packagesByService],
-  )
-  const installableProviderSkillRecommendations = React.useMemo(
-    () => getInstallableProviderSkillRecommendations(providerSkillRecommendations),
-    [providerSkillRecommendations],
-  )
+  const providerSkillRecommendationsState = useProviderSkillRecommendations({
+    groupById: installedSkillGroupById,
+    providers: connectedProviders,
+  })
+  const providerSkillRecommendations = providerSkillRecommendationsState.recommendations
+  const installableProviderSkillRecommendations = providerSkillRecommendationsState.installable
   const versionCheckByKey = React.useMemo<SkillVersionCheckByKey>(() => {
     return new Map(
       (versionResource.data?.skills ?? []).map((check) => [
@@ -773,7 +761,7 @@ export function SkillsRoute({
             organizationFilter={organizationFilter}
             organizationQuery={organizationQuery}
             organizationSkills={organizationSkills}
-            providerRecommendationsLoading={connectedProvidersLoading || providerSkillPackageLookup.isLoading}
+            providerRecommendationsLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
             providerRecommendations={providerSkillRecommendations}
             workspace={workspace}
             onAddRecommendation={addOrganizationSkillFromRecommendation}

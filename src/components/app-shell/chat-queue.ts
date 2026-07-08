@@ -3,9 +3,12 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
+  ChatOrganizationSkillContext,
+  ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
+import type { SessionScope } from "../../../electron/session/common.ts"
 import type { ChatStatus } from "ai"
 
 export interface QueuedChatMessage {
@@ -14,6 +17,9 @@ export interface QueuedChatMessage {
   text: string
   attachments: ChatAttachment[]
   contextMentions?: ChatContextMention[]
+  organizationSkills?: ChatOrganizationSkillContext[]
+  projectContext?: ChatProjectContext
+  sessionScope?: SessionScope
   model?: ModelChoice
   reasoningLevel?: ReasoningLevel
   mode?: AgentMode

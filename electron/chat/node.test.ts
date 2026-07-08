@@ -178,6 +178,7 @@ test("sendMessage waits for the request organization scope before prompting", as
   await waitForCondition(() => Boolean(resolveScope))
 
   assert.deepEqual(bridge.setSessionOrganizationName.mock.calls, [["session-1", "acme-corp"]])
+  assert.equal((await service.getActiveRun("session-1"))?.phase, "sending")
   assert.equal(bridge.createArtifactDir.mock.calls.length, 0)
   assert.equal(bridge.promptStreaming.mock.calls.length, 0)
 
@@ -186,6 +187,81 @@ test("sendMessage waits for the request organization scope before prompting", as
 
   assert.equal(bridge.createArtifactDir.mock.calls.length, 1)
   assert.equal(bridge.promptStreaming.mock.calls.length, 1)
+})
+
+test("sendMessage exposes active run snapshots with the request workspace", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({
+    scope: { type: "organization", organizationId: "org-id", organizationName: " acme-corp " },
+    sessionId: "session-1",
+    text: "hello",
+  })
+
+  const run = await service.getActiveRun("session-1")
+  assert.equal(run?.sessionId, "session-1")
+  assert.equal(run?.phase, "submitted")
+  assert.deepEqual(run?.workspace, { type: "organization", organizationId: "org-id", organizationName: "acme-corp" })
+  assert.ok(events.some((event) => event.event === "activeRunUpdated"))
+})
+
+test("setAgent clears active run snapshots", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  assert.notEqual(await service.getActiveRun("session-1"), null)
+
+  service.setAgent(null)
+
+  assert.equal(await service.getActiveRun("session-1"), null)
+  assert.ok(
+    events.some(
+      (event) =>
+        event.event === "activeRunUpdated" &&
+        (event.data as { endedRunId?: string; run?: unknown }).run === null &&
+        Boolean((event.data as { endedRunId?: string }).endedRunId),
+    ),
+  )
+})
+
+test("active run snapshots track permission waits and completion", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  bridge.emit({
+    type: "permission.asked",
+    properties: {
+      action: "bash",
+      id: "permission-1",
+      resources: ["/tmp/project"],
+      sessionID: "session-1",
+    },
+  })
+
+  assert.equal((await service.getActiveRun("session-1"))?.phase, "awaiting_permission")
+  assert.deepEqual((await service.getActiveRun("session-1"))?.blockingRequestIds, ["permission-1"])
+
+  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+  await waitForInactiveGeneration(service)
+
+  assert.equal(await service.getActiveRun("session-1"), null)
+  assert.ok(
+    events.some(
+      (event) =>
+        event.event === "activeRunUpdated" &&
+        (event.data as { run?: { phase?: string } | null }).run?.phase === "awaiting_permission",
+    ),
+  )
+  assert.ok(
+    events.some((event) => event.event === "activeRunUpdated" && (event.data as { run?: unknown }).run === null),
+  )
 })
 
 test("sendMessage allows concurrent generations in different organization scopes", async () => {
@@ -458,7 +534,7 @@ test("message completion records intermediate code files left in artifact root",
     })
     await writeFile(path.join(artifactDir, "create_ppt.js"), "console.log(1)\n", "utf8")
     bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
-    await waitForEventCount(events, 3)
+    await waitForCondition(() => events.some((event) => event.event === "turnOutputUpdated"))
 
     const record = (await store.read()).get("session-1")?.get("assistant-1")
     assert.equal(record?.summary.processFileCount, 1)

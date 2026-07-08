@@ -106,8 +106,11 @@ export interface ChatSendRequest {
   contextMentions?: ChatContextMention[]
   mode?: AgentMode
   model?: ModelChoice
+  organizationSkills?: ChatOrganizationSkillContext[]
   permissionMode?: AgentPermissionMode
+  projectContext?: ChatProjectContext
   reasoningLevel?: ReasoningLevel
+  sessionScope?: SessionScope
   text: string
 }
 
@@ -195,6 +198,9 @@ export function createQueuedChatMessage(
   reasoningLevel?: ReasoningLevel,
   mode?: AgentMode,
   permissionMode?: AgentPermissionMode,
+  organizationSkills?: ChatOrganizationSkillContext[],
+  projectContext?: ChatProjectContext,
+  sessionScope?: SessionScope,
 ): QueuedChatMessage {
   return {
     id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -203,7 +209,10 @@ export function createQueuedChatMessage(
     attachments,
     ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
     model,
+    ...(organizationSkills && organizationSkills.length > 0 ? { organizationSkills } : {}),
+    ...(projectContext ? { projectContext } : {}),
     reasoningLevel,
+    ...(sessionScope ? { sessionScope } : {}),
     mode,
     permissionMode,
     createdAt: Date.now(),

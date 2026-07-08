@@ -1091,18 +1091,25 @@ export function AppShell() {
         contextMentions = [],
         mode,
         model,
+        organizationSkills: requestOrganizationSkills,
         permissionMode: permissionModeArg,
+        projectContext: requestProjectContext,
         reasoningLevel,
+        sessionScope: requestSessionScope,
         text,
       } = request
+      const effectiveSessionScope = requestSessionScope ?? sessionScope
+      const effectiveScopeKey = sessionScopeKey(effectiveSessionScope)
+      const effectiveOrganizationSkills = requestOrganizationSkills ?? organizationSkills.chatContextSkills
+      const effectiveProjectContext = requestProjectContext ?? activeProjectContext
       const sendKey = activeComposerDraftKey
-      const sendScopeKey = currentScopeKey
+      const sendScopeKey = effectiveScopeKey
       const isCurrentSendTarget = (): boolean =>
         activeComposerDraftKeyRef.current === sendKey && currentScopeKeyRef.current === sendScopeKey
       if (sendInFlightKeysRef.current.has(sendKey)) {
         return { reason: "send_in_flight", status: "rejected" }
       }
-      if (!sessionScope) {
+      if (!effectiveSessionScope || currentScopeKey !== sendScopeKey) {
         return { reason: "workspace_not_ready", status: "rejected" }
       }
       sendInFlightKeysRef.current.add(sendKey)
@@ -1136,7 +1143,7 @@ export function AppShell() {
         if (!sessionId) {
           let info: SessionInfo
           try {
-            info = await create(fallbackTitle, activeProject?.id)
+            info = await create(fallbackTitle, effectiveProjectContext?.id ?? activeProject?.id)
           } catch (error) {
             if (bridgeEmptySend && isCurrentSendTarget()) {
               setPendingChatTransition(null)
@@ -1176,23 +1183,23 @@ export function AppShell() {
           chatTurnInputKey({ text, attachments }),
           {
             contextMentions,
-            organizationSkills: organizationSkills.chatContextSkills,
-            projectContext: activeProjectContext,
+            organizationSkills: effectiveOrganizationSkills,
+            projectContext: effectiveProjectContext,
             model,
             reasoningLevel,
             mode,
             permissionMode: selectedPermissionMode,
-            sessionScope,
+            sessionScope: effectiveSessionScope,
           },
         )
         try {
           const sendPromise = send(sessionId, text, attachments, {
             contextMentions,
             model,
-            organizationSkills: organizationSkills.chatContextSkills,
-            projectContext: activeProjectContext,
+            organizationSkills: effectiveOrganizationSkills,
+            projectContext: effectiveProjectContext,
             reasoningLevel,
-            sessionScope,
+            sessionScope: effectiveSessionScope,
             mode,
             permissionMode: selectedPermissionMode,
           })
@@ -1321,7 +1328,18 @@ export function AppShell() {
         activeChatSessionId &&
         (!chatTurnAllowsDirectSend(activeChatTurnState) || sendInFlightKeysRef.current.has(draftKey))
       ) {
-        queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
+        queueActiveMessage(
+          text,
+          attachments,
+          contextMentions,
+          model,
+          reasoningLevel,
+          mode,
+          permissionMode,
+          organizationSkills.chatContextSkills,
+          activeProjectContext,
+          sessionScope ?? undefined,
+        )
         clearSubmittedDraft()
         return { delivery: "queued", status: "accepted" }
       }
@@ -1345,10 +1363,13 @@ export function AppShell() {
       activeComposerDraftKey,
       activeChatSessionId,
       activeChatTurnState,
+      activeProjectContext,
       clearComposerDraft,
+      organizationSkills.chatContextSkills,
       queueActiveMessage,
       releaseActiveQueue,
       sendNow,
+      sessionScope,
     ],
   )
 

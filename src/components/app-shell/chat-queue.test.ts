@@ -2,6 +2,7 @@ import type { QueuedChatMessage } from "./chat-queue.ts"
 
 import assert from "node:assert/strict"
 import { describe, test } from "vitest"
+import { createQueuedChatMessage } from "./app-shell-model.ts"
 import {
   appendQueuedMessage,
   clearQueuedMessages,
@@ -135,5 +136,25 @@ describe("chat queue", () => {
   test("resumes queued messages after a manual stop returns the session to ready", () => {
     assert.equal(shouldDispatchQueuedMessage("streaming", false, false), false)
     assert.equal(shouldDispatchQueuedMessage("ready", false, false), true)
+  })
+
+  test("preserves workspace context on queued messages", () => {
+    const queued = createQueuedChatMessage(
+      "session-1",
+      "hello",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      "build",
+      "default",
+      [{ id: "skill-1", name: "Skill" }],
+      { id: "project-1", name: "Project", path: "/tmp/project" },
+      { type: "organization", organizationId: "org-1", organizationName: "acme" },
+    )
+
+    assert.deepEqual(queued.organizationSkills, [{ id: "skill-1", name: "Skill" }])
+    assert.deepEqual(queued.projectContext, { id: "project-1", name: "Project", path: "/tmp/project" })
+    assert.deepEqual(queued.sessionScope, { type: "organization", organizationId: "org-1", organizationName: "acme" })
   })
 })

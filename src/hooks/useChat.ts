@@ -3,6 +3,7 @@ import type {
   AgentMode,
   AgentPermissionMode,
   ChatAttachment,
+  ChatActiveRun,
   ChatContextMention,
   GenerationStoppedEvent,
   ChatMessage,
@@ -169,6 +170,21 @@ function setSessionActivity(
   return { ...activities, [sessionId]: activity }
 }
 
+function statusForActiveRun(run: ChatActiveRun): ChatStatus {
+  return run.phase === "sending" || run.phase === "submitted" ? "submitted" : "streaming"
+}
+
+function activityForActiveRun(run: ChatActiveRun): AssistantActivityEvent | undefined {
+  if (run.phase !== "sending" && run.phase !== "submitted" && run.phase !== "thinking") {
+    return undefined
+  }
+  return {
+    sessionId: run.sessionId,
+    ...(run.activeAssistantMessageId ? { messageId: run.activeAssistantMessageId } : {}),
+    phase: "thinking",
+  }
+}
+
 export function useChat(activeSessionId: string | null, visibleSessionId: string | null = activeSessionId): UseChat {
   const chatService = useChatService()
   const [messagesMap, setMessagesMap] = React.useState<MessagesMap>({})
@@ -198,6 +214,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const permissionModesRef = React.useRef(permissionModes)
   const permissionModeVersionsRef = React.useRef<Record<string, number>>({})
   const stoppedQuestionsMapRef = React.useRef(stoppedQuestionsMap)
+  const clearedActiveRunIdsRef = React.useRef(new Set<string>())
 
   const updatePendingQuestionsMap = React.useCallback(
     (updater: (current: PendingQuestionsMap) => PendingQuestionsMap) => {
@@ -268,6 +285,31 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const setActivity = React.useCallback((sessionId: string, activity: AssistantActivityEvent | undefined) => {
     setActivities((current) => setSessionActivity(current, sessionId, activity))
   }, [])
+
+  const applyActiveRun = React.useCallback(
+    (sessionId: string, run: ChatActiveRun | null, endedRunId?: string) => {
+      if (run) {
+        if (clearedActiveRunIdsRef.current.has(run.runId)) {
+          return
+        }
+        setStatus(run.sessionId, statusForActiveRun(run))
+        setActivity(run.sessionId, activityForActiveRun(run))
+        return
+      }
+      if (endedRunId) {
+        clearedActiveRunIdsRef.current.add(endedRunId)
+      }
+      setStatuses((current) => {
+        const currentStatus = current[sessionId]
+        if (currentStatus !== "submitted" && currentStatus !== "streaming") {
+          return current
+        }
+        return setSessionStatus(current, sessionId, "ready")
+      })
+      setActivity(sessionId, undefined)
+    },
+    [setActivity, setStatus],
+  )
 
   const flushPendingTextDeltas = React.useCallback(() => {
     if (pendingTextFrame.current !== null) {
@@ -746,6 +788,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   React.useEffect(() => {
     const offs = [
+      chatService.serverEvents.on("activeRunUpdated", (e) => {
+        applyActiveRun(e.sessionId, e.run, e.endedRunId)
+      }),
       chatService.serverEvents.on("messageStarted", (e) => {
         patch(e.sessionId, (msgs) => ensureMessage(msgs, e.messageId, e.role))
         if (e.role === "assistant") {
@@ -814,7 +859,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }),
       chatService.serverEvents.on("permissionAsked", (e) => {
         flushPendingToolParts()
-        setStatus(e.sessionId, "ready")
+        setStatus(e.sessionId, "streaming")
         setActivity(e.sessionId, undefined)
         markPendingPermissionsMutated(e.sessionId)
         updatePendingPermissionsMap((current) => {
@@ -893,6 +938,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }
     }
   }, [
+    applyActiveRun,
     chatService,
     clearSessionError,
     clearStoppedQuestion,
@@ -923,14 +969,46 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   ])
 
   React.useEffect(() => {
+    let cancelled = false
+    void chatService
+      .invoke("getActiveRuns")
+      .then((runs) => {
+        if (cancelled) {
+          return
+        }
+        for (const run of runs) {
+          applyActiveRun(run.sessionId, run)
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("[wanta] getActiveRuns failed", err)
+        reportRendererHandledError("chat", "getActiveRuns failed", err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [applyActiveRun, chatService])
+
+  React.useEffect(() => {
     if (activeSessionId) {
       void (async () => {
         const messages = await reload(activeSessionId)
         await reloadPendingQuestions(activeSessionId, messages)
       })()
       void reloadPendingPermissions(activeSessionId)
+      void chatService
+        .invoke("getActiveRun", activeSessionId)
+        .then((run) => {
+          if (run) {
+            applyActiveRun(activeSessionId, run)
+          }
+        })
+        .catch((err: unknown) => {
+          console.error("[wanta] getActiveRun failed", err)
+          reportRendererHandledError("chat", "getActiveRun failed", err)
+        })
     }
-  }, [activeSessionId, reload, reloadPendingPermissions, reloadPendingQuestions])
+  }, [activeSessionId, applyActiveRun, chatService, reload, reloadPendingPermissions, reloadPendingQuestions])
 
   const send = React.useCallback(
     async (

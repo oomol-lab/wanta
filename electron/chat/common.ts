@@ -196,6 +196,38 @@ export interface GenerationStoppedEvent {
   partIds?: string[]
   stoppedAt?: number
 }
+export type ChatRunPhase =
+  | "sending"
+  | "submitted"
+  | "thinking"
+  | "tool_running"
+  | "answering"
+  | "awaiting_permission"
+  | "awaiting_question"
+
+export type ChatRunWorkspace =
+  | { type: "personal" }
+  | { organizationId: string; organizationName: string; type: "organization" }
+
+export interface ChatActiveRun {
+  activeAssistantMessageId?: string
+  activeToolPartIds: string[]
+  blockingRequestIds: string[]
+  generationId: string
+  phase: ChatRunPhase
+  runId: string
+  sessionId: string
+  startedAt: number
+  updatedAt: number
+  workspace: ChatRunWorkspace
+}
+
+export interface ActiveRunUpdatedEvent {
+  endedAt?: number
+  endedRunId?: string
+  run: ChatActiveRun | null
+  sessionId: string
+}
 export interface AgentConnectionChangedEvent {
   sessionId: string
   messageId?: string
@@ -727,6 +759,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
+    activeRunUpdated: ActiveRunUpdatedEvent
     agentConnectionChanged: AgentConnectionChangedEvent
     agentError: AgentErrorEvent
     agentStatusChanged: AgentStatusChangedEvent
@@ -745,6 +778,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     /** 同步 agent 的组织作用域（连接器请求已在渲染层带组织头；agent 仍由主进程持有，需单独告知）。 */
     setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void>
     stopGeneration(sessionId: string): Promise<void>
+    getActiveRuns(): Promise<ChatActiveRun[]>
+    getActiveRun(sessionId: string): Promise<ChatActiveRun | null>
     getMessages(sessionId: string): Promise<ChatMessage[]>
     getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]>
     answerQuestion(req: AnswerQuestionRequest): Promise<void>

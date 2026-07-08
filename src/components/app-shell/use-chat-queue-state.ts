@@ -3,9 +3,12 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
+  ChatOrganizationSkillContext,
+  ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
+import type { SessionScope } from "../../../electron/session/common.ts"
 import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { ChatQueueMap, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { ChatStatus } from "ai"
@@ -55,6 +58,9 @@ export function useChatQueueState({
       reasoningLevel?: ReasoningLevel,
       mode?: AgentMode,
       permissionMode?: AgentPermissionMode,
+      organizationSkills?: ChatOrganizationSkillContext[],
+      projectContext?: ChatProjectContext,
+      sessionScope?: SessionScope,
     ): boolean => {
       if (!activeSessionId) {
         return false
@@ -68,6 +74,9 @@ export function useChatQueueState({
         reasoningLevel,
         mode,
         permissionMode,
+        organizationSkills,
+        projectContext,
+        sessionScope,
       )
       setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
       return true
@@ -161,8 +170,11 @@ export function useChatQueueState({
       contextMentions: message.contextMentions ?? [],
       mode: message.mode,
       model: message.model,
+      organizationSkills: message.organizationSkills,
       permissionMode: message.permissionMode,
+      projectContext: message.projectContext,
       reasoningLevel: message.reasoningLevel,
+      sessionScope: message.sessionScope,
       text: message.text,
     })
       .then((result) => {

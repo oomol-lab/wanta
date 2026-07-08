@@ -56,7 +56,11 @@ export function chatTurnAllowsDirectSend(state: ChatTurnState): boolean {
 }
 
 export function chatTurnAllowsStop(state: ChatTurnState): boolean {
-  return state.chatStatus === "submitted" || state.chatStatus === "streaming"
+  return (
+    state.status === "submitting" ||
+    state.status === "streaming" ||
+    (state.status === "awaiting_question" && state.chatStatus === "streaming")
+  )
 }
 
 export function chatTurnBlocksQueueDispatch(state: ChatTurnState): boolean {
@@ -64,5 +68,5 @@ export function chatTurnBlocksQueueDispatch(state: ChatTurnState): boolean {
 }
 
 export function chatTurnShowsGenerating(state: ChatTurnState): boolean {
-  return state.chatStatus === "submitted" || state.chatStatus === "streaming"
+  return state.status === "submitting" || state.status === "streaming"
 }

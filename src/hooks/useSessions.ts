@@ -82,6 +82,13 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   const permissionModeWriteQueuesRef = React.useRef(new Map<string, Promise<void>>())
   const permissionModeWriteVersionsRef = React.useRef(new Map<string, number>())
   const scopeKey = sessionScopeKey(requestScope)
+  const currentScopeKeyRef = React.useRef(scopeKey)
+  currentScopeKeyRef.current = scopeKey
+
+  const isCurrentScope = React.useCallback(
+    (expectedScopeKey: string): boolean => enabledRef.current && currentScopeKeyRef.current === expectedScopeKey,
+    [],
+  )
 
   React.useEffect(() => {
     enabledRef.current = enabled
@@ -104,6 +111,10 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
   }, [scopeKey])
 
   const refresh = React.useCallback(async () => {
+    const refreshScopeKey = scopeKey
+    if (currentScopeKeyRef.current !== refreshScopeKey) {
+      return
+    }
     const requestId = ++requestSequenceRef.current
     if (!enabled) {
       setSessions([])
@@ -122,7 +133,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
         sessionService.invoke("list", { placement: "project", scope: requestScope }),
         sessionService.invoke("listProjects", { scope: requestScope }),
       ])
-      if (requestId !== requestSequenceRef.current || !enabledRef.current) {
+      if (requestId !== requestSequenceRef.current || !isCurrentScope(refreshScopeKey)) {
         return
       }
       for (const session of nextSessions) {
@@ -147,16 +158,16 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
     } catch (error) {
       console.error("[wanta] list sessions failed", error)
       reportRendererHandledError("session", "list sessions failed", error)
-      if (requestId === requestSequenceRef.current && enabledRef.current) {
+      if (requestId === requestSequenceRef.current && isCurrentScope(refreshScopeKey)) {
         setError(resolveUserFacingError(error, { area: "session" }))
       }
     } finally {
-      if (requestId === requestSequenceRef.current && enabledRef.current) {
+      if (requestId === requestSequenceRef.current && isCurrentScope(refreshScopeKey)) {
         setLoaded(true)
         setLoadedScopeKey(scopeKey)
       }
     }
-  }, [enabled, requestScope, scopeKey, sessionService])
+  }, [enabled, isCurrentScope, requestScope, scopeKey, sessionService])
 
   React.useEffect(() => {
     if (!enabled) {
@@ -180,7 +191,11 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const create = React.useCallback(
     async (title?: string, projectId?: string) => {
+      const mutationScopeKey = scopeKey
       const info = await sessionService.invoke("create", { projectId, scope: requestScope, title })
+      if (!isCurrentScope(mutationScopeKey)) {
+        return info
+      }
       localCreatedSessionsRef.current.set(info.id, info)
       setSessions((current) => mergeSessionsWithLocalCreated(current, [info]))
       if (info.projectId) {
@@ -191,7 +206,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       await refresh()
       return info
     },
-    [requestScope, sessionService, refresh],
+    [isCurrentScope, requestScope, scopeKey, sessionService, refresh],
   )
 
   const listArchived = React.useCallback(async () => {
@@ -200,16 +215,23 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const createProject = React.useCallback(
     async (req: CreateProjectRequest) => {
+      const mutationScopeKey = scopeKey
       const project = await sessionService.invoke("createProject", { ...req, scope: requestScope })
-      await refresh()
+      if (isCurrentScope(mutationScopeKey)) {
+        await refresh()
+      }
       return project
     },
-    [requestScope, sessionService, refresh],
+    [isCurrentScope, requestScope, scopeKey, sessionService, refresh],
   )
 
   const assignSessionProject = React.useCallback(
     async (sessionId: string, projectId?: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("assignSessionProject", { sessionId, projectId })
+      if (!isCurrentScope(mutationScopeKey)) {
+        return
+      }
       const existingSession = sessions.find((session) => session.id === sessionId)
       const updatedSession = existingSession ? { ...existingSession } : undefined
       if (updatedSession) {
@@ -248,11 +270,12 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       }
       await refresh()
     },
-    [sessionService, refresh, sessions],
+    [isCurrentScope, scopeKey, sessionService, refresh, sessions],
   )
 
   const setSessionPermissionMode = React.useCallback(
     async (id: string, permissionMode: SessionInfo["permissionMode"]) => {
+      const mutationScopeKey = scopeKey
       const normalizedPermissionMode = permissionMode ?? "default"
       const version = (permissionModeWriteVersionsRef.current.get(id) ?? 0) + 1
       permissionModeWriteVersionsRef.current.set(id, version)
@@ -269,7 +292,7 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       })
 
       await queuedWrite
-      if (permissionModeWriteVersionsRef.current.get(id) !== version) {
+      if (permissionModeWriteVersionsRef.current.get(id) !== version || !isCurrentScope(mutationScopeKey)) {
         return
       }
       const applyPermissionMode = (session: SessionInfo): SessionInfo =>
@@ -289,42 +312,55 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       setProjectSessions((current) => current.map(applyPermissionMode))
       await refresh()
     },
-    [sessionService, refresh],
+    [isCurrentScope, scopeKey, sessionService, refresh],
   )
 
   const removeProject = React.useCallback(
     async (id: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("removeProject", id)
-      await refresh()
+      if (isCurrentScope(mutationScopeKey)) {
+        await refresh()
+      }
     },
-    [sessionService, refresh],
+    [isCurrentScope, scopeKey, sessionService, refresh],
   )
 
   const renameProject = React.useCallback(
     async (id: string, name: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("renameProject", { id, name })
-      await refresh()
+      if (isCurrentScope(mutationScopeKey)) {
+        await refresh()
+      }
     },
-    [sessionService, refresh],
+    [isCurrentScope, scopeKey, sessionService, refresh],
   )
 
   const pinProject = React.useCallback(
     async (id: string, pinned: boolean) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("pinProject", { id, pinned })
-      await refresh()
+      if (isCurrentScope(mutationScopeKey)) {
+        await refresh()
+      }
     },
-    [sessionService, refresh],
+    [isCurrentScope, scopeKey, sessionService, refresh],
   )
 
   const archiveProject = React.useCallback(
     async (id: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("archiveProject", id)
+      if (!isCurrentScope(mutationScopeKey)) {
+        return
+      }
       setProjects((current) => current.filter((project) => project.id !== id))
       setSessions((current) => current.filter((session) => session.projectId !== id))
       setProjectSessions((current) => current.filter((session) => session.projectId !== id))
       await refresh()
     },
-    [sessionService, refresh],
+    [isCurrentScope, scopeKey, sessionService, refresh],
   )
 
   const generateTitle = React.useCallback(
@@ -350,13 +386,17 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const archive = React.useCallback(
     async (id: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("archive", id)
+      if (!isCurrentScope(mutationScopeKey)) {
+        return
+      }
       localCreatedSessionsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
       setTaskSessions((current) => current.filter((session) => session.id !== id))
       setProjectSessions((current) => current.filter((session) => session.id !== id))
     },
-    [sessionService],
+    [isCurrentScope, scopeKey, sessionService],
   )
 
   const unarchive = React.useCallback(
@@ -368,13 +408,17 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
 
   const remove = React.useCallback(
     async (id: string) => {
+      const mutationScopeKey = scopeKey
       await sessionService.invoke("remove", id)
+      if (!isCurrentScope(mutationScopeKey)) {
+        return
+      }
       localCreatedSessionsRef.current.delete(id)
       setSessions((current) => current.filter((session) => session.id !== id))
       setTaskSessions((current) => current.filter((session) => session.id !== id))
       setProjectSessions((current) => current.filter((session) => session.id !== id))
     },
-    [sessionService],
+    [isCurrentScope, scopeKey, sessionService],
   )
 
   return {

@@ -47,6 +47,7 @@ interface ChatAreaProps {
   emptyTitle?: string
   generatedArtifacts?: ArtifactSelection | null
   submitDisabled: boolean
+  willQueueMessage: boolean
   initialComposerState?: ComposerState
   initialSendPending: boolean
   providers: ConnectionProvider[]
@@ -67,7 +68,7 @@ interface ChatAreaProps {
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
-  onStop: () => void
+  onStop: () => Promise<void> | void
   onComposerStateChange?: (state: ComposerState) => void
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
   onQueuedMessageRemove: (id: string) => void
@@ -232,6 +233,7 @@ export const ChatArea = React.memo(function ChatArea({
   emptyTitle,
   generatedArtifacts,
   submitDisabled,
+  willQueueMessage,
   initialComposerState,
   initialSendPending,
   providers,
@@ -276,12 +278,6 @@ export const ChatArea = React.memo(function ChatArea({
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])
 
-  React.useEffect(() => {
-    if (isGenerating) {
-      onArtifactsReset()
-    }
-  }, [isGenerating, onArtifactsReset])
-
   const requestFullAccess = React.useCallback((): void => {
     if (permissionMode === "full_access") {
       return
@@ -315,6 +311,7 @@ export const ChatArea = React.memo(function ChatArea({
       queuedMessages={queuedMessages}
       status={status}
       submitDisabled={submitDisabled}
+      willQueueMessage={willQueueMessage}
       onComposerStateChange={onComposerStateChange}
       onQueuedMessageMove={onQueuedMessageMove}
       onQueuedMessageRemove={onQueuedMessageRemove}
@@ -390,6 +387,7 @@ export const ChatArea = React.memo(function ChatArea({
       onContinueQuestion={onContinueQuestion}
       onDiscardQuestion={onDiscardQuestion}
       onRejectQuestion={onRejectQuestion}
+      onStop={onStop}
       onViewBilling={onViewBilling}
     />
   )

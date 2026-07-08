@@ -4,6 +4,7 @@ import type {
   AgentConnectionChangedEvent,
   ChatMessage,
   ChatMessagePart,
+  ChatQuestionRequest,
   ChatRole,
   MessageAttachmentEvent,
   MessageArtifactsEvent,
@@ -190,6 +191,96 @@ function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessag
   }
 }
 
+function isQuestionToolPartForRequest(part: ChatMessagePart, request: ChatQuestionRequest): boolean {
+  // question 工具事件可能和同一条 assistant 消息里的其他工具交错，只按 callId 精确命中目标问题。
+  return Boolean(
+    request.tool && part.kind === "tool" && part.tool === "question" && part.callId === request.tool.callId,
+  )
+}
+
+function withFinishedTiming(part: ChatMessagePart, endedAt: number): ChatMessagePart {
+  // 结束时间一旦来自 OpenCode 就保持不变；只给本地补齐的回答/取消状态冻结 end。
+  return typeof part.timing?.end === "number" ? part : { ...part, timing: { ...part.timing, end: endedAt } }
+}
+
+export function markQuestionToolAnswered(
+  msgs: ChatMessage[],
+  request: ChatQuestionRequest,
+  answers: string[][] | undefined,
+  answeredAt = Date.now(),
+): ChatMessage[] {
+  if (!request.tool) {
+    return msgs
+  }
+  // answered 事件只带 request/tool 信息，通过 messageId + callId 更新对应 question 工具。
+  let changed = false
+  const messages = msgs.map((message) => {
+    if (message.id !== request.tool?.messageId || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (!isQuestionToolPartForRequest(part, request)) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      return withFinishedTiming(
+        {
+          ...part,
+          status: "completed",
+          cancelled: false,
+          ...(answers ? { metadata: { ...part.metadata, answers } } : {}),
+        },
+        answeredAt,
+      )
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return changed ? messages : msgs
+}
+
+export function markQuestionToolsCancelled(
+  msgs: ChatMessage[],
+  requests: readonly ChatQuestionRequest[],
+  stoppedAt = Date.now(),
+): { messages: ChatMessage[]; partIds: string[] } {
+  // stopped/rejected question 只取消关联的 question 工具，避免误伤同一回复里的其他运行工具。
+  const byMessageId = new Map<string, ChatQuestionRequest[]>()
+  for (const request of requests) {
+    if (!request.tool) {
+      continue
+    }
+    byMessageId.set(request.tool.messageId, [...(byMessageId.get(request.tool.messageId) ?? []), request])
+  }
+  if (byMessageId.size === 0) {
+    return { messages: msgs, partIds: [] }
+  }
+  let changed = false
+  const cancelledPartIds: string[] = []
+  const messages = msgs.map((message) => {
+    const messageRequests = byMessageId.get(message.id)
+    if (!messageRequests || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (
+        !messageRequests.some((request) => isQuestionToolPartForRequest(part, request)) ||
+        !shouldCancelToolPart(part)
+      ) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      cancelledPartIds.push(part.partId)
+      return cancelledToolPart(part, stoppedAt)
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return { messages: changed ? messages : msgs, partIds: cancelledPartIds }
+}
+
 export function markLatestAssistantToolsCancelled(
   msgs: ChatMessage[],
   stoppedAt = Date.now(),
@@ -216,6 +307,41 @@ export function markLatestAssistantToolsCancelled(
   const messages = msgs.slice()
   messages[messageIndex] = { ...message, parts }
   return { messages, partIds }
+}
+
+export function markAssistantMessageToolsCancelled(
+  msgs: ChatMessage[],
+  messageId: string | undefined,
+  targetPartIds: readonly string[] | undefined,
+  stoppedAt = Date.now(),
+): { messages: ChatMessage[]; partIds: string[] } {
+  if (!messageId) {
+    return markLatestAssistantToolsCancelled(msgs, stoppedAt)
+  }
+  if (targetPartIds?.length === 0) {
+    return { messages: msgs, partIds: [] }
+  }
+  // 有 messageId 时优先使用服务端回传的 partIds；undefined 才表示回退到整条 assistant 消息。
+  const targetPartIdSet = targetPartIds ? new Set(targetPartIds) : null
+  let changed = false
+  const cancelledPartIds: string[] = []
+  const messages = msgs.map((message) => {
+    if (message.id !== messageId || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (!shouldCancelToolPart(part) || (targetPartIdSet && !targetPartIdSet.has(part.partId))) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      cancelledPartIds.push(part.partId)
+      return cancelledToolPart(part, stoppedAt)
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return { messages: changed ? messages : msgs, partIds: cancelledPartIds }
 }
 
 export function applyCancelledToolParts(

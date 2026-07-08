@@ -71,6 +71,7 @@ export interface ArtifactSelection {
 }
 
 interface GeneratedArtifactsProps {
+  layout?: "stack" | "shelf"
   sources: GeneratedArtifactSource[]
   onOpen: (selection: ArtifactSelection) => void
   onAvailable: (selection: ArtifactSelection) => void
@@ -440,7 +441,71 @@ function GeneratedArtifactsGroup({
   )
 }
 
-export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
+function GeneratedArtifactsShelf({
+  groups,
+  onContextMenu,
+  onOpen,
+}: {
+  groups: ResolvedArtifactGroup[]
+  onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
+  onOpen: (selection: ArtifactSelection) => void
+}) {
+  const t = useT()
+  const entries = flattenPanelEntries(groups)
+  const primary = groups.at(-1)
+  const primaryDisplayItem = primary ? artifactGroupDisplayItem(primary.group, primary.pack) : null
+
+  if (!primary || !primaryDisplayItem || entries.length === 0) {
+    return null
+  }
+
+  const selection = selectionWithContext(
+    primary.group,
+    primary.messageId,
+    groups,
+    primaryDisplayItem.path,
+    primary.pack,
+  )
+
+  return (
+    <section className="not-prose mt-2 grid gap-1.5">
+      <button
+        type="button"
+        title={primary.group.root?.path ?? primaryDisplayItem.path}
+        className="oo-border-divider flex min-h-16 min-w-0 items-center gap-3 rounded-lg border bg-muted/55 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        onClick={() => onOpen(selection)}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onContextMenu(primaryDisplayItem, event.clientX, event.clientY)
+        }}
+      >
+        <FileKindTile source={primaryDisplayItem} pack={primary.pack} className="size-9" iconClassName="size-4" />
+        <span className="min-w-0 flex-1">
+          <span className="oo-text-label block truncate text-foreground">
+            {primary.pack?.title ?? readableArtifactTitle(primaryDisplayItem)}
+          </span>
+          <span className="oo-text-caption-compact block truncate text-muted-foreground">
+            {artifactMetaLabel(t, primaryDisplayItem, primary.pack)}
+          </span>
+        </span>
+        <ExternalLink className="size-4 shrink-0 text-muted-foreground" />
+      </button>
+      {entries.length > 1 ? (
+        <button
+          type="button"
+          className="oo-text-caption flex h-8 w-fit min-w-0 items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
+          onClick={() => onOpen(selection)}
+        >
+          <span>{t("artifacts.viewAllOutputs", { count: entries.length })}</span>
+          <ChevronRight className="size-4 shrink-0" />
+        </button>
+      ) : null}
+    </section>
+  )
+}
+
+export function GeneratedArtifacts({ layout = "stack", sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
   const t = useT()
   const chatService = useChatService()
   const { openPath, showInFolder } = useArtifactFileActions()
@@ -512,6 +577,24 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
 
   if (groups.length === 0) {
     return null
+  }
+
+  if (layout === "shelf") {
+    return (
+      <>
+        <GeneratedArtifactsShelf
+          groups={groups}
+          onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
+          onOpen={onOpen}
+        />
+        <ArtifactContextMenu
+          menu={contextMenu}
+          onClose={() => setContextMenu(null)}
+          onOpenPath={openPath}
+          onShowInFolder={showInFolder}
+        />
+      </>
+    )
   }
 
   return (

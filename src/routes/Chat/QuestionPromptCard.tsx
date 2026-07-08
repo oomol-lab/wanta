@@ -12,6 +12,7 @@ import {
   initialFieldDrafts,
 } from "./question-fields.ts"
 import { readStoredQuestionDraft, removeStoredQuestionDraft, writeStoredQuestionDraft } from "./question-persistence.ts"
+import { shouldStopBeforeDiscardingQuestion } from "./question-state.ts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -24,11 +25,13 @@ interface QuestionPromptCardProps {
   request: ChatQuestionRequest
   state?: ChatQuestionState
   busy?: boolean
+  isGenerating?: boolean
+  currentGenerationQuestion?: boolean
   onAnswer: (requestId: string, answers: string[][]) => Promise<void>
-  continueDisabled?: boolean
   onContinue: (request: ChatQuestionRequest, answers: string[][]) => Promise<void>
   onDiscard: (requestId: string) => void
   onReject: (requestId: string) => Promise<void>
+  onStop?: () => Promise<void> | void
 }
 
 const customOptionValue = "__custom__"
@@ -184,11 +187,13 @@ export function QuestionPromptCard({
   request,
   state = "active",
   busy = false,
-  continueDisabled = false,
+  isGenerating = false,
+  currentGenerationQuestion = false,
   onAnswer,
   onContinue,
   onDiscard,
   onReject,
+  onStop,
 }: QuestionPromptCardProps) {
   const t = useT()
   const fields = React.useMemo(() => deriveQuestionFields(request), [request])
@@ -211,6 +216,7 @@ export function QuestionPromptCard({
   const activeDraft = drafts[activeFieldIndex] ?? { value: "", selected: [] }
   const canContinue = activeField ? canSubmitFieldAnswers([activeField], [activeDraft]) : false
   const isLastStep = activeFieldIndex >= fields.length - 1
+  const stopBeforeDiscard = shouldStopBeforeDiscardingQuestion(state, isGenerating, currentGenerationQuestion)
 
   React.useEffect(() => {
     const stored = readStoredQuestionDraft(request.sessionId, request.id, fields.length)
@@ -273,7 +279,7 @@ export function QuestionPromptCard({
   )
 
   const handleSubmit = React.useCallback(async () => {
-    if (!canSubmit || disabled || (isStopped && continueDisabled)) {
+    if (!canSubmit || disabled) {
       return
     }
     setSubmitting("answer")
@@ -291,7 +297,7 @@ export function QuestionPromptCard({
     } finally {
       setSubmitting(null)
     }
-  }, [canSubmit, continueDisabled, disabled, drafts, fields, isStopped, onAnswer, onContinue, request, t])
+  }, [canSubmit, disabled, drafts, fields, isStopped, onAnswer, onContinue, request, t])
 
   const handleReject = React.useCallback(async () => {
     if (disabled) {
@@ -300,8 +306,14 @@ export function QuestionPromptCard({
     if (isStopped) {
       setSubmitting("discard")
       try {
+        if (stopBeforeDiscard) {
+          await onStop?.()
+        }
         onDiscard(request.id)
         removeStoredQuestionDraft(request.sessionId, request.id)
+      } catch (err) {
+        reportRendererHandledError("chat", "question discard failed", err)
+        toast.error(t("chat.questionCancelFailed"))
       } finally {
         setSubmitting(null)
       }
@@ -317,7 +329,7 @@ export function QuestionPromptCard({
     } finally {
       setSubmitting(null)
     }
-  }, [disabled, isStopped, onDiscard, onReject, request.id, request.sessionId, t])
+  }, [disabled, isStopped, onDiscard, onReject, onStop, request.id, request.sessionId, stopBeforeDiscard, t])
 
   const handleNext = React.useCallback(() => {
     if (!canContinue || disabled || isLastStep) {
@@ -350,7 +362,7 @@ export function QuestionPromptCard({
           <div className="rounded-md border border-border/80 bg-muted/35 px-3 py-2.5">
             <div className="oo-text-label font-medium text-foreground">{t("chat.questionStoppedStatus")}</div>
             <div className="oo-text-caption mt-0.5 text-muted-foreground">
-              {continueDisabled ? t("chat.questionStoppedBusyHint") : t("chat.questionStoppedHint")}
+              {t(stopBeforeDiscard ? "chat.questionStoppedRunningHint" : "chat.questionStoppedHint")}
             </div>
           </div>
         ) : null}
@@ -460,7 +472,7 @@ export function QuestionPromptCard({
             {submitting === "reject" || submitting === "discard"
               ? t("chat.questionCancelling")
               : isStopped
-                ? t("chat.questionDiscard")
+                ? t(stopBeforeDiscard ? "chat.questionDiscardAndStop" : "chat.questionDiscard")
                 : t("chat.questionCancel")}
           </Button>
           {fields.length > 1 && activeFieldIndex > 0 ? (
@@ -486,12 +498,7 @@ export function QuestionPromptCard({
               {t("chat.questionNext")}
             </Button>
           ) : (
-            <Button
-              size="sm"
-              type="submit"
-              className="h-8 px-2.5"
-              disabled={!canSubmit || disabled || (isStopped && continueDisabled)}
-            >
+            <Button size="sm" type="submit" className="h-8 px-2.5" disabled={!canSubmit || disabled}>
               {submitting === "answer"
                 ? t("chat.questionSubmitting")
                 : isStopped

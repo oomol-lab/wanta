@@ -8,7 +8,7 @@ import { ToolActivityStep } from "./ToolActivityStep.tsx"
 
 function renderToolActivityStep(
   part: ChatMessagePart,
-  options: { shimmer?: boolean; settling?: boolean; showAuthorizationPrompt?: boolean } = {},
+  options: { live?: boolean; shimmer?: boolean; settling?: boolean; showAuthorizationPrompt?: boolean } = {},
 ): string {
   return renderToStaticMarkup(
     React.createElement(
@@ -22,6 +22,7 @@ function renderToolActivityStep(
       },
       React.createElement(ToolActivityStep, {
         part,
+        live: options.live,
         shimmer: options.shimmer,
         settling: options.settling,
         showAuthorizationPrompt: options.showAuthorizationPrompt,
@@ -154,6 +155,28 @@ describe("ToolActivityStep", () => {
 
     expect(html).toContain("读取网页")
     expect(html).toContain("https://detail.1688.com/offer/825951472006.html")
+    expect(html).not.toContain("text-transparent")
+  })
+
+  it("does not shimmer a non-live active question row", () => {
+    const html = renderToolActivityStep(
+      {
+        kind: "tool",
+        partId: "question-tool",
+        callId: "call-1",
+        tool: "question",
+        status: "running",
+        input: {
+          questions: [{ header: "文章标题", question: "你希望这篇测试文章的标题叫什么？", options: [] }],
+        },
+      },
+      { live: false },
+    )
+
+    expect(html).toContain("询问信息")
+    expect(html).toContain("文章标题")
+    expect(html).toContain("已停止")
+    expect(html).not.toContain("等待回答")
     expect(html).not.toContain("text-transparent")
   })
 

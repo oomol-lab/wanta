@@ -88,8 +88,16 @@ export function collectVisibleGeneratedArtifactSources(
   messages: ChatMessage[],
   isGenerating: boolean,
 ): GeneratedArtifactSource[] {
-  if (isGenerating) {
-    return []
+  const sources = collectGeneratedArtifactSources(messages)
+  if (!isGenerating) {
+    return sources
   }
-  return collectGeneratedArtifactSources(messages)
+  if (messages.at(-1)?.role !== "assistant") {
+    return sources
+  }
+  const latestAssistant = [...messages].reverse().find((message) => message.role === "assistant")
+  if (!latestAssistant) {
+    return sources
+  }
+  return sources.filter((source) => source.messageId !== latestAssistant.id)
 }

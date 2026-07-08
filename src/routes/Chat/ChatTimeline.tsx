@@ -6,8 +6,10 @@ import type {
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
+  TurnOutputRecord,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ChatPendingQuestion } from "./question-state.ts"
@@ -51,12 +53,20 @@ import {
   visibleUserText,
 } from "./message-text.ts"
 import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
+import { questionPromptBusy } from "./question-state.ts"
 import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
 import { renderBlocks } from "./render-blocks.ts"
-import { formatToolActivityDuration, formatWholeSecondDuration } from "./tool-activity.ts"
+import { formatWholeSecondDuration } from "./tool-activity.ts"
 import { normalizeServiceSlug, toolActionSummary, toolServiceSlug } from "./tool-display.ts"
 import { hasStoppedTool, isActiveToolPart } from "./tool-state.ts"
 import { ToolActivityStep } from "./ToolActivityStep.tsx"
+import {
+  turnOutputInitialRole,
+  turnOutputRecordsByMessageId,
+  turnOutputRecordsByTurnId,
+  useTurnOutputRecords,
+} from "./turn-output-records.ts"
+import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
@@ -66,12 +76,68 @@ import { cn } from "@/lib/utils"
 const GeneratedArtifacts = React.lazy(() =>
   import("@/routes/Chat/GeneratedArtifacts").then((module) => ({ default: module.GeneratedArtifacts })),
 )
-const GeneratedTurnOutputs = React.lazy(() =>
-  import("@/routes/Chat/TurnOutputs").then((module) => ({ default: module.GeneratedTurnOutputs })),
-)
-
 const CHAT_CONTENT_MAX_WIDTH_CLASS = "min-w-0 max-w-[50rem]"
 const ASSISTANT_TEXT_SMOOTH_WINDOW_MS = 45_000
+const EMPTY_ARTIFACT_SOURCES: GeneratedArtifactSource[] = []
+
+function noopArtifactsAvailable(_selection: ArtifactSelection): void {
+  // 只有最新的产物需要自动成为右侧面板的默认选择。
+}
+
+function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function artifactSourceEquals(left: GeneratedArtifactSource, right: GeneratedArtifactSource): boolean {
+  return (
+    left.messageId === right.messageId &&
+    left.artifactRoot === right.artifactRoot &&
+    left.requestText === right.requestText &&
+    left.text === right.text &&
+    stringArraysEqual(left.sourcePaths, right.sourcePaths)
+  )
+}
+
+function artifactSourceArraysEqual(
+  left: readonly GeneratedArtifactSource[],
+  right: readonly GeneratedArtifactSource[],
+): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function reuseStableArtifactSources(
+  previous: GeneratedArtifactSource[],
+  next: GeneratedArtifactSource[],
+): GeneratedArtifactSource[] {
+  let changed = previous.length !== next.length
+  const stable = next.map((source, index) => {
+    const previousSource = previous[index]
+    if (previousSource && artifactSourceEquals(previousSource, source)) {
+      return previousSource
+    }
+    changed = true
+    return source
+  })
+  return changed ? stable : previous
+}
+
+function reuseStableArtifactSourceMap(
+  previous: Map<string, GeneratedArtifactSource[]>,
+  next: Map<string, GeneratedArtifactSource[]>,
+): Map<string, GeneratedArtifactSource[]> {
+  let changed = previous.size !== next.size
+  const stable = new Map<string, GeneratedArtifactSource[]>()
+  for (const [key, sources] of next) {
+    const previousSources = previous.get(key)
+    const stableSources =
+      previousSources && artifactSourceArraysEqual(previousSources, sources) ? previousSources : sources
+    stable.set(key, stableSources)
+    if (stableSources !== previousSources) {
+      changed = true
+    }
+  }
+  return changed ? stable : previous
+}
 
 type TurnProcessStatus =
   | "running"
@@ -83,7 +149,7 @@ type TurnProcessStatus =
   | "stopped"
 
 function isLiveProcess(process: ReturnType<typeof summarizeTurnProcess>, live = false): boolean {
-  return process.hasActiveTool || Boolean(process.activity) || live
+  return live && (process.hasActiveTool || Boolean(process.activity))
 }
 
 function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = false): TurnProcessStatus {
@@ -105,7 +171,25 @@ function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = 
   if (process.hasStoppedTool) {
     return "stopped"
   }
+  if (process.hasActiveTool) {
+    return "stopped"
+  }
   return "completed"
+}
+
+function formatSettledToolActivityDuration(parts: ChatMessagePart[]): string | null {
+  let start: number | undefined
+  let end: number | undefined
+  for (const part of parts) {
+    const partStart = part.timing?.start
+    const partEnd = part.timing?.end
+    if (typeof partStart !== "number" || typeof partEnd !== "number" || partEnd < partStart) {
+      continue
+    }
+    start = start === undefined ? partStart : Math.min(start, partStart)
+    end = end === undefined ? partEnd : Math.max(end, partEnd)
+  }
+  return start === undefined || end === undefined ? null : formatWholeSecondDuration(end - start)
 }
 
 function formatProcessDuration(
@@ -114,7 +198,7 @@ function formatProcessDuration(
   live = false,
 ): string | null {
   const isLive = isLiveProcess(process, live)
-  const toolDuration = !isLive && process.tools.length > 0 ? formatToolActivityDuration(process.tools, now) : null
+  const toolDuration = !isLive && process.tools.length > 0 ? formatSettledToolActivityDuration(process.tools) : null
   if (!isLive && toolDuration) {
     return toolDuration
   }
@@ -250,6 +334,7 @@ function TurnProcessActivity({
               smoothText={false}
               providerByService={providerByService}
               settlingToolPartId={settlingToolPartId}
+              liveTools={live}
               showAuthorizationPrompt={!live}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
@@ -389,6 +474,7 @@ function AssistantBlock({
   smoothText,
   providerByService,
   settlingToolPartId,
+  liveTools = true,
   showAuthorizationPrompt = true,
   onAuthorize,
   onViewBilling,
@@ -399,6 +485,7 @@ function AssistantBlock({
   smoothText: boolean
   providerByService: Map<string, ConnectionProvider>
   settlingToolPartId?: string
+  liveTools?: boolean
   showAuthorizationPrompt?: boolean
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
   onViewBilling?: () => void
@@ -430,6 +517,7 @@ function AssistantBlock({
                 key={part.partId}
                 part={part}
                 provider={service ? providerByService.get(service) : undefined}
+                live={liveTools}
                 shimmer={part.partId === settlingToolPartId}
                 settling={part.partId === settlingToolPartId}
                 showAuthorizationPrompt={showAuthorizationPrompt}
@@ -452,6 +540,7 @@ function MessageBubble({
   providerByService,
   onAuthorize,
   suggestedAuthorization,
+  liveTools = false,
 }: {
   billingCacheScope: string
   message: ChatMessage
@@ -461,6 +550,7 @@ function MessageBubble({
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
   suggestedAuthorization?: AuthorizationInfo
+  liveTools?: boolean
 }) {
   const copyText = copyableMessageText(message)
   const assistantCancelled = message.role === "assistant" && hasStoppedTool(message.parts)
@@ -546,6 +636,7 @@ function MessageBubble({
             billingCacheScope={billingCacheScope}
             smoothText={smoothText}
             providerByService={providerByService}
+            liveTools={liveTools}
             onAuthorize={onAuthorize}
             onViewBilling={onViewBilling}
           />
@@ -571,6 +662,7 @@ function AssistantTimelineMessage({
   smoothAssistantMessageId,
   assistantActionsText,
   assistantCancelled,
+  activeAssistantMessageId,
   providerByService,
   onAuthorize,
   suggestedAuthorization,
@@ -581,6 +673,7 @@ function AssistantTimelineMessage({
   smoothAssistantMessageId?: string
   assistantActionsText: string | null
   assistantCancelled: boolean
+  activeAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo) => void
   suggestedAuthorization?: AuthorizationInfo
@@ -603,6 +696,7 @@ function AssistantTimelineMessage({
             billingCacheScope={billingCacheScope}
             smoothText={message.id === smoothAssistantMessageId}
             providerByService={providerByService}
+            liveTools={message.id === activeAssistantMessageId}
             onAuthorize={onAuthorize}
             onViewBilling={onViewBilling}
           />
@@ -637,13 +731,19 @@ function PlainAssistantActivity() {
 }
 
 interface ChatTurnViewProps {
+  activeSessionId: string | null
+  artifactSources: GeneratedArtifactSource[]
   billingCacheScope: string
+  turnOutputRecord: TurnOutputRecord | null
   turn: ChatTurn
   activity: AssistantActivityEvent | null
   activeAssistantMessageId?: string
   smoothAssistantMessageId?: string
   providerByService: Map<string, ConnectionProvider>
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
+  onArtifactsAvailable: (selection: ArtifactSelection) => void
+  onArtifactsOpen: (selection: ArtifactSelection) => void
+  onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onViewBilling?: () => void
   assistantActionTextByMessageId: Map<string, string>
 }
@@ -663,26 +763,38 @@ function assistantActionTextsEqual(previous: ChatTurnViewProps, next: ChatTurnVi
 
 function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewProps): boolean {
   return (
+    previous.activeSessionId === next.activeSessionId &&
+    previous.artifactSources === next.artifactSources &&
     previous.billingCacheScope === next.billingCacheScope &&
+    previous.turnOutputRecord === next.turnOutputRecord &&
     previous.turn === next.turn &&
     previous.activity === next.activity &&
     previous.activeAssistantMessageId === next.activeAssistantMessageId &&
     previous.smoothAssistantMessageId === next.smoothAssistantMessageId &&
     previous.providerByService === next.providerByService &&
     previous.onAuthorize === next.onAuthorize &&
+    previous.onArtifactsAvailable === next.onArtifactsAvailable &&
+    previous.onArtifactsOpen === next.onArtifactsOpen &&
+    previous.onTurnOutputOpen === next.onTurnOutputOpen &&
     previous.onViewBilling === next.onViewBilling &&
     assistantActionTextsEqual(previous, next)
   )
 }
 
 const ChatTurnView = React.memo(function ChatTurnView({
+  activeSessionId,
+  artifactSources,
   billingCacheScope,
+  turnOutputRecord,
   turn,
   activity,
   activeAssistantMessageId,
   smoothAssistantMessageId,
   providerByService,
   onAuthorize,
+  onArtifactsAvailable,
+  onArtifactsOpen,
+  onTurnOutputOpen,
   onViewBilling,
   assistantActionTextByMessageId,
 }: ChatTurnViewProps) {
@@ -765,6 +877,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               smoothAssistantMessageId={smoothAssistantMessageId}
               assistantActionsText={responseActionsText}
               assistantCancelled={assistantCancelled}
+              activeAssistantMessageId={activeAssistantMessageId}
               providerByService={providerByService}
               onAuthorize={handleAuthorize}
               suggestedAuthorization={responseSuggestedAuthorization}
@@ -784,12 +897,26 @@ const ChatTurnView = React.memo(function ChatTurnView({
               onViewBilling={onViewBilling}
               assistantActionsText={assistantActionTextByMessageId.get(message.id) ?? null}
               providerByService={providerByService}
+              liveTools={message.id === activeAssistantMessageId}
               onAuthorize={handleAuthorize}
               suggestedAuthorization={message.id === lastAssistant?.id ? process.suggestedAuthorization : undefined}
             />
           ))}
         </>
       )}
+      {artifactSources.length > 0 ? (
+        <React.Suspense fallback={null}>
+          <GeneratedArtifacts
+            layout="shelf"
+            sources={artifactSources}
+            onOpen={onArtifactsOpen}
+            onAvailable={onArtifactsAvailable}
+          />
+        </React.Suspense>
+      ) : null}
+      {activeSessionId && turnOutputRecord ? (
+        <TurnOutputShelf record={turnOutputRecord} onOpen={onTurnOutputOpen} />
+      ) : null}
     </React.Fragment>
   )
 }, chatTurnViewPropsEqual)
@@ -818,6 +945,7 @@ interface ChatTimelineProps {
   onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
+  onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
 
@@ -841,12 +969,16 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   onContinueQuestion,
   onDiscardQuestion,
   onRejectQuestion,
+  onStop,
   onViewBilling,
 }: ChatTimelineProps) {
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const stableTurnsRef = React.useRef<ChatTurn[]>([])
   const assistantActionTextByMessageIdRef = React.useRef<Map<string, string>>(new Map())
+  const visibleArtifactSourcesRef = React.useRef<GeneratedArtifactSource[]>([])
+  const artifactSourcesByMessageIdRef = React.useRef<Map<string, GeneratedArtifactSource[]>>(new Map())
+  const artifactSourcesByTurnIdRef = React.useRef<Map<string, GeneratedArtifactSource[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
   const groupedTurns = React.useMemo(() => groupChatTurns(messages), [messages])
   const turns = React.useMemo(() => {
@@ -854,6 +986,16 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     stableTurnsRef.current = stableTurns
     return stableTurns
   }, [groupedTurns])
+  const turnOutputRecords = useTurnOutputRecords(activeSessionId, messages)
+  const turnOutputRecordsByMessage = React.useMemo(
+    () => turnOutputRecordsByMessageId(turnOutputRecords),
+    [turnOutputRecords],
+  )
+  const turnOutputRecordsByTurn = React.useMemo(
+    () => turnOutputRecordsByTurnId(turns, turnOutputRecordsByMessage),
+    [turnOutputRecordsByMessage, turns],
+  )
+  const latestTurnOutputRecord = turnOutputRecords.at(-1)
   const providerByService = React.useMemo(
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
     [providers],
@@ -883,8 +1025,44 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     return stable
   }, [activeAssistantMessageId, messages])
   const visibleArtifactSources = React.useMemo(() => {
-    return collectVisibleGeneratedArtifactSources(messages, isGenerating)
+    const next = collectVisibleGeneratedArtifactSources(messages, isGenerating)
+    const stable = reuseStableArtifactSources(visibleArtifactSourcesRef.current, next)
+    visibleArtifactSourcesRef.current = stable
+    return stable
   }, [isGenerating, messages])
+  const artifactSourcesByMessageId = React.useMemo(() => {
+    const byMessageId = new Map<string, GeneratedArtifactSource[]>()
+    for (const source of visibleArtifactSources) {
+      const sources = byMessageId.get(source.messageId) ?? []
+      sources.push(source)
+      byMessageId.set(source.messageId, sources)
+    }
+    const stable = reuseStableArtifactSourceMap(artifactSourcesByMessageIdRef.current, byMessageId)
+    artifactSourcesByMessageIdRef.current = stable
+    return stable
+  }, [visibleArtifactSources])
+  const artifactSourcesByTurnId = React.useMemo(() => {
+    const byTurnId = new Map<string, GeneratedArtifactSource[]>()
+    for (const turn of turns) {
+      const sources = turn.assistants.flatMap((message) => artifactSourcesByMessageId.get(message.id) ?? [])
+      if (sources.length > 0) {
+        byTurnId.set(turn.id, sources)
+      }
+    }
+    const stable = reuseStableArtifactSourceMap(artifactSourcesByTurnIdRef.current, byTurnId)
+    artifactSourcesByTurnIdRef.current = stable
+    return stable
+  }, [artifactSourcesByMessageId, turns])
+  const latestArtifactSourceMessageId = visibleArtifactSources.at(-1)?.messageId
+  React.useEffect(() => {
+    if (latestTurnOutputRecord) {
+      onTurnOutputAvailable({
+        record: latestTurnOutputRecord,
+        initialRole: turnOutputInitialRole(latestTurnOutputRecord),
+      })
+    }
+  }, [latestTurnOutputRecord, onTurnOutputAvailable])
+
   React.useEffect(() => {
     const lastMessage = messages.at(-1)
     if (
@@ -909,6 +1087,10 @@ export const ChatTimeline = React.memo(function ChatTimeline({
         className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
       >
         {turns.map((turn, index) => {
+          const turnArtifactSources = artifactSourcesByTurnId.get(turn.id) ?? EMPTY_ARTIFACT_SOURCES
+          const publishArtifactAvailability =
+            turnArtifactSources.length > 0 &&
+            turn.assistants.some((message) => message.id === latestArtifactSourceMessageId)
           const turnActiveAssistantMessageId = chatTurnHasAssistantMessage(turn, activeAssistantMessageId)
             ? activeAssistantMessageId
             : undefined
@@ -918,13 +1100,19 @@ export const ChatTimeline = React.memo(function ChatTimeline({
           return (
             <ChatTurnView
               key={turn.id}
+              activeSessionId={activeSessionId}
+              artifactSources={turnArtifactSources}
               turn={turn}
               billingCacheScope={billingCacheScope}
+              turnOutputRecord={turnOutputRecordsByTurn.get(turn.id) ?? null}
               activity={activityForChatTurn(turn, activity, activeAssistantMessageId, index === turns.length - 1)}
               activeAssistantMessageId={turnActiveAssistantMessageId}
               smoothAssistantMessageId={turnSmoothAssistantMessageId}
               providerByService={providerByService}
               onAuthorize={onAuthorize}
+              onArtifactsOpen={onArtifactsOpen}
+              onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
+              onTurnOutputOpen={onTurnOutputOpen}
               onViewBilling={onViewBilling}
               assistantActionTextByMessageId={assistantActionTextByMessageId}
             />
@@ -936,12 +1124,14 @@ export const ChatTimeline = React.memo(function ChatTimeline({
               <QuestionPromptCard
                 request={request}
                 state={state}
-                busy={status === "submitted"}
-                continueDisabled={state === "stopped" && (status === "submitted" || status === "streaming")}
+                busy={questionPromptBusy(state, status)}
+                isGenerating={isGenerating}
+                currentGenerationQuestion={request.tool?.messageId === activeAssistantMessageId}
                 onAnswer={onAnswerQuestion}
                 onContinue={onContinueQuestion}
                 onDiscard={onDiscardQuestion}
                 onReject={onRejectQuestion}
+                onStop={onStop}
               />
             </div>
           </div>
@@ -959,24 +1149,6 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             </div>
           </div>
         ))}
-        {visibleArtifactSources.length > 0 ? (
-          <React.Suspense fallback={null}>
-            <GeneratedArtifacts
-              sources={visibleArtifactSources}
-              onOpen={onArtifactsOpen}
-              onAvailable={onArtifactsAvailable}
-            />
-          </React.Suspense>
-        ) : null}
-        <React.Suspense fallback={null}>
-          <GeneratedTurnOutputs
-            sessionId={activeSessionId}
-            messages={messages}
-            isGenerating={isGenerating}
-            onOpen={onTurnOutputOpen}
-            onAvailable={onTurnOutputAvailable}
-          />
-        </React.Suspense>
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>

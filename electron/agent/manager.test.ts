@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentManager, isUserVisibleSession } from "./manager.ts"
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 
@@ -196,6 +197,91 @@ describe("AgentManager", () => {
     expect(calls[1]?.[0].agent).toBe("build")
     expect(calls[1]?.[0].variant).toBe("medium")
     expect(calls[2]?.[0]).not.toHaveProperty("variant")
+  })
+
+  it("restarts the OpenCode event stream after an unexpected disconnect", async () => {
+    vi.useFakeTimers()
+    const subscribe = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("stream disconnected"))
+      .mockResolvedValueOnce({
+        stream: (async function* () {
+          yield { type: "session.idle", properties: { sessionID: "session-1" } }
+        })(),
+      })
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown; started: boolean }).sidecar = {
+      client: { event: { subscribe } },
+    }
+    ;(manager as unknown as { started: boolean }).started = true
+
+    const events: Array<{ type: string; properties?: Record<string, unknown> }> = []
+    const statuses: string[] = []
+    const unsubscribe = manager.subscribe(
+      (event) => events.push(event),
+      (status) => statuses.push(status.status),
+    )
+
+    await vi.waitFor(() => {
+      expect(subscribe).toHaveBeenCalledTimes(1)
+      expect(statuses).toContain("reconnecting")
+    })
+    expect(statuses).not.toContain("failed")
+
+    await vi.advanceTimersByTimeAsync(500)
+    await vi.waitFor(() => {
+      expect(subscribe).toHaveBeenCalledTimes(2)
+      expect(events).toEqual([{ type: "session.idle", properties: { sessionID: "session-1" } }])
+    })
+
+    unsubscribe()
+  })
+
+  it("reports a failed OpenCode event stream after reconnect attempts are exhausted", async () => {
+    vi.useFakeTimers()
+    const subscribe = vi.fn().mockRejectedValue(new Error("stream disconnected"))
+    const manager = new AgentManager({
+      authToken: "test",
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+    ;(manager as unknown as { sidecar: unknown; started: boolean }).sidecar = {
+      client: { event: { subscribe } },
+    }
+    ;(manager as unknown as { started: boolean }).started = true
+
+    const statuses: Array<{ attempt?: number; status: string }> = []
+    const unsubscribe = manager.subscribe(
+      () => undefined,
+      (status) => statuses.push({ attempt: status.attempt, status: status.status }),
+    )
+
+    await vi.waitFor(() => {
+      expect(subscribe).toHaveBeenCalledTimes(1)
+      expect(statuses).toContainEqual({ attempt: 1, status: "reconnecting" })
+    })
+
+    const delays = [500, 1_000, 2_000, 4_000, 5_000]
+    for (const [index, delay] of delays.entries()) {
+      await vi.advanceTimersByTimeAsync(delay)
+      await vi.waitFor(() => {
+        expect(subscribe).toHaveBeenCalledTimes(index + 2)
+      })
+    }
+
+    await vi.waitFor(() => {
+      expect(statuses.at(-1)).toEqual({ attempt: 5, status: "failed" })
+    })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(subscribe).toHaveBeenCalledTimes(6)
+
+    unsubscribe()
   })
 
   it("uses session-scoped question APIs for pending questions and replies", async () => {

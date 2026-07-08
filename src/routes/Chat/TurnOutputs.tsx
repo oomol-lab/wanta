@@ -25,6 +25,8 @@ import { Diff as ReactDiff, Hunk, parseDiff } from "react-diff-view"
 import "react-diff-view/style/index.css"
 
 import { toast } from "sonner"
+import { turnOutputInitialRole, useTurnOutputRecords } from "./turn-output-records.ts"
+import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
@@ -40,7 +42,7 @@ export interface TurnOutputSelection {
 }
 
 interface GeneratedTurnOutputsProps {
-  isGenerating: boolean
+  layout?: "stack" | "shelf"
   messages: ChatMessage[]
   onAvailable: (selection: TurnOutputSelection) => void
   onOpen: (selection: TurnOutputSelection) => void
@@ -52,18 +54,6 @@ interface TurnOutputsPanelProps {
   onCollapse: () => void
   onToggleMaximized: () => void
   selection: TurnOutputSelection | null
-}
-
-function assistantMessageIds(messages: ChatMessage[]): string[] {
-  return messages.filter((message) => message.role === "assistant").map((message) => message.id)
-}
-
-function visibleRecords(records: TurnOutputRecord[]): TurnOutputRecord[] {
-  return records.filter((record) => record.summary.changedFileCount > 0 || record.summary.processFileCount > 0)
-}
-
-function recordSortValue(record: TurnOutputRecord): number {
-  return record.completedAt ?? record.createdAt
 }
 
 function roleFiles(record: TurnOutputRecord, role: Exclude<TurnOutputFileRole, "artifact">): TurnOutputFile[] {
@@ -90,75 +80,30 @@ function ChangeCountLabel({
   )
 }
 
-function useTurnOutputRecords(
-  sessionId: string | null,
-  messages: ChatMessage[],
-  isGenerating: boolean,
-): TurnOutputRecord[] {
-  const chatService = useChatService()
-  const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
-  const [refreshToken, setRefreshToken] = React.useState(0)
-  const messageIds = React.useMemo(() => assistantMessageIds(messages).slice(-40), [messages])
-  const key = messageIds.join("\n")
-
-  React.useEffect(() => {
-    return chatService.serverEvents.on("turnOutputUpdated", (event) => {
-      if (!sessionId || event.sessionId === sessionId) {
-        setRefreshToken((value) => value + 1)
-      }
-    })
-  }, [chatService, sessionId])
-
-  React.useEffect(() => {
-    let cancelled = false
-    if (!sessionId || isGenerating || messageIds.length === 0) {
-      setRecords([])
-      return
-    }
-    void Promise.all(messageIds.map((messageId) => chatService.invoke("getTurnOutput", { sessionId, messageId })))
-      .then((results) => {
-        if (cancelled) {
-          return
-        }
-        setRecords(
-          visibleRecords(results.filter((record): record is TurnOutputRecord => Boolean(record))).sort(
-            (a, b) => recordSortValue(a) - recordSortValue(b),
-          ),
-        )
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRecords([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [chatService, isGenerating, key, messageIds, refreshToken, sessionId])
-
-  return records
-}
-
 export function GeneratedTurnOutputs({
-  isGenerating,
+  layout = "stack",
   messages,
   onAvailable,
   onOpen,
   sessionId,
 }: GeneratedTurnOutputsProps) {
   const t = useT()
-  const records = useTurnOutputRecords(sessionId, messages, isGenerating)
+  const records = useTurnOutputRecords(sessionId, messages)
 
   React.useEffect(() => {
     const latest = records.at(-1)
     if (latest) {
-      const initialRole = latest.summary.changedFileCount > 0 ? "project_change" : "process"
-      onAvailable({ record: latest, initialRole })
+      onAvailable({ record: latest, initialRole: turnOutputInitialRole(latest) })
     }
   }, [onAvailable, records])
 
   if (records.length === 0) {
     return null
+  }
+
+  if (layout === "shelf") {
+    const latest = records.at(-1)
+    return latest ? <TurnOutputShelf record={latest} onOpen={onOpen} /> : null
   }
 
   return (

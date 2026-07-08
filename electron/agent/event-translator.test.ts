@@ -171,16 +171,32 @@ test("question.asked → questionAsked", () => {
 
 test("question resolved events are translated", () => {
   assert.deepEqual(
-    translateOpencodeEvent({ type: "question.replied", properties: { sessionID: "s1", requestID: "q1" } }),
-    [{ event: "questionReplied", data: { sessionId: "s1", requestId: "q1" } }],
+    translateOpencodeEvent({
+      type: "question.replied",
+      properties: { sessionID: "s1", requestID: "q1", answers: [["测试文章"], ["工作区根目录"]] },
+    }),
+    [
+      {
+        event: "questionReplied",
+        data: { sessionId: "s1", requestId: "q1", answers: [["测试文章"], ["工作区根目录"]] },
+      },
+    ],
   )
   assert.deepEqual(
     translateOpencodeEvent({ type: "question.v2.rejected", data: { sessionID: "s1", requestID: "q1" } }),
     [{ event: "questionRejected", data: { sessionId: "s1", requestId: "q1" } }],
   )
   assert.deepEqual(
-    translateOpencodeEvent({ type: "question.rejected", properties: { sessionId: "s1", requestId: "q1" } }),
-    [{ event: "questionRejected", data: { sessionId: "s1", requestId: "q1" } }],
+    translateOpencodeEvent({
+      type: "question.rejected",
+      properties: { sessionId: "s1", requestId: "q1", answers: [["测试文章"], ["工作区根目录"]] },
+    }),
+    [
+      {
+        event: "questionRejected",
+        data: { sessionId: "s1", requestId: "q1", answers: [["测试文章"], ["工作区根目录"]] },
+      },
+    ],
   )
 })
 

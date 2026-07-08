@@ -3,9 +3,10 @@ import type { ModelCatalog, ModelChoice } from "../../../electron/models/common.
 import type { ContextUsageInfo } from "./context-usage.ts"
 import type { ChatStatus } from "ai"
 
-import { Loader2, Mic, RotateCcw, Square, X } from "lucide-react"
+import { ListPlus, Loader2, Mic, RotateCcw, Square, X } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 import { formatTokenCount } from "./context-usage.ts"
@@ -15,6 +16,7 @@ import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { cn } from "@/lib/utils"
 
 interface ComposerTrailingControlsProps {
@@ -36,6 +38,7 @@ interface ComposerTrailingControlsProps {
   voiceRetryBlob: Blob | null
   voiceStarting: boolean
   voiceTranscribing: boolean
+  willQueueMessage: boolean
   onAddModel: () => void
   onCancelVoice: () => void
   onDeleteModel: (id: string) => void
@@ -46,7 +49,7 @@ interface ComposerTrailingControlsProps {
   onSelectModel: (choice: ModelChoice) => void
   onSelectReasoningLevel: (level: ReasoningLevel) => void
   onStartVoice: () => void
-  onStop: () => void
+  onStop: () => Promise<void> | void
   onStopVoice: () => void
 }
 
@@ -392,6 +395,7 @@ export function ComposerTrailingControls({
   voiceRetryBlob,
   voiceStarting,
   voiceTranscribing,
+  willQueueMessage,
   onAddModel,
   onCancelVoice,
   onDeleteModel,
@@ -408,7 +412,7 @@ export function ComposerTrailingControls({
   const t = useT()
   const visibleVoiceError = voiceError ?? voiceRecorderError
   const voiceMode = composerVoiceControlMode({ voiceActive, voiceStarting, voiceTranscribing, visibleVoiceError })
-  const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status })
+  const submit = composerSubmitState({ canSubmit, initialSendPending, isGenerating, status, willQueueMessage })
   const retryDisabled = !voiceRetryBlob || voiceTranscribing
   const stopLabel = labelWithShortcut(t("aria.stop"), appCommandShortcutLabel(APP_COMMANDS.stopGeneration))
 
@@ -535,21 +539,36 @@ export function ComposerTrailingControls({
               status={submit.visualStatus}
               disabled={submit.disabled}
               aria-label={
-                submit.aria === "sending" ? t("aria.sending") : submit.aria === "stop" ? t("aria.stop") : t("aria.send")
+                submit.aria === "sending"
+                  ? t("aria.sending")
+                  : submit.aria === "stop"
+                    ? t("aria.stop")
+                    : submit.aria === "queue"
+                      ? t("chat.queueSend")
+                      : t("aria.send")
               }
               aria-keyshortcuts={
                 submit.stopsGeneration ? appCommandAriaShortcut(APP_COMMANDS.stopGeneration) : undefined
               }
-              title={submit.stopsGeneration ? stopLabel : undefined}
+              title={submit.stopsGeneration ? stopLabel : submit.queuesMessage ? t("chat.queueSend") : undefined}
               onClick={
                 submit.stopsGeneration
                   ? (event) => {
                       event.preventDefault()
-                      onStop()
+                      void (async () => {
+                        try {
+                          await onStop()
+                        } catch (cause) {
+                          reportRendererHandledError("chat", "stopGeneration invoke failed", cause)
+                          toast.error(t("chat.stopFailed"))
+                        }
+                      })()
                     }
                   : undefined
               }
-            />
+            >
+              {submit.queuesMessage ? <ListPlus className="size-4" /> : undefined}
+            </PromptInputSubmit>
           </>
         )}
       </div>

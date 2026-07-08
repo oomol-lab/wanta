@@ -79,6 +79,7 @@ interface ChatComposerProps {
   contextBar?: React.ReactNode
   status: ChatStatus
   submitDisabled: boolean
+  willQueueMessage: boolean
   onQueuedMessageMove: (messageId: string, targetId: string, placement: QueuedMessageMovePlacement) => void
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
@@ -89,7 +90,7 @@ interface ChatComposerProps {
   onPermissionModeFullAccess: () => void
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onOpenConnectionProvider?: (service: string, displayName: string) => void
-  onStop: () => void
+  onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
 
@@ -203,6 +204,7 @@ export function ChatComposer({
   contextBar,
   status,
   submitDisabled,
+  willQueueMessage,
   onQueuedMessageMove,
   onQueuedMessageRemove,
   onQueuedMessageResume,
@@ -244,7 +246,8 @@ export function ChatComposer({
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
   const composerAttachmentsDisabled = Boolean(activePendingQuestion)
   const submitBlocked = submitDisabled || initialSendPending
-  const composerDisabled = voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
+  const composerDisabled =
+    submitDisabled || voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
   const modelCatalog = modelCatalogState.catalog
   const modelError = modelCatalogState.selectionError ?? modelCatalogState.catalogError
   const composerAttachments = useComposerAttachments({
@@ -534,22 +537,37 @@ export function ChatComposer({
     if ((text.trim().length === 0 && attachments.length === 0) || submitBlocked || composerDisabled) {
       return
     }
-    const accepted = await onSend({
-      attachments: attachments.map(stripDraftAttachment),
-      contextMentions,
-      mode: agentMode,
-      model: modelCatalog?.selected,
-      permissionMode,
-      reasoningLevel,
-      text,
-    })
+    let clearedAfterSubmit = false
+    const clearAfterOptimisticSubmit = (): void => {
+      if (clearedAfterSubmit) {
+        return
+      }
+      clearedAfterSubmit = true
+      composerAttachments.revokeCurrentPreviews()
+      dispatchComposer({ type: "reset-after-submit" })
+      setInputError(null)
+    }
+    let accepted = false
+    try {
+      accepted = await onSend({
+        afterOptimisticSubmit: clearAfterOptimisticSubmit,
+        attachments: attachments.map(stripDraftAttachment),
+        contextMentions,
+        mode: agentMode,
+        model: modelCatalog?.selected,
+        permissionMode,
+        reasoningLevel,
+        text,
+      })
+    } catch (err) {
+      setInputError(err instanceof Error ? err.message : String(err))
+      return
+    }
     if (!accepted) {
       setInputError(t("chat.sendNotAccepted"))
       return
     }
-    composerAttachments.revokeCurrentPreviews()
-    dispatchComposer({ type: "reset-after-submit" })
-    setInputError(null)
+    clearAfterOptimisticSubmit()
   }
 
   const visibleError = React.useMemo<VisibleComposerError | null>(() => {
@@ -695,6 +713,7 @@ export function ChatComposer({
           voiceRetryBlob={voiceInput.retryBlob}
           voiceStarting={voiceInput.starting}
           voiceTranscribing={voiceInput.transcribing}
+          willQueueMessage={willQueueMessage}
           onAddModel={modelCatalogState.openDialog}
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}

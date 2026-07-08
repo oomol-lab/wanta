@@ -255,7 +255,7 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
   for (const builtin of ["bash", "edit", "write", "read", "webfetch"]) {
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
-  // Build/Plan 除单条 oo CLI 外都需要 UI 确认本地 shell 与外部目录；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
+  // Build/Plan 除单条 oo CLI 外都进入 ChatService 访问策略；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
   // v2 的 PermissionConfig 是 "allow" | "deny" | {对象} 联合，断言对象字段前先按对象形态取出。
   const buildPermission = buildAgent.permission as unknown as Record<string, unknown> | undefined
   const planPermission = planAgent.permission as unknown as Record<string, unknown> | undefined

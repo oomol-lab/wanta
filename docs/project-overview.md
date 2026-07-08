@@ -42,7 +42,7 @@ Wanta 是一个 Electron 桌面 AI Agent 聊天客户端。用户用自然语言
 
 最初 7 个 commit 按阶段 0–6 逐一交付，commit message 即阶段名：脚手架（镜像 oo-desktop）→ Agent 内核 headless 金路径 → 聊天 UI 与流式渲染 → Connections 面板与 OAuth → 动态提示 + 聊天内授权闭环（R4）→ 设置与 endpoint 切换 → 打包/签名/公证/自动更新/CI。
 
-其后是计划外的修正与演进：修复登录（浏览器登录流）→ 移除动态 endpoint 支持 → 修复 oo-cli（`.oo-bin` 自管理）→ 修复 Markdown 渲染 + 系统提示词 + 工具调用 UI → 优化右侧连接 UI → UI 框架迁移至 ai-elements → 放开 tools 权限并收敛为默认权限 / 完全访问两档。每个节点的"为什么"见 [key-decisions.md](key-decisions.md)。
+其后是计划外的修正与演进：修复登录（浏览器登录流）→ 移除动态 endpoint 支持 → 修复 oo-cli（`.oo-bin` 自管理）→ 修复 Markdown 渲染 + 系统提示词 + 工具调用 UI → 优化右侧连接 UI → UI 框架迁移至 ai-elements → 放开 tools 权限并收敛为默认访问 / 完全访问两档。每个节点的"为什么"见 [key-decisions.md](key-decisions.md)。
 
 ## 5. 术语速查
 

@@ -2,12 +2,13 @@ import assert from "node:assert/strict"
 import { test } from "vitest"
 import { buildPermissionModeSystem } from "./context-system.ts"
 
-test("buildPermissionModeSystem describes default permission", () => {
+test("buildPermissionModeSystem describes default access", () => {
   const prompt = buildPermissionModeSystem("default")
 
-  assert.match(prompt, /Default Permission/)
+  assert.match(prompt, /Default Access/)
   assert.match(prompt, /Wanta-controlled app APIs/)
   assert.match(prompt, /oo CLI commands are pre-approved/)
+  assert.match(prompt, /inside the selected local project may be approved automatically/)
   assert.match(prompt, /specific command or path/)
   assert.doesNotMatch(prompt, /user has enabled Full Access/)
 })

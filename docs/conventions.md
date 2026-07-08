@@ -60,13 +60,13 @@
 
 - **能力三处同步**：`config.ts` 的 tools 配置（现状：无禁用表，内置工具全启用）、permission（agent 级 + 根级）、`system-prompt.ts` 提示词。改任何能力策略三处必须一起改。
 - **permission 的 `"ask"` 必须有 UI 验证**：`permission.asked` / `permission.v2.asked`
-  经两档权限 UI 处理；默认权限逐次批准/拒绝当前本地 ask，完全访问确认后自动 reply。
-  新增 ask 规则要验证 pending permission 查询、事件推送与 reply。
+  先经 ChatService 主进程本地访问策略处理；默认访问可自动批准纯 `oo` CLI、已信任项目内文件/目录、本会话 grant，剩余 ask 才进入两档访问 UI；完全访问确认后由主进程自动 reply。
+  新增 ask 规则要验证 pending permission 查询、事件推送、自动审批去重与 reply。
 - **oo CLI 单命令例外**：仅当首 token 是 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 时才放行；
-  渲染层还会用纯命令判定兜底自动 reply。不要放行 shell 串联、重定向、命令替换或 `sudo oo`。
+  ChatService 还会用纯命令判定兜底自动 reply。不要放行 shell 串联、重定向、命令替换或 `sudo oo`。
 - **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器元工具照常 spawn oo，不受影响。
 - 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 list/search/inspect/call 的职责边界与交叉引用。
-- sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界走 `external_directory: "ask"`，由权限模式 UI 处理。
+- sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界走 `external_directory: "ask"`，由 ChatService 本地访问策略处理。
 - `parseConnectorErrorCode`（`oo.ts`）与 `call_action` 内联正则必须保持一致，改一处要同步另一处。`AUTH_BLOCKING_ERROR_CODES`（`connection_required` 等）来自 connector 上游而非 oo-cli，**权威定义**是 connector OpenAPI 错误 schema（`https://connector.<endpoint>/openapi.json`，需 `Authorization: Bearer <会话 token>`）——增删该集合先核对此处。
 - 新增需要 endpoint 的代码：从 `domain.ts` import 派生常量；不要新增 `__OO_ENDPOINT__` 引用点（define 覆盖范围需与 vite/vitest 配置同步；当前三处 define：renderer/main/preload）。
 

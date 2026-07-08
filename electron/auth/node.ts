@@ -101,6 +101,19 @@ export class AuthManager {
     await this.emitState(state)
   }
 
+  /** 会话 token 被服务端判定失效：清 cookie、停 agent、广播未登录；不删除本地 profile。 */
+  public async expireSession(): Promise<AuthState> {
+    await clearOomolSessionCookies().catch((error: unknown) => {
+      console.warn("[wanta] failed to clear expired session cookies:", error)
+      logDiagnostic("auth", "failed to clear expired session cookies", { error }, "warn")
+    })
+    await this.deps.applyAccount(null)
+    const state = await this.currentState()
+    this.stateChanged.emit(state)
+    await this.emitState(state)
+    return state
+  }
+
   /** 打开系统浏览器登录；promise 在 deep-link 回调完成后 resolve（agent 在后台启动）。 */
   public async login(): Promise<AuthState> {
     if (this.pending) {
@@ -282,6 +295,10 @@ export class AuthServiceImpl extends ConnectionService<AuthService> implements I
 
   public getAuthState(): Promise<AuthState> {
     return this.manager.getAuthState()
+  }
+
+  public expireSession(): Promise<AuthState> {
+    return this.manager.expireSession()
   }
 
   public login(): Promise<AuthState> {

@@ -9,6 +9,13 @@ const defaultTimeoutMs = 15_000
 
 /** 会话过期/缺失的可恢复错误（HTTP 401）。文案含 "sign in"，供 resolveUserFacingError 归类为 auth_required。 */
 export const authRequiredMessage = "Sign in is required."
+export const oomolAuthRequiredEventName = "wanta:auth-required"
+
+export interface OomolAuthRequiredEventDetail {
+  /** 请求发起时间，用于忽略换号/重新登录前的过期 401。 */
+  requestedAt: number
+  status: 401
+}
 
 export class OomolHttpError extends Error {
   readonly status: number
@@ -40,12 +47,24 @@ function assertNoRendererCredentialHeaders(headers: Headers): void {
   }
 }
 
+function emitAuthRequired(response: Response, requestedAt: number): void {
+  if (response.status !== 401 || typeof window === "undefined" || typeof CustomEvent === "undefined") {
+    return
+  }
+  window.dispatchEvent(
+    new CustomEvent<OomolAuthRequiredEventDetail>(oomolAuthRequiredEventName, {
+      detail: { requestedAt, status: 401 },
+    }),
+  )
+}
+
 /**
  * 底层 fetch：强制 credentials:"include"（带上会话 cookie）+ 默认 Accept: application/json + 超时。
  * 不做状态码判断，由各域客户端按自身语义处理响应。
  */
 export function oomolFetch(input: string | URL, options: OomolFetchOptions = {}): Promise<Response> {
   const { timeoutMs = defaultTimeoutMs, headers, signal, ...init } = options
+  const requestedAt = Date.now()
   // 用 Headers 规范化：调用方可能传 Headers 实例或 tuple 数组，对象展开会丢头（仅对纯对象有效）。
   const mergedHeaders = new Headers(headers)
   assertNoRendererCredentialHeaders(mergedHeaders)
@@ -57,6 +76,9 @@ export function oomolFetch(input: string | URL, options: OomolFetchOptions = {})
     credentials: "include",
     headers: mergedHeaders,
     signal: signal ?? AbortSignal.timeout(timeoutMs),
+  }).then((response) => {
+    emitAuthRequired(response, requestedAt)
+    return response
   })
 }
 

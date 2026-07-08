@@ -806,6 +806,7 @@ export const zhCNMessages = {
   "chat.permissionRequiredAllowOnce": "允许本次操作",
   "chat.permissionRequiredAllowSession": "本会话内允许",
   "chat.permissionRequiredAllowCommandSession": "本会话内允许此命令",
+  "chat.permissionRequiredAllowProjectDevSession": "本会话内允许项目开发命令",
   "chat.permissionRequiredAllowPathSession": "本会话内允许此文件夹",
   "chat.permissionRequiredAllowEditSession": "本会话内允许此路径",
   "chat.permissionRequiredReject": "取消此步骤",

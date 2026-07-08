@@ -119,6 +119,7 @@ export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined)
     "- Prefer direct answers, Wanta Link tools, Wanta-controlled app APIs, concrete URL fetching, and selected local context.",
     "- Single direct oo CLI commands are pre-approved; do not ask the user to approve `oo ...` when it is the right path.",
     "- File and directory requests inside the selected local project, and read-only inspection commands scoped to that project, may be approved automatically by Wanta.",
+    "- Project development commands such as tests, lint, type checks, and builds are not auto-approved by default; if the user allows project dev commands in this chat, related safe project-scoped commands can continue without repeated prompts.",
     "- Use local shell commands, file edits, or external filesystem paths only when they are useful for the task.",
     "- Local shell commands and paths outside the selected project may still require approval; ask for the specific command or path instead of asking the user to enable Full Access.",
   ].join("\n")

@@ -3,18 +3,20 @@ import type { ChatPermissionRequest } from "./common.ts"
 import { isPureOoCliCommand } from "../agent/oo-command-permission.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
+export type SessionPermissionGrantKind = "project_dev_command" | "request"
 
 export interface SessionPermissionGrant {
   action: string
+  kind?: SessionPermissionGrantKind
   patterns: string[]
 }
 
-function normalizedAction(request: ChatPermissionRequest): string {
+export function permissionAction(request: ChatPermissionRequest): string {
   return request.action.trim().toLowerCase()
 }
 
 export function permissionRequestKind(request: ChatPermissionRequest): PermissionRequestKind {
-  const action = normalizedAction(request)
+  const action = permissionAction(request)
   if (action.includes("bash") || action.includes("command") || action.includes("shell")) {
     return "command"
   }
@@ -116,15 +118,25 @@ function patternMatches(pattern: string, value: string): boolean {
 }
 
 export function createSessionPermissionGrant(request: ChatPermissionRequest): SessionPermissionGrant | null {
-  const patterns = (request.save?.length ? request.save : request.resources).map((item) => item.trim()).filter(Boolean)
+  const basePatterns = request.save?.length
+    ? request.save
+    : request.resources.length > 0
+      ? request.resources
+      : permissionRequestKind(request) === "command"
+        ? [permissionCommand(request)].filter((item): item is string => typeof item === "string")
+        : []
+  const patterns = basePatterns.map((item) => item.trim()).filter(Boolean)
   if (patterns.length === 0) {
     return null
   }
-  return { action: normalizedAction(request), patterns }
+  return { action: permissionAction(request), kind: "request", patterns }
 }
 
 export function requestMatchesSessionGrant(request: ChatPermissionRequest, grant: SessionPermissionGrant): boolean {
-  if (normalizedAction(request) !== grant.action) {
+  if (grant.kind && grant.kind !== "request") {
+    return false
+  }
+  if (permissionAction(request) !== grant.action) {
     return false
   }
   const values = [permissionCommand(request), ...request.resources].filter(

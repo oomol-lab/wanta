@@ -60,7 +60,7 @@
 
 - **能力三处同步**：`config.ts` 的 tools 配置（现状：无禁用表，内置工具全启用）、permission（agent 级 + 根级）、`system-prompt.ts` 提示词。改任何能力策略三处必须一起改。
 - **permission 的 `"ask"` 必须有 UI 验证**：`permission.asked` / `permission.v2.asked`
-  先经 ChatService 主进程本地访问策略处理；默认访问可自动批准纯 `oo` CLI、已信任项目内文件/目录、项目内只读检查命令、本会话 grant，剩余 ask 才进入两档访问 UI；完全访问确认后由主进程自动 reply。
+  先经 ChatService 主进程本地访问策略处理；默认访问可自动批准纯 `oo` CLI、已信任项目内文件/目录、项目内只读检查命令、本会话 grant；项目测试 / lint / typecheck / build 等开发命令默认不自动批准，但用户允许"项目开发命令"后可作为本会话 grant 继续自动批准；剩余 ask 才进入两档访问 UI；完全访问确认后由主进程自动 reply。
   新增 ask 规则要验证 pending permission 查询、事件推送、自动审批去重与 reply。
 - **oo CLI 单命令例外**：仅当首 token 是 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 时才放行；
   ChatService 还会用纯命令判定兜底自动 reply。不要放行 shell 串联、重定向、命令替换或 `sudo oo`。

@@ -95,3 +95,36 @@ test("local access policy allows requests covered by a session grant", () => {
     { type: "allow", reason: "session_grant", kind: "path", highRisk: false },
   )
 })
+
+test("local access policy broadens an explicit project dev command grant", () => {
+  const root = "/Users/example/code/wanta"
+  const grant = localAccessGrantForRequest(permission({ metadata: { command: "npm test" } }), {
+    trustedProjectRoot: root,
+  })
+
+  assert.ok(grant)
+  assert.equal(grant.kind, "project_dev_command")
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "pnpm lint" } }), {
+      permissionMode: "default",
+      sessionGrants: [grant],
+      trustedProjectRoot: root,
+    }),
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "npm install" } }), {
+      permissionMode: "default",
+      sessionGrants: [grant],
+      trustedProjectRoot: root,
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "pnpm lint" } }), {
+      permissionMode: "default",
+      sessionGrants: [grant],
+    }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+})

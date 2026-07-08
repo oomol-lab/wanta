@@ -1530,6 +1530,76 @@ test("always permission reply stores a main-process session grant", async () => 
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
 })
 
+test("always permission reply broadens project dev commands for the current chat", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    projectContext: {
+      id: "project-1",
+      name: "wanta",
+      path: projectPath,
+    },
+    sessionId: "session-1",
+    text: "Run checks",
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["npm test"],
+      metadata: { command: "npm test" },
+    },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+
+  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-2",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["pnpm lint"],
+      metadata: { command: "pnpm lint" },
+    },
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-3",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["npm install"],
+      metadata: { command: "npm install" },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+  await waitForCondition(() => events.filter((event) => event.event === "permissionAsked").length === 2)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
+})
+
 test("buildContextMentionsSystem returns undefined without selected context", () => {
   assert.equal(buildContextMentionsSystem(undefined), undefined)
   assert.equal(buildContextMentionsSystem([]), undefined)

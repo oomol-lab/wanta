@@ -847,6 +847,7 @@ export const enMessages = {
   "chat.permissionRequiredAllowOnce": "Allow this step",
   "chat.permissionRequiredAllowSession": "Allow in this chat",
   "chat.permissionRequiredAllowCommandSession": "Allow this command in this chat",
+  "chat.permissionRequiredAllowProjectDevSession": "Allow project dev commands in this chat",
   "chat.permissionRequiredAllowPathSession": "Allow this folder in this chat",
   "chat.permissionRequiredAllowEditSession": "Allow this path in this chat",
   "chat.permissionRequiredReject": "Cancel this step",

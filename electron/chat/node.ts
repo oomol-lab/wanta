@@ -693,13 +693,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private addSessionPermissionGrant(sessionId: string, request: ChatPermissionRequest): void {
-    const grant = localAccessGrantForRequest(request)
+    const trustedProjectRoot = this.trustedProjectRoots.get(sessionId)
+    const grant = localAccessGrantForRequest(request, trustedProjectRoot ? { trustedProjectRoot } : {})
     if (!grant) {
       return
     }
     const grants = this.sessionPermissionGrants.get(sessionId) ?? []
     const exists = grants.some(
-      (item) => item.action === grant.action && item.patterns.join("\n") === grant.patterns.join("\n"),
+      (item) =>
+        item.action === grant.action &&
+        item.kind === grant.kind &&
+        item.patterns.join("\n") === grant.patterns.join("\n"),
     )
     if (!exists) {
       this.sessionPermissionGrants.set(sessionId, [...grants, grant])

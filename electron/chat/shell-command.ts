@@ -3,15 +3,18 @@ import { projectPermissionResourceInsideRoot } from "./project-permission.ts"
 
 const sensitiveBasenames = new Set([
   ".env",
+  ".envrc",
   ".netrc",
   ".npmrc",
   ".pypirc",
   ".yarnrc",
   "credentials",
+  "credentials.json",
   "id_dsa",
   "id_ecdsa",
   "id_ed25519",
   "id_rsa",
+  "service-account.json",
 ])
 const sensitiveSegments = new Set([".aws", ".config/gh", ".gnupg", ".ssh"])
 
@@ -44,10 +47,12 @@ export function hasUnsafeShellSyntax(command: string): boolean {
       continue
     }
 
+    // 双引号内仍会执行命令替换；默认访问不自动放行可嵌套执行的 shell。
     if (!singleQuoted && (char === "`" || (char === "$" && next === "("))) {
       return true
     }
 
+    // 组合命令、重定向和管道会改变命令语义，必须交回普通 permission 流程判断。
     if (!singleQuoted && !doubleQuoted && /[;&|<>\n\r]/u.test(char)) {
       return true
     }
@@ -72,6 +77,7 @@ export function shellWords(command: string): string[] | null {
       continue
     }
 
+    // 单引号内反斜杠按普通字符处理；其它位置保留 shell 的转义语义。
     if (char === "\\" && !singleQuoted) {
       escaped = true
       continue
@@ -87,6 +93,7 @@ export function shellWords(command: string): string[] | null {
       continue
     }
 
+    // 只在未引用状态按空白切词，避免误把路径或参数里的空格拆开。
     if (!singleQuoted && !doubleQuoted && /\s/u.test(char)) {
       if (current) {
         words.push(current)
@@ -143,6 +150,7 @@ export function sensitivePath(resource: string): boolean {
     return true
   }
   const segments = normalized.split(/[\\/]+/u).map((segment) => segment.toLowerCase())
+  // 分段连续匹配，确保 .config/gh 这类敏感目录只在真实路径层级中命中。
   return [...sensitiveSegments].some((sensitive) => {
     const sensitiveParts = sensitive.split("/")
     return segments.some((_, index) => sensitiveParts.every((part, offset) => segments[index + offset] === part))
@@ -161,6 +169,7 @@ export function projectRelativePathAllowed(resource: string, projectRoot: string
   if (path.isAbsolute(normalized) || normalized.startsWith("file://")) {
     return projectPathAllowed(normalized, projectRoot)
   }
+  // 相对路径必须解析后仍留在项目根内，避免 ../ 逃逸到用户目录或系统路径。
   const resolved = path.resolve(projectRoot, normalized)
   const root = path.resolve(projectRoot)
   const relative = path.relative(root, resolved)

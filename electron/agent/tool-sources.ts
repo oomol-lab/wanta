@@ -91,21 +91,18 @@ function parseApps(stdout) {
   return Array.isArray(parsed && parsed.items) ? parsed.items : []
 }
 
-let authorizedServicesCache = null
+const authorizedServicesCache = new Map()
 const AUTHORIZED_SERVICES_CACHE_MS = 5 * 1000
-let providerAuthTypesCache = null
+const providerAuthTypesCache = new Map()
 const PROVIDER_AUTH_TYPES_CACHE_MS = 30 * 1000
 
 async function authorizedServices(sessionID) {
   const now = Date.now()
   const identity = await currentIdentity(sessionID)
   const cacheKey = identity.cacheKey
-  if (
-    authorizedServicesCache &&
-    authorizedServicesCache.cacheKey === cacheKey &&
-    now - authorizedServicesCache.createdAt < AUTHORIZED_SERVICES_CACHE_MS
-  ) {
-    return authorizedServicesCache.authorization
+  const cached = authorizedServicesCache.get(cacheKey)
+  if (cached && now - cached.createdAt < AUTHORIZED_SERVICES_CACHE_MS) {
+    return cached.authorization
   }
   const argv = ["connector", "apps"]
   const scope = await appendIdentityArgs(argv, identity)
@@ -117,10 +114,10 @@ async function authorizedServices(sessionID) {
       scope: scope,
       services: new Set(apps.filter(isActiveApp).map(serviceFromApp).filter(Boolean)),
     }
-    authorizedServicesCache = { cacheKey: cacheKey, createdAt: now, authorization: authorization }
+    authorizedServicesCache.set(cacheKey, { createdAt: now, authorization: authorization })
     return authorization
   } catch {
-    authorizedServicesCache = { cacheKey: cacheKey, createdAt: now, authorization: null }
+    authorizedServicesCache.set(cacheKey, { createdAt: now, authorization: null })
     return null
   }
 }
@@ -158,21 +155,25 @@ async function providerAuthTypes(sessionID) {
   const now = Date.now()
   const identity = await currentIdentity(sessionID)
   const cacheKey = identity.cacheKey
-  if (
-    providerAuthTypesCache &&
-    providerAuthTypesCache.cacheKey === cacheKey &&
-    now - providerAuthTypesCache.createdAt < PROVIDER_AUTH_TYPES_CACHE_MS
-  ) {
-    return providerAuthTypesCache.authTypesByService
+  const cached = providerAuthTypesCache.get(cacheKey)
+  if (cached && now - cached.createdAt < PROVIDER_AUTH_TYPES_CACHE_MS) {
+    return cached.authTypesByService
   }
   try {
     const headers = { authorization: "Bearer " + token }
     if (identity.organizationName) {
       headers["x-oo-organization-name"] = identity.organizationName
     }
-    const response = await fetch(connectorUrl + "/v1/providers", { headers: headers })
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10 * 1000)
+    let response
+    try {
+      response = await fetch(connectorUrl + "/v1/providers", { headers: headers, signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+    }
     if (!response.ok) {
-      providerAuthTypesCache = { cacheKey: cacheKey, createdAt: now, authTypesByService: null }
+      providerAuthTypesCache.set(cacheKey, { createdAt: now, authTypesByService: null })
       return null
     }
     const providers = parseProviders(await response.json())
@@ -183,10 +184,10 @@ async function providerAuthTypes(sessionID) {
       }
       authTypesByService.set(provider.service, authTypesFromProvider(provider))
     }
-    providerAuthTypesCache = { cacheKey: cacheKey, createdAt: now, authTypesByService: authTypesByService }
+    providerAuthTypesCache.set(cacheKey, { createdAt: now, authTypesByService: authTypesByService })
     return authTypesByService
   } catch {
-    providerAuthTypesCache = { cacheKey: cacheKey, createdAt: now, authTypesByService: null }
+    providerAuthTypesCache.set(cacheKey, { createdAt: now, authTypesByService: null })
     return null
   }
 }

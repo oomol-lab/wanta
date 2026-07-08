@@ -238,6 +238,10 @@ describe("question persistence", () => {
         },
       ],
     })
+    expect(globalThis.localStorage.getItem(stoppedQuestionsStorageKey)).toBeNull()
+    expect(globalThis.localStorage.getItem(recoverableQuestionsStorageKey)).toBeNull()
+    expect(globalThis.localStorage.getItem(questionDraftsStorageKey)).toBeNull()
+    expect(globalThis.localStorage.getItem(dismissedQuestionsStorageKey)).toBeNull()
   })
 
   it("prunes expired stopped questions and drafts during reads", () => {

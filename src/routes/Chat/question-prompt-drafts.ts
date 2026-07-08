@@ -18,32 +18,43 @@ interface UseQuestionPromptDrafts {
   updateDraft: (index: number, updater: (draft: QuestionFieldDraft) => QuestionFieldDraft) => void
 }
 
+function questionDraftSourceKey(request: ChatQuestionRequest, fieldCount: number): string {
+  return [request.sessionId, request.id, request.tool?.messageId ?? "", request.tool?.callId ?? "", fieldCount].join(
+    "\0",
+  )
+}
+
 export function useQuestionPromptDrafts({
   fields,
   questionDrafts,
   request,
 }: UseQuestionPromptDraftsInput): UseQuestionPromptDrafts {
   const initialDrafts = React.useMemo(() => initialFieldDrafts(fields), [fields])
+  const draftSourceKey = questionDraftSourceKey(request, fields.length)
   const initialDraftSnapshot = React.useMemo(
     () => questionDrafts.read(request.sessionId, request, fields.length),
-    [fields.length, questionDrafts, request],
+    [draftSourceKey, questionDrafts],
   )
   const [drafts, setDrafts] = React.useState<QuestionFieldDraft[]>(() => initialDraftSnapshot?.drafts ?? initialDrafts)
   const [activeFieldIndex, setActiveFieldIndex] = React.useState(initialDraftSnapshot?.activeFieldIndex ?? 0)
   const draftsRef = React.useRef(drafts)
   const activeFieldIndexRef = React.useRef(activeFieldIndex)
   const draftPersistedRef = React.useRef(Boolean(initialDraftSnapshot))
+  const draftSourceRef = React.useRef({ key: draftSourceKey, store: questionDrafts })
 
   React.useEffect(() => {
-    const stored = questionDrafts.read(request.sessionId, request, fields.length)
-    const nextDrafts = stored?.drafts ?? initialDrafts
-    const nextActiveFieldIndex = stored?.activeFieldIndex ?? 0
+    if (draftSourceRef.current.key === draftSourceKey && draftSourceRef.current.store === questionDrafts) {
+      return
+    }
+    draftSourceRef.current = { key: draftSourceKey, store: questionDrafts }
+    const nextDrafts = initialDraftSnapshot?.drafts ?? initialDrafts
+    const nextActiveFieldIndex = initialDraftSnapshot?.activeFieldIndex ?? 0
     draftsRef.current = nextDrafts
     activeFieldIndexRef.current = nextActiveFieldIndex
-    draftPersistedRef.current = Boolean(stored)
+    draftPersistedRef.current = Boolean(initialDraftSnapshot)
     setDrafts(nextDrafts)
     setActiveFieldIndex(nextActiveFieldIndex)
-  }, [fields.length, initialDrafts, questionDrafts, request])
+  }, [draftSourceKey, initialDrafts, initialDraftSnapshot, questionDrafts])
 
   React.useEffect(() => {
     draftsRef.current = drafts

@@ -63,6 +63,7 @@ function splitLeadingAnd(command: string): { left: string; right: string } | und
       doubleQuoted = !doubleQuoted
       continue
     }
+    // 只识别最前层的 "cd <project> && <command>"，避免把引号里的 && 当成命令连接符。
     if (!singleQuoted && !doubleQuoted && char === "&" && next === "&") {
       return {
         left: command.slice(0, index).trim(),
@@ -79,6 +80,7 @@ function cdPath(words: readonly string[]): string | undefined {
     return undefined
   }
   const args = words.slice(1).filter((word) => word !== "--")
+  // cd 只接受单一目标目录；多参数或无目标都会回到普通权限确认。
   return args.length === 1 ? args[0] : undefined
 }
 
@@ -89,6 +91,7 @@ function commandBodyAfterProjectCd(command: string, projectRoot: string): string
   }
   const leftWords = shellWords(split.left)
   const projectDirectory = leftWords ? cdPath(leftWords) : undefined
+  // 只有 cd 目标明确落在可信项目内，右侧开发命令才能继承项目授权。
   if (!projectDirectory || !projectPathAllowed(projectDirectory, projectRoot) || !split.right) {
     return undefined
   }
@@ -120,6 +123,7 @@ function nextCommandWord(words: readonly string[], startIndex: number): { index:
       continue
     }
     if (optionConsumesNextValue(word)) {
+      // 包管理器 cwd/registry 等选项会消费下一个值，不能误判为 script 名。
       index += 1
       continue
     }
@@ -136,6 +140,7 @@ function supportedScriptName(scriptName: string | undefined): boolean {
     return false
   }
   const normalized = scriptName.toLowerCase()
+  // 默认访问只覆盖检查型脚本，显式拒绝常见自动修改或 watch 类脚本。
   if (normalized.includes("fix") || normalized.includes("watch") || normalized.includes("write")) {
     return false
   }
@@ -170,6 +175,7 @@ function packageManagerCommandAllowed(words: readonly string[]): boolean {
   if (manager === "bun" && verb === "test") {
     return true
   }
+  // npm/pnpm/yarn run 需要继续检查 script 名，避免 npm run fix 之类写入型脚本被放行。
   if (verb === "run" || verb === "run-script") {
     return supportedScriptName(nextCommandWord(words, command.index + 1)?.value)
   }
@@ -184,6 +190,7 @@ function directDevCommandAllowed(words: readonly string[]): boolean {
   if (!name) {
     return false
   }
+  // 仅放行能明确归类为检查/测试的直接命令；不推断 npx 等会下载或解析包的入口。
   if (name === "pytest") {
     return true
   }
@@ -206,6 +213,7 @@ function directDevCommandAllowed(words: readonly string[]): boolean {
 }
 
 function commandArgumentsSafeForProject(words: readonly string[], projectRoot: string): boolean {
+  // --fix/--watch 等参数会写文件或挂起会话；敏感路径也必须回到 UI 确认。
   if (words.slice(1).some((word) => sensitivePath(word) || deniedDevCommandArguments.has(optionName(word)))) {
     return false
   }

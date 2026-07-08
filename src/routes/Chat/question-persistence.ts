@@ -74,15 +74,29 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
-function writeJson<T>(key: string, value: T): void {
+function writeJson<T>(key: string, value: T): boolean {
+  const storage = getLocalStorage()
+  if (!storage) {
+    return false
+  }
+  try {
+    storage.setItem(key, JSON.stringify(value))
+    return true
+  } catch {
+    // localStorage 只是草稿恢复兜底，写失败不影响当前会话。
+    return false
+  }
+}
+
+function removeStorageItem(key: string): void {
   const storage = getLocalStorage()
   if (!storage) {
     return
   }
   try {
-    storage.setItem(key, JSON.stringify(value))
+    storage.removeItem(key)
   } catch {
-    // localStorage 只是草稿恢复兜底，写失败不影响当前会话。
+    // localStorage 清理失败不影响 v2 读写路径。
   }
 }
 
@@ -485,6 +499,13 @@ function migrateLegacyQuestionPromptStore(): StoredQuestionPromptsBySession {
   return pruneQuestionPrompts(migrated)
 }
 
+function removeLegacyQuestionPromptStore(): void {
+  removeStorageItem(stoppedQuestionsStorageKey)
+  removeStorageItem(recoverableQuestionsStorageKey)
+  removeStorageItem(questionDraftsStorageKey)
+  removeStorageItem(dismissedQuestionsStorageKey)
+}
+
 function readQuestionPromptStore(): StoredQuestionPromptsBySession {
   const stored = readJson<StoredQuestionPromptsBySession | null>(questionPromptsStorageKey, null)
   if (stored) {
@@ -495,8 +516,8 @@ function readQuestionPromptStore(): StoredQuestionPromptsBySession {
     return pruned
   }
   const migrated = migrateLegacyQuestionPromptStore()
-  if (Object.keys(migrated).length > 0) {
-    writeJson(questionPromptsStorageKey, migrated)
+  if (Object.keys(migrated).length === 0 || writeJson(questionPromptsStorageKey, migrated)) {
+    removeLegacyQuestionPromptStore()
   }
   return migrated
 }

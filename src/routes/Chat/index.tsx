@@ -20,6 +20,7 @@ import type { ChatStatus } from "ai"
 
 import { Building2, ChevronRight, Package, PlugZap } from "lucide-react"
 import * as React from "react"
+import { chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatTimeline } from "./ChatTimeline.tsx"
 import { FullAccessConfirmDialog } from "./FullAccessConfirmDialog.tsx"
@@ -273,7 +274,14 @@ export const ChatArea = React.memo(function ChatArea({
   const t = useT()
   const [fullAccessDialogOpen, setFullAccessDialogOpen] = React.useState(false)
   const hasMessages = messages.length > 0
-  const isGenerating = status === "submitted" || status === "streaming"
+  const activeQuestionCount = pendingQuestions.filter((item) => item.state === "active").length
+  const turnState = resolveChatTurnState({
+    initialSendPending,
+    pendingPermissionCount: pendingPermissions.length,
+    pendingQuestionCount: activeQuestionCount,
+    status,
+  })
+  const isGenerating = chatTurnShowsGenerating(turnState)
   React.useEffect(() => {
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])

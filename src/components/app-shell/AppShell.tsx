@@ -87,6 +87,7 @@ import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
+import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { formatQuestionResumeMessage } from "@/routes/Chat/question-resume-message"
@@ -349,7 +350,6 @@ export function AppShell() {
     discardQuestion,
     rejectQuestion,
   } = useChat(activeChatSessionId, route === "chat" ? activeChatSessionId : null)
-  const activeSessionHasPendingPermission = Boolean(activeChatSessionId && pendingPermissions.length > 0)
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
   const activeProvidersLoading =
@@ -749,6 +749,17 @@ export function AppShell() {
   const initialSendPending = Boolean(activePendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
+  const activePendingQuestionCount = pendingQuestions.filter((item) => item.state === "active").length
+  const activeChatTurnState = React.useMemo(
+    () =>
+      resolveChatTurnState({
+        initialSendPending,
+        pendingPermissionCount: pendingPermissions.length,
+        pendingQuestionCount: activePendingQuestionCount,
+        status: displayedStatus,
+      }),
+    [activePendingQuestionCount, displayedStatus, initialSendPending, pendingPermissions.length],
+  )
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !activeChatSessionId && activeSidebarSessions.length > 0
@@ -770,15 +781,13 @@ export function AppShell() {
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
+      if (sessionId === activeChatSessionId) {
+        return chatTurnQueuesNewMessage(activeChatTurnState)
+      }
       const sessionStatus = getSessionStatus(sessionId)
-      return (
-        sessionStatus === "submitted" ||
-        sessionStatus === "streaming" ||
-        (sessionId === activeChatSessionId && pendingPermissions.length > 0) ||
-        (sessionId === activeChatSessionId && activePendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
-      )
+      return sessionStatus === "submitted" || sessionStatus === "streaming"
     },
-    [activeChatSessionId, activePendingChatTransition, getSessionStatus, pendingCaughtUp, pendingPermissions.length],
+    [activeChatSessionId, activeChatTurnState, getSessionStatus],
   )
   const titlebarTitle =
     route === "settings"
@@ -1220,7 +1229,7 @@ export function AppShell() {
     releaseActiveQueue,
   } = useChatQueueState({
     activeSessionId: activeChatSessionId,
-    dispatchBlocked: activeSessionHasPendingPermission,
+    dispatchBlocked: chatTurnQueuesNewMessage(activeChatTurnState),
     initialSendPending,
     isSendInFlight,
     sendQueuedMessage: sendNow,
@@ -1290,7 +1299,10 @@ export function AppShell() {
         clearComposerDraft(draftKey)
         afterOptimisticSubmit?.()
       }
-      if (activeChatSessionId && (isSessionRunning(activeChatSessionId) || sendInFlightKeysRef.current.has(draftKey))) {
+      if (
+        activeChatSessionId &&
+        (!chatTurnAllowsDirectSend(activeChatTurnState) || sendInFlightKeysRef.current.has(draftKey))
+      ) {
         queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
         clearSubmittedDraft()
         return true
@@ -1314,8 +1326,8 @@ export function AppShell() {
     [
       activeComposerDraftKey,
       activeChatSessionId,
+      activeChatTurnState,
       clearComposerDraft,
-      isSessionRunning,
       queueActiveMessage,
       releaseActiveQueue,
       sendNow,
@@ -1791,7 +1803,7 @@ export function AppShell() {
                       generatedArtifacts={artifactSelection}
                       submitDisabled={!ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope}
                       willQueueMessage={Boolean(
-                        activeChatSessionId && (isSessionRunning(activeChatSessionId) || isSendInFlight()),
+                        activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),
                       )}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}

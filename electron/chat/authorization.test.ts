@@ -125,6 +125,26 @@ test("parseSearchAuthorizationSignal prefers the provider named by the search in
   assert.equal(parseSearchAuthorizationSignal(output), null)
 })
 
+test("parseSearchAuthorizationSignal suppresses a single unrelated provider when context names another provider", () => {
+  assert.equal(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "launchdarkly", authenticated: false }]), {
+      query: "PostHog feature flags",
+      userText: "PostHog 功能介绍",
+    }),
+    null,
+  )
+  assert.deepEqual(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "launchdarkly", authenticated: false }]), {
+      query: "feature flags",
+    }),
+    {
+      service: "launchdarkly",
+      displayName: "Launchdarkly",
+      errorCode: "connection_required",
+    },
+  )
+})
+
 test("parseSearchAuthorizationSignal does not match provider names as arbitrary substrings", () => {
   const output = JSON.stringify([
     { service: "box", name: "upload_file", authenticated: false },

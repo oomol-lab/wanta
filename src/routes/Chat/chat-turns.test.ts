@@ -197,6 +197,25 @@ describe("summarizeTurnProcess", () => {
     })
   })
 
+  it("does not suggest an unrelated provider when the user explicitly named another provider", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "PostHog 功能介绍")]),
+      message("a1", "assistant", [
+        tool("tool-1", {
+          tool: "search_actions",
+          input: { query: "PostHog feature flags" },
+          output: JSON.stringify([{ service: "launchdarkly", name: "list_feature_flags", authenticated: false }]),
+        }),
+      ]),
+      message("a2", "assistant", [text("a2-text", "PostHog 支持功能开关、数据洞察和事件分析。")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.suggestedAuthorization).toBeUndefined()
+  })
+
   it("does not suggest connecting a provider after a successful call action for it", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "看一下 PostHog 数据")]),

@@ -9,6 +9,7 @@ interface SearchActionResult {
 interface SearchAuthorizationContext {
   keywords?: unknown
   query?: unknown
+  userText?: unknown
 }
 
 function validId(value: string): boolean {
@@ -27,7 +28,9 @@ function searchTokens(value: string): string[] {
 }
 
 function searchContextText(context: SearchAuthorizationContext | undefined): string {
-  return [optionalString(context?.keywords), optionalString(context?.query)].filter(Boolean).join(" ")
+  return [optionalString(context?.keywords), optionalString(context?.query), optionalString(context?.userText)]
+    .filter(Boolean)
+    .join(" ")
 }
 
 export function parseAuthorizationSignal(output: string | undefined): AuthorizationInfo | null {
@@ -58,6 +61,38 @@ function displayNameFromService(service: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ")
+}
+
+function serviceTokens(service: string): string[] {
+  return searchTokens(service).filter((token) => token !== "oo")
+}
+
+function serviceMatchesContext(service: string, contextTokens: Set<string>): boolean {
+  const tokens = serviceTokens(service)
+  return tokens.length > 0 && tokens.every((token) => contextTokens.has(token))
+}
+
+function explicitProviderTokens(value: string): Set<string> {
+  const tokens = new Set<string>()
+  const matches = value.matchAll(/[A-Za-z0-9][A-Za-z0-9._-]*/g)
+  for (const match of matches) {
+    const token = match[0] ?? ""
+    // 品牌名常用 CamelCase（如 PostHog / LaunchDarkly）；只用它来识别“明确点名的 provider”。
+    if (/[a-z][A-Z]/.test(token)) {
+      for (const normalized of searchTokens(token)) {
+        tokens.add(normalized)
+      }
+    }
+  }
+  return tokens
+}
+
+function hasExplicitProviderMismatch(service: string, contextText: string): boolean {
+  const explicitTokens = explicitProviderTokens(contextText)
+  if (explicitTokens.size === 0) {
+    return false
+  }
+  return !serviceTokens(service).some((token) => explicitTokens.has(token))
 }
 
 export function parseSearchAuthorizationSignal(
@@ -93,15 +128,16 @@ export function parseSearchAuthorizationSignal(
     if (services.length === 0) {
       return null
     }
-    const contextTokens = new Set(searchTokens(searchContextText(context)))
+    const contextText = searchContextText(context)
+    const contextTokens = new Set(searchTokens(contextText))
     const matchedServices =
-      contextTokens.size > 0
-        ? services.filter((service) => {
-            const serviceTokens = searchTokens(service)
-            return serviceTokens.length > 0 && serviceTokens.every((token) => contextTokens.has(token))
-          })
-        : []
-    const service = matchedServices.length === 1 ? matchedServices[0] : services.length === 1 ? services[0] : undefined
+      contextTokens.size > 0 ? services.filter((service) => serviceMatchesContext(service, contextTokens)) : []
+    const service =
+      matchedServices.length === 1
+        ? matchedServices[0]
+        : services.length === 1 && !hasExplicitProviderMismatch(services[0] ?? "", contextText)
+          ? services[0]
+          : undefined
     if (!service) {
       return null
     }

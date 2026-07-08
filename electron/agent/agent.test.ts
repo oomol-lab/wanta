@@ -384,11 +384,13 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("WANTA_CONNECTOR_URL"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("noAuthReady"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("--personal"))
+  assert.match(AGENT_TOOL_FILES["search_actions.ts"] ?? "", /currentOrganizationName\(sessionID\)/)
   assert.doesNotMatch(AGENT_TOOL_FILES["search_actions.ts"] ?? "", /--keywords|args\.keywords|keywords: tool\.schema/)
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("List connected OOMOL Link provider apps"))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes('connector", "apps'))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("--organization"))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("--personal"))
+  assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("context.sessionID"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("does not mean you must execute the action"))
@@ -398,6 +400,8 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("/app-connections?provider="))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("do not probe unrelated services or actions"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("--personal"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("async execute(args, context)"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("context.sessionID"))
 })
 
 test("createArtifactDir creates an isolated per-session turn directory", async () => {

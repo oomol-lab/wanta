@@ -96,6 +96,7 @@ export interface PromptStreamingOptions {
   attachments?: ChatAttachment[]
   mode?: AgentMode
   model?: ModelChoice
+  organizationName?: string
   reasoningLevel?: ReasoningLevel
   artifactDir?: string
   processDir?: string
@@ -181,6 +182,7 @@ export class AgentManager {
   private organizationName: string | undefined
   private organizationScopePath: string | undefined
   private organizationUpdateChain: Promise<void> = Promise.resolve()
+  private sessionOrganizationNames = new Map<string, string>()
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
@@ -205,7 +207,7 @@ export class AgentManager {
   /** 更新 Link 工具使用的组织工作区，不重启 sidecar，避免刷新会话列表。 */
   public async setOrganizationName(organizationName?: string): Promise<void> {
     const nextOrganizationName = normalizeOrganizationName(organizationName)
-    const update = async (): Promise<void> => {
+    await this.queueOrganizationUpdate(async () => {
       if (nextOrganizationName === this.organizationName) {
         return
       }
@@ -216,7 +218,39 @@ export class AgentManager {
         writeScope: (name) => this.writeOrganizationState(name),
       })
       this.organizationName = nextOrganizationName
+    })
+  }
+
+  /** 记录单个 OpenCode session 的 Link 组织身份，供并发工具调用按 session 隔离读取。 */
+  public async setSessionOrganizationName(sessionId: string, organizationName?: string): Promise<void> {
+    const normalizedSessionId = sessionId.trim()
+    if (!normalizedSessionId) {
+      throw new Error("Session id is required")
     }
+    const nextOrganizationName = normalizeOrganizationName(organizationName) ?? ""
+    await this.queueOrganizationUpdate(async () => {
+      if (this.sessionOrganizationNames.get(normalizedSessionId) === nextOrganizationName) {
+        return
+      }
+      this.sessionOrganizationNames.set(normalizedSessionId, nextOrganizationName)
+      await this.writeOrganizationScope(this.organizationName)
+    })
+  }
+
+  public async clearSessionOrganizationName(sessionId: string): Promise<void> {
+    const normalizedSessionId = sessionId.trim()
+    if (!normalizedSessionId) {
+      return
+    }
+    await this.queueOrganizationUpdate(async () => {
+      if (!this.sessionOrganizationNames.delete(normalizedSessionId)) {
+        return
+      }
+      await this.writeOrganizationScope(this.organizationName)
+    })
+  }
+
+  private async queueOrganizationUpdate(update: () => Promise<void>): Promise<void> {
     const task = this.organizationUpdateChain.then(update, update)
     this.organizationUpdateChain = task.catch((error: unknown) => {
       logDiagnostic("agent", "agent organization scope update failed", { error }, "warn")
@@ -649,7 +683,7 @@ export class AgentManager {
       return
     }
     const tail = mergeSystemPrompts(
-      await this.buildAuthorizedSystem(options.signal),
+      await this.buildAuthorizedSystem(options.organizationName, options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir),
       buildProcessSystem(options.processDir),
@@ -691,8 +725,8 @@ export class AgentManager {
   }
 
   /** R4：构建注入系统提示末尾的已授权 Link 可用性提示（无已授权则 undefined）。 */
-  public async buildAuthorizedSystem(signal?: AbortSignal): Promise<string | undefined> {
-    const services = await this.listAuthorizedServices(signal)
+  public async buildAuthorizedSystem(organizationName?: string, signal?: AbortSignal): Promise<string | undefined> {
+    const services = await this.listAuthorizedServices(organizationName, signal)
     if (services.length === 0) {
       return undefined
     }
@@ -705,16 +739,17 @@ export class AgentManager {
   }
 
   /** 直查 connector /v1/apps，返回已授权（active）service 名清单（R4 动态系统提示用）。 */
-  public async listAuthorizedServices(signal?: AbortSignal): Promise<string[]> {
+  public async listAuthorizedServices(organizationName?: string, signal?: AbortSignal): Promise<string[]> {
     if (!this.started) {
       return []
     }
+    const normalizedOrganizationName = normalizeOrganizationName(organizationName)
     const requestSignal = signalWithTimeout(signal, 15_000)
     try {
       const response = await fetch(`${connectorBaseUrl}/v1/apps`, {
         headers: {
           Authorization: `Bearer ${this.options.authToken}`,
-          ...(this.organizationName ? { "x-oo-organization-name": this.organizationName } : {}),
+          ...(normalizedOrganizationName ? { "x-oo-organization-name": normalizedOrganizationName } : {}),
         },
         signal: requestSignal.signal,
       })
@@ -794,7 +829,14 @@ export class AgentManager {
       return
     }
     await mkdir(path.dirname(this.organizationScopePath), { recursive: true })
-    await writeFile(this.organizationScopePath, JSON.stringify({ organizationName: organizationName ?? "" }), "utf8")
+    await writeFile(
+      this.organizationScopePath,
+      JSON.stringify({
+        organizationName: organizationName ?? "",
+        sessionOrganizations: Object.fromEntries(this.sessionOrganizationNames),
+      }),
+      "utf8",
+    )
   }
 
   private async writeOrganizationState(organizationName: string | undefined): Promise<void> {

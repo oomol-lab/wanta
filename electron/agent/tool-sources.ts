@@ -11,11 +11,20 @@ const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 
-async function currentOrganizationName() {
+async function currentOrganizationName(sessionID) {
   const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
   if (scopePath) {
     try {
       const parsed = JSON.parse(await readFile(scopePath, "utf8"))
+      const sessionOrganizations = parsed && parsed.sessionOrganizations
+      if (
+        sessionID &&
+        sessionOrganizations &&
+        typeof sessionOrganizations === "object" &&
+        typeof sessionOrganizations[sessionID] === "string"
+      ) {
+        return sessionOrganizations[sessionID]
+      }
       if (parsed && typeof parsed.organizationName === "string") {
         return parsed.organizationName
       }
@@ -26,15 +35,15 @@ async function currentOrganizationName() {
   return process.env.WANTA_ORGANIZATION_NAME || ""
 }
 
-async function currentIdentity() {
-  const organizationName = (await currentOrganizationName()).trim()
+async function currentIdentity(sessionID) {
+  const organizationName = (await currentOrganizationName(sessionID)).trim()
   return organizationName
     ? { cacheKey: "organization:" + organizationName, organizationName: organizationName, scope: "organization" }
     : { cacheKey: "personal", organizationName: "", scope: "personal" }
 }
 
-async function appendIdentityArgs(argv, identity) {
-  const current = identity || (await currentIdentity())
+async function appendIdentityArgs(argv, identity, sessionID) {
+  const current = identity || (await currentIdentity(sessionID))
   const organizationName = current.organizationName
   if (organizationName) {
     argv.push("--organization", organizationName)
@@ -87,9 +96,9 @@ const AUTHORIZED_SERVICES_CACHE_MS = 5 * 1000
 let providerAuthTypesCache = null
 const PROVIDER_AUTH_TYPES_CACHE_MS = 30 * 1000
 
-async function authorizedServices() {
+async function authorizedServices(sessionID) {
   const now = Date.now()
-  const identity = await currentIdentity()
+  const identity = await currentIdentity(sessionID)
   const cacheKey = identity.cacheKey
   if (
     authorizedServicesCache &&
@@ -140,14 +149,14 @@ function isNoAuthOnly(authTypes) {
   return authTypes.length === 1 && authTypes[0] === "no_auth"
 }
 
-async function providerAuthTypes() {
+async function providerAuthTypes(sessionID) {
   const connectorUrl = String(process.env.WANTA_CONNECTOR_URL || "").replace(/\/+$/, "")
   const token = String(process.env.OO_API_KEY || "")
   if (!connectorUrl || !token) {
     return null
   }
   const now = Date.now()
-  const identity = await currentIdentity()
+  const identity = await currentIdentity(sessionID)
   const cacheKey = identity.cacheKey
   if (
     providerAuthTypesCache &&
@@ -182,15 +191,15 @@ async function providerAuthTypes() {
   }
 }
 
-async function normalizeSearchOutput(stdout) {
+async function normalizeSearchOutput(stdout, sessionID) {
   const text = (stdout || "").trim()
   try {
     const parsed = JSON.parse(text || "[]")
     if (!Array.isArray(parsed)) {
       return text || "[]"
     }
-    const authorization = await authorizedServices()
-    const authTypesByService = await providerAuthTypes()
+    const authorization = await authorizedServices(sessionID)
+    const authTypesByService = await providerAuthTypes(sessionID)
     return JSON.stringify(
       parsed.map((item) => {
         if (!item || typeof item !== "object") {
@@ -222,11 +231,11 @@ export default tool({
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
   },
-  async execute(args) {
+  async execute(args, context) {
     const argv = ["connector", "search", args.query, "--json"]
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
-      return await normalizeSearchOutput(result.stdout)
+      return await normalizeSearchOutput(result.stdout, context.sessionID)
     } catch (error) {
       const e = error || {}
       const message = String(e.stderr || e.message || "search failed").trim()
@@ -251,13 +260,13 @@ export default tool({
   args: {
     service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
   },
-  async execute(args) {
+  async execute(args, context) {
     const service = String(args.service || "").trim()
     const argv = ["connector", "apps"]
     if (service) {
       argv.push(service)
     }
-    await appendIdentityArgs(argv)
+    await appendIdentityArgs(argv, null, context.sessionID)
     argv.push("--json")
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
@@ -287,7 +296,7 @@ export default tool({
       .array(tool.schema.string())
       .describe("One or more action ids in the form '<service>.<action>' (service segment before the first dot, action after it), e.g. ['hackernews.get_item']. When a workflow needs several contracts at once, such as an async submit/result pair or a read step feeding a write step, pass every id in one call, e.g. ['cal.create_schedule','callingly.get_agent_schedule']."),
   },
-  async execute(args) {
+  async execute(args, context) {
     const ids = (args.actions || []).map((id) => String(id).trim()).filter(Boolean)
     if (ids.length === 0) {
       return JSON.stringify({ status: "error", message: "Provide at least one action id in the form <service>.<action>." })
@@ -339,7 +348,7 @@ export default tool({
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),
     params: tool.schema.string().optional().describe("JSON string of the action input parameters built from inspect_action's inputSchema; omit or '{}' if the schema declares no required fields"),
   },
-  async execute(args) {
+  async execute(args, context) {
     let data = "{}"
     if (args.params && args.params.trim()) {
       try {
@@ -349,7 +358,7 @@ export default tool({
       }
     }
     const argv = ["connector", "run", args.service, "--action", args.action, "--data", data, "--json"]
-    await appendIdentityArgs(argv)
+    await appendIdentityArgs(argv, null, context.sessionID)
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return (result.stdout || "").trim() || "{}"

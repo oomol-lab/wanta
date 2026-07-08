@@ -26,6 +26,7 @@ function createBridgeAgent(): {
   emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
+  setSessionOrganizationName: ReturnType<typeof vi.fn>
 } {
   let listener:
     | ((event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void)
@@ -37,6 +38,8 @@ function createBridgeAgent(): {
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
   const promptStreaming = vi.fn(async () => undefined)
   const rejectQuestion = vi.fn(async () => undefined)
+  const clearSessionOrganizationName = vi.fn(async () => undefined)
+  const setSessionOrganizationName = vi.fn(async () => undefined)
   const agent = {
     isReady: () => true,
     subscribe: (
@@ -52,7 +55,9 @@ function createBridgeAgent(): {
     answerQuestion,
     createArtifactDir,
     createProcessDir,
+    clearSessionOrganizationName,
     rejectQuestion,
+    setSessionOrganizationName,
     promptStreaming,
     getMessages: vi.fn(async () => []),
   } as unknown as AgentManager
@@ -66,6 +71,7 @@ function createBridgeAgent(): {
     emit: (event) => listener?.(event),
     promptStreaming,
     rejectQuestion,
+    setSessionOrganizationName,
   }
 }
 
@@ -152,14 +158,13 @@ test("setAgentOrganization waits for the scope synchronization callback", async 
 test("sendMessage waits for the request organization scope before prompting", async () => {
   const bridge = createBridgeAgent()
   let resolveScope: (() => void) | undefined
-  const scopeCalls: Array<string | undefined> = []
-  const service = new ChatServiceImpl(bridge.agent, {
-    onSetAgentOrganization: async (organizationName) =>
+  bridge.setSessionOrganizationName.mockImplementationOnce(
+    async () =>
       new Promise<void>((resolve) => {
-        scopeCalls.push(organizationName)
         resolveScope = resolve
       }),
-  })
+  )
+  const service = new ChatServiceImpl(bridge.agent)
 
   const request = service.sendMessage({
     scope: { type: "organization", organizationId: "org-id", organizationName: " acme-corp " },
@@ -168,7 +173,7 @@ test("sendMessage waits for the request organization scope before prompting", as
   })
   await waitForCondition(() => Boolean(resolveScope))
 
-  assert.deepEqual(scopeCalls, ["acme-corp"])
+  assert.deepEqual(bridge.setSessionOrganizationName.mock.calls, [["session-1", "acme-corp"]])
   assert.equal(bridge.createArtifactDir.mock.calls.length, 0)
   assert.equal(bridge.promptStreaming.mock.calls.length, 0)
 
@@ -179,14 +184,9 @@ test("sendMessage waits for the request organization scope before prompting", as
   assert.equal(bridge.promptStreaming.mock.calls.length, 1)
 })
 
-test("sendMessage keeps organization scope locked until generation completion", async () => {
+test("sendMessage allows concurrent generations in different organization scopes", async () => {
   const bridge = createBridgeAgent()
-  const scopeCalls: Array<string | undefined> = []
-  const service = new ChatServiceImpl(bridge.agent, {
-    onSetAgentOrganization: async (organizationName) => {
-      scopeCalls.push(organizationName)
-    },
-  })
+  const service = new ChatServiceImpl(bridge.agent)
   service.startEventBridge()
 
   await service.sendMessage({
@@ -205,20 +205,51 @@ test("sendMessage keeps organization scope locked until generation completion", 
       secondCompleted = true
     })
 
-  await Promise.resolve()
-
-  assert.deepEqual(scopeCalls, ["org-a"])
-  assert.equal(secondCompleted, false)
-
-  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
   await second
 
-  assert.deepEqual(scopeCalls, ["org-a", "org-b"])
   assert.equal(secondCompleted, true)
+  assert.deepEqual(bridge.setSessionOrganizationName.mock.calls, [
+    ["session-1", "org-a"],
+    ["session-2", "org-b"],
+  ])
+  assert.equal(bridge.promptStreaming.mock.calls.length, 2)
+  assert.equal(bridge.promptStreaming.mock.calls[0]?.[2]?.organizationName, "org-a")
+  assert.equal(bridge.promptStreaming.mock.calls[1]?.[2]?.organizationName, "org-b")
+})
+
+test("sendMessage allows concurrent generations in the same organization scope", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    sessionId: "session-1",
+    text: "first",
+  })
+  let secondCompleted = false
+  const second = service
+    .sendMessage({
+      scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+      sessionId: "session-2",
+      text: "second",
+    })
+    .then(() => {
+      secondCompleted = true
+    })
+
+  await second
+
+  assert.equal(secondCompleted, true)
+  assert.deepEqual(bridge.setSessionOrganizationName.mock.calls, [
+    ["session-1", "org-a"],
+    ["session-2", "org-a"],
+  ])
+  assert.equal(service.hasActiveGeneration(), true)
   assert.equal(bridge.promptStreaming.mock.calls.length, 2)
 })
 
-test("setAgentOrganization applies only the latest queued idle scope", async () => {
+test("setAgentOrganization applies only the latest queued workspace scope", async () => {
   const bridge = createBridgeAgent()
   const scopeCalls: Array<string | undefined> = []
   const service = new ChatServiceImpl(bridge.agent, {
@@ -238,12 +269,60 @@ test("setAgentOrganization applies only the latest queued idle scope", async () 
   const secondSync = service.setAgentOrganization({ organizationName: "org-c" })
   await Promise.resolve()
 
-  assert.deepEqual(scopeCalls, ["org-a"])
-
-  bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
   await Promise.all([firstSync, secondSync])
 
-  assert.deepEqual(scopeCalls, ["org-a", "org-c"])
+  assert.deepEqual(scopeCalls, ["org-c"])
+})
+
+test("setAgentOrganization does not interrupt active generations from other organization scopes", async () => {
+  const bridge = createBridgeAgent()
+  const scopeCalls: Array<string | undefined> = []
+  const service = new ChatServiceImpl(bridge.agent, {
+    onSetAgentOrganization: async (organizationName) => {
+      scopeCalls.push(organizationName)
+    },
+  })
+  service.startEventBridge()
+
+  await service.sendMessage({
+    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    sessionId: "session-1",
+    text: "first",
+  })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  await service.setAgentOrganization({ organizationName: "org-b" })
+
+  assert.deepEqual(scopeCalls, ["org-b"])
+  assert.equal(bridge.abort.mock.calls.length, 0)
+  assert.equal(service.hasActiveGeneration(), true)
+})
+
+test("setAgentOrganization does not wait on active generations for the requested organization scope", async () => {
+  const bridge = createBridgeAgent()
+  const scopeCalls: Array<string | undefined> = []
+  const service = new ChatServiceImpl(bridge.agent, {
+    onSetAgentOrganization: async (organizationName) => {
+      scopeCalls.push(organizationName)
+    },
+  })
+  service.startEventBridge()
+
+  await service.sendMessage({
+    scope: { type: "organization", organizationId: "org-a", organizationName: "org-a" },
+    sessionId: "session-1",
+    text: "first",
+  })
+  let completed = false
+  const sync = service.setAgentOrganization({ organizationName: "org-a" }).then(() => {
+    completed = true
+  })
+
+  await sync
+
+  assert.equal(bridge.abort.mock.calls.length, 0)
+  assert.equal(completed, true)
+  assert.deepEqual(scopeCalls, ["org-a"])
 })
 
 test("stopGeneration suppresses delayed streaming events until the next send", async () => {

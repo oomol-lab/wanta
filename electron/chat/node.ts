@@ -236,11 +236,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private turnOutputsLoaded = false
   private turnOutputsLoadPromise: Promise<void> | null = null
   private turnOutputWritePromise: Promise<void> = Promise.resolve()
-  private agentScopeQueue: Promise<void> = Promise.resolve()
-  private generationScopeReleases = new Map<string, () => void>()
+  private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredIdleOrganizationName: string | undefined
   private syncedIdleOrganizationName: string | undefined
-  private idleOrganizationSyncPromise: Promise<void> | null = null
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -280,8 +278,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.turnOutputsLoadPromise = null
     this.desiredIdleOrganizationName = undefined
     this.syncedIdleOrganizationName = undefined
-    this.idleOrganizationSyncPromise = null
-    this.releaseAllGenerationScopeLocks()
+    this.scopeMutationQueue = Promise.resolve()
   }
 
   public setAgentStatus(status: AgentRuntimeStatus): void {
@@ -730,9 +727,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private beginSessionGeneration(sessionId: string): SessionGeneration {
     const previousGeneration = this.sessionGenerations.get(sessionId)
     previousGeneration?.controller.abort()
-    if (previousGeneration) {
-      this.releaseGenerationScopeLock(previousGeneration.id)
-    }
     const generation = { controller: new AbortController(), id: crypto.randomUUID() }
     this.sessionGenerations.set(sessionId, generation)
     return generation
@@ -742,7 +736,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     for (const generation of this.sessionGenerations.values()) {
       generation.controller.abort()
     }
-    this.releaseAllGenerationScopeLocks()
   }
 
   private isCurrentGeneration(sessionId: string, generationId: string): boolean {
@@ -754,13 +747,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (generationId && generation?.id !== generationId) {
       return
     }
-    if (generation) {
-      this.releaseGenerationScopeLock(generation.id)
-    }
     this.clearGenerationStartWatchdog(sessionId)
     this.clearGenerationInactivityWatchdog(sessionId)
     this.forgetTrustedSubagentSessions(sessionId)
     this.sessionGenerations.delete(sessionId)
+    void this.agent?.clearSessionOrganizationName(sessionId).catch((error: unknown) => {
+      console.warn("[wanta] failed to clear session organization scope:", error)
+    })
   }
 
   private scheduleGenerationStartWatchdog(sessionId: string, generationId: string): void {
@@ -878,71 +871,22 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.generationInactivityWatchdogs.clear()
   }
 
-  private async acquireAgentScopeLock(): Promise<() => void> {
-    const previous = this.agentScopeQueue
+  private async runWithScopeMutation<T>(task: () => Promise<T>): Promise<T> {
+    const previous = this.scopeMutationQueue
     let releaseCurrent!: () => void
     const current = new Promise<void>((resolve) => {
       releaseCurrent = resolve
     })
-    this.agentScopeQueue = previous.then(
+    this.scopeMutationQueue = previous.then(
       () => current,
       () => current,
     )
     await previous.catch(() => undefined)
-    let released = false
-    return () => {
-      if (released) {
-        return
-      }
-      released = true
+    try {
+      return await task()
+    } finally {
       releaseCurrent()
     }
-  }
-
-  private releaseGenerationScopeLock(generationId: string): void {
-    const release = this.generationScopeReleases.get(generationId)
-    if (!release) {
-      return
-    }
-    this.generationScopeReleases.delete(generationId)
-    release()
-  }
-
-  private releaseAllGenerationScopeLocks(): void {
-    for (const release of this.generationScopeReleases.values()) {
-      release()
-    }
-    this.generationScopeReleases.clear()
-  }
-
-  private syncLatestIdleOrganization(): Promise<void> {
-    if (this.idleOrganizationSyncPromise) {
-      return this.idleOrganizationSyncPromise
-    }
-
-    const sync = async (): Promise<void> => {
-      while (true) {
-        const releaseScope = await this.acquireAgentScopeLock()
-        try {
-          const organizationName = this.desiredIdleOrganizationName
-          await this.deps.onSetAgentOrganization?.(organizationName)
-          this.syncedIdleOrganizationName = organizationName
-          if (this.desiredIdleOrganizationName === organizationName) {
-            return
-          }
-        } finally {
-          releaseScope()
-        }
-      }
-    }
-
-    const promise = sync().finally(() => {
-      if (this.idleOrganizationSyncPromise === promise) {
-        this.idleOrganizationSyncPromise = null
-      }
-    })
-    this.idleOrganizationSyncPromise = promise
-    return promise
   }
 
   private markUserStopped(sessionId: string): void {
@@ -1064,15 +1008,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     const organizationName = organizationNameFromRequest(req)
     this.desiredIdleOrganizationName = organizationName
-    const releaseScope = await this.acquireAgentScopeLock()
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
     try {
-      await this.deps.onSetAgentOrganization?.(organizationName)
-      this.syncedIdleOrganizationName = organizationName
+      await this.agent.setSessionOrganizationName(req.sessionId, organizationName)
       generation = this.beginSessionGeneration(req.sessionId)
-      this.generationScopeReleases.set(generation.id, releaseScope)
+      const activeGeneration = generation
       this.userStoppedSessions.delete(req.sessionId)
       this.connectionFailedSessions.delete(req.sessionId)
       this.clearMessageErrorSignatures(req.sessionId)
@@ -1081,8 +1023,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.agent.createArtifactDir(req.sessionId),
         this.agent.createProcessDir(req.sessionId),
       ])
-      if (!this.isCurrentGeneration(req.sessionId, generation.id) || generation.controller.signal.aborted) {
-        this.clearSessionGeneration(req.sessionId, generation.id)
+      if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
+        this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         return
       }
       const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
@@ -1094,16 +1036,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const project = await this.projectBaseline(req.projectContext)
       this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
       this.enqueuePendingProcessDir(req.sessionId, processDir)
-      this.activeTurnOutputs.set(generation.id, {
+      this.activeTurnOutputs.set(activeGeneration.id, {
         artifactRoot: artifactDir,
         processRoot: processDir,
         createdAt: Date.now(),
-        generationId: generation.id,
+        generationId: activeGeneration.id,
         requestText: req.text,
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
       })
-      const promptGeneration = generation
+      const promptGeneration = activeGeneration
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
       void this.agent
@@ -1113,6 +1055,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           processDir,
           mode: req.mode,
           model: req.model,
+          organizationName,
           reasoningLevel: req.reasoningLevel,
           signal: promptGeneration.controller.signal,
           system: mergeSystemPrompts(
@@ -1150,8 +1093,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     } catch (error) {
       if (generation) {
         this.clearSessionGeneration(req.sessionId, generation.id)
-      } else {
-        releaseScope()
       }
       throw error
     }
@@ -1474,15 +1415,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
     const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
     this.desiredIdleOrganizationName = organizationName
-    while (true) {
-      await this.syncLatestIdleOrganization()
+    await this.runWithScopeMutation(async () => {
       if (this.desiredIdleOrganizationName !== organizationName) {
         return
       }
-      if (this.syncedIdleOrganizationName === organizationName) {
-        return
-      }
-    }
+      await this.deps.onSetAgentOrganization?.(organizationName)
+      this.syncedIdleOrganizationName = organizationName
+    })
   }
 
   public async stopGeneration(sessionId: string): Promise<void> {

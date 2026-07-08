@@ -385,6 +385,60 @@ test("message completion records intermediate code files left in artifact root",
   }
 })
 
+test("late prompt rejection does not clear the replacement generation output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-late-generation-"))
+  try {
+    let artifactIndex = 0
+    let processIndex = 0
+    let rejectFirstPrompt: ((error: Error) => void) | undefined
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockImplementation(async () => {
+      artifactIndex += 1
+      const dir = path.join(root, `artifacts-${artifactIndex}`)
+      await mkdir(dir, { recursive: true })
+      return dir
+    })
+    bridge.createProcessDir.mockImplementation(async () => {
+      processIndex += 1
+      const dir = path.join(root, `process-${processIndex}`)
+      await mkdir(dir, { recursive: true })
+      return dir
+    })
+    bridge.promptStreaming
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            rejectFirstPrompt = reject
+          }),
+      )
+      .mockImplementationOnce(async () => undefined)
+    const store = new TurnOutputStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { turnOutputStore: store })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "first" })
+    await service.stopGeneration("session-1")
+    await service.sendMessage({ sessionId: "session-1", text: "second" })
+    rejectFirstPrompt?.(new Error("first failed late"))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-2", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(root, "process-2", "second.js"), "console.log(2)\n", "utf8")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "turnOutputUpdated"))
+
+    const records = (await store.read()).get("session-1")
+    assert.equal(records?.get("assistant-1"), undefined)
+    assert.equal(records?.get("assistant-2")?.files[0]?.name, "second.js")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("agent errors from multiple opencode channels produce one message error per send", async () => {
   const bridge = createBridgeAgent()
   let rejectPrompt: ((error: Error) => void) | undefined

@@ -211,6 +211,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private sessionGenerations = new Map<string, SessionGeneration>()
   private pendingArtifactDirs = new Map<string, string[]>()
   private pendingProcessDirs = new Map<string, string[]>()
+  // 按 generation id 索引，避免旧 generation 的 late cleanup 误删同 session 的新 turn output。
   private activeTurnOutputs = new Map<string, ActiveTurnOutput>()
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
@@ -373,7 +374,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           const artifactRoot = this.consumePendingArtifactDir(translated.data.sessionId)
           const processRoot = this.consumePendingProcessDir(translated.data.sessionId)
           if (artifactRoot && processRoot) {
-            const activeTurn = this.activeTurnOutputs.get(translated.data.sessionId)
+            const activeTurn = this.activeTurnOutputForSession(translated.data.sessionId)
             if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
               activeTurn.messageId = translated.data.messageId
             }
@@ -595,14 +596,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private deleteActiveTurnOutput(sessionId: string, generationId?: string): void {
-    const active = this.activeTurnOutputs.get(sessionId)
-    if (!active) {
+    const activeGenerationId = generationId ?? this.sessionGenerations.get(sessionId)?.id
+    if (!activeGenerationId) {
       return
     }
-    if (generationId && active.generationId !== generationId) {
+    this.activeTurnOutputs.delete(activeGenerationId)
+  }
+
+  private activeTurnOutputForSession(sessionId: string): ActiveTurnOutput | undefined {
+    const generationId = this.sessionGenerations.get(sessionId)?.id
+    if (!generationId) {
       return
     }
-    this.activeTurnOutputs.delete(sessionId)
+    return this.activeTurnOutputs.get(generationId)
   }
 
   private clearMessageErrorSignatures(sessionId: string): void {
@@ -992,7 +998,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.sessionGenerations.has(sessionId) ||
       this.pendingArtifactDirs.has(sessionId) ||
       this.pendingProcessDirs.has(sessionId) ||
-      this.activeTurnOutputs.has(sessionId) ||
+      Boolean(this.activeTurnOutputForSession(sessionId)) ||
       this.activeAssistantMessages.has(sessionId) ||
       this.activeToolParts.has(sessionId)
     )
@@ -1032,7 +1038,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearSessionGeneration(sessionId, generation?.id)
     this.pendingArtifactDirs.delete(sessionId)
     this.pendingProcessDirs.delete(sessionId)
-    this.activeTurnOutputs.delete(sessionId)
+    this.deleteActiveTurnOutput(sessionId, generation?.id)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
     await this.send("generationStopped", {
@@ -1088,7 +1094,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const project = await this.projectBaseline(req.projectContext)
       this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
       this.enqueuePendingProcessDir(req.sessionId, processDir)
-      this.activeTurnOutputs.set(req.sessionId, {
+      this.activeTurnOutputs.set(generation.id, {
         artifactRoot: artifactDir,
         processRoot: processDir,
         createdAt: Date.now(),
@@ -1326,8 +1332,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async finalizeTurnOutput(sessionId: string, messageId: string | undefined): Promise<void> {
-    const active = this.activeTurnOutputs.get(sessionId)
-    this.activeTurnOutputs.delete(sessionId)
+    const generationId = this.sessionGenerations.get(sessionId)?.id
+    const active = generationId ? this.activeTurnOutputs.get(generationId) : undefined
+    if (generationId) {
+      this.activeTurnOutputs.delete(generationId)
+    }
     const resolvedMessageId = messageId ?? active?.messageId
     if (!active || !resolvedMessageId) {
       return

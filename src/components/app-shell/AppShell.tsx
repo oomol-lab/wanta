@@ -190,6 +190,7 @@ export function AppShell() {
   const [workspaceSwitchTargetKey, setWorkspaceSwitchTargetKey] = React.useState<string | null>(null)
   const [workspaceSwitchTimedOutKey, setWorkspaceSwitchTimedOutKey] = React.useState<string | null>(null)
   const workspaceSwitchStartedAt = React.useRef<number | null>(null)
+  const observedWorkspaceKeyRef = React.useRef<string | null>(null)
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
     ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
@@ -239,17 +240,23 @@ export function AppShell() {
     () => (sessionsSettledForCurrentScope ? projects : []),
     [projects, sessionsSettledForCurrentScope],
   )
-  const handleWorkspaceSwitchStart = React.useCallback(
-    (targetScopeKey: string): void => {
-      if (targetScopeKey === currentScopeKey && !workspaceSwitching) {
-        return
-      }
-      workspaceSwitchStartedAt.current = Date.now()
-      setWorkspaceSwitchTimedOutKey(null)
-      setWorkspaceSwitchTargetKey(targetScopeKey)
-    },
-    [currentScopeKey, workspaceSwitching],
-  )
+  const handleWorkspaceSwitchStart = React.useCallback((targetScopeKey: string): void => {
+    workspaceSwitchStartedAt.current = Date.now()
+    setWorkspaceSwitchTimedOutKey(null)
+    setWorkspaceSwitchTargetKey(targetScopeKey)
+  }, [])
+  React.useLayoutEffect(() => {
+    if (observedWorkspaceKeyRef.current === null) {
+      observedWorkspaceKeyRef.current = activeWorkspaceKey
+      return
+    }
+    if (observedWorkspaceKeyRef.current === activeWorkspaceKey) {
+      return
+    }
+    observedWorkspaceKeyRef.current = activeWorkspaceKey
+    // 组织管理页也能切 workspace，这里把非侧边栏入口并入同一套 activation 流。
+    handleWorkspaceSwitchStart(activeWorkspaceKey)
+  }, [activeWorkspaceKey, handleWorkspaceSwitchStart])
   React.useEffect(() => {
     if (!workspaceSwitchTargetKey) {
       workspaceSwitchStartedAt.current = null

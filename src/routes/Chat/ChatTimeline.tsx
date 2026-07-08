@@ -12,6 +12,7 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
+import type { QuestionDraftStore } from "./question-fields.ts"
 import type { ChatPendingQuestion } from "./question-state.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -964,6 +965,7 @@ interface ChatTimelineProps {
   onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
+  questionDrafts: QuestionDraftStore
   onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
@@ -988,6 +990,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   onContinueQuestion,
   onDiscardQuestion,
   onRejectQuestion,
+  questionDrafts,
   onStop,
   onViewBilling,
 }: ChatTimelineProps) {
@@ -1150,6 +1153,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 onContinue={onContinueQuestion}
                 onDiscard={onDiscardQuestion}
                 onReject={onRejectQuestion}
+                questionDrafts={questionDrafts}
                 onStop={onStop}
               />
             </div>

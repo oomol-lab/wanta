@@ -22,6 +22,17 @@ export interface QuestionFieldDraft {
   selected: string[]
 }
 
+export interface QuestionDraftSnapshot {
+  activeFieldIndex: number
+  drafts: QuestionFieldDraft[]
+}
+
+export interface QuestionDraftStore {
+  read: (sessionId: string, request: ChatQuestionRequest, expectedDraftCount: number) => QuestionDraftSnapshot | null
+  remove: (sessionId: string, request: ChatQuestionRequest) => void
+  write: (sessionId: string, request: ChatQuestionRequest, snapshot: QuestionDraftSnapshot) => void
+}
+
 const numberedQuestionPattern = /(?:^|[\s。；;，,])\d+[.．、]\s*([^?？。；;]+[?？]?)/g
 const knownBodyPattern =
   /(?:正文|邮件正文|生成内容|内容)[^。；;?？]*(?:已确定为|确定为|设为|设置为|为|是)\s*[：:]?\s*[「“"]([^」”"]+)[」”"]/i
@@ -196,6 +207,27 @@ function dedupeFields(fields: QuestionField[]): QuestionField[] {
 
 export function initialFieldDrafts(fields: QuestionField[]): QuestionFieldDraft[] {
   return fields.map((field) => ({ value: field.value, selected: [] }))
+}
+
+function fieldDraftsEqual(left: QuestionFieldDraft, right: QuestionFieldDraft): boolean {
+  return (
+    left.value === right.value &&
+    left.selected.length === right.selected.length &&
+    left.selected.every((item, index) => item === right.selected[index])
+  )
+}
+
+export function isQuestionDraftSnapshotPristine(
+  snapshot: QuestionDraftSnapshot,
+  initialDrafts: QuestionFieldDraft[],
+): boolean {
+  return (
+    snapshot.activeFieldIndex === 0 &&
+    snapshot.drafts.length === initialDrafts.length &&
+    snapshot.drafts.every((draft, index) =>
+      fieldDraftsEqual(draft, initialDrafts[index] ?? { value: "", selected: [] }),
+    )
+  )
 }
 
 export function fieldDraftValue(field: QuestionField, draft: QuestionFieldDraft): string {

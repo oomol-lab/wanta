@@ -1,15 +1,12 @@
-import type { ChatMessage, ChatQuestionRequest } from "../../../electron/chat/common.ts"
+import type { ChatQuestionRequest } from "../../../electron/chat/common.ts"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   addStoredDismissedQuestions,
   addStoredRecoverableQuestions,
   addStoredStoppedQuestions,
-  isQuestionDismissed,
-  mergePendingQuestionsWithStopped,
   readStoredDismissedQuestions,
   readStoredRecoverableQuestions,
-  recoverQuestionsFromMessageTools,
   readStoredQuestionDraft,
   readStoredStoppedQuestions,
   removeStoredRecoverableQuestion,
@@ -44,6 +41,7 @@ const stoppedQuestionsStorageKey = "wanta:chat:stopped-questions:v1"
 const recoverableQuestionsStorageKey = "wanta:chat:recoverable-questions:v1"
 const questionDraftsStorageKey = "wanta:chat:question-drafts:v1"
 const dismissedQuestionsStorageKey = "wanta:chat:dismissed-questions:v1"
+const questionPromptsStorageKey = "wanta:chat:question-prompts:v2"
 const staleUpdatedAt = Date.now() - 15 * 24 * 60 * 60 * 1000
 
 describe("question persistence", () => {
@@ -97,8 +95,10 @@ describe("question persistence", () => {
 
     const dismissals = readStoredDismissedQuestions("s1")
     expect(dismissals).toEqual([{ requestId: "q1", toolKey: "m1\0call-1" }])
-    expect(isQuestionDismissed(dismissed, dismissals)).toBe(true)
-    expect(isQuestionDismissed(recovered, dismissals)).toBe(true)
+    expect(dismissals.some((item) => item.requestId === dismissed.id)).toBe(true)
+    expect(dismissals.some((item) => item.toolKey === recovered.tool.messageId + "\0" + recovered.tool.callId)).toBe(
+      true,
+    )
   })
 
   it("stores and removes field drafts by request", () => {
@@ -124,198 +124,120 @@ describe("question persistence", () => {
     expect(readStoredQuestionDraft("s1", "q1", 2)).toBeNull()
   })
 
-  it("keeps stored stopped questions when the backend pending list is empty", () => {
-    expect(
-      mergePendingQuestionsWithStopped({
-        fetchedQuestions: [],
-        previousQuestions: [],
-        stoppedQuestionIds: [],
-        storedStoppedQuestions: [question("q1")],
-      }).map((request) => request.id),
-    ).toEqual(["q1"])
+  it("stores prompt state and drafts in a single v2 prompt record", () => {
+    const request = { ...question("q1"), tool: { messageId: "m1", callId: "call-1" } }
+
+    addStoredStoppedQuestions("s1", [request])
+    writeStoredQuestionDraft("s1", request, {
+      activeFieldIndex: 0,
+      drafts: [{ selected: [], value: "draft" }],
+    })
+    addStoredRecoverableQuestions("s1", [request])
+
+    expect(readStoredStoppedQuestions("s1").map((item) => item.id)).toEqual(["q1"])
+    expect(readStoredRecoverableQuestions("s1")).toEqual([])
+    expect(readStoredQuestionDraft("s1", "q1", 1)?.drafts[0]?.value).toBe("draft")
+    expect(JSON.parse(globalThis.localStorage.getItem(questionPromptsStorageKey) ?? "{}")).toMatchObject({
+      s1: [
+        {
+          draft: { activeFieldIndex: 0 },
+          request: { id: "q1" },
+          requestId: "q1",
+          state: "stopped",
+          toolKey: "m1\0call-1",
+        },
+      ],
+    })
+
+    removeStoredStoppedQuestion("s1", "q1")
+    expect(readStoredStoppedQuestions("s1")).toEqual([])
+    expect(readStoredQuestionDraft("s1", "q1", 1)?.drafts[0]?.value).toBe("draft")
+
+    addStoredRecoverableQuestions("s1", [request])
+    expect(readStoredRecoverableQuestions("s1").map((item) => item.id)).toEqual(["q1"])
   })
 
-  it("keeps stored recoverable questions when the backend pending list is empty", () => {
-    expect(
-      mergePendingQuestionsWithStopped({
-        fetchedQuestions: [],
-        previousQuestions: [],
-        stoppedQuestionIds: [],
-        storedRecoverableQuestions: [question("q1")],
-        storedStoppedQuestions: [],
-      }).map((request) => request.id),
-    ).toEqual(["q1"])
+  it("matches prompt state and drafts by tool identity when request ids change", () => {
+    const original = { ...question("q1"), tool: { messageId: "m1", callId: "call-1" } }
+    const recovered = { ...question("recovered:m1:call-1"), tool: { messageId: "m1", callId: "call-1" } }
+
+    addStoredStoppedQuestions("s1", [original])
+    writeStoredQuestionDraft("s1", original, {
+      activeFieldIndex: 0,
+      drafts: [{ selected: [], value: "tool draft" }],
+    })
+
+    expect(readStoredQuestionDraft("s1", recovered, 1)?.drafts[0]?.value).toBe("tool draft")
+
+    removeStoredStoppedQuestion("s1", recovered)
+    expect(readStoredStoppedQuestions("s1")).toEqual([])
+    expect(readStoredQuestionDraft("s1", recovered, 1)?.drafts[0]?.value).toBe("tool draft")
+
+    removeStoredQuestionDraft("s1", recovered)
+    expect(readStoredQuestionDraft("s1", original, 1)).toBeNull()
   })
 
-  it("prefers backend active questions over stopped copies with the same id", () => {
-    expect(
-      mergePendingQuestionsWithStopped({
-        fetchedQuestions: [question("q1")],
-        previousQuestions: [question("q1")],
-        stoppedQuestionIds: ["q1"],
-        storedStoppedQuestions: [question("q1")],
-      }).map((request) => request.id),
-    ).toEqual(["q1"])
-  })
-
-  it("prefers backend active questions over stopped copies with the same tool call", () => {
-    const stopped = { ...question("old"), tool: { messageId: "m1", callId: "call-1" } }
-    const active = { ...question("new"), tool: { messageId: "m1", callId: "call-1" } }
-
-    expect(
-      mergePendingQuestionsWithStopped({
-        fetchedQuestions: [active],
-        previousQuestions: [stopped],
-        stoppedQuestionIds: ["old"],
-        storedStoppedQuestions: [stopped],
-      }).map((request) => request.id),
-    ).toEqual(["new"])
-  })
-
-  it("deduplicates merged questions by id and tool call", () => {
-    const recovered = { ...question("recovered"), tool: { messageId: "m1", callId: "call-1" } }
-    const active = { ...question("active"), tool: { messageId: "m1", callId: "call-1" } }
-
-    expect(
-      mergePendingQuestionsWithStopped({
-        fetchedQuestions: [active, active],
-        previousQuestions: [recovered],
-        storedRecoverableQuestions: [recovered],
-        stoppedQuestionIds: ["recovered"],
-        storedStoppedQuestions: [recovered],
-      }).map((request) => request.id),
-    ).toEqual(["active"])
-  })
-
-  it("filters dismissed questions from merged stopped, recoverable, and fetched lists", () => {
-    const dismissed = { ...question("old"), tool: { messageId: "m1", callId: "call-1" } }
-    const recovered = { ...question("recovered"), tool: { messageId: "m1", callId: "call-1" } }
-    const active = { ...question("active"), tool: { messageId: "m1", callId: "call-1" } }
-    const visible = { ...question("visible"), tool: { messageId: "m2", callId: "call-2" } }
-
-    expect(
-      mergePendingQuestionsWithStopped({
-        dismissedQuestions: [{ requestId: dismissed.id, toolKey: "m1\0call-1" }],
-        fetchedQuestions: [active, visible],
-        previousQuestions: [dismissed],
-        storedRecoverableQuestions: [recovered],
-        stoppedQuestionIds: [dismissed.id],
-        storedStoppedQuestions: [dismissed],
-      }).map((request) => request.id),
-    ).toEqual(["visible"])
-  })
-
-  it("recovers active questions from waiting question tool parts", () => {
-    const messages: ChatMessage[] = [
-      {
-        id: "m1",
-        role: "assistant",
-        createdAt: 1,
-        parts: [
+  it("repairs missing v2 tool keys from stored request snapshots", () => {
+    const original = { ...question("q1"), tool: { messageId: "m1", callId: "call-1" } }
+    const recovered = { ...question("recovered:m1:call-1"), tool: { messageId: "m1", callId: "call-1" } }
+    globalThis.localStorage.setItem(
+      questionPromptsStorageKey,
+      JSON.stringify({
+        s1: [
           {
-            kind: "tool",
-            partId: "part-1",
-            callId: "call-1",
-            tool: "question",
-            status: "pending",
-            input: {
-              questions: [
-                {
-                  header: "Email",
-                  question: "Recipient email",
-                  options: [{ label: "a@example.com", description: "Use this address" }],
-                },
-              ],
+            draft: {
+              activeFieldIndex: 0,
+              drafts: [{ selected: [], value: "old draft" }],
+              updatedAt: Date.now(),
             },
+            request: original,
+            requestId: original.id,
+            state: "stopped",
+            updatedAt: Date.now(),
           },
         ],
-      },
-    ]
-
-    expect(recoverQuestionsFromMessageTools("s1", messages)).toEqual([
-      {
-        id: "recovered:m1:call-1",
-        sessionId: "s1",
-        questions: [
-          {
-            header: "Email",
-            question: "Recipient email",
-            options: [{ label: "a@example.com", description: "Use this address" }],
-          },
-        ],
-        tool: { messageId: "m1", callId: "call-1" },
-      },
-    ])
-  })
-
-  it("does not recover cancelled question tool parts as active questions", () => {
-    const messages: ChatMessage[] = [
-      {
-        id: "m1",
-        role: "assistant",
-        createdAt: 1,
-        parts: [
-          {
-            kind: "tool",
-            partId: "part-1",
-            callId: "call-1",
-            tool: "question",
-            status: "running",
-            cancelled: true,
-            input: { questions: [{ header: "Email", question: "Recipient email", options: [] }] },
-          },
-        ],
-      },
-    ]
-
-    expect(recoverQuestionsFromMessageTools("s1", messages)).toEqual([])
-  })
-
-  it("does not recover a waiting question tool part already returned by the backend", () => {
-    const messages: ChatMessage[] = [
-      {
-        id: "m1",
-        role: "assistant",
-        createdAt: 1,
-        parts: [
-          {
-            kind: "tool",
-            partId: "part-1",
-            callId: "call-1",
-            tool: "question",
-            status: "running",
-            input: { questions: [{ header: "Email", question: "Recipient email", options: [] }] },
-          },
-        ],
-      },
-    ]
-    const fetched = { ...question("q1"), tool: { messageId: "m1", callId: "call-1" } }
-
-    expect(recoverQuestionsFromMessageTools("s1", messages, [fetched])).toEqual([])
-  })
-
-  it("does not recover a dismissed waiting question tool part", () => {
-    const messages: ChatMessage[] = [
-      {
-        id: "m1",
-        role: "assistant",
-        createdAt: 1,
-        parts: [
-          {
-            kind: "tool",
-            partId: "part-1",
-            callId: "call-1",
-            tool: "question",
-            status: "running",
-            input: { questions: [{ header: "Email", question: "Recipient email", options: [] }] },
-          },
-        ],
-      },
-    ]
-
-    expect(recoverQuestionsFromMessageTools("s1", messages, [], [{ requestId: "q1", toolKey: "m1\0call-1" }])).toEqual(
-      [],
+      }),
     )
+
+    expect(readStoredQuestionDraft("s1", recovered, 1)?.drafts[0]?.value).toBe("old draft")
+    expect(JSON.parse(globalThis.localStorage.getItem(questionPromptsStorageKey) ?? "{}")).toMatchObject({
+      s1: [{ toolKey: "m1\0call-1" }],
+    })
+  })
+
+  it("migrates legacy stopped questions and drafts into v2 prompt storage", () => {
+    globalThis.localStorage.setItem(
+      stoppedQuestionsStorageKey,
+      JSON.stringify({
+        s1: [{ request: { ...question("q1"), tool: { messageId: "m1", callId: "call-1" } }, updatedAt: Date.now() }],
+      }),
+    )
+    globalThis.localStorage.setItem(
+      questionDraftsStorageKey,
+      JSON.stringify({
+        s1: {
+          q1: {
+            activeFieldIndex: 0,
+            drafts: [{ selected: [], value: "legacy draft" }],
+            updatedAt: Date.now(),
+          },
+        },
+      }),
+    )
+
+    expect(readStoredStoppedQuestions("s1").map((request) => request.id)).toEqual(["q1"])
+    expect(readStoredQuestionDraft("s1", "q1", 1)?.drafts[0]?.value).toBe("legacy draft")
+    expect(JSON.parse(globalThis.localStorage.getItem(questionPromptsStorageKey) ?? "{}")).toMatchObject({
+      s1: [
+        {
+          draft: { activeFieldIndex: 0 },
+          request: { id: "q1" },
+          requestId: "q1",
+          state: "stopped",
+          toolKey: "m1\0call-1",
+        },
+      ],
+    })
   })
 
   it("prunes expired stopped questions and drafts during reads", () => {

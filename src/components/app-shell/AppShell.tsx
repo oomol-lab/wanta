@@ -363,6 +363,7 @@ export function AppShell() {
     answerQuestion,
     discardQuestion,
     rejectQuestion,
+    questionDrafts,
   } = useChat(activeChatSessionId, route === "chat" ? activeChatSessionId : null)
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
@@ -1871,6 +1872,7 @@ export function AppShell() {
                       onContinueQuestion={handleContinueQuestion}
                       onDiscardQuestion={handleDiscardQuestion}
                       onRejectQuestion={handleRejectQuestion}
+                      questionDrafts={questionDrafts}
                       onSetDefaultConnection={connections.setDefaultAccount}
                       onStop={handleChatStop}
                       onQueuedMessageMove={handleQueuedMessageMove}

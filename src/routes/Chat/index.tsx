@@ -10,6 +10,7 @@ import type {
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
+import type { QuestionDraftStore } from "./question-fields.ts"
 import type { ChatPendingQuestion } from "./question-state.ts"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
@@ -68,6 +69,7 @@ interface ChatAreaProps {
   onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
+  questionDrafts: QuestionDraftStore
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => Promise<void> | void
   onComposerStateChange?: (state: ComposerState) => void
@@ -255,6 +257,7 @@ export const ChatArea = React.memo(function ChatArea({
   onContinueQuestion,
   onDiscardQuestion,
   onRejectQuestion,
+  questionDrafts,
   onSetDefaultConnection,
   onStop,
   onQueuedMessageMove,
@@ -395,6 +398,7 @@ export const ChatArea = React.memo(function ChatArea({
       onContinueQuestion={onContinueQuestion}
       onDiscardQuestion={onDiscardQuestion}
       onRejectQuestion={onRejectQuestion}
+      questionDrafts={questionDrafts}
       onStop={onStop}
       onViewBilling={onViewBilling}
     />

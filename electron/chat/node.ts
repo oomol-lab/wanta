@@ -6,6 +6,7 @@ import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
+  AgentPermissionMode,
   AnswerPermissionRequest,
   AnswerQuestionRequest,
   AttachmentPreviewRequest,
@@ -27,6 +28,7 @@ import type {
   ResolveLocalArtifactsRequest,
   ResolveLocalArtifactsResult,
   SendMessageRequest,
+  SetChatPermissionModeRequest,
   SetAgentOrganizationRequest,
   ShowLocalPathInFolderRequest,
   ToolCallResultEvent,
@@ -36,6 +38,7 @@ import type {
   TurnOutputRecord,
   TurnOutputRequest,
 } from "./common.ts"
+import type { SessionPermissionGrant } from "./permission-request.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
 import type { StoredTurnOutputRecord, TurnOutputRecords, TurnOutputStore } from "./turn-outputs.ts"
 import type { IConnectionService } from "@oomol/connection"
@@ -59,9 +62,9 @@ import {
   mergeSystemPrompts,
 } from "./context-system.ts"
 import { normalizeChatError } from "./error.ts"
+import { evaluateLocalAccessRequest, localAccessGrantForRequest } from "./local-access-policy.ts"
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
-import { projectPermissionRequestInsideRoot } from "./project-permission.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 import {
   intermediateArtifactProcessFiles,
@@ -81,6 +84,10 @@ const generationInactivityTimeoutMs = 2 * 60_000
 const generationActiveToolInactivityTimeoutMs = 10 * 60_000
 const questionRejectTimeoutMs = 5_000
 const defaultMaxDirectoryItems = 80
+
+function permissionReplyKey(sessionId: string, requestId: string): string {
+  return `${sessionId}\n${requestId}`
+}
 
 interface ActiveTurnOutput {
   artifactRoot: string
@@ -220,6 +227,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private connectionFailedSessions = new Set<string>()
   private trustedProjectRoots = new Map<string, string>()
   private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
+  private permissionModes = new Map<string, AgentPermissionMode>()
+  private permissionModeVersions = new Map<string, number>()
+  private sessionPermissionGrants = new Map<string, SessionPermissionGrant[]>()
+  private automaticPermissionReplies = new Set<string>()
+  private pendingPermissionRequests = new Map<string, ChatPermissionRequest>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
   private artifactRoots: ArtifactRoots = new Map()
@@ -264,6 +276,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.connectionFailedSessions.clear()
     this.trustedProjectRoots.clear()
     this.trustedSubagentSessionsByParent.clear()
+    this.permissionModes.clear()
+    this.permissionModeVersions.clear()
+    this.sessionPermissionGrants.clear()
+    this.automaticPermissionReplies.clear()
+    this.pendingPermissionRequests.clear()
     this.artifactRoots.clear()
     this.artifactRootsLoaded = false
     this.artifactRootsLoadPromise = null
@@ -355,15 +372,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (translated.event === "messageStarted") {
           this.emitSessionActivity(translated.data.sessionId)
         }
-        if (
-          translated.event === "permissionAsked" &&
-          this.answerTrustedProjectPermission(emit, translated.data.request)
-        ) {
+        if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
           const generationSessionId = this.generationWatchdogSessionId(translated.data.sessionId)
           if (generationSessionId) {
             this.clearGenerationInactivityWatchdog(generationSessionId)
           }
           continue
+        }
+        if (translated.event === "permissionAsked") {
+          this.rememberPendingPermissionRequest(translated.data.request)
         }
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
@@ -659,27 +676,95 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     })
   }
 
-  private answerTrustedProjectPermission(
+  private sessionPermissionMode(sessionId: string): AgentPermissionMode {
+    return this.permissionModes.get(sessionId) ?? "default"
+  }
+
+  private setSessionPermissionModeValue(sessionId: string, mode: AgentPermissionMode, version?: number): boolean {
+    if (typeof version === "number") {
+      const currentVersion = this.permissionModeVersions.get(sessionId) ?? 0
+      if (version < currentVersion) {
+        return false
+      }
+      this.permissionModeVersions.set(sessionId, version)
+    }
+    this.permissionModes.set(sessionId, mode)
+    return true
+  }
+
+  private addSessionPermissionGrant(sessionId: string, request: ChatPermissionRequest): void {
+    const grant = localAccessGrantForRequest(request)
+    if (!grant) {
+      return
+    }
+    const grants = this.sessionPermissionGrants.get(sessionId) ?? []
+    const exists = grants.some(
+      (item) => item.action === grant.action && item.patterns.join("\n") === grant.patterns.join("\n"),
+    )
+    if (!exists) {
+      this.sessionPermissionGrants.set(sessionId, [...grants, grant])
+    }
+  }
+
+  private rememberPendingPermissionRequest(request: ChatPermissionRequest): void {
+    this.pendingPermissionRequests.set(permissionReplyKey(request.sessionId, request.id), request)
+  }
+
+  private forgetPendingPermissionRequest(sessionId: string, requestId: string): void {
+    this.pendingPermissionRequests.delete(permissionReplyKey(sessionId, requestId))
+  }
+
+  private forgetSessionPendingPermissionRequests(sessionId: string): void {
+    for (const [key, request] of this.pendingPermissionRequests) {
+      if (request.sessionId === sessionId) {
+        this.pendingPermissionRequests.delete(key)
+      }
+    }
+  }
+
+  private pendingPermissionRequest(sessionId: string, requestId: string): ChatPermissionRequest | undefined {
+    return this.pendingPermissionRequests.get(permissionReplyKey(sessionId, requestId))
+  }
+
+  private answerLocalAccessPermission(
     emit: (event: string, data: unknown) => Promise<void>,
     request: ChatPermissionRequest,
   ): boolean {
     const projectRoot = this.trustedProjectRoots.get(request.sessionId)
-    if (!this.agent || !projectRoot || !projectPermissionRequestInsideRoot(request, projectRoot)) {
+    const decision = evaluateLocalAccessRequest(request, {
+      permissionMode: this.sessionPermissionMode(request.sessionId),
+      sessionGrants: this.sessionPermissionGrants.get(request.sessionId),
+      ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
+    })
+    if (!this.agent || decision.type !== "allow") {
       return false
     }
+    const replyKey = permissionReplyKey(request.sessionId, request.id)
+    if (this.automaticPermissionReplies.has(replyKey)) {
+      return true
+    }
+    this.automaticPermissionReplies.add(replyKey)
     void this.agent
       .answerPermission(request.sessionId, request.id, "once")
       .then(() => {
+        this.sendBestEffort(
+          emit,
+          "permissionReplied",
+          { sessionId: request.sessionId, requestId: request.id },
+          { sessionId: request.sessionId },
+        )
+        this.forgetPendingPermissionRequest(request.sessionId, request.id)
         this.scheduleGenerationInactivityWatchdogAfterReply(request.sessionId)
       })
       .catch((error: unknown) => {
-        console.warn("[wanta] failed to approve trusted project permission:", error)
+        console.warn("[wanta] failed to approve local access permission:", error)
         logDiagnostic(
           "chat-service",
-          "failed to approve trusted project permission",
-          { action: request.action, error, sessionId: request.sessionId },
+          "failed to approve local access permission",
+          { action: request.action, error, reason: decision.reason, sessionId: request.sessionId },
           "warn",
         )
+        this.rememberPendingPermissionRequest(request)
         this.sendBestEffort(
           emit,
           "permissionAsked",
@@ -687,15 +772,55 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           { sessionId: request.sessionId },
         )
       })
+      .finally(() => {
+        this.automaticPermissionReplies.delete(replyKey)
+      })
     return true
+  }
+
+  private async autoAnswerPendingPermissions(
+    sessionId: string,
+    emit: (event: string, data: unknown) => Promise<void> = this.send.bind(this) as (
+      event: string,
+      data: unknown,
+    ) => Promise<void>,
+  ): Promise<void> {
+    if (!this.agent) {
+      return
+    }
+    let permissions: ChatPermissionRequest[]
+    try {
+      permissions = await this.agent.getPendingPermissions(sessionId)
+    } catch (error) {
+      console.warn("[wanta] failed to inspect pending permissions:", error)
+      logDiagnostic("chat-service", "failed to inspect pending permissions", { error, sessionId }, "warn")
+      return
+    }
+    for (const request of permissions) {
+      this.answerLocalAccessPermission(emit, request)
+    }
   }
 
   private rememberTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
     const projectRoot = this.trustedProjectRoots.get(parentSessionId)
-    if (!projectRoot) {
+    const permissionMode = this.permissionModes.get(parentSessionId)
+    const permissionModeVersion = this.permissionModeVersions.get(parentSessionId)
+    const sessionGrants = this.sessionPermissionGrants.get(parentSessionId)
+    if (!projectRoot && !permissionMode && !sessionGrants) {
       return
     }
-    this.trustedProjectRoots.set(childSessionId, projectRoot)
+    if (projectRoot) {
+      this.trustedProjectRoots.set(childSessionId, projectRoot)
+    }
+    if (permissionMode) {
+      this.permissionModes.set(childSessionId, permissionMode)
+    }
+    if (typeof permissionModeVersion === "number") {
+      this.permissionModeVersions.set(childSessionId, permissionModeVersion)
+    }
+    if (sessionGrants) {
+      this.sessionPermissionGrants.set(childSessionId, [...sessionGrants])
+    }
     const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId) ?? new Set<string>()
     childSessionIds.add(childSessionId)
     this.trustedSubagentSessionsByParent.set(parentSessionId, childSessionIds)
@@ -708,6 +833,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     childSessionIds.delete(childSessionId)
     this.trustedProjectRoots.delete(childSessionId)
+    this.permissionModes.delete(childSessionId)
+    this.permissionModeVersions.delete(childSessionId)
+    this.sessionPermissionGrants.delete(childSessionId)
+    this.forgetSessionPendingPermissionRequests(childSessionId)
     if (childSessionIds.size === 0) {
       this.trustedSubagentSessionsByParent.delete(parentSessionId)
     }
@@ -720,6 +849,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     for (const childSessionId of childSessionIds) {
       this.trustedProjectRoots.delete(childSessionId)
+      this.permissionModes.delete(childSessionId)
+      this.permissionModeVersions.delete(childSessionId)
+      this.sessionPermissionGrants.delete(childSessionId)
+      this.forgetSessionPendingPermissionRequests(childSessionId)
     }
     this.trustedSubagentSessionsByParent.delete(parentSessionId)
   }
@@ -750,6 +883,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearGenerationStartWatchdog(sessionId)
     this.clearGenerationInactivityWatchdog(sessionId)
     this.forgetTrustedSubagentSessions(sessionId)
+    this.forgetSessionPendingPermissionRequests(sessionId)
     this.sessionGenerations.delete(sessionId)
     void this.agent?.clearSessionOrganizationName(sessionId).catch((error: unknown) => {
       console.warn("[wanta] failed to clear session organization scope:", error)
@@ -1006,6 +1140,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    this.setSessionPermissionModeValue(
+      req.sessionId,
+      req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
+      req.permissionModeVersion,
+    )
     const organizationName = organizationNameFromRequest(req)
     this.desiredIdleOrganizationName = organizationName
     let generation: SessionGeneration | undefined
@@ -1506,15 +1645,54 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return []
     }
-    return this.agent.getPendingPermissions(sessionId)
+    const permissions = await this.agent.getPendingPermissions(sessionId)
+    const pendingPermissions: ChatPermissionRequest[] = []
+    const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+    for (const request of permissions) {
+      if (!this.answerLocalAccessPermission(emit, request)) {
+        this.rememberPendingPermissionRequest(request)
+        pendingPermissions.push(request)
+      }
+    }
+    return pendingPermissions
   }
 
   public async answerPermission(req: AnswerPermissionRequest): Promise<void> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    await this.agent.answerPermission(req.sessionId, req.requestId, req.reply)
+    if (req.reply === "always") {
+      let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
+      if (!request) {
+        try {
+          request = (await this.agent.getPendingPermissions(req.sessionId)).find((item) => item.id === req.requestId)
+        } catch (error) {
+          console.warn("[wanta] failed to inspect permission before saving session grant:", error)
+          logDiagnostic(
+            "chat-service",
+            "failed to inspect permission before saving session grant",
+            { error, requestId: req.requestId, sessionId: req.sessionId },
+            "warn",
+          )
+        }
+      }
+      if (request) {
+        this.addSessionPermissionGrant(req.sessionId, request)
+      }
+    }
+    await this.agent.answerPermission(req.sessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
+    this.forgetPendingPermissionRequest(req.sessionId, req.requestId)
     this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
+    this.emitSessionActivity(req.sessionId)
+  }
+
+  public async setPermissionMode(req: SetChatPermissionModeRequest): Promise<void> {
+    if (!this.setSessionPermissionModeValue(req.sessionId, req.permissionMode, req.version)) {
+      return
+    }
+    if (req.permissionMode === "full_access") {
+      await this.autoAnswerPendingPermissions(req.sessionId)
+    }
     this.emitSessionActivity(req.sessionId)
   }
 }

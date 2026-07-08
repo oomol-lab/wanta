@@ -24,6 +24,7 @@ function createBridgeAgent(): {
   createArtifactDir: ReturnType<typeof vi.fn>
   createProcessDir: ReturnType<typeof vi.fn>
   emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
+  getPendingPermissions: ReturnType<typeof vi.fn>
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
   setSessionOrganizationName: ReturnType<typeof vi.fn>
@@ -36,6 +37,7 @@ function createBridgeAgent(): {
   const answerQuestion = vi.fn(async () => undefined)
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
+  const getPendingPermissions = vi.fn(async () => [])
   const promptStreaming = vi.fn(async () => undefined)
   const rejectQuestion = vi.fn(async () => undefined)
   const clearSessionOrganizationName = vi.fn(async () => undefined)
@@ -60,6 +62,7 @@ function createBridgeAgent(): {
     setSessionOrganizationName,
     promptStreaming,
     getMessages: vi.fn(async () => []),
+    getPendingPermissions,
   } as unknown as AgentManager
   return {
     agent,
@@ -69,6 +72,7 @@ function createBridgeAgent(): {
     createArtifactDir,
     createProcessDir,
     emit: (event) => listener?.(event),
+    getPendingPermissions,
     promptStreaming,
     rejectQuestion,
     setSessionOrganizationName,
@@ -1328,6 +1332,156 @@ test("trusted project permission approval does not cover paths outside the proje
   await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
 
   assert.equal(bridge.answerPermission.mock.calls.length, 0)
+})
+
+test("full access permissions are approved in the main process", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access" })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["npm test"],
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(
+    events.some((event) => event.event === "permissionAsked"),
+    false,
+  )
+})
+
+test("stale permission mode updates do not override newer modes", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  service.startEventBridge()
+
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 2 })
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "default", version: 1 })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["npm test"],
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+})
+
+test("automatic permission replies are deduplicated across pending reload and events", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access" })
+  let resolveReply: (() => void) | undefined
+  bridge.answerPermission.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveReply = resolve
+      }),
+  )
+  bridge.getPendingPermissions.mockResolvedValueOnce([
+    {
+      id: "permission-1",
+      sessionId: "session-1",
+      action: "bash",
+      resources: ["npm test"],
+    },
+  ])
+
+  const pending = await service.getPendingPermissions("session-1")
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ["npm test"],
+    },
+  })
+
+  assert.deepEqual(pending, [])
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  resolveReply?.()
+  await waitForCondition(() => events.some((event) => event.event === "permissionReplied"))
+})
+
+test("pure oo permissions are approved in the main process", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: ['oo search "gmail" --json'],
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+  assert.equal(
+    events.some((event) => event.event === "permissionAsked"),
+    false,
+  )
+})
+
+test("always permission reply stores a main-process session grant", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "external_directory",
+      resources: ["/Users/example/Desktop/reports"],
+    },
+  })
+
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+
+  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-2",
+      sessionID: "session-1",
+      action: "external_directory",
+      resources: ["/Users/example/Desktop/reports/q1.csv"],
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
+  assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {

@@ -21,7 +21,6 @@ import type {
 import type { ModelChoice } from "../../electron/models/common.ts"
 import type { SessionScope } from "../../electron/session/common.ts"
 import type { TextDeltaEvent, TextDeltaKind } from "./chat-message-state.ts"
-import type { SessionPermissionGrant } from "@/routes/Chat/permission-request"
 import type { QuestionDraftStore } from "@/routes/Chat/question-fields"
 import type { ChatPendingQuestion } from "@/routes/Chat/question-state"
 import type { ChatStatus } from "ai"
@@ -54,11 +53,6 @@ import {
 } from "./chat-message-state.ts"
 import { useChatService } from "@/components/AppContext"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
-import {
-  createSessionPermissionGrant,
-  isOoCliPermissionRequest,
-  requestMatchesSessionGrant,
-} from "@/routes/Chat/permission-request"
 import {
   removeStoppedQuestionIds,
   reconcilePendingQuestions,
@@ -128,7 +122,7 @@ export interface UseChat {
   rejectQuestion: (sessionId: string, requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
   permissionMode: AgentPermissionMode
-  setPermissionMode: (sessionId: string, mode: AgentPermissionMode) => void
+  setPermissionMode: (sessionId: string, mode: AgentPermissionMode) => number
 }
 
 function setSessionStatus(
@@ -202,7 +196,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const pendingQuestionsMapRef = React.useRef(pendingQuestionsMap)
   const pendingPermissionsMapRef = React.useRef(pendingPermissionsMap)
   const permissionModesRef = React.useRef(permissionModes)
-  const sessionPermissionGrants = React.useRef(new Map<string, SessionPermissionGrant[]>())
+  const permissionModeVersionsRef = React.useRef<Record<string, number>>({})
   const stoppedQuestionsMapRef = React.useRef(stoppedQuestionsMap)
 
   const updatePendingQuestionsMap = React.useCallback(
@@ -519,33 +513,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [markPendingPermissionsMutated, updatePendingPermissionsMap],
   )
 
-  const addSessionPermissionGrant = React.useCallback((sessionId: string, request: ChatPermissionRequest): void => {
-    const grant = createSessionPermissionGrant(request)
-    if (!grant) {
-      return
-    }
-    const grants = sessionPermissionGrants.current.get(sessionId) ?? []
-    const exists = grants.some(
-      (item) => item.action === grant.action && item.patterns.join("\n") === grant.patterns.join("\n"),
-    )
-    if (!exists) {
-      sessionPermissionGrants.current.set(sessionId, [...grants, grant])
-    }
-  }, [])
-
-  const hasSessionPermissionGrant = React.useCallback((sessionId: string, request: ChatPermissionRequest): boolean => {
-    const grants = sessionPermissionGrants.current.get(sessionId) ?? []
-    return grants.some((grant) => requestMatchesSessionGrant(request, grant))
-  }, [])
-
-  const isAutoApprovablePermission = React.useCallback(
-    (sessionId: string, request: ChatPermissionRequest, permissionMode: AgentPermissionMode): boolean =>
-      isOoCliPermissionRequest(request) ||
-      hasSessionPermissionGrant(sessionId, request) ||
-      permissionMode === "full_access",
-    [hasSessionPermissionGrant],
-  )
-
   const replyPermissionRequest = React.useCallback(
     async (sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> => {
       await chatService.invoke("answerPermission", { sessionId, requestId, reply })
@@ -554,31 +521,21 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [chatService, removePendingPermission],
   )
 
-  const replyAllPendingPermissions = React.useCallback(
-    (sessionId: string, reply: ChatPermissionReply): void => {
-      const requests = pendingPermissionsMapRef.current[sessionId] ?? []
-      if (requests.length === 0) {
-        return
-      }
-      for (const request of requests) {
-        void replyPermissionRequest(sessionId, request.id, reply).catch((err: unknown) => {
-          reportRendererHandledError("chat", "answerPermission invoke failed", err)
-          setSessionError(sessionId, err instanceof Error ? err.message : String(err))
-        })
-      }
-    },
-    [replyPermissionRequest, setSessionError],
-  )
-
   const setPermissionMode = React.useCallback(
-    (sessionId: string, mode: AgentPermissionMode): void => {
+    (sessionId: string, mode: AgentPermissionMode): number => {
+      const version = (permissionModeVersionsRef.current[sessionId] ?? 0) + 1
+      permissionModeVersionsRef.current = { ...permissionModeVersionsRef.current, [sessionId]: version }
       setPermissionModes((current) => (current[sessionId] === mode ? current : { ...current, [sessionId]: mode }))
       permissionModesRef.current = { ...permissionModesRef.current, [sessionId]: mode }
-      if (mode === "full_access") {
-        replyAllPendingPermissions(sessionId, "once")
-      }
+      void chatService
+        .invoke("setPermissionMode", { sessionId, permissionMode: mode, version })
+        .catch((err: unknown) => {
+          console.error("[wanta] set chat permission mode failed", err)
+          reportRendererHandledError("chat", "setPermissionMode invoke failed", err)
+        })
+      return version
     },
-    [replyAllPendingPermissions],
+    [chatService],
   )
 
   React.useEffect(() => {
@@ -775,36 +732,16 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if ((pendingPermissionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
           return
         }
-        const permissionMode = sessionPermissionMode(sessionId)
-        const remainingPermissions: ChatPermissionRequest[] = []
-        for (const permission of permissions) {
-          const autoApprovable = isAutoApprovablePermission(sessionId, permission, permissionMode)
-          if (autoApprovable) {
-            void replyPermissionRequest(sessionId, permission.id, "once").catch((err: unknown) => {
-              reportRendererHandledError("chat", "answerPermission invoke failed", err)
-              setSessionError(sessionId, err instanceof Error ? err.message : String(err))
-            })
-          } else {
-            remainingPermissions.push(permission)
-          }
-        }
         updatePendingPermissionsMap((prev) => ({
           ...prev,
-          [sessionId]: remainingPermissions,
+          [sessionId]: permissions,
         }))
       } catch (err) {
         console.error("[wanta] getPendingPermissions failed", err)
         reportRendererHandledError("chat", "getPendingPermissions failed", err)
       }
     },
-    [
-      chatService,
-      isAutoApprovablePermission,
-      replyPermissionRequest,
-      sessionPermissionMode,
-      setSessionError,
-      updatePendingPermissionsMap,
-    ],
+    [chatService, updatePendingPermissionsMap],
   )
 
   React.useEffect(() => {
@@ -877,19 +814,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       }),
       chatService.serverEvents.on("permissionAsked", (e) => {
         flushPendingToolParts()
-        const permissionMode = sessionPermissionMode(e.sessionId)
-        const autoApprovable = isAutoApprovablePermission(e.sessionId, e.request, permissionMode)
-        setStatus(e.sessionId, autoApprovable ? "streaming" : "ready")
+        setStatus(e.sessionId, "ready")
         setActivity(e.sessionId, undefined)
         markPendingPermissionsMutated(e.sessionId)
-        if (autoApprovable) {
-          void replyPermissionRequest(e.sessionId, e.request.id, "once").catch((err: unknown) => {
-            reportRendererHandledError("chat", "answerPermission invoke failed", err)
-            setStatus(e.sessionId, "error")
-            setSessionError(e.sessionId, err instanceof Error ? err.message : String(err))
-          })
-          return
-        }
         updatePendingPermissionsMap((current) => {
           const permissions = current[e.sessionId] ?? []
           const next = [e.request, ...permissions.filter((request) => request.id !== e.request.id)]
@@ -976,7 +903,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     flushPendingToolParts,
     flushPendingTextDeltas,
     forgetPendingToolPart,
-    isAutoApprovablePermission,
     isSessionUserStopped,
     markCurrentToolsCancelled,
     markPendingPermissionsMutated,
@@ -989,8 +915,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     rememberCancelledToolParts,
     removePendingPermission,
     removePendingQuestion,
-    replyPermissionRequest,
-    sessionPermissionMode,
     setActivity,
     setSessionError,
     setStatus,
@@ -1028,7 +952,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       clearSessionError(sessionId)
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
-      setPermissionMode(sessionId, options.permissionMode ?? sessionPermissionMode(sessionId))
+      const selectedPermissionMode = options.permissionMode ?? sessionPermissionMode(sessionId)
+      const permissionModeVersion = setPermissionMode(sessionId, selectedPermissionMode)
       setStatus(sessionId, "submitted")
       setActivity(sessionId, { sessionId, phase: "thinking" })
       patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments, options.contextMentions))
@@ -1041,7 +966,8 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           mode: options.mode,
           model: options.model,
           organizationSkills: options.organizationSkills,
-          permissionMode: options.permissionMode ?? sessionPermissionMode(sessionId),
+          permissionMode: selectedPermissionMode,
+          permissionModeVersion,
           projectContext: options.projectContext,
           reasoningLevel: options.reasoningLevel,
           scope: options.sessionScope,
@@ -1131,11 +1057,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       setStatus(sessionId, "streaming")
       setActivity(sessionId, { sessionId, phase: "thinking" })
       try {
-        const request = (pendingPermissionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
-        if (reply === "always" && request) {
-          addSessionPermissionGrant(sessionId, request)
-        }
-        await replyPermissionRequest(sessionId, requestId, reply === "always" ? "once" : reply)
+        await replyPermissionRequest(sessionId, requestId, reply)
       } catch (err) {
         reportRendererHandledError("chat", "answerPermission invoke failed", err)
         setStatus(sessionId, "error")
@@ -1144,7 +1066,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         throw err
       }
     },
-    [addSessionPermissionGrant, clearSessionError, replyPermissionRequest, setActivity, setSessionError, setStatus],
+    [clearSessionError, replyPermissionRequest, setActivity, setSessionError, setStatus],
   )
 
   const discardQuestion = React.useCallback(

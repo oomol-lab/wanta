@@ -169,6 +169,11 @@ export interface AnswerPermissionRequest {
   requestId: string
   reply: ChatPermissionReply
 }
+export interface SetChatPermissionModeRequest {
+  sessionId: string
+  permissionMode: AgentPermissionMode
+  version?: number
+}
 export interface MessageCompletedEvent {
   sessionId: string
 }
@@ -279,6 +284,7 @@ export interface SendMessageRequest {
   scope?: SessionScope
   model?: ModelChoice
   permissionMode?: AgentPermissionMode
+  permissionModeVersion?: number
   reasoningLevel?: ReasoningLevel
   mode?: AgentMode
 }
@@ -745,6 +751,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     rejectQuestion(req: RejectQuestionRequest): Promise<void>
     getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]>
     answerPermission(req: AnswerPermissionRequest): Promise<void>
+    setPermissionMode(req: SetChatPermissionModeRequest): Promise<void>
     getAgentStatus(): Promise<AgentRuntimeStatus>
     /** Agent sidecar 是否就绪（未配置 OO_API_KEY 时为 false）。 */
     isReady(): Promise<boolean>

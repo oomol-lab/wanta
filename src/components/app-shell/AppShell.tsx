@@ -89,7 +89,12 @@ import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
-import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
+import {
+  chatTurnAllowsDirectSend,
+  chatTurnAllowsStop,
+  chatTurnQueuesNewMessage,
+  resolveChatTurnState,
+} from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { formatQuestionResumeMessage } from "@/routes/Chat/question-resume-message"
@@ -1198,7 +1203,7 @@ export function AppShell() {
           }
           return { error, status: "failed" }
         }
-        return { status: "accepted" }
+        return { delivery: "sent", status: "accepted" }
       } finally {
         sendInFlightKeysRef.current.delete(sendKey)
       }
@@ -1317,7 +1322,7 @@ export function AppShell() {
       ) {
         queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
         clearSubmittedDraft()
-        return { status: "accepted" }
+        return { delivery: "queued", status: "accepted" }
       }
       const result = await sendNow({
         afterOptimisticSubmit: clearSubmittedDraft,
@@ -1364,12 +1369,18 @@ export function AppShell() {
       if (!sessionId) {
         return
       }
-      const result = await handleSend({ text: formatQuestionResumeMessage(t, request, answers) })
-      if (chatSendAccepted(result)) {
+      if (!chatTurnAllowsDirectSend(activeChatTurnState)) {
+        if (!chatTurnAllowsStop(activeChatTurnState)) {
+          throw new Error("The current turn is waiting for another action.")
+        }
+        await stop(sessionId)
+      }
+      const result = await sendNow({ text: formatQuestionResumeMessage(t, request, answers) })
+      if (result.status === "accepted" && result.delivery === "sent") {
         discardQuestion(sessionId, request.id)
       }
     },
-    [activeChatSessionId, discardQuestion, handleSend, t],
+    [activeChatSessionId, activeChatTurnState, discardQuestion, sendNow, stop, t],
   )
 
   const handleDiscardQuestion = React.useCallback(

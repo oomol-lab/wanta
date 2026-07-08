@@ -172,6 +172,7 @@ function isWaitingQuestionToolPart(part: ChatMessagePart): boolean {
     part.kind === "tool" &&
     part.tool === "question" &&
     typeof part.callId === "string" &&
+    part.cancelled !== true &&
     (part.status === "pending" || part.status === "running")
   )
 }

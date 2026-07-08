@@ -114,7 +114,7 @@ export interface ChatSendRequest {
 export type ChatSendRejectedReason = "send_in_flight" | "workspace_not_ready"
 
 export type ChatSendResult =
-  | { status: "accepted" }
+  | { delivery: "queued" | "sent"; status: "accepted" }
   | { reason: ChatSendRejectedReason; status: "rejected" }
   | { error: unknown; status: "failed" }
 

@@ -95,7 +95,8 @@ describe("workspace switch pending state", () => {
 
 describe("chat send result", () => {
   test("only treats accepted send results as accepted", () => {
-    expect(chatSendAccepted({ status: "accepted" })).toBe(true)
+    expect(chatSendAccepted({ delivery: "sent", status: "accepted" })).toBe(true)
+    expect(chatSendAccepted({ delivery: "queued", status: "accepted" })).toBe(true)
     expect(chatSendAccepted({ reason: "workspace_not_ready", status: "rejected" })).toBe(false)
     expect(chatSendAccepted({ error: new Error("failed"), status: "failed" })).toBe(false)
   })

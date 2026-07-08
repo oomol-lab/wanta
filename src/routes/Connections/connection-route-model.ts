@@ -72,6 +72,10 @@ export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): bool
   return isConnectionlessNoAuthProvider(provider)
 }
 
+export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
+  return !isNoAuthReadyProvider(provider)
+}
+
 export function getProviderStatusTone(provider: ConnectionProviderSummary): "attention" | "available" | "connected" {
   if (provider.status === "needs_attention") {
     return "attention"

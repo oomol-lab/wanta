@@ -245,6 +245,9 @@ export function ChatComposer({
   const activePendingQuestion = pendingQuestions.find((item) => item.state === "active")?.request
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
   const composerAttachmentsDisabled = Boolean(activePendingQuestion)
+  const composerSubmitStatus = activePendingQuestion ? "ready" : status
+  const composerSubmitGenerating = activePendingQuestion ? false : isGenerating
+  const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled =
     submitDisabled || voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
@@ -703,12 +706,12 @@ export function ChatComposer({
           composerDisabled={composerDisabled}
           contextUsage={contextUsage}
           initialSendPending={initialSendPending}
-          isGenerating={isGenerating}
+          isGenerating={composerSubmitGenerating}
           modelCatalog={modelCatalog}
           agentMode={agentMode}
           permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
-          status={status}
+          status={composerSubmitStatus}
           voiceActive={voiceInput.active}
           voiceBars={voiceInput.bars}
           voiceDurationMs={voiceInput.durationMs}
@@ -717,7 +720,7 @@ export function ChatComposer({
           voiceRetryBlob={voiceInput.retryBlob}
           voiceStarting={voiceInput.starting}
           voiceTranscribing={voiceInput.transcribing}
-          willQueueMessage={willQueueMessage}
+          willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}

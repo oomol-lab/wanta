@@ -13,6 +13,7 @@ import {
   isConnected,
   isNoAuthReadyProvider,
   normalizeConnectionAliasInput,
+  shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
 
@@ -42,6 +43,7 @@ test("virtual no-auth ready providers count as connected", () => {
 
   assert.equal(isConnected(ready), true)
   assert.equal(isNoAuthReadyProvider(ready), true)
+  assert.equal(shouldLoadProviderDetail(ready), false)
   assert.equal(
     getProviderMeta(ready, (key, vars) => translate("en", key, vars)),
     "No account required",
@@ -64,6 +66,7 @@ test("managed no-auth accounts are not treated as connectionless providers", () 
 
   assert.equal(isConnected(ready), true)
   assert.equal(isNoAuthReadyProvider(ready), false)
+  assert.equal(shouldLoadProviderDetail(ready), true)
 })
 
 test("buildCredentialSummaryDisplayValues keeps only non-secret display values", () => {

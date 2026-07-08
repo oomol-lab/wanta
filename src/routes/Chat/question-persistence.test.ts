@@ -205,7 +205,7 @@ describe("question persistence", () => {
     ).toEqual(["visible"])
   })
 
-  it("recovers stopped questions from waiting question tool parts", () => {
+  it("recovers active questions from waiting question tool parts", () => {
     const messages: ChatMessage[] = [
       {
         id: "m1",
@@ -246,6 +246,29 @@ describe("question persistence", () => {
         tool: { messageId: "m1", callId: "call-1" },
       },
     ])
+  })
+
+  it("does not recover cancelled question tool parts as active questions", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "m1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "part-1",
+            callId: "call-1",
+            tool: "question",
+            status: "running",
+            cancelled: true,
+            input: { questions: [{ header: "Email", question: "Recipient email", options: [] }] },
+          },
+        ],
+      },
+    ]
+
+    expect(recoverQuestionsFromMessageTools("s1", messages)).toEqual([])
   })
 
   it("does not recover a waiting question tool part already returned by the backend", () => {

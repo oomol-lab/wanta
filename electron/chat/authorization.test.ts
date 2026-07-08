@@ -145,6 +145,34 @@ test("parseSearchAuthorizationSignal suppresses a single unrelated provider when
   )
 })
 
+test("parseSearchAuthorizationSignal detects explicit provider aliases without CamelCase", () => {
+  assert.equal(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "launchdarkly", authenticated: false }]), {
+      query: "PostHog feature flags",
+      userText: "posthog 功能介绍",
+    }),
+    null,
+  )
+  assert.equal(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "github", authenticated: false }]), {
+      query: "Notion project docs",
+      userText: "Notion project docs",
+    }),
+    null,
+  )
+  assert.deepEqual(
+    parseSearchAuthorizationSignal(JSON.stringify([{ service: "slack", authenticated: false }]), {
+      query: "Slack messages",
+      userText: "Slack messages",
+    }),
+    {
+      service: "slack",
+      displayName: "Slack",
+      errorCode: "connection_required",
+    },
+  )
+})
+
 test("parseSearchAuthorizationSignal does not match provider names as arbitrary substrings", () => {
   const output = JSON.stringify([
     { service: "box", name: "upload_file", authenticated: false },

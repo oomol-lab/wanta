@@ -67,21 +67,62 @@ function serviceTokens(service: string): string[] {
   return searchTokens(service).filter((token) => token !== "oo")
 }
 
+function serviceMatchTokens(service: string): Set<string> {
+  const tokens = serviceTokens(service)
+  const matchTokens = new Set(tokens)
+  const compact = tokens.join("")
+  if (compact) {
+    matchTokens.add(compact)
+  }
+  return matchTokens
+}
+
 function serviceMatchesContext(service: string, contextTokens: Set<string>): boolean {
   const tokens = serviceTokens(service)
   return tokens.length > 0 && tokens.every((token) => contextTokens.has(token))
 }
+
+const knownProviderAliasTokens = new Set([
+  "airtable",
+  "asana",
+  "clickup",
+  "figma",
+  "github",
+  "gitlab",
+  "gmail",
+  "google",
+  "googledrive",
+  "googlesheets",
+  "hubspot",
+  "jira",
+  "linear",
+  "notion",
+  "posthog",
+  "salesforce",
+  "slack",
+  "supabase",
+  "trello",
+  "zendesk",
+])
 
 function explicitProviderTokens(value: string): Set<string> {
   const tokens = new Set<string>()
   const matches = value.matchAll(/[A-Za-z0-9][A-Za-z0-9._-]*/g)
   for (const match of matches) {
     const token = match[0] ?? ""
-    // 品牌名常用 CamelCase（如 PostHog / LaunchDarkly）；只用它来识别“明确点名的 provider”。
-    if (/[a-z][A-Z]/.test(token)) {
-      for (const normalized of searchTokens(token)) {
-        tokens.add(normalized)
-      }
+    const normalizedTokens = searchTokens(token)
+    const compactToken = normalizedTokens.join("")
+    // 品牌名可能是 CamelCase、首字母大写，或常见全小写别名（如 posthog）。
+    const looksLikeProviderAlias =
+      /[a-z][A-Z]/.test(token) || /^[A-Z][A-Za-z0-9._-]*$/.test(token) || knownProviderAliasTokens.has(compactToken)
+    if (!looksLikeProviderAlias) {
+      continue
+    }
+    for (const normalized of normalizedTokens) {
+      tokens.add(normalized)
+    }
+    if (compactToken) {
+      tokens.add(compactToken)
     }
   }
   return tokens
@@ -92,7 +133,7 @@ function hasExplicitProviderMismatch(service: string, contextText: string): bool
   if (explicitTokens.size === 0) {
     return false
   }
-  return !serviceTokens(service).some((token) => explicitTokens.has(token))
+  return ![...serviceMatchTokens(service)].some((token) => explicitTokens.has(token))
 }
 
 export function parseSearchAuthorizationSignal(

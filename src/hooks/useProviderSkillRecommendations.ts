@@ -1,5 +1,4 @@
 import type { ConnectionProvider } from "../../electron/connections/common.ts"
-import type { ManagedSkillGroup } from "../../electron/skills/common.ts"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations"
 import type { ManagedSkillGroupById } from "@/routes/Skills/skill-route-model"
 
@@ -21,7 +20,7 @@ export function useProviderSkillRecommendations({
   groupById,
   providers,
 }: {
-  groupById: ManagedSkillGroupById | ReadonlyMap<string, ManagedSkillGroup> | undefined
+  groupById: ManagedSkillGroupById | undefined
   providers: readonly ConnectionProvider[]
 }): ProviderSkillRecommendationsState {
   const packageLookup = useProviderSkillPackageLookup(providers)

@@ -266,7 +266,7 @@ export const zhCNMessages = {
   "chat.queueRemove": "移出队列",
   "chat.queueExpand": "展开队列",
   "chat.queueCollapse": "折叠队列",
-  "chat.queuePaused": "由于你中断了当前响应，队列已暂停",
+  "chat.queuePaused": "队列已暂停",
   "chat.queueReorder": "拖动调整顺序",
   "chat.queueResume": "继续",
   "chat.queueSend": "加入队列",

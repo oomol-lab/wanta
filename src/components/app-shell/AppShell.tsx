@@ -1194,7 +1194,6 @@ export function AppShell() {
     handleQueuedMessageMove,
     handleQueuedMessageRemove,
     handleQueuedMessageResume,
-    holdActiveQueueIfQueued,
     holdQueuedSessionIfQueued,
     queueActiveMessage,
     releaseActiveQueue,
@@ -1531,10 +1530,9 @@ export function AppShell() {
   }
   const handleChatStop = React.useCallback(async (): Promise<void> => {
     if (activeChatSessionId) {
-      holdActiveQueueIfQueued()
       await stop(activeChatSessionId)
     }
-  }, [activeChatSessionId, holdActiveQueueIfQueued, stop])
+  }, [activeChatSessionId, stop])
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
       if (activeChatSessionId) {

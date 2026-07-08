@@ -279,7 +279,7 @@ export const enMessages = {
   "chat.queueRemove": "Remove from queue",
   "chat.queueExpand": "Expand queue",
   "chat.queueCollapse": "Collapse queue",
-  "chat.queuePaused": "The queue is paused because you interrupted the current response",
+  "chat.queuePaused": "The queue is paused",
   "chat.queueReorder": "Drag to reorder",
   "chat.queueResume": "Continue",
   "chat.queueSend": "Add to queue",

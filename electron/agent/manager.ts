@@ -593,6 +593,9 @@ export class AgentManager {
       }
     }
     return messages
+      .map((message, index) => ({ index, message }))
+      .sort((left, right) => left.message.createdAt - right.message.createdAt || left.index - right.index)
+      .map((item) => item.message)
   }
 
   public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {

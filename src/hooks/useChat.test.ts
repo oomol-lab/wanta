@@ -110,6 +110,74 @@ describe("chat message identity reconciliation", () => {
     expect(merged[0]?.contextMentions).toEqual([skillMention])
   })
 
+  it("keeps missing optimistic user messages in timeline order after a reload", () => {
+    const projectUser: ChatMessage = {
+      id: "server-user-project",
+      role: "user",
+      parts: [{ kind: "text", partId: "text-1", text: "List projects" }],
+      createdAt: 100,
+    }
+    const projectAssistant: ChatMessage = {
+      id: "server-assistant-project",
+      role: "assistant",
+      parts: [{ kind: "text", partId: "text-2", text: "Here are the projects." }],
+      createdAt: 200,
+    }
+    const localEventUser: ChatMessage = {
+      id: "local-user-event",
+      role: "user",
+      parts: [{ kind: "text", partId: "local", text: "List tracked events" }],
+      createdAt: 300,
+    }
+
+    const merged = mergeFetchedMessages(
+      [projectUser, projectAssistant, localEventUser],
+      [projectUser, projectAssistant],
+    )
+
+    expect(merged.map((message) => message.id)).toEqual([
+      "server-user-project",
+      "server-assistant-project",
+      "local-user-event",
+    ])
+  })
+
+  it("preserves a newer duplicate optimistic user message when fetched history only has the older copy", () => {
+    const serverUser: ChatMessage = {
+      id: "server-user-repeat",
+      role: "user",
+      parts: [{ kind: "text", partId: "text-1", text: "Repeat this question" }],
+      createdAt: 100,
+    }
+    const localUser: ChatMessage = {
+      id: "local-user-repeat",
+      role: "user",
+      parts: [{ kind: "text", partId: "local", text: "Repeat this question" }],
+      createdAt: 300,
+    }
+
+    const merged = mergeFetchedMessages([serverUser, localUser], [serverUser])
+
+    expect(merged.map((message) => message.id)).toEqual(["server-user-repeat", "local-user-repeat"])
+  })
+
+  it("adds an optimistic turn when the same prompt already exists in fetched history", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "server-user-repeat",
+        role: "user",
+        parts: [{ kind: "text", partId: "text-1", text: "Repeat this question" }],
+        createdAt: 100,
+      },
+    ]
+
+    const updated = appendOptimisticConversationTurn(current, "Repeat this question")
+
+    expect(updated).toHaveLength(3)
+    expect(updated.at(-2)?.id).toMatch(/^local-user-/)
+    expect(updated.at(-1)?.id).toMatch(/^local-assistant-/)
+  })
+
   it("attaches message errors to the latest assistant bubble", () => {
     const current = appendOptimisticConversationTurn([], "Create a report", [])
     const updated = setErrorPart(current, {

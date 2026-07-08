@@ -183,6 +183,7 @@ export function AppShell() {
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
   const [workspaceSwitchTargetKey, setWorkspaceSwitchTargetKey] = React.useState<string | null>(null)
+  const [workspaceSwitchTimedOutKey, setWorkspaceSwitchTimedOutKey] = React.useState<string | null>(null)
   const workspaceSwitchStartedAt = React.useRef<number | null>(null)
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
@@ -199,6 +200,8 @@ export function AppShell() {
       !organizationSkills.loading &&
       (organizationSkills.hasLoaded || organizationSkills.error !== null))
   const workspaceSwitching = isWorkspaceSwitchPending({
+    agentScopeSyncFailed: Boolean(connections.scopeSyncError),
+    agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
     connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
     connectionWorkspaceKey: currentConnectionWorkspaceKey,
     connectionsRefreshing: connections.busy === "refresh",
@@ -207,6 +210,11 @@ export function AppShell() {
     organizationSkillsSettled,
     targetScopeKey: workspaceSwitchTargetKey,
   })
+  const workspaceSwitchTimedOut = Boolean(
+    workspaceSwitchTargetKey && workspaceSwitchTimedOutKey === workspaceSwitchTargetKey,
+  )
+  const workspaceNavigationSwitching = workspaceSwitching && !workspaceSwitchTimedOut
+  const workspaceActivationBlocked = workspaceSwitching || Boolean(connections.scopeSyncError)
   const sessionsSettledForCurrentScope = sessionsLoaded && sessionsLoadedScopeKey === currentScopeKey
   const visibleSessions = React.useMemo(
     () => (sessionsSettledForCurrentScope ? sessions : []),
@@ -230,6 +238,7 @@ export function AppShell() {
         return
       }
       workspaceSwitchStartedAt.current = Date.now()
+      setWorkspaceSwitchTimedOutKey(null)
       setWorkspaceSwitchTargetKey(targetScopeKey)
     },
     [currentScopeKey, workspaceSwitching],
@@ -248,6 +257,7 @@ export function AppShell() {
       workspaceSwitching,
     })
     if (shouldClearTarget) {
+      setWorkspaceSwitchTimedOutKey(null)
       setWorkspaceSwitchTargetKey(null)
     }
   }, [
@@ -260,18 +270,19 @@ export function AppShell() {
   ])
   React.useEffect(() => {
     if (!workspaceSwitchTargetKey) {
+      setWorkspaceSwitchTimedOutKey(null)
       return
     }
     const startedAt = workspaceSwitchStartedAt.current ?? Date.now()
     workspaceSwitchStartedAt.current = startedAt
     const remainingMs = WORKSPACE_SWITCH_TIMEOUT_MS - (Date.now() - startedAt)
     if (remainingMs <= 0) {
-      setWorkspaceSwitchTargetKey(null)
+      setWorkspaceSwitchTimedOutKey(workspaceSwitchTargetKey)
       return
     }
-    // 防止连接器或组织请求异常挂起时，侧边栏长期停留在禁用态。
+    // 超时只释放 workspace 选择器，不把真实切换状态伪装成完成。
     const timeoutId = window.setTimeout(() => {
-      setWorkspaceSwitchTargetKey((current) => (current === workspaceSwitchTargetKey ? null : current))
+      setWorkspaceSwitchTimedOutKey((current) => current ?? workspaceSwitchTargetKey)
     }, remainingMs)
     return () => window.clearTimeout(timeoutId)
   }, [workspaceSwitchTargetKey])
@@ -333,9 +344,11 @@ export function AppShell() {
     discardQuestion,
     rejectQuestion,
   } = useChat(activeChatSessionId, route === "chat" ? activeChatSessionId : null)
+  const activeSessionHasPendingPermission = Boolean(activeChatSessionId && pendingPermissions.length > 0)
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
-  const activeProvidersLoading = Boolean(currentConnectionWorkspaceKey) && !connectionSummaryMatchesWorkspace
+  const activeProvidersLoading =
+    Boolean(currentConnectionWorkspaceKey) && !connectionSummaryMatchesWorkspace && !connections.scopeSyncError
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
@@ -754,10 +767,11 @@ export function AppShell() {
       return (
         sessionStatus === "submitted" ||
         sessionStatus === "streaming" ||
+        (sessionId === activeChatSessionId && pendingPermissions.length > 0) ||
         (sessionId === activeChatSessionId && activePendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
       )
     },
-    [activeChatSessionId, activePendingChatTransition, getSessionStatus, pendingCaughtUp],
+    [activeChatSessionId, activePendingChatTransition, getSessionStatus, pendingCaughtUp, pendingPermissions.length],
   )
   const titlebarTitle =
     route === "settings"
@@ -1199,6 +1213,7 @@ export function AppShell() {
     releaseActiveQueue,
   } = useChatQueueState({
     activeSessionId: activeChatSessionId,
+    dispatchBlocked: activeSessionHasPendingPermission,
     initialSendPending,
     isSendInFlight,
     sendQueuedMessage: sendNow,
@@ -1675,7 +1690,7 @@ export function AppShell() {
         taskSessions={visibleTaskSessions}
         width={sidebarWidth}
         workspace={organizationWorkspace}
-        workspaceSwitching={workspaceSwitching}
+        workspaceSwitching={workspaceNavigationSwitching}
         onArchiveProjectRequest={(project) => setArchiveProjectId(project.id)}
         onArchiveSessionRequest={handleArchiveSessionRequest}
         onLogout={() => void auth.logout()}
@@ -1767,7 +1782,7 @@ export function AppShell() {
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={artifactSelection}
-                      submitDisabled={!ready || chatBootstrapping || workspaceSwitching || !sessionScope}
+                      submitDisabled={!ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope}
                       willQueueMessage={Boolean(
                         activeChatSessionId && (isSessionRunning(activeChatSessionId) || isSendInFlight()),
                       )}

@@ -293,6 +293,8 @@ export function sessionRecordScopeKey(scope: SessionScope | undefined): string {
 }
 
 export interface WorkspaceSwitchPendingInput {
+  agentScopeSyncFailed: boolean
+  agentScopeWorkspaceKey: string | null
   connectionSettledWorkspaceKey: string | null
   connectionWorkspaceKey: string | null
   connectionsRefreshing: boolean
@@ -313,6 +315,12 @@ export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): bo
     return true
   }
   if (!input.connectionWorkspaceKey) {
+    return true
+  }
+  if (input.agentScopeSyncFailed) {
+    return false
+  }
+  if (input.agentScopeWorkspaceKey !== input.connectionWorkspaceKey) {
     return true
   }
   if (input.connectionsRefreshing) {

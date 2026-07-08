@@ -85,6 +85,7 @@ const defaultMaxDirectoryItems = 80
 interface ActiveTurnOutput {
   artifactRoot: string
   createdAt: number
+  generationId: string
   messageId?: string
   processRoot: string
   projectBaseline?: GitTurnBaseline
@@ -593,6 +594,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.pendingProcessDirs.set(sessionId, next)
   }
 
+  private deleteActiveTurnOutput(sessionId: string, generationId?: string): void {
+    const active = this.activeTurnOutputs.get(sessionId)
+    if (!active) {
+      return
+    }
+    if (generationId && active.generationId !== generationId) {
+      return
+    }
+    this.activeTurnOutputs.delete(sessionId)
+  }
+
   private clearMessageErrorSignatures(sessionId: string): void {
     this.emittedMessageErrors.delete(sessionId)
   }
@@ -1080,6 +1092,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         artifactRoot: artifactDir,
         processRoot: processDir,
         createdAt: Date.now(),
+        generationId: generation.id,
         requestText: req.text,
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
@@ -1110,7 +1123,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           if (processDir) {
             this.removePendingProcessDir(req.sessionId, processDir)
           }
-          this.activeTurnOutputs.delete(req.sessionId)
+          this.deleteActiveTurnOutput(req.sessionId, promptGeneration.id)
           if (
             !this.isCurrentGeneration(req.sessionId, promptGeneration.id) ||
             promptGeneration.controller.signal.aborted

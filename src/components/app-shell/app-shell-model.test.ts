@@ -13,6 +13,8 @@ import {
 } from "./app-shell-model.ts"
 
 const readyInput = {
+  agentScopeSyncFailed: false,
+  agentScopeWorkspaceKey: "personal",
   connectionSettledWorkspaceKey: "personal",
   connectionWorkspaceKey: "personal",
   connectionsRefreshing: false,
@@ -43,6 +45,21 @@ describe("workspace switch pending state", () => {
         connectionWorkspaceKey: "organization:New",
       }),
     ).toBe(true)
+  })
+
+  test("waits until the agent organization scope reaches the target workspace", () => {
+    expect(isWorkspaceSwitchPending({ ...readyInput, agentScopeWorkspaceKey: "organization:old" })).toBe(true)
+  })
+
+  test("stops waiting when agent organization scope sync fails", () => {
+    expect(
+      isWorkspaceSwitchPending({
+        ...readyInput,
+        agentScopeSyncFailed: true,
+        agentScopeWorkspaceKey: null,
+        connectionSettledWorkspaceKey: null,
+      }),
+    ).toBe(false)
   })
 
   test("waits while connections are actively refreshing", () => {

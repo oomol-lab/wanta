@@ -117,6 +117,7 @@ export function shouldDispatchQueuedMessage(
   status: ChatStatus,
   initialSendPending: boolean,
   queueHeld: boolean,
+  dispatchBlocked = false,
 ): boolean {
-  return status === "ready" && !initialSendPending && !queueHeld
+  return status === "ready" && !initialSendPending && !queueHeld && !dispatchBlocked
 }

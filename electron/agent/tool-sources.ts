@@ -26,14 +26,22 @@ async function currentOrganizationName() {
   return process.env.WANTA_ORGANIZATION_NAME || ""
 }
 
-async function appendIdentityArgs(argv) {
+async function currentIdentity() {
   const organizationName = (await currentOrganizationName()).trim()
+  return organizationName
+    ? { cacheKey: "organization:" + organizationName, organizationName: organizationName, scope: "organization" }
+    : { cacheKey: "personal", organizationName: "", scope: "personal" }
+}
+
+async function appendIdentityArgs(argv, identity) {
+  const current = identity || (await currentIdentity())
+  const organizationName = current.organizationName
   if (organizationName) {
     argv.push("--organization", organizationName)
   } else {
     argv.push("--personal")
   }
-  return organizationName ? "organization" : "personal"
+  return current.scope
 }
 `
 
@@ -79,11 +87,17 @@ const AUTHORIZED_SERVICES_CACHE_MS = 5 * 1000
 
 async function authorizedServices() {
   const now = Date.now()
-  if (authorizedServicesCache && now - authorizedServicesCache.createdAt < AUTHORIZED_SERVICES_CACHE_MS) {
+  const identity = await currentIdentity()
+  const cacheKey = identity.cacheKey
+  if (
+    authorizedServicesCache &&
+    authorizedServicesCache.cacheKey === cacheKey &&
+    now - authorizedServicesCache.createdAt < AUTHORIZED_SERVICES_CACHE_MS
+  ) {
     return authorizedServicesCache.authorization
   }
   const argv = ["connector", "apps"]
-  const scope = await appendIdentityArgs(argv)
+  const scope = await appendIdentityArgs(argv, identity)
   argv.push("--json")
   try {
     const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
@@ -92,10 +106,10 @@ async function authorizedServices() {
       scope: scope,
       services: new Set(apps.filter(isActiveApp).map(serviceFromApp).filter(Boolean)),
     }
-    authorizedServicesCache = { createdAt: now, authorization: authorization }
+    authorizedServicesCache = { cacheKey: cacheKey, createdAt: now, authorization: authorization }
     return authorization
   } catch {
-    authorizedServicesCache = { createdAt: now, authorization: null }
+    authorizedServicesCache = { cacheKey: cacheKey, createdAt: now, authorization: null }
     return null
   }
 }

@@ -126,6 +126,7 @@ describe("chat queue", () => {
     assert.equal(shouldDispatchQueuedMessage("ready", false, false), true)
     assert.equal(shouldDispatchQueuedMessage("ready", true, false), false)
     assert.equal(shouldDispatchQueuedMessage("ready", false, true), false)
+    assert.equal(shouldDispatchQueuedMessage("ready", false, false, true), false)
     assert.equal(shouldDispatchQueuedMessage("submitted", false, false), false)
     assert.equal(shouldDispatchQueuedMessage("streaming", false, false), false)
     assert.equal(shouldDispatchQueuedMessage("error", false, false), false)

@@ -1157,6 +1157,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
             message: err instanceof Error ? err.message : String(err),
           }),
         )
+        throw err
       }
     },
     [chatService, clearSessionError, patch, sessionPermissionMode, setActivity, setPermissionMode, setStatus],

@@ -25,6 +25,7 @@ type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: (
 
 interface UseChatQueueStateOptions {
   activeSessionId: string | null
+  dispatchBlocked: boolean
   initialSendPending: boolean
   isSendInFlight: () => boolean
   sendQueuedMessage: SendQueuedMessage
@@ -33,6 +34,7 @@ interface UseChatQueueStateOptions {
 
 export function useChatQueueState({
   activeSessionId,
+  dispatchBlocked,
   initialSendPending,
   isSendInFlight,
   sendQueuedMessage,
@@ -137,7 +139,10 @@ export function useChatQueueState({
   }, [queuedMessagesBySession])
 
   React.useEffect(() => {
-    if (!activeSessionId || !shouldDispatchQueuedMessage(status, initialSendPending, activeQueueHeld)) {
+    if (
+      !activeSessionId ||
+      !shouldDispatchQueuedMessage(status, initialSendPending, activeQueueHeld, dispatchBlocked)
+    ) {
       return
     }
     if (dispatchingQueuedSessionsRef.current.has(activeSessionId) || isSendInFlight()) {
@@ -184,6 +189,7 @@ export function useChatQueueState({
   }, [
     activeQueueHeld,
     activeSessionId,
+    dispatchBlocked,
     initialSendPending,
     isSendInFlight,
     queuedMessagesBySession,

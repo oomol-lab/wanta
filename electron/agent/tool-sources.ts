@@ -11,11 +11,20 @@ const execFileAsync = promisify(execFile)
 const OO_BIN = process.env.WANTA_OO_BIN || "oo"
 const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 
-async function currentOrganizationName() {
+async function currentOrganizationName(sessionID) {
   const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
   if (scopePath) {
     try {
       const parsed = JSON.parse(await readFile(scopePath, "utf8"))
+      const sessionOrganizations = parsed && parsed.sessionOrganizations
+      if (
+        sessionID &&
+        sessionOrganizations &&
+        typeof sessionOrganizations === "object" &&
+        typeof sessionOrganizations[sessionID] === "string"
+      ) {
+        return sessionOrganizations[sessionID]
+      }
       if (parsed && typeof parsed.organizationName === "string") {
         return parsed.organizationName
       }
@@ -26,14 +35,22 @@ async function currentOrganizationName() {
   return process.env.WANTA_ORGANIZATION_NAME || ""
 }
 
-async function appendIdentityArgs(argv) {
-  const organizationName = (await currentOrganizationName()).trim()
+async function currentIdentity(sessionID) {
+  const organizationName = (await currentOrganizationName(sessionID)).trim()
+  return organizationName
+    ? { cacheKey: "organization:" + organizationName, organizationName: organizationName, scope: "organization" }
+    : { cacheKey: "personal", organizationName: "", scope: "personal" }
+}
+
+async function appendIdentityArgs(argv, identity, sessionID) {
+  const current = identity || (await currentIdentity(sessionID))
+  const organizationName = current.organizationName
   if (organizationName) {
     argv.push("--organization", organizationName)
   } else {
     argv.push("--personal")
   }
-  return organizationName ? "organization" : "personal"
+  return current.scope
 }
 `
 
@@ -74,16 +91,21 @@ function parseApps(stdout) {
   return Array.isArray(parsed && parsed.items) ? parsed.items : []
 }
 
-let authorizedServicesCache = null
+const authorizedServicesCache = new Map()
 const AUTHORIZED_SERVICES_CACHE_MS = 5 * 1000
+const providerAuthTypesCache = new Map()
+const PROVIDER_AUTH_TYPES_CACHE_MS = 30 * 1000
 
-async function authorizedServices() {
+async function authorizedServices(sessionID) {
   const now = Date.now()
-  if (authorizedServicesCache && now - authorizedServicesCache.createdAt < AUTHORIZED_SERVICES_CACHE_MS) {
-    return authorizedServicesCache.authorization
+  const identity = await currentIdentity(sessionID)
+  const cacheKey = identity.cacheKey
+  const cached = authorizedServicesCache.get(cacheKey)
+  if (cached && now - cached.createdAt < AUTHORIZED_SERVICES_CACHE_MS) {
+    return cached.authorization
   }
   const argv = ["connector", "apps"]
-  const scope = await appendIdentityArgs(argv)
+  const scope = await appendIdentityArgs(argv, identity)
   argv.push("--json")
   try {
     const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
@@ -92,22 +114,93 @@ async function authorizedServices() {
       scope: scope,
       services: new Set(apps.filter(isActiveApp).map(serviceFromApp).filter(Boolean)),
     }
-    authorizedServicesCache = { createdAt: now, authorization: authorization }
+    authorizedServicesCache.set(cacheKey, { createdAt: now, authorization: authorization })
     return authorization
   } catch {
-    authorizedServicesCache = { createdAt: now, authorization: null }
+    authorizedServicesCache.set(cacheKey, { createdAt: now, authorization: null })
     return null
   }
 }
 
-async function normalizeSearchOutput(stdout) {
+function parseProviders(payload) {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+  if (Array.isArray(payload && payload.data)) {
+    return payload.data
+  }
+  if (Array.isArray(payload && payload.providers)) {
+    return payload.providers
+  }
+  return Array.isArray(payload && payload.items) ? payload.items : []
+}
+
+function authTypesFromProvider(provider) {
+  if (!provider || typeof provider !== "object" || !Array.isArray(provider.authTypes)) {
+    return []
+  }
+  return provider.authTypes.filter((authType) => typeof authType === "string")
+}
+
+function isNoAuthOnly(authTypes) {
+  return authTypes.length === 1 && authTypes[0] === "no_auth"
+}
+
+async function providerAuthTypes(sessionID) {
+  const connectorUrl = String(process.env.WANTA_CONNECTOR_URL || "").replace(/\/+$/, "")
+  const token = String(process.env.OO_API_KEY || "")
+  if (!connectorUrl || !token) {
+    return null
+  }
+  const now = Date.now()
+  const identity = await currentIdentity(sessionID)
+  const cacheKey = identity.cacheKey
+  const cached = providerAuthTypesCache.get(cacheKey)
+  if (cached && now - cached.createdAt < PROVIDER_AUTH_TYPES_CACHE_MS) {
+    return cached.authTypesByService
+  }
+  try {
+    const headers = { authorization: "Bearer " + token }
+    if (identity.organizationName) {
+      headers["x-oo-organization-name"] = identity.organizationName
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10 * 1000)
+    let response
+    try {
+      response = await fetch(connectorUrl + "/v1/providers", { headers: headers, signal: controller.signal })
+    } finally {
+      clearTimeout(timer)
+    }
+    if (!response.ok) {
+      providerAuthTypesCache.set(cacheKey, { createdAt: now, authTypesByService: null })
+      return null
+    }
+    const providers = parseProviders(await response.json())
+    const authTypesByService = new Map()
+    for (const provider of providers) {
+      if (!provider || typeof provider !== "object" || typeof provider.service !== "string") {
+        continue
+      }
+      authTypesByService.set(provider.service, authTypesFromProvider(provider))
+    }
+    providerAuthTypesCache.set(cacheKey, { createdAt: now, authTypesByService: authTypesByService })
+    return authTypesByService
+  } catch {
+    providerAuthTypesCache.set(cacheKey, { createdAt: now, authTypesByService: null })
+    return null
+  }
+}
+
+async function normalizeSearchOutput(stdout, sessionID) {
   const text = (stdout || "").trim()
   try {
     const parsed = JSON.parse(text || "[]")
     if (!Array.isArray(parsed)) {
       return text || "[]"
     }
-    const authorization = await authorizedServices()
+    const authorization = await authorizedServices(sessionID)
+    const authTypesByService = await providerAuthTypes(sessionID)
     return JSON.stringify(
       parsed.map((item) => {
         if (!item || typeof item !== "object") {
@@ -117,10 +210,13 @@ async function normalizeSearchOutput(stdout) {
         if (!authorization) {
           return { ...item, authenticatedReliable: false, authenticatedScope: "active_workspace_unknown" }
         }
+        const authTypes = authTypesByService ? authTypesByService.get(service) : null
+        const noAuthReady = Array.isArray(authTypes) && isNoAuthOnly(authTypes)
         return {
           ...item,
-          authenticated: authorization.services.has(service),
+          authenticated: noAuthReady || authorization.services.has(service),
           authenticatedReliable: true,
+          noAuthReady: noAuthReady,
           authenticatedScope: authorization.scope,
         }
       }),
@@ -136,11 +232,11 @@ export default tool({
   args: {
     query: tool.schema.string().describe("Natural-language description of the desired action, e.g. 'list hacker news top stories'"),
   },
-  async execute(args) {
+  async execute(args, context) {
     const argv = ["connector", "search", args.query, "--json"]
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
-      return await normalizeSearchOutput(result.stdout)
+      return await normalizeSearchOutput(result.stdout, context.sessionID)
     } catch (error) {
       const e = error || {}
       const message = String(e.stderr || e.message || "search failed").trim()
@@ -165,13 +261,13 @@ export default tool({
   args: {
     service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
   },
-  async execute(args) {
+  async execute(args, context) {
     const service = String(args.service || "").trim()
     const argv = ["connector", "apps"]
     if (service) {
       argv.push(service)
     }
-    await appendIdentityArgs(argv)
+    await appendIdentityArgs(argv, null, context.sessionID)
     argv.push("--json")
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
@@ -201,7 +297,7 @@ export default tool({
       .array(tool.schema.string())
       .describe("One or more action ids in the form '<service>.<action>' (service segment before the first dot, action after it), e.g. ['hackernews.get_item']. When a workflow needs several contracts at once, such as an async submit/result pair or a read step feeding a write step, pass every id in one call, e.g. ['cal.create_schedule','callingly.get_agent_schedule']."),
   },
-  async execute(args) {
+  async execute(args, context) {
     const ids = (args.actions || []).map((id) => String(id).trim()).filter(Boolean)
     if (ids.length === 0) {
       return JSON.stringify({ status: "error", message: "Provide at least one action id in the form <service>.<action>." })
@@ -253,7 +349,7 @@ export default tool({
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),
     params: tool.schema.string().optional().describe("JSON string of the action input parameters built from inspect_action's inputSchema; omit or '{}' if the schema declares no required fields"),
   },
-  async execute(args) {
+  async execute(args, context) {
     let data = "{}"
     if (args.params && args.params.trim()) {
       try {
@@ -263,7 +359,7 @@ export default tool({
       }
     }
     const argv = ["connector", "run", args.service, "--action", args.action, "--data", data, "--json"]
-    await appendIdentityArgs(argv)
+    await appendIdentityArgs(argv, null, context.sessionID)
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return (result.stdout || "").trim() || "{}"

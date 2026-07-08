@@ -1,7 +1,12 @@
 import type { ChatQuestionRequest } from "../../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { answersFromFieldDrafts, deriveQuestionFields, initialFieldDrafts } from "./question-fields.ts"
+import {
+  answersFromFieldDrafts,
+  deriveQuestionFields,
+  initialFieldDrafts,
+  isQuestionDraftSnapshotPristine,
+} from "./question-fields.ts"
 
 describe("question-fields", () => {
   it("splits a combined Gmail draft question into typed form fields", () => {
@@ -168,5 +173,27 @@ describe("question-fields", () => {
     expect(fields[0].label).toBe("收件人")
     expect(fields[0].kind).toBe("email")
     expect(fields[0].options).toEqual([])
+  })
+
+  it("treats only unchanged first-step drafts as pristine", () => {
+    const initialDrafts = [{ selected: [], value: "" }]
+
+    expect(
+      isQuestionDraftSnapshotPristine({ activeFieldIndex: 0, drafts: [{ selected: [], value: "" }] }, initialDrafts),
+    ).toBe(true)
+    expect(
+      isQuestionDraftSnapshotPristine({ activeFieldIndex: 1, drafts: [{ selected: [], value: "" }] }, initialDrafts),
+    ).toBe(false)
+    expect(
+      isQuestionDraftSnapshotPristine({ activeFieldIndex: 0, drafts: [{ selected: [], value: " " }] }, initialDrafts),
+    ).toBe(false)
+    expect(
+      isQuestionDraftSnapshotPristine({ activeFieldIndex: 0, drafts: [{ selected: ["A"], value: "" }] }, initialDrafts),
+    ).toBe(false)
+    expect(
+      isQuestionDraftSnapshotPristine({ activeFieldIndex: 0, drafts: [{ selected: [], value: "" }] }, [
+        { selected: [], value: "default" },
+      ]),
+    ).toBe(false)
   })
 })

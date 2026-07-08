@@ -3,10 +3,13 @@ import type {
   AgentPermissionMode,
   ChatAttachment,
   ChatContextMention,
+  ChatOrganizationSkillContext,
+  ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { ChatSendRequest } from "./app-shell-model.ts"
+import type { SessionScope } from "../../../electron/session/common.ts"
+import type { ChatSendRequest, ChatSendResult } from "./app-shell-model.ts"
 import type { ChatQueueMap, QueuedMessageMovePlacement } from "./chat-queue.ts"
 import type { ChatStatus } from "ai"
 
@@ -21,10 +24,11 @@ import {
 } from "./chat-queue.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
-type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }) => Promise<boolean>
+type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }) => Promise<ChatSendResult>
 
 interface UseChatQueueStateOptions {
   activeSessionId: string | null
+  dispatchBlocked: boolean
   initialSendPending: boolean
   isSendInFlight: () => boolean
   sendQueuedMessage: SendQueuedMessage
@@ -33,6 +37,7 @@ interface UseChatQueueStateOptions {
 
 export function useChatQueueState({
   activeSessionId,
+  dispatchBlocked,
   initialSendPending,
   isSendInFlight,
   sendQueuedMessage,
@@ -53,6 +58,9 @@ export function useChatQueueState({
       reasoningLevel?: ReasoningLevel,
       mode?: AgentMode,
       permissionMode?: AgentPermissionMode,
+      organizationSkills?: ChatOrganizationSkillContext[],
+      projectContext?: ChatProjectContext,
+      sessionScope?: SessionScope,
     ): boolean => {
       if (!activeSessionId) {
         return false
@@ -66,6 +74,9 @@ export function useChatQueueState({
         reasoningLevel,
         mode,
         permissionMode,
+        organizationSkills,
+        projectContext,
+        sessionScope,
       )
       setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
       return true
@@ -137,7 +148,10 @@ export function useChatQueueState({
   }, [queuedMessagesBySession])
 
   React.useEffect(() => {
-    if (!activeSessionId || !shouldDispatchQueuedMessage(status, initialSendPending, activeQueueHeld)) {
+    if (
+      !activeSessionId ||
+      !shouldDispatchQueuedMessage(status, initialSendPending, activeQueueHeld, dispatchBlocked)
+    ) {
       return
     }
     if (dispatchingQueuedSessionsRef.current.has(activeSessionId) || isSendInFlight()) {
@@ -156,12 +170,15 @@ export function useChatQueueState({
       contextMentions: message.contextMentions ?? [],
       mode: message.mode,
       model: message.model,
+      organizationSkills: message.organizationSkills,
       permissionMode: message.permissionMode,
+      projectContext: message.projectContext,
       reasoningLevel: message.reasoningLevel,
+      sessionScope: message.sessionScope,
       text: message.text,
     })
-      .then((accepted) => {
-        if (!accepted) {
+      .then((result) => {
+        if (result.status !== "accepted") {
           setQueuedMessagesBySession((current) =>
             current[activeSessionId]?.some((item) => item.id === message.id)
               ? current
@@ -184,6 +201,7 @@ export function useChatQueueState({
   }, [
     activeQueueHeld,
     activeSessionId,
+    dispatchBlocked,
     initialSendPending,
     isSendInFlight,
     queuedMessagesBySession,

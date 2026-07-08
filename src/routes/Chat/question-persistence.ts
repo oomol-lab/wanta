@@ -1,17 +1,18 @@
-import type {
-  ChatMessage,
-  ChatMessagePart,
-  ChatQuestionInfo,
-  ChatQuestionOption,
-  ChatQuestionRequest,
-} from "../../../electron/chat/common.ts"
-import type { QuestionFieldDraft } from "./question-fields.ts"
+import type { ChatQuestionRequest } from "../../../electron/chat/common.ts"
+import type { QuestionDraftSnapshot, QuestionFieldDraft } from "./question-fields.ts"
+import type { QuestionDismissal, QuestionPromptTarget } from "./question-model.ts"
+
+import { questionPromptTargetRequestId, questionPromptTargetToolKey, questionRequestToolKey } from "./question-model.ts"
+import { normalizeQuestionRequest } from "./question-request-normalization.ts"
 
 const stoppedQuestionsStorageKey = "wanta:chat:stopped-questions:v1"
 const recoverableQuestionsStorageKey = "wanta:chat:recoverable-questions:v1"
 const questionDraftsStorageKey = "wanta:chat:question-drafts:v1"
 const dismissedQuestionsStorageKey = "wanta:chat:dismissed-questions:v1"
+const questionPromptsStorageKey = "wanta:chat:question-prompts:v2"
 const questionPersistenceMaxAgeMs = 14 * 24 * 60 * 60 * 1000
+
+type StoredQuestionPromptState = "stopped" | "recoverable" | "dismissed"
 
 interface StoredQuestionDraft {
   activeFieldIndex: number
@@ -30,18 +31,26 @@ interface StoredDismissedQuestion {
   updatedAt: number
 }
 
+interface StoredQuestionPrompt {
+  draft?: StoredQuestionDraft
+  request?: ChatQuestionRequest
+  requestId: string
+  state?: StoredQuestionPromptState
+  toolKey?: string
+  updatedAt: number
+}
+
 type StoredQuestionDraftsBySession = Record<string, Record<string, StoredQuestionDraft>>
 type StoredStoppedQuestionsBySession = Record<string, Array<ChatQuestionRequest | StoredStoppedQuestion>>
 type StoredDismissedQuestionsBySession = Record<string, StoredDismissedQuestion[]>
+type StoredQuestionPromptsBySession = Record<string, StoredQuestionPrompt[]>
 
-export interface QuestionDismissal {
-  requestId: string
-  toolKey: string | null
-}
+export type StoredQuestionDraftSnapshot = QuestionDraftSnapshot
 
-export interface StoredQuestionDraftSnapshot {
-  activeFieldIndex: number
-  drafts: QuestionFieldDraft[]
+export interface StoredQuestionPromptSnapshot {
+  dismissedQuestions: QuestionDismissal[]
+  recoverableQuestions: ChatQuestionRequest[]
+  stoppedQuestions: ChatQuestionRequest[]
 }
 
 function getLocalStorage(): Storage | null {
@@ -65,15 +74,29 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
-function writeJson<T>(key: string, value: T): void {
+function writeJson<T>(key: string, value: T): boolean {
+  const storage = getLocalStorage()
+  if (!storage) {
+    return false
+  }
+  try {
+    storage.setItem(key, JSON.stringify(value))
+    return true
+  } catch {
+    // localStorage 只是草稿恢复兜底，写失败不影响当前会话。
+    return false
+  }
+}
+
+function removeStorageItem(key: string): void {
   const storage = getLocalStorage()
   if (!storage) {
     return
   }
   try {
-    storage.setItem(key, JSON.stringify(value))
+    storage.removeItem(key)
   } catch {
-    // localStorage 只是草稿恢复兜底，写失败不影响当前会话。
+    // localStorage 清理失败不影响 v2 读写路径。
   }
 }
 
@@ -96,54 +119,6 @@ function stoppedQuestionItemUpdatedAt(item: ChatQuestionRequest | StoredStoppedQ
   return "updatedAt" in item ? item.updatedAt : Date.now()
 }
 
-function normalizeQuestionOption(value: unknown): ChatQuestionOption | null {
-  if (!value || typeof value !== "object") {
-    return null
-  }
-  const option = value as { label?: unknown; description?: unknown }
-  if (typeof option.label !== "string" || !option.label.trim()) {
-    return null
-  }
-  return {
-    label: option.label,
-    ...(typeof option.description === "string" && option.description.trim() ? { description: option.description } : {}),
-  }
-}
-
-function normalizeQuestionInfo(value: unknown): ChatQuestionInfo | null {
-  if (!value || typeof value !== "object") {
-    return null
-  }
-  const question = value as {
-    custom?: unknown
-    header?: unknown
-    multiple?: unknown
-    options?: unknown
-    question?: unknown
-  }
-  if (typeof question.question !== "string" || !question.question.trim()) {
-    return null
-  }
-  const header =
-    typeof question.header === "string" && question.header.trim() ? question.header.trim() : question.question.trim()
-  return {
-    question: question.question,
-    header,
-    options: Array.isArray(question.options)
-      ? question.options
-          .map(normalizeQuestionOption)
-          .filter((option): option is NonNullable<typeof option> => Boolean(option))
-      : [],
-    ...(typeof question.multiple === "boolean" ? { multiple: question.multiple } : {}),
-    ...(typeof question.custom === "boolean" ? { custom: question.custom } : {}),
-  }
-}
-
-export function questionRequestToolKey(request: ChatQuestionRequest): string | null {
-  // request id 可能在恢复时重建；tool key 用 messageId+callId 稳定识别同一个 question 工具。
-  return request.tool ? `${request.tool.messageId}\0${request.tool.callId}` : null
-}
-
 function dismissalStorageKey(dismissal: QuestionDismissal): string {
   // 优先按 tool key 去重，缺少 tool 信息的旧记录再退回 request id。
   return dismissal.toolKey ? `tool:${dismissal.toolKey}` : `id:${dismissal.requestId}`
@@ -155,102 +130,6 @@ function questionDismissal(request: ChatQuestionRequest): QuestionDismissal {
     requestId: request.id,
     toolKey: questionRequestToolKey(request),
   }
-}
-
-export function isQuestionDismissed(request: ChatQuestionRequest, dismissals: QuestionDismissal[] = []): boolean {
-  // 既按 request id 匹配当前待答问题，也按 tool key 屏蔽从消息工具恢复出来的同一问题。
-  const requestToolKey = questionRequestToolKey(request)
-  return dismissals.some(
-    (dismissal) =>
-      dismissal.requestId === request.id ||
-      (typeof requestToolKey === "string" && dismissal.toolKey === requestToolKey),
-  )
-}
-
-function isWaitingQuestionToolPart(part: ChatMessagePart): boolean {
-  return (
-    part.kind === "tool" &&
-    part.tool === "question" &&
-    typeof part.callId === "string" &&
-    (part.status === "pending" || part.status === "running")
-  )
-}
-
-function questionRequestFromToolPart(
-  sessionId: string,
-  messageId: string,
-  part: ChatMessagePart,
-): ChatQuestionRequest | null {
-  if (!isWaitingQuestionToolPart(part) || !part.callId) {
-    return null
-  }
-  const rawQuestions = part.input?.questions
-  if (!Array.isArray(rawQuestions)) {
-    return null
-  }
-  const questions = rawQuestions
-    .map(normalizeQuestionInfo)
-    .filter((question): question is NonNullable<typeof question> => Boolean(question))
-  if (questions.length === 0) {
-    return null
-  }
-  return {
-    id: `recovered:${messageId}:${part.callId}`,
-    sessionId,
-    questions,
-    tool: {
-      messageId,
-      callId: part.callId,
-    },
-  }
-}
-
-export function recoverQuestionsFromMessageTools(
-  sessionId: string,
-  messages: ChatMessage[],
-  fetchedQuestions: ChatQuestionRequest[] = [],
-  dismissedQuestions: QuestionDismissal[] = [],
-): ChatQuestionRequest[] {
-  const fetchedToolKeys = new Set(
-    fetchedQuestions
-      .map(questionRequestToolKey)
-      .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
-  )
-  const recovered = new Map<string, ChatQuestionRequest>()
-  for (const message of messages) {
-    for (const part of message.parts) {
-      const request = questionRequestFromToolPart(sessionId, message.id, part)
-      if (!request) {
-        continue
-      }
-      const toolKey = questionRequestToolKey(request)
-      if (toolKey && fetchedToolKeys.has(toolKey)) {
-        continue
-      }
-      if (isQuestionDismissed(request, dismissedQuestions)) {
-        continue
-      }
-      recovered.set(toolKey ?? request.id, request)
-    }
-  }
-  return Array.from(recovered.values())
-}
-
-function dedupeQuestionRequests(requests: ChatQuestionRequest[]): ChatQuestionRequest[] {
-  const byId = new Map<string, ChatQuestionRequest>()
-  const idByToolKey = new Map<string, string>()
-  for (const request of requests) {
-    const toolKey = questionRequestToolKey(request)
-    const existingToolRequestId = toolKey ? idByToolKey.get(toolKey) : undefined
-    if (existingToolRequestId && existingToolRequestId !== request.id) {
-      byId.delete(existingToolRequestId)
-    }
-    byId.set(request.id, request)
-    if (toolKey) {
-      idByToolKey.set(toolKey, request.id)
-    }
-  }
-  return Array.from(byId.values())
 }
 
 function pruneStoppedQuestions(
@@ -271,46 +150,6 @@ function pruneStoppedQuestions(
     }
   }
   return changed ? next : stored
-}
-
-function readStoredQuestionRequests(storageKey: string, sessionId: string): ChatQuestionRequest[] {
-  const stored = readJson<StoredStoppedQuestionsBySession>(storageKey, {})
-  const pruned = pruneStoppedQuestions(stored)
-  if (pruned !== stored) {
-    writeJson(storageKey, pruned)
-  }
-  return Array.isArray(pruned[sessionId]) ? pruned[sessionId].map(stoppedQuestionItemRequest) : []
-}
-
-function addStoredQuestionRequests(storageKey: string, sessionId: string, requests: ChatQuestionRequest[]): void {
-  if (requests.length === 0) {
-    return
-  }
-  const stored = pruneStoppedQuestions(readJson<StoredStoppedQuestionsBySession>(storageKey, {}))
-  const byId = new Map((stored[sessionId] ?? []).map((item) => [stoppedQuestionItemRequest(item).id, item]))
-  for (const request of requests) {
-    byId.set(request.id, { request, updatedAt: Date.now() })
-  }
-  writeJson(storageKey, { ...stored, [sessionId]: Array.from(byId.values()) })
-}
-
-function removeStoredQuestionRequest(storageKey: string, sessionId: string, requestId: string): void {
-  const raw = readJson<StoredStoppedQuestionsBySession>(storageKey, {})
-  const stored = pruneStoppedQuestions(raw)
-  const nextQuestions = (stored[sessionId] ?? []).filter((item) => stoppedQuestionItemRequest(item).id !== requestId)
-  if (nextQuestions.length === (stored[sessionId] ?? []).length) {
-    if (stored !== raw) {
-      writeJson(storageKey, stored)
-    }
-    return
-  }
-  const next = { ...stored }
-  if (nextQuestions.length > 0) {
-    next[sessionId] = nextQuestions
-  } else {
-    delete next[sessionId]
-  }
-  writeJson(storageKey, next)
 }
 
 function pruneQuestionDrafts(stored: StoredQuestionDraftsBySession, now = Date.now()): StoredQuestionDraftsBySession {
@@ -369,79 +208,449 @@ function pruneDismissedQuestions(
   return changed ? next : stored
 }
 
+function promptRecordKey(record: { requestId: string; toolKey?: string | null }): string {
+  return record.toolKey ? `tool:${record.toolKey}` : `id:${record.requestId}`
+}
+
+function promptRecordKeyForRequest(request: ChatQuestionRequest): string {
+  return promptRecordKey({ requestId: request.id, toolKey: questionRequestToolKey(request) })
+}
+
+function promptRecordKeyForTarget(target: QuestionPromptTarget): string {
+  return typeof target === "string" ? promptRecordKey({ requestId: target }) : promptRecordKeyForRequest(target)
+}
+
+function promptRecordMatchesTarget(record: StoredQuestionPrompt, target: QuestionPromptTarget): boolean {
+  if (record.requestId === questionPromptTargetRequestId(target)) {
+    return true
+  }
+  const toolKey = questionPromptTargetToolKey(target)
+  return Boolean(toolKey && record.toolKey === toolKey)
+}
+
+function findPromptRecordForTarget(
+  records: StoredQuestionPrompt[],
+  target: QuestionPromptTarget,
+): StoredQuestionPrompt | undefined {
+  const toolKey = questionPromptTargetToolKey(target)
+  if (toolKey) {
+    const byToolKey = records.find((record) => record.toolKey === toolKey)
+    if (byToolKey) {
+      return byToolKey
+    }
+  }
+  const requestId = questionPromptTargetRequestId(target)
+  return records.find((record) => record.requestId === requestId)
+}
+
+function isStoredQuestionPromptState(value: unknown): value is StoredQuestionPromptState {
+  return value === "stopped" || value === "recoverable" || value === "dismissed"
+}
+
+function normalizeStoredQuestionDraft(value: unknown): StoredQuestionDraft | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const draft = value as { activeFieldIndex?: unknown; drafts?: unknown; updatedAt?: unknown }
+  if (typeof draft.updatedAt !== "number" || !isFresh(draft.updatedAt) || !Array.isArray(draft.drafts)) {
+    return null
+  }
+  const activeFieldIndex = Number.isInteger(draft.activeFieldIndex) ? Number(draft.activeFieldIndex) : 0
+  return {
+    activeFieldIndex,
+    drafts: draft.drafts.map((item) => normalizeDraft(item as QuestionFieldDraft | undefined)),
+    updatedAt: draft.updatedAt,
+  }
+}
+
+function normalizeStoredQuestionPrompt(value: unknown): StoredQuestionPrompt | null {
+  if (!value || typeof value !== "object") {
+    return null
+  }
+  const item = value as {
+    draft?: unknown
+    request?: unknown
+    requestId?: unknown
+    state?: unknown
+    toolKey?: unknown
+    updatedAt?: unknown
+  }
+  if (typeof item.requestId !== "string" || typeof item.updatedAt !== "number" || !isFresh(item.updatedAt)) {
+    return null
+  }
+  const state = isStoredQuestionPromptState(item.state) ? item.state : undefined
+  const request = normalizeQuestionRequest(item.request)
+  const draft = normalizeStoredQuestionDraft(item.draft)
+  const toolKey =
+    typeof item.toolKey === "string" && item.toolKey ? item.toolKey : request ? questionRequestToolKey(request) : null
+  if (!state && !draft) {
+    return null
+  }
+  if ((state === "stopped" || state === "recoverable") && !request) {
+    return null
+  }
+  return {
+    requestId: item.requestId,
+    updatedAt: item.updatedAt,
+    ...(state ? { state } : {}),
+    ...(toolKey ? { toolKey } : {}),
+    ...(request ? { request } : {}),
+    ...(draft ? { draft } : {}),
+  }
+}
+
+function storedQuestionPromptChanged(raw: StoredQuestionPrompt, normalized: StoredQuestionPrompt): boolean {
+  const rawToolKey = typeof raw.toolKey === "string" && raw.toolKey ? raw.toolKey : undefined
+  if (
+    raw.requestId !== normalized.requestId ||
+    raw.updatedAt !== normalized.updatedAt ||
+    raw.state !== normalized.state ||
+    rawToolKey !== normalized.toolKey
+  ) {
+    return true
+  }
+  if (Boolean(raw.request) !== Boolean(normalized.request) || Boolean(raw.draft) !== Boolean(normalized.draft)) {
+    return true
+  }
+  if (normalized.request && JSON.stringify(raw.request) !== JSON.stringify(normalized.request)) {
+    return true
+  }
+  return Boolean(normalized.draft && JSON.stringify(raw.draft) !== JSON.stringify(normalized.draft))
+}
+
+function pruneQuestionPrompts(
+  stored: StoredQuestionPromptsBySession,
+  now = Date.now(),
+): StoredQuestionPromptsBySession {
+  let changed = false
+  const next: StoredQuestionPromptsBySession = {}
+  for (const [sessionId, items] of Object.entries(stored)) {
+    const normalizedItems: StoredQuestionPrompt[] = []
+    if (!Array.isArray(items)) {
+      changed = true
+      continue
+    }
+    for (const item of items) {
+      const normalized = normalizeStoredQuestionPrompt(item)
+      if (!normalized || !isFresh(normalized.updatedAt, now)) {
+        changed = true
+        continue
+      }
+      if (storedQuestionPromptChanged(item, normalized)) {
+        changed = true
+      }
+      normalizedItems.push(normalized)
+    }
+    if (normalizedItems.length > 0) {
+      next[sessionId] = normalizedItems
+    } else if (items.length > 0) {
+      changed = true
+    }
+  }
+  return changed ? next : stored
+}
+
+function upsertPromptRecord(
+  records: StoredQuestionPrompt[],
+  key: string,
+  updater: (current: StoredQuestionPrompt | undefined) => StoredQuestionPrompt | null,
+): StoredQuestionPrompt[] {
+  const existingIndex = records.findIndex((record) => promptRecordKey(record) === key)
+  const current = existingIndex >= 0 ? records[existingIndex] : undefined
+  const updated = updater(current)
+  if (!updated) {
+    return existingIndex >= 0 ? records.filter((_, index) => index !== existingIndex) : records
+  }
+  if (existingIndex < 0) {
+    return [...records, updated]
+  }
+  const next = records.slice()
+  next[existingIndex] = updated
+  return next
+}
+
+function updatePromptStoreForSession(
+  sessionId: string,
+  updater: (records: StoredQuestionPrompt[]) => StoredQuestionPrompt[],
+): void {
+  const stored = readQuestionPromptStore()
+  const records = stored[sessionId] ?? []
+  const nextRecords = updater(records)
+  const next = { ...stored }
+  if (nextRecords.length > 0) {
+    next[sessionId] = nextRecords
+  } else {
+    delete next[sessionId]
+  }
+  writeJson(questionPromptsStorageKey, pruneQuestionPrompts(next))
+}
+
+function legacyStoppedRecords(
+  storageKey: string,
+  state: Extract<StoredQuestionPromptState, "stopped" | "recoverable">,
+): StoredQuestionPromptsBySession {
+  const stored = pruneStoppedQuestions(readJson<StoredStoppedQuestionsBySession>(storageKey, {}))
+  const next: StoredQuestionPromptsBySession = {}
+  for (const [sessionId, items] of Object.entries(stored)) {
+    for (const item of items) {
+      const request = stoppedQuestionItemRequest(item)
+      const updatedAt = stoppedQuestionItemUpdatedAt(item) ?? Date.now()
+      if (!isFresh(updatedAt)) {
+        continue
+      }
+      const toolKey = questionRequestToolKey(request)
+      next[sessionId] = [
+        ...(next[sessionId] ?? []),
+        {
+          request,
+          requestId: request.id,
+          state,
+          ...(toolKey ? { toolKey } : {}),
+          updatedAt,
+        },
+      ]
+    }
+  }
+  return next
+}
+
+function mergeLegacyPromptRecords(
+  target: StoredQuestionPromptsBySession,
+  records: StoredQuestionPromptsBySession,
+): StoredQuestionPromptsBySession {
+  let next = target
+  for (const [sessionId, items] of Object.entries(records)) {
+    const existing = next[sessionId] ?? []
+    let sessionRecords = existing
+    for (const item of items) {
+      const existingKeyByRequest = sessionRecords.find((record) => record.requestId === item.requestId)
+      const key = existingKeyByRequest ? promptRecordKey(existingKeyByRequest) : promptRecordKey(item)
+      sessionRecords = upsertPromptRecord(sessionRecords, key, (current) => {
+        if (current?.state === "dismissed" || (current?.state === "stopped" && item.state === "recoverable")) {
+          return current
+        }
+        return {
+          ...current,
+          ...item,
+          draft: item.draft ?? current?.draft,
+          updatedAt: Math.max(current?.updatedAt ?? 0, item.updatedAt),
+        }
+      })
+    }
+    next = { ...next, [sessionId]: sessionRecords }
+  }
+  return next
+}
+
+function legacyDraftRecords(): StoredQuestionPromptsBySession {
+  const stored = pruneQuestionDrafts(readJson<StoredQuestionDraftsBySession>(questionDraftsStorageKey, {}))
+  const next: StoredQuestionPromptsBySession = {}
+  for (const [sessionId, draftsByRequest] of Object.entries(stored)) {
+    for (const [requestId, draft] of Object.entries(draftsByRequest)) {
+      if (!isFresh(draft.updatedAt)) {
+        continue
+      }
+      next[sessionId] = [
+        ...(next[sessionId] ?? []),
+        {
+          draft: {
+            activeFieldIndex: draft.activeFieldIndex,
+            drafts: draft.drafts.map(normalizeDraft),
+            updatedAt: draft.updatedAt,
+          },
+          requestId,
+          updatedAt: draft.updatedAt,
+        },
+      ]
+    }
+  }
+  return next
+}
+
+function legacyDismissedRecords(): StoredQuestionPromptsBySession {
+  const stored = pruneDismissedQuestions(readJson<StoredDismissedQuestionsBySession>(dismissedQuestionsStorageKey, {}))
+  const next: StoredQuestionPromptsBySession = {}
+  for (const [sessionId, items] of Object.entries(stored)) {
+    for (const item of items) {
+      const normalized = normalizeStoredDismissedQuestion(item)
+      if (!normalized) {
+        continue
+      }
+      next[sessionId] = [
+        ...(next[sessionId] ?? []),
+        {
+          requestId: normalized.requestId,
+          state: "dismissed",
+          ...(normalized.toolKey ? { toolKey: normalized.toolKey } : {}),
+          updatedAt: normalized.updatedAt,
+        },
+      ]
+    }
+  }
+  return next
+}
+
+function migrateLegacyQuestionPromptStore(): StoredQuestionPromptsBySession {
+  let migrated: StoredQuestionPromptsBySession = {}
+  migrated = mergeLegacyPromptRecords(migrated, legacyStoppedRecords(stoppedQuestionsStorageKey, "stopped"))
+  migrated = mergeLegacyPromptRecords(migrated, legacyStoppedRecords(recoverableQuestionsStorageKey, "recoverable"))
+  migrated = mergeLegacyPromptRecords(migrated, legacyDraftRecords())
+  migrated = mergeLegacyPromptRecords(migrated, legacyDismissedRecords())
+  return pruneQuestionPrompts(migrated)
+}
+
+function removeLegacyQuestionPromptStore(): void {
+  removeStorageItem(stoppedQuestionsStorageKey)
+  removeStorageItem(recoverableQuestionsStorageKey)
+  removeStorageItem(questionDraftsStorageKey)
+  removeStorageItem(dismissedQuestionsStorageKey)
+}
+
+function readQuestionPromptStore(): StoredQuestionPromptsBySession {
+  const stored = readJson<StoredQuestionPromptsBySession | null>(questionPromptsStorageKey, null)
+  if (stored) {
+    const pruned = pruneQuestionPrompts(stored)
+    if (pruned !== stored) {
+      writeJson(questionPromptsStorageKey, pruned)
+    }
+    return pruned
+  }
+  const migrated = migrateLegacyQuestionPromptStore()
+  if (Object.keys(migrated).length === 0 || writeJson(questionPromptsStorageKey, migrated)) {
+    removeLegacyQuestionPromptStore()
+  }
+  return migrated
+}
+
+function promptRecordsForSession(sessionId: string): StoredQuestionPrompt[] {
+  return readQuestionPromptStore()[sessionId] ?? []
+}
+
+function readStoredQuestionPrompts(
+  sessionId: string,
+  state: Extract<StoredQuestionPromptState, "stopped" | "recoverable">,
+): ChatQuestionRequest[] {
+  return promptRecordsForSession(sessionId).flatMap((item) =>
+    item.state === state && item.request ? [item.request] : [],
+  )
+}
+
+export function readStoredQuestionPromptSnapshot(sessionId: string): StoredQuestionPromptSnapshot {
+  const records = promptRecordsForSession(sessionId)
+  return {
+    dismissedQuestions: records
+      .filter((item) => item.state === "dismissed")
+      .map((item) => ({ requestId: item.requestId, toolKey: item.toolKey ?? null })),
+    recoverableQuestions: records.flatMap((item) =>
+      item.state === "recoverable" && item.request ? [item.request] : [],
+    ),
+    stoppedQuestions: records.flatMap((item) => (item.state === "stopped" && item.request ? [item.request] : [])),
+  }
+}
+
+function addStoredQuestionPrompts(
+  sessionId: string,
+  state: Extract<StoredQuestionPromptState, "stopped" | "recoverable">,
+  requests: ChatQuestionRequest[],
+): void {
+  if (requests.length === 0) {
+    return
+  }
+  updatePromptStoreForSession(sessionId, (records) => {
+    let next = records
+    for (const request of requests) {
+      const key = promptRecordKeyForRequest(request)
+      const toolKey = questionRequestToolKey(request)
+      next = upsertPromptRecord(next, key, (current) => {
+        if (current?.state === "dismissed" || (current?.state === "stopped" && state === "recoverable")) {
+          return current
+        }
+        return {
+          ...current,
+          request,
+          requestId: request.id,
+          state,
+          ...(toolKey ? { toolKey } : {}),
+          updatedAt: Date.now(),
+        }
+      })
+    }
+    return next
+  })
+}
+
+function removeStoredQuestionPromptState(
+  sessionId: string,
+  state: Extract<StoredQuestionPromptState, "stopped" | "recoverable">,
+  target: QuestionPromptTarget,
+): void {
+  updatePromptStoreForSession(sessionId, (records) =>
+    records.flatMap((record) => {
+      if (record.state !== state || !promptRecordMatchesTarget(record, target)) {
+        return [record]
+      }
+      const { request: _request, state: _state, ...rest } = record
+      return rest.draft ? [{ ...rest, updatedAt: Date.now() }] : []
+    }),
+  )
+}
+
 export function readStoredStoppedQuestions(sessionId: string): ChatQuestionRequest[] {
-  return readStoredQuestionRequests(stoppedQuestionsStorageKey, sessionId)
+  return readStoredQuestionPrompts(sessionId, "stopped")
 }
 
 export function addStoredStoppedQuestions(sessionId: string, requests: ChatQuestionRequest[]): void {
-  addStoredQuestionRequests(stoppedQuestionsStorageKey, sessionId, requests)
+  addStoredQuestionPrompts(sessionId, "stopped", requests)
 }
 
-export function removeStoredStoppedQuestion(sessionId: string, requestId: string): void {
-  removeStoredQuestionRequest(stoppedQuestionsStorageKey, sessionId, requestId)
+export function removeStoredStoppedQuestion(sessionId: string, target: QuestionPromptTarget): void {
+  removeStoredQuestionPromptState(sessionId, "stopped", target)
 }
 
 export function readStoredRecoverableQuestions(sessionId: string): ChatQuestionRequest[] {
-  return readStoredQuestionRequests(recoverableQuestionsStorageKey, sessionId)
+  return readStoredQuestionPrompts(sessionId, "recoverable")
 }
 
 export function addStoredRecoverableQuestions(sessionId: string, requests: ChatQuestionRequest[]): void {
-  addStoredQuestionRequests(recoverableQuestionsStorageKey, sessionId, requests)
+  addStoredQuestionPrompts(sessionId, "recoverable", requests)
 }
 
-export function removeStoredRecoverableQuestion(sessionId: string, requestId: string): void {
-  removeStoredQuestionRequest(recoverableQuestionsStorageKey, sessionId, requestId)
+export function removeStoredRecoverableQuestion(sessionId: string, target: QuestionPromptTarget): void {
+  removeStoredQuestionPromptState(sessionId, "recoverable", target)
 }
 
 export function readStoredDismissedQuestions(sessionId: string): QuestionDismissal[] {
-  // reloadPendingQuestions 会先读取 dismissed，再过滤 fetched/stopped/recoverable 三类候选。
-  const stored = readJson<StoredDismissedQuestionsBySession>(dismissedQuestionsStorageKey, {})
-  const pruned = pruneDismissedQuestions(stored)
-  if (pruned !== stored) {
-    writeJson(dismissedQuestionsStorageKey, pruned)
-  }
-  return Array.isArray(pruned[sessionId])
-    ? pruned[sessionId]
-        .map(normalizeStoredDismissedQuestion)
-        .filter((item): item is StoredDismissedQuestion => Boolean(item))
-        .map((item) => ({ requestId: item.requestId, toolKey: item.toolKey ?? null }))
-    : []
+  return promptRecordsForSession(sessionId)
+    .filter((item) => item.state === "dismissed")
+    .map((item) => ({ requestId: item.requestId, toolKey: item.toolKey ?? null }))
 }
 
 export function addStoredDismissedQuestions(sessionId: string, requests: ChatQuestionRequest[]): void {
   if (requests.length === 0) {
     return
   }
-  // 用户丢弃问题时记录 dismissed，用于阻止 recoverQuestionsFromMessageTools 再把它恢复出来。
-  const stored = pruneDismissedQuestions(readJson<StoredDismissedQuestionsBySession>(dismissedQuestionsStorageKey, {}))
-  const byKey = new Map(
-    (stored[sessionId] ?? []).map((item) => [
-      dismissalStorageKey({ requestId: item.requestId, toolKey: item.toolKey ?? null }),
-      item,
-    ]),
-  )
-  for (const request of requests) {
-    const dismissal = questionDismissal(request)
-    byKey.set(dismissalStorageKey(dismissal), {
-      requestId: dismissal.requestId,
-      ...(dismissal.toolKey ? { toolKey: dismissal.toolKey } : {}),
-      updatedAt: Date.now(),
-    })
-  }
-  writeJson(dismissedQuestionsStorageKey, { ...stored, [sessionId]: Array.from(byKey.values()) })
+  updatePromptStoreForSession(sessionId, (records) => {
+    let next = records
+    for (const request of requests) {
+      const dismissal = questionDismissal(request)
+      next = upsertPromptRecord(next, dismissalStorageKey(dismissal), (current) => ({
+        ...current,
+        requestId: dismissal.requestId,
+        state: "dismissed",
+        ...(dismissal.toolKey ? { toolKey: dismissal.toolKey } : {}),
+        updatedAt: Date.now(),
+      }))
+    }
+    return next
+  })
 }
 
 export function readStoredQuestionDraft(
   sessionId: string,
-  requestId: string,
+  target: QuestionPromptTarget,
   expectedDraftCount: number,
 ): StoredQuestionDraftSnapshot | null {
-  const stored = readJson<StoredQuestionDraftsBySession>(questionDraftsStorageKey, {})
-  const pruned = pruneQuestionDrafts(stored)
-  if (pruned !== stored) {
-    writeJson(questionDraftsStorageKey, pruned)
-  }
-  const item = pruned[sessionId]?.[requestId]
+  const item = findPromptRecordForTarget(promptRecordsForSession(sessionId), target)?.draft
   if (!item || !Array.isArray(item.drafts) || item.drafts.length !== expectedDraftCount) {
     return null
   }
@@ -456,106 +665,36 @@ export function readStoredQuestionDraft(
 
 export function writeStoredQuestionDraft(
   sessionId: string,
-  requestId: string,
+  target: QuestionPromptTarget,
   snapshot: StoredQuestionDraftSnapshot,
 ): void {
-  const stored = pruneQuestionDrafts(readJson<StoredQuestionDraftsBySession>(questionDraftsStorageKey, {}))
-  const sessionDrafts = stored[sessionId] ?? {}
-  writeJson(questionDraftsStorageKey, {
-    ...stored,
-    [sessionId]: {
-      ...sessionDrafts,
-      [requestId]: {
+  updatePromptStoreForSession(sessionId, (records) => {
+    const existing = findPromptRecordForTarget(records, target)
+    const key = existing ? promptRecordKey(existing) : promptRecordKeyForTarget(target)
+    const requestId = questionPromptTargetRequestId(target)
+    const toolKey = questionPromptTargetToolKey(target)
+    return upsertPromptRecord(records, key, (current) => ({
+      ...current,
+      draft: {
         activeFieldIndex: snapshot.activeFieldIndex,
         drafts: snapshot.drafts.map(normalizeDraft),
         updatedAt: Date.now(),
       },
-    },
+      requestId,
+      ...(toolKey ? { toolKey } : {}),
+      updatedAt: Date.now(),
+    }))
   })
 }
 
-export function removeStoredQuestionDraft(sessionId: string, requestId: string): void {
-  const raw = readJson<StoredQuestionDraftsBySession>(questionDraftsStorageKey, {})
-  const stored = pruneQuestionDrafts(raw)
-  const sessionDrafts = stored[sessionId]
-  if (!sessionDrafts || !sessionDrafts[requestId]) {
-    if (stored !== raw) {
-      writeJson(questionDraftsStorageKey, stored)
-    }
-    return
-  }
-  const nextSessionDrafts = { ...sessionDrafts }
-  delete nextSessionDrafts[requestId]
-  const next = { ...stored }
-  if (Object.keys(nextSessionDrafts).length > 0) {
-    next[sessionId] = nextSessionDrafts
-  } else {
-    delete next[sessionId]
-  }
-  writeJson(questionDraftsStorageKey, next)
-}
-
-export function mergePendingQuestionsWithStopped({
-  dismissedQuestions = [],
-  fetchedQuestions,
-  previousQuestions,
-  storedRecoverableQuestions = [],
-  stoppedQuestionIds,
-  storedStoppedQuestions,
-}: {
-  dismissedQuestions?: QuestionDismissal[]
-  fetchedQuestions: ChatQuestionRequest[]
-  previousQuestions: ChatQuestionRequest[]
-  storedRecoverableQuestions?: ChatQuestionRequest[]
-  stoppedQuestionIds: string[]
-  storedStoppedQuestions: ChatQuestionRequest[]
-}): ChatQuestionRequest[] {
-  // 合并顺序为 stopped、recoverable、fetched；每一层都先排除 dismissed，尊重用户丢弃动作。
-  const visibleFetchedQuestions = fetchedQuestions.filter(
-    (request) => !isQuestionDismissed(request, dismissedQuestions),
+export function removeStoredQuestionDraft(sessionId: string, target: QuestionPromptTarget): void {
+  updatePromptStoreForSession(sessionId, (records) =>
+    records.flatMap((record) => {
+      if (!promptRecordMatchesTarget(record, target) || !record.draft) {
+        return [record]
+      }
+      const { draft: _draft, ...rest } = record
+      return rest.state ? [{ ...rest, updatedAt: Date.now() }] : []
+    }),
   )
-  const fetchedIds = new Set(visibleFetchedQuestions.map((request) => request.id))
-  const fetchedToolKeys = new Set(
-    visibleFetchedQuestions
-      .map(questionRequestToolKey)
-      .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
-  )
-  const stoppedIds = new Set(stoppedQuestionIds)
-  for (const request of storedStoppedQuestions) {
-    stoppedIds.add(request.id)
-  }
-  const stoppedQuestions = new Map<string, ChatQuestionRequest>()
-  for (const request of [...storedStoppedQuestions, ...previousQuestions]) {
-    const toolKey = questionRequestToolKey(request)
-    if (
-      stoppedIds.has(request.id) &&
-      !isQuestionDismissed(request, dismissedQuestions) &&
-      !fetchedIds.has(request.id) &&
-      (!toolKey || !fetchedToolKeys.has(toolKey))
-    ) {
-      stoppedQuestions.set(request.id, request)
-    }
-  }
-  const recoverableQuestions = new Map<string, ChatQuestionRequest>()
-  const stoppedToolKeys = new Set(
-    Array.from(stoppedQuestions.values())
-      .map(questionRequestToolKey)
-      .filter((key): key is NonNullable<typeof key> => typeof key === "string"),
-  )
-  for (const request of storedRecoverableQuestions) {
-    const toolKey = questionRequestToolKey(request)
-    if (
-      !fetchedIds.has(request.id) &&
-      !stoppedQuestions.has(request.id) &&
-      !isQuestionDismissed(request, dismissedQuestions) &&
-      (!toolKey || (!fetchedToolKeys.has(toolKey) && !stoppedToolKeys.has(toolKey)))
-    ) {
-      recoverableQuestions.set(request.id, request)
-    }
-  }
-  return dedupeQuestionRequests([
-    ...stoppedQuestions.values(),
-    ...recoverableQuestions.values(),
-    ...visibleFetchedQuestions,
-  ])
 }

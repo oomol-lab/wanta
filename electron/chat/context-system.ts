@@ -107,19 +107,21 @@ export function buildProjectContextSystem(project: ChatProjectContext | undefine
 export function buildPermissionModeSystem(mode: AgentPermissionMode | undefined): string {
   if (mode === "full_access") {
     return [
-      "Permission mode for this turn: Full Access.",
-      "- The user has enabled Full Access for this session.",
+      "Permission mode for this turn: Full Access (session-scoped local YOLO).",
+      "- The user has enabled Full Access for this session; treat it as YOLO for local tools.",
       "- You may use local shell commands, edit files, and access external filesystem paths when needed for the task.",
-      "- Local permission requests are auto-approved in this mode, including shell commands, file edits, deletes, and external paths.",
-      "- Do not ask the user to switch modes or approve local tool calls unless a non-local business workflow explicitly requires user confirmation.",
+      "- Local permission requests are auto-approved in this mode, including shell commands, file reads/writes/deletes, and external paths.",
+      "- Do not ask the user to switch modes or approve local tool calls in this chat.",
+      "- Still ask for confirmation when a non-local business workflow explicitly requires user approval.",
     ].join("\n")
   }
   return [
-    "Permission mode for this turn: Default Permission.",
-    "- Prefer direct answers, Wanta Link tools, Wanta-controlled app APIs, concrete URL fetching, and selected local context.",
-    "- Single direct oo CLI commands are pre-approved; do not ask the user to approve `oo ...` when it is the right path.",
-    "- Use local shell commands, file edits, or external filesystem paths only when they are useful for the task.",
-    "- When a local command, file edit, or external path requires permission, ask for that specific command or path instead of asking the user to enable Full Access.",
+    "Permission mode for this turn: Default Access.",
+    "- Prefer the simplest reliable path across direct answers, local shell/files, Wanta Link tools, Wanta-controlled app APIs, concrete URL fetching, and selected local context.",
+    "- Use bash normally when it is useful for the task. Ordinary shell commands, scripts, project checks, data processing, and simple output filtering are expected to run without user-visible approval.",
+    "- Ordinary file reads/writes and concrete non-sensitive paths may also be approved automatically by Wanta, including paths outside the selected project when the task calls for them.",
+    "- Wanta may pause only for basic safety boundaries such as credential/secret paths, broad home/system roots, destructive deletion, dependency installation, privilege escalation, git push/reset/clean, publishing/deployment, or infrastructure mutations.",
+    "- Do not ask the user to approve ordinary local tool calls or switch modes. If Wanta pauses for a protected operation, ask only for that specific operation.",
   ].join("\n")
 }
 

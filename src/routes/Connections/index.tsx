@@ -32,6 +32,7 @@ import {
   matchesProviderFilter,
   matchesProviderQuery,
   parseFilterValue,
+  shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
 import { EmptyList, ProviderDetail, StatusNotice } from "./ConnectionProviderDetailPane.tsx"
 import { DisconnectDialog } from "./DisconnectDialog.tsx"
@@ -143,6 +144,7 @@ export function ConnectionsPanel({
   const selectedProvider = selectedProviderService
     ? (filteredProviders.find((provider) => provider.service === selectedProviderService) ?? null)
     : null
+  const selectedProviderNeedsDetail = selectedProvider ? shouldLoadProviderDetail(selectedProvider) : false
   const selectedDetailService = selectedProvider?.service ?? null
   const selectedDetailCacheKey =
     summaryWorkspaceKey && selectedDetailService
@@ -264,7 +266,7 @@ export function ConnectionsPanel({
   }, [clearDetailCloseTimer, filteredProviders, selectedProviderService, summary])
 
   React.useEffect(() => {
-    if (!selectedDetailService || !selectedDetailCacheKey) {
+    if (!selectedDetailService || !selectedDetailCacheKey || !selectedProviderNeedsDetail) {
       detailRequestIdRef.current += 1
       setDetail(null)
       setDetailCacheKey(null)
@@ -314,7 +316,7 @@ export function ConnectionsPanel({
     return () => {
       cancelled = true
     }
-  }, [getProviderDetail, selectedDetailCacheKey, selectedDetailService])
+  }, [getProviderDetail, selectedDetailCacheKey, selectedDetailService, selectedProviderNeedsDetail])
 
   const connectProvider = React.useCallback(
     async (

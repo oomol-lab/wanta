@@ -1,5 +1,6 @@
 export const OO_CLI_BASH_PERMISSION = {
-  // 非 oo shell 仍进入 Wanta 权限 UI；只有下面显式匹配的单条 oo 调用自动放行。
+  // 直接 oo 调用走 OpenCode 快速路径；其它 shell 进入 ChatService 默认访问策略，
+  // 由主进程自动批准普通 bash，仅在基础安全边界暂停。
   "*": "ask",
   oo: "allow",
   "oo *": "allow",

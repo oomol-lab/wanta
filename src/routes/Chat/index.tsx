@@ -10,8 +10,9 @@ import type {
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
+import type { QuestionDraftStore } from "./question-fields.ts"
 import type { ChatPendingQuestion } from "./question-state.ts"
-import type { ChatSendRequest } from "@/components/app-shell/app-shell-model"
+import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -20,6 +21,7 @@ import type { ChatStatus } from "ai"
 
 import { Building2, ChevronRight, Package, PlugZap } from "lucide-react"
 import * as React from "react"
+import { chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
 import { ChatComposer } from "./ChatComposer.tsx"
 import { ChatTimeline } from "./ChatTimeline.tsx"
 import { FullAccessConfirmDialog } from "./FullAccessConfirmDialog.tsx"
@@ -60,13 +62,14 @@ interface ChatAreaProps {
   organizationSkillPendingInstallCount?: number
   organizationSkillShowcaseItems?: OrganizationSkillShowcaseItem[]
   organizationSkills?: ChatOrganizationSkillContext[]
-  onSend: (request: ChatSendRequest) => Promise<boolean>
+  onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onPermissionModeChange: (mode: AgentPermissionMode) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
   onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
   onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
+  questionDrafts: QuestionDraftStore
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
   onStop: () => Promise<void> | void
   onComposerStateChange?: (state: ComposerState) => void
@@ -254,6 +257,7 @@ export const ChatArea = React.memo(function ChatArea({
   onContinueQuestion,
   onDiscardQuestion,
   onRejectQuestion,
+  questionDrafts,
   onSetDefaultConnection,
   onStop,
   onQueuedMessageMove,
@@ -273,7 +277,14 @@ export const ChatArea = React.memo(function ChatArea({
   const t = useT()
   const [fullAccessDialogOpen, setFullAccessDialogOpen] = React.useState(false)
   const hasMessages = messages.length > 0
-  const isGenerating = status === "submitted" || status === "streaming"
+  const activeQuestionCount = pendingQuestions.filter((item) => item.state === "active").length
+  const turnState = resolveChatTurnState({
+    initialSendPending,
+    pendingPermissionCount: pendingPermissions.length,
+    pendingQuestionCount: activeQuestionCount,
+    status,
+  })
+  const isGenerating = chatTurnShowsGenerating(turnState)
   React.useEffect(() => {
     onArtifactsReset()
   }, [messages[0]?.id, onArtifactsReset])
@@ -387,6 +398,7 @@ export const ChatArea = React.memo(function ChatArea({
       onContinueQuestion={onContinueQuestion}
       onDiscardQuestion={onDiscardQuestion}
       onRejectQuestion={onRejectQuestion}
+      questionDrafts={questionDrafts}
       onStop={onStop}
       onViewBilling={onViewBilling}
     />

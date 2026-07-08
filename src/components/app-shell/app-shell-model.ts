@@ -15,6 +15,7 @@ import type { SessionInfo, SessionProject, SessionScope } from "../../../electro
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { QueuedChatMessage } from "./chat-queue.ts"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
+import type { UserFacingError } from "@/lib/user-facing-error"
 
 import { shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import { visibleUserText } from "@/routes/Chat/message-text"
@@ -105,9 +106,23 @@ export interface ChatSendRequest {
   contextMentions?: ChatContextMention[]
   mode?: AgentMode
   model?: ModelChoice
+  organizationSkills?: ChatOrganizationSkillContext[]
   permissionMode?: AgentPermissionMode
+  projectContext?: ChatProjectContext
   reasoningLevel?: ReasoningLevel
+  sessionScope?: SessionScope
   text: string
+}
+
+export type ChatSendRejectedReason = "send_in_flight" | "workspace_not_ready"
+
+export type ChatSendResult =
+  | { delivery: "queued" | "sent"; status: "accepted" }
+  | { reason: ChatSendRejectedReason; status: "rejected" }
+  | { error: unknown; status: "failed" }
+
+export function chatSendAccepted(result: ChatSendResult): boolean {
+  return result.status === "accepted"
 }
 
 export function rememberTurnRetryOptions(
@@ -183,6 +198,9 @@ export function createQueuedChatMessage(
   reasoningLevel?: ReasoningLevel,
   mode?: AgentMode,
   permissionMode?: AgentPermissionMode,
+  organizationSkills?: ChatOrganizationSkillContext[],
+  projectContext?: ChatProjectContext,
+  sessionScope?: SessionScope,
 ): QueuedChatMessage {
   return {
     id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -191,7 +209,10 @@ export function createQueuedChatMessage(
     attachments,
     ...(contextMentions && contextMentions.length > 0 ? { contextMentions } : {}),
     model,
+    ...(organizationSkills && organizationSkills.length > 0 ? { organizationSkills } : {}),
+    ...(projectContext ? { projectContext } : {}),
     reasoningLevel,
+    ...(sessionScope ? { sessionScope } : {}),
     mode,
     permissionMode,
     createdAt: Date.now(),
@@ -292,7 +313,9 @@ export function sessionRecordScopeKey(scope: SessionScope | undefined): string {
   return `organization:${scope.organizationId}`
 }
 
-export interface WorkspaceSwitchPendingInput {
+export interface WorkspaceActivationInput {
+  agentScopeSyncError: UserFacingError | null
+  agentScopeWorkspaceKey: string | null
   connectionSettledWorkspaceKey: string | null
   connectionWorkspaceKey: string | null
   connectionsRefreshing: boolean
@@ -300,28 +323,86 @@ export interface WorkspaceSwitchPendingInput {
   loadedSessionScopeKey: string | null
   organizationSkillsSettled: boolean
   targetScopeKey: string | null
+  workspaceMetadataError: UserFacingError | null
+}
+
+export type WorkspaceSwitchPendingInput = WorkspaceActivationInput
+
+export type WorkspaceActivationPhase =
+  | "session_scope"
+  | "sessions"
+  | "workspace_metadata"
+  | "agent_scope"
+  | "connections"
+  | "organization_skills"
+
+export type WorkspaceActivationFailureReason = "agent_scope" | "workspace_metadata"
+
+export type WorkspaceActivationState =
+  | { status: "idle"; targetScopeKey: string | null }
+  | { phase: WorkspaceActivationPhase; status: "activating"; targetScopeKey: string }
+  | {
+      error: UserFacingError
+      reason: WorkspaceActivationFailureReason
+      status: "failed"
+      targetScopeKey: string | null
+    }
+
+export function resolveWorkspaceActivationState(input: WorkspaceActivationInput): WorkspaceActivationState {
+  if (!input.connectionWorkspaceKey && input.workspaceMetadataError) {
+    return {
+      error: input.workspaceMetadataError,
+      reason: "workspace_metadata",
+      status: "failed",
+      targetScopeKey: input.targetScopeKey,
+    }
+  }
+  if (input.agentScopeSyncError) {
+    return {
+      error: input.agentScopeSyncError,
+      reason: "agent_scope",
+      status: "failed",
+      targetScopeKey: input.targetScopeKey,
+    }
+  }
+  if (!input.targetScopeKey) {
+    return { status: "idle", targetScopeKey: null }
+  }
+  if (input.currentScopeKey !== input.targetScopeKey) {
+    return { phase: "session_scope", status: "activating", targetScopeKey: input.targetScopeKey }
+  }
+  if (input.loadedSessionScopeKey !== input.targetScopeKey) {
+    return { phase: "sessions", status: "activating", targetScopeKey: input.targetScopeKey }
+  }
+  if (!input.connectionWorkspaceKey) {
+    return { phase: "workspace_metadata", status: "activating", targetScopeKey: input.targetScopeKey }
+  }
+  if (input.agentScopeWorkspaceKey !== input.connectionWorkspaceKey) {
+    return { phase: "agent_scope", status: "activating", targetScopeKey: input.targetScopeKey }
+  }
+  if (input.connectionsRefreshing || input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
+    return { phase: "connections", status: "activating", targetScopeKey: input.targetScopeKey }
+  }
+  if (!input.organizationSkillsSettled) {
+    return { phase: "organization_skills", status: "activating", targetScopeKey: input.targetScopeKey }
+  }
+  return { status: "idle", targetScopeKey: input.targetScopeKey }
+}
+
+export function workspaceActivationIsPending(state: WorkspaceActivationState): boolean {
+  return state.status === "activating"
+}
+
+export function workspaceActivationBlocksInput(state: WorkspaceActivationState): boolean {
+  return state.status !== "idle"
+}
+
+export function workspaceActivationHasFailed(state: WorkspaceActivationState): boolean {
+  return state.status === "failed"
 }
 
 export function isWorkspaceSwitchPending(input: WorkspaceSwitchPendingInput): boolean {
-  if (!input.targetScopeKey) {
-    return false
-  }
-  if (input.currentScopeKey !== input.targetScopeKey) {
-    return true
-  }
-  if (input.loadedSessionScopeKey !== input.targetScopeKey) {
-    return true
-  }
-  if (!input.connectionWorkspaceKey) {
-    return true
-  }
-  if (input.connectionsRefreshing) {
-    return true
-  }
-  if (input.connectionSettledWorkspaceKey !== input.connectionWorkspaceKey) {
-    return true
-  }
-  return !input.organizationSkillsSettled
+  return workspaceActivationIsPending(resolveWorkspaceActivationState(input))
 }
 
 export interface WorkspaceSwitchTargetReachableInput {

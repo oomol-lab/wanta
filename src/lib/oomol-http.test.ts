@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { oomolFetch } from "./oomol-http.ts"
+import { oomolAuthRequiredEventName, oomolFetch } from "./oomol-http.ts"
 
 describe("oomolFetch", () => {
   afterEach(() => {
@@ -30,5 +30,32 @@ describe("oomolFetch", () => {
     expect(() => oomolFetch("/v1/demo", { headers: new Headers({ Cookie: "oomol-token=secret" }) })).toThrow(
       /must not set cookie/i,
     )
+  })
+
+  it("notifies the renderer auth gate when a direct OOMOL request returns 401", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("unauthorized", { status: 401 }))
+    const dispatchEvent = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("window", { dispatchEvent })
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEventMock<T> extends Event {
+        readonly detail: T
+
+        constructor(type: string, init: CustomEventInit<T>) {
+          super(type)
+          this.detail = init.detail as T
+        }
+      },
+    )
+
+    await oomolFetch("/v1/demo")
+
+    expect(dispatchEvent).toHaveBeenCalledOnce()
+    const [event] = dispatchEvent.mock.calls[0] ?? []
+    expect(event).toMatchObject({
+      detail: { requestedAt: expect.any(Number), status: 401 },
+      type: oomolAuthRequiredEventName,
+    })
   })
 })

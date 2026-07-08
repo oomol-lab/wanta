@@ -1,18 +1,25 @@
 import { describe, expect, test } from "vitest"
 import {
   existingSessionComposerDraftKey,
+  chatSendAccepted,
   getUnlinkedProviderSkillRecommendations,
   NO_DRAFT_PROJECT_ID,
   isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   resolveNewSessionTarget,
+  resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
+  workspaceActivationBlocksInput,
+  workspaceActivationHasFailed,
+  workspaceActivationIsPending,
 } from "./app-shell-model.ts"
 
 const readyInput = {
+  agentScopeSyncError: null,
+  agentScopeWorkspaceKey: "personal",
   connectionSettledWorkspaceKey: "personal",
   connectionWorkspaceKey: "personal",
   connectionsRefreshing: false,
@@ -20,7 +27,16 @@ const readyInput = {
   loadedSessionScopeKey: "personal",
   organizationSkillsSettled: true,
   targetScopeKey: "personal",
+  workspaceMetadataError: null,
 }
+
+const activationError = {
+  area: "connections",
+  descriptionKey: "error.connections.description",
+  kind: "operation_failed",
+  severity: "destructive",
+  titleKey: "error.connections.title",
+} as const
 
 describe("workspace switch pending state", () => {
   test("is inactive when no switch target is pending", () => {
@@ -45,6 +61,21 @@ describe("workspace switch pending state", () => {
     ).toBe(true)
   })
 
+  test("waits until the agent organization scope reaches the target workspace", () => {
+    expect(isWorkspaceSwitchPending({ ...readyInput, agentScopeWorkspaceKey: "organization:old" })).toBe(true)
+  })
+
+  test("stops waiting when agent organization scope sync fails", () => {
+    expect(
+      isWorkspaceSwitchPending({
+        ...readyInput,
+        agentScopeSyncError: activationError,
+        agentScopeWorkspaceKey: null,
+        connectionSettledWorkspaceKey: null,
+      }),
+    ).toBe(false)
+  })
+
   test("waits while connections are actively refreshing", () => {
     expect(isWorkspaceSwitchPending({ ...readyInput, connectionsRefreshing: true })).toBe(true)
   })
@@ -59,6 +90,94 @@ describe("workspace switch pending state", () => {
 
   test("settles when all target-scoped requests are done", () => {
     expect(isWorkspaceSwitchPending(readyInput)).toBe(false)
+  })
+})
+
+describe("chat send result", () => {
+  test("only treats accepted send results as accepted", () => {
+    expect(chatSendAccepted({ delivery: "sent", status: "accepted" })).toBe(true)
+    expect(chatSendAccepted({ delivery: "queued", status: "accepted" })).toBe(true)
+    expect(chatSendAccepted({ reason: "workspace_not_ready", status: "rejected" })).toBe(false)
+    expect(chatSendAccepted({ error: new Error("failed"), status: "failed" })).toBe(false)
+  })
+})
+
+describe("workspace activation state", () => {
+  test("is idle without a switch target", () => {
+    const state = resolveWorkspaceActivationState({ ...readyInput, targetScopeKey: null })
+
+    expect(state).toEqual({ status: "idle", targetScopeKey: null })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(false)
+    expect(workspaceActivationHasFailed(state)).toBe(false)
+  })
+
+  test("reports the first pending activation phase", () => {
+    const state = resolveWorkspaceActivationState({ ...readyInput, loadedSessionScopeKey: "organization:old" })
+
+    expect(state).toEqual({ phase: "sessions", status: "activating", targetScopeKey: "personal" })
+    expect(workspaceActivationIsPending(state)).toBe(true)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+    expect(workspaceActivationHasFailed(state)).toBe(false)
+  })
+
+  test("blocks input but stops spinner semantics after agent scope sync failure", () => {
+    const state = resolveWorkspaceActivationState({
+      ...readyInput,
+      agentScopeSyncError: activationError,
+      agentScopeWorkspaceKey: null,
+      connectionSettledWorkspaceKey: null,
+    })
+
+    expect(state).toEqual({
+      error: activationError,
+      reason: "agent_scope",
+      status: "failed",
+      targetScopeKey: "personal",
+    })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+    expect(workspaceActivationHasFailed(state)).toBe(true)
+  })
+
+  test("keeps agent scope sync failure blocking after the switch target is cleared", () => {
+    const state = resolveWorkspaceActivationState({
+      ...readyInput,
+      agentScopeSyncError: activationError,
+      targetScopeKey: null,
+    })
+
+    expect(state).toEqual({
+      error: activationError,
+      reason: "agent_scope",
+      status: "failed",
+      targetScopeKey: null,
+    })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+  })
+
+  test("fails when the selected workspace metadata cannot resolve an identity", () => {
+    const state = resolveWorkspaceActivationState({
+      ...readyInput,
+      connectionWorkspaceKey: null,
+      workspaceMetadataError: activationError,
+    })
+
+    expect(state).toEqual({
+      error: activationError,
+      reason: "workspace_metadata",
+      status: "failed",
+      targetScopeKey: "personal",
+    })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+  })
+
+  test("is idle once every target-scoped dependency settles", () => {
+    const state = resolveWorkspaceActivationState(readyInput)
+
+    expect(state).toEqual({ status: "idle", targetScopeKey: "personal" })
   })
 })
 

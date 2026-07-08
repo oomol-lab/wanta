@@ -1,5 +1,7 @@
 import type { ChatStatus } from "ai"
 
+import { chatTurnAllowsStop, chatTurnShowsGenerating, resolveChatTurnState } from "./chat-turn-state.ts"
+
 export type ComposerVoiceControlMode =
   | "idle"
   | "idle-error"
@@ -56,13 +58,20 @@ export function composerSubmitState({
   status: ChatStatus
   willQueueMessage: boolean
 }): ComposerSubmitState {
-  const canStop = status === "submitted" || status === "streaming"
+  const turnState = resolveChatTurnState({
+    initialSendPending,
+    pendingPermissionCount: 0,
+    pendingQuestionCount: 0,
+    status,
+  })
+  const canStop = chatTurnAllowsStop(turnState)
+  const showGenerating = isGenerating || chatTurnShowsGenerating(turnState)
   const queueSendAvailable = willQueueMessage && canSubmit && !initialSendPending
   return {
     aria: initialSendPending ? "sending" : queueSendAvailable ? "queue" : canStop ? "stop" : "send",
     disabled: initialSendPending ? true : queueSendAvailable ? false : canStop ? false : !canSubmit,
     queuesMessage: queueSendAvailable,
     stopsGeneration: canStop && !initialSendPending && !queueSendAvailable,
-    visualStatus: isGenerating && !queueSendAvailable ? status : undefined,
+    visualStatus: showGenerating && !queueSendAvailable ? status : undefined,
   }
 }

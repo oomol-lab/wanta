@@ -86,6 +86,43 @@ describe("AgentManager", () => {
     }
   })
 
+  it("writes per-session organization scopes without replacing the default identity", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    try {
+      const manager = new AgentManager({
+        authToken: "test",
+        opencodeBinPath: "/tmp/opencode",
+        ooBinPath: "/tmp/oo",
+        rootDir,
+      })
+      const scopePath = path.join(rootDir, "organization-scope.json")
+      ;(manager as unknown as { organizationScopePath: string }).organizationScopePath = scopePath
+
+      await manager.setOrganizationName("workspace-default")
+      await manager.setSessionOrganizationName("session-a", "org-a")
+      await manager.setSessionOrganizationName("session-b", undefined)
+
+      await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
+        organizationName: "workspace-default",
+        sessionOrganizations: {
+          "session-a": "org-a",
+          "session-b": "",
+        },
+      })
+
+      await manager.clearSessionOrganizationName("session-a")
+
+      await expect(readFile(scopePath, "utf8").then((content) => JSON.parse(content))).resolves.toEqual({
+        organizationName: "workspace-default",
+        sessionOrganizations: {
+          "session-b": "",
+        },
+      })
+    } finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("restores the default identity when scope persistence fails", async () => {
     const manager = new AgentManager({
       authToken: "test",

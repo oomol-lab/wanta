@@ -255,7 +255,7 @@ test("build and plan agents enable Wanta prompt through OpenCode native modes", 
   for (const builtin of ["bash", "edit", "write", "read", "webfetch"]) {
     assert.notEqual(tools[builtin], false, `${builtin} should not be disabled`)
   }
-  // Build/Plan 除单条 oo CLI 外都需要 UI 确认本地 shell 与外部目录；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
+  // Build/Plan 的本地 ask 进入 ChatService 访问策略；Plan 仍显式禁止普通编辑，避免根级权限覆盖 OpenCode plan 语义。
   // v2 的 PermissionConfig 是 "allow" | "deny" | {对象} 联合，断言对象字段前先按对象形态取出。
   const buildPermission = buildAgent.permission as unknown as Record<string, unknown> | undefined
   const planPermission = planAgent.permission as unknown as Record<string, unknown> | undefined
@@ -292,7 +292,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /search_actions when needed.*inspect_action.*call_action/s)
   assert.match(WANTA_SYSTEM_PROMPT, /inline Connect button/)
   assert.match(WANTA_SYSTEM_PROMPT, /avoid writing manual navigation paths/)
-  assert.match(WANTA_SYSTEM_PROMPT, /first shell token is exactly oo, \$WANTA_OO_BIN, or \$\{WANTA_OO_BIN\}/)
+  assert.match(WANTA_SYSTEM_PROMPT, /use bash normally/)
+  assert.match(WANTA_SYSTEM_PROMPT, /basic safety boundaries/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {
@@ -381,12 +382,16 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("On success, returns a JSON array"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("On failure, returns a JSON object"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes('connector", "apps'))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("WANTA_CONNECTOR_URL"))
+  assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("noAuthReady"))
   assert.ok(AGENT_TOOL_FILES["search_actions.ts"]?.includes("--personal"))
+  assert.match(AGENT_TOOL_FILES["search_actions.ts"] ?? "", /currentOrganizationName\(sessionID\)/)
   assert.doesNotMatch(AGENT_TOOL_FILES["search_actions.ts"] ?? "", /--keywords|args\.keywords|keywords: tool\.schema/)
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("List connected OOMOL Link provider apps"))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes('connector", "apps'))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("--organization"))
   assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("--personal"))
+  assert.ok(AGENT_TOOL_FILES["list_apps.ts"]?.includes("context.sessionID"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("connector"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("schema"))
   assert.ok(AGENT_TOOL_FILES["inspect_action.ts"]?.includes("does not mean you must execute the action"))
@@ -396,6 +401,8 @@ test("agent tool sources are present and shaped", () => {
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("/app-connections?provider="))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("do not probe unrelated services or actions"))
   assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("--personal"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("async execute(args, context)"))
+  assert.ok(AGENT_TOOL_FILES["call_action.ts"]?.includes("context.sessionID"))
 })
 
 test("createArtifactDir creates an isolated per-session turn directory", async () => {

@@ -15,7 +15,7 @@ import type {
 import type { ModelChoice } from "../../../electron/models/common.ts"
 import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
-import type { ChatSendRequest, TurnRetryOptions } from "./app-shell-model.ts"
+import type { ChatSendRequest, ChatSendResult, TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
@@ -27,29 +27,34 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
+import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
   AUTH_RETRY_POLL_INTERVAL_MS,
   AUTH_RETRY_POLL_TIMEOUT_MS,
   buildSessionTitleInput,
+  chatSendAccepted,
   connectionWorkspaceSwitchKey,
   EMPTY_CONNECTION_PROVIDERS,
   existingSessionComposerDraftKey,
   getUnlinkedProviderSkillRecommendations,
   initialRoute,
-  isWorkspaceSwitchPending,
   newSessionComposerDraftKey,
   newSessionComposerDraftKeyForScopeKey,
   NO_DRAFT_PROJECT_ID,
   projectContextFromProject,
   rememberTurnRetryOptions,
   resolveNewSessionTarget,
+  resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
   shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
+  workspaceActivationBlocksInput,
+  workspaceActivationHasFailed,
+  workspaceActivationIsPending,
   workspaceSelectionSwitchKey,
   WORKSPACE_SWITCH_TIMEOUT_MS,
 } from "./app-shell-model.ts"
@@ -84,6 +89,12 @@ import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
+import {
+  chatTurnAllowsDirectSend,
+  chatTurnAllowsStop,
+  chatTurnQueuesNewMessage,
+  resolveChatTurnState,
+} from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
 import { formatQuestionResumeMessage } from "@/routes/Chat/question-resume-message"
@@ -183,7 +194,9 @@ export function AppShell() {
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
   const [workspaceSwitchTargetKey, setWorkspaceSwitchTargetKey] = React.useState<string | null>(null)
+  const [workspaceSwitchTimedOutKey, setWorkspaceSwitchTimedOutKey] = React.useState<string | null>(null)
   const workspaceSwitchStartedAt = React.useRef<number | null>(null)
+  const observedWorkspaceKeyRef = React.useRef<string | null>(null)
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
     ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
@@ -198,7 +211,9 @@ export function AppShell() {
     (organizationSkills.organizationId === activeOrganizationId &&
       !organizationSkills.loading &&
       (organizationSkills.hasLoaded || organizationSkills.error !== null))
-  const workspaceSwitching = isWorkspaceSwitchPending({
+  const workspaceActivationState = resolveWorkspaceActivationState({
+    agentScopeSyncError: connections.scopeSyncError,
+    agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
     connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
     connectionWorkspaceKey: currentConnectionWorkspaceKey,
     connectionsRefreshing: connections.busy === "refresh",
@@ -206,7 +221,14 @@ export function AppShell() {
     loadedSessionScopeKey: sessionsLoadedScopeKey,
     organizationSkillsSettled,
     targetScopeKey: workspaceSwitchTargetKey,
+    workspaceMetadataError: organizationWorkspace.error,
   })
+  const workspaceSwitching = workspaceActivationIsPending(workspaceActivationState)
+  const workspaceSwitchTimedOut = Boolean(
+    workspaceSwitchTargetKey && workspaceSwitchTimedOutKey === workspaceSwitchTargetKey,
+  )
+  const workspaceNavigationSwitching = workspaceSwitching && !workspaceSwitchTimedOut
+  const workspaceActivationBlocked = workspaceActivationBlocksInput(workspaceActivationState)
   const sessionsSettledForCurrentScope = sessionsLoaded && sessionsLoadedScopeKey === currentScopeKey
   const visibleSessions = React.useMemo(
     () => (sessionsSettledForCurrentScope ? sessions : []),
@@ -224,16 +246,23 @@ export function AppShell() {
     () => (sessionsSettledForCurrentScope ? projects : []),
     [projects, sessionsSettledForCurrentScope],
   )
-  const handleWorkspaceSwitchStart = React.useCallback(
-    (targetScopeKey: string): void => {
-      if (targetScopeKey === currentScopeKey && !workspaceSwitching) {
-        return
-      }
-      workspaceSwitchStartedAt.current = Date.now()
-      setWorkspaceSwitchTargetKey(targetScopeKey)
-    },
-    [currentScopeKey, workspaceSwitching],
-  )
+  const handleWorkspaceSwitchStart = React.useCallback((targetScopeKey: string): void => {
+    workspaceSwitchStartedAt.current = Date.now()
+    setWorkspaceSwitchTimedOutKey(null)
+    setWorkspaceSwitchTargetKey(targetScopeKey)
+  }, [])
+  React.useLayoutEffect(() => {
+    if (observedWorkspaceKeyRef.current === null) {
+      observedWorkspaceKeyRef.current = activeWorkspaceKey
+      return
+    }
+    if (observedWorkspaceKeyRef.current === activeWorkspaceKey) {
+      return
+    }
+    observedWorkspaceKeyRef.current = activeWorkspaceKey
+    // 组织管理页也能切 workspace，这里把非侧边栏入口并入同一套 activation 流。
+    handleWorkspaceSwitchStart(activeWorkspaceKey)
+  }, [activeWorkspaceKey, handleWorkspaceSwitchStart])
   React.useEffect(() => {
     if (!workspaceSwitchTargetKey) {
       workspaceSwitchStartedAt.current = null
@@ -248,6 +277,7 @@ export function AppShell() {
       workspaceSwitching,
     })
     if (shouldClearTarget) {
+      setWorkspaceSwitchTimedOutKey(null)
       setWorkspaceSwitchTargetKey(null)
     }
   }, [
@@ -260,18 +290,19 @@ export function AppShell() {
   ])
   React.useEffect(() => {
     if (!workspaceSwitchTargetKey) {
+      setWorkspaceSwitchTimedOutKey(null)
       return
     }
     const startedAt = workspaceSwitchStartedAt.current ?? Date.now()
     workspaceSwitchStartedAt.current = startedAt
     const remainingMs = WORKSPACE_SWITCH_TIMEOUT_MS - (Date.now() - startedAt)
     if (remainingMs <= 0) {
-      setWorkspaceSwitchTargetKey(null)
+      setWorkspaceSwitchTimedOutKey(workspaceSwitchTargetKey)
       return
     }
-    // 防止连接器或组织请求异常挂起时，侧边栏长期停留在禁用态。
+    // 超时只释放 workspace 选择器，不把真实切换状态伪装成完成。
     const timeoutId = window.setTimeout(() => {
-      setWorkspaceSwitchTargetKey((current) => (current === workspaceSwitchTargetKey ? null : current))
+      setWorkspaceSwitchTimedOutKey((current) => current ?? workspaceSwitchTargetKey)
     }, remainingMs)
     return () => window.clearTimeout(timeoutId)
   }, [workspaceSwitchTargetKey])
@@ -332,10 +363,14 @@ export function AppShell() {
     answerQuestion,
     discardQuestion,
     rejectQuestion,
+    questionDrafts,
   } = useChat(activeChatSessionId, route === "chat" ? activeChatSessionId : null)
   const connectionSummaryMatchesWorkspace =
     Boolean(currentConnectionWorkspaceKey) && connections.summaryWorkspaceKey === currentConnectionWorkspaceKey
-  const activeProvidersLoading = Boolean(currentConnectionWorkspaceKey) && !connectionSummaryMatchesWorkspace
+  const activeProvidersLoading =
+    Boolean(currentConnectionWorkspaceKey) &&
+    !connectionSummaryMatchesWorkspace &&
+    !workspaceActivationHasFailed(workspaceActivationState)
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
@@ -593,7 +628,10 @@ export function AppShell() {
       return
     }
     const connected = connections.summary?.providers.some(
-      (p) => p.service === pending.service && p.status === "connected" && p.appStatus === "active",
+      (p) =>
+        p.service === pending.service &&
+        p.status === "connected" &&
+        (p.appStatus === "active" || isConnectionlessNoAuthProvider(p)),
     )
     if (connected) {
       pendingRetry.current = null
@@ -729,6 +767,17 @@ export function AppShell() {
   const initialSendPending = Boolean(activePendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
+  const activePendingQuestionCount = pendingQuestions.filter((item) => item.state === "active").length
+  const activeChatTurnState = React.useMemo(
+    () =>
+      resolveChatTurnState({
+        initialSendPending,
+        pendingPermissionCount: pendingPermissions.length,
+        pendingQuestionCount: activePendingQuestionCount,
+        status: displayedStatus,
+      }),
+    [activePendingQuestionCount, displayedStatus, initialSendPending, pendingPermissions.length],
+  )
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
     sessionsSettledForCurrentScope && !isDraftSession && !activeChatSessionId && activeSidebarSessions.length > 0
@@ -750,14 +799,13 @@ export function AppShell() {
   const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
+      if (sessionId === activeChatSessionId) {
+        return chatTurnQueuesNewMessage(activeChatTurnState)
+      }
       const sessionStatus = getSessionStatus(sessionId)
-      return (
-        sessionStatus === "submitted" ||
-        sessionStatus === "streaming" ||
-        (sessionId === activeChatSessionId && activePendingChatTransition?.sessionId === sessionId && !pendingCaughtUp)
-      )
+      return sessionStatus === "submitted" || sessionStatus === "streaming"
     },
-    [activeChatSessionId, activePendingChatTransition, getSessionStatus, pendingCaughtUp],
+    [activeChatSessionId, activeChatTurnState, getSessionStatus],
   )
   const titlebarTitle =
     route === "settings"
@@ -1036,26 +1084,33 @@ export function AppShell() {
   }, [])
 
   const sendNow = React.useCallback(
-    async (request: ChatSendRequest): Promise<boolean> => {
+    async (request: ChatSendRequest): Promise<ChatSendResult> => {
       const {
         afterOptimisticSubmit,
         attachments = [],
         contextMentions = [],
         mode,
         model,
+        organizationSkills: requestOrganizationSkills,
         permissionMode: permissionModeArg,
+        projectContext: requestProjectContext,
         reasoningLevel,
+        sessionScope: requestSessionScope,
         text,
       } = request
+      const effectiveSessionScope = requestSessionScope ?? sessionScope
+      const effectiveScopeKey = sessionScopeKey(effectiveSessionScope)
+      const effectiveOrganizationSkills = requestOrganizationSkills ?? organizationSkills.chatContextSkills
+      const effectiveProjectContext = requestProjectContext ?? activeProjectContext
       const sendKey = activeComposerDraftKey
-      const sendScopeKey = currentScopeKey
+      const sendScopeKey = effectiveScopeKey
       const isCurrentSendTarget = (): boolean =>
         activeComposerDraftKeyRef.current === sendKey && currentScopeKeyRef.current === sendScopeKey
       if (sendInFlightKeysRef.current.has(sendKey)) {
-        return false
+        return { reason: "send_in_flight", status: "rejected" }
       }
-      if (!sessionScope) {
-        return false
+      if (!effectiveSessionScope || currentScopeKey !== sendScopeKey) {
+        return { reason: "workspace_not_ready", status: "rejected" }
       }
       sendInFlightKeysRef.current.add(sendKey)
       try {
@@ -1088,12 +1143,12 @@ export function AppShell() {
         if (!sessionId) {
           let info: SessionInfo
           try {
-            info = await create(fallbackTitle, activeProject?.id)
+            info = await create(fallbackTitle, effectiveProjectContext?.id ?? activeProject?.id)
           } catch (error) {
             if (bridgeEmptySend && isCurrentSendTarget()) {
               setPendingChatTransition(null)
             }
-            throw error
+            return { error, status: "failed" }
           }
           sessionId = info.id
           rememberAutoFallbackTitle(sessionId, fallbackTitle)
@@ -1128,23 +1183,23 @@ export function AppShell() {
           chatTurnInputKey({ text, attachments }),
           {
             contextMentions,
-            organizationSkills: organizationSkills.chatContextSkills,
-            projectContext: activeProjectContext,
+            organizationSkills: effectiveOrganizationSkills,
+            projectContext: effectiveProjectContext,
             model,
             reasoningLevel,
             mode,
             permissionMode: selectedPermissionMode,
-            sessionScope,
+            sessionScope: effectiveSessionScope,
           },
         )
         try {
           const sendPromise = send(sessionId, text, attachments, {
             contextMentions,
             model,
-            organizationSkills: organizationSkills.chatContextSkills,
-            projectContext: activeProjectContext,
+            organizationSkills: effectiveOrganizationSkills,
+            projectContext: effectiveProjectContext,
             reasoningLevel,
-            sessionScope,
+            sessionScope: effectiveSessionScope,
             mode,
             permissionMode: selectedPermissionMode,
           })
@@ -1154,9 +1209,9 @@ export function AppShell() {
           if (bridgeEmptySend && isCurrentSendTarget()) {
             setPendingChatTransition(null)
           }
-          throw error
+          return { error, status: "failed" }
         }
-        return true
+        return { delivery: "sent", status: "accepted" }
       } finally {
         sendInFlightKeysRef.current.delete(sendKey)
       }
@@ -1199,6 +1254,7 @@ export function AppShell() {
     releaseActiveQueue,
   } = useChatQueueState({
     activeSessionId: activeChatSessionId,
+    dispatchBlocked: chatTurnQueuesNewMessage(activeChatTurnState),
     initialSendPending,
     isSendInFlight,
     sendQueuedMessage: sendNow,
@@ -1252,7 +1308,7 @@ export function AppShell() {
   }, [activeChatSessionId, clearQueuedSession, sessionsSettledForCurrentScope, visibleSessions])
 
   const handleSend = React.useCallback(
-    async (request: ChatSendRequest): Promise<boolean> => {
+    async (request: ChatSendRequest): Promise<ChatSendResult> => {
       const {
         afterOptimisticSubmit,
         attachments = [],
@@ -1268,12 +1324,26 @@ export function AppShell() {
         clearComposerDraft(draftKey)
         afterOptimisticSubmit?.()
       }
-      if (activeChatSessionId && (isSessionRunning(activeChatSessionId) || sendInFlightKeysRef.current.has(draftKey))) {
-        queueActiveMessage(text, attachments, contextMentions, model, reasoningLevel, mode, permissionMode)
+      if (
+        activeChatSessionId &&
+        (!chatTurnAllowsDirectSend(activeChatTurnState) || sendInFlightKeysRef.current.has(draftKey))
+      ) {
+        queueActiveMessage(
+          text,
+          attachments,
+          contextMentions,
+          model,
+          reasoningLevel,
+          mode,
+          permissionMode,
+          organizationSkills.chatContextSkills,
+          activeProjectContext,
+          sessionScope ?? undefined,
+        )
         clearSubmittedDraft()
-        return true
+        return { delivery: "queued", status: "accepted" }
       }
-      const accepted = await sendNow({
+      const result = await sendNow({
         afterOptimisticSubmit: clearSubmittedDraft,
         attachments,
         contextMentions,
@@ -1283,20 +1353,23 @@ export function AppShell() {
         reasoningLevel,
         text,
       })
-      if (accepted) {
+      if (chatSendAccepted(result)) {
         releaseActiveQueue()
         clearComposerDraft(draftKey)
       }
-      return accepted
+      return result
     },
     [
       activeComposerDraftKey,
       activeChatSessionId,
+      activeChatTurnState,
+      activeProjectContext,
       clearComposerDraft,
-      isSessionRunning,
+      organizationSkills.chatContextSkills,
       queueActiveMessage,
       releaseActiveQueue,
       sendNow,
+      sessionScope,
     ],
   )
 
@@ -1318,12 +1391,18 @@ export function AppShell() {
       if (!sessionId) {
         return
       }
-      const accepted = await handleSend({ text: formatQuestionResumeMessage(t, request, answers) })
-      if (accepted) {
+      if (!chatTurnAllowsDirectSend(activeChatTurnState)) {
+        if (!chatTurnAllowsStop(activeChatTurnState)) {
+          throw new Error("The current turn is waiting for another action.")
+        }
+        await stop(sessionId)
+      }
+      const result = await sendNow({ text: formatQuestionResumeMessage(t, request, answers) })
+      if (result.status === "accepted" && result.delivery === "sent") {
         discardQuestion(sessionId, request.id)
       }
     },
-    [activeChatSessionId, discardQuestion, handleSend, t],
+    [activeChatSessionId, activeChatTurnState, discardQuestion, sendNow, stop, t],
   )
 
   const handleDiscardQuestion = React.useCallback(
@@ -1675,7 +1754,7 @@ export function AppShell() {
         taskSessions={visibleTaskSessions}
         width={sidebarWidth}
         workspace={organizationWorkspace}
-        workspaceSwitching={workspaceSwitching}
+        workspaceSwitching={workspaceNavigationSwitching}
         onArchiveProjectRequest={(project) => setArchiveProjectId(project.id)}
         onArchiveSessionRequest={handleArchiveSessionRequest}
         onLogout={() => void auth.logout()}
@@ -1767,9 +1846,9 @@ export function AppShell() {
                       error={error}
                       emptyTitle={chatEmptyTitle}
                       generatedArtifacts={artifactSelection}
-                      submitDisabled={!ready || chatBootstrapping || workspaceSwitching || !sessionScope}
+                      submitDisabled={!ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope}
                       willQueueMessage={Boolean(
-                        activeChatSessionId && (isSessionRunning(activeChatSessionId) || isSendInFlight()),
+                        activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),
                       )}
                       initialComposerState={initialComposerState}
                       initialSendPending={initialSendPending}
@@ -1814,6 +1893,7 @@ export function AppShell() {
                       onContinueQuestion={handleContinueQuestion}
                       onDiscardQuestion={handleDiscardQuestion}
                       onRejectQuestion={handleRejectQuestion}
+                      questionDrafts={questionDrafts}
                       onSetDefaultConnection={connections.setDefaultAccount}
                       onStop={handleChatStop}
                       onQueuedMessageMove={handleQueuedMessageMove}

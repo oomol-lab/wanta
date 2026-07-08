@@ -120,6 +120,7 @@ export function ProviderDetail({
   const currentAuthType = getDefaultAuthType(provider)
   const usage = summary?.usage.services.find((item) => item.service === provider.service)
   const accountValue = getProviderAccountValue(provider, t)
+  const noAuthReady = isNoAuthReadyProvider(provider)
 
   return (
     <div className="grid min-w-0 gap-3">
@@ -191,11 +192,15 @@ export function ProviderDetail({
       <section className="grid gap-1.5">
         <h3 className="oo-text-title px-0.5">{t("connections.providerDetails")}</h3>
         <dl className="overflow-hidden rounded-md border">
-          <DetailRow label={t("connections.account")} value={accountValue} />
-          <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
+          {noAuthReady ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
+          {noAuthReady ? null : (
+            <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
+          )}
           <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
           <DetailRow label={t("connections.service")} value={provider.service} mono />
-          <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
+          {noAuthReady ? null : (
+            <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
+          )}
         </dl>
       </section>
     </div>
@@ -287,11 +292,13 @@ function ConnectionPanel({
           </h3>
           {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
-        <AuthTypeToggleGroup
-          authTypes={usableAuthTypes}
-          value={activeAuthType ?? null}
-          onChange={setSelectedAuthType}
-        />
+        {noAuthReady ? null : (
+          <AuthTypeToggleGroup
+            authTypes={usableAuthTypes}
+            value={activeAuthType ?? null}
+            onChange={setSelectedAuthType}
+          />
+        )}
       </div>
 
       {noAuthReady ? (

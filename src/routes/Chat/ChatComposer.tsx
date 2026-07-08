@@ -12,7 +12,7 @@ import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { ChatPendingQuestion } from "./question-state.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
-import type { ChatSendRequest } from "@/components/app-shell/app-shell-model"
+import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ChatStatus } from "ai"
@@ -84,7 +84,7 @@ interface ChatComposerProps {
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
   onComposerStateChange?: (state: ComposerState) => void
-  onSend: (request: ChatSendRequest) => Promise<boolean>
+  onSend: (request: ChatSendRequest) => Promise<ChatSendResult>
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onPermissionModeDefault: () => void
   onPermissionModeFullAccess: () => void
@@ -245,6 +245,9 @@ export function ChatComposer({
   const activePendingQuestion = pendingQuestions.find((item) => item.state === "active")?.request
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
   const composerAttachmentsDisabled = Boolean(activePendingQuestion)
+  const composerSubmitStatus = activePendingQuestion ? "ready" : status
+  const composerSubmitGenerating = activePendingQuestion ? false : isGenerating
+  const composerWillQueueMessage = activePendingQuestion ? false : willQueueMessage
   const submitBlocked = submitDisabled || initialSendPending
   const composerDisabled =
     submitDisabled || voiceInput.busy || initialSendPending || answeringQuestion || composerQuestionBlocked
@@ -547,9 +550,9 @@ export function ChatComposer({
       dispatchComposer({ type: "reset-after-submit" })
       setInputError(null)
     }
-    let accepted = false
+    let result: ChatSendResult
     try {
-      accepted = await onSend({
+      result = await onSend({
         afterOptimisticSubmit: clearAfterOptimisticSubmit,
         attachments: attachments.map(stripDraftAttachment),
         contextMentions,
@@ -563,7 +566,11 @@ export function ChatComposer({
       setInputError(err instanceof Error ? err.message : String(err))
       return
     }
-    if (!accepted) {
+    if (result.status === "failed") {
+      setInputError(result.error instanceof Error ? result.error.message : String(result.error))
+      return
+    }
+    if (result.status !== "accepted") {
       setInputError(t("chat.sendNotAccepted"))
       return
     }
@@ -699,12 +706,12 @@ export function ChatComposer({
           composerDisabled={composerDisabled}
           contextUsage={contextUsage}
           initialSendPending={initialSendPending}
-          isGenerating={isGenerating}
+          isGenerating={composerSubmitGenerating}
           modelCatalog={modelCatalog}
           agentMode={agentMode}
           permissionMode={permissionMode}
           reasoningLevel={reasoningLevel}
-          status={status}
+          status={composerSubmitStatus}
           voiceActive={voiceInput.active}
           voiceBars={voiceInput.bars}
           voiceDurationMs={voiceInput.durationMs}
@@ -713,7 +720,7 @@ export function ChatComposer({
           voiceRetryBlob={voiceInput.retryBlob}
           voiceStarting={voiceInput.starting}
           voiceTranscribing={voiceInput.transcribing}
-          willQueueMessage={willQueueMessage}
+          willQueueMessage={composerWillQueueMessage}
           onAddModel={modelCatalogState.openDialog}
           onCancelVoice={voiceInput.cancel}
           onDeleteModel={modelCatalogState.deleteModel}

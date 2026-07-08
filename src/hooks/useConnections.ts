@@ -90,10 +90,12 @@ function isOAuthOperationConnected(next: ConnectionSummary, operation: OAuthPend
 export interface UseConnections {
   summary: ConnectionSummary | null
   summaryWorkspaceKey: string | null
+  agentScopeWorkspaceKey: string | null
   busy: "connect" | "disconnect" | "refresh" | null
   polling: string | null
   actionError: UserFacingError | null
   summaryError: UserFacingError | null
+  scopeSyncError: UserFacingError | null
   clearActionError: () => void
   refresh: (request?: ConnectionSummaryRequest) => Promise<ConnectionSummary | null>
   connect: (input: ConnectionConnectInput) => Promise<boolean>
@@ -114,10 +116,12 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const chatService = useChatService()
   const [summary, setSummary] = React.useState<ConnectionSummary | null>(null)
   const [summaryWorkspaceKey, setSummaryWorkspaceKey] = React.useState<string | null>(null)
+  const [agentScopeWorkspaceKey, setAgentScopeWorkspaceKey] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState<UseConnections["busy"]>(null)
   const [polling, setPolling] = React.useState<string | null>(null)
   const [actionError, setActionError] = React.useState<UserFacingError | null>(null)
   const [summaryError, setSummaryError] = React.useState<UserFacingError | null>(null)
+  const [scopeSyncError, setScopeSyncError] = React.useState<UserFacingError | null>(null)
   const pollAbort = React.useRef<PollOperation | null>(null)
   const oauthPending = React.useRef<OAuthPendingOperation | null>(null)
   const pollSequence = React.useRef(0)
@@ -279,8 +283,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       setBusy(null)
       setActionError(null)
       setSummaryError(null)
+      setScopeSyncError(null)
       setSummary(null)
       setSummaryWorkspaceKey(null)
+      setAgentScopeWorkspaceKey(null)
       return
     }
     const key = connectionWorkspaceKey(workspace)
@@ -297,20 +303,35 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     pollAbort.current = null
     setPolling(null)
     setSummaryWorkspaceKey(null)
+    setAgentScopeWorkspaceKey(null)
     const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
     setActionError(null)
     setSummaryError(null)
+    setScopeSyncError(null)
     setBusy("refresh")
+    const generation = workspaceGeneration.current
     void (async () => {
       try {
         await chatService.invoke("setAgentOrganization", { organizationName })
-      } catch (error) {
-        reportRendererHandledError("connections", "agent organization scope sync failed", error)
-      } finally {
+        if (!isCurrentWorkspace(generation, key)) {
+          return
+        }
+        setAgentScopeWorkspaceKey(key)
         void refresh({ forceRefresh: true })
+      } catch (error) {
+        if (!isCurrentWorkspace(generation, key)) {
+          return
+        }
+        const resolved = resolveConnectionError(error, "summary")
+        reportRendererHandledError("connections", "agent organization scope sync failed", error)
+        setScopeSyncError(resolved)
+        setSummaryError(resolved)
+        setSummary(null)
+        setSummaryWorkspaceKey(null)
+        setBusy((current) => (current === "refresh" ? null : current))
       }
     })()
-  }, [chatService, refresh, workspace])
+  }, [chatService, isCurrentWorkspace, refresh, workspace])
 
   React.useEffect(
     () => () => {
@@ -645,7 +666,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     busy,
     polling,
     actionError,
+    agentScopeWorkspaceKey,
     summaryError,
+    scopeSyncError,
     clearActionError,
     refresh,
     connect,

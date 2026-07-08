@@ -4,6 +4,7 @@ import type { PermissionRequestKind } from "./permission-request.ts"
 import { FolderLock, ShieldAlert, Terminal, X } from "lucide-react"
 import {
   isHighRiskPermissionRequest,
+  isLikelyProjectDevCommandRequest,
   permissionCommand,
   permissionPrimaryResource,
   permissionRequestKind,
@@ -30,14 +31,19 @@ export function PermissionRequiredCard({
   const kind = permissionRequestKind(request)
   const highRisk = isHighRiskPermissionRequest(request)
   const resource = kind === "command" ? permissionCommand(request) : permissionPrimaryResource(request)
-  const canAllowForSession = Boolean(!highRisk && (request.save?.length || request.resources.length))
+  const projectDevCommand = kind === "command" && isLikelyProjectDevCommandRequest(request)
+  const canAllowForSession = Boolean(
+    !highRisk && (request.save?.length || request.resources.length || (kind === "command" && resource)),
+  )
   const Icon = kind === "command" ? Terminal : kind === "path" || kind === "edit" ? FolderLock : ShieldAlert
   const copyByKind: Record<
     PermissionRequestKind,
     { allowForSessionLabel: string; description: string; title: string }
   > = {
     command: {
-      allowForSessionLabel: t("chat.permissionRequiredAllowCommandSession"),
+      allowForSessionLabel: projectDevCommand
+        ? t("chat.permissionRequiredAllowProjectDevSession")
+        : t("chat.permissionRequiredAllowCommandSession"),
       description: t("chat.permissionCommandDescription", { command: resource ?? request.action }),
       title: t("chat.permissionCommandTitle"),
     },

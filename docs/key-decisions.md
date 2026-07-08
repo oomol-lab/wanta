@@ -69,12 +69,12 @@
 - **理由**：控制依赖面（新增 Radix 收敛到 collapsible/input-group/slot）；保持源码 canonical 以便对照升级（`.claude/skills/ai-elements/references/` 是权威 API 参考，`skills-lock.json` 记录来源 hash）。
 - **后果（13-agent 审查确认 9 个运行时问题，已修）**：streaming 时 Enter 只发送不停止（曾是 HIGH 回归）；工具调用 UI 迁移为 `Task` 折叠摘要后，未接入的独立 Tool/CodeBlock 组件已移除；`src/index.css` 须 `@source "../node_modules/streamdown/dist"`（Tailwind v4 不扫 node_modules）；vendored 目录享受 oxlint override（`react/only-export-components` off）。
 
-## 9. 放开 tools 权限并接入两档权限模式
+## 9. 放开 tools 权限并接入两档访问模式
 
 - **背景**：早期 agent 定位"非编码连接器助手"，内置工具全封禁。后果：答不了"我电脑上有哪些文件"，也无法写脚本组合多个 action 的 JSON 结果。
-- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② Build agent、Plan agent 与根级 `WANTA_PERMISSION` 对本地 shell 和 `external_directory` 统一设为 `ask`，`edit` 在 Build 为 `ask`、Plan 仅允许 `.opencode/plans/*.md`；③ `event-translator.ts` 翻译 `permission.asked` / `permission.v2.asked` 与 replied 事件，ChatService 暴露 pending permission 查询和 reply；④ 渲染层保留两档模式：默认权限与完全访问。默认权限下本地 ask 会在聊天内显示当前路径/操作并允许用户批准或拒绝本次；完全访问必须经一次确认弹窗，开启后本会话自动 reply pending permission；⑤ 系统提示词整段重写为双能力（connector 元工具 + 本地工具）并按权限模式动态追加——只放开工具不改提示词，模型仍会自我拒绝。
+- **决策（现在的权限模型）**：解除"三层封锁"（缺一不可）——① 删除 `DENIED_BUILTIN_TOOLS` 表（所有内置工具默认启用）；② Build agent、Plan agent 与根级 `WANTA_PERMISSION` 对本地 shell 和 `external_directory` 统一设为 `ask`，`edit` 在 Build 为 `ask`、Plan 仅允许 `.opencode/plans/*.md`；③ `event-translator.ts` 翻译 `permission.asked` / `permission.v2.asked` 与 replied 事件，ChatService 暴露 pending permission 查询和 reply；④ ChatService 主进程持有本地访问策略：默认访问把 bash 作为正常工作通道，自动批准普通 shell 命令、脚本、项目检查、数据处理、简单输出过滤、普通文件读写与具体非敏感路径；只把基础安全边界推给渲染层确认，如凭证/密钥路径、宽泛 home/system 根、破坏性删除、依赖安装、提权、`git push/reset/clean`、发布/部署、基础设施变更等；本会话 grant 命中的请求仍自动批准。完全访问就是会话级本地 YOLO：必须经一次确认弹窗，开启后由主进程自动 reply 本会话本地 permission，不再逐次做本地风险判断；渲染层只展示 pending UI、同步访问模式、回传用户选择；⑤ 系统提示词整段重写为双能力（connector 元工具 + 本地工具）并按访问模式动态追加——只放开工具不改提示词，模型仍会自我拒绝。
 - **理由（关键约束）**：OpenCode permission 取值 `ask | allow | deny`。Wanta 产品层不暴露细粒度权限，避免用户理解每个内置工具规则；但底层仍用 OpenCode ask 闸住高风险本地动作。**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），访问真实文件仍用绝对路径/`~` 并由 `external_directory: "ask"` 触发权限边界。
-- **后果**：当前安全姿态从"任意 shell / 文件读写 / 网络访问全无确认"收紧为"默认权限优先直接回答、Link 工具和 Wanta 内置 API；需要本地 shell、写入或外部目录时由用户逐次批准，用户也可主动切到完全访问减少后续确认"。若将来继续细化敏感路径（如 `.ssh`、浏览器 profile、邮件数据库、`.env`）或区分外部目录读/写，需要同步 `config.ts`、两档权限 UI、事件测试和 [conventions.md §7](conventions.md)。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器元工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。
+- **后果**：当前安全姿态从"任意 shell / 文件读写 / 网络访问全无确认"收敛为"默认访问下 bash 和普通文件能力顺滑可用，只在真实风险边界暂停确认"。用户不需要为 `oo ... | head`、`npm test`、`rg`、数据处理脚本、普通桌面/下载目录文件等常规工作逐次批准；`npm install`、读取 `.ssh`/`.env`、删除、提权、推送、部署等仍需确认。若将来继续细化敏感路径（如浏览器 profile、邮件数据库、更多凭证目录）或外部副作用分类，需要同步 `config.ts`、ChatService 本地访问策略、访问模式 UI、事件测试和 [conventions.md §7](conventions.md)。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器元工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。
 
 ## 10. Beta/Stable 双发行渠道
 

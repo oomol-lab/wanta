@@ -1,134 +1,71 @@
 import type { ChatPermissionRequest } from "../../../electron/chat/common.ts"
 
-import { isPureOoCliCommand } from "../../../electron/agent/oo-command-permission.ts"
+import {
+  createSessionPermissionGrant,
+  isHighRiskPermissionRequest,
+  isOoCliPermissionRequest,
+  permissionRequestNeedsDefaultPrompt,
+  permissionCommand,
+  permissionPrimaryResource,
+  permissionRequestKind,
+  requestMatchesSessionGrant,
+} from "../../../electron/chat/permission-request.ts"
 
-export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
+export {
+  createSessionPermissionGrant,
+  isHighRiskPermissionRequest,
+  isOoCliPermissionRequest,
+  permissionRequestNeedsDefaultPrompt,
+  permissionCommand,
+  permissionPrimaryResource,
+  permissionRequestKind,
+  requestMatchesSessionGrant,
+}
+export type { PermissionRequestKind, SessionPermissionGrant } from "../../../electron/chat/permission-request.ts"
 
-export interface SessionPermissionGrant {
-  action: string
-  patterns: string[]
+const deniedProjectDevCommandPattern =
+  /(?:^|\s)(?:--fix(?:=|\s|$)|--update(?:=|\s|$)|--update-snapshot(?:=|\s|$)|--updateSnapshot(?:=|\s|$)|--watch(?:=|\s|$)|--write(?:=|\s|$)|-u(?:\s|$))/iu
+const mutatingPackageManagerPattern = /^(?:npm|pnpm|yarn|bun)\s+(?:add|install|publish|remove|uninstall)\b/iu
+const supportedScriptPattern =
+  /^(?:build(?::[^\s]+)?|check(?::[^\s]+)?|lint(?::(?![^\s]*(?:fix|watch|write))[^\s]+)?|t|test(?::(?![^\s]*(?:fix|watch|write))[^\s]+)?|ts-check(?::[^\s]+)?|type-check(?::[^\s]+)?|typecheck(?::[^\s]+)?)$/iu
+
+function commandBodyAfterLikelyCd(command: string): string {
+  const match = /^cd\s+(?:"[^"]+"|'[^']+'|[^\s;&|<>]+)\s+&&\s+(.+)$/iu.exec(command.trim())
+  return match?.[1]?.trim() || command.trim()
 }
 
-function normalizedAction(request: ChatPermissionRequest): string {
-  return request.action.trim().toLowerCase()
-}
-
-export function permissionRequestKind(request: ChatPermissionRequest): PermissionRequestKind {
-  const action = normalizedAction(request)
-  if (action.includes("bash") || action.includes("command") || action.includes("shell")) {
-    return "command"
+function packageManagerScript(command: string): string | undefined {
+  const words = command.split(/\s+/u)
+  const manager = words[0]?.toLowerCase()
+  if (!manager || !["bun", "npm", "pnpm", "yarn"].includes(manager)) {
+    return undefined
   }
-  if (action.includes("edit") || action.includes("write")) {
-    return "edit"
+  const body = words.slice(1)
+  const runIndex = body.findIndex((word) => word === "run" || word === "run-script")
+  if (runIndex >= 0) {
+    return body.slice(runIndex + 1).find((word) => word && !word.startsWith("-"))
   }
-  if (action.includes("external_directory") || action.includes("directory") || action.includes("file")) {
-    return "path"
-  }
-  if (action.includes("webfetch") || action.includes("network")) {
-    return "network"
-  }
-  return "local"
+  return body.find((word) => word && !word.startsWith("-"))
 }
 
-export function permissionPrimaryResource(request: ChatPermissionRequest): string | undefined {
-  return request.resources.find((item) => item.trim())?.trim()
-}
-
-export function permissionCommand(request: ChatPermissionRequest): string | undefined {
-  const command = request.metadata?.command
-  if (typeof command === "string" && command.trim()) {
-    return command.trim()
-  }
-  return permissionPrimaryResource(request)
-}
-
-function commandText(request: ChatPermissionRequest): string {
-  return (permissionCommand(request) ?? request.resources.join(" ")).trim()
-}
-
-const HIGH_RISK_COMMAND_PATTERNS: readonly RegExp[] = [
-  /\bsudo\b/i,
-  /\brm\s+[^;&|]*-[^\s;&|]*r[^\s;&|]*f/i,
-  /\brm\s+[^;&|]*-[^\s;&|]*f[^\s;&|]*r/i,
-  /\bchmod\s+(?:-[^\s]+\s+)*777\b/i,
-  /\bchown\s+(?:-[^\s]+\s+)*(?:root|[^;&|]*\/(?:etc|bin|sbin|usr|system|library))/i,
-  /\b(?:curl|wget)\b[^|;&]*\|\s*(?:sh|bash|zsh)\b/i,
-  /\bgit\s+push\b/i,
-  /\bgit\s+reset\s+--hard\b/i,
-  /\bgit\s+clean\s+-[^\s;&|]*f/i,
-  /\b(?:kubectl|helm)\s+(?:delete|apply|patch|replace|upgrade|rollback)\b/i,
-  /\bdocker\s+(?:rm|rmi|system\s+prune|volume\s+rm)\b/i,
-  /\b(?:npm|pnpm|yarn)\s+publish\b/i,
-  /\b(?:vercel|wrangler|firebase|netlify|sst|serverless)\s+(?:deploy|publish)\b/i,
-]
-
-const HIGH_RISK_PATH_PATTERNS: readonly RegExp[] = [
-  /(^|\s)\/(?:etc|bin|sbin|usr|system|library)(?:\/|\s|$)/i,
-  /(^|\s)~\/(?:\.ssh|\.aws|\.gnupg|\.config\/gh)(?:\/|\s|$)/i,
-]
-
-export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boolean {
+export function isLikelyProjectDevCommandRequest(request: ChatPermissionRequest): boolean {
   if (permissionRequestKind(request) !== "command") {
     return false
   }
-  const command = commandText(request)
+  const command = permissionCommand(request)
   if (!command) {
     return false
   }
+  const body = commandBodyAfterLikelyCd(command)
+  if (deniedProjectDevCommandPattern.test(body) || mutatingPackageManagerPattern.test(body)) {
+    return false
+  }
+  const packageScript = packageManagerScript(body)
+  if (packageScript) {
+    return supportedScriptPattern.test(packageScript)
+  }
   return (
-    HIGH_RISK_COMMAND_PATTERNS.some((pattern) => pattern.test(command)) ||
-    HIGH_RISK_PATH_PATTERNS.some((pattern) => pattern.test(command))
+    /^(?:pytest\b|python3?\s+-m\s+pytest\b|go\s+test\b|cargo\s+test\b|vitest\s+(?:run\b|--run\b))/iu.test(body) ||
+    (/^tsc\b/iu.test(body) && /(?:^|\s)--noEmit(?:=true)?(?:\s|$)/iu.test(body))
   )
-}
-
-export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolean {
-  return permissionRequestKind(request) === "command" && isPureOoCliCommand(commandText(request))
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[\\^$+?.()|[\]{}]/g, "\\$&")
-}
-
-function patternMatches(pattern: string, value: string): boolean {
-  const normalizedPattern = pattern.trim()
-  const normalizedValue = value.trim()
-  if (!normalizedPattern || !normalizedValue) {
-    return false
-  }
-  if (normalizedPattern === normalizedValue) {
-    return true
-  }
-  const withoutTrailingSlash = normalizedPattern.replace(/\/+$/, "")
-  if (
-    withoutTrailingSlash.startsWith("/") &&
-    (normalizedValue === withoutTrailingSlash || normalizedValue.startsWith(`${withoutTrailingSlash}/`))
-  ) {
-    return true
-  }
-  if (!normalizedPattern.includes("*")) {
-    return false
-  }
-  const source = normalizedPattern
-    .split("*")
-    .map((part) => escapeRegExp(part))
-    .join(".*")
-  return new RegExp(`^${source}$`).test(normalizedValue)
-}
-
-export function createSessionPermissionGrant(request: ChatPermissionRequest): SessionPermissionGrant | null {
-  const patterns = (request.save?.length ? request.save : request.resources).map((item) => item.trim()).filter(Boolean)
-  if (patterns.length === 0) {
-    return null
-  }
-  return { action: normalizedAction(request), patterns }
-}
-
-export function requestMatchesSessionGrant(request: ChatPermissionRequest, grant: SessionPermissionGrant): boolean {
-  if (normalizedAction(request) !== grant.action) {
-    return false
-  }
-  const values = [permissionCommand(request), ...request.resources].filter(
-    (value): value is string => typeof value === "string" && value.trim().length > 0,
-  )
-  return values.some((value) => grant.patterns.some((pattern) => patternMatches(pattern, value)))
 }

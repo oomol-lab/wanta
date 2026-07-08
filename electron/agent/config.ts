@@ -47,8 +47,9 @@ export interface OpencodeCustomModel {
 }
 
 // 内置工具与自定义连接器工具并存；本地 shell、写入和越出私有 scratch workspace
-// 的路径访问经 permission ask 进入 Wanta 两档权限 UI。连接器自定义工具不受内置工具 permission 影响。
-// 单条 oo CLI 命令直接放行：oo 由 WANTA_OO_BIN/PATH 指向 Wanta 内置二进制，避免连接器 skill 被本地权限卡住。
+// 的路径访问经 permission ask 进入 ChatService 本地访问策略。默认访问会自动批准普通 bash/文件操作，
+// 只把基础安全边界推给 UI。连接器自定义工具不受内置工具 permission 影响。
+// 保留直接 oo CLI 的 OpenCode 快速路径：oo 由 WANTA_OO_BIN/PATH 指向 Wanta 内置二进制。
 const WANTA_PERMISSION = {
   edit: "ask",
   bash: OO_CLI_BASH_PERMISSION,
@@ -56,7 +57,7 @@ const WANTA_PERMISSION = {
   external_directory: "ask",
 } as const
 
-// 覆盖 OpenCode 原生 plan agent 时保留其“不写用户文件”的语义；是否允许本地 shell 仍交给两档权限 UI。
+// 覆盖 OpenCode 原生 plan agent 时保留其“不写用户文件”的语义；是否允许本地 shell 仍交给 ChatService 访问策略。
 const WANTA_PLAN_PERMISSION = {
   bash: OO_CLI_BASH_PERMISSION,
   webfetch: "allow",

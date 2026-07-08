@@ -10,7 +10,10 @@ import type {
 } from "../../../electron/connections/common.ts"
 import type { MessageKey, TranslateFn } from "@/i18n/i18n"
 
-import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
+import {
+  connectionAppDisplayLabel as connectionAppUiDisplayLabel,
+  isConnectionlessNoAuthProvider,
+} from "../../../electron/connections/summary.ts"
 import { authTypeLabel } from "./shared.ts"
 
 export const executionLogLimit = 12
@@ -66,7 +69,11 @@ export function isConnected(provider: ConnectionProviderSummary): boolean {
 }
 
 export function isNoAuthReadyProvider(provider: ConnectionProviderSummary): boolean {
-  return provider.status === "connected" && provider.actionKind === "no_auth" && provider.appCount === 0
+  return isConnectionlessNoAuthProvider(provider)
+}
+
+export function shouldLoadProviderDetail(provider: ConnectionProviderSummary): boolean {
+  return !isNoAuthReadyProvider(provider)
 }
 
 export function getProviderStatusTone(provider: ConnectionProviderSummary): "attention" | "available" | "connected" {

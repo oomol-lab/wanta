@@ -31,6 +31,7 @@ type ElectronUpdaterModule = typeof import("electron-updater")
 type AutoUpdater = ElectronUpdaterModule["autoUpdater"]
 
 export interface UpdateServiceDeps {
+  beforeInstallDownloadedAppUpdate?: () => void
   store: SettingsStore
 }
 
@@ -103,6 +104,15 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     if (!app.isPackaged || this.state.status.status !== "downloaded") {
       return Promise.resolve()
     }
+    logDiagnostic(
+      "update-service",
+      "install downloaded update requested",
+      { channel: this.channel, version: this.state.status.version },
+      "info",
+    )
+    // macOS 的 quitAndInstall 会先 close 所有窗口，再触发 app.before-quit。必须提前让
+    // 主窗口 close handler 放行，否则窗口会被 hide-on-close 逻辑拦住，安装流程停在重启中。
+    this.deps.beforeInstallDownloadedAppUpdate?.()
     this.getAutoUpdater().quitAndInstall()
     return Promise.resolve()
   }

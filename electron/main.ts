@@ -93,6 +93,8 @@ const protocolScheme = viteDevServerUrl ? branding.devProtocolScheme : branding.
 let mainWindow: BrowserWindow | null = null
 let currentLocale: AppLocale | null = null
 let isQuitting = false
+type AppQuitIntent = "none" | "user-quit" | "update-install" | "termination-signal"
+let appQuitIntent: AppQuitIntent = "none"
 let windowsTrayLifecycle: {
   dispose: () => void
   setLocale: (locale: string) => void
@@ -173,6 +175,7 @@ const settingsService = new SettingsServiceImpl({
 })
 // 更新渠道（stable/beta）持久化在同一 settings.json；服务内部仅打包态联网。
 const updateService = new UpdateServiceImpl({
+  beforeInstallDownloadedAppUpdate: () => armAppQuit("update-install"),
   store: settingsStore,
 })
 const gitService = new GitServiceImpl({
@@ -280,7 +283,7 @@ if (isLocked) {
   // 全靠此处 SIGINT 处理器显式回收，否则会残留孤儿。
   const onTerminationSignal = (signal: NodeJS.Signals): void => {
     console.log(`[wanta] received ${signal}; shutting down`)
-    isQuitting = true
+    armAppQuit("termination-signal")
     agent?.dispose()
     app.quit()
   }
@@ -288,7 +291,7 @@ if (isLocked) {
   process.once("SIGINT", () => onTerminationSignal("SIGINT"))
 
   app.on("before-quit", () => {
-    isQuitting = true
+    armAppQuit("user-quit")
     if (pendingSkillRuntimeRefresh) {
       clearTimeout(pendingSkillRuntimeRefresh)
       pendingSkillRuntimeRefresh = undefined
@@ -301,6 +304,14 @@ if (isLocked) {
       console.warn("[wanta] failed to flush diagnostics log", error)
     })
   })
+}
+
+function armAppQuit(intent: Exclude<AppQuitIntent, "none">): void {
+  if (appQuitIntent === "none") {
+    appQuitIntent = intent
+    logDiagnostic("app-lifecycle", "application quit armed", { intent }, "info")
+  }
+  isQuitting = true
 }
 
 function logMainError(message: string, error: unknown, fields: Record<string, unknown> = {}): void {
@@ -731,7 +742,7 @@ function createMainWindow(): void {
           iconPath: getBrandingResourcePath("icon.ico"),
           locale: activeLocale(),
           onExit: () => {
-            isQuitting = true
+            armAppQuit("user-quit")
             app.quit()
           },
           onOpen: () => {

@@ -360,7 +360,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           translated.event === "permissionAsked" &&
           this.answerTrustedProjectPermission(emit, translated.data.request)
         ) {
-          this.clearGenerationInactivityWatchdog(translated.data.sessionId)
+          const generationSessionId = this.generationWatchdogSessionId(translated.data.sessionId)
+          if (generationSessionId) {
+            this.clearGenerationInactivityWatchdog(generationSessionId)
+          }
           continue
         }
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
@@ -458,10 +461,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           continue
         }
         if (sessionId) {
+          const generationSessionId = this.generationWatchdogSessionId(sessionId)
           if (translated.event === "questionAsked" || translated.event === "permissionAsked") {
-            this.clearGenerationInactivityWatchdog(sessionId)
-          } else {
-            this.scheduleGenerationInactivityWatchdog(sessionId)
+            if (generationSessionId) {
+              this.clearGenerationInactivityWatchdog(generationSessionId)
+            }
+          } else if (generationSessionId) {
+            this.scheduleGenerationInactivityWatchdog(generationSessionId)
           }
         }
         this.sendBestEffort(emit, translated.event, translated.data, { sessionId: translated.data.sessionId })

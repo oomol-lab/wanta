@@ -1085,6 +1085,76 @@ test("trusted project permissions are approved for task subagent sessions", asyn
   )
 })
 
+test("task subagent permission prompts pause the parent generation inactivity watchdog", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    projectContext: {
+      id: "project-1",
+      name: "wanta",
+      path: projectPath,
+    },
+    sessionId: "parent-session",
+    text: "Analyze this project",
+  })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "parent-session", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: {
+            parentSessionId: "parent-session",
+            sessionId: "child-session",
+          },
+        },
+      },
+    },
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "child-session",
+      action: "external_directory",
+      resources: ["/tmp/outside-project"],
+    },
+  })
+
+  assert.ok(events.some((event) => event.event === "permissionAsked"))
+  await vi.advanceTimersByTimeAsync(10 * 60_000)
+
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(bridge.abort.mock.calls.length, 0)
+})
+
 test("trusted project permission approval does not cover paths outside the project", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"

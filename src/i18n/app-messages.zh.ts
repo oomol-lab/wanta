@@ -232,6 +232,7 @@ export const zhCNMessages = {
   "chat.attachmentFolderPickerUnavailable": "当前环境无法选择文件夹，请使用桌面版 Wanta。",
   "chat.openAttachmentFailed": "无法打开附件：{error}",
   "chat.sendNotAccepted": "当前消息还没有被接收，请稍后重试。",
+  "chat.stopFailed": "停止生成失败。",
   "chat.agentStarting": "Agent 启动中…",
   "chat.thinking": "正在思考",
   "chat.activityThinking": "正在分析请求…",

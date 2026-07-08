@@ -50,8 +50,7 @@ export function useTurnOutputRecords(sessionId: string | null, messages: ChatMes
   const chatService = useChatService()
   const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
   const [refreshToken, setRefreshToken] = React.useState(0)
-  const messageIds = React.useMemo(() => assistantMessageIds(messages).slice(-40), [messages])
-  const key = messageIds.join("\n")
+  const messageIdsKey = React.useMemo(() => assistantMessageIds(messages).slice(-40).join("\n"), [messages])
 
   React.useEffect(() => {
     return chatService.serverEvents.on("turnOutputUpdated", (event) => {
@@ -63,30 +62,30 @@ export function useTurnOutputRecords(sessionId: string | null, messages: ChatMes
 
   React.useEffect(() => {
     let cancelled = false
-    if (!sessionId || messageIds.length === 0) {
+    if (!sessionId || !messageIdsKey) {
       setRecords([])
       return
     }
-    void Promise.all(messageIds.map((messageId) => chatService.invoke("getTurnOutput", { sessionId, messageId })))
-      .then((results) => {
-        if (cancelled) {
-          return
-        }
-        setRecords(
-          visibleTurnOutputRecords(results.filter((record): record is TurnOutputRecord => Boolean(record))).sort(
-            (left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right),
-          ),
-        )
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRecords([])
-        }
-      })
+    const messageIds = messageIdsKey.split("\n")
+    void Promise.allSettled(
+      messageIds.map((messageId) => chatService.invoke("getTurnOutput", { sessionId, messageId })),
+    ).then((results) => {
+      if (cancelled) {
+        return
+      }
+      const fulfilledRecords = results.flatMap((result) =>
+        result.status === "fulfilled" && result.value ? [result.value] : [],
+      )
+      setRecords(
+        visibleTurnOutputRecords(fulfilledRecords).sort(
+          (left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right),
+        ),
+      )
+    })
     return () => {
       cancelled = true
     }
-  }, [chatService, key, messageIds, refreshToken, sessionId])
+  }, [chatService, messageIdsKey, refreshToken, sessionId])
 
   return records
 }

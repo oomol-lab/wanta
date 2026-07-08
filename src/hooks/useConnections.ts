@@ -301,10 +301,15 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     setActionError(null)
     setSummaryError(null)
     setBusy("refresh")
-    void chatService.invoke("setAgentOrganization", { organizationName }).catch((error: unknown) => {
-      reportRendererHandledError("connections", "agent organization scope sync failed", error)
-    })
-    void refresh({ forceRefresh: true })
+    void (async () => {
+      try {
+        await chatService.invoke("setAgentOrganization", { organizationName })
+      } catch (error) {
+        reportRendererHandledError("connections", "agent organization scope sync failed", error)
+      } finally {
+        void refresh({ forceRefresh: true })
+      }
+    })()
   }, [chatService, refresh, workspace])
 
   React.useEffect(

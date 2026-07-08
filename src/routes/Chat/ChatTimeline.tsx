@@ -84,6 +84,61 @@ function noopArtifactsAvailable(_selection: ArtifactSelection): void {
   // 只有最新的产物需要自动成为右侧面板的默认选择。
 }
 
+function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function artifactSourceEquals(left: GeneratedArtifactSource, right: GeneratedArtifactSource): boolean {
+  return (
+    left.messageId === right.messageId &&
+    left.artifactRoot === right.artifactRoot &&
+    left.requestText === right.requestText &&
+    left.text === right.text &&
+    stringArraysEqual(left.sourcePaths, right.sourcePaths)
+  )
+}
+
+function artifactSourceArraysEqual(
+  left: readonly GeneratedArtifactSource[],
+  right: readonly GeneratedArtifactSource[],
+): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function reuseStableArtifactSources(
+  previous: GeneratedArtifactSource[],
+  next: GeneratedArtifactSource[],
+): GeneratedArtifactSource[] {
+  let changed = previous.length !== next.length
+  const stable = next.map((source, index) => {
+    const previousSource = previous[index]
+    if (previousSource && artifactSourceEquals(previousSource, source)) {
+      return previousSource
+    }
+    changed = true
+    return source
+  })
+  return changed ? stable : previous
+}
+
+function reuseStableArtifactSourceMap(
+  previous: Map<string, GeneratedArtifactSource[]>,
+  next: Map<string, GeneratedArtifactSource[]>,
+): Map<string, GeneratedArtifactSource[]> {
+  let changed = previous.size !== next.size
+  const stable = new Map<string, GeneratedArtifactSource[]>()
+  for (const [key, sources] of next) {
+    const previousSources = previous.get(key)
+    const stableSources =
+      previousSources && artifactSourceArraysEqual(previousSources, sources) ? previousSources : sources
+    stable.set(key, stableSources)
+    if (stableSources !== previousSources) {
+      changed = true
+    }
+  }
+  return changed ? stable : previous
+}
+
 type TurnProcessStatus =
   | "running"
   | "completed"
@@ -921,6 +976,9 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const stableTurnsRef = React.useRef<ChatTurn[]>([])
   const assistantActionTextByMessageIdRef = React.useRef<Map<string, string>>(new Map())
+  const visibleArtifactSourcesRef = React.useRef<GeneratedArtifactSource[]>([])
+  const artifactSourcesByMessageIdRef = React.useRef<Map<string, GeneratedArtifactSource[]>>(new Map())
+  const artifactSourcesByTurnIdRef = React.useRef<Map<string, GeneratedArtifactSource[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
   const groupedTurns = React.useMemo(() => groupChatTurns(messages), [messages])
   const turns = React.useMemo(() => {
@@ -967,7 +1025,10 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     return stable
   }, [activeAssistantMessageId, messages])
   const visibleArtifactSources = React.useMemo(() => {
-    return collectVisibleGeneratedArtifactSources(messages, isGenerating)
+    const next = collectVisibleGeneratedArtifactSources(messages, isGenerating)
+    const stable = reuseStableArtifactSources(visibleArtifactSourcesRef.current, next)
+    visibleArtifactSourcesRef.current = stable
+    return stable
   }, [isGenerating, messages])
   const artifactSourcesByMessageId = React.useMemo(() => {
     const byMessageId = new Map<string, GeneratedArtifactSource[]>()
@@ -976,7 +1037,9 @@ export const ChatTimeline = React.memo(function ChatTimeline({
       sources.push(source)
       byMessageId.set(source.messageId, sources)
     }
-    return byMessageId
+    const stable = reuseStableArtifactSourceMap(artifactSourcesByMessageIdRef.current, byMessageId)
+    artifactSourcesByMessageIdRef.current = stable
+    return stable
   }, [visibleArtifactSources])
   const artifactSourcesByTurnId = React.useMemo(() => {
     const byTurnId = new Map<string, GeneratedArtifactSource[]>()
@@ -986,7 +1049,9 @@ export const ChatTimeline = React.memo(function ChatTimeline({
         byTurnId.set(turn.id, sources)
       }
     }
-    return byTurnId
+    const stable = reuseStableArtifactSourceMap(artifactSourcesByTurnIdRef.current, byTurnId)
+    artifactSourcesByTurnIdRef.current = stable
+    return stable
   }, [artifactSourcesByMessageId, turns])
   const latestArtifactSourceMessageId = visibleArtifactSources.at(-1)?.messageId
   React.useEffect(() => {

@@ -192,12 +192,14 @@ function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessag
 }
 
 function isQuestionToolPartForRequest(part: ChatMessagePart, request: ChatQuestionRequest): boolean {
+  // question 工具事件可能和同一条 assistant 消息里的其他工具交错，只按 callId 精确命中目标问题。
   return Boolean(
     request.tool && part.kind === "tool" && part.tool === "question" && part.callId === request.tool.callId,
   )
 }
 
 function withFinishedTiming(part: ChatMessagePart, endedAt: number): ChatMessagePart {
+  // 结束时间一旦来自 OpenCode 就保持不变；只给本地补齐的回答/取消状态冻结 end。
   return typeof part.timing?.end === "number" ? part : { ...part, timing: { ...part.timing, end: endedAt } }
 }
 
@@ -210,6 +212,7 @@ export function markQuestionToolAnswered(
   if (!request.tool) {
     return msgs
   }
+  // answered 事件只带 request/tool 信息，通过 messageId + callId 更新对应 question 工具。
   let changed = false
   const messages = msgs.map((message) => {
     if (message.id !== request.tool?.messageId || message.role !== "assistant") {
@@ -242,6 +245,7 @@ export function markQuestionToolsCancelled(
   requests: readonly ChatQuestionRequest[],
   stoppedAt = Date.now(),
 ): { messages: ChatMessage[]; partIds: string[] } {
+  // stopped/rejected question 只取消关联的 question 工具，避免误伤同一回复里的其他运行工具。
   const byMessageId = new Map<string, ChatQuestionRequest[]>()
   for (const request of requests) {
     if (!request.tool) {
@@ -314,7 +318,11 @@ export function markAssistantMessageToolsCancelled(
   if (!messageId) {
     return markLatestAssistantToolsCancelled(msgs, stoppedAt)
   }
-  const targetPartIdSet = targetPartIds && targetPartIds.length > 0 ? new Set(targetPartIds) : null
+  if (targetPartIds?.length === 0) {
+    return { messages: msgs, partIds: [] }
+  }
+  // 有 messageId 时优先使用服务端回传的 partIds；undefined 才表示回退到整条 assistant 消息。
+  const targetPartIdSet = targetPartIds ? new Set(targetPartIds) : null
   let changed = false
   const cancelledPartIds: string[] = []
   const messages = msgs.map((message) => {

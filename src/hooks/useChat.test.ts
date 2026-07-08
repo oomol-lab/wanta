@@ -349,6 +349,33 @@ describe("chat message identity reconciliation", () => {
     expect(messages[1]?.parts[0]).not.toHaveProperty("cancelled")
   })
 
+  it("does not cancel assistant tools when the event target part list is empty", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "tool",
+            partId: "tool-1",
+            callId: "tool-1",
+            tool: "bash",
+            status: "running",
+            input: {},
+            timing: { start: 1000 },
+          },
+        ],
+      },
+    ]
+
+    const { messages, partIds } = markAssistantMessageToolsCancelled(current, "assistant-1", [], 2600)
+
+    expect(partIds).toEqual([])
+    expect(messages).toBe(current)
+    expect(messages[0]?.parts[0]).not.toHaveProperty("cancelled")
+  })
+
   it("marks an answered question tool as completed and keeps the submitted answers", () => {
     const request: ChatQuestionRequest = {
       id: "question-1",

@@ -245,6 +245,7 @@ export const enMessages = {
   "chat.attachmentFolderPickerUnavailable": "This environment cannot choose folders. Use the Wanta desktop app.",
   "chat.openAttachmentFailed": "Could not open attachment: {error}",
   "chat.sendNotAccepted": "This message was not accepted yet. Try again shortly.",
+  "chat.stopFailed": "Failed to stop generation.",
   "chat.agentStarting": "Agent starting…",
   "chat.thinking": "Thinking",
   "chat.activityThinking": "Analyzing the request…",

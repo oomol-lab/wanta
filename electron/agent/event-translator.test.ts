@@ -187,8 +187,16 @@ test("question resolved events are translated", () => {
     [{ event: "questionRejected", data: { sessionId: "s1", requestId: "q1" } }],
   )
   assert.deepEqual(
-    translateOpencodeEvent({ type: "question.rejected", properties: { sessionId: "s1", requestId: "q1" } }),
-    [{ event: "questionRejected", data: { sessionId: "s1", requestId: "q1" } }],
+    translateOpencodeEvent({
+      type: "question.rejected",
+      properties: { sessionId: "s1", requestId: "q1", answers: [["测试文章"], ["工作区根目录"]] },
+    }),
+    [
+      {
+        event: "questionRejected",
+        data: { sessionId: "s1", requestId: "q1", answers: [["测试文章"], ["工作区根目录"]] },
+      },
+    ],
   )
 })
 

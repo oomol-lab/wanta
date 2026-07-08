@@ -500,6 +500,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const dismissPendingQuestion = React.useCallback(
     (sessionId: string, requestId: string) => {
+      // 用户主动丢弃的问题要写入 dismissed，后续 reload/recovery 不再把同一 tool 恢复成待回答。
       const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
       if (request) {
         addStoredDismissedQuestions(sessionId, [request])
@@ -658,6 +659,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       if (requests.length === 0) {
         return
       }
+      // question 的取消只落到关联 tool part，避免停止一题时把同轮其它运行工具也标成取消。
       patch(sessionId, (msgs) => {
         const { messages, partIds } = markQuestionToolsCancelled(msgs, requests)
         rememberCancelledToolParts(sessionId, partIds)
@@ -672,6 +674,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       if (!request) {
         return
       }
+      // 回答成功后立即把 question tool 标成 completed，随后 reload 再与服务端消息对齐。
       patch(sessionId, (msgs) => markQuestionToolAnswered(msgs, request, answers))
     },
     [patch],
@@ -720,6 +723,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
           return
         }
+        // dismissed / stopped / recoverable 三套本地记录共同参与恢复：先剔除用户明确丢弃的问题。
         const dismissedQuestions = readStoredDismissedQuestions(sessionId)
         const activeQuestions = questions.filter((request) => !isQuestionDismissed(request, dismissedQuestions))
         const fetchedIds = new Set(activeQuestions.map((request) => request.id))
@@ -807,6 +811,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
           return
         }
+        // 拉取失败时也保留 dismissed 过滤，避免离线恢复把已丢弃的问题重新显示出来。
         const dismissedQuestions = readStoredDismissedQuestions(sessionId)
         const recoveredStoppedQuestions = currentMessages
           ? recoverQuestionsFromMessageTools(sessionId, currentMessages, [], dismissedQuestions)
@@ -1254,13 +1259,13 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       setGlobalError(null)
       clearSessionError(sessionId)
       const request = (pendingQuestionsMapRef.current[sessionId] ?? []).find((item) => item.id === requestId)
-      markSessionUserStopped(sessionId)
-      removePendingQuestion(sessionId, requestId)
-      markCurrentToolsCancelled(sessionId, request?.tool ? { messageId: request.tool.messageId } : undefined)
-      setStatus(sessionId, "ready")
-      setActivity(sessionId, undefined)
       try {
         await chatService.invoke("rejectQuestion", { sessionId, requestId })
+        markSessionUserStopped(sessionId)
+        removePendingQuestion(sessionId, requestId)
+        markCurrentToolsCancelled(sessionId, request?.tool ? { messageId: request.tool.messageId } : undefined)
+        setStatus(sessionId, "ready")
+        setActivity(sessionId, undefined)
       } catch (err) {
         reportRendererHandledError("chat", "rejectQuestion invoke failed", err)
         setStatus(sessionId, "error")

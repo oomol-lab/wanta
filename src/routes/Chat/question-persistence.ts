@@ -140,14 +140,17 @@ function normalizeQuestionInfo(value: unknown): ChatQuestionInfo | null {
 }
 
 export function questionRequestToolKey(request: ChatQuestionRequest): string | null {
+  // request id 可能在恢复时重建；tool key 用 messageId+callId 稳定识别同一个 question 工具。
   return request.tool ? `${request.tool.messageId}\0${request.tool.callId}` : null
 }
 
 function dismissalStorageKey(dismissal: QuestionDismissal): string {
+  // 优先按 tool key 去重，缺少 tool 信息的旧记录再退回 request id。
   return dismissal.toolKey ? `tool:${dismissal.toolKey}` : `id:${dismissal.requestId}`
 }
 
 function questionDismissal(request: ChatQuestionRequest): QuestionDismissal {
+  // dismissed 只保存最小匹配信息，不持久化完整问题内容，避免覆盖 stopped/recoverable 快照。
   return {
     requestId: request.id,
     toolKey: questionRequestToolKey(request),
@@ -155,6 +158,7 @@ function questionDismissal(request: ChatQuestionRequest): QuestionDismissal {
 }
 
 export function isQuestionDismissed(request: ChatQuestionRequest, dismissals: QuestionDismissal[] = []): boolean {
+  // 既按 request id 匹配当前待答问题，也按 tool key 屏蔽从消息工具恢复出来的同一问题。
   const requestToolKey = questionRequestToolKey(request)
   return dismissals.some(
     (dismissal) =>
@@ -327,6 +331,7 @@ function pruneQuestionDrafts(stored: StoredQuestionDraftsBySession, now = Date.n
 }
 
 function normalizeStoredDismissedQuestion(value: unknown): StoredDismissedQuestion | null {
+  // dismissed 记录只保留 14 天，避免长期屏蔽同一会话里后续重新提出的问题。
   if (!value || typeof value !== "object") {
     return null
   }
@@ -345,6 +350,7 @@ function pruneDismissedQuestions(
   stored: StoredDismissedQuestionsBySession,
   now = Date.now(),
 ): StoredDismissedQuestionsBySession {
+  // 读取/写入前顺手裁剪过期 dismissed，保持 localStorage 体积和 stopped/recoverable 一致受控。
   let changed = false
   const next: StoredDismissedQuestionsBySession = {}
   for (const [sessionId, items] of Object.entries(stored)) {
@@ -388,6 +394,7 @@ export function removeStoredRecoverableQuestion(sessionId: string, requestId: st
 }
 
 export function readStoredDismissedQuestions(sessionId: string): QuestionDismissal[] {
+  // reloadPendingQuestions 会先读取 dismissed，再过滤 fetched/stopped/recoverable 三类候选。
   const stored = readJson<StoredDismissedQuestionsBySession>(dismissedQuestionsStorageKey, {})
   const pruned = pruneDismissedQuestions(stored)
   if (pruned !== stored) {
@@ -405,6 +412,7 @@ export function addStoredDismissedQuestions(sessionId: string, requests: ChatQue
   if (requests.length === 0) {
     return
   }
+  // 用户丢弃问题时记录 dismissed，用于阻止 recoverQuestionsFromMessageTools 再把它恢复出来。
   const stored = pruneDismissedQuestions(readJson<StoredDismissedQuestionsBySession>(dismissedQuestionsStorageKey, {}))
   const byKey = new Map(
     (stored[sessionId] ?? []).map((item) => [
@@ -502,6 +510,7 @@ export function mergePendingQuestionsWithStopped({
   stoppedQuestionIds: string[]
   storedStoppedQuestions: ChatQuestionRequest[]
 }): ChatQuestionRequest[] {
+  // 合并顺序为 stopped、recoverable、fetched；每一层都先排除 dismissed，尊重用户丢弃动作。
   const visibleFetchedQuestions = fetchedQuestions.filter(
     (request) => !isQuestionDismissed(request, dismissedQuestions),
   )

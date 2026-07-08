@@ -560,15 +560,11 @@ export function ChatComposer({
         text,
       })
     } catch (err) {
-      if (!clearedAfterSubmit) {
-        setInputError(err instanceof Error ? err.message : String(err))
-      }
+      setInputError(err instanceof Error ? err.message : String(err))
       return
     }
     if (!accepted) {
-      if (!clearedAfterSubmit) {
-        setInputError(t("chat.sendNotAccepted"))
-      }
+      setInputError(t("chat.sendNotAccepted"))
       return
     }
     clearAfterOptimisticSubmit()

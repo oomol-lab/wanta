@@ -6,6 +6,7 @@ import type { ChatStatus } from "ai"
 import { ListPlus, Loader2, Mic, RotateCcw, Square, X } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
 import { composerSubmitState, composerVoiceControlMode } from "./composer-controls.ts"
 import { formatTokenCount } from "./context-usage.ts"
@@ -15,6 +16,7 @@ import { PromptInputSubmit } from "@/components/ai-elements/prompt-input"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { cn } from "@/lib/utils"
 
 interface ComposerTrailingControlsProps {
@@ -553,7 +555,14 @@ export function ComposerTrailingControls({
                 submit.stopsGeneration
                   ? (event) => {
                       event.preventDefault()
-                      void onStop()
+                      void (async () => {
+                        try {
+                          await onStop()
+                        } catch (cause) {
+                          reportRendererHandledError("chat", "stopGeneration invoke failed", cause)
+                          toast.error(t("chat.stopFailed"))
+                        }
+                      })()
                     }
                   : undefined
               }

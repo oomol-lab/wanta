@@ -15,6 +15,16 @@ function messageText(message: ChatMessage): string {
     .join("")
 }
 
+export function hasLocalPathReference(text: string): boolean {
+  const codePathPattern = /`[^`]*(?:file:\/\/|~[\\/]|\/[^\s`]|[A-Za-z]:[\\/])[^`]*`/
+  if (codePathPattern.test(text)) {
+    return true
+  }
+  const plainPathPattern =
+    /(^|[\s([{（])(?:file:\/\/[^\s<>"'`，。；：、]+|~[\\/][^\s<>"'`，。；：、]+|\/[^\s<>"'`，。；：、]+|[A-Za-z]:[\\/][^\s<>"'`，。；：、]+)/
+  return plainPathPattern.test(text)
+}
+
 function sourceForTurn(
   messageId: string | null,
   artifactRoot: string | undefined,
@@ -27,6 +37,9 @@ function sourceForTurn(
   }
   const text = textParts.join("\n").trim()
   if (!artifactRoot && !text) {
+    return null
+  }
+  if (!artifactRoot && !hasLocalPathReference(text)) {
     return null
   }
   return {

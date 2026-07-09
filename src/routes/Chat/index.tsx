@@ -75,7 +75,6 @@ interface ChatAreaProps {
   onQueuedMessageRemove: (id: string) => void
   onQueuedMessageResume: () => void
   onAuthorize: (auth: AuthorizationInfo, source?: ChatTurnRetrySource) => void
-  onArtifactsReset: () => void
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onArtifactsAvailable: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
@@ -260,7 +259,6 @@ export const ChatArea = React.memo(function ChatArea({
   onQueuedMessageRemove,
   onQueuedMessageResume,
   onAuthorize,
-  onArtifactsReset,
   onArtifactsOpen,
   onArtifactsAvailable,
   onTurnOutputOpen,
@@ -281,9 +279,6 @@ export const ChatArea = React.memo(function ChatArea({
     status,
   })
   const isGenerating = chatTurnShowsGenerating(turnState)
-  React.useEffect(() => {
-    onArtifactsReset()
-  }, [messages[0]?.id, onArtifactsReset])
 
   const requestFullAccess = React.useCallback((): void => {
     if (permissionMode === "full_access") {

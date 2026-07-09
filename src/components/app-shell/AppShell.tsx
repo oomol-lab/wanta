@@ -1762,7 +1762,6 @@ export function AppShell() {
                       onQueuedMessageRemove={handleQueuedMessageRemove}
                       onQueuedMessageResume={handleQueuedMessageResume}
                       onAuthorize={handleAuthorize}
-                      onArtifactsReset={handleArtifactsReset}
                       onArtifactsOpen={handleArtifactsOpen}
                       onArtifactsAvailable={handleArtifactsAvailable}
                       onTurnOutputOpen={handleTurnOutputOpen}

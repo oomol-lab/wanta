@@ -1,7 +1,11 @@
 import type { ChatMessage } from "../../../electron/chat/common.ts"
 
 import { describe, expect, it } from "vitest"
-import { collectGeneratedArtifactSources, collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
+import {
+  collectGeneratedArtifactSources,
+  collectVisibleGeneratedArtifactSources,
+  hasLocalPathReference,
+} from "./artifact-sources.ts"
 
 function user(id: string, text: string, attachmentPath?: string): ChatMessage {
   return {
@@ -104,6 +108,24 @@ describe("collectGeneratedArtifactSources", () => {
 
     expect(sources).toHaveLength(0)
   })
+
+  it("does not create a source for plain assistant text without a local path", () => {
+    const sources = collectGeneratedArtifactSources([
+      user("user-1", "Create an image"),
+      assistant("assistant-1", "The image is ready."),
+    ])
+
+    expect(sources).toHaveLength(0)
+  })
+})
+
+describe("hasLocalPathReference", () => {
+  it("detects code and plain local path references", () => {
+    expect(hasLocalPathReference("Output: `/Users/me/Desktop/result.png`")).toBe(true)
+    expect(hasLocalPathReference("Saved to /tmp/wanta/result.csv")).toBe(true)
+    expect(hasLocalPathReference("Open file:///Users/me/report.pdf")).toBe(true)
+    expect(hasLocalPathReference("The image is ready.")).toBe(false)
+  })
 })
 
 describe("collectVisibleGeneratedArtifactSources", () => {
@@ -142,7 +164,7 @@ describe("collectVisibleGeneratedArtifactSources", () => {
     ])
   })
 
-  it("keeps historical candidates after generation has stopped", () => {
+  it("ignores stopped turns that only contain plain text", () => {
     const messages = [
       user("user-1", "Create an image"),
       assistant("assistant-1", "Output file: `/tmp/wanta/image.png`"),
@@ -156,12 +178,6 @@ describe("collectVisibleGeneratedArtifactSources", () => {
         requestText: "Create an image",
         sourcePaths: [],
         text: "Output file: `/tmp/wanta/image.png`",
-      },
-      {
-        messageId: "assistant-2",
-        requestText: "Describe the result",
-        sourcePaths: [],
-        text: "The image is ready.",
       },
     ])
   })

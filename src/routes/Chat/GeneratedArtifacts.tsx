@@ -505,11 +505,8 @@ function GeneratedArtifactsShelf({
   )
 }
 
-export function GeneratedArtifacts({ layout = "stack", sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
-  const t = useT()
+function useResolvedArtifactGroups(sources: GeneratedArtifactSource[]): ResolvedArtifactGroup[] {
   const chatService = useChatService()
-  const { openPath, showInFolder } = useArtifactFileActions()
-  const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
   const [groups, setGroups] = React.useState<ResolvedArtifactGroup[]>([])
   const resolvedGroupsCache = React.useRef(new Map<string, ResolvedArtifactPayload[]>())
 
@@ -566,6 +563,15 @@ export function GeneratedArtifacts({ layout = "stack", sources, onOpen, onAvaila
       cancelled = true
     }
   }, [chatService, sources])
+
+  return groups
+}
+
+export function GeneratedArtifacts({ layout = "stack", sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
+  const t = useT()
+  const { openPath, showInFolder } = useArtifactFileActions()
+  const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
+  const groups = useResolvedArtifactGroups(sources)
 
   React.useEffect(() => {
     const resolved = groups.at(-1)

@@ -12,6 +12,7 @@ import * as React from "react"
 import { connectionAppDisplayLabel as connectionAppUiDisplayLabel } from "../../../electron/connections/summary.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
+import { artifactGroupDisplayItem } from "@/routes/Chat/artifact-metadata"
 import { ProviderIcon } from "@/routes/Connections/ProviderIcon"
 import { isEmojiIcon, isImageIcon } from "@/routes/Skills/skill-route-model"
 
@@ -530,7 +531,14 @@ function artifactSelectionItems(selection: ArtifactSelection | null): LocalArtif
             ...(selection.pack ? { pack: selection.pack } : {}),
           },
         ]
-  const items = groups.flatMap(({ group, pack }) => (pack ? packDisplayItems(pack) : group.items))
+  const items = groups.flatMap(({ group, pack }) => {
+    const displayItem = artifactGroupDisplayItem(group, pack)
+    const groupItems = pack ? packDisplayItems(pack) : group.items
+    if (!displayItem || displayItem.kind !== "directory") {
+      return groupItems
+    }
+    return [displayItem, ...groupItems]
+  })
   const byPath = new Map<string, LocalArtifactItem>()
   for (const item of items) {
     if (!byPath.has(item.path)) {
@@ -568,10 +576,11 @@ function artifactKindMeta(item: LocalArtifactItem): string {
 export function buildArtifactPaletteItems(selection: ArtifactSelection | null, t: TranslateFn): ArtifactPaletteItem[] {
   return artifactSelectionItems(selection).map((item) => {
     const isImage = item.mime.toLowerCase().startsWith("image/")
+    const Icon = item.kind === "directory" ? Folder : isImage ? FileImage : File
     return {
       artifact: item,
       description: t(isImage ? "chat.contextGeneratedImageDescription" : "chat.contextGeneratedArtifactDescription"),
-      icon: React.createElement(isImage ? FileImage : File, { className: "size-4" }),
+      icon: React.createElement(Icon, { className: "size-4" }),
       id: `artifact:${item.path}`,
       kind: "artifact",
       meta: artifactKindMeta(item),

@@ -1,12 +1,6 @@
-import type {
-  LocalArtifactGroup,
-  LocalArtifactItem,
-  LocalArtifactPack,
-  ResolveLocalArtifactsResult,
-} from "../../../electron/chat/common.ts"
-import type { ResolvedArtifactPayload } from "./artifact-filter.ts"
+import type { LocalArtifactGroup, LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
-import type { GeneratedArtifactSource } from "./artifact-sources.ts"
+import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
 import type { ArtifactPreviewMode } from "./ArtifactPreviewPane.tsx"
 
 import {
@@ -24,7 +18,6 @@ import {
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
-import { dedupeArtifactPayloadsAcrossSources, mergeArtifactGroups } from "./artifact-filter.ts"
 import {
   artifactGroupDisplayItem,
   artifactMetaLabel,
@@ -32,6 +25,7 @@ import {
   readableArtifactTitle,
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
+import { resolveArtifactResultPayloads } from "./artifact-resolution.ts"
 import {
   ArtifactConsumablePreview,
   ArtifactInfo,
@@ -45,18 +39,11 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
-const artifactResolveCacheLimit = 24
 const artifactListHeightStorageKey = "wanta:artifacts:list-height"
 const artifactListDefaultHeightPx = 168
 const artifactListMinHeightPx = 96
 const artifactPreviewMinHeightPx = 220
 const artifactListMaxHeightRatio = 0.55
-
-export interface ResolvedArtifactGroup {
-  messageId: string
-  group: LocalArtifactGroup
-  pack?: LocalArtifactPack
-}
 
 export interface ArtifactSelection {
   messageId: string
@@ -67,9 +54,10 @@ export interface ArtifactSelection {
 }
 
 interface GeneratedArtifactsProps {
-  sources: GeneratedArtifactSource[]
+  groups: ResolvedArtifactGroup[]
   onOpen: (selection: ArtifactSelection) => void
   onAvailable: (selection: ArtifactSelection) => void
+  selectionGroups?: ResolvedArtifactGroup[]
 }
 
 interface ArtifactsPanelProps {
@@ -97,30 +85,6 @@ interface ArtifactContextMenuState {
   item: LocalArtifactItem
   x: number
   y: number
-}
-
-function artifactSourceCacheKey(source: GeneratedArtifactSource): string {
-  return JSON.stringify({
-    artifactRoot: source.artifactRoot ?? "",
-    requestText: source.requestText,
-    sourcePaths: source.sourcePaths,
-    text: source.text,
-  })
-}
-
-function rememberArtifactGroups(
-  cache: Map<string, ResolvedArtifactPayload[]>,
-  key: string,
-  groups: ResolvedArtifactPayload[],
-): void {
-  cache.set(key, groups)
-  while (cache.size > artifactResolveCacheLimit) {
-    const oldest = cache.keys().next().value
-    if (!oldest) {
-      return
-    }
-    cache.delete(oldest)
-  }
 }
 
 function useArtifactFileActions(): {
@@ -261,24 +225,6 @@ function ArtifactContextMenu({
   )
 }
 
-function artifactPackGroup(pack: LocalArtifactPack): LocalArtifactGroup {
-  const visibleSupporting = pack.supporting.filter((item) => item.role !== "metadata")
-  const items = pack.items.length > 0 ? pack.items : visibleSupporting
-  return {
-    root: pack.root,
-    items,
-    totalItems: pack.totalItems || items.length,
-    truncated: pack.truncated,
-  }
-}
-
-function resolveResultPayloads(result: ResolveLocalArtifactsResult): ResolvedArtifactPayload[] {
-  if (result.pack) {
-    return [{ group: artifactPackGroup(result.pack), pack: result.pack }]
-  }
-  return result.groups.map((group) => ({ group }))
-}
-
 function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
   if (pack.display === "gallery") {
     return pack.items
@@ -307,6 +253,17 @@ function firstPanelEntryPath(groups: ResolvedArtifactGroup[]): string | null {
 
 function rootArtifactItem(groups: ResolvedArtifactGroup[]): LocalArtifactItem | null {
   return groups.find(({ group }) => group.root)?.group.root ?? null
+}
+
+function artifactBrowserHasMultipleRoots(groups: ResolvedArtifactGroup[]): boolean {
+  const roots = new Set<string>()
+  for (const { group, messageId } of groups) {
+    roots.add(group.root?.path ?? `${messageId}:${group.items[0]?.path ?? ""}`)
+    if (roots.size > 1) {
+      return true
+    }
+  }
+  return false
 }
 
 function readArtifactListHeight(): number {
@@ -346,15 +303,18 @@ function GeneratedArtifactsShelf({
   groups,
   onContextMenu,
   onOpen,
+  selectionGroups,
 }: {
   groups: ResolvedArtifactGroup[]
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
   onOpen: (selection: ArtifactSelection) => void
+  selectionGroups: ResolvedArtifactGroup[]
 }) {
   const t = useT()
   const entries = flattenPanelEntries(groups)
   const primary = groups.at(-1)
   const primaryDisplayItem = primary ? artifactGroupDisplayItem(primary.group, primary.pack) : null
+  const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
   if (!primary || !primaryDisplayItem || entries.length === 0) {
     return null
@@ -363,7 +323,7 @@ function GeneratedArtifactsShelf({
   const selection = selectionWithContext(
     primary.group,
     primary.messageId,
-    groups,
+    panelGroups,
     primaryDisplayItem.path,
     primary.pack,
   )
@@ -406,80 +366,18 @@ function GeneratedArtifactsShelf({
   )
 }
 
-function useResolvedArtifactGroups(sources: GeneratedArtifactSource[]): ResolvedArtifactGroup[] {
-  const chatService = useChatService()
-  const [groups, setGroups] = React.useState<ResolvedArtifactGroup[]>([])
-  const resolvedGroupsCache = React.useRef(new Map<string, ResolvedArtifactPayload[]>())
-
-  React.useEffect(() => {
-    if (sources.length === 0) {
-      setGroups([])
-      return
-    }
-    let cancelled = false
-    const sourceRequests = sources.map(async (source): Promise<ResolvedArtifactGroup[]> => {
-      const cacheKey = artifactSourceCacheKey(source)
-      const cached = resolvedGroupsCache.current.get(cacheKey)
-      if (cached) {
-        return cached.map((payload) => ({ messageId: source.messageId, ...payload }))
-      }
-      const trimmed = source.text.trim()
-      if (!source.artifactRoot && !trimmed) {
-        rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, [])
-        return []
-      }
-      const requests: Array<Promise<ResolvedArtifactPayload[]>> = []
-      if (source.artifactRoot) {
-        requests.push(
-          chatService
-            .invoke("resolveLocalArtifacts", { artifactRoot: source.artifactRoot })
-            .then(resolveResultPayloads),
-        )
-      }
-      if (!source.artifactRoot && trimmed) {
-        requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then(resolveResultPayloads))
-      }
-      const resultGroups = await Promise.all(requests)
-      const mergedGroups = mergeArtifactGroups(resultGroups, source)
-      rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, mergedGroups)
-      return mergedGroups.map((group) => ({
-        messageId: source.messageId,
-        ...group,
-      }))
-    })
-    void Promise.all(sourceRequests)
-      .then((resultGroups) => {
-        if (!cancelled) {
-          setGroups(dedupeArtifactPayloadsAcrossSources(resultGroups.flat()))
-        }
-      })
-      .catch((error: unknown) => {
-        console.warn("[wanta] failed to resolve generated artifacts", { error })
-        reportRendererHandledError("generatedArtifacts.resolve", "Failed to resolve generated artifacts", error)
-        if (!cancelled) {
-          setGroups([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [chatService, sources])
-
-  return groups
-}
-
-export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
+export function GeneratedArtifacts({ groups, onOpen, onAvailable, selectionGroups = groups }: GeneratedArtifactsProps) {
   const { openPath, showInFolder } = useArtifactFileActions()
   const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
-  const groups = useResolvedArtifactGroups(sources)
+  const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
   React.useEffect(() => {
     const resolved = groups.at(-1)
     const selectedPath = resolved ? artifactGroupDisplayItem(resolved.group, resolved.pack)?.path : undefined
     if (resolved && selectedPath) {
-      onAvailable(selectionWithContext(resolved.group, resolved.messageId, groups, selectedPath, resolved.pack))
+      onAvailable(selectionWithContext(resolved.group, resolved.messageId, panelGroups, selectedPath, resolved.pack))
     }
-  }, [groups, onAvailable])
+  }, [groups, onAvailable, panelGroups])
 
   if (groups.length === 0) {
     return null
@@ -489,6 +387,7 @@ export function GeneratedArtifacts({ sources, onOpen, onAvailable }: GeneratedAr
     <>
       <GeneratedArtifactsShelf
         groups={groups}
+        selectionGroups={panelGroups}
         onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
         onOpen={onOpen}
       />
@@ -553,14 +452,16 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
   const selectedItem = selectedEntry?.item ?? null
   const selectedPack = selectedEntry ? (selectedEntry.pack ?? null) : (selection?.pack ?? null)
   const MaximizeIcon = maximized ? Minimize2 : Maximize2
+  const activeMultipleRoots = artifactBrowserHasMultipleRoots(activeGroups)
   const showImageGallery =
-    selectedPack?.display === "gallery"
+    selectedPack?.display === "gallery" && !activeMultipleRoots
       ? entries.length > 0
       : entries.length > 1 && entries.every((entry) => isImageArtifact(entry.item))
   const baseRoot = rootArtifactItem(groups)
+  const multipleRoots = artifactBrowserHasMultipleRoots(groups)
   const baseCrumb = {
-    label: selection?.pack?.title ?? baseRoot?.name ?? t("artifacts.title"),
-    path: baseRoot?.path ?? selection?.messageId ?? "artifacts-root",
+    label: multipleRoots ? t("artifacts.title") : (selection?.pack?.title ?? baseRoot?.name ?? t("artifacts.title")),
+    path: multipleRoots ? "artifacts-root" : (baseRoot?.path ?? selection?.messageId ?? "artifacts-root"),
   }
 
   const showParent = (filePath: string | undefined): void => {
@@ -600,7 +501,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
       }
       try {
         const result = await chatService.invoke("resolveLocalArtifacts", { artifactRoot: entry.item.path })
-        const nextGroups = resolveResultPayloads(result).map((payload) => ({
+        const nextGroups = resolveArtifactResultPayloads(result).map((payload) => ({
           messageId: entry.messageId,
           ...payload,
         }))

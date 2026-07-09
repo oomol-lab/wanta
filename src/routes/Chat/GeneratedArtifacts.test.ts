@@ -1,5 +1,6 @@
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { ResolvedArtifactPayload } from "./artifact-filter.ts"
+import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { TranslateFn } from "@/i18n/i18n"
 
 import { describe, expect, it } from "vitest"
@@ -7,6 +8,7 @@ import { parseCsvPreview } from "./artifact-csv-preview.ts"
 import { dedupeArtifactPayloadsAcrossSources, filterArtifactPayloads } from "./artifact-filter.ts"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import { artifactGroupDisplayItem, artifactKindLabel } from "./artifact-metadata.ts"
+import { buildArtifactPaletteItems } from "./composer-palette-items.ts"
 
 function artifactItem(name: string, mime: string): LocalArtifactItem {
   return {
@@ -296,5 +298,92 @@ describe("artifact group display", () => {
         truncated: false,
       }),
     ).toBe(root)
+  })
+})
+
+describe("artifact composer palette", () => {
+  it("includes the full artifact selection context", () => {
+    const earlier = artifactItem("earlier.png", "image/png")
+    const latest = artifactItem("latest.pdf", "application/pdf")
+    const selection: ArtifactSelection = {
+      messageId: "assistant-2",
+      group: {
+        items: [latest],
+        totalItems: 1,
+        truncated: false,
+      },
+      groups: [
+        {
+          messageId: "assistant-1",
+          group: {
+            items: [earlier],
+            totalItems: 1,
+            truncated: false,
+          },
+        },
+        {
+          messageId: "assistant-2",
+          group: {
+            items: [latest],
+            totalItems: 1,
+            truncated: false,
+          },
+        },
+      ],
+      selectedPath: latest.path,
+    }
+
+    expect(buildArtifactPaletteItems(selection, testTranslate).map((item) => item.title)).toEqual([
+      "latest.pdf",
+      "earlier.png",
+    ])
+  })
+
+  it("offers the root folder for multi-file artifact packs", () => {
+    const pdf = artifactItem("report.pdf", "application/pdf")
+    const spreadsheet = artifactItem("data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    const root = artifactFolder("analysis-output")
+    const pack: LocalArtifactPack = {
+      root,
+      title: "Analysis output",
+      kind: "mixed",
+      display: "file_list",
+      items: [
+        { ...pdf, role: "primary", order: 1 },
+        { ...spreadsheet, role: "primary", order: 2 },
+      ],
+      supporting: [],
+      totalItems: 2,
+      truncated: false,
+    }
+    const selection: ArtifactSelection = {
+      messageId: "assistant-1",
+      group: {
+        root,
+        items: [pdf, spreadsheet],
+        totalItems: 2,
+        truncated: false,
+      },
+      groups: [
+        {
+          messageId: "assistant-1",
+          group: {
+            root,
+            items: [pdf, spreadsheet],
+            totalItems: 2,
+            truncated: false,
+          },
+          pack,
+        },
+      ],
+      pack,
+      selectedPath: root.path,
+    }
+
+    const items = buildArtifactPaletteItems(selection, testTranslate)
+
+    expect(items.map((item) => item.title)).toEqual(["analysis-output", "data.xlsx", "report.pdf"])
+    expect(items[0]?.artifact.kind).toBe("directory")
+    expect(items[0]?.meta).toBe("folder")
   })
 })

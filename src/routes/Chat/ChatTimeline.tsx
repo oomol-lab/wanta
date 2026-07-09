@@ -10,6 +10,7 @@ import type {
   TurnOutputRecord,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnProcessStatus, ChatTurnRetrySource } from "./chat-turns.ts"
@@ -23,6 +24,7 @@ import type { StickToBottomContext } from "use-stick-to-bottom"
 import { ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
 import * as React from "react"
 import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
+import { useResolvedArtifactGroups } from "./artifact-resolution.ts"
 import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { attachmentWithPreview } from "./chat-attachment-utils.ts"
@@ -95,7 +97,7 @@ function shouldRenderConnectionSuggestion(
   }
   return provider.status === "connected" || isConnectionlessNoAuthProvider(provider) ? undefined : authorization
 }
-const EMPTY_ARTIFACT_SOURCES: GeneratedArtifactSource[] = []
+const EMPTY_ARTIFACT_GROUPS: ResolvedArtifactGroup[] = []
 
 function noopArtifactsAvailable(_selection: ArtifactSelection): void {
   // 只有最新的产物需要自动成为右侧面板的默认选择。
@@ -115,13 +117,6 @@ function artifactSourceEquals(left: GeneratedArtifactSource, right: GeneratedArt
   )
 }
 
-function artifactSourceArraysEqual(
-  left: readonly GeneratedArtifactSource[],
-  right: readonly GeneratedArtifactSource[],
-): boolean {
-  return left.length === right.length && left.every((item, index) => item === right[index])
-}
-
 function reuseStableArtifactSources(
   previous: GeneratedArtifactSource[],
   next: GeneratedArtifactSource[],
@@ -138,18 +133,24 @@ function reuseStableArtifactSources(
   return changed ? stable : previous
 }
 
-function reuseStableArtifactSourceMap(
-  previous: Map<string, GeneratedArtifactSource[]>,
-  next: Map<string, GeneratedArtifactSource[]>,
-): Map<string, GeneratedArtifactSource[]> {
+function artifactGroupArraysEqual(
+  left: readonly ResolvedArtifactGroup[],
+  right: readonly ResolvedArtifactGroup[],
+): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index])
+}
+
+function reuseStableArtifactGroupMap(
+  previous: Map<string, ResolvedArtifactGroup[]>,
+  next: Map<string, ResolvedArtifactGroup[]>,
+): Map<string, ResolvedArtifactGroup[]> {
   let changed = previous.size !== next.size
-  const stable = new Map<string, GeneratedArtifactSource[]>()
-  for (const [key, sources] of next) {
-    const previousSources = previous.get(key)
-    const stableSources =
-      previousSources && artifactSourceArraysEqual(previousSources, sources) ? previousSources : sources
-    stable.set(key, stableSources)
-    if (stableSources !== previousSources) {
+  const stable = new Map<string, ResolvedArtifactGroup[]>()
+  for (const [key, groups] of next) {
+    const previousGroups = previous.get(key)
+    const stableGroups = previousGroups && artifactGroupArraysEqual(previousGroups, groups) ? previousGroups : groups
+    stable.set(key, stableGroups)
+    if (stableGroups !== previousGroups) {
       changed = true
     }
   }
@@ -718,7 +719,8 @@ function PlainAssistantActivity() {
 
 interface ChatTurnViewProps {
   activeSessionId: string | null
-  artifactSources: GeneratedArtifactSource[]
+  artifactGroups: ResolvedArtifactGroup[]
+  artifactSelectionGroups: ResolvedArtifactGroup[]
   billingCacheScope: string
   turnOutputRecord: TurnOutputRecord | null
   turn: ChatTurn
@@ -750,7 +752,8 @@ function assistantActionTextsEqual(previous: ChatTurnViewProps, next: ChatTurnVi
 function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewProps): boolean {
   return (
     previous.activeSessionId === next.activeSessionId &&
-    previous.artifactSources === next.artifactSources &&
+    previous.artifactGroups === next.artifactGroups &&
+    previous.artifactSelectionGroups === next.artifactSelectionGroups &&
     previous.billingCacheScope === next.billingCacheScope &&
     previous.turnOutputRecord === next.turnOutputRecord &&
     previous.turn === next.turn &&
@@ -769,7 +772,8 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
 
 const ChatTurnView = React.memo(function ChatTurnView({
   activeSessionId,
-  artifactSources,
+  artifactGroups,
+  artifactSelectionGroups,
   billingCacheScope,
   turnOutputRecord,
   turn,
@@ -894,9 +898,14 @@ const ChatTurnView = React.memo(function ChatTurnView({
           ))}
         </>
       )}
-      {artifactSources.length > 0 ? (
+      {artifactGroups.length > 0 ? (
         <React.Suspense fallback={null}>
-          <GeneratedArtifacts sources={artifactSources} onOpen={onArtifactsOpen} onAvailable={onArtifactsAvailable} />
+          <GeneratedArtifacts
+            groups={artifactGroups}
+            selectionGroups={artifactSelectionGroups}
+            onOpen={onArtifactsOpen}
+            onAvailable={onArtifactsAvailable}
+          />
         </React.Suspense>
       ) : null}
       {activeSessionId && turnOutputRecord ? (
@@ -958,8 +967,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const stableTurnsRef = React.useRef<ChatTurn[]>([])
   const assistantActionTextByMessageIdRef = React.useRef<Map<string, string>>(new Map())
   const visibleArtifactSourcesRef = React.useRef<GeneratedArtifactSource[]>([])
-  const artifactSourcesByMessageIdRef = React.useRef<Map<string, GeneratedArtifactSource[]>>(new Map())
-  const artifactSourcesByTurnIdRef = React.useRef<Map<string, GeneratedArtifactSource[]>>(new Map())
+  const artifactGroupsByMessageIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
+  const artifactGroupsByTurnIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
   const groupedTurns = React.useMemo(() => groupChatTurns(messages), [messages])
   const turns = React.useMemo(() => {
@@ -1011,30 +1020,31 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     visibleArtifactSourcesRef.current = stable
     return stable
   }, [isGenerating, messages])
-  const artifactSourcesByMessageId = React.useMemo(() => {
-    const byMessageId = new Map<string, GeneratedArtifactSource[]>()
-    for (const source of visibleArtifactSources) {
-      const sources = byMessageId.get(source.messageId) ?? []
-      sources.push(source)
-      byMessageId.set(source.messageId, sources)
+  const visibleArtifactGroups = useResolvedArtifactGroups(visibleArtifactSources)
+  const artifactGroupsByMessageId = React.useMemo(() => {
+    const byMessageId = new Map<string, ResolvedArtifactGroup[]>()
+    for (const group of visibleArtifactGroups) {
+      const groups = byMessageId.get(group.messageId) ?? []
+      groups.push(group)
+      byMessageId.set(group.messageId, groups)
     }
-    const stable = reuseStableArtifactSourceMap(artifactSourcesByMessageIdRef.current, byMessageId)
-    artifactSourcesByMessageIdRef.current = stable
+    const stable = reuseStableArtifactGroupMap(artifactGroupsByMessageIdRef.current, byMessageId)
+    artifactGroupsByMessageIdRef.current = stable
     return stable
-  }, [visibleArtifactSources])
-  const artifactSourcesByTurnId = React.useMemo(() => {
-    const byTurnId = new Map<string, GeneratedArtifactSource[]>()
+  }, [visibleArtifactGroups])
+  const artifactGroupsByTurnId = React.useMemo(() => {
+    const byTurnId = new Map<string, ResolvedArtifactGroup[]>()
     for (const turn of turns) {
-      const sources = turn.assistants.flatMap((message) => artifactSourcesByMessageId.get(message.id) ?? [])
-      if (sources.length > 0) {
-        byTurnId.set(turn.id, sources)
+      const groups = turn.assistants.flatMap((message) => artifactGroupsByMessageId.get(message.id) ?? [])
+      if (groups.length > 0) {
+        byTurnId.set(turn.id, groups)
       }
     }
-    const stable = reuseStableArtifactSourceMap(artifactSourcesByTurnIdRef.current, byTurnId)
-    artifactSourcesByTurnIdRef.current = stable
+    const stable = reuseStableArtifactGroupMap(artifactGroupsByTurnIdRef.current, byTurnId)
+    artifactGroupsByTurnIdRef.current = stable
     return stable
-  }, [artifactSourcesByMessageId, turns])
-  const latestArtifactSourceMessageId = visibleArtifactSources.at(-1)?.messageId
+  }, [artifactGroupsByMessageId, turns])
+  const latestArtifactGroupMessageId = visibleArtifactGroups.at(-1)?.messageId
   React.useEffect(() => {
     if (latestTurnOutputRecord) {
       onTurnOutputAvailable({
@@ -1068,10 +1078,10 @@ export const ChatTimeline = React.memo(function ChatTimeline({
         className={cn("mx-auto min-h-full w-full gap-4 px-4 pt-7 pb-9", CHAT_CONTENT_MAX_WIDTH_CLASS)}
       >
         {turns.map((turn, index) => {
-          const turnArtifactSources = artifactSourcesByTurnId.get(turn.id) ?? EMPTY_ARTIFACT_SOURCES
+          const turnArtifactGroups = artifactGroupsByTurnId.get(turn.id) ?? EMPTY_ARTIFACT_GROUPS
           const publishArtifactAvailability =
-            turnArtifactSources.length > 0 &&
-            turn.assistants.some((message) => message.id === latestArtifactSourceMessageId)
+            turnArtifactGroups.length > 0 &&
+            turn.assistants.some((message) => message.id === latestArtifactGroupMessageId)
           const turnActiveAssistantMessageId = chatTurnHasAssistantMessage(turn, activeAssistantMessageId)
             ? activeAssistantMessageId
             : undefined
@@ -1082,7 +1092,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             <ChatTurnView
               key={turn.id}
               activeSessionId={activeSessionId}
-              artifactSources={turnArtifactSources}
+              artifactGroups={turnArtifactGroups}
+              artifactSelectionGroups={visibleArtifactGroups}
               turn={turn}
               billingCacheScope={billingCacheScope}
               turnOutputRecord={turnOutputRecordsByTurn.get(turn.id) ?? null}

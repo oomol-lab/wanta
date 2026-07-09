@@ -38,6 +38,9 @@ export function isWantaSubscriptionPlan(plan: string): plan is WantaSubscription
 }
 
 export function getCurrentWantaPlan(status: SubscriptionStatus | null): WantaSubscriptionPlan | null {
+  if (status?.plan && isWantaSubscriptionPlan(status.plan)) {
+    return status.plan
+  }
   return getSubscriptionMarkers(status).find(isWantaSubscriptionPlan) ?? null
 }
 

@@ -25,7 +25,7 @@ import { buildWantaSubscriptionOverview } from "@/routes/Billing/wanta-subscript
 
 const usagePeriodDays = 30
 const cacheFreshMs = 60_000
-export type BillingDetailsTarget = "plans"
+export type BillingDetailsTarget = "credits" | "plans"
 
 interface BillingUsagePopoverProps {
   cacheScope: string
@@ -96,6 +96,7 @@ export function BillingUsagePopover({
     [billableSeats, data?.subscription, data?.wantaPendingPayment, sharedConnectorCount, workspace],
   )
   const showPlanPrompt = Boolean(data && !error && wantaOverview.recommendedAction === "choose_plan")
+  const showPendingPaymentPrompt = Boolean(data && !error && wantaOverview.recommendedAction === "continue_payment")
   const showUpgradePrompt = Boolean(data && !error && wantaOverview.recommendedAction === "upgrade_plan")
   const showSeatPrompt = Boolean(data && !error && wantaOverview.recommendedAction === "add_seats")
   const availableShare =
@@ -288,13 +289,19 @@ export function BillingUsagePopover({
               type="button"
               className="w-full min-w-0"
               onClick={() => {
-                openDetails(showPlanPrompt || showSeatPrompt || showUpgradePrompt ? "plans" : undefined)
+                openDetails(
+                  showPlanPrompt || showPendingPaymentPrompt || showSeatPrompt || showUpgradePrompt
+                    ? "plans"
+                    : hasNoCredits
+                      ? "credits"
+                      : undefined,
+                )
               }}
             >
               {t(
                 showPlanPrompt
                   ? "billing.planComparison.choosePlan"
-                  : wantaOverview.hasPendingPayment
+                  : showPendingPaymentPrompt
                     ? "billing.wantaContinuePayment"
                     : showSeatPrompt
                       ? "billing.popover.manageSeats"

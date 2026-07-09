@@ -78,6 +78,62 @@ describe("billing-client", () => {
     expect((await rejection(() => getBillingSummary(30))).message).toBe(billingAuthRequiredMessage)
   })
 
+  it("includes pending Wanta payment in lightweight billing summaries", async () => {
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = urlOf(input)
+      if (url.pathname === "/v1/balance/available") {
+        return Response.json({
+          data: {
+            deficit: "0",
+            items: [{ currentCredit: "9", originalCredit: "10", serviceScope: "general" }],
+            total: { currentCredit: "9", originalCredit: "10" },
+          },
+        })
+      }
+      if (url.pathname === "/v1/stats/billing" || url.pathname === "/v1/stats/metering") {
+        return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
+      }
+      if (url.pathname === "/api/user/subscriptions") {
+        return Response.json({
+          data: {
+            features: [],
+            plan: "wanta_plus",
+            plans: [],
+            platforms: {},
+            wanta: { additionalSeats: 0, cached: false, updatedAt: null },
+          },
+          success: true,
+        })
+      }
+      if (url.pathname === "/api/user/subscriptions/wanta/pending_payment") {
+        return Response.json({
+          data: {
+            additionalSeats: 2,
+            amountRemaining: 1200,
+            currency: "usd",
+            currentPeriodEnd: null,
+            invoiceStatus: "open",
+            latestInvoiceID: "in-1",
+            paymentRequired: true,
+            paymentURL: "https://console.example.com/wanta-pay",
+            pendingUpdate: true,
+            pendingUpdateExpiresAt: null,
+            plan: "wanta_plus",
+            status: "past_due",
+            subscriptionID: "sub-1",
+          },
+          success: true,
+        })
+      }
+      throw new Error(`Unexpected billing test URL: ${url.pathname}`)
+    })
+
+    const summary = await getBillingSummary(30)
+
+    expect(summary.wantaPendingPayment?.paymentURL).toBe("https://console.example.com/wanta-pay")
+    expect(summary.wantaPendingPayment?.additionalSeats).toBe(2)
+  })
+
   it("resolves the console top-up checkout URL", async () => {
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
       expect(urlOf(input).pathname).toBe("/api/user/web_top_up_url")

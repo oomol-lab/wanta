@@ -425,34 +425,7 @@ async function getWantaPendingPayment(): Promise<WantaPendingPaymentResult | nul
 }
 
 export async function getBillingSummary(days: number): Promise<BillingSummaryResult> {
-  const subscriptionPromise = getSubscriptionStatus()
-  preventEarlyUnhandledRejection(subscriptionPromise)
-  const [balance, spend, metering] = await Promise.allSettled([
-    getAllCreditUsages(),
-    getCreditSpendStats(days),
-    getCreditMeteringStats(days),
-  ])
-  const subscription = await settleWithSoftTimeout("subscription", subscriptionPromise)
-  logSettledFailure("balance", balance)
-  logSettledFailure("spend", spend)
-  logSettledFailure("metering", metering)
-  logSettledFailure("subscription", subscription)
-  // 会话过期优先于一切：余额鉴权失败必须上抛 auth_required，否则会被 UI 渲染成假 "$0"。
-  if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
-    throw balance.reason
-  }
-  const criticalResults = [balance, spend, metering]
-  if (criticalResults.every((result) => result.status === "rejected") && balance.status === "rejected") {
-    throw balance.reason
-  }
-  return {
-    balance: balance.status === "fulfilled" ? filterGeneralCreditUsages(balance.value) : null,
-    spend: spend.status === "fulfilled" ? spend.value : null,
-    metering: metering.status === "fulfilled" ? metering.value : null,
-    subscription: subscription.status === "fulfilled" ? subscription.value : null,
-    // summary 路径刻意不拉待支付状态，避免轻量刷新额外请求订阅结账接口。
-    wantaPendingPayment: null,
-  }
+  return getBillingOverview(days)
 }
 
 export async function getBillingOverview(days: number): Promise<BillingOverviewResult> {

@@ -37,7 +37,7 @@ import {
   statsTotalEvents,
   toNumber,
 } from "./usage.ts"
-import { buildWantaSubscriptionOverview } from "./wanta-subscription-model.ts"
+import { buildWantaSubscriptionOverview, resolveWantaPendingPaymentTargets } from "./wanta-subscription-model.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
@@ -57,7 +57,7 @@ import { cn } from "@/lib/utils"
 
 interface BillingRouteProps {
   cacheScope: string
-  initialTarget?: "plans" | null
+  initialTarget?: "credits" | "plans" | null
   onBack: () => void
   sharedConnectorCount?: number
   workspace: WorkspaceSelection
@@ -126,7 +126,17 @@ export function BillingRoute({
       sharedConnectorCount,
     ],
   )
-  const pendingWantaPaymentUrl = wantaOverview.pendingPaymentUrl
+  const pendingWantaPaymentTargets = React.useMemo(
+    () =>
+      resolveWantaPendingPaymentTargets({
+        currentAdditionalSeats: wantaOverview.additionalSeats,
+        currentPlan: wantaOverview.currentPlan,
+        pendingPayment: data?.wantaPendingPayment ?? null,
+      }),
+    [data?.wantaPendingPayment, wantaOverview.additionalSeats, wantaOverview.currentPlan],
+  )
+  const pendingWantaPaymentUrl = pendingWantaPaymentTargets.paymentUrl
+  const wantaActionDisabled = !billingContext.canManage || isSessionExpired || !data
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const availableShare =
@@ -157,7 +167,7 @@ export function BillingRoute({
     async (plan: WantaSubscriptionPlan) => {
       setWantaLoading(plan)
       try {
-        if (pendingWantaPaymentUrl) {
+        if (pendingWantaPaymentUrl && pendingWantaPaymentTargets.plan === plan) {
           await openExternalCheckout(pendingWantaPaymentUrl)
           return
         }
@@ -175,13 +185,13 @@ export function BillingRoute({
         setWantaLoading(null)
       }
     },
-    [openExternalCheckout, pendingWantaPaymentUrl, refresh, t],
+    [openExternalCheckout, pendingWantaPaymentTargets.plan, pendingWantaPaymentUrl, refresh, t],
   )
   const handleWantaSeats = React.useCallback(
     async (additionalSeats: number) => {
       setWantaLoading("seats")
       try {
-        if (pendingWantaPaymentUrl) {
+        if (pendingWantaPaymentUrl && pendingWantaPaymentTargets.additionalSeats === additionalSeats) {
           await openExternalCheckout(pendingWantaPaymentUrl)
           return
         }
@@ -199,7 +209,7 @@ export function BillingRoute({
         setWantaLoading(null)
       }
     },
-    [openExternalCheckout, pendingWantaPaymentUrl, refresh, t],
+    [openExternalCheckout, pendingWantaPaymentTargets.additionalSeats, pendingWantaPaymentUrl, refresh, t],
   )
 
   React.useEffect(() => {
@@ -210,6 +220,12 @@ export function BillingRoute({
       planComparisonRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
     return () => window.cancelAnimationFrame(frame)
+  }, [initialTarget])
+
+  React.useEffect(() => {
+    if (initialTarget === "credits") {
+      setPurchaseOpen(true)
+    }
   }, [initialTarget])
 
   return (
@@ -246,18 +262,18 @@ export function BillingRoute({
         <PlanComparison
           ref={planComparisonRef}
           currentPlan={wantaOverview.currentPlan}
-          disabled={!billingContext.canManage}
+          disabled={wantaActionDisabled}
           loadingPlan={wantaLoading}
-          pendingPaymentUrl={pendingWantaPaymentUrl}
+          pendingPaymentPlan={pendingWantaPaymentTargets.plan}
           onChoosePlan={handleWantaPlan}
         />
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)]">
           <AdditionalSeatsPanel
             currentAdditionalSeats={wantaOverview.additionalSeats}
-            disabled={!billingContext.canManage}
+            disabled={wantaActionDisabled}
             loading={wantaLoading !== null}
-            pendingPaymentUrl={pendingWantaPaymentUrl}
+            pendingAdditionalSeats={pendingWantaPaymentTargets.additionalSeats}
             workspaceLabel={billingContext.workspaceLabel}
             onUpdateSeats={handleWantaSeats}
           />
@@ -272,6 +288,7 @@ export function BillingRoute({
             totalSpend={totalSpend}
             availableShare={availableShare}
             period={period}
+            topUpDisabled={isSessionExpired}
             onPeriodChange={setPeriod}
             onRefresh={() => void refresh({ force: true })}
             onTopUp={openUsagePurchase}
@@ -421,10 +438,10 @@ const PlanComparison = React.forwardRef<
     currentPlan: WantaSubscriptionPlan | null
     disabled: boolean
     loadingPlan: WantaSubscriptionPlan | "seats" | null
-    pendingPaymentUrl: string
+    pendingPaymentPlan: WantaSubscriptionPlan | null
     onChoosePlan: (plan: WantaSubscriptionPlan) => void
   }
->(function PlanComparison({ currentPlan, disabled, loadingPlan, pendingPaymentUrl, onChoosePlan }, ref) {
+>(function PlanComparison({ currentPlan, disabled, loadingPlan, pendingPaymentPlan, onChoosePlan }, ref) {
   const t = useT()
   return (
     <BillingPanel
@@ -450,7 +467,7 @@ const PlanComparison = React.forwardRef<
             disabled={disabled}
             loading={loadingPlan === "wanta_plus"}
             originalPrice={t("billing.wantaPlusPlanOriginalPrice")}
-            pendingPayment={Boolean(pendingPaymentUrl)}
+            pendingPayment={pendingPaymentPlan === "wanta_plus"}
             plan="wanta_plus"
             title={t("billing.wantaPlusPlanTitle")}
             onChoose={onChoosePlan}
@@ -469,7 +486,7 @@ const PlanComparison = React.forwardRef<
             disabled={disabled}
             loading={loadingPlan === "wanta_pro"}
             originalPrice={t("billing.wantaProPlanOriginalPrice")}
-            pendingPayment={Boolean(pendingPaymentUrl)}
+            pendingPayment={pendingPaymentPlan === "wanta_pro"}
             plan="wanta_pro"
             title={t("billing.wantaProPlanTitle")}
             onChoose={onChoosePlan}
@@ -578,14 +595,14 @@ function AdditionalSeatsPanel({
   currentAdditionalSeats,
   disabled,
   loading,
-  pendingPaymentUrl,
+  pendingAdditionalSeats,
   workspaceLabel,
   onUpdateSeats,
 }: {
   currentAdditionalSeats: number
   disabled: boolean
   loading: boolean
-  pendingPaymentUrl: string
+  pendingAdditionalSeats: number | null
   workspaceLabel: string
   onUpdateSeats: (additionalSeats: number) => void
 }) {
@@ -593,12 +610,13 @@ function AdditionalSeatsPanel({
   const [additionalSeats, setAdditionalSeats] = React.useState(currentAdditionalSeats)
 
   React.useEffect(() => {
-    setAdditionalSeats(currentAdditionalSeats)
-  }, [currentAdditionalSeats])
+    setAdditionalSeats(pendingAdditionalSeats ?? currentAdditionalSeats)
+  }, [currentAdditionalSeats, pendingAdditionalSeats])
 
   const unchanged = additionalSeats === currentAdditionalSeats
+  const pendingTargetSelected = pendingAdditionalSeats !== null && additionalSeats === pendingAdditionalSeats
   const controlDisabled = disabled || loading
-  const actionDisabled = controlDisabled || (!pendingPaymentUrl && unchanged)
+  const actionDisabled = controlDisabled || (!pendingTargetSelected && unchanged)
 
   return (
     <BillingPanel title={t("billing.additionalSeats.title")} meta={t("billing.additionalSeats.meta")}>
@@ -670,7 +688,7 @@ function AdditionalSeatsPanel({
             onClick={() => onUpdateSeats(additionalSeats)}
           >
             {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-            {pendingPaymentUrl ? t("billing.wantaContinuePayment") : t("billing.wantaManageSeats")}
+            {pendingTargetSelected ? t("billing.wantaContinuePayment") : t("billing.wantaManageSeats")}
           </Button>
         </div>
       </div>
@@ -780,6 +798,7 @@ function BalanceOverview({
   currentCredit,
   loading,
   period,
+  topUpDisabled,
   onPeriodChange,
   onRefresh,
   onTopUp,
@@ -793,6 +812,7 @@ function BalanceOverview({
   currentCredit: number
   loading: boolean
   period: BillingPeriodDays
+  topUpDisabled: boolean
   onPeriodChange: (period: BillingPeriodDays) => void
   onRefresh: () => void
   onTopUp: () => void
@@ -821,7 +841,7 @@ function BalanceOverview({
                 {loading ? "..." : formatCredit(currentCredit)}
               </div>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={onTopUp}>
+            <Button type="button" variant="outline" size="sm" disabled={topUpDisabled} onClick={onTopUp}>
               {t("billing.topUpBalance")}
             </Button>
           </div>

@@ -1543,7 +1543,11 @@ export function AppShell() {
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
-  const billingCacheScope = auth.state?.account?.id ?? "authenticated"
+  const billingWorkspaceCacheScope =
+    organizationWorkspace.activeWorkspace.type === "organization"
+      ? `organization:${organizationWorkspace.activeWorkspace.organizationId}`
+      : "personal"
+  const billingCacheScope = `${auth.state?.account?.id ?? "authenticated"}:${billingWorkspaceCacheScope}`
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
   const newChatLabel = labelWithShortcut(
     activeProject ? t("project.newTask") : t("sidebar.newSession"),

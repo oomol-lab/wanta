@@ -39,6 +39,18 @@ export interface WantaSubscriptionOverview {
   usedSeats: number
 }
 
+export interface WantaPendingPaymentTargetsInput {
+  currentAdditionalSeats: number
+  currentPlan: WantaSubscriptionPlan | null
+  pendingPayment: WantaPendingPaymentResult | null
+}
+
+export interface WantaPendingPaymentTargets {
+  additionalSeats: number | null
+  paymentUrl: string
+  plan: WantaSubscriptionPlan | null
+}
+
 export function buildWantaSubscriptionOverview({
   canManage,
   memberCount,
@@ -48,17 +60,21 @@ export function buildWantaSubscriptionOverview({
 }: WantaSubscriptionOverviewInput): WantaSubscriptionOverview {
   const currentPlan = getCurrentWantaPlan(subscription)
   const planCapacity = currentPlan ? wantaPlanCapacity(currentPlan) : null
-  const additionalSeats = currentPlan ? Math.max(0, Math.floor(subscription?.wanta?.additionalSeats ?? 0)) : 0
+  const additionalSeats = Math.max(0, Math.floor(subscription?.wanta?.additionalSeats ?? 0))
   const usedSeats = Math.max(1, Math.floor(memberCount))
-  const seatCapacity = planCapacity ? planCapacity.members + additionalSeats : null
+  const seatCapacity = planCapacity
+    ? planCapacity.members + additionalSeats
+    : additionalSeats > 0
+      ? additionalSeats
+      : null
   const remainingSeats = seatCapacity === null ? null : Math.max(0, seatCapacity - usedSeats)
   const overCapacity = seatCapacity !== null && usedSeats > seatCapacity
   const pendingPaymentUrl = pendingPayment?.paymentURL?.trim() ?? ""
   const hasPendingPayment = Boolean(pendingPaymentUrl)
   const shouldRecommendPro =
     currentPlan === "wanta_plus" &&
-    planCapacity !== null &&
-    (overCapacity || usedSeats >= Math.ceil(planCapacity.members * 0.7))
+    seatCapacity !== null &&
+    (overCapacity || usedSeats >= Math.ceil(seatCapacity * 0.7))
 
   return {
     accountsPerApp: planCapacity?.accountsPerApp ?? defaultAccountsPerApp,
@@ -84,6 +100,30 @@ export function buildWantaSubscriptionOverview({
   }
 }
 
+export function resolveWantaPendingPaymentTargets({
+  currentAdditionalSeats,
+  currentPlan,
+  pendingPayment,
+}: WantaPendingPaymentTargetsInput): WantaPendingPaymentTargets {
+  if (!pendingPayment) {
+    return { additionalSeats: null, paymentUrl: "", plan: null }
+  }
+
+  const paymentUrl = pendingPayment.paymentURL?.trim() ?? ""
+  if (!paymentUrl) {
+    return { additionalSeats: null, paymentUrl: "", plan: null }
+  }
+
+  const pendingPlan = pendingPayment.plan
+  const pendingAdditionalSeats = Math.max(0, Math.floor(pendingPayment.additionalSeats))
+  const additionalSeats =
+    pendingAdditionalSeats !== currentAdditionalSeats && (pendingPlan === null || pendingPlan === currentPlan)
+      ? pendingAdditionalSeats
+      : null
+  const plan = additionalSeats === null ? (pendingPlan ?? currentPlan) : null
+  return { additionalSeats, paymentUrl, plan }
+}
+
 function recommendWantaAction({
   canManage,
   currentPlan,
@@ -103,11 +143,11 @@ function recommendWantaAction({
   if (hasPendingPayment) {
     return "continue_payment"
   }
-  if (!currentPlan) {
-    return "choose_plan"
-  }
   if (overCapacity) {
     return "add_seats"
+  }
+  if (!currentPlan) {
+    return "choose_plan"
   }
   if (shouldRecommendPro) {
     return "upgrade_plan"

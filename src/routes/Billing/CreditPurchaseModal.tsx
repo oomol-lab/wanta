@@ -163,7 +163,7 @@ export function CreditPurchaseModal({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={topUpLoading !== null}
+                    disabled={isSessionExpired || topUpLoading !== null}
                     onClick={() => void handleTopUp(option.price)}
                   >
                     {actionLoading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}

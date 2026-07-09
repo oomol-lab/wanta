@@ -776,10 +776,10 @@ export const zhCNMessages = {
   "chat.questionFallbackLabel": "问题 {index}",
   "chat.permissionModePicker": "访问模式",
   "chat.permissionModeDefault": "默认访问",
-  "chat.permissionModeFullAccess": "完全访问（YOLO）",
-  "chat.fullAccessDialogTitle": "确认开启完全访问（YOLO）？",
+  "chat.permissionModeFullAccess": "完全访问",
+  "chat.fullAccessDialogTitle": "确认开启完全访问？",
   "chat.fullAccessDialogBody":
-    "开启后，Wanta 会在当前会话中自动批准本地访问请求，包括本地命令、文件读写/删除，以及所选项目之外的路径访问。\n这就是本地工具的 YOLO 模式：当前会话内不会再逐次询问本地操作权限。\n仅建议在你信任当前任务时使用。",
+    "开启后，Wanta 会在当前会话中自动批准本地访问请求，包括本地命令、文件读写/删除，以及所选项目之外的路径访问。\n当前会话内不会再逐次询问本地操作权限。\n仅建议在你信任当前任务时使用。",
   "chat.fullAccessDialogAcknowledge": "我已了解风险，并愿意继续",
   "chat.fullAccessDialogConfirm": "确认开启",
   "chat.permissionRequiredTitle": "需要权限才能继续",

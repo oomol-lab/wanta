@@ -814,10 +814,10 @@ export const enMessages = {
   "chat.questionFallbackLabel": "Question {index}",
   "chat.permissionModePicker": "Access mode",
   "chat.permissionModeDefault": "Default access",
-  "chat.permissionModeFullAccess": "Full access (YOLO)",
-  "chat.fullAccessDialogTitle": "Confirm full access (YOLO)?",
+  "chat.permissionModeFullAccess": "Full access",
+  "chat.fullAccessDialogTitle": "Confirm full access?",
   "chat.fullAccessDialogBody":
-    "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nThis is YOLO for local tools: Wanta will not ask again for local operation approval in this chat.\nUse it only when you trust the current task.",
+    "After this is enabled, Wanta will automatically approve local access requests in this chat, including local commands, file reads/writes/deletes, and paths outside the selected project.\nWanta will not ask again for local operation approval in this chat.\nUse it only when you trust the current task.",
   "chat.fullAccessDialogAcknowledge": "I understand the risk and want to continue",
   "chat.fullAccessDialogConfirm": "Enable",
   "chat.permissionRequiredTitle": "Permission needed to continue",

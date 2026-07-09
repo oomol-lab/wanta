@@ -39,6 +39,7 @@ import {
   rememberOAuthPendingOperation,
 } from "./connection-oauth-pending.ts"
 import { connectionsStateReducer, initialConnectionsState } from "./connections-state.ts"
+import { applyDefaultAccountUpdate } from "./connections-summary-update.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const POLL_INTERVAL_MS = 2000
@@ -582,10 +583,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
       try {
-        await setDefaultAccountRequest(svc, appId, action.currentWorkspace)
+        const updatedApp = await setDefaultAccountRequest(svc, appId, action.currentWorkspace)
+        if (isCurrentAction() && summaryRef.current) {
+          setCurrentSummary(applyDefaultAccountUpdate(summaryRef.current, svc, appId, updatedApp))
+        }
         const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
-          setCurrentSummary(next)
+          setCurrentSummary(applyDefaultAccountUpdate(next, svc, appId, updatedApp))
         }
         return isCurrentAction()
       } catch (err) {

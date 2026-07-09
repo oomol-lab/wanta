@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
+import { isConnectionPollingTarget, isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -68,6 +68,7 @@ export function ConnectionAccountsList({
           index={index}
           onConnect={onConnect}
           onDisconnect={onDisconnect}
+          polling={polling}
           provider={provider}
           reconnectBlocked={Boolean(reconnectBlocked)}
           servicePolling={servicePolling}
@@ -86,6 +87,7 @@ function ConnectionAccountItem({
   index,
   onConnect,
   onDisconnect,
+  polling,
   provider,
   reconnectBlocked,
   servicePolling,
@@ -102,6 +104,7 @@ function ConnectionAccountItem({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  polling: string | null
   provider: ConnectionProviderSummary
   reconnectBlocked: boolean
   servicePolling: boolean
@@ -120,6 +123,8 @@ function ConnectionAccountItem({
   const aliasValue = aliasDraft.trim()
   const aliasDirty = aliasValue !== (app.alias?.trim() ?? "")
   const aliasDisabled = servicePolling || aliasBusy
+  const accountPolling = isConnectionPollingTarget(polling, provider.service, app.id)
+  const reconnectDisabled = accountPolling || servicePolling || reconnectBlocked || busy === "connect"
   const secondaryItems = [
     connectedAccount && connectedAccount !== accountLabel ? connectedAccount : null,
     authLabel,
@@ -252,11 +257,11 @@ function ConnectionAccountItem({
             variant="outline"
             size="sm"
             className={accountActionButtonClassName}
-            disabled={servicePolling || reconnectBlocked || busy === "connect"}
+            disabled={reconnectDisabled}
             onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
           >
-            {servicePolling || reconnectBlocked ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
-            {servicePolling
+            {accountPolling || reconnectBlocked ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
+            {accountPolling
               ? t("connections.oauthWaiting")
               : reconnectBlocked
                 ? t("connections.oauthInProgress")

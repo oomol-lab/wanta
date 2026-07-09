@@ -95,6 +95,8 @@ let currentLocale: AppLocale | null = null
 let isQuitting = false
 type AppQuitIntent = "none" | "user-quit" | "update-install" | "termination-signal"
 let appQuitIntent: AppQuitIntent = "none"
+// 退出回收只跑一次：记忆化 Promise，多条退出路径（before-quit / 信号 / 更新安装）复用同一次回收。
+let shutdownReap: Promise<void> | null = null
 let windowsTrayLifecycle: {
   dispose: () => void
   setLocale: (locale: string) => void
@@ -175,7 +177,13 @@ const settingsService = new SettingsServiceImpl({
 })
 // 更新渠道（stable/beta）持久化在同一 settings.json；服务内部仅打包态联网。
 const updateService = new UpdateServiceImpl({
-  beforeInstallDownloadedAppUpdate: () => armAppQuit("update-install"),
+  // 安装前先武装退出意图并把 agent（含 opencode 工具子进程树）连根回收，再交给
+  // quitAndInstall。此处刻意在 quitAndInstall 之前 await：安装走 Squirrel 的正常退出流程，
+  // 不能像用户退出那样 preventDefault+app.exit（会跳过安装），故回收必须在退出前完成。
+  beforeInstallDownloadedAppUpdate: async () => {
+    armAppQuit("update-install")
+    await reapAgentForShutdown()
+  },
   store: settingsStore,
 })
 const gitService = new GitServiceImpl({
@@ -278,32 +286,54 @@ if (isLocked) {
   // 终端 Ctrl-C / kill <pid> / OS 关机 / macOS "停止在后台运行" 可能以原始 POSIX 信号（而非 Cocoa
   // Quit 事件，后者走 before-quit）送达主进程。没有信号处理器时进程会被直接终止、不触发 before-quit，
   // opencode sidecar 便沦为永久孤儿（reparent 到 launchd），macOS 仍把 app 判为"后台运行"。
-  // 这里先同步回收内核，再走正常退出（before-quit 会再 dispose 一次，幂等）。
+  // 这里 await 完整回收（进程树 SIGTERM/SIGKILL 送达）后再硬退出。
   // 另注：opencode 现以 detached 独立进程组运行，dev 下 Ctrl-C 不会经前台进程组自然传到它，
   // 全靠此处 SIGINT 处理器显式回收，否则会残留孤儿。
   const onTerminationSignal = (signal: NodeJS.Signals): void => {
     console.log(`[wanta] received ${signal}; shutting down`)
     armAppQuit("termination-signal")
-    agent?.dispose()
-    app.quit()
+    void reapAgentForShutdown().finally(() => app.exit(0))
   }
   process.once("SIGTERM", () => onTerminationSignal("SIGTERM"))
   process.once("SIGINT", () => onTerminationSignal("SIGINT"))
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
+    // 更新安装（quitAndInstall）路径：回收已在 beforeInstallDownloadedAppUpdate 里 await 完成，
+    // 且必须放行 Squirrel 的正常退出流程去执行安装，故绝不 preventDefault/app.exit。
+    if (appQuitIntent === "update-install") {
+      return
+    }
+    // 用户退出（Cmd+Q / 菜单退出 / win-linux 关末窗）：opencode 的工具子进程各自 setsid 逃逸出
+    // opencode 进程组，单发 kill(-pgid) 收不掉，退出后成孤儿被 macOS 判为"正在后台运行"。这里
+    // 始终拦下默认退出，await 按 ppid 进程树连根回收后再 app.exit(0)（回收记忆化，连按 Cmd+Q
+    // 也只回收一次，且每次 before-quit 都 preventDefault，绝不让第二次退出穿透略过回收）。
+    event.preventDefault()
     armAppQuit("user-quit")
+    void reapAgentForShutdown().finally(() => app.exit(0))
+  })
+}
+
+/**
+ * 退出前一次性回收：停掉待处理定时器/托盘，await agent（含 opencode 工具子进程树）连根回收，
+ * 再 dispose 服务与刷日志。记忆化，确保多条退出路径只回收一次。
+ */
+function reapAgentForShutdown(): Promise<void> {
+  shutdownReap ??= (async () => {
     if (pendingSkillRuntimeRefresh) {
       clearTimeout(pendingSkillRuntimeRefresh)
       pendingSkillRuntimeRefresh = undefined
     }
+    // 退出观感：先藏窗口，回收（含最长宽限期）在后台进行，不让用户盯着卡住的窗口。
+    mainWindow?.hide()
     windowsTrayLifecycle?.dispose()
     windowsTrayLifecycle = null
-    agent?.dispose()
+    await agent?.dispose()
     server.dispose()
-    void flushDiagnosticsLog().catch((error: unknown) => {
+    await flushDiagnosticsLog().catch((error: unknown) => {
       console.warn("[wanta] failed to flush diagnostics log", error)
     })
-  })
+  })()
+  return shutdownReap
 }
 
 function armAppQuit(intent: Exclude<AppQuitIntent, "none">): void {
@@ -485,7 +515,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   }
   const previousAccountId = appliedAccount?.id
   appliedAccount = null
-  agent?.dispose()
+  // 后台回收旧 agent（含 opencode 工具子进程树）；重启不等回收完成，回收在后台自完成。
+  void agent?.dispose()
   agent = null
   chatService.setAgent(null)
   chatService.setAgentStatus(account ? { status: "starting" } : { status: "signed_out" })
@@ -514,8 +545,8 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   try {
     await nextAgent.start()
   } catch (error) {
-    // 启动失败不留僵尸 agent：清空引用，下次登录可重试。
-    nextAgent.dispose()
+    // 启动失败不留僵尸 agent：清空引用，下次登录可重试。后台回收，不阻塞错误上报。
+    void nextAgent.dispose()
     agent = null
     chatService.setAgent(null)
     chatService.setAgentStatus({ status: "error", message: runtimeErrorMessage(error) })

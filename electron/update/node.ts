@@ -31,7 +31,7 @@ type ElectronUpdaterModule = typeof import("electron-updater")
 type AutoUpdater = ElectronUpdaterModule["autoUpdater"]
 
 export interface UpdateServiceDeps {
-  beforeInstallDownloadedAppUpdate?: () => void
+  beforeInstallDownloadedAppUpdate?: () => void | Promise<void>
   store: SettingsStore
 }
 
@@ -98,11 +98,11 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     }
   }
 
-  public installDownloadedAppUpdate(): Promise<void> {
+  public async installDownloadedAppUpdate(): Promise<void> {
     // 不设本地闩锁：quitAndInstall 失败都走异步 'error' 事件（届时状态离开 downloaded，
     // 按钮自然消失），重复调用由 electron-updater 自身去重。
     if (!app.isPackaged || this.state.status.status !== "downloaded") {
-      return Promise.resolve()
+      return
     }
     logDiagnostic(
       "update-service",
@@ -112,9 +112,10 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     )
     // macOS 的 quitAndInstall 会先 close 所有窗口，再触发 app.before-quit。必须提前让
     // 主窗口 close handler 放行，否则窗口会被 hide-on-close 逻辑拦住，安装流程停在重启中。
-    this.deps.beforeInstallDownloadedAppUpdate?.()
+    // 同时 await 该回调：Wanta 在此把 opencode 工具子进程树连根回收——必须在 quitAndInstall
+    // 触发退出之前完成，安装路径不能像用户退出那样 preventDefault+app.exit（会跳过安装）。
+    await this.deps.beforeInstallDownloadedAppUpdate?.()
     this.getAutoUpdater().quitAndInstall()
-    return Promise.resolve()
   }
 
   public setUpdateChannel(channel: UpdateChannel): Promise<AppUpdateState> {

@@ -639,10 +639,20 @@ test("assignSessionProject persists only projects in the session scope", async (
     updatedAt: 5_000,
     scope: { type: "organization", organizationId: "org", organizationName: "Org" },
   }
+  const archivedProject: SessionProject = {
+    id: "archived-project",
+    name: "Archived",
+    path: "/Users/example/code/archived",
+    archivedAt: 6_000,
+    createdAt: 6_000,
+    updatedAt: 6_000,
+    scope: { type: "personal" },
+  }
   const persistedProjects = projectStore(
     new Map([
       [personalProject.id, personalProject],
       [organizationProject.id, organizationProject],
+      [archivedProject.id, archivedProject],
     ]),
   )
   const service = new SessionServiceImpl(agentWithSessions([]), {
@@ -659,6 +669,11 @@ test("assignSessionProject persists only projects in the session scope", async (
 
   assert.deepEqual(await persistedMetadata.read(), new Map([["session", { scope: { type: "personal" } }]]))
   assert.equal((await persistedProjects.read()).get("organization-project")?.updatedAt, organizationProject.updatedAt)
+
+  await service.assignSessionProject({ sessionId: "session", projectId: "archived-project" })
+
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { scope: { type: "personal" } }]]))
+  assert.equal((await persistedProjects.read()).get("archived-project")?.updatedAt, archivedProject.updatedAt)
 })
 
 test("recordUseAndEmit touches assigned project activity", async () => {

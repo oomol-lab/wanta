@@ -243,7 +243,7 @@ export class SessionServiceImpl
     const next = { ...current }
     const project = projectId ? this.projects.get(projectId) : undefined
     const scope = normalizeSessionScope(current.scope)
-    if (project && sessionScopeMatches(project.scope, scope)) {
+    if (project && !project.archivedAt && sessionScopeMatches(project.scope, scope)) {
       next.projectId = project.id
       this.touchProject(project.id)
       await this.persistProjects()

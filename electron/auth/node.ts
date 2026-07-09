@@ -228,12 +228,12 @@ export class AuthManager {
     ) {
       return
     }
-    const sessionToken = await readOomolSessionCookie()
-    if (!sessionToken) {
-      return
-    }
     this.profileRefreshInFlightAccountId = account.id
     try {
+      const sessionToken = await readOomolSessionCookie()
+      if (!sessionToken) {
+        return
+      }
       const profile = await requestLoginProfile(apiBaseUrl, sessionToken)
       const currentAccount = this.activeAccount()
       if (!currentAccount || currentAccount.id !== account.id) {

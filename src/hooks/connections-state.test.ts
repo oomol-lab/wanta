@@ -75,6 +75,35 @@ test("connectionsStateReducer clears only refresh busy when refresh completes", 
   )
 })
 
+test("connectionsStateReducer starts refresh without replacing active actions", () => {
+  assert.equal(connectionsStateReducer(initialConnectionsState, { type: "refreshStarted" }).busy, "refresh")
+  assert.equal(
+    connectionsStateReducer({ ...initialConnectionsState, busy: "connect" }, { type: "refreshStarted" }).busy,
+    "connect",
+  )
+  assert.equal(
+    connectionsStateReducer({ ...initialConnectionsState, busy: "disconnect" }, { type: "refreshStarted" }).busy,
+    "disconnect",
+  )
+})
+
+test("connectionsStateReducer resets state while workspace is pending", () => {
+  const next = connectionsStateReducer(
+    {
+      ...initialConnectionsState,
+      actionError: error,
+      busy: "connect",
+      polling: "provider",
+      summary: summary({ type: "personal" }),
+      summaryError: error,
+      summaryWorkspaceKey: "personal",
+    },
+    { type: "workspacePending" },
+  )
+
+  assert.deepEqual(next, initialConnectionsState)
+})
+
 test("connectionsStateReducer records workspace sync failures as summary failures", () => {
   const previousSummary = summary({ type: "organization", organizationName: "org-a" })
   const next = connectionsStateReducer(
@@ -126,17 +155,44 @@ test("connectionsStateReducer keeps current summaries visible when refresh fails
   assert.equal(next.summaryWorkspaceKey, "organization:acme")
 })
 
+test("connectionsStateReducer updates action busy and polling state", () => {
+  const busy = connectionsStateReducer(initialConnectionsState, { type: "busySet", busy: "disconnect" })
+  const polling = connectionsStateReducer(busy, { type: "pollingSet", polling: "provider" })
+  const failed = connectionsStateReducer(polling, { type: "actionErrorSet", error })
+  const cancelled = connectionsStateReducer(failed, { type: "pollingCancelled" })
+
+  assert.equal(failed.busy, "disconnect")
+  assert.equal(failed.polling, "provider")
+  assert.equal(failed.actionError, error)
+  assert.equal(cancelled.busy, null)
+  assert.equal(cancelled.polling, null)
+  assert.equal(cancelled.actionError, error)
+})
+
+test("connectionsStateReducer records synced workspace scope", () => {
+  const next = connectionsStateReducer(initialConnectionsState, {
+    type: "workspaceScopeSynced",
+    workspaceKey: "organization:acme",
+  })
+
+  assert.equal(next.agentScopeWorkspaceKey, "organization:acme")
+})
+
 test("connectionsStateReducer derives summary workspace keys consistently", () => {
   const personal = connectionsStateReducer(initialConnectionsState, {
     summary: summary({ type: "personal" }),
     type: "refreshSucceeded",
   })
-  const organization = connectionsStateReducer(initialConnectionsState, {
-    summary: summary({ type: "organization", organizationName: "acme" }),
-    type: "summarySet",
-  })
+  const organization = connectionsStateReducer(
+    { ...initialConnectionsState, summaryError: error },
+    {
+      summary: summary({ type: "organization", organizationName: "acme" }),
+      type: "summarySet",
+    },
+  )
 
   assert.equal(personal.summaryWorkspaceKey, "personal")
   assert.equal(personal.summaryError, null)
   assert.equal(organization.summaryWorkspaceKey, "organization:acme")
+  assert.equal(organization.summaryError, null)
 })

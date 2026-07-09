@@ -68,7 +68,7 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
       return {
         ...state,
         summary: action.summary,
-        summaryError: action.type === "refreshSucceeded" ? null : state.summaryError,
+        summaryError: null,
         summaryWorkspaceKey: connectionSummaryWorkspaceKey(action.summary),
       }
     case "workspacePending":

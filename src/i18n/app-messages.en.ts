@@ -50,11 +50,16 @@ export const enMessages = {
   "error.connections.setDefaultFailed.title": "Unable to set the default connection",
   "error.connections.updateAliasFailed.title": "Unable to update the connection name",
   "error.connections.permissionDenied.description":
-    "This account cannot perform this operation in the current workspace. Switch accounts or organizations and try again.",
+    "This account cannot perform this connection operation in the current workspace. Switch to an account or organization with access and try again.",
+  "error.connections.permissionConfigure.title": "You can't configure this connection",
+  "error.connections.permissionConfigure.organization.description":
+    "You don't have permission to configure or add connections in this organization. Ask an organization admin to grant connection management access, or switch to an account or organization with access.",
+  "error.connections.permissionConfigure.personal.description":
+    "This account doesn't have permission to configure this connection. Switch to an account with access and try again.",
   "error.connections.permissionConnect.title": "No permission to connect",
   "error.connections.permissionReconnect.title": "No permission to reconnect",
   "error.connections.permissionDisconnect.title": "No permission to disconnect",
-  "error.connections.permissionDetail.title": "No permission to view details",
+  "error.connections.permissionDetail.title": "You can't configure this connection",
   "error.connections.permissionSetDefault.title": "No permission to set the default connection",
   "error.connections.permissionSummary.title": "No permission to read connectors",
   "error.connections.permissionUpdateAlias.title": "No permission to update the connection name",

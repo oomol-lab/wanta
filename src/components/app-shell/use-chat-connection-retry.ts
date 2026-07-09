@@ -116,7 +116,7 @@ export function useChatConnectionRetry({
         sessionId: input.sessionId,
         startedAt,
       })
-      void refresh({ forceRefresh: true })
+      void refresh({ forceRefresh: true }, { silent: true })
     },
     [refresh],
   )
@@ -154,7 +154,7 @@ export function useChatConnectionRetry({
       try {
         const connected = await isProviderActive(retryWatch.service)
         if (!cancelled && connected) {
-          await refresh({ forceRefresh: true })
+          await refresh({ forceRefresh: true }, { silent: true })
         }
       } catch (error) {
         if (!cancelled) {

@@ -82,6 +82,8 @@ export function EmptyList({ summary, hasQuery }: { summary: ConnectionSummary | 
 }
 
 export function ProviderDetail({
+  actionsBlocked,
+  actionsPending,
   authIntent,
   busy,
   detail,
@@ -97,6 +99,8 @@ export function ProviderDetail({
   showCloseButton = false,
   summary,
 }: {
+  actionsBlocked?: boolean
+  actionsPending?: boolean
   authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
   connections: UseConnections
@@ -164,20 +168,23 @@ export function ProviderDetail({
           <ErrorNotice error={errorNotice.error} compact showDiagnosticsCopy={errorNotice.showDiagnosticsCopy} />
         ) : null}
         {authIntent ? <ConnectionAuthIntentNotice authIntent={authIntent} provider={provider} /> : null}
-        <ConnectionPanel
-          authIntent={authIntent}
-          busy={busy}
-          canSetDefault={summary?.workspace.type !== "organization"}
-          connections={connections}
-          currentAuthType={currentAuthType}
-          detail={detail}
-          detailLoading={detailLoading}
-          onCancelPolling={onCancelPolling}
-          onConnect={onConnect}
-          onDisconnect={onDisconnect}
-          polling={polling}
-          provider={provider}
-        />
+        {actionsBlocked ? null : (
+          <ConnectionPanel
+            authIntent={authIntent}
+            busy={busy}
+            canSetDefault={summary?.workspace.type !== "organization"}
+            connections={connections}
+            currentAuthType={currentAuthType}
+            actionsPending={actionsPending}
+            detail={detail}
+            detailLoading={detailLoading}
+            onCancelPolling={onCancelPolling}
+            onConnect={onConnect}
+            onDisconnect={onDisconnect}
+            polling={polling}
+            provider={provider}
+          />
+        )}
       </section>
 
       {isConnected(provider) ? (
@@ -234,6 +241,7 @@ function ConnectionAuthIntentNotice({
 }
 
 function ConnectionPanel({
+  actionsPending,
   authIntent,
   busy,
   canSetDefault,
@@ -247,6 +255,7 @@ function ConnectionPanel({
   polling,
   provider,
 }: {
+  actionsPending?: boolean
   authIntent?: ConnectionAuthIntent | null
   busy: UseConnections["busy"]
   canSetDefault: boolean
@@ -293,7 +302,7 @@ function ConnectionPanel({
           </h3>
           {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
-        {noAuthReady ? null : (
+        {actionsPending || noAuthReady ? null : (
           <AuthTypeToggleGroup
             authTypes={usableAuthTypes}
             value={activeAuthType ?? null}
@@ -302,7 +311,7 @@ function ConnectionPanel({
         )}
       </div>
 
-      {noAuthReady ? (
+      {actionsPending ? null : noAuthReady ? (
         <div className="oo-text-caption oo-text-muted rounded-md border bg-muted/30 px-3 py-2">
           {t("connections.noAuthReadyDescription")}
         </div>
@@ -354,7 +363,7 @@ function ConnectionPanel({
         <div className="oo-text-caption oo-text-muted">{t("connections.unsupportedConnectionDescription")}</div>
       )}
 
-      {provider.apps.length > 0 ? (
+      {!actionsPending && provider.apps.length > 0 ? (
         <ConnectionAccountsList
           busy={busy}
           canSetDefault={canSetDefault}

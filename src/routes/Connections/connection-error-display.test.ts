@@ -33,6 +33,38 @@ describe("connection error display", () => {
   it("falls back to provider detail errors when there is no action error", () => {
     const detailError = error({ titleKey: "error.connections.permissionDetail.title" })
 
+    expect(getConnectionDetailErrorNotice({ actionError: null, detailError })?.error).toMatchObject({
+      descriptionKey: "error.connections.permissionConfigure.personal.description",
+      titleKey: "error.connections.permissionConfigure.title",
+    })
+  })
+
+  it("explains organization provider detail permission errors as connection configuration access", () => {
+    const detailError = error({
+      descriptionText: "Forbidden",
+      titleKey: "error.connections.permissionDetail.title",
+    })
+
+    expect(
+      getConnectionDetailErrorNotice({
+        actionError: null,
+        detailError,
+        workspace: { organizationName: "acme", type: "organization" },
+      })?.error,
+    ).toMatchObject({
+      descriptionKey: "error.connections.permissionConfigure.organization.description",
+      descriptionText: undefined,
+      diagnostics: "Connector failed: HTTP 403",
+      titleKey: "error.connections.permissionConfigure.title",
+    })
+  })
+
+  it("keeps non-permission provider detail errors unchanged", () => {
+    const detailError = error({
+      kind: "operation_failed",
+      titleKey: "error.connections.detailFailed.title",
+    })
+
     expect(getConnectionDetailErrorNotice({ actionError: null, detailError })?.error).toBe(detailError)
   })
 

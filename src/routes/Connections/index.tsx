@@ -154,8 +154,18 @@ export function ConnectionsPanel({
   const selectedProviderDetail = selectedDetailCacheKey && detailCacheKey === selectedDetailCacheKey ? detail : null
   const selectedProviderDetailLoading = Boolean(selectedDetailCacheKey) && detailLoading
   const selectedProviderDetailError = selectedDetailCacheKey ? detailError : null
+  const selectedProviderActionsBlocked = Boolean(
+    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailError,
+  )
+  const selectedProviderActionsPending = Boolean(
+    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
+  )
   const detailErrorNotice = selectedProvider
-    ? getConnectionDetailErrorNotice({ actionError, detailError: selectedProviderDetailError })
+    ? getConnectionDetailErrorNotice({
+        actionError,
+        detailError: selectedProviderDetailError,
+        workspace: summary?.workspace ?? null,
+      })
     : null
   const summaryLoading = busy === "refresh" && !summary
   const listErrorNotice = getConnectionListErrorNotice({
@@ -440,6 +450,8 @@ export function ConnectionsPanel({
             authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
             busy={busy}
             detail={selectedProviderDetail}
+            actionsBlocked={selectedProviderActionsBlocked}
+            actionsPending={selectedProviderActionsPending}
             errorNotice={detailErrorNotice}
             detailLoading={selectedProviderDetailLoading}
             connections={connections}
@@ -570,6 +582,8 @@ export function ConnectionsPanel({
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
               detail={selectedProviderDetail}
+              actionsBlocked={selectedProviderActionsBlocked}
+              actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}
               connections={connections}
@@ -597,6 +611,8 @@ export function ConnectionsPanel({
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
               detail={selectedProviderDetail}
+              actionsBlocked={selectedProviderActionsBlocked}
+              actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}
               connections={connections}

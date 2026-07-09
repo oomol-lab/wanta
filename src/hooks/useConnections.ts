@@ -54,6 +54,10 @@ interface ConnectionActionContext {
   isCurrent: () => boolean
 }
 
+interface ConnectionRefreshOptions {
+  silent?: boolean
+}
+
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) {
@@ -109,7 +113,7 @@ export interface UseConnections {
   summaryError: UserFacingError | null
   scopeSyncError: UserFacingError | null
   clearActionError: () => void
-  refresh: (request?: ConnectionSummaryRequest) => Promise<ConnectionSummary | null>
+  refresh: (request?: ConnectionSummaryRequest, options?: ConnectionRefreshOptions) => Promise<ConnectionSummary | null>
   connect: (input: ConnectionConnectInput) => Promise<boolean>
   disconnect: (service: string) => Promise<boolean>
   disconnectAccount: (appId: string) => Promise<boolean>
@@ -146,7 +150,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const effectiveWorkspace = React.useRef<ConnectionWorkspace | null>(workspace)
   const workspaceGeneration = React.useRef(0)
   const summaryRequestSequence = React.useRef(0)
+  const summaryRef = React.useRef<ConnectionSummary | null>(summary)
   effectiveWorkspace.current = workspace
+  summaryRef.current = summary
 
   const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
     dispatch({ type: "summarySet", summary: next })
@@ -184,7 +190,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   }, [isCurrentWorkspace])
 
   const refresh = React.useCallback(
-    async (request?: ConnectionSummaryRequest): Promise<ConnectionSummary | null> => {
+    async (
+      request?: ConnectionSummaryRequest,
+      options: ConnectionRefreshOptions = {},
+    ): Promise<ConnectionSummary | null> => {
       const currentWorkspace = effectiveWorkspace.current
       if (!currentWorkspace) {
         dispatch({ type: "workspacePending" })
@@ -194,7 +203,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       summaryRequestSequence.current = requestId
       const generation = workspaceGeneration.current
       const key = connectionWorkspaceKey(currentWorkspace)
-      dispatch({ type: "refreshStarted" })
+      const visibleRefresh = !options.silent || summaryRef.current === null
+      if (visibleRefresh) {
+        dispatch({ type: "refreshStarted" })
+      }
       try {
         const next = await getConnectionSummary(currentWorkspace, request)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
@@ -203,7 +215,9 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return next
       } catch (err) {
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
-          dispatch({ type: "refreshFailed", error: resolveConnectionError(err, "summary"), workspaceKey: key })
+          if (visibleRefresh) {
+            dispatch({ type: "refreshFailed", error: resolveConnectionError(err, "summary"), workspaceKey: key })
+          }
         }
         return null
       } finally {

@@ -45,11 +45,16 @@ export const zhCNMessages = {
   "error.connections.setDefaultFailed.title": "无法设为默认连接",
   "error.connections.updateAliasFailed.title": "无法更新连接名称",
   "error.connections.permissionDenied.description":
-    "当前账号没有权限在这个工作区执行此操作。你可以切换账号或组织后再试。",
+    "当前账号没有权限在当前工作区执行这项连接操作。你可以切换到有权限的账号或组织后再试。",
+  "error.connections.permissionConfigure.title": "无法配置此连接",
+  "error.connections.permissionConfigure.organization.description":
+    "你在当前组织中没有配置或新增连接的权限。请联系组织管理员开通连接管理权限，或切换到有权限的账号/组织。",
+  "error.connections.permissionConfigure.personal.description":
+    "当前账号没有配置此连接的权限。请切换到有权限的账号后再试。",
   "error.connections.permissionConnect.title": "没有连接权限",
   "error.connections.permissionReconnect.title": "没有重新连接权限",
   "error.connections.permissionDisconnect.title": "没有断开连接权限",
-  "error.connections.permissionDetail.title": "没有查看详情权限",
+  "error.connections.permissionDetail.title": "无法配置此连接",
   "error.connections.permissionSetDefault.title": "没有设置默认连接权限",
   "error.connections.permissionSummary.title": "没有读取连接器权限",
   "error.connections.permissionUpdateAlias.title": "没有更新连接名称权限",

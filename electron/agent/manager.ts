@@ -636,7 +636,7 @@ export class AgentManager {
     if (!this.started) {
       return []
     }
-    const result = await this.client.v2.session.question.list({ sessionID: sessionId })
+    const result = await this.client.question.list()
     const raw = Array.isArray(result.data) ? result.data : []
     return raw
       .map(normalizeQuestionRequest)
@@ -644,16 +644,15 @@ export class AgentManager {
       .filter((request) => request.sessionId === sessionId)
   }
 
-  public async answerQuestion(sessionId: string, requestId: string, answers: string[][]): Promise<void> {
-    await this.client.v2.session.question.reply({
-      sessionID: sessionId,
+  public async answerQuestion(_sessionId: string, requestId: string, answers: string[][]): Promise<void> {
+    await this.client.question.reply({
       requestID: requestId,
-      questionV2Reply: { answers },
+      answers,
     })
   }
 
-  public async rejectQuestion(sessionId: string, requestId: string): Promise<void> {
-    await this.client.v2.session.question.reject({ sessionID: sessionId, requestID: requestId })
+  public async rejectQuestion(_sessionId: string, requestId: string): Promise<void> {
+    await this.client.question.reject({ requestID: requestId })
   }
 
   public async getPendingPermissions(sessionId: string): Promise<ChatPermissionRequest[]> {

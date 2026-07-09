@@ -12,7 +12,7 @@ import type {
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
-import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
+import type { ChatTurn, ChatTurnProcessStatus, ChatTurnRetrySource } from "./chat-turns.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -28,7 +28,9 @@ import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistan
 import { attachmentWithPreview } from "./chat-attachment-utils.ts"
 import {
   activityForChatTurn,
+  chatTurnProcessStatus,
   groupChatTurns,
+  isLiveTurnProcess,
   latestAssistantMessage,
   retrySourceFromTurn,
   reuseStableChatTurns,
@@ -154,44 +156,6 @@ function reuseStableArtifactSourceMap(
   return changed ? stable : previous
 }
 
-type TurnProcessStatus =
-  | "running"
-  | "completed"
-  | "completedWithIssues"
-  | "retrying"
-  | "needsAction"
-  | "error"
-  | "stopped"
-
-function isLiveProcess(process: ReturnType<typeof summarizeTurnProcess>, live = false): boolean {
-  return live && (process.hasActiveTool || Boolean(process.activity))
-}
-
-function processStatus(process: ReturnType<typeof summarizeTurnProcess>, live = false): TurnProcessStatus {
-  if (process.activity?.phase === "retrying") {
-    return "retrying"
-  }
-  if (isLiveProcess(process, live)) {
-    return "running"
-  }
-  if (process.hasAuthorization) {
-    return "needsAction"
-  }
-  if (process.hasBlockingError) {
-    return "error"
-  }
-  if (process.hasToolError) {
-    return "completedWithIssues"
-  }
-  if (process.hasStoppedTool) {
-    return "stopped"
-  }
-  if (process.hasActiveTool) {
-    return "stopped"
-  }
-  return "completed"
-}
-
 function formatSettledToolActivityDuration(parts: ChatMessagePart[]): string | null {
   let start: number | undefined
   let end: number | undefined
@@ -212,7 +176,7 @@ function formatProcessDuration(
   now: number,
   live = false,
 ): string | null {
-  const isLive = isLiveProcess(process, live)
+  const isLive = isLiveTurnProcess(process, live)
   const toolDuration = !isLive && process.tools.length > 0 ? formatSettledToolActivityDuration(process.tools) : null
   if (!isLive && toolDuration) {
     return toolDuration
@@ -225,7 +189,7 @@ function formatProcessDuration(
   return formatWholeSecondDuration(end - start)
 }
 
-function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {
+function processStatusText(t: TranslateFn, status: ChatTurnProcessStatus): string {
   switch (status) {
     case "running":
       return t("chat.processRunning")
@@ -244,7 +208,7 @@ function processStatusText(t: TranslateFn, status: TurnProcessStatus): string {
   }
 }
 
-function processTitle(t: TranslateFn, status: TurnProcessStatus, duration: string | null): string {
+function processTitle(t: TranslateFn, status: ChatTurnProcessStatus, duration: string | null): string {
   const title = processStatusText(t, status)
   return duration ? `${title} ${duration}` : title
 }
@@ -267,7 +231,7 @@ function TurnProcessActivity({
   onViewBilling?: () => void
 }) {
   const t = useT()
-  const status = processStatus(process, live)
+  const status = chatTurnProcessStatus(process, live)
   const shouldOpen =
     status === "running" ||
     status === "retrying" ||
@@ -305,7 +269,10 @@ function TurnProcessActivity({
     if (userChangedOpenRef.current) {
       return
     }
-    setOpen(shouldOpen)
+    // 活跃步骤展开后不因工具间隙或最终回答流式输出的短暂状态自动收起。
+    if (shouldOpen) {
+      setOpen(true)
+    }
   }, [forceOpen, shouldOpen, statusKey])
 
   React.useEffect(() => {
@@ -374,7 +341,7 @@ function latestActiveTool(process: ReturnType<typeof summarizeTurnProcess>): Cha
 
 function shouldShowLiveStatus(
   process: ReturnType<typeof summarizeTurnProcess>,
-  status = processStatus(process),
+  status = chatTurnProcessStatus(process),
 ): boolean {
   const activeTool = latestActiveTool(process)
   return (
@@ -397,7 +364,7 @@ function LiveStatusBar({
     return null
   }
 
-  const status = processStatus(process, live)
+  const status = chatTurnProcessStatus(process, live)
   const activeTool = latestActiveTool(process)
   if (!shouldShowLiveStatus(process, status)) {
     return null

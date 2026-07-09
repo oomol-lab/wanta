@@ -321,7 +321,7 @@ describe("AgentManager", () => {
     unsubscribe()
   })
 
-  it("uses session-scoped question APIs for pending questions and replies", async () => {
+  it("uses runtime question APIs for pending questions and replies", async () => {
     const list = vi.fn(async () => ({
       data: [
         {
@@ -340,7 +340,7 @@ describe("AgentManager", () => {
       rootDir: "/tmp/wanta-agent",
     })
     ;(manager as unknown as { sidecar: unknown; started: boolean }).sidecar = {
-      client: { v2: { session: { question: { list, reject, reply } } } },
+      client: { question: { list, reject, reply } },
     }
     ;(manager as unknown as { started: boolean }).started = true
 
@@ -354,13 +354,12 @@ describe("AgentManager", () => {
     await manager.answerQuestion("session-1", "q1", [["A"]])
     await manager.rejectQuestion("session-1", "q1")
 
-    expect(list).toHaveBeenCalledWith({ sessionID: "session-1" })
+    expect(list).toHaveBeenCalledWith()
     expect(reply).toHaveBeenCalledWith({
-      sessionID: "session-1",
       requestID: "q1",
-      questionV2Reply: { answers: [["A"]] },
+      answers: [["A"]],
     })
-    expect(reject).toHaveBeenCalledWith({ sessionID: "session-1", requestID: "q1" })
+    expect(reject).toHaveBeenCalledWith({ requestID: "q1" })
   })
 
   it("uses a generated session title without local length scoring or rewrite", async () => {

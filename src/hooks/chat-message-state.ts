@@ -58,6 +58,86 @@ function serverClientId(id: string): string {
   return `server-${id}`
 }
 
+function jsonLikeEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true
+  }
+  try {
+    return JSON.stringify(left) === JSON.stringify(right)
+  } catch {
+    return false
+  }
+}
+
+function sameMessagePart(left: ChatMessagePart, right: ChatMessagePart): boolean {
+  return (
+    left.kind === right.kind &&
+    left.partId === right.partId &&
+    left.text === right.text &&
+    left.statusType === right.statusType &&
+    left.attempt === right.attempt &&
+    left.maxAttempts === right.maxAttempts &&
+    left.errorText === right.errorText &&
+    left.errorKind === right.errorKind &&
+    left.errorCode === right.errorCode &&
+    left.callId === right.callId &&
+    left.tool === right.tool &&
+    left.status === right.status &&
+    left.output === right.output &&
+    left.error === right.error &&
+    left.title === right.title &&
+    left.attachmentsCount === right.attachmentsCount &&
+    left.cancelled === right.cancelled &&
+    jsonLikeEqual(left.attachment, right.attachment) &&
+    jsonLikeEqual(left.input, right.input) &&
+    jsonLikeEqual(left.metadata, right.metadata) &&
+    jsonLikeEqual(left.timing, right.timing) &&
+    jsonLikeEqual(left.authorization, right.authorization)
+  )
+}
+
+function reuseStableMessageParts(current: ChatMessagePart[], next: ChatMessagePart[]): ChatMessagePart[] {
+  let changed = current.length !== next.length
+  const parts = next.map((part, index) => {
+    const currentPart = current[index]
+    if (currentPart && sameMessagePart(currentPart, part)) {
+      return currentPart
+    }
+    changed = true
+    return part
+  })
+  return changed ? parts : current
+}
+
+function sameMessageValue(left: ChatMessage, right: ChatMessage): boolean {
+  return (
+    left.id === right.id &&
+    left.clientId === right.clientId &&
+    left.role === right.role &&
+    left.createdAt === right.createdAt &&
+    left.artifactRoot === right.artifactRoot &&
+    left.parts === right.parts &&
+    jsonLikeEqual(left.contextMentions, right.contextMentions) &&
+    jsonLikeEqual(left.tokenUsage, right.tokenUsage)
+  )
+}
+
+function reuseStableFetchedMessage(current: ChatMessage | undefined, next: ChatMessage): ChatMessage {
+  if (!current) {
+    return next
+  }
+  const parts = reuseStableMessageParts(current.parts, next.parts)
+  const stableNext = parts === next.parts ? next : { ...next, parts }
+  return sameMessageValue(current, stableNext) ? current : stableNext
+}
+
+function reuseStableMessageList(current: ChatMessage[], next: ChatMessage[]): ChatMessage[] {
+  if (current.length !== next.length) {
+    return next
+  }
+  return current.every((message, index) => message === next[index]) ? current : next
+}
+
 function withStableClientId(message: ChatMessage): ChatMessage {
   return message.clientId ? message : { ...message, clientId: serverClientId(message.id) }
 }
@@ -586,7 +666,7 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
       message.role === "user" ? localUserByContent.get(userMessageContentKey(message))?.shift() : undefined
     const currentMessage = currentById.get(message.id) ?? matchedLocalUser
     const artifactRoot = artifactRootByMessageId.get(message.id)
-    return {
+    return reuseStableFetchedMessage(currentMessage, {
       ...message,
       clientId: currentMessage?.clientId ?? message.clientId ?? serverClientId(message.id),
       ...(message.role === "user" && currentMessage?.contextMentions && !message.contextMentions
@@ -594,10 +674,11 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
         : {}),
       parts: preserveLocalErrorParts(message.parts, currentErrorPartsById.get(message.id)),
       ...(artifactRoot && !message.artifactRoot ? { artifactRoot } : {}),
-    }
+    })
   })
   const merged = insertMessagesByCreatedAt(fetchedWithLocalState, missingLocalUsers)
-  return missingLocalAssistants.length > 0 ? [...merged, ...missingLocalAssistants] : merged
+  const next = missingLocalAssistants.length > 0 ? [...merged, ...missingLocalAssistants] : merged
+  return reuseStableMessageList(current, next)
 }
 
 function messageCreatedAt(message: ChatMessage): number {

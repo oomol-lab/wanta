@@ -221,10 +221,9 @@ export function QuestionPromptCard({
       await onAnswer(request.id, answers)
       removeDraft()
     } catch (err) {
+      setSubmitting(null)
       reportRendererHandledError("chat", "question answer failed", err)
       toast.error(t("chat.questionSubmitFailed"))
-    } finally {
-      setSubmitting(null)
     }
   }, [canSubmit, disabled, drafts, fields, onAnswer, removeDraft, request, t])
 

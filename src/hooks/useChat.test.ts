@@ -94,6 +94,49 @@ describe("chat message identity reconciliation", () => {
     expect(merged[1]?.parts).toEqual([{ kind: "text", partId: "text-1", text: "Done" }])
   })
 
+  it("keeps unchanged message references when full history reloads", () => {
+    const current: ChatMessage[] = [
+      {
+        id: "real-user-1",
+        clientId: "client-user-1",
+        role: "user",
+        parts: [{ kind: "text", partId: "text-user-1", text: "Create a Notion page" }],
+        createdAt: 1,
+      },
+      {
+        id: "real-assistant-1",
+        clientId: "client-assistant-1",
+        role: "assistant",
+        parts: [
+          {
+            kind: "tool",
+            partId: "tool-1",
+            callId: "call-1",
+            tool: "notion.create_page",
+            status: "completed",
+            input: { parent: "workspace" },
+            output: "ok",
+            timing: { start: 1, end: 2 },
+          },
+          { kind: "text", partId: "text-1", text: "Done" },
+        ],
+        createdAt: 2,
+      },
+    ]
+    const fetched: ChatMessage[] = current.map((message) => ({
+      ...message,
+      clientId: undefined,
+      parts: message.parts.map((part) => ({ ...part })),
+    }))
+
+    const merged = mergeFetchedMessages(current, fetched)
+
+    expect(merged).toBe(current)
+    expect(merged[0]).toBe(current[0])
+    expect(merged[1]).toBe(current[1])
+    expect(merged[1]?.parts[0]).toBe(current[1]?.parts[0])
+  })
+
   it("preserves local context mentions when full history reloads", () => {
     const current = appendOptimisticConversationTurn([], "Generate an image", [], [skillMention])
     const fetched: ChatMessage[] = [

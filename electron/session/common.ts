@@ -55,7 +55,7 @@ export interface SetSessionPermissionModeRequest {
 }
 
 export interface SessionsChangedEvent {
-  sessions: SessionInfo[]
+  reason: string
 }
 
 export interface CreateSessionRequest {

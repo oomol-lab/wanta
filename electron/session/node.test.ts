@@ -220,6 +220,15 @@ test("list filters sessions by requested scope", async () => {
   )
 })
 
+test("list rejects invalid organization scope requests", async () => {
+  const service = new SessionServiceImpl(agentWithSessions([]))
+
+  await assert.rejects(
+    () => service.list({ scope: { type: "organization", organizationId: "", organizationName: "Org" } }),
+    /Organization scope is invalid/,
+  )
+})
+
 test("list filters sessions by requested placement", async () => {
   const project: SessionProject = {
     id: "project",
@@ -411,6 +420,41 @@ test("createProject reuses an existing project in the same scope", async () => {
   )
 })
 
+test("createProject restores an archived project with the same path", async () => {
+  const persistedProjects = projectStore(
+    new Map([
+      [
+        "project",
+        {
+          id: "project",
+          name: "Wanta",
+          path: "/Users/example/code/wanta",
+          archivedAt: 3_000,
+          createdAt: 1_000,
+          pinnedAt: 2_000,
+          updatedAt: 1_000,
+          scope: { type: "personal" },
+        },
+      ],
+    ]),
+  )
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    projectStore: persistedProjects,
+  })
+
+  const restored = await service.createProject({ path: "/Users/example/code/wanta", scope: { type: "personal" } })
+
+  assert.equal(restored.id, "project")
+  assert.equal(restored.archivedAt, undefined)
+  assert.equal(restored.pinnedAt, undefined)
+  assert.equal((await persistedProjects.read()).get("project")?.archivedAt, undefined)
+  assert.equal((await persistedProjects.read()).get("project")?.pinnedAt, undefined)
+  assert.deepEqual(
+    (await service.listProjects()).map((project) => project.id),
+    ["project"],
+  )
+})
+
 test("project actions rename, pin, and sort projects", async () => {
   const persistedProjects = projectStore(
     new Map([
@@ -517,6 +561,55 @@ test("archiveProject hides the project and archives assigned sessions", async ()
   const archivedSessionMetadata = (await persistedMetadata.read()).get("session")
   assert.equal(typeof archivedSessionMetadata?.archivedAt, "number")
   assert.equal(archivedSessionMetadata?.pinnedAt, undefined)
+})
+
+test("unarchive restores the assigned project when it was archived with the session", async () => {
+  const persistedMetadata = metadataStore(
+    new Map([["session", { archivedAt: 3_000, pinnedAt: 2_000, projectId: "project", scope: { type: "personal" } }]]),
+  )
+  const persistedProjects = projectStore(
+    new Map([
+      [
+        "project",
+        {
+          id: "project",
+          name: "Wanta",
+          path: "/Users/example/code/wanta",
+          archivedAt: 3_000,
+          createdAt: 1_000,
+          pinnedAt: 2_000,
+          updatedAt: 1_000,
+          scope: { type: "personal" },
+        },
+      ],
+    ]),
+  )
+  const service = new SessionServiceImpl(
+    agentWithSessions([
+      {
+        id: "session",
+        title: "Session",
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+    {
+      metadataStore: persistedMetadata,
+      projectStore: persistedProjects,
+    },
+  )
+
+  const restored = await service.unarchive("session")
+
+  assert.equal(restored?.projectId, "project")
+  assert.equal((await persistedMetadata.read()).get("session")?.archivedAt, undefined)
+  assert.equal((await persistedMetadata.read()).get("session")?.pinnedAt, undefined)
+  assert.equal((await persistedProjects.read()).get("project")?.archivedAt, undefined)
+  assert.equal((await persistedProjects.read()).get("project")?.pinnedAt, undefined)
+  assert.deepEqual(
+    (await service.listProjects()).map((project) => project.id),
+    ["project"],
+  )
 })
 
 test("archiveProject rolls back project state when metadata persistence fails", async () => {

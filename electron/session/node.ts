@@ -50,6 +50,21 @@ function normalizeSessionScope(scope: SessionScope | undefined): SessionScope {
   return personalSessionScope
 }
 
+function normalizeRequestedSessionScope(scope: SessionScope | undefined): SessionScope {
+  if (!scope) {
+    return personalSessionScope
+  }
+  if (scope.type === "personal") {
+    return personalSessionScope
+  }
+  const organizationId = scope.organizationId.trim()
+  const organizationName = scope.organizationName.trim()
+  if (!organizationId || !organizationName) {
+    throw new Error("Organization scope is invalid")
+  }
+  return { type: "organization", organizationId, organizationName }
+}
+
 function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedScope: SessionScope): boolean {
   const normalizedSessionScope = normalizeSessionScope(sessionScope)
   if (requestedScope.type === "personal") {
@@ -59,19 +74,6 @@ function sessionScopeMatches(sessionScope: SessionScope | undefined, requestedSc
     normalizedSessionScope.type === "organization" &&
     normalizedSessionScope.organizationId === requestedScope.organizationId
   )
-}
-
-function createRequestTitle(req?: CreateSessionRequest | string): string | undefined {
-  return typeof req === "string" ? req : req?.title
-}
-
-function createRequestScope(req?: CreateSessionRequest | string): SessionScope {
-  return normalizeSessionScope(typeof req === "string" ? undefined : req?.scope)
-}
-
-function createRequestProjectId(req?: CreateSessionRequest | string): string | undefined {
-  const projectId = typeof req === "string" ? undefined : req?.projectId?.trim()
-  return projectId || undefined
 }
 
 function normalizeSessionPlacement(placement: SessionPlacement | undefined): SessionPlacement {
@@ -138,7 +140,7 @@ export class SessionServiceImpl
     return this.mergeLocalState(
       await this.agent.listSessions(),
       "active",
-      normalizeSessionScope(req.scope),
+      normalizeRequestedSessionScope(req.scope),
       normalizeSessionPlacement(req.placement),
     )
   }
@@ -153,7 +155,7 @@ export class SessionServiceImpl
     return this.mergeLocalState(
       await this.agent.listSessions(),
       "archived",
-      normalizeSessionScope(req.scope),
+      normalizeRequestedSessionScope(req.scope),
       normalizeSessionPlacement(req.placement),
     )
   }
@@ -163,7 +165,7 @@ export class SessionServiceImpl
       return []
     }
     await this.ensureProjectsLoaded()
-    const requestedScope = normalizeSessionScope(req.scope)
+    const requestedScope = normalizeRequestedSessionScope(req.scope)
     return [...this.projects.values()]
       .filter((project) => !project.archivedAt)
       .filter((project) => sessionScopeMatches(project.scope, requestedScope))
@@ -173,13 +175,13 @@ export class SessionServiceImpl
       })
   }
 
-  public async create(req?: CreateSessionRequest | string): Promise<SessionInfo> {
+  public async create(req: CreateSessionRequest = {}): Promise<SessionInfo> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    const scope = createRequestScope(req)
-    const projectId = createRequestProjectId(req)
-    const info = await this.agent.createSession(createRequestTitle(req))
+    const scope = normalizeRequestedSessionScope(req.scope)
+    const projectId = req.projectId?.trim() || undefined
+    const info = await this.agent.createSession(req.title)
     await this.ensureMetadataLoaded()
     await this.ensureProjectsLoaded()
     const project = projectId ? this.projects.get(projectId) : undefined
@@ -207,14 +209,20 @@ export class SessionServiceImpl
       throw new Error("Project path is required")
     }
     await this.ensureProjectsLoaded()
-    const scope = normalizeSessionScope(req.scope)
+    const scope = normalizeRequestedSessionScope(req.scope)
     const existing = [...this.projects.values()].find(
       (project) => project.path === projectPath && sessionScopeMatches(project.scope, scope),
     )
     if (existing) {
+      const wasArchived = Boolean(existing.archivedAt)
       const next = { ...existing, updatedAt: Date.now() }
+      delete next.archivedAt
+      if (wasArchived) {
+        delete next.pinnedAt
+      }
       this.projects.set(existing.id, next)
       await this.persistProjects()
+      this.broadcastChangedBestEffort("create project")
       return next
     }
     const now = Date.now()
@@ -422,7 +430,9 @@ export class SessionServiceImpl
     }
     await this.ensureMetadataLoaded()
     const current = this.sessionMetadata.get(id) ?? {}
-    this.sessionMetadata.set(id, { ...current, archivedAt: Date.now(), pinnedAt: undefined })
+    const next = { ...current, archivedAt: Date.now() }
+    delete next.pinnedAt
+    this.sessionMetadata.set(id, next)
     await this.persistMetadata()
     this.broadcastChangedBestEffort("archive session")
   }
@@ -432,14 +442,47 @@ export class SessionServiceImpl
       return null
     }
     await this.ensureMetadataLoaded()
+    await this.ensureProjectsLoaded()
     const current = this.sessionMetadata.get(id)
     if (!current) {
       return null
     }
+    const previousMetadata = current
+    const scope = normalizeSessionScope(current.scope)
+    const project = current.projectId ? this.projects.get(current.projectId) : undefined
+    const shouldRestoreProject = Boolean(project?.archivedAt && sessionScopeMatches(project.scope, scope))
+    const previousProject = shouldRestoreProject && project ? project : null
     const next = { ...current }
     delete next.archivedAt
+    delete next.pinnedAt
     this.setMetadataEntry(id, next)
-    await this.persistMetadata()
+    if (previousProject) {
+      const restoredProject = { ...previousProject, updatedAt: Date.now() }
+      delete restoredProject.archivedAt
+      delete restoredProject.pinnedAt
+      this.projects.set(previousProject.id, restoredProject)
+    }
+    try {
+      if (previousProject) {
+        await this.persistProjects()
+      }
+      await this.persistMetadata()
+    } catch (error) {
+      this.setMetadataEntry(id, previousMetadata)
+      if (previousProject) {
+        this.projects.set(previousProject.id, previousProject)
+      }
+      try {
+        if (previousProject) {
+          await this.persistProjects()
+        }
+        await this.persistMetadata()
+      } catch (rollbackError) {
+        // 回滚落盘是 best-effort；仍向调用方暴露原始持久化错误。
+        this.logFailure("failed to rollback session unarchive", rollbackError, { sessionId: id })
+      }
+      throw error
+    }
     const restored = await this.resolveSession(id, "active")
     this.broadcastChangedBestEffort("unarchive session")
     return restored
@@ -473,7 +516,7 @@ export class SessionServiceImpl
   }
 
   public async refreshAndEmit(): Promise<void> {
-    await this.broadcastChanged()
+    await this.broadcastChanged("refresh")
   }
 
   public async recordUseAndEmit(id: string, usedAt = Date.now()): Promise<void> {
@@ -674,16 +717,15 @@ export class SessionServiceImpl
     return project
   }
 
-  private async broadcastChanged(): Promise<void> {
+  private async broadcastChanged(reason: string): Promise<void> {
     if (!this.agent) {
       return
     }
-    const sessions = await this.list()
-    await this.send("sessionsChanged", { sessions })
+    await this.send("sessionsChanged", { reason })
   }
 
   private broadcastChangedBestEffort(action: string): void {
-    void this.broadcastChanged().catch((error: unknown) => {
+    void this.broadcastChanged(action).catch((error: unknown) => {
       this.logFailure("failed to broadcast sessions changed", error, { action })
     })
   }

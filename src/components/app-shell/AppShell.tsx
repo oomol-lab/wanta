@@ -417,7 +417,6 @@ export function AppShell() {
   const lastContextMentionsBySession = React.useRef<Map<string, ChatContextMention[]>>(new Map())
   const turnRetryOptionsBySession = React.useRef<Map<string, Map<string, TurnRetryOptions>>>(new Map())
   const composerDraftsByKey = React.useRef<Map<string, ComposerState>>(new Map())
-  const draftProjectFallbacksById = React.useRef<Map<string, SessionProject>>(new Map())
   const lastChatProjectId = React.useRef<string | null>(null)
   const sendInFlightKeysRef = React.useRef(new Set<string>())
   const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
@@ -589,10 +588,7 @@ export function AppShell() {
     if (!activeProjectId) {
       return undefined
     }
-    return (
-      visibleProjects.find((project) => project.id === activeProjectId) ??
-      draftProjectFallbacksById.current.get(activeProjectId)
-    )
+    return visibleProjects.find((project) => project.id === activeProjectId)
   }, [activeProjectId, visibleProjects])
   const projectGit = useProjectGit(activeProject)
   const activeProjectContext = React.useMemo(
@@ -758,24 +754,13 @@ export function AppShell() {
     if (
       draftProjectId &&
       draftProjectId !== NO_DRAFT_PROJECT_ID &&
-      !visibleProjects.some((project) => project.id === draftProjectId) &&
-      !draftProjectFallbacksById.current.has(draftProjectId)
+      !visibleProjects.some((project) => project.id === draftProjectId)
     ) {
       setDraftProjectId(null)
     }
   }, [draftProjectId, visibleProjects])
 
   React.useEffect(() => {
-    if (!draftProjectId || draftProjectId === NO_DRAFT_PROJECT_ID) {
-      return
-    }
-    if (visibleProjects.some((project) => project.id === draftProjectId)) {
-      draftProjectFallbacksById.current.delete(draftProjectId)
-    }
-  }, [draftProjectId, visibleProjects])
-
-  React.useEffect(() => {
-    draftProjectFallbacksById.current.clear()
     lastChatProjectId.current = null
   }, [sessionScope])
 
@@ -842,7 +827,6 @@ export function AppShell() {
 
   const handleOpenProjectDraft = React.useCallback(
     (project: SessionProject): void => {
-      draftProjectFallbacksById.current.set(project.id, project)
       startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }))
     },
     [draftProjectId, startNewSessionDraft],
@@ -853,7 +837,6 @@ export function AppShell() {
       if (activeChatSessionId && !isDraftSession) {
         try {
           await assignSessionProject(activeChatSessionId, projectId)
-          await refreshSessions()
           setSidebarSegment(projectId ? "projects" : "tasks")
         } catch (cause) {
           const notice = resolveUserFacingError(cause, { area: "session" })
@@ -878,7 +861,6 @@ export function AppShell() {
       assignSessionProject,
       clearComposerDraft,
       isDraftSession,
-      refreshSessions,
       sessionScope,
       t,
     ],
@@ -886,7 +868,6 @@ export function AppShell() {
 
   const handleCreatedProject = React.useCallback(
     async (project: SessionProject, source: ProjectSelectionSource): Promise<void> => {
-      draftProjectFallbacksById.current.set(project.id, project)
       if (source === "composer") {
         await handleSelectComposerProject(project.id)
         return
@@ -1201,7 +1182,6 @@ export function AppShell() {
     setRenameProjectId(null)
     setArchiveProjectId(null)
     setRemoveProjectId(null)
-    draftProjectFallbacksById.current.clear()
     handleArtifactsReset()
     releaseTransientFocus()
   }, [activeWorkspaceKey, clearRetries, handleArtifactsReset, holdQueuedSessionIfQueued])

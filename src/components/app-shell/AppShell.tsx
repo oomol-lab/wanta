@@ -549,16 +549,23 @@ export function AppShell() {
     setChatPermissionMode(activeChatSessionId, activeSession.permissionMode ?? "default")
   }, [activeChatSessionId, activeSession, setChatPermissionMode])
 
-  const setAndPersistPermissionMode = React.useCallback(
+  const persistPermissionMode = React.useCallback(
     (sessionId: string, mode: AgentPermissionMode): void => {
-      setChatPermissionMode(sessionId, mode)
       void setSessionPermissionMode(sessionId, mode).catch((cause: unknown) => {
         console.error("[wanta] persist session permission mode failed", cause)
         reportRendererHandledError("appShell.permissionMode", "Failed to persist session permission mode", cause)
         toast.error(userFacingErrorDescription(resolveUserFacingError(cause, { area: "session" }), t))
       })
     },
-    [setChatPermissionMode, setSessionPermissionMode, t],
+    [setSessionPermissionMode, t],
+  )
+
+  const setAndPersistPermissionMode = React.useCallback(
+    (sessionId: string, mode: AgentPermissionMode): void => {
+      setChatPermissionMode(sessionId, mode)
+      persistPermissionMode(sessionId, mode)
+    },
+    [persistPermissionMode, setChatPermissionMode],
   )
   const {
     clearAutoFallbackTitle,
@@ -1010,7 +1017,7 @@ export function AppShell() {
             )
           }
         }
-        setAndPersistPermissionMode(sessionId, selectedPermissionMode)
+        persistPermissionMode(sessionId, selectedPermissionMode)
         if (shouldRefreshTitle) {
           void refreshGeneratedTitle(
             sessionId,
@@ -1081,7 +1088,7 @@ export function AppShell() {
       rememberAutoFallbackTitle,
       send,
       sessionScope,
-      setAndPersistPermissionMode,
+      persistPermissionMode,
     ],
   )
 

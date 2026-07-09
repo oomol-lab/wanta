@@ -553,12 +553,17 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [chatService, removePendingPermission],
   )
 
+  const setLocalPermissionMode = React.useCallback((sessionId: string, mode: AgentPermissionMode): number => {
+    const version = (permissionModeVersionsRef.current[sessionId] ?? 0) + 1
+    permissionModeVersionsRef.current = { ...permissionModeVersionsRef.current, [sessionId]: version }
+    setPermissionModes((current) => (current[sessionId] === mode ? current : { ...current, [sessionId]: mode }))
+    permissionModesRef.current = { ...permissionModesRef.current, [sessionId]: mode }
+    return version
+  }, [])
+
   const setPermissionMode = React.useCallback(
     (sessionId: string, mode: AgentPermissionMode): number => {
-      const version = (permissionModeVersionsRef.current[sessionId] ?? 0) + 1
-      permissionModeVersionsRef.current = { ...permissionModeVersionsRef.current, [sessionId]: version }
-      setPermissionModes((current) => (current[sessionId] === mode ? current : { ...current, [sessionId]: mode }))
-      permissionModesRef.current = { ...permissionModesRef.current, [sessionId]: mode }
+      const version = setLocalPermissionMode(sessionId, mode)
       void chatService
         .invoke("setPermissionMode", { sessionId, permissionMode: mode, version })
         .catch((err: unknown) => {
@@ -567,7 +572,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         })
       return version
     },
-    [chatService],
+    [chatService, setLocalPermissionMode],
   )
 
   React.useEffect(() => {
@@ -1034,7 +1039,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
       const selectedPermissionMode = options.permissionMode ?? sessionPermissionMode(sessionId)
-      const permissionModeVersion = setPermissionMode(sessionId, selectedPermissionMode)
+      const permissionModeVersion = setLocalPermissionMode(sessionId, selectedPermissionMode)
       setStatus(sessionId, "submitted")
       setActivity(sessionId, { sessionId, phase: "thinking" })
       patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments, options.contextMentions))
@@ -1068,7 +1073,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         throw err
       }
     },
-    [chatService, clearSessionError, patch, sessionPermissionMode, setActivity, setPermissionMode, setStatus],
+    [chatService, clearSessionError, patch, sessionPermissionMode, setActivity, setLocalPermissionMode, setStatus],
   )
 
   const stop = React.useCallback(

@@ -3,7 +3,8 @@ import type { AgentPermissionMode } from "../../../electron/chat/common.ts"
 import { Check, ChevronDown, ShieldCheck, TriangleAlert } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { clampNumber, nextModelMenuIndex } from "./model-control-utils.ts"
+import { nextModelMenuIndex } from "./model-control-utils.ts"
+import { useComposerMenu } from "./useComposerMenu.ts"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -40,42 +41,18 @@ export function PermissionModePicker({
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const [activeIndex, setActiveIndex] = React.useState(0)
-  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({})
-  const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
-  const menuRef = React.useRef<HTMLDivElement | null>(null)
   const itemRefs = React.useRef(new Map<AgentPermissionMode, HTMLButtonElement>())
+  const { closeMenu, handleTriggerKeyDown, menuRef, menuStyle, rootRef, toggleMenu, triggerRef } = useComposerMenu({
+    align: "left",
+    disabled,
+    minHeight: 112,
+    open,
+    setOpen,
+    width: 220,
+  })
   const selectedLabel = permissionModeLabel(value, t)
   const activeMode = permissionModeOptions[activeIndex]
   const activeItemElementId = activeMode ? permissionModeMenuItemElementId(activeMode) : undefined
-
-  const updateMenuPosition = React.useCallback(() => {
-    const anchor = rootRef.current
-    if (!anchor) {
-      return
-    }
-    const rect = anchor.getBoundingClientRect()
-    const margin = 16
-    const gap = 8
-    const width = Math.min(220, window.innerWidth - margin * 2)
-    const left = clampNumber(rect.left, margin, window.innerWidth - width - margin)
-    const bottom = Math.max(margin, window.innerHeight - rect.top + gap)
-    const maxHeight = Math.max(112, rect.top - margin - gap)
-    setMenuStyle({ left, bottom, width, maxHeight })
-  }, [])
-
-  React.useLayoutEffect(() => {
-    if (open) {
-      updateMenuPosition()
-    }
-  }, [open, updateMenuPosition])
-
-  const closeMenu = React.useCallback((restoreFocus = true): void => {
-    setOpen(false)
-    if (restoreFocus) {
-      window.requestAnimationFrame(() => triggerRef.current?.focus())
-    }
-  }, [])
 
   const focusMode = React.useCallback((mode: AgentPermissionMode | undefined): void => {
     if (!mode) {
@@ -100,12 +77,6 @@ export function PermissionModePicker({
   )
 
   React.useEffect(() => {
-    if (disabled && open) {
-      closeMenu(false)
-    }
-  }, [closeMenu, disabled, open])
-
-  React.useEffect(() => {
     if (!open) {
       return
     }
@@ -114,34 +85,6 @@ export function PermissionModePicker({
     setActiveIndex(nextIndex)
     window.requestAnimationFrame(() => focusMode(permissionModeOptions[nextIndex]))
   }, [focusMode, open, value])
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-    const onMouseDown = (event: MouseEvent): void => {
-      const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        closeMenu(false)
-      }
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        closeMenu()
-      }
-    }
-    const onReposition = (): void => updateMenuPosition()
-    document.addEventListener("mousedown", onMouseDown)
-    document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("resize", onReposition)
-    window.addEventListener("scroll", onReposition, true)
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown)
-      document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("resize", onReposition)
-      window.removeEventListener("scroll", onReposition, true)
-    }
-  }, [closeMenu, open, updateMenuPosition])
 
   const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === "Tab") {
@@ -239,11 +182,8 @@ export function PermissionModePicker({
           "oo-composer-control-button h-8 max-w-full min-w-0 shrink rounded-full px-2",
           value === "full_access" && "text-[var(--oo-warning-foreground)] hover:text-[var(--oo-warning-foreground)]",
         )}
-        onClick={() => {
-          if (!disabled) {
-            setOpen((current) => !current)
-          }
-        }}
+        onClick={toggleMenu}
+        onKeyDown={handleTriggerKeyDown}
       >
         <PermissionModeIcon mode={value} active={value === "full_access"} />
         <span className="oo-composer-control-label min-w-0 flex-1 truncate text-left">{selectedLabel}</span>

@@ -9,6 +9,7 @@ import { buildModelMenuItems, combinedModelReasoningLabel, selectedModelSummary 
 import { ModelRow, ProviderMark } from "./model-control-rows.tsx"
 import { clampNumber, modelMenuItemElementId, nextModelMenuIndex, reasoningLevelLabel } from "./model-control-utils.ts"
 import { selectedModelReasoningLevels } from "./model-reasoning-levels.ts"
+import { useComposerMenu } from "./useComposerMenu.ts"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -53,12 +54,9 @@ export function ModelReasoningPicker({
   const [modelSubmenuOpen, setModelSubmenuOpen] = React.useState(false)
   const [activeRootIndex, setActiveRootIndex] = React.useState(0)
   const [activeModelIndex, setActiveModelIndex] = React.useState(0)
-  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({})
   const [modelMenuStyle, setModelMenuStyle] = React.useState<React.CSSProperties>({})
-  const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const menuRef = React.useRef<HTMLDivElement | null>(null)
+  const rootMenuRef = React.useRef<HTMLDivElement | null>(null)
   const modelMenuRef = React.useRef<HTMLDivElement | null>(null)
-  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const rootItemRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const modelItemRefs = React.useRef(new Map<string, HTMLButtonElement>())
   const selected = selectedModelSummary(catalog)
@@ -96,23 +94,8 @@ export function ModelReasoningPicker({
   const activeModelItemElementId = activeModelItem ? modelMenuItemElementId(activeModelItem.id) : undefined
   const modelRootIndex = rootItems.findIndex((item) => item.kind === "model")
 
-  const updateMenuPosition = React.useCallback(() => {
-    const anchor = rootRef.current
-    if (!anchor) {
-      return
-    }
-    const rect = anchor.getBoundingClientRect()
-    const margin = 16
-    const gap = 8
-    const width = Math.min(232, window.innerWidth - margin * 2)
-    const left = clampNumber(rect.right - width, margin, window.innerWidth - width - margin)
-    const bottom = Math.max(margin, window.innerHeight - rect.top + gap)
-    const maxHeight = Math.max(180, rect.top - margin - gap)
-    setMenuStyle({ left, bottom, width, maxHeight })
-  }, [])
-
   const updateModelMenuPosition = React.useCallback(() => {
-    const menu = menuRef.current
+    const menu = rootMenuRef.current
     if (!menu) {
       return
     }
@@ -130,25 +113,31 @@ export function ModelReasoningPicker({
     setModelMenuStyle({ left, bottom, width, maxHeight })
   }, [])
 
-  React.useLayoutEffect(() => {
-    if (open) {
-      updateMenuPosition()
+  const additionalOutsideRefs = React.useMemo(() => [modelMenuRef], [])
+  const closeModelSubmenu = React.useCallback((): void => setModelSubmenuOpen(false), [])
+  const repositionModelSubmenu = React.useCallback((): void => {
+    if (modelSubmenuOpen) {
+      updateModelMenuPosition()
     }
-  }, [open, updateMenuPosition])
+  }, [modelSubmenuOpen, updateModelMenuPosition])
+  const { closeMenu, handleTriggerKeyDown, menuRef, menuStyle, rootRef, toggleMenu, triggerRef } = useComposerMenu({
+    additionalOutsideRefs,
+    align: "right",
+    disabled,
+    menuRef: rootMenuRef,
+    minHeight: 180,
+    onClose: closeModelSubmenu,
+    onReposition: repositionModelSubmenu,
+    open,
+    setOpen,
+    width: 232,
+  })
 
   React.useLayoutEffect(() => {
     if (open && modelSubmenuOpen) {
       updateModelMenuPosition()
     }
   }, [modelSubmenuOpen, open, updateModelMenuPosition])
-
-  const closeMenu = React.useCallback((restoreFocus = true): void => {
-    setOpen(false)
-    setModelSubmenuOpen(false)
-    if (restoreFocus) {
-      window.requestAnimationFrame(() => triggerRef.current?.focus())
-    }
-  }, [])
 
   const focusRootItem = React.useCallback((item: ModelReasoningRootItem | undefined): void => {
     if (!item) {
@@ -248,43 +237,6 @@ export function ModelReasoningPicker({
   React.useEffect(() => {
     setActiveModelIndex((index) => Math.min(index, Math.max(0, modelItems.length - 1)))
   }, [modelItems.length])
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-    const onMouseDown = (event: MouseEvent): void => {
-      const target = event.target as Node
-      if (
-        !rootRef.current?.contains(target) &&
-        !menuRef.current?.contains(target) &&
-        !modelMenuRef.current?.contains(target)
-      ) {
-        closeMenu(false)
-      }
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        closeMenu()
-      }
-    }
-    const onReposition = (): void => {
-      updateMenuPosition()
-      if (modelSubmenuOpen) {
-        updateModelMenuPosition()
-      }
-    }
-    document.addEventListener("mousedown", onMouseDown)
-    document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("resize", onReposition)
-    window.addEventListener("scroll", onReposition, true)
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown)
-      document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("resize", onReposition)
-      window.removeEventListener("scroll", onReposition, true)
-    }
-  }, [closeMenu, modelSubmenuOpen, open, updateMenuPosition, updateModelMenuPosition])
 
   const handleRootMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === "Tab") {
@@ -617,13 +569,8 @@ export function ModelReasoningPicker({
         aria-haspopup="menu"
         disabled={disabled}
         className="oo-composer-model-button h-8 max-w-[15rem] min-w-0 shrink rounded-full px-2"
-        onClick={() => setOpen((value) => !value)}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
-            event.preventDefault()
-            setOpen(true)
-          }
-        }}
+        onClick={toggleMenu}
+        onKeyDown={handleTriggerKeyDown}
       >
         <Brain className="size-4 shrink-0" />
         <span className="oo-composer-model-text flex min-w-0 flex-1 items-center gap-1 text-left">

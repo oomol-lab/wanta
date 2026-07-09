@@ -241,9 +241,11 @@ export class SessionServiceImpl
     const current = this.sessionMetadata.get(req.sessionId) ?? {}
     const projectId = req.projectId?.trim()
     const next = { ...current }
-    if (projectId && this.projects.has(projectId)) {
-      next.projectId = projectId
-      this.touchProject(projectId)
+    const project = projectId ? this.projects.get(projectId) : undefined
+    const scope = normalizeSessionScope(current.scope)
+    if (project && sessionScopeMatches(project.scope, scope)) {
+      next.projectId = project.id
+      this.touchProject(project.id)
       await this.persistProjects()
     } else {
       delete next.projectId

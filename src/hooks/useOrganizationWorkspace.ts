@@ -74,6 +74,10 @@ let workspaceOverviewCache: WorkspaceOverviewCacheEntry | null = null
 let workspaceOverviewInFlight: WorkspaceOverviewInFlightEntry | null = null
 const pendingWorkspaceOrganizationPatches = new Map<string, PendingWorkspaceOrganizationPatch>()
 
+function workspaceOrganizationPatchKey(accountId: string, organizationId: string): string {
+  return `${accountId}\u0000${organizationId}`
+}
+
 function selectedWorkspaceStorageKey(accountId: string): string {
   return `${selectedWorkspaceStorageKeyPrefix}${accountId}`
 }
@@ -142,15 +146,22 @@ function uniqueOrganizations(overview: OrganizationOverview | null): Organizatio
   })
 }
 
-function rememberWorkspaceOrganizationPatch(organization: Organization): void {
-  pendingWorkspaceOrganizationPatches.set(organization.id, { organization, patchedAt: Date.now() })
+function rememberWorkspaceOrganizationPatch(accountId: string, organization: Organization): void {
+  pendingWorkspaceOrganizationPatches.set(workspaceOrganizationPatchKey(accountId, organization.id), {
+    organization,
+    patchedAt: Date.now(),
+  })
 }
 
-function activeWorkspaceOrganizationPatches(now = Date.now()): Organization[] {
+function activeWorkspaceOrganizationPatches(accountId: string, now = Date.now()): Organization[] {
   const patches: Organization[] = []
-  for (const [organizationId, patch] of pendingWorkspaceOrganizationPatches) {
+  const keyPrefix = `${accountId}\u0000`
+  for (const [key, patch] of pendingWorkspaceOrganizationPatches) {
     if (now - patch.patchedAt > workspaceOverviewPatchTtlMs) {
-      pendingWorkspaceOrganizationPatches.delete(organizationId)
+      pendingWorkspaceOrganizationPatches.delete(key)
+      continue
+    }
+    if (!key.startsWith(keyPrefix)) {
       continue
     }
     patches.push(patch.organization)
@@ -158,8 +169,11 @@ function activeWorkspaceOrganizationPatches(now = Date.now()): Organization[] {
   return patches
 }
 
-function applyPendingWorkspaceOrganizationPatches(overview: OrganizationOverview): OrganizationOverview {
-  const patches = activeWorkspaceOrganizationPatches()
+function applyPendingWorkspaceOrganizationPatches(
+  accountId: string,
+  overview: OrganizationOverview,
+): OrganizationOverview {
+  const patches = activeWorkspaceOrganizationPatches(accountId)
   return patches.length > 0 ? applyOrganizationPatchesToOverview(overview, patches) : overview
 }
 
@@ -248,7 +262,10 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       const hadOverview = overviewRef.current !== null
       setLoading(true)
       try {
-        const next = applyPendingWorkspaceOrganizationPatches(await readCachedWorkspaceOverview(accountId, options))
+        const next = applyPendingWorkspaceOrganizationPatches(
+          accountId,
+          await readCachedWorkspaceOverview(accountId, options),
+        )
         if (requestIdRef.current !== requestId) {
           return
         }
@@ -281,7 +298,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       if (!accountId || nextOverview.accountId !== accountId) {
         return
       }
-      const next = applyPendingWorkspaceOrganizationPatches(nextOverview)
+      const next = applyPendingWorkspaceOrganizationPatches(accountId, nextOverview)
       requestIdRef.current += 1
       overviewRef.current = next
       if (workspaceOverviewInFlight?.accountId === accountId) {
@@ -330,7 +347,7 @@ export function useOrganizationWorkspace(accountId: string | undefined): UseOrga
       if (!accountId) {
         return
       }
-      rememberWorkspaceOrganizationPatch(organization)
+      rememberWorkspaceOrganizationPatch(accountId, organization)
       if ("avatarFile" in options) {
         dropCachedAvatarImage(organization.avatar)
         setOrganizationAvatarPreview(organization.id, options.avatarFile ?? null)

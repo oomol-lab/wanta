@@ -291,8 +291,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private turnOutputsLoadPromise: Promise<void> | null = null
   private turnOutputWritePromise: Promise<void> = Promise.resolve()
   private scopeMutationQueue: Promise<void> = Promise.resolve()
-  private desiredIdleOrganizationName: string | undefined
-  private syncedIdleOrganizationName: string | undefined
+  private desiredWorkspaceOrganizationName: string | undefined
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -340,8 +339,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.turnOutputs.clear()
     this.turnOutputsLoaded = false
     this.turnOutputsLoadPromise = null
-    this.desiredIdleOrganizationName = undefined
-    this.syncedIdleOrganizationName = undefined
+    this.desiredWorkspaceOrganizationName = undefined
     this.scopeMutationQueue = Promise.resolve()
   }
 
@@ -1390,7 +1388,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionModeVersion,
     )
     const organizationName = organizationNameFromRequest(req)
-    this.desiredIdleOrganizationName = organizationName
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
@@ -1804,13 +1801,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
     const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
-    this.desiredIdleOrganizationName = organizationName
+    this.desiredWorkspaceOrganizationName = organizationName
     await this.runWithScopeMutation(async () => {
-      if (this.desiredIdleOrganizationName !== organizationName) {
+      if (this.desiredWorkspaceOrganizationName !== organizationName) {
         return
       }
       await this.deps.onSetAgentOrganization?.(organizationName)
-      this.syncedIdleOrganizationName = organizationName
     })
   }
 

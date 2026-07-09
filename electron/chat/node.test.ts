@@ -355,6 +355,37 @@ test("setAgentOrganization applies only the latest queued workspace scope", asyn
   assert.deepEqual(scopeCalls, ["org-c"])
 })
 
+test("setAgentOrganization is not superseded by per-turn organization scopes", async () => {
+  const bridge = createBridgeAgent()
+  const scopeCalls: Array<string | undefined> = []
+  let releaseFirstScope: (() => void) | undefined
+  const service = new ChatServiceImpl(bridge.agent, {
+    onSetAgentOrganization: async (organizationName) => {
+      scopeCalls.push(organizationName)
+      if (organizationName === "org-a") {
+        await new Promise<void>((resolve) => {
+          releaseFirstScope = resolve
+        })
+      }
+    },
+  })
+  service.startEventBridge()
+
+  const firstSync = service.setAgentOrganization({ organizationName: "org-a" })
+  await waitForCondition(() => Boolean(releaseFirstScope))
+  const secondSync = service.setAgentOrganization({ organizationName: "org-b" })
+  await service.sendMessage({
+    scope: { type: "organization", organizationId: "org-c", organizationName: "org-c" },
+    sessionId: "session-1",
+    text: "turn scoped to org-c",
+  })
+
+  releaseFirstScope?.()
+  await Promise.all([firstSync, secondSync])
+
+  assert.deepEqual(scopeCalls, ["org-a", "org-b"])
+})
+
 test("setAgentOrganization does not interrupt active generations from other organization scopes", async () => {
   const bridge = createBridgeAgent()
   const scopeCalls: Array<string | undefined> = []

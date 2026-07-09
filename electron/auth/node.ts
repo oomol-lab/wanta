@@ -44,7 +44,8 @@ export class AuthManager {
   private readonly deps: AuthManagerDeps
   private pending: PendingLogin | undefined
   private emitState: (state: AuthState) => Promise<void> = async () => {}
-  private profileRefreshAccountId: string | undefined
+  private profileRefreshCompletedAccountId: string | undefined
+  private profileRefreshInFlightAccountId: string | undefined
   public readonly stateChanged = new ServiceEvent<AuthState>()
 
   public constructor(deps: AuthManagerDeps) {
@@ -219,31 +220,43 @@ export class AuthManager {
   /** 兼容旧 auth.json：若账号缺头像，用当前会话 token 后台补拉 profile 并只广播渲染层展示状态。 */
   private async refreshActiveAccountProfile(): Promise<void> {
     const account = this.activeAccount()
-    if (!account || account.avatarUrl || this.profileRefreshAccountId === account.id) {
+    if (
+      !account ||
+      account.avatarUrl ||
+      this.profileRefreshCompletedAccountId === account.id ||
+      this.profileRefreshInFlightAccountId === account.id
+    ) {
       return
     }
     const sessionToken = await readOomolSessionCookie()
     if (!sessionToken) {
       return
     }
-    this.profileRefreshAccountId = account.id
-    const profile = await requestLoginProfile(apiBaseUrl, sessionToken)
-    const currentAccount = this.activeAccount()
-    if (!currentAccount || currentAccount.id !== account.id) {
-      return
+    this.profileRefreshInFlightAccountId = account.id
+    try {
+      const profile = await requestLoginProfile(apiBaseUrl, sessionToken)
+      const currentAccount = this.activeAccount()
+      if (!currentAccount || currentAccount.id !== account.id) {
+        return
+      }
+      this.profileRefreshCompletedAccountId = account.id
+      if (!profile.avatarUrl && profile.name === currentAccount.name) {
+        return
+      }
+      this.deps.store.write(
+        upsertAccount(this.deps.store.read(), {
+          ...currentAccount,
+          name: profile.name,
+          ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
+          sessionToken,
+        }),
+      )
+      await this.emitState(await this.currentState())
+    } finally {
+      if (this.profileRefreshInFlightAccountId === account.id) {
+        this.profileRefreshInFlightAccountId = undefined
+      }
     }
-    if (!profile.avatarUrl && profile.name === currentAccount.name) {
-      return
-    }
-    this.deps.store.write(
-      upsertAccount(this.deps.store.read(), {
-        ...currentAccount,
-        name: profile.name,
-        ...(profile.avatarUrl ? { avatarUrl: profile.avatarUrl } : {}),
-        sessionToken,
-      }),
-    )
-    await this.emitState(await this.currentState())
   }
 
   private createPending(): PendingLogin {

@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest"
 import {
   activityForChatTurn,
   assistantTextParts,
+  chatTurnProcessStatus,
   chatTurnInputKey,
   groupChatTurns,
+  isLiveTurnProcess,
   latestAssistantMessage,
   retrySourceFromTurn,
   reuseStableChatTurns,
@@ -142,6 +144,40 @@ describe("summarizeTurnProcess", () => {
     expect(process.hasActiveTool).toBe(true)
     expect(process.activity?.phase).toBe("thinking")
     expect(process.startedAt).toBe(1000)
+  })
+
+  it("keeps completed tool history running while the turn is still active", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "create a page")]),
+      message("a1", "assistant", [
+        text("a1-text", "I will check the connector."),
+        tool("tool-1", { status: "completed", timing: { start: 1000, end: 1800 } }),
+      ]),
+      message("a2", "assistant", [text("a2-text", "Now I can continue.")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null, "a2")
+
+    expect(process.hasActiveTool).toBe(false)
+    expect(process.hasFinalAnswer).toBe(true)
+    expect(isLiveTurnProcess(process, true)).toBe(true)
+    expect(chatTurnProcessStatus(process, true)).toBe("running")
+    expect(chatTurnProcessStatus(process, false)).toBe("completed")
+  })
+
+  it("does not treat a text-only live answer as an active process", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "hello")]),
+      message("a1", "assistant", [text("a1-text", "Hi there.")]),
+    ])[0]
+
+    expect(turn).toBeDefined()
+    const process = summarizeTurnProcess(turn!, null, "a1")
+
+    expect(process.tools).toEqual([])
+    expect(isLiveTurnProcess(process, true)).toBe(false)
+    expect(chatTurnProcessStatus(process, true)).toBe("completed")
   })
 
   it("suggests connecting a single unauthenticated provider from search results", () => {

@@ -65,6 +65,7 @@
 - **oo CLI 快速路径**：OpenCode 配置仍保留首 token 为 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 的快速放行；
   其余本地 bash / external_directory ask 才进入 ChatService 默认访问策略。shell 管道/重定向本身不是提示理由，只有命中基础安全风险时才提示；`sudo`、管道执行 shell、写入敏感路径等仍需确认。
 - **permission 只闸内置工具**：`bash: deny` 等不约束 `.opencode` 自定义工具（权限闸写在各内置工具 execute 内）——重新收紧权限时，连接器元工具照常 spawn oo，不受影响。
+- **question/反问只认运行时 pending request**：`question.asked` 是 agent 暂停等待用户补充信息的运行时 interrupt，不是权限提示，也不是历史消息恢复机制。渲染层只展示 ChatService/sidecar 当前 pending question；历史 question tool 只作历史展示。取消反问 = `rejectQuestion`，不得顺手停止 generation；停止 generation 才清空当前 pending question UI。不要用 localStorage、历史消息或 stopped/recoverable/dismissed 状态伪造可继续交互。
 - 内嵌工具源码（`tool-sources.ts`，String.raw）**不得含反引号与 `${}`**（破坏模板字符串）；这些代码跑在 OpenCode 的 Bun，不参与本项目 tsc/oxlint。工具描述本身也是提示词的一部分，保持 list/search/inspect/call 的职责边界与交叉引用。
 - sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界走 `external_directory: "ask"`，由 ChatService 本地访问策略处理。
 - `parseConnectorErrorCode`（`oo.ts`）与 `call_action` 内联正则必须保持一致，改一处要同步另一处。`AUTH_BLOCKING_ERROR_CODES`（`connection_required` 等）来自 connector 上游而非 oo-cli，**权威定义**是 connector OpenAPI 错误 schema（`https://connector.<endpoint>/openapi.json`，需 `Authorization: Bearer <会话 token>`）——增删该集合先核对此处。

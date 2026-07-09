@@ -1,13 +1,11 @@
 import type { ChatQuestionRequest } from "../../../electron/chat/common.ts"
 import type { QuestionDraftStore, QuestionField, QuestionFieldDraft, QuestionFieldOption } from "./question-fields.ts"
-import type { ChatQuestionState } from "./question-state.ts"
 
 import { Check } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { answersFromFieldDrafts, canSubmitFieldAnswers, deriveQuestionFields } from "./question-fields.ts"
 import { useQuestionPromptDrafts } from "./question-prompt-drafts.ts"
-import { shouldStopBeforeDiscardingQuestion } from "./question-state.ts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,16 +16,10 @@ import { cn } from "@/lib/utils"
 
 interface QuestionPromptCardProps {
   request: ChatQuestionRequest
-  state?: ChatQuestionState
   busy?: boolean
-  isGenerating?: boolean
-  currentGenerationQuestion?: boolean
   onAnswer: (requestId: string, answers: string[][]) => Promise<void>
-  onContinue: (request: ChatQuestionRequest, answers: string[][]) => Promise<void>
-  onDiscard: (requestId: string) => void
   questionDrafts: QuestionDraftStore
   onReject: (requestId: string) => Promise<void>
-  onStop?: () => Promise<void> | void
 }
 
 const customOptionValue = "__custom__"
@@ -181,16 +173,10 @@ function QuestionStepIndicator({
 
 export function QuestionPromptCard({
   request,
-  state = "active",
   busy = false,
-  isGenerating = false,
-  currentGenerationQuestion = false,
   onAnswer,
-  onContinue,
-  onDiscard,
   questionDrafts,
   onReject,
-  onStop,
 }: QuestionPromptCardProps) {
   const t = useT()
   const fields = React.useMemo(() => deriveQuestionFields(request), [request])
@@ -199,17 +185,15 @@ export function QuestionPromptCard({
     questionDrafts,
     request,
   })
-  const [submitting, setSubmitting] = React.useState<"answer" | "discard" | "reject" | null>(null)
+  const [submitting, setSubmitting] = React.useState<"answer" | "reject" | null>(null)
   const activeControlRef = React.useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
   const previousActiveFieldIndexRef = React.useRef(activeFieldIndex)
   const disabled = busy || Boolean(submitting)
-  const isStopped = state === "stopped"
   const canSubmit = canSubmitFieldAnswers(fields, drafts)
   const activeField = fields[activeFieldIndex]
   const activeDraft = drafts[activeFieldIndex] ?? { value: "", selected: [] }
   const canContinue = activeField ? canSubmitFieldAnswers([activeField], [activeDraft]) : false
   const isLastStep = activeFieldIndex >= fields.length - 1
-  const stopBeforeDiscard = shouldStopBeforeDiscardingQuestion(state, isGenerating, currentGenerationQuestion)
 
   React.useEffect(() => {
     setSubmitting(null)
@@ -234,38 +218,17 @@ export function QuestionPromptCard({
     setSubmitting("answer")
     try {
       const answers = answersFromFieldDrafts(request, fields, drafts)
-      if (isStopped) {
-        await onContinue(request, answers)
-      } else {
-        await onAnswer(request.id, answers)
-      }
+      await onAnswer(request.id, answers)
       removeDraft()
     } catch (err) {
-      reportRendererHandledError("chat", isStopped ? "question continue failed" : "question answer failed", err)
-      toast.error(isStopped ? t("chat.questionContinueFailed") : t("chat.questionSubmitFailed"))
-    } finally {
       setSubmitting(null)
+      reportRendererHandledError("chat", "question answer failed", err)
+      toast.error(t("chat.questionSubmitFailed"))
     }
-  }, [canSubmit, disabled, drafts, fields, isStopped, onAnswer, onContinue, removeDraft, request, t])
+  }, [canSubmit, disabled, drafts, fields, onAnswer, removeDraft, request, t])
 
   const handleReject = React.useCallback(async () => {
     if (disabled) {
-      return
-    }
-    if (isStopped) {
-      setSubmitting("discard")
-      try {
-        if (stopBeforeDiscard) {
-          await onStop?.()
-        }
-        onDiscard(request.id)
-        removeDraft()
-      } catch (err) {
-        reportRendererHandledError("chat", "question discard failed", err)
-        toast.error(t("chat.questionCancelFailed"))
-      } finally {
-        setSubmitting(null)
-      }
       return
     }
     setSubmitting("reject")
@@ -278,7 +241,7 @@ export function QuestionPromptCard({
     } finally {
       setSubmitting(null)
     }
-  }, [disabled, isStopped, onDiscard, onReject, onStop, removeDraft, request, stopBeforeDiscard, t])
+  }, [disabled, onReject, removeDraft, request, t])
 
   const handleNext = React.useCallback(() => {
     if (!canContinue || disabled || isLastStep) {
@@ -307,15 +270,6 @@ export function QuestionPromptCard({
       }}
     >
       <div className="space-y-4">
-        {isStopped ? (
-          <div className="rounded-md border border-border/80 bg-muted/35 px-3 py-2.5">
-            <div className="oo-text-label font-medium text-foreground">{t("chat.questionStoppedStatus")}</div>
-            <div className="oo-text-caption mt-0.5 text-muted-foreground">
-              {t(stopBeforeDiscard ? "chat.questionStoppedRunningHint" : "chat.questionStoppedHint")}
-            </div>
-          </div>
-        ) : null}
-
         {fields.length > 1 ? (
           <QuestionStepIndicator
             activeIndex={activeFieldIndex}
@@ -418,11 +372,7 @@ export function QuestionPromptCard({
             disabled={disabled}
             onClick={handleReject}
           >
-            {submitting === "reject" || submitting === "discard"
-              ? t("chat.questionCancelling")
-              : isStopped
-                ? t(stopBeforeDiscard ? "chat.questionDiscardAndStop" : "chat.questionDiscard")
-                : t("chat.questionCancel")}
+            {submitting === "reject" ? t("chat.questionCancelling") : t("chat.questionCancel")}
           </Button>
           {fields.length > 1 && activeFieldIndex > 0 ? (
             <Button
@@ -448,11 +398,7 @@ export function QuestionPromptCard({
             </Button>
           ) : (
             <Button size="sm" type="submit" className="h-8 px-2.5" disabled={!canSubmit || disabled}>
-              {submitting === "answer"
-                ? t("chat.questionSubmitting")
-                : isStopped
-                  ? t("chat.questionContinue")
-                  : t("chat.questionSubmit")}
+              {submitting === "answer" ? t("chat.questionSubmitting") : t("chat.questionSubmit")}
             </Button>
           )}
         </div>

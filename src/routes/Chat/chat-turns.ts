@@ -39,6 +39,15 @@ export interface ChatTurnProcess {
   endedAt?: number
 }
 
+export type ChatTurnProcessStatus =
+  | "running"
+  | "completed"
+  | "completedWithIssues"
+  | "retrying"
+  | "needsAction"
+  | "error"
+  | "stopped"
+
 export function groupChatTurns(messages: ChatMessage[]): ChatTurn[] {
   const turns: ChatTurn[] = []
   let current: ChatTurn | null = null
@@ -222,6 +231,44 @@ export function shouldShowSuggestedAuthorization(
   turnIsActive: boolean,
 ): boolean {
   return Boolean(process.suggestedAuthorization && !turnIsActive && !process.hasActiveTool && !process.activity)
+}
+
+export function isLiveTurnProcess(
+  process: Pick<ChatTurnProcess, "activity" | "hasActiveTool" | "tools">,
+  live = false,
+): boolean {
+  return live && (process.tools.length > 0 || process.hasActiveTool || Boolean(process.activity))
+}
+
+export function chatTurnProcessStatus(
+  process: Pick<
+    ChatTurnProcess,
+    "activity" | "hasActiveTool" | "hasAuthorization" | "hasBlockingError" | "hasStoppedTool" | "hasToolError" | "tools"
+  >,
+  live = false,
+): ChatTurnProcessStatus {
+  if (process.activity?.phase === "retrying") {
+    return "retrying"
+  }
+  if (isLiveTurnProcess(process, live)) {
+    return "running"
+  }
+  if (process.hasAuthorization) {
+    return "needsAction"
+  }
+  if (process.hasBlockingError) {
+    return "error"
+  }
+  if (process.hasToolError) {
+    return "completedWithIssues"
+  }
+  if (process.hasStoppedTool) {
+    return "stopped"
+  }
+  if (process.hasActiveTool) {
+    return "stopped"
+  }
+  return "completed"
 }
 
 export function summarizeTurnProcess(

@@ -76,7 +76,14 @@
 - **理由（关键约束）**：OpenCode permission 取值 `ask | allow | deny`。Wanta 产品层不暴露细粒度权限，避免用户理解每个内置工具规则；但底层仍用 OpenCode ask 闸住高风险本地动作。**不改 sidecar cwd**（连接器工具依赖 `userData/agent/workspace/.opencode/tools/`），访问真实文件仍用绝对路径/`~` 并由 `external_directory: "ask"` 触发权限边界。
 - **后果**：当前安全姿态从"任意 shell / 文件读写 / 网络访问全无确认"收敛为"默认访问下 bash 和普通文件能力顺滑可用，只在真实风险边界暂停确认"。用户不需要为 `oo ... | head`、`npm test`、`rg`、数据处理脚本、普通桌面/下载目录文件等常规工作逐次批准；`npm install`、读取 `.ssh`/`.env`、删除、提权、推送、部署等仍需确认。若将来继续细化敏感路径（如浏览器 profile、邮件数据库、更多凭证目录）或外部副作用分类，需要同步 `config.ts`、ChatService 本地访问策略、访问模式 UI、事件测试和 [conventions.md §7](conventions.md)。若将来重新收紧权限：OpenCode permission **只闸内置工具**，`bash: deny` 不会切断 `.opencode` 自定义工具（连接器元工具照常 spawn oo，见 [conventions.md §7](conventions.md)）。
 
-## 10. Beta/Stable 双发行渠道
+## 10. 反问 = 运行时 pending request，不做前端恢复状态机
+
+- **背景**：OpenCode `question.asked` 接入后，渲染层曾为停止后继续、刷新恢复、取消后 dismiss、防重复恢复等异常流程维护 stopped/recoverable/dismissed/localStorage 状态，并从后端 pending、消息历史、本地缓存三处 reconciliation。结果是状态事实源过多：一个历史 question tool 可能被前端恢复成可交互问题，而 sidecar 实际未必还在等待同一个 request。
+- **决策**：反问只认主进程/sidecar 当前 pending question。`getPendingQuestions()` 与 `question.asked` 事件是唯一交互事实源；历史 question tool 只展示历史。用户提交走 `answerQuestion`；用户取消走 `rejectQuestion`，只拒绝当前 request，不隐式停止 generation；用户显式停止 generation 时才清空当前 pending question UI。草稿只保留当前内存态，不跨重启恢复。`rejectQuestion` 有短超时保护以免 UI 卡死，但超时也不自动 abort run。
+- **理由**：反问本质是 agent runtime interrupt，不是普通聊天消息，也不是权限提示。没有后端 checkpoint/run-state 支撑时，前端用历史消息和 localStorage 伪造"继续上一轮"会制造不可解释的中间态。若将来要支持刷新后继续回答，必须先有主进程/sidecar 可恢复同一 `requestId` 的 durable pending request；否则只能显示 expired/resolved 历史。
+- **后果**：删除反问恢复状态机与 resume message 拼接逻辑，状态边界收敛为"后端还在等就展示，否则只当历史"。系统提示词同步约束模型：只有缺失信息会实质影响结果、阻塞必要动作或带来风险时才窄问；用户拒绝/取消后不要原样重问，而应做安全假设、跳过可选动作、选择低风险路径或说明 blocker。
+
+## 11. Beta/Stable 双发行渠道
 
 - **背景**：需要每日构建走 beta 渠道、正式发布走 stable，用户可在设置里双向切换（默认 stable）。oo-desktop 是单渠道（仅 latest\*.yml），无先例可抄——这是相对 §1 镜像策略的 deliberate divergence（比照 Bearer 头 / i18n 先例）。
 - **决策**：用 electron-updater generic provider 的原生渠道机制——beta 版本号 `X.Y.Z-beta.N`（基线 = max(最新 stable 的 patch+1, 既存 beta 最高基线)，由 `scripts/release-version.ts` 计算并带防回退校验），electron-builder 自动产出 `beta*.yml` 与 `latest*.yml` 同目录并存；客户端渠道 = `用户设置 ?? 自身版本推导`，经 `setFeedURL` 的 `channel` 字段选择指针文件。开 `generateUpdatesFilesForAllChannels`：stable 构建同步刷新 `beta*.yml`，beta 用户在正式版发布后立即收敛（唯一例外：stable 低于既存 beta 基线时 CI 跳过 beta 指针，防倒退）。

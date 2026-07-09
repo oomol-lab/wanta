@@ -89,7 +89,7 @@ describe("chat turn state", () => {
     expect(chatTurnShowsGenerating(state)).toBe(false)
   })
 
-  test("does not offer stop for recovered questions without an active generation", () => {
+  test("does not offer stop for backend pending questions without an active generation", () => {
     const state = resolveChatTurnState({
       initialSendPending: false,
       pendingPermissionCount: 0,

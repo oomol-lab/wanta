@@ -291,8 +291,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private turnOutputsLoadPromise: Promise<void> | null = null
   private turnOutputWritePromise: Promise<void> = Promise.resolve()
   private scopeMutationQueue: Promise<void> = Promise.resolve()
-  private desiredIdleOrganizationName: string | undefined
-  private syncedIdleOrganizationName: string | undefined
+  private desiredWorkspaceOrganizationName: string | undefined
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -340,8 +339,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.turnOutputs.clear()
     this.turnOutputsLoaded = false
     this.turnOutputsLoadPromise = null
-    this.desiredIdleOrganizationName = undefined
-    this.syncedIdleOrganizationName = undefined
+    this.desiredWorkspaceOrganizationName = undefined
     this.scopeMutationQueue = Promise.resolve()
   }
 
@@ -1307,17 +1305,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return translated.event !== "messageCompleted"
   }
 
-  private hasSessionGenerationState(sessionId: string): boolean {
-    return (
-      this.sessionGenerations.has(sessionId) ||
-      this.pendingArtifactDirs.has(sessionId) ||
-      this.pendingProcessDirs.has(sessionId) ||
-      Boolean(this.activeTurnOutputForSession(sessionId)) ||
-      this.activeAssistantMessages.has(sessionId) ||
-      this.activeToolParts.has(sessionId)
-    )
-  }
-
   private async stopSessionGeneration(
     sessionId: string,
     options: { abortAgent: boolean; throwOnAbortFailure: boolean },
@@ -1390,7 +1377,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionModeVersion,
     )
     const organizationName = organizationNameFromRequest(req)
-    this.desiredIdleOrganizationName = organizationName
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
     let processDir: string | undefined
@@ -1804,13 +1790,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async setAgentOrganization(req: SetAgentOrganizationRequest): Promise<void> {
     const organizationName = req.organizationName?.trim() ? req.organizationName.trim() : undefined
-    this.desiredIdleOrganizationName = organizationName
+    this.desiredWorkspaceOrganizationName = organizationName
     await this.runWithScopeMutation(async () => {
-      if (this.desiredIdleOrganizationName !== organizationName) {
+      if (this.desiredWorkspaceOrganizationName !== organizationName) {
         return
       }
       await this.deps.onSetAgentOrganization?.(organizationName)
-      this.syncedIdleOrganizationName = organizationName
     })
   }
 
@@ -1860,36 +1845,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
-    const hadGenerationState = this.hasSessionGenerationState(req.sessionId)
-    let rejectError: unknown
-    try {
-      await withTimeout(
-        this.agent.rejectQuestion(req.sessionId, req.requestId),
-        questionRejectTimeoutMs,
-        "question rejection",
-      )
-    } catch (error) {
-      rejectError = error
-      console.warn("[wanta] question rejection failed before generation stop:", error)
-      logDiagnostic(
-        "chat-service",
-        "question rejection failed before generation stop",
-        {
-          error,
-          requestId: req.requestId,
-          sessionId: req.sessionId,
-        },
-        "warn",
-      )
-    }
-    const shouldStopGeneration = hadGenerationState || this.hasSessionGenerationState(req.sessionId)
-    if (shouldStopGeneration) {
-      this.markUserStopped(req.sessionId)
-      await this.stopSessionGeneration(req.sessionId, { abortAgent: true, throwOnAbortFailure: false })
-    }
-    if (rejectError && !shouldStopGeneration) {
-      throw rejectError
-    }
+    await withTimeout(
+      this.agent.rejectQuestion(req.sessionId, req.requestId),
+      questionRejectTimeoutMs,
+      "question rejection",
+    )
+    this.removeActiveRunBlockingRequest(req.sessionId, req.requestId)
+    this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
     this.emitSessionActivity(req.sessionId)
   }
 

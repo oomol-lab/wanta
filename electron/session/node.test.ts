@@ -621,6 +621,61 @@ test("create persists project assignment when the project matches the session sc
   )
 })
 
+test("assignSessionProject persists only projects in the session scope", async () => {
+  const persistedMetadata = metadataStore(new Map([["session", { scope: { type: "personal" } }]]))
+  const personalProject: SessionProject = {
+    id: "personal-project",
+    name: "Personal",
+    path: "/Users/example/code/personal",
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    scope: { type: "personal" },
+  }
+  const organizationProject: SessionProject = {
+    id: "organization-project",
+    name: "Organization",
+    path: "/Users/example/code/organization",
+    createdAt: 5_000,
+    updatedAt: 5_000,
+    scope: { type: "organization", organizationId: "org", organizationName: "Org" },
+  }
+  const archivedProject: SessionProject = {
+    id: "archived-project",
+    name: "Archived",
+    path: "/Users/example/code/archived",
+    archivedAt: 6_000,
+    createdAt: 6_000,
+    updatedAt: 6_000,
+    scope: { type: "personal" },
+  }
+  const persistedProjects = projectStore(
+    new Map([
+      [personalProject.id, personalProject],
+      [organizationProject.id, organizationProject],
+      [archivedProject.id, archivedProject],
+    ]),
+  )
+  const service = new SessionServiceImpl(agentWithSessions([]), {
+    metadataStore: persistedMetadata,
+    projectStore: persistedProjects,
+  })
+
+  await service.assignSessionProject({ sessionId: "session", projectId: "personal-project" })
+
+  assert.equal((await persistedMetadata.read()).get("session")?.projectId, "personal-project")
+  assert.ok(((await persistedProjects.read()).get("personal-project")?.updatedAt ?? 0) > personalProject.updatedAt)
+
+  await service.assignSessionProject({ sessionId: "session", projectId: "organization-project" })
+
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { scope: { type: "personal" } }]]))
+  assert.equal((await persistedProjects.read()).get("organization-project")?.updatedAt, organizationProject.updatedAt)
+
+  await service.assignSessionProject({ sessionId: "session", projectId: "archived-project" })
+
+  assert.deepEqual(await persistedMetadata.read(), new Map([["session", { scope: { type: "personal" } }]]))
+  assert.equal((await persistedProjects.read()).get("archived-project")?.updatedAt, archivedProject.updatedAt)
+})
+
 test("recordUseAndEmit touches assigned project activity", async () => {
   const persistedProjects = projectStore(
     new Map([

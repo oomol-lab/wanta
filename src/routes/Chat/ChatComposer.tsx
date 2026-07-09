@@ -243,6 +243,7 @@ export function ChatComposer({
   const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   const isGenerating = status === "submitted" || status === "streaming"
   const activePendingQuestion = pendingQuestions[0]
+  const activePendingQuestionId = activePendingQuestion?.id
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
   const composerAttachmentsDisabled = Boolean(activePendingQuestion)
   const composerSubmitStatus = activePendingQuestion ? "ready" : status
@@ -259,6 +260,9 @@ export function ChatComposer({
     dispatch: dispatchComposer,
     setInputError,
   })
+  React.useEffect(() => {
+    setAnsweringQuestion(false)
+  }, [activePendingQuestionId])
   const platform = globalThis.wanta?.platform
   const slashItems = React.useMemo(
     () =>
@@ -531,9 +535,8 @@ export function ChatComposer({
         dispatchComposer({ type: "reset-after-submit" })
         setInputError(null)
       } catch (err) {
-        setInputError(err instanceof Error ? err.message : String(err))
-      } finally {
         setAnsweringQuestion(false)
+        setInputError(err instanceof Error ? err.message : String(err))
       }
       return
     }

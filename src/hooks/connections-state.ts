@@ -53,7 +53,12 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
     case "pollingSet":
       return { ...state, polling: action.polling }
     case "refreshFailed":
-      return { ...state, summaryError: action.error, summaryWorkspaceKey: action.workspaceKey }
+      return {
+        ...state,
+        summary: state.summaryWorkspaceKey === action.workspaceKey ? state.summary : null,
+        summaryError: action.error,
+        summaryWorkspaceKey: action.workspaceKey,
+      }
     case "refreshFinished":
       return { ...state, busy: state.busy === "refresh" ? null : state.busy }
     case "refreshStarted":

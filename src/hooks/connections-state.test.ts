@@ -94,6 +94,38 @@ test("connectionsStateReducer records workspace sync failures as summary failure
   assert.equal(next.busy, null)
 })
 
+test("connectionsStateReducer clears hidden previous summaries when refresh fails for a new workspace", () => {
+  const previousSummary = summary({ type: "personal" })
+  const next = connectionsStateReducer(
+    {
+      ...initialConnectionsState,
+      summary: previousSummary,
+      summaryWorkspaceKey: null,
+    },
+    { type: "refreshFailed", error, workspaceKey: "organization:acme" },
+  )
+
+  assert.equal(next.summary, null)
+  assert.equal(next.summaryError, error)
+  assert.equal(next.summaryWorkspaceKey, "organization:acme")
+})
+
+test("connectionsStateReducer keeps current summaries visible when refresh fails for the same workspace", () => {
+  const currentSummary = summary({ type: "organization", organizationName: "acme" })
+  const next = connectionsStateReducer(
+    {
+      ...initialConnectionsState,
+      summary: currentSummary,
+      summaryWorkspaceKey: "organization:acme",
+    },
+    { type: "refreshFailed", error, workspaceKey: "organization:acme" },
+  )
+
+  assert.equal(next.summary, currentSummary)
+  assert.equal(next.summaryError, error)
+  assert.equal(next.summaryWorkspaceKey, "organization:acme")
+})
+
 test("connectionsStateReducer derives summary workspace keys consistently", () => {
   const personal = connectionsStateReducer(initialConnectionsState, {
     summary: summary({ type: "personal" }),

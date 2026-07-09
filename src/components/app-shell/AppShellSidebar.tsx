@@ -466,55 +466,61 @@ export function ProjectSidebarGroupItem({
         </button>
         <div className="ml-1 flex shrink-0 items-center gap-0.5">
           {showCollapsedRunning ? (
-            <LoaderCircle
-              className="size-3.5 animate-spin text-sidebar-foreground/70 opacity-100 transition-opacity group-focus-within:hidden group-hover:hidden"
-              aria-hidden="true"
-            />
-          ) : null}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <span
+              title={t("aria.sessionRunning")}
+              aria-label={t("aria.sessionRunning")}
+              className="flex size-5 items-center justify-center"
+            >
+              <LoaderCircle className="size-3.5 animate-spin text-sidebar-foreground/70" aria-hidden="true" />
+            </span>
+          ) : (
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    title={t("project.moreActions")}
+                    aria-label={t("project.moreActions")}
+                    className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground data-[state=open]:opacity-100"
+                  >
+                    <Ellipsis className="size-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-44">
+                  <DropdownMenuItem onSelect={() => onPinProject(group.project)}>
+                    {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                    <span>{pinned ? t("project.unpin") : t("project.pin")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onShowProjectInFolder(group.project)}>
+                    <FolderOpen className="size-4" />
+                    <span>{t("project.showInFinder")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onRenameProject(group.project)}>
+                    <Pencil className="size-4" />
+                    <span>{t("project.rename")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onArchiveProject(group.project)}>
+                    <Archive className="size-4" />
+                    <span>{t("project.archive")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => onRemoveProject(group.project)}>
+                    <Trash2 className="size-4" />
+                    <span>{t("project.remove")}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <button
                 type="button"
-                title={t("project.moreActions")}
-                aria-label={t("project.moreActions")}
-                className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground data-[state=open]:opacity-100"
+                title={projectTitle}
+                aria-label={projectTitle}
+                className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
+                onClick={() => onNewSession(group.project)}
               >
-                <Ellipsis className="size-3.5" />
+                <SquarePen className="size-3.5" />
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-44">
-              <DropdownMenuItem onSelect={() => onPinProject(group.project)}>
-                {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-                <span>{pinned ? t("project.unpin") : t("project.pin")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onShowProjectInFolder(group.project)}>
-                <FolderOpen className="size-4" />
-                <span>{t("project.showInFinder")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onRenameProject(group.project)}>
-                <Pencil className="size-4" />
-                <span>{t("project.rename")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onArchiveProject(group.project)}>
-                <Archive className="size-4" />
-                <span>{t("project.archive")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={() => onRemoveProject(group.project)}>
-                <Trash2 className="size-4" />
-                <span>{t("project.remove")}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <button
-            type="button"
-            title={projectTitle}
-            aria-label={projectTitle}
-            className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
-            onClick={() => onNewSession(group.project)}
-          >
-            <SquarePen className="size-3.5" />
-          </button>
+            </>
+          )}
         </div>
       </div>
       {expanded ? (

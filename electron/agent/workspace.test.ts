@@ -99,6 +99,7 @@ test("ensureAgentWorkspace works without a bundled skills directory", async () =
     await ensureAgentWorkspace(workspaceDir, path.join(base, "does-not-exist"))
     assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools")), "tools still written")
     assert.equal(await exists(path.join(workspaceDir, ".opencode", "skill")), false, "no skill dir when source missing")
+    assert.ok(await exists(path.join(workspaceDir, ".opencode", "skills")), "runtime skills dir still exists")
   } finally {
     await rm(base, { force: true, recursive: true })
   }

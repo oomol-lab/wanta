@@ -62,7 +62,7 @@ import { AppShellNavigationSidebar } from "./AppShellNavigationSidebar.tsx"
 import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.tsx"
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
-import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
+import { compareRunningSessions, groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
@@ -340,6 +340,7 @@ export function AppShell() {
     messagesLoaded,
     error,
     getSessionStatus,
+    getSessionRunStartedAt,
     hasUnreadSession,
     permissionMode,
     setPermissionMode: setChatPermissionMode,
@@ -510,10 +511,10 @@ export function AppShell() {
 
   // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
   React.useLayoutEffect(() => {
-    if (sessionsSettledForCurrentScope && !isDraftSession && !activeChatSessionId && activeSidebarSessions.length > 0) {
+    if (sessionsSettledForCurrentScope && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0) {
       setActiveSessionId(activeSidebarSessions[0].id)
     }
-  }, [activeSidebarSessions, sessionsSettledForCurrentScope, activeChatSessionId, isDraftSession])
+  }, [activeSidebarSessions, sessionsSettledForCurrentScope, activeSessionId, isDraftSession])
 
   React.useEffect(() => {
     if (!sessionsSettledForCurrentScope || isDraftSession || !activeSessionId) {
@@ -601,28 +602,6 @@ export function AppShell() {
       lastChatProjectId.current = activeProjectId ?? null
     }
   }, [activeProjectId, route])
-  const sidebarSessionGroups = React.useMemo(() => groupSidebarSessions(visibleTaskSessions), [visibleTaskSessions])
-  const projectPinnedSessions = React.useMemo(() => {
-    const pinnedProjectIds = new Set(visibleProjects.filter((project) => project.pinnedAt).map((project) => project.id))
-    return visibleProjectSessions
-      .filter(
-        (session) =>
-          session.projectId && !pinnedProjectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
-      )
-      .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
-  }, [visibleProjectSessions, visibleProjects])
-  const projectSidebarGroups = React.useMemo(
-    () => buildProjectSidebarGroups(visibleProjects, visibleProjectSessions),
-    [visibleProjectSessions, visibleProjects],
-  )
-  const projectPinnedGroups = React.useMemo(
-    () => projectSidebarGroups.filter((group) => group.project.pinnedAt),
-    [projectSidebarGroups],
-  )
-  const projectRegularGroups = React.useMemo(
-    () => projectSidebarGroups.filter((group) => !group.project.pinnedAt),
-    [projectSidebarGroups],
-  )
   const { collapsedProjectIds, handleProjectSidebarExpandedChange } = useProjectSidebarCollapseState({
     accountId: auth.state?.account?.id,
     projects: visibleProjects,
@@ -668,7 +647,7 @@ export function AppShell() {
   )
   const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
   const needsDefaultSessionSelection =
-    sessionsSettledForCurrentScope && !isDraftSession && !activeChatSessionId && activeSidebarSessions.length > 0
+    sessionsSettledForCurrentScope && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0
   const startupError =
     agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
   const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
@@ -694,6 +673,35 @@ export function AppShell() {
       return sessionStatus === "submitted" || sessionStatus === "streaming"
     },
     [activeChatSessionId, activeChatTurnState, getSessionStatus],
+  )
+  const sidebarSessionOrder = React.useMemo(
+    () => ({ getSessionRunStartedAt, isSessionRunning }),
+    [getSessionRunStartedAt, isSessionRunning],
+  )
+  const sidebarSessionGroups = React.useMemo(
+    () => groupSidebarSessions(visibleTaskSessions, sidebarSessionOrder),
+    [sidebarSessionOrder, visibleTaskSessions],
+  )
+  const projectPinnedSessions = React.useMemo(() => {
+    const pinnedProjectIds = new Set(visibleProjects.filter((project) => project.pinnedAt).map((project) => project.id))
+    return visibleProjectSessions
+      .filter(
+        (session) =>
+          session.projectId && !pinnedProjectIds.has(session.projectId) && session.pinnedAt && !session.archivedAt,
+      )
+      .sort((a, b) => compareRunningSessions(a, b, sidebarSessionOrder) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
+  }, [sidebarSessionOrder, visibleProjectSessions, visibleProjects])
+  const projectSidebarGroups = React.useMemo(
+    () => buildProjectSidebarGroups(visibleProjects, visibleProjectSessions, sidebarSessionOrder),
+    [sidebarSessionOrder, visibleProjectSessions, visibleProjects],
+  )
+  const projectPinnedGroups = React.useMemo(
+    () => projectSidebarGroups.filter((group) => group.project.pinnedAt),
+    [projectSidebarGroups],
+  )
+  const projectRegularGroups = React.useMemo(
+    () => projectSidebarGroups.filter((group) => !group.project.pinnedAt),
+    [projectSidebarGroups],
   )
   const titlebarTitle =
     route === "settings"

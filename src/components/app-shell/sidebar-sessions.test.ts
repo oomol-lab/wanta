@@ -31,6 +31,36 @@ test("groupSidebarSessions shows pinned sessions before regular sessions", () =>
   )
 })
 
+test("groupSidebarSessions orders running regular sessions by run start", () => {
+  const groups = groupSidebarSessions(
+    [session("idle-new", 5_000), session("running-old", 1_000), session("running-new", 2_000)],
+    {
+      getSessionRunStartedAt: (id) => (id === "running-new" ? 4_000 : id === "running-old" ? 3_000 : null),
+      isSessionRunning: (id) => id.startsWith("running"),
+    },
+  )
+
+  assert.deepEqual(
+    groups.regular.map((item) => item.id),
+    ["running-new", "running-old", "idle-new"],
+  )
+})
+
+test("groupSidebarSessions keeps pinned order unless a pinned session is running", () => {
+  const groups = groupSidebarSessions(
+    [session("newer-pin", 1_000, { pinnedAt: 5_000 }), session("running-pin", 2_000, { pinnedAt: 4_000 })],
+    {
+      getSessionRunStartedAt: (id) => (id === "running-pin" ? 6_000 : null),
+      isSessionRunning: (id) => id === "running-pin",
+    },
+  )
+
+  assert.deepEqual(
+    groups.pinned.map((item) => item.id),
+    ["running-pin", "newer-pin"],
+  )
+})
+
 test("groupSidebarSessions excludes archived sessions", () => {
   const groups = groupSidebarSessions([
     session("archived-pin", 1_000, { archivedAt: 6_000, pinnedAt: 5_000 }),

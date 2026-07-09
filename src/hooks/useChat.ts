@@ -89,6 +89,7 @@ export interface UseChat {
   messagesLoaded: boolean
   error: string | null
   getSessionStatus: (sessionId: string) => ChatStatus
+  getSessionRunStartedAt: (sessionId: string) => number | null
   hasUnreadSession: (sessionId: string) => boolean
   send: (
     sessionId: string,
@@ -181,6 +182,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const [permissionModes, setPermissionModes] = React.useState<Record<string, AgentPermissionMode>>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
   const [activities, setActivities] = React.useState<Record<string, AssistantActivityEvent | undefined>>({})
+  const [activeRunStarts, setActiveRunStarts] = React.useState<Record<string, number | undefined>>({})
   const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
   const [globalError, setGlobalError] = React.useState<string | null>(null)
   const [errorsBySession, setErrorsBySession] = React.useState<Record<string, string | undefined>>({})
@@ -274,6 +276,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if (clearedActiveRunIdsRef.current.has(run.runId)) {
           return
         }
+        setActiveRunStarts((current) =>
+          current[run.sessionId] === run.startedAt ? current : { ...current, [run.sessionId]: run.startedAt },
+        )
         setStatus(run.sessionId, statusForActiveRun(run))
         setActivity(run.sessionId, activityForActiveRun(run))
         return
@@ -281,6 +286,14 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       if (endedRunId) {
         clearedActiveRunIdsRef.current.add(endedRunId)
       }
+      setActiveRunStarts((current) => {
+        if (!Object.hasOwn(current, sessionId)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[sessionId]
+        return next
+      })
       setStatuses((current) => {
         const currentStatus = current[sessionId]
         if (currentStatus !== "submitted" && currentStatus !== "streaming") {
@@ -1198,6 +1211,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     (sessionId: string): ChatStatus => statuses[sessionId] ?? "ready",
     [statuses],
   )
+  const getSessionRunStartedAt = React.useCallback(
+    (sessionId: string): number | null => activeRunStarts[sessionId] ?? null,
+    [activeRunStarts],
+  )
   const hasUnreadSession = React.useCallback(
     (sessionId: string): boolean => unreadSessionIds.has(sessionId),
     [unreadSessionIds],
@@ -1227,6 +1244,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     messagesLoaded,
     error,
     getSessionStatus,
+    getSessionRunStartedAt,
     hasUnreadSession,
     send,
     stop,

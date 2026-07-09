@@ -1,15 +1,38 @@
 import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
+import type { SidebarSessionOrder } from "./sidebar-sessions.ts"
+
+import { compareSidebarSessions, sessionRunStartedAt } from "./sidebar-sessions.ts"
 
 export interface ProjectSidebarGroup {
   hiddenCount: number
   project: SessionProject
+  runningStartedAt?: number
   sessions: SessionInfo[]
   updatedAt: number
 }
 
 const projectSidebarSessionLimit = 5
 
-export function buildProjectSidebarGroups(projects: SessionProject[], sessions: SessionInfo[]): ProjectSidebarGroup[] {
+function projectRunningStartedAt(sessions: SessionInfo[], order: SidebarSessionOrder): number | undefined {
+  const startedAt = Math.max(0, ...sessions.map((session) => sessionRunStartedAt(session, order) ?? 0))
+  return startedAt > 0 ? startedAt : undefined
+}
+
+function compareProjectSidebarGroups(left: ProjectSidebarGroup, right: ProjectSidebarGroup): number {
+  const pinnedDiff = (right.project.pinnedAt ?? 0) - (left.project.pinnedAt ?? 0)
+  const leftRunning = left.runningStartedAt ?? 0
+  const rightRunning = right.runningStartedAt ?? 0
+  if (leftRunning > 0 || rightRunning > 0) {
+    return pinnedDiff || rightRunning - leftRunning || right.updatedAt - left.updatedAt
+  }
+  return pinnedDiff || right.updatedAt - left.updatedAt
+}
+
+export function buildProjectSidebarGroups(
+  projects: SessionProject[],
+  sessions: SessionInfo[],
+  order: SidebarSessionOrder = {},
+): ProjectSidebarGroup[] {
   const projectById = new Map(projects.map((project) => [project.id, project]))
   const sessionsByProject = new Map<string, SessionInfo[]>()
   for (const session of sessions) {
@@ -28,18 +51,21 @@ export function buildProjectSidebarGroups(projects: SessionProject[], sessions: 
     .map((project) => {
       const projectSessions = (sessionsByProject.get(project.id) ?? [])
         .filter((session) => !session.archivedAt)
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .sort((a, b) => compareSidebarSessions(a, b, order))
       const visibleSessions = projectSessions.slice(0, projectSidebarSessionLimit)
-      const updatedAt = Math.max(project.updatedAt, ...projectSessions.map((session) => session.updatedAt))
+      const runningStartedAt = projectRunningStartedAt(projectSessions, order)
+      const updatedAt = Math.max(
+        project.updatedAt,
+        runningStartedAt ?? 0,
+        ...projectSessions.map((session) => session.updatedAt),
+      )
       return {
         project,
         sessions: visibleSessions,
         hiddenCount: Math.max(0, projectSessions.length - visibleSessions.length),
+        ...(runningStartedAt ? { runningStartedAt } : {}),
         updatedAt,
       }
     })
-    .sort((a, b) => {
-      const pinnedDiff = (b.project.pinnedAt ?? 0) - (a.project.pinnedAt ?? 0)
-      return pinnedDiff || b.updatedAt - a.updatedAt
-    })
+    .sort(compareProjectSidebarGroups)
 }

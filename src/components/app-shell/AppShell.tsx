@@ -146,16 +146,12 @@ export function AppShell() {
     () => new Map((skillInventory.data?.groups ?? []).map((group) => [group.id, group])),
     [skillInventory.data?.groups],
   )
-  const enabledOrganizationSkills = React.useMemo(
-    () => organizationSkills.skills.filter((skill) => skill.enabled),
-    [organizationSkills.skills],
-  )
   const installableOrganizationSkills = React.useMemo(() => {
     if (!organizationSkills.organizationId || !skillInventory.data) {
       return []
     }
-    return getInstallableOrganizationSkills(organizationSkillGroupById, enabledOrganizationSkills)
-  }, [enabledOrganizationSkills, organizationSkillGroupById, organizationSkills.organizationId, skillInventory.data])
+    return getInstallableOrganizationSkills(organizationSkillGroupById, organizationSkills.skills)
+  }, [organizationSkillGroupById, organizationSkills.organizationId, organizationSkills.skills, skillInventory.data])
   const sessionScope = React.useMemo(
     () => sessionScopeFromWorkspace(organizationWorkspace.activeWorkspace),
     [organizationWorkspace.activeWorkspace],
@@ -371,20 +367,20 @@ export function AppShell() {
     providers: organizationSkills.organizationId ? activeProviders : EMPTY_CONNECTION_PROVIDERS,
   })
   const installableProviderSkillRecommendations = React.useMemo(
-    () => getUnlinkedProviderSkillRecommendations(enabledOrganizationSkills, providerSkillRecommendations.installable),
-    [enabledOrganizationSkills, providerSkillRecommendations.installable],
+    () => getUnlinkedProviderSkillRecommendations(organizationSkills.skills, providerSkillRecommendations.installable),
+    [organizationSkills.skills, providerSkillRecommendations.installable],
   )
   const recommendedSkillPendingInstallCount = skillInventory.data
     ? installableOrganizationSkills.length + installableProviderSkillRecommendations.length
     : undefined
   const organizationSkillEntryVisible = shouldShowRecommendedSkillEntry({
     organizationId: organizationSkills.organizationId,
-    organizationSkillCount: enabledOrganizationSkills.length,
+    organizationSkillCount: organizationSkills.skills.length,
     providerRecommendationCount: installableProviderSkillRecommendations.length,
   })
   const organizationSkillShowcaseItems = React.useMemo<ChatOrganizationSkillContext[]>(() => {
     const organizationShowcaseSkills =
-      installableOrganizationSkills.length > 0 ? installableOrganizationSkills : enabledOrganizationSkills
+      installableOrganizationSkills.length > 0 ? installableOrganizationSkills : organizationSkills.skills
     const organizationItems = organizationShowcaseSkills.map((skill) => ({
       ...(skill.description ? { description: skill.description } : {}),
       ...(skill.icon ? { icon: skill.icon } : {}),
@@ -407,7 +403,7 @@ export function AppShell() {
       }
     })
     return [...organizationItems, ...providerItems]
-  }, [enabledOrganizationSkills, installableOrganizationSkills, installableProviderSkillRecommendations])
+  }, [installableOrganizationSkills, installableProviderSkillRecommendations, organizationSkills.skills])
   const sharedConnectorCount =
     organizationWorkspace.activeWorkspace.type === "organization" && connectionSummaryMatchesWorkspace
       ? connections.summary?.connectedProviderCount

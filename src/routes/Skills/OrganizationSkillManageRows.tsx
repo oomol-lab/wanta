@@ -10,8 +10,6 @@ import {
   MoreHorizontalIcon,
   PackageMinusIcon,
   PackageIcon,
-  PauseCircleIcon,
-  PlayCircleIcon,
   RefreshCwIcon,
 } from "lucide-react"
 import { runtimeSkillRemoveBusyKey } from "./organization-management-model.ts"
@@ -307,19 +305,15 @@ export function OrganizationSkillMarketRow({
 function OrganizationConfiguredSkillActionsMenu({
   busy,
   canManage,
-  enabled,
   onRemove,
   onRequestRemoveRuntimeSkill,
-  onToggleEnabled,
   removeBusy,
   runtimeRemoveTarget,
 }: {
   busy: boolean
   canManage: boolean
-  enabled: boolean
   onRemove: () => void
   onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
-  onToggleEnabled: () => void
   removeBusy: boolean
   runtimeRemoveTarget: RuntimeSkillRemoveTarget | null
 }) {
@@ -348,26 +342,8 @@ function OrganizationConfiguredSkillActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        {canManage ? (
-          <>
-            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
-              {t("organizations.skillManageOrganizationSection")}
-            </DropdownMenuLabel>
-            <DropdownMenuItem onSelect={onToggleEnabled}>
-              {enabled ? (
-                <PauseCircleIcon className={skillManageMenuIconClassName} />
-              ) : (
-                <PlayCircleIcon className={skillManageMenuIconClassName} />
-              )}
-              {enabled
-                ? t("organizations.skillManagePauseRecommendation")
-                : t("organizations.skillManageResumeRecommendation")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
         {runtimeRemoveTarget ? (
           <>
-            {canManage ? <DropdownMenuSeparator /> : null}
             <DropdownMenuLabel className={skillManageMenuLabelClassName}>
               {t("organizations.skillManageRuntimeSection")}
             </DropdownMenuLabel>
@@ -379,7 +355,10 @@ function OrganizationConfiguredSkillActionsMenu({
         ) : null}
         {canManage ? (
           <>
-            <DropdownMenuSeparator />
+            {runtimeRemoveTarget ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuLabel className={skillManageMenuLabelClassName}>
+              {t("organizations.skillManageOrganizationSection")}
+            </DropdownMenuLabel>
             <DropdownMenuItem variant="destructive" onSelect={onRemove}>
               <Link2OffIcon className="size-4" />
               {t("organizations.skillManageUnrecommend")}
@@ -572,7 +551,6 @@ export function OrganizationSkillManageRow({
   onInstallRuntime,
   onRemove,
   onRequestRemoveRuntimeSkill,
-  onToggleEnabled,
   skill,
 }: {
   busy: boolean
@@ -583,7 +561,6 @@ export function OrganizationSkillManageRow({
   onInstallRuntime: () => void
   onRemove: () => void
   onRequestRemoveRuntimeSkill: (target: RuntimeSkillRemoveTarget) => void
-  onToggleEnabled: () => void
   skill: UseOrganizationSkills["skills"][number]
 }) {
   const { t } = useAppI18n()
@@ -606,9 +583,6 @@ export function OrganizationSkillManageRow({
           <div className="oo-text-label min-w-0 truncate text-foreground">{skill.displayName}</div>
           <Badge variant="secondary" className="shrink-0">
             {t("organizations.skillManageConfigured")}
-          </Badge>
-          <Badge variant={skill.enabled ? "secondary" : "outline"} className="shrink-0">
-            {skill.enabled ? t("skills.organizationEnabled") : t("skills.organizationDisabled")}
           </Badge>
           <Badge className={cn("shrink-0", getSkillRowStatusBadgeClassName(runtimeTone))} variant="outline">
             {organizationRuntimeStatusLabel(runtimeStatus.state, t)}
@@ -634,12 +608,10 @@ export function OrganizationSkillManageRow({
         <OrganizationConfiguredSkillActionsMenu
           busy={menuBusy}
           canManage={canManage}
-          enabled={skill.enabled}
           removeBusy={removeBusy}
           runtimeRemoveTarget={runtimeRemoveTarget}
           onRemove={onRemove}
           onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
-          onToggleEnabled={onToggleEnabled}
         />
       </div>
     </div>

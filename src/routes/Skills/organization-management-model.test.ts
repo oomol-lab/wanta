@@ -21,7 +21,6 @@ import {
   planProviderSkillRecommendationBulkLinks,
   planOrganizationSkillBulkLinks,
   providerOptionsWithSelected,
-  readSelectedOrganizationId,
 } from "./organization-management-model.ts"
 
 test("organizationNameValidation accepts the product naming rules", () => {
@@ -155,21 +154,15 @@ test("buildOrganizationMemberViews falls back to creator and current account", (
     ...organization("org-a", "creator-a"),
     role: "member",
   } satisfies Organization
-  const overview = organizationOverview({
-    accountId: "account-a",
-    created: [],
-    joined: [org],
-  })
-
   const members = buildOrganizationMemberViews({
     account: {
       avatarUrl: "https://avatar.example/me.png",
       id: "account-a",
       name: "Current User",
     },
+    accountRole: "member",
     members: [],
     organization: org,
-    overview,
     summaries: {},
   })
 
@@ -223,7 +216,7 @@ test("planOrganizationSkillBulkLinks deduplicates by package and skips linked pa
   )
 })
 
-test("planProviderSkillRecommendationBulkLinks deduplicates by exact skill and skips linked skills", () => {
+test("planProviderSkillRecommendationBulkLinks deduplicates by package and skips linked packages", () => {
   const plan = planProviderSkillRecommendationBulkLinks(
     [
       { packageName: "oo-gmail", skillId: "gmail" },
@@ -231,56 +224,18 @@ test("planProviderSkillRecommendationBulkLinks deduplicates by exact skill and s
       { packageName: "oo-gmail", skillId: "gmail-admin" },
       { packageName: "oo-slack", skillId: "slack" },
     ],
-    [{ packageName: " oo-slack ", skillName: "slack" }],
+    [{ packageName: " oo-slack " }],
   )
 
   assert.deepEqual(
     plan.linkable.map((item) => item.skillId),
-    ["gmail", "gmail-admin"],
+    ["gmail"],
   )
   assert.deepEqual(
     plan.linked.map((item) => item.skillId),
     ["slack"],
   )
 })
-
-test("readSelectedOrganizationId migrates legacy Lumo storage key", () => {
-  const localStorage = new MemoryStorage()
-  const previousWindow = globalThis.window
-  Object.defineProperty(globalThis, "window", {
-    configurable: true,
-    value: { localStorage },
-  })
-
-  try {
-    localStorage.setItem("lumo:organization-management:selected-organization:account-a", "org-a")
-
-    assert.equal(readSelectedOrganizationId("account-a"), "org-a")
-    assert.equal(localStorage.getItem("wanta:organization-management:selected-organization:account-a"), "org-a")
-    assert.equal(localStorage.getItem("lumo:organization-management:selected-organization:account-a"), null)
-  } finally {
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: previousWindow,
-    })
-  }
-})
-
-class MemoryStorage {
-  private values = new Map<string, string>()
-
-  public getItem(key: string): string | null {
-    return this.values.get(key) ?? null
-  }
-
-  public removeItem(key: string): void {
-    this.values.delete(key)
-  }
-
-  public setItem(key: string, value: string): void {
-    this.values.set(key, value)
-  }
-}
 
 function organization(id: string, creatorUserId = "creator"): Organization {
   return {

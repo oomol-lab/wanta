@@ -4,7 +4,11 @@ import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { useAppI18n } from "@/i18n"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
 
-import { organizationSkillIdentityKey } from "./organization-management-model.ts"
+import {
+  createOrganizationSkillPackageSet,
+  organizationSkillPackageKey,
+  organizationSkillPackageLinked,
+} from "./organization-management-model.ts"
 import { getOrganizationSkillRuntimeStatus } from "./skill-route-model.ts"
 
 export function looksLikeSkillPackageName(query: string): boolean {
@@ -82,9 +86,7 @@ export function buildOrganizationSkillRecommendationItems({
   providerRecommendations: readonly ProviderSkillRecommendation[]
   skills: UseOrganizationSkills["skills"]
 }): OrganizationSkillRecommendationItem[] {
-  const configuredSkillKeys = new Set(
-    skills.map((skill) => organizationSkillIdentityKey(skill.packageName, skill.skillName)).filter(Boolean),
-  )
+  const configuredPackageKeys = createOrganizationSkillPackageSet(skills)
   const configuredItems: OrganizationSkillRecommendationItem[] =
     filter === "recommended"
       ? []
@@ -92,18 +94,25 @@ export function buildOrganizationSkillRecommendationItems({
           .filter((skill) => organizationSkillMatchesQuery(skill, normalizedQuery))
           .map((skill) => ({ id: `configured:${skill.id}`, skill, type: "configured" }))
 
-  const seenRecommendedKeys = new Set<string>()
+  const seenRecommendedPackageKeys = new Set<string>()
   const recommendedItems: OrganizationSkillRecommendationItem[] =
     filter === "configured"
       ? []
       : providerRecommendations
           .filter((recommendation) => {
-            const key = organizationSkillIdentityKey(recommendation.packageName, recommendation.skillId)
-            if (configuredSkillKeys.has(key) || seenRecommendedKeys.has(key)) {
+            if (!providerRecommendationMatchesQuery(recommendation, normalizedQuery)) {
               return false
             }
-            seenRecommendedKeys.add(key)
-            return providerRecommendationMatchesQuery(recommendation, normalizedQuery)
+            const packageKey = organizationSkillPackageKey(recommendation.packageName)
+            if (
+              !packageKey ||
+              organizationSkillPackageLinked(configuredPackageKeys, recommendation.packageName) ||
+              seenRecommendedPackageKeys.has(packageKey)
+            ) {
+              return false
+            }
+            seenRecommendedPackageKeys.add(packageKey)
+            return true
           })
           .map((recommendation) => ({
             id: `recommended:${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`,

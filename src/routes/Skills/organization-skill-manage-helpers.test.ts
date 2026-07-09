@@ -9,7 +9,6 @@ import { buildOrganizationSkillRecommendationItems } from "./organization-skill-
 function organizationSkill(input: Partial<OrganizationSkillConfigItem>): OrganizationSkillConfigItem {
   return {
     displayName: input.displayName ?? "Gmail",
-    enabled: input.enabled ?? true,
     id: input.id ?? "org-gmail",
     order: input.order ?? 0,
     packageName: input.packageName ?? "oo-gmail",
@@ -56,6 +55,7 @@ test("buildOrganizationSkillRecommendationItems merges sources and lets organiza
     normalizedQuery: "",
     providerRecommendations: [
       providerRecommendation({ packageName: "OO-GMAIL", skillId: "gmail" }),
+      providerRecommendation({ packageName: "oo-gmail", skillId: "gmail-admin" }),
       providerRecommendation({ packageName: "oo-slack", service: "slack", skillId: "slack" }),
     ],
     skills: [organizationSkill({ packageName: "oo-gmail", skillName: "gmail" })],

@@ -48,7 +48,6 @@ export interface PublicPackageCatalogState {
 }
 
 export interface OrganizationSkillRuntimeStatusInput {
-  enabled: boolean
   packageName: string
   skillName: string
   version?: string
@@ -470,7 +469,7 @@ export function getOrganizationSkillRuntimeStatus(
   skill: OrganizationSkillRuntimeStatusInput,
 ): OrganizationSkillRuntimeStatus {
   const normalizedSkillName = skill.skillName.trim()
-  if (!skill.enabled || !normalizedSkillName) {
+  if (!normalizedSkillName) {
     return { state: "missing" }
   }
 
@@ -507,9 +506,6 @@ export function getInstallableOrganizationSkills<T extends OrganizationSkillRunt
   skills: readonly T[],
 ): T[] {
   return skills.filter((skill) => {
-    if (!skill.enabled) {
-      return false
-    }
     const status = getOrganizationSkillRuntimeStatus(groupById, skill).state
     return status === "missing" || status === "external-only"
   })

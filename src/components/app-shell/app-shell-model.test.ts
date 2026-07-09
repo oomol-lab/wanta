@@ -207,6 +207,7 @@ describe("recommended Skill empty state entry", () => {
       [{ packageName: "oo-posthog", skillName: "posthog" }],
       [
         { packageName: "oo-posthog", service: "posthog", skillId: "posthog" },
+        { packageName: "oo-posthog", service: "posthog-admin", skillId: "posthog-admin" },
         { packageName: "oo-gmail", service: "gmail", skillId: "gmail" },
       ],
     )

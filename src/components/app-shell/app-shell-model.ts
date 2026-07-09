@@ -52,28 +52,27 @@ export interface ProviderRecommendedSkillIdentity {
   skillId: string
 }
 
-function recommendedSkillKey(packageName: string | undefined, skillName: string): string | null {
+function recommendedPackageKey(packageName: string | undefined): string | null {
   const normalizedPackageName = packageName?.trim().toLowerCase()
-  const normalizedSkillName = skillName.trim().toLowerCase()
-  if (!normalizedPackageName || !normalizedSkillName) {
+  if (!normalizedPackageName) {
     return null
   }
-  return `${normalizedPackageName}\u0000${normalizedSkillName}`
+  return normalizedPackageName
 }
 
 export function getUnlinkedProviderSkillRecommendations<T extends ProviderRecommendedSkillIdentity>(
   organizationSkills: readonly RecommendedSkillIdentity[],
   providerRecommendations: readonly T[],
 ): T[] {
-  const organizationSkillKeys = new Set(
+  const organizationPackageKeys = new Set(
     organizationSkills
-      .map((skill) => recommendedSkillKey(skill.packageName, skill.skillName))
+      .map((skill) => recommendedPackageKey(skill.packageName))
       .filter((key): key is string => Boolean(key)),
   )
 
   return providerRecommendations.filter((recommendation) => {
-    const key = recommendedSkillKey(recommendation.packageName, recommendation.skillId)
-    return !key || !organizationSkillKeys.has(key)
+    const key = recommendedPackageKey(recommendation.packageName)
+    return !key || !organizationPackageKeys.has(key)
   })
 }
 

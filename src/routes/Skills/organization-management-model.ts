@@ -9,9 +9,7 @@ import type {
 } from "../../../electron/organizations/common.ts"
 import type { RuntimeSkillRemoveTarget } from "./skill-route-model.ts"
 
-import { branding } from "../../../electron/branding.ts"
 export { organizationCanManage, organizationRole } from "../../lib/organization-permissions.ts"
-import { organizationRole as getOrganizationRole } from "../../lib/organization-permissions.ts"
 import { parseProviderGrants } from "./organization-provider-access.ts"
 
 export type OrganizationRole = "creator" | "member"
@@ -78,19 +76,13 @@ export interface OrganizationManagementSnapshot {
   appAccessState: LoadState<OrganizationAppAccess | null>
   detailsOrganizationId: string | null
   membersState: LoadState<OrganizationMember[]>
-  overviewState: LoadState<OrganizationOverview | null>
   providerOptionsState: LoadState<OrganizationProviderOption[]>
   savedAt: number
-  selectedOrganizationId: string | null
   summariesState: LoadState<Record<string, OrganizationUserSummary>>
 }
 
 export interface OrganizationSkillPackageItem {
   packageName: string
-}
-
-export interface OrganizationSkillIdentityItem extends OrganizationSkillPackageItem {
-  skillName: string
 }
 
 export interface OrganizationSkillLinkInput {
@@ -110,8 +102,6 @@ export const minimumMemberSearchLength = 2
 
 const organizationNamePattern = /^[A-Za-z0-9._-]+$/
 const organizationPageSnapshotTtlMs = 30_000
-const selectedOrganizationStorageKeyPrefix = `${branding.storageKeyPrefix}:organization-management:selected-organization:`
-const legacySelectedOrganizationStorageKeyPrefix = "lumo:organization-management:selected-organization:"
 
 export const initialProviderAccessForm: ProviderAccessForm = {
   allProviders: false,
@@ -157,41 +147,6 @@ export function readOrganizationManagementSnapshot(
   }
 
   return snapshot
-}
-
-function selectedOrganizationStorageKey(accountId: string): string {
-  return `${selectedOrganizationStorageKeyPrefix}${accountId}`
-}
-
-function legacySelectedOrganizationStorageKey(accountId: string): string {
-  return `${legacySelectedOrganizationStorageKeyPrefix}${accountId}`
-}
-
-export function readSelectedOrganizationId(accountId: string): string | null {
-  try {
-    const key = selectedOrganizationStorageKey(accountId)
-    const current = window.localStorage.getItem(key)
-    if (current !== null) {
-      return current
-    }
-    const legacyKey = legacySelectedOrganizationStorageKey(accountId)
-    const legacy = window.localStorage.getItem(legacyKey)
-    if (legacy !== null) {
-      window.localStorage.setItem(key, legacy)
-      window.localStorage.removeItem(legacyKey)
-    }
-    return legacy
-  } catch {
-    return null
-  }
-}
-
-export function writeSelectedOrganizationId(accountId: string, organizationId: string): void {
-  try {
-    window.localStorage.setItem(selectedOrganizationStorageKey(accountId), organizationId)
-  } catch {
-    // 本地记录只是体验优化，失败不影响组织管理功能。
-  }
 }
 
 export function errorMessage(error: unknown): string {
@@ -273,22 +228,20 @@ export function planOrganizationSkillBulkLinks<T extends OrganizationSkillPackag
 
 export function planProviderSkillRecommendationBulkLinks<T extends { packageName: string; skillId: string }>(
   items: readonly T[],
-  linkedSkills: readonly OrganizationSkillIdentityItem[],
+  linkedSkills: readonly OrganizationSkillPackageItem[],
 ): OrganizationSkillBulkPlan<T> {
-  const linkedSkillKeys = new Set(
-    linkedSkills.map((skill) => organizationSkillIdentityKey(skill.packageName, skill.skillName)).filter(Boolean),
-  )
-  const seenSkillKeys = new Set<string>()
+  const linkedPackageKeys = createOrganizationSkillPackageSet(linkedSkills)
+  const seenPackageKeys = new Set<string>()
   const linkable: T[] = []
   const linked: T[] = []
 
   for (const item of items) {
-    const key = organizationSkillIdentityKey(item.packageName, item.skillId)
-    if (!key || seenSkillKeys.has(key)) {
+    const packageKey = organizationSkillPackageKey(item.packageName)
+    if (!packageKey || seenPackageKeys.has(packageKey)) {
       continue
     }
-    seenSkillKeys.add(key)
-    if (linkedSkillKeys.has(key)) {
+    seenPackageKeys.add(packageKey)
+    if (linkedPackageKeys.has(packageKey)) {
       linked.push(item)
     } else {
       linkable.push(item)
@@ -342,15 +295,15 @@ export function buildMemberViews(
 
 export function buildOrganizationMemberViews({
   account,
+  accountRole,
   members,
   organization,
-  overview,
   summaries,
 }: {
   account?: AccountSummaryLike
+  accountRole?: OrganizationRole | null
   members: OrganizationMember[]
   organization: Organization | null
-  overview: OrganizationOverview | null
   summaries: Record<string, OrganizationUserSummary>
 }): MemberView[] {
   const nextMembers = [...members]
@@ -382,7 +335,7 @@ export function buildOrganizationMemberViews({
 
   upsertMember(organization?.creator_user_id, "creator")
   if (account && organization) {
-    upsertMember(account.id, getOrganizationRole(overview, organization) ?? "member")
+    upsertMember(account.id, accountRole ?? organization.role ?? "member")
   }
 
   return buildMemberViews(nextMembers, fallbackSummaries)

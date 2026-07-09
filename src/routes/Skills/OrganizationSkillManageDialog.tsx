@@ -32,6 +32,7 @@ import { SearchField } from "@/components/SearchField"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAppI18n } from "@/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -153,13 +154,14 @@ export function OrganizationSkillManageDialog({
     [organizationSkills.skills, recommendationSourceFilter, recommendedOrganizationSkills],
   )
   const recommendationSourceIncludesSystem = recommendationSourceFilter !== "configured"
+  const recommendationLookupLoading = providerRecommendationsLoading && recommendationSourceIncludesSystem
   const installableRecommendedSkills = React.useMemo(
     () =>
       allRecommendationItems
         .flatMap((item) => {
           if (item.type === "configured") {
             const state = getOrganizationSkillRuntimeStatus(groupById, item.skill).state
-            return item.skill.enabled && (state === "missing" || state === "external-only")
+            return state === "missing" || state === "external-only"
               ? [{ packageName: item.skill.packageName, skillName: item.skill.skillName }]
               : []
           }
@@ -326,24 +328,6 @@ export function OrganizationSkillManageDialog({
       requestNextMarketPage()
     }
   }, [marketCatalog.status, marketPackages.length, requestNextMarketPage])
-
-  const updateOrganizationSkill = async (
-    skill: UseOrganizationSkills["skills"][number],
-    input: { enabled: boolean },
-  ): Promise<void> => {
-    if (!organizationSkills.canManage || busyConfigId) {
-      return
-    }
-    setBusyConfigId(skill.id)
-    try {
-      await organizationSkills.updateSkill(skill.id, input)
-      toast.success(input.enabled ? t("skills.organizationSkillEnabled") : t("skills.organizationSkillDisabled"))
-    } catch (error) {
-      toast.error(errorMessage(error))
-    } finally {
-      setBusyConfigId(null)
-    }
-  }
 
   const removeOrganizationSkill = async (): Promise<void> => {
     const skill = organizationRemoveTarget
@@ -559,7 +543,7 @@ export function OrganizationSkillManageDialog({
             </div>
           </div>
           {activeTab === "recommendations" ? (
-            providerRecommendationsLoading && recommendationSourceIncludesSystem ? (
+            recommendationLookupLoading && allRecommendationItems.length === 0 ? (
               <div className={skillListClassName}>
                 <OrganizationSkillPackageListSkeleton />
               </div>
@@ -612,7 +596,6 @@ export function OrganizationSkillManageDialog({
                       }
                       onRemove={() => setOrganizationRemoveTarget(item.skill)}
                       onRequestRemoveRuntimeSkill={onRequestRemoveRuntimeSkill}
-                      onToggleEnabled={() => void updateOrganizationSkill(item.skill, { enabled: !item.skill.enabled })}
                     />
                   ) : (
                     <OrganizationSkillRecommendationRow
@@ -633,6 +616,7 @@ export function OrganizationSkillManageDialog({
                     />
                   ),
                 )}
+                {recommendationLookupLoading ? <OrganizationSkillLookupLoadingRows /> : null}
               </div>
             )
           ) : (
@@ -760,5 +744,29 @@ export function OrganizationSkillManageDialog({
       </Dialog>
       {removeRecommendationDialog}
     </>
+  )
+}
+
+function OrganizationSkillLookupLoadingRows() {
+  return (
+    <div className="border-t border-[var(--oo-divider)]" aria-hidden="true">
+      {Array.from({ length: 2 }).map((_, index) => (
+        <div
+          key={index}
+          className="grid min-w-0 gap-3 border-b border-[var(--oo-divider)] px-3 py-2.5 last:border-b-0 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center"
+        >
+          <Skeleton className="size-9 rounded-md" />
+          <div className="grid min-w-0 gap-1.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <Skeleton className="h-4 w-32 rounded-md" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
+            <Skeleton className="h-3.5 w-64 max-w-full rounded-md" />
+            <Skeleton className="h-3 w-56 max-w-full rounded-md" />
+          </div>
+          <Skeleton className="h-[var(--oo-control-height-compact)] w-24 rounded-md" />
+        </div>
+      ))}
+    </div>
   )
 }

@@ -33,6 +33,7 @@ import {
   coalesceTextDeltaEvent,
   ensureMessage,
   hasVisibleMessageDelta,
+  markAssistantMessageToolsInterrupted,
   markAssistantMessageToolsCancelled,
   markLatestAssistantToolsCancelled,
   markQuestionToolAnswered,
@@ -42,6 +43,7 @@ import {
   mergeFetchedMessages,
   removePart,
   setConnectionStatusPart,
+  setGenerationNoticePart,
   setAttachmentPart,
   setErrorPart,
   setMessageArtifactRoot,
@@ -531,6 +533,19 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [markPendingPermissionsMutated, updatePendingPermissionsMap],
   )
 
+  const clearPendingPermissions = React.useCallback(
+    (sessionId: string) => {
+      markPendingPermissionsMutated(sessionId)
+      updatePendingPermissionsMap((current) => {
+        if (!current[sessionId]?.length) {
+          return current
+        }
+        return { ...current, [sessionId]: [] }
+      })
+    },
+    [markPendingPermissionsMutated, updatePendingPermissionsMap],
+  )
+
   const replyPermissionRequest = React.useCallback(
     async (sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> => {
       await chatService.invoke("answerPermission", { sessionId, requestId, reply })
@@ -883,6 +898,21 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         clearSessionError(e.sessionId)
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
+      chatService.serverEvents.on("generationInterrupted", (e) => {
+        flushPendingToolParts()
+        setStatus(e.sessionId, "error")
+        setActivity(e.sessionId, undefined)
+        clearSessionError(e.sessionId)
+        patch(e.sessionId, (msgs) => markAssistantMessageToolsInterrupted(msgs, e))
+        clearPendingQuestions(e.sessionId)
+        clearPendingPermissions(e.sessionId)
+      }),
+      chatService.serverEvents.on("generationNotice", (e) => {
+        flushPendingToolParts()
+        setStatus(e.sessionId, "streaming")
+        setActivity(e.sessionId, undefined)
+        patch(e.sessionId, (msgs) => setGenerationNoticePart(msgs, e))
+      }),
       chatService.serverEvents.on("generationStopped", (e) => {
         flushPendingToolParts()
         setStatus(e.sessionId, "ready")
@@ -890,6 +920,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         clearSessionError(e.sessionId)
         markCurrentToolsCancelled(e.sessionId, e)
         clearPendingQuestions(e.sessionId)
+        clearPendingPermissions(e.sessionId)
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("agentError", (e) => {
@@ -912,6 +943,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   }, [
     applyActiveRun,
     chatService,
+    clearPendingPermissions,
     clearSessionError,
     clearPendingQuestions,
     delayPendingToolFlushForText,
@@ -1048,6 +1080,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       markSessionUserStopped(sessionId)
       markCurrentToolsCancelled(sessionId)
       clearPendingQuestions(sessionId)
+      clearPendingPermissions(sessionId)
       try {
         await chatService.invoke("stopGeneration", sessionId)
         setStatus(sessionId, "ready")
@@ -1061,6 +1094,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     },
     [
       chatService,
+      clearPendingPermissions,
       clearSessionError,
       clearPendingQuestions,
       markCurrentToolsCancelled,

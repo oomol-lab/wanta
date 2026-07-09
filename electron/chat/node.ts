@@ -20,6 +20,8 @@ import type {
   ChatRunWorkspace,
   ChatService,
   ChatProjectContext,
+  GenerationInterruptedReason,
+  GenerationNoticeKind,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
   LocalArtifactGroup,
@@ -70,6 +72,11 @@ import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack }
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 import {
+  generationNoticeKindForInactivity,
+  inactivityWatchdogActionForEvent,
+  terminalConnectionInterruption,
+} from "./turn-lifecycle.ts"
+import {
   intermediateArtifactProcessFiles,
   isPathInside,
   normalizeProjectPath,
@@ -82,6 +89,7 @@ import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 export { buildContextMentionsSystem } from "./context-system.ts"
 
 const userStopAbortWindowMs = 30_000
+const generationSubmitTimeoutMs = 45_000
 const generationStartAckTimeoutMs = 45_000
 const generationInactivityTimeoutMs = 2 * 60_000
 const generationActiveToolInactivityTimeoutMs = 10 * 60_000
@@ -229,6 +237,12 @@ interface SessionGeneration {
   id: string
 }
 
+interface StopSessionGenerationOptions {
+  abortAgent: boolean
+  reason: "system" | "user"
+  throwOnAbortFailure: boolean
+}
+
 export function isAbortErrorMessage(message: string): boolean {
   const normalized = message
     .trim()
@@ -267,6 +281,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private generationStartWatchdogs = new Map<string, NodeJS.Timeout>()
   private generationInactivityWatchdogs = new Map<string, NodeJS.Timeout>()
   private connectionFailedSessions = new Set<string>()
+  private childSessionsByParent = new Map<string, Set<string>>()
+  private parentSessionByChild = new Map<string, string>()
   private trustedProjectRoots = new Map<string, string>()
   private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
   private permissionModes = new Map<string, AgentPermissionMode>()
@@ -320,6 +336,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearAllGenerationStartWatchdogs()
     this.clearAllGenerationInactivityWatchdogs()
     this.connectionFailedSessions.clear()
+    this.childSessionsByParent.clear()
+    this.parentSessionByChild.clear()
     this.trustedProjectRoots.clear()
     this.trustedSubagentSessionsByParent.clear()
     this.permissionModes.clear()
@@ -372,15 +390,18 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     this.agent.subscribe((event) => {
       for (const translated of translateOpencodeEvent(event)) {
-        if (translated.data.sessionId && this.connectionFailedSessions.has(translated.data.sessionId)) {
+        const sourceSessionId = translated.data.sessionId
+        const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
+        const failedSessionId = generationSessionId ?? sourceSessionId
+        if (failedSessionId && this.connectionFailedSessions.has(failedSessionId)) {
           continue
         }
         if (
           translated.event === "agentError" &&
-          translated.data.sessionId &&
-          this.consumeUserStopAbort(translated.data.sessionId, translated.data.message)
+          sourceSessionId &&
+          this.consumeUserStopAbort(sourceSessionId, translated.data.message)
         ) {
-          const sessionId = translated.data.sessionId
+          const sessionId = sourceSessionId
           const messageId = this.activeAssistantMessages.get(sessionId)
           const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
           const stoppedAt = Date.now()
@@ -411,24 +432,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (this.shouldSuppressUserStoppedEvent(translated)) {
           continue
         }
-        const sessionId = translated.data.sessionId
-        if (sessionId) {
-          this.clearGenerationStartWatchdog(sessionId)
+        const activitySessionId = generationSessionId ?? sourceSessionId
+        if (activitySessionId) {
+          this.clearGenerationStartWatchdog(activitySessionId)
         }
         if (translated.event === "messageStarted") {
-          this.emitSessionActivity(translated.data.sessionId)
+          this.emitSessionActivity(generationSessionId ?? translated.data.sessionId)
         }
         if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
-          const generationSessionId = this.generationWatchdogSessionId(translated.data.sessionId)
           if (generationSessionId) {
             this.clearGenerationInactivityWatchdog(generationSessionId)
           }
           continue
         }
-        if (translated.event === "permissionAsked") {
-          this.rememberPendingPermissionRequest(translated.data.request)
+        const displayed = this.translatedForDisplay(translated)
+        const displayedSessionId = displayed.data.sessionId
+        if (
+          sourceSessionId &&
+          generationSessionId &&
+          sourceSessionId !== generationSessionId &&
+          displayed === translated
+        ) {
+          this.scheduleGenerationInactivityWatchdog(generationSessionId)
+          continue
         }
-        this.updateActiveRunFromEvent(translated)
+        if (displayed.event === "permissionAsked") {
+          this.rememberPendingPermissionRequest(displayed.data.request)
+        }
+        this.updateActiveRunFromEvent(displayed)
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
           this.activeToolParts.set(translated.data.sessionId, new Set())
@@ -470,6 +501,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           })
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
+            this.rememberChildSession(translated.data.sessionId, childSessionId)
             this.rememberTrustedSubagentSession(translated.data.sessionId, childSessionId)
           }
         }
@@ -486,6 +518,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           })
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
+            this.forgetChildSession(translated.data.sessionId, childSessionId)
             this.forgetTrustedSubagentSession(translated.data.sessionId, childSessionId)
           }
           if (translated.data.authorization) {
@@ -501,20 +534,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "agentError" && translated.data.sessionId) {
           const sessionId = translated.data.sessionId
-          const messageId = this.activeAssistantMessages.get(sessionId)
           this.clearGenerationInactivityWatchdog(sessionId)
-          void this.finalizeTurnOutput(sessionId, messageId)
-            .catch((error: unknown) => {
-              console.warn("[wanta] failed to finalize errored turn output", error)
-            })
-            .finally(() => {
-              this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
-              this.activeToolParts.delete(sessionId)
-              this.deleteActiveRun(sessionId)
-              this.emitSessionActivity(sessionId)
-              this.emitMessageError(emit, sessionId, translated.data.message, messageId)
-            })
+          void this.interruptSessionGeneration(emit, sessionId, "runtime_error", translated.data.message, {
+            abortAgent: false,
+          })
           continue
         }
         if (translated.event === "messageCompleted") {
@@ -535,9 +558,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
           continue
         }
-        if (sessionId) {
-          const generationSessionId = this.generationWatchdogSessionId(sessionId)
-          if (translated.event === "questionAsked" || translated.event === "permissionAsked") {
+        if (sourceSessionId) {
+          if (inactivityWatchdogActionForEvent(displayed.event) === "pause") {
             if (generationSessionId) {
               this.clearGenerationInactivityWatchdog(generationSessionId)
             }
@@ -545,7 +567,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             this.scheduleGenerationInactivityWatchdog(generationSessionId)
           }
         }
-        this.sendBestEffort(emit, translated.event, translated.data, { sessionId: translated.data.sessionId })
+        this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
       }
     }, handleConnectionStatus)
   }
@@ -570,14 +592,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (sessionIds.size === 0) {
       return
     }
-    const terminalMessage =
-      status.status === "failed"
-        ? "CHAT_COMPLETION_INTERRUPTED: OpenCode event stream reconnection failed."
-        : status.status === "runtime_recovered"
-          ? "CHAT_COMPLETION_INTERRUPTED: OpenCode runtime restarted before this turn completed."
-          : status.status === "runtime_failed"
-            ? "CHAT_COMPLETION_INTERRUPTED: OpenCode runtime could not restart."
-            : null
+    const terminal = terminalConnectionInterruption(status)
     for (const sessionId of sessionIds) {
       const messageId = this.activeAssistantMessages.get(sessionId)
       this.sendBestEffort(
@@ -594,22 +609,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         },
         { messageId, sessionId },
       )
-      if (!terminalMessage) {
+      if (!terminal) {
         continue
       }
       this.connectionFailedSessions.add(sessionId)
-      void this.finalizeTurnOutput(sessionId, messageId)
-        .catch((error: unknown) => {
-          console.warn("[wanta] failed to finalize disconnected turn output", error)
-        })
-        .finally(() => {
-          this.clearSessionGeneration(sessionId)
-          this.activeAssistantMessages.delete(sessionId)
-          this.activeToolParts.delete(sessionId)
-          this.deleteActiveRun(sessionId)
-          this.emitSessionActivity(sessionId)
-          this.emitMessageError(emit, sessionId, terminalMessage, messageId)
-        })
+      void this.interruptSessionGeneration(emit, sessionId, terminal.reason, terminal.message, {
+        abortAgent: false,
+      })
     }
   }
 
@@ -1034,6 +1040,78 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
+  private rememberChildSession(parentSessionId: string, childSessionId: string): void {
+    const childSessionIds = this.childSessionsByParent.get(parentSessionId) ?? new Set<string>()
+    childSessionIds.add(childSessionId)
+    this.childSessionsByParent.set(parentSessionId, childSessionIds)
+    this.parentSessionByChild.set(childSessionId, parentSessionId)
+  }
+
+  private forgetChildSession(parentSessionId: string, childSessionId: string): void {
+    const childSessionIds = this.childSessionsByParent.get(parentSessionId)
+    if (childSessionIds) {
+      childSessionIds.delete(childSessionId)
+      if (childSessionIds.size === 0) {
+        this.childSessionsByParent.delete(parentSessionId)
+      }
+    }
+    if (this.parentSessionByChild.get(childSessionId) === parentSessionId) {
+      this.parentSessionByChild.delete(childSessionId)
+    }
+  }
+
+  private forgetChildSessions(parentSessionId: string): void {
+    const childSessionIds = this.childSessionsByParent.get(parentSessionId)
+    if (!childSessionIds) {
+      return
+    }
+    for (const childSessionId of childSessionIds) {
+      if (this.parentSessionByChild.get(childSessionId) === parentSessionId) {
+        this.parentSessionByChild.delete(childSessionId)
+      }
+    }
+    this.childSessionsByParent.delete(parentSessionId)
+  }
+
+  private displaySessionIdForEvent(sessionId: string): string {
+    return this.parentSessionByChild.get(sessionId) ?? sessionId
+  }
+
+  private translatedForDisplay(translated: ChatEmit): ChatEmit {
+    const sessionId = translated.data.sessionId
+    if (!sessionId) {
+      return translated
+    }
+    const displaySessionId = this.displaySessionIdForEvent(sessionId)
+    if (displaySessionId === sessionId) {
+      return translated
+    }
+    switch (translated.event) {
+      case "permissionAsked":
+        return {
+          ...translated,
+          data: {
+            sessionId: displaySessionId,
+            request: { ...translated.data.request, sessionId: displaySessionId },
+          },
+        }
+      case "questionAsked":
+        return {
+          ...translated,
+          data: {
+            sessionId: displaySessionId,
+            request: { ...translated.data.request, sessionId: displaySessionId },
+          },
+        }
+      case "permissionReplied":
+      case "questionRejected":
+      case "questionReplied":
+        return { ...translated, data: { ...translated.data, sessionId: displaySessionId } }
+      default:
+        return translated
+    }
+  }
+
   private rememberTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
     const projectRoot = this.trustedProjectRoots.get(parentSessionId)
     const permissionMode = this.permissionModes.get(parentSessionId)
@@ -1115,6 +1193,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     this.clearGenerationStartWatchdog(sessionId)
     this.clearGenerationInactivityWatchdog(sessionId)
+    this.forgetChildSessions(sessionId)
     this.forgetTrustedSubagentSessions(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
     this.sessionGenerations.delete(sessionId)
@@ -1132,16 +1211,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
       console.warn("[wanta] generation did not receive an OpenCode event before timeout:", { sessionId })
       logDiagnostic("chat-service", "generation did not receive opencode event before timeout", { sessionId }, "warn")
-      const messageId = this.activeAssistantMessages.get(sessionId)
-      void this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: false }).finally(() => {
-        this.emitMessageError(
-          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-          sessionId,
-          "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not acknowledge this message. Please retry.",
-          messageId,
-        )
-      })
+      void this.interruptSessionGeneration(
+        this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+        sessionId,
+        "start_timeout",
+        "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not acknowledge this message. Please retry.",
+        { abortAgent: true },
+      )
     }, generationStartAckTimeoutMs)
+    timer.unref?.()
+    this.generationStartWatchdogs.set(sessionId, timer)
+  }
+
+  private scheduleGenerationSubmitWatchdog(sessionId: string, generationId: string): void {
+    this.clearGenerationStartWatchdog(sessionId)
+    const timer = setTimeout(() => {
+      if (!this.isCurrentGeneration(sessionId, generationId)) {
+        return
+      }
+      console.warn("[wanta] generation was not accepted by OpenCode before timeout:", { sessionId })
+      logDiagnostic("chat-service", "generation was not accepted by opencode before timeout", { sessionId }, "warn")
+      void this.interruptSessionGeneration(
+        this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+        sessionId,
+        "submit_timeout",
+        "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not accept this message. Please retry.",
+        { abortAgent: true },
+      )
+    }, generationSubmitTimeoutMs)
     timer.unref?.()
     this.generationStartWatchdogs.set(sessionId, timer)
   }
@@ -1177,41 +1274,97 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const generationId = generation.id
     const timeoutMs = this.generationInactivityTimeoutForSession(sessionId)
     const timer = setTimeout(() => {
+      this.generationInactivityWatchdogs.delete(sessionId)
       if (!this.isCurrentGeneration(sessionId, generationId)) {
         return
       }
+      const noticeKind = generationNoticeKindForInactivity({
+        activeToolCount: this.activeToolParts.get(sessionId)?.size ?? 0,
+        blocked: Boolean(this.activeRunBlockingPhase(sessionId)),
+      })
+      if (!noticeKind) {
+        return
+      }
       console.warn("[wanta] generation stopped receiving OpenCode events before completion:", {
+        noticeKind,
         sessionId,
         timeoutMs,
       })
       logDiagnostic(
         "chat-service",
-        "generation stopped receiving opencode events before completion",
-        { sessionId, timeoutMs },
+        "generation has not received opencode events recently",
+        { noticeKind, sessionId, timeoutMs },
         "warn",
       )
-      const messageId = this.activeAssistantMessages.get(sessionId)
-      void this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: false }).finally(() => {
-        this.emitMessageError(
-          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-          sessionId,
-          "CHAT_COMPLETION_INTERRUPTED: Agent runtime stopped sending updates before the response completed. Please retry.",
-          messageId,
-        )
-      })
+      this.emitGenerationNotice(
+        this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+        sessionId,
+        noticeKind,
+      )
     }, timeoutMs)
     timer.unref?.()
     this.generationInactivityWatchdogs.set(sessionId, timer)
+  }
+
+  private emitGenerationNotice(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    kind: GenerationNoticeKind,
+  ): void {
+    const messageId = this.activeAssistantMessages.get(sessionId)
+    const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+    this.sendBestEffort(
+      emit,
+      "generationNotice",
+      {
+        sessionId,
+        ...(messageId ? { messageId } : {}),
+        ...(partIds.length > 0 ? { partIds } : {}),
+        createdAt: Date.now(),
+        kind,
+      },
+      { messageId, sessionId },
+    )
+  }
+
+  private async interruptSessionGeneration(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    reason: GenerationInterruptedReason,
+    message: string,
+    options: { abortAgent: boolean },
+  ): Promise<void> {
+    const messageId = this.activeAssistantMessages.get(sessionId)
+    const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+    const interruptedAt = Date.now()
+    await this.stopSessionGeneration(sessionId, {
+      abortAgent: options.abortAgent,
+      reason: "system",
+      throwOnAbortFailure: false,
+    })
+    this.sendBestEffort(
+      emit,
+      "generationInterrupted",
+      {
+        sessionId,
+        ...(messageId ? { messageId } : {}),
+        ...(partIds.length > 0 ? { partIds } : {}),
+        interruptedAt,
+        reason,
+        message,
+      },
+      { messageId, sessionId },
+    )
+    this.emitMessageError(emit, sessionId, message, messageId)
   }
 
   private generationWatchdogSessionId(sessionId: string): string | null {
     if (this.sessionGenerations.has(sessionId)) {
       return sessionId
     }
-    for (const [parentSessionId, childSessionIds] of this.trustedSubagentSessionsByParent) {
-      if (childSessionIds.has(sessionId) && this.sessionGenerations.has(parentSessionId)) {
-        return parentSessionId
-      }
+    const parentSessionId = this.parentSessionByChild.get(sessionId)
+    if (parentSessionId && this.sessionGenerations.has(parentSessionId)) {
+      return parentSessionId
     }
     return null
   }
@@ -1305,10 +1458,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return translated.event !== "messageCompleted"
   }
 
-  private async stopSessionGeneration(
-    sessionId: string,
-    options: { abortAgent: boolean; throwOnAbortFailure: boolean },
-  ): Promise<void> {
+  private async stopSessionGeneration(sessionId: string, options: StopSessionGenerationOptions): Promise<void> {
     if (!this.agent) {
       return
     }
@@ -1328,7 +1478,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         console.warn("[wanta] generation abort failed:", error)
       }
     }
-    if (messageId) {
+    if (options.reason === "user" && messageId) {
       await this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
         console.warn("[wanta] failed to record stopped generation", error)
       })
@@ -1342,13 +1492,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.deleteActiveTurnOutput(sessionId, generation?.id)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
-    await this.send("generationStopped", {
-      sessionId,
-      ...(messageId ? { messageId, partIds, stoppedAt } : {}),
-    }).catch((error: unknown) => {
-      console.warn("[wanta] failed to emit generation stopped:", error)
-      logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
-    })
+    if (options.reason === "user") {
+      await this.send("generationStopped", {
+        sessionId,
+        ...(messageId ? { messageId, partIds, stoppedAt } : {}),
+      }).catch((error: unknown) => {
+        console.warn("[wanta] failed to emit generation stopped:", error)
+        logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
+      })
+    }
   }
 
   public async isReady(): Promise<boolean> {
@@ -1422,7 +1574,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       const promptGeneration = activeGeneration
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.updateActiveRun(req.sessionId, { phase: "submitted" })
-      this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
+      this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
       void this.agent
         .promptStreaming(req.sessionId, req.text, {
           attachments: req.attachments,
@@ -1439,6 +1591,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             buildProjectContextSystem(req.projectContext),
             buildPermissionModeSystem(req.permissionMode),
           ),
+        })
+        .then(() => {
+          if (
+            this.isCurrentGeneration(req.sessionId, promptGeneration.id) &&
+            !promptGeneration.controller.signal.aborted &&
+            !this.activeAssistantMessages.has(req.sessionId)
+          ) {
+            this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
+          }
         })
         .catch((error: unknown) => {
           if (artifactDir) {
@@ -1804,7 +1965,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     this.markUserStopped(sessionId)
-    await this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: true })
+    await this.stopSessionGeneration(sessionId, { abortAgent: true, reason: "user", throwOnAbortFailure: true })
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -1828,7 +1989,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return []
     }
-    return this.agent.getPendingQuestions(sessionId)
+    const sessionIds = [sessionId, ...(this.childSessionsByParent.get(sessionId) ?? [])]
+    const questions: ChatQuestionRequest[] = []
+    for (const currentSessionId of sessionIds) {
+      const sessionQuestions = await this.agent.getPendingQuestions(currentSessionId)
+      for (const request of sessionQuestions) {
+        const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+        questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
+      }
+    }
+    return questions
   }
 
   public async answerQuestion(req: AnswerQuestionRequest): Promise<void> {
@@ -1859,14 +2029,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return []
     }
-    const permissions = await this.agent.getPendingPermissions(sessionId)
+    const sessionIds = [sessionId, ...(this.childSessionsByParent.get(sessionId) ?? [])]
     const pendingPermissions: ChatPermissionRequest[] = []
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
-    for (const request of permissions) {
-      if (!this.answerLocalAccessPermission(emit, request)) {
-        this.rememberPendingPermissionRequest(request)
-        this.addActiveRunBlockingRequest(request.sessionId, request.id, "awaiting_permission")
-        pendingPermissions.push(request)
+    for (const currentSessionId of sessionIds) {
+      const permissions = await this.agent.getPendingPermissions(currentSessionId)
+      for (const request of permissions) {
+        if (!this.answerLocalAccessPermission(emit, request)) {
+          const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+          const displayRequest =
+            displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
+          this.rememberPendingPermissionRequest(displayRequest)
+          this.addActiveRunBlockingRequest(displaySessionId, displayRequest.id, "awaiting_permission")
+          pendingPermissions.push(displayRequest)
+        }
       }
     }
     return pendingPermissions

@@ -416,6 +416,10 @@ function statusPartText(t: TranslateFn, part: ChatMessagePart): string {
       return t("chat.connectionReconnected")
     case "connectionFailed":
       return t("chat.connectionFailed")
+    case "generationStale":
+      return t("chat.generationStale")
+    case "toolRunningWithoutOutput":
+      return t("chat.toolRunningWithoutOutput")
     case "runtimeRestarting":
       return part.attempt && part.maxAttempts
         ? t("chat.runtimeRestartingWithAttempt", { attempt: part.attempt, maxAttempts: part.maxAttempts })

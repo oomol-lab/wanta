@@ -196,6 +196,31 @@ export interface GenerationStoppedEvent {
   partIds?: string[]
   stoppedAt?: number
 }
+export type GenerationInterruptedReason =
+  | "connection_failed"
+  | "generation_stale"
+  | "runtime_failed"
+  | "runtime_restarted"
+  | "runtime_error"
+  | "start_timeout"
+  | "submit_timeout"
+
+export interface GenerationInterruptedEvent {
+  sessionId: string
+  messageId?: string
+  partIds?: string[]
+  interruptedAt: number
+  reason: GenerationInterruptedReason
+  message: string
+}
+export type GenerationNoticeKind = "generation_stale" | "tool_running_without_output"
+export interface GenerationNoticeEvent {
+  sessionId: string
+  messageId?: string
+  partIds?: string[]
+  createdAt: number
+  kind: GenerationNoticeKind
+}
 export type ChatRunPhase =
   | "sending"
   | "submitted"
@@ -260,9 +285,11 @@ export interface ChatMessagePart {
     | "reconnecting"
     | "reconnected"
     | "connectionFailed"
+    | "generationStale"
     | "runtimeRestarting"
     | "runtimeRecovered"
     | "runtimeFailed"
+    | "toolRunningWithoutOutput"
   attempt?: number
   maxAttempts?: number
   errorText?: string
@@ -759,6 +786,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
+    generationInterrupted: GenerationInterruptedEvent
+    generationNotice: GenerationNoticeEvent
     activeRunUpdated: ActiveRunUpdatedEvent
     agentConnectionChanged: AgentConnectionChangedEvent
     agentError: AgentErrorEvent

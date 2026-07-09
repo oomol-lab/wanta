@@ -129,6 +129,12 @@ async function waitForMessageErrorCount(events: Array<{ event: string; data: unk
   }
 }
 
+function lastEventData<T>(events: Array<{ event: string; data: unknown }>): T {
+  const event = events.at(-1)
+  assert.ok(event)
+  return event.data as T
+}
+
 test("isAbortErrorMessage recognizes controlled stop errors only", () => {
   assert.equal(isAbortErrorMessage("Aborted"), true)
   assert.equal(isAbortErrorMessage("AbortError"), true)
@@ -792,7 +798,7 @@ test("stopGeneration cancels a submitted turn before prompt streaming starts", a
   assert.equal(bridge.promptStreaming.mock.calls.length, 0)
 })
 
-test("sendMessage does not start the OpenCode ack watchdog before prompt streaming starts", async () => {
+test("sendMessage does not start the OpenCode submit watchdog before prompt streaming starts", async () => {
   vi.useFakeTimers()
   const bridge = createBridgeAgent()
   let resolveArtifactDir: ((value: string) => void) | undefined
@@ -828,9 +834,14 @@ test("sendMessage does not start the OpenCode ack watchdog before prompt streami
     assert.equal(service.hasActiveGeneration(), false)
     assert.equal(events.at(-1)?.event, "messageError")
   })
+  const messageError = events.at(-1) as { data: { message?: string }; event: string }
+  assert.equal(
+    messageError.data.message,
+    "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not accept this message. Please retry.",
+  )
 })
 
-test("sendMessage releases a submitted turn when OpenCode never acknowledges it", async () => {
+test("sendMessage releases a submitted turn when OpenCode never accepts it", async () => {
   vi.useFakeTimers()
   const bridge = createBridgeAgent()
   bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
@@ -847,7 +858,39 @@ test("sendMessage releases a submitted turn when OpenCode never acknowledges it"
   })
 
   assert.equal(bridge.abort.mock.calls.length, 1)
-  assert.ok(events.some((event) => event.event === "generationStopped"))
+  assert.ok(events.some((event) => event.event === "generationInterrupted"))
+  assert.equal(
+    events.some((event) => event.event === "generationStopped"),
+    false,
+  )
+  const messageError = events.at(-1) as { data: { message?: string }; event: string }
+  assert.equal(
+    messageError.data.message,
+    "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not accept this message. Please retry.",
+  )
+})
+
+test("sendMessage releases an accepted turn when OpenCode never acknowledges it", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  await Promise.resolve()
+  assert.equal(service.hasActiveGeneration(), true)
+
+  await vi.advanceTimersByTimeAsync(45_000)
+  await vi.waitFor(() => {
+    assert.equal(service.hasActiveGeneration(), false)
+    assert.equal(events.at(-1)?.event, "messageError")
+  })
+
+  assert.equal(bridge.abort.mock.calls.length, 1)
+  const interrupted = events.find((event) => event.event === "generationInterrupted") as
+    | { data: { reason?: string } }
+    | undefined
+  assert.equal(interrupted?.data.reason, "start_timeout")
   const messageError = events.at(-1) as { data: { message?: string }; event: string }
   assert.equal(
     messageError.data.message,
@@ -855,7 +898,7 @@ test("sendMessage releases a submitted turn when OpenCode never acknowledges it"
   )
 })
 
-test("sendMessage releases a turn when OpenCode stops sending events before idle", async () => {
+test("sendMessage reports a stale turn without stopping it when OpenCode is silent before idle", async () => {
   vi.useFakeTimers()
   const bridge = createBridgeAgent()
   bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
@@ -885,18 +928,19 @@ test("sendMessage releases a turn when OpenCode stops sending events before idle
   assert.equal(service.hasActiveGeneration(), true)
 
   await vi.advanceTimersByTimeAsync(2 * 60_000)
-  await vi.waitFor(() => {
-    assert.equal(service.hasActiveGeneration(), false)
-    assert.equal(events.at(-1)?.event, "messageError")
-  })
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.at(-1)?.event, "generationNotice")
 
-  assert.equal(bridge.abort.mock.calls.length, 1)
-  assert.ok(events.some((event) => event.event === "generationStopped"))
-  const messageError = events.at(-1) as { data: { message?: string }; event: string }
+  assert.equal(bridge.abort.mock.calls.length, 0)
   assert.equal(
-    messageError.data.message,
-    "CHAT_COMPLETION_INTERRUPTED: Agent runtime stopped sending updates before the response completed. Please retry.",
+    events.some((event) => event.event === "generationStopped"),
+    false,
   )
+  assert.equal(
+    events.some((event) => event.event === "messageError"),
+    false,
+  )
+  assert.equal(lastEventData<{ kind?: string }>(events).kind, "generation_stale")
 })
 
 test("sendMessage keeps a silent running tool alive past the short inactivity timeout", async () => {
@@ -932,10 +976,10 @@ test("sendMessage keeps a silent running tool alive past the short inactivity ti
   assert.equal(events.at(-1)?.event, "toolCallStarted")
 
   await vi.advanceTimersByTimeAsync(8 * 60_000)
-  await vi.waitFor(() => {
-    assert.equal(service.hasActiveGeneration(), false)
-    assert.equal(events.at(-1)?.event, "messageError")
-  })
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.at(-1)?.event, "generationNotice")
+  assert.equal(lastEventData<{ kind?: string }>(events).kind, "tool_running_without_output")
+  assert.equal(bridge.abort.mock.calls.length, 0)
 })
 
 test("answerQuestion restarts inactivity monitoring after a waiting question", async () => {
@@ -985,11 +1029,10 @@ test("answerQuestion restarts inactivity monitoring after a waiting question", a
 
   await service.answerQuestion({ sessionId: "session-1", requestId: "question-1", answers: [["Test"]] })
   await vi.advanceTimersByTimeAsync(10 * 60_000)
-  await vi.waitFor(() => {
-    assert.equal(service.hasActiveGeneration(), false)
-    assert.equal(events.at(-1)?.event, "messageError")
-  })
-  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.at(-1)?.event, "generationNotice")
+  assert.equal(lastEventData<{ kind?: string }>(events).kind, "tool_running_without_output")
+  assert.equal(bridge.abort.mock.calls.length, 0)
 })
 
 test("answerPermission restarts inactivity monitoring after a waiting permission", async () => {
@@ -1021,11 +1064,10 @@ test("answerPermission restarts inactivity monitoring after a waiting permission
 
   await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "once" })
   await vi.advanceTimersByTimeAsync(2 * 60_000)
-  await vi.waitFor(() => {
-    assert.equal(service.hasActiveGeneration(), false)
-    assert.equal(events.at(-1)?.event, "messageError")
-  })
-  assert.equal(bridge.abort.mock.calls.length, 1)
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.at(-1)?.event, "generationNotice")
+  assert.equal(lastEventData<{ kind?: string }>(events).kind, "generation_stale")
+  assert.equal(bridge.abort.mock.calls.length, 0)
 })
 
 test("rejectQuestion resolves the waiting question without stopping the generation", async () => {
@@ -1281,10 +1323,10 @@ test("trusted project permission approval restarts inactivity monitoring", async
     assert.equal(bridge.answerPermission.mock.calls.length, 1)
   })
   await vi.advanceTimersByTimeAsync(2 * 60_000)
-  await vi.waitFor(() => {
-    assert.equal(service.hasActiveGeneration(), false)
-    assert.equal(events.at(-1)?.event, "messageError")
-  })
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(events.at(-1)?.event, "generationNotice")
+  assert.equal(lastEventData<{ kind?: string }>(events).kind, "generation_stale")
+  assert.equal(bridge.abort.mock.calls.length, 0)
 })
 
 test("trusted project permissions are approved for task subagent sessions", async () => {
@@ -1421,6 +1463,120 @@ test("task subagent permission prompts pause the parent generation inactivity wa
   await vi.advanceTimersByTimeAsync(10 * 60_000)
 
   assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(bridge.abort.mock.calls.length, 0)
+})
+
+test("task subagent activity keeps the parent generation fresh without trusted project context", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "parent-session", text: "Analyze broadly" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "parent-session", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: {
+            parentSessionId: "parent-session",
+            sessionId: "child-session",
+          },
+        },
+      },
+    },
+  })
+
+  await vi.advanceTimersByTimeAsync(9 * 60_000)
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "child-assistant-1", sessionID: "child-session", role: "assistant" } },
+  })
+  await vi.advanceTimersByTimeAsync(2 * 60_000)
+
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(
+    events.some((event) => event.event === "generationNotice"),
+    false,
+  )
+
+  await vi.advanceTimersByTimeAsync(8 * 60_000)
+  assert.equal(events.at(-1)?.event, "generationNotice")
+  assert.equal(lastEventData<{ kind?: string }>(events).kind, "tool_running_without_output")
+})
+
+test("task subagent permission prompts are displayed on the parent run without trusted project context", async () => {
+  vi.useFakeTimers()
+  const bridge = createBridgeAgent()
+  bridge.promptStreaming.mockImplementationOnce(() => new Promise<void>(() => undefined))
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "parent-session", text: "Analyze broadly" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "parent-session", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: {
+            parentSessionId: "parent-session",
+            sessionId: "child-session",
+          },
+        },
+      },
+    },
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "child-session",
+      action: "external_directory",
+      resources: ["/Users/example"],
+    },
+  })
+
+  const permissionEvent = events.find((event) => event.event === "permissionAsked") as
+    | { data: { request?: { sessionId?: string }; sessionId?: string } }
+    | undefined
+  assert.equal(permissionEvent?.data.sessionId, "parent-session")
+  assert.equal(permissionEvent?.data.request?.sessionId, "parent-session")
+  assert.equal((await service.getActiveRun("parent-session"))?.phase, "awaiting_permission")
+
+  await vi.advanceTimersByTimeAsync(10 * 60_000)
+
+  assert.equal(service.hasActiveGeneration(), true)
+  assert.equal(
+    events.some((event) => event.event === "generationNotice"),
+    false,
+  )
   assert.equal(bridge.abort.mock.calls.length, 0)
 })
 

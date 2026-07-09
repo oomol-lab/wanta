@@ -4,6 +4,8 @@ import type {
   AgentConnectionChangedEvent,
   ChatMessage,
   ChatMessagePart,
+  GenerationInterruptedEvent,
+  GenerationNoticeEvent,
   ChatQuestionRequest,
   ChatRole,
   MessageAttachmentEvent,
@@ -257,8 +259,26 @@ export function setConnectionStatusPart(msgs: ChatMessage[], event: AgentConnect
   )
 }
 
+export function setGenerationNoticePart(msgs: ChatMessage[], event: GenerationNoticeEvent): ChatMessage[] {
+  const statusType = event.kind === "tool_running_without_output" ? "toolRunningWithoutOutput" : "generationStale"
+  const messageId = event.messageId ?? latestAssistantMessageId(msgs) ?? `local-assistant-status-${event.createdAt}`
+  const part: ChatMessagePart = {
+    kind: "status",
+    partId: `generation-notice-${event.kind}`,
+    statusType,
+  }
+  const ensured = ensureMessage(msgs, messageId, "assistant")
+  return ensured.map((message) =>
+    message.id === messageId ? { ...message, parts: upsertPart(message.parts, part) } : message,
+  )
+}
+
 function shouldCancelToolPart(part: ChatMessagePart): boolean {
   return part.kind === "tool" && (part.status === "pending" || part.status === "running" || part.status === "error")
+}
+
+function shouldInterruptToolPart(part: ChatMessagePart): boolean {
+  return part.kind === "tool" && (part.status === "pending" || part.status === "running")
 }
 
 function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessagePart {
@@ -268,6 +288,17 @@ function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessag
     ...part,
     cancelled: true,
     ...(shouldFreezeTiming ? { timing: { ...part.timing, end: stoppedAt } } : {}),
+  }
+}
+
+function interruptedToolPart(part: ChatMessagePart, event: GenerationInterruptedEvent): ChatMessagePart {
+  const shouldFreezeTiming = typeof part.timing?.end !== "number"
+  return {
+    ...part,
+    status: "error",
+    error: part.error ?? event.message,
+    cancelled: false,
+    ...(shouldFreezeTiming ? { timing: { ...part.timing, end: event.interruptedAt } } : {}),
   }
 }
 
@@ -422,6 +453,33 @@ export function markAssistantMessageToolsCancelled(
     return partsChanged ? { ...message, parts } : message
   })
   return { messages: changed ? messages : msgs, partIds: cancelledPartIds }
+}
+
+export function markAssistantMessageToolsInterrupted(
+  msgs: ChatMessage[],
+  event: GenerationInterruptedEvent,
+): ChatMessage[] {
+  if (!event.messageId) {
+    return msgs
+  }
+  const targetPartIdSet = event.partIds ? new Set(event.partIds) : null
+  let changed = false
+  const messages = msgs.map((message) => {
+    if (message.id !== event.messageId || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (!shouldInterruptToolPart(part) || (targetPartIdSet && !targetPartIdSet.has(part.partId))) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      return interruptedToolPart(part, event)
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return changed ? messages : msgs
 }
 
 export function applyCancelledToolParts(

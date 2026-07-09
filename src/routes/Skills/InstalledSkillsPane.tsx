@@ -66,7 +66,7 @@ export function InstalledSkillsPane({
 
   return (
     <div className="min-h-0 overflow-auto px-3 py-3">
-      <div className="grid gap-3 pr-1">
+      <div className="grid gap-3">
         <CliUpdateNotice
           cli={cliVersionCheck}
           error={cliUpdateError}

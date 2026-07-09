@@ -128,7 +128,7 @@ export function DiscoverSkillsPane({
 
   return (
     <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
-      <div className="grid gap-3 pr-1">
+      <div className="grid gap-3">
         {onOpenOrganizationRecommendations && providerRecommendations.length > 0 ? (
           <ProviderSkillRecommendationNotice
             count={providerRecommendations.length}

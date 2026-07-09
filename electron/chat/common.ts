@@ -614,19 +614,9 @@ export interface SetAgentOrganizationRequest {
   organizationName?: string
 }
 
-export type BillingPageTarget = "recharge" | "usage"
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
 export type BillingPeriodDays = 7 | 30 | 90
-export type SubscriptionPlanTag = "ai_pro" | "ai_max"
 export type WantaSubscriptionPlan = "wanta_plus" | "wanta_pro"
-
-export interface OpenBillingPageRequest {
-  target: BillingPageTarget
-}
-
-export interface OpenTopUpCheckoutRequest {
-  price: RechargePrice
-}
 
 export interface CreditBalanceResult {
   balance: string | null
@@ -673,36 +663,12 @@ export interface BillingSpendStats {
   total: { totalCredit?: string; eventCount?: number; totalUsage?: string }
 }
 
-export interface BillingLogItem {
-  debitCredit: string
-  eventID: string
-  userID: string
-  source: string
-  subject: string
-  sourceType: string
-  serviceScope: string
-  traceID: string
-  payload: Record<string, unknown>
-  createdAt: number
-}
-
 export interface SubscriptionStatus {
   plans: string[]
   plan: string | null
   features: string[]
   platforms: Record<string, string[]>
   wanta?: WantaAdditionalSeatsData
-}
-
-export interface SubscriptionSchedule {
-  plan: string
-  scheduled: boolean
-  reason?: "cancel" | "update"
-  targetPlan?: string | null
-  targetAdditionalSeats?: number | null
-  cancelAt?: number
-  currentPeriodEnd?: number
-  scheduledEffectiveAt?: number | null
 }
 
 export interface WantaAdditionalSeatsData {
@@ -757,26 +723,15 @@ export interface WantaPendingPaymentResult {
   pendingUpdateExpiresAt: number | null
 }
 
-export interface BillingOverviewRequest {
-  days: BillingPeriodDays
-  forceRefresh?: boolean
-}
-
 export interface BillingOverviewResult {
   balance: CreditUsages | null
   spend: BillingSpendStats | null
   metering: BillingSpendStats | null
-  logs: BillingLogItem[]
   subscription: SubscriptionStatus | null
-  schedules: SubscriptionSchedule[]
   wantaPendingPayment: WantaPendingPaymentResult | null
 }
 
 export type BillingSummaryResult = BillingOverviewResult
-
-export interface OpenSubscriptionCheckoutRequest {
-  plan: SubscriptionPlanTag
-}
 
 export type ChatService = typeof ChatService
 export const ChatService = serviceName("chat-service") as ServiceName<{

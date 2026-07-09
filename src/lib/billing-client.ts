@@ -1,15 +1,11 @@
 import type {
-  BillingLogItem,
   BillingOverviewResult,
-  BillingPageTarget,
   BillingSpendStats,
   BillingSummaryResult,
   CreditBalanceResult,
   CreditItem,
   CreditUsages,
   RechargePrice,
-  SubscriptionPlanTag,
-  SubscriptionSchedule,
   SubscriptionStatus,
   WantaSubscriptionChangePayload,
   WantaSubscriptionUpdateResult,
@@ -30,18 +26,11 @@ const billingPath = "/billing"
 const dayMs = 24 * 60 * 60 * 1000
 const billingRequestTimeoutMs = 12_000
 const billingOptionalRequestSoftTimeoutMs = 3_000
-const billingLogsMaxRangeDays = 30
-const billingLogsMaxPagesPerRange = 100
 const billingCreditUsagesMaxPages = 100
 export const wantaSubscriptionPlans: readonly WantaSubscriptionPlan[] = ["wanta_plus", "wanta_pro"]
 
 /** 会话过期/缺失的哨兵文案（与 oomol-http 的 authRequiredMessage 同字面量）；resolveUserFacingError 据此归为 auth_required。 */
 export const billingAuthRequiredMessage = authRequiredMessage
-
-export interface BillingLogRange {
-  endTime: number
-  startTime: number
-}
 
 function isBillingAuthRequiredReason(reason: unknown): boolean {
   return reason instanceof Error && reason.message === billingAuthRequiredMessage
@@ -199,77 +188,6 @@ function isWantaSubscriptionPlan(value: unknown): value is WantaSubscriptionPlan
   return typeof value === "string" && wantaSubscriptionPlans.includes(value as WantaSubscriptionPlan)
 }
 
-export function readBillingLogs(payload: unknown): BillingLogItem[] {
-  const source = unwrapApiData<unknown>(payload)
-  const items = findBillingLogArray(source)
-  return items.flatMap((item) => {
-    const log = normalizeBillingLogItem(item)
-    return log ? [log] : []
-  })
-}
-
-function findBillingLogArray(source: unknown): unknown[] {
-  if (Array.isArray(source)) {
-    return source
-  }
-  if (!source || typeof source !== "object") {
-    return []
-  }
-  const record = source as Record<string, unknown>
-  const directItems = [
-    record["items"],
-    record["logs"],
-    record["records"],
-    record["list"],
-    record["rows"],
-    record["results"],
-  ].find(Array.isArray)
-  if (Array.isArray(directItems)) {
-    return directItems
-  }
-  const nestedSource = [record["data"], record["result"], record["payload"]].find(
-    (value) => value && typeof value === "object",
-  )
-  return nestedSource && nestedSource !== source ? findBillingLogArray(nestedSource) : []
-}
-
-function normalizeBillingLogItem(item: unknown): BillingLogItem | null {
-  if (!item || typeof item !== "object") {
-    return null
-  }
-  const record = item as Record<string, unknown>
-  const createdAt = readTimestampField(record, ["createdAt", "created_at", "time", "timestamp", "eventTime", "date"])
-  if (createdAt === null) {
-    return null
-  }
-  const source = readStringField(record, ["source", "service", "serviceName", "sourceName"]) ?? ""
-  const subject = readStringField(record, ["subject", "model", "action", "name", "description"]) ?? ""
-  const sourceType = readStringField(record, ["sourceType", "source_type", "type", "category"]) ?? ""
-  const traceID = readStringField(record, ["traceID", "traceId", "trace_id", "requestID", "requestId"]) ?? ""
-  return {
-    createdAt,
-    debitCredit: readNumberStringField(record, [
-      "debitCredit",
-      "debit_credit",
-      "totalCredit",
-      "total_credit",
-      "credit",
-      "amount",
-      "cost",
-      "usage",
-    ]),
-    eventID: readStringField(record, ["eventID", "eventId", "event_id", "id"]) ?? "",
-    payload:
-      record["payload"] && typeof record["payload"] === "object" ? (record["payload"] as Record<string, unknown>) : {},
-    serviceScope: readStringField(record, ["serviceScope", "service_scope", "scope"]) ?? "",
-    source,
-    sourceType,
-    subject,
-    traceID,
-    userID: readStringField(record, ["userID", "userId", "user_id"]) ?? "",
-  }
-}
-
 function readStringField(record: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = record[key]
@@ -281,17 +199,6 @@ function readStringField(record: Record<string, unknown>, keys: string[]): strin
     }
   }
   return null
-}
-
-function readNumberStringField(record: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = record[key]
-    const amount = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN
-    if (Number.isFinite(amount)) {
-      return String(amount)
-    }
-  }
-  return "0"
 }
 
 function readTimestampField(record: Record<string, unknown>, keys: string[]): number | null {
@@ -368,14 +275,6 @@ export function ensureHttpUrl(rawUrl: string): string {
   return url.toString()
 }
 
-function billingUrl(target: BillingPageTarget): string {
-  const url = new URL(billingPath, consoleBaseUrl)
-  if (target === "usage") {
-    url.searchParams.set("tab", "usage")
-  }
-  return ensureHttpUrl(url.toString())
-}
-
 function checkoutReturnUrl(): string {
   const target = new URL(consoleBaseUrl)
   if (target.hostname.startsWith("console.")) {
@@ -391,21 +290,6 @@ function statsRange(days: number): { endTime: number; startTime: number } {
   const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30
   const endTime = Date.now()
   return { endTime, startTime: endTime - normalizedDays * dayMs }
-}
-
-export function billingLogRanges(days: number, endTime = Date.now()): BillingLogRange[] {
-  const normalizedDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30
-  const ranges: BillingLogRange[] = []
-  let remainingDays = normalizedDays
-  let rangeEndTime = endTime
-  while (remainingDays > 0) {
-    const rangeDays = Math.min(remainingDays, billingLogsMaxRangeDays)
-    const startTime = rangeEndTime - rangeDays * dayMs
-    ranges.push({ endTime: rangeEndTime, startTime })
-    rangeEndTime = startTime
-    remainingDays -= rangeDays
-  }
-  return ranges
 }
 
 function unwrapConsoleData<T>(payload: unknown): T {
@@ -472,17 +356,13 @@ function settleWithSoftTimeout<T>(
   })
 }
 
-function billingLogKey(item: BillingLogItem): string {
-  return item.eventID || item.traceID || `${item.source}:${item.subject}:${item.createdAt}:${item.debitCredit}`
-}
-
 function fetchAuthenticatedJson(url: URL): Promise<unknown> {
   return oomolFetchJson<unknown>(url, { timeoutMs: billingRequestTimeoutMs })
 }
 
 export async function getCreditBalance(): Promise<CreditBalanceResult> {
   const url = new URL("/v1/balance/available", insightBaseUrl)
-  return readCreditBalance(await fetchAuthenticatedJson(url))
+  return readCreditBalance(unwrapApiData<unknown>(await fetchAuthenticatedJson(url)))
 }
 
 async function getCreditUsages(nextToken?: string): Promise<CreditUsages> {
@@ -534,53 +414,9 @@ async function getCreditMeteringStats(days: number): Promise<BillingSpendStats> 
   return unwrapApiData<BillingSpendStats>(await fetchAuthenticatedJson(url))
 }
 
-async function getBillingLogsPage({ endTime, startTime }: BillingLogRange, page: number): Promise<BillingLogItem[]> {
-  const url = new URL("/v1/logs/billing", insightBaseUrl)
-  url.searchParams.set("from", String(startTime))
-  url.searchParams.set("to", String(endTime))
-  url.searchParams.set("page", String(page))
-  return readBillingLogs(await fetchAuthenticatedJson(url))
-}
-
-async function getAllBillingLogsInRange(range: BillingLogRange): Promise<BillingLogItem[]> {
-  const items: BillingLogItem[] = []
-  const seenKeys = new Set<string>()
-  for (let page = 1; page <= billingLogsMaxPagesPerRange; page += 1) {
-    const pageItems = await getBillingLogsPage(range, page)
-    if (pageItems.length === 0) {
-      break
-    }
-    const freshItems = pageItems.filter((item) => {
-      const key = billingLogKey(item)
-      if (seenKeys.has(key)) {
-        return false
-      }
-      seenKeys.add(key)
-      return true
-    })
-    if (freshItems.length === 0) {
-      console.warn("[wanta] stopped billing log pagination after repeated page", { page })
-      break
-    }
-    items.push(...freshItems)
-  }
-  return items
-}
-
-async function getBillingLogs(days: number): Promise<BillingLogItem[]> {
-  const ranges = billingLogRanges(days)
-  const pages = await Promise.all(ranges.map((range) => getAllBillingLogsInRange(range)))
-  return pages.flat().sort((left, right) => Number(right.createdAt) - Number(left.createdAt))
-}
-
 async function getSubscriptionStatus(): Promise<SubscriptionStatus> {
   const url = new URL("/api/user/subscriptions", consoleServerBaseUrl)
   return unwrapConsoleData<SubscriptionStatus>(await fetchAuthenticatedJson(url))
-}
-
-async function getSubscriptionSchedules(): Promise<SubscriptionSchedule[]> {
-  const url = new URL("/api/user/subscriptions/schedulers", consoleServerBaseUrl)
-  return unwrapConsoleData<SubscriptionSchedule[]>(await fetchAuthenticatedJson(url))
 }
 
 async function getWantaPendingPayment(): Promise<WantaPendingPaymentResult | null> {
@@ -613,9 +449,7 @@ export async function getBillingSummary(days: number): Promise<BillingSummaryRes
     balance: balance.status === "fulfilled" ? filterGeneralCreditUsages(balance.value) : null,
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
-    logs: [],
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
-    schedules: [],
     // summary 路径刻意不拉待支付状态，避免轻量刷新额外请求订阅结账接口。
     wantaPendingPayment: null,
   }
@@ -625,29 +459,21 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
   const balancePromise = getAllCreditUsages()
   const spendPromise = getCreditSpendStats(days)
   const meteringPromise = getCreditMeteringStats(days)
-  const logsPromise = getBillingLogs(days)
   const subscriptionPromise = getSubscriptionStatus()
-  const schedulesPromise = getSubscriptionSchedules()
   const wantaPendingPaymentPromise = getWantaPendingPayment()
 
-  preventEarlyUnhandledRejection(logsPromise)
   preventEarlyUnhandledRejection(subscriptionPromise)
-  preventEarlyUnhandledRejection(schedulesPromise)
   preventEarlyUnhandledRejection(wantaPendingPaymentPromise)
 
   const [balance, spend, metering] = await Promise.allSettled([balancePromise, spendPromise, meteringPromise])
-  const [logs, subscription, schedules, wantaPendingPayment] = await Promise.all([
-    settleWithSoftTimeout("logs", logsPromise),
+  const [subscription, wantaPendingPayment] = await Promise.all([
     settleWithSoftTimeout("subscription", subscriptionPromise),
-    settleWithSoftTimeout("schedules", schedulesPromise),
     settleWithSoftTimeout("wanta pending payment", wantaPendingPaymentPromise),
   ])
   logSettledFailure("balance", balance)
   logSettledFailure("spend", spend)
   logSettledFailure("metering", metering)
-  logSettledFailure("logs", logs)
   logSettledFailure("subscription", subscription)
-  logSettledFailure("schedules", schedules)
   logSettledFailure("wanta pending payment", wantaPendingPayment)
   if (balance.status === "rejected" && isBillingAuthRequiredReason(balance.reason)) {
     throw balance.reason
@@ -660,9 +486,7 @@ export async function getBillingOverview(days: number): Promise<BillingOverviewR
     balance: balance.status === "fulfilled" ? filterGeneralCreditUsages(balance.value) : null,
     spend: spend.status === "fulfilled" ? spend.value : null,
     metering: metering.status === "fulfilled" ? metering.value : null,
-    logs: logs.status === "fulfilled" ? logs.value : [],
     subscription: subscription.status === "fulfilled" ? subscription.value : null,
-    schedules: schedules.status === "fulfilled" ? schedules.value : [],
     wantaPendingPayment: wantaPendingPayment.status === "fulfilled" ? wantaPendingPayment.value : null,
   }
 }
@@ -681,10 +505,6 @@ export async function updateWantaSubscription(
   )
 }
 
-export function billingPageUrl(target: BillingPageTarget): string {
-  return billingUrl(target)
-}
-
 /** 结账（充值）URL：向 console-server 解析 Stripe 链接。解析后由调用方经 openExternalUrl IPC 交系统浏览器打开。 */
 export async function topUpCheckoutUrl(price: RechargePrice): Promise<string> {
   const url = new URL("/api/user/web_top_up_url", consoleServerBaseUrl)
@@ -695,40 +515,4 @@ export async function topUpCheckoutUrl(price: RechargePrice): Promise<string> {
     throw new Error("Top-up URL response is invalid.")
   }
   return ensureHttpUrl(checkoutUrl)
-}
-
-/** 订阅结账页：纯 URL 构造（无需网络），userId 由调用方从登录态传入。 */
-export function subscriptionCheckoutUrl(plan: SubscriptionPlanTag, userId?: string): string {
-  const url = new URL("/api/user/subscriptions/page", consoleServerBaseUrl)
-  url.searchParams.set("payment_type", "subscription")
-  url.searchParams.set("redirect", checkoutReturnUrl())
-  url.searchParams.set("source_page", checkoutReturnUrl())
-  url.searchParams.set("client_platform", "chat-web")
-  url.searchParams.set("plan", plan)
-  if (userId) {
-    url.searchParams.set("user_id", userId)
-  }
-  return ensureHttpUrl(url.toString())
-}
-
-/** 订阅管理门户：向 console-server 解析 Stripe portal 链接。 */
-export async function subscriptionPortalUrl(): Promise<string> {
-  const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
-  url.searchParams.set("product", "ai")
-  const portalUrl = unwrapConsoleData<string>(await fetchAuthenticatedJson(url))
-  if (!portalUrl) {
-    throw new Error("Subscription portal URL response is invalid.")
-  }
-  return ensureHttpUrl(portalUrl)
-}
-
-/** Wanta 订阅管理门户：Stripe portal 的 product 使用 wanta。 */
-export async function wantaSubscriptionPortalUrl(): Promise<string> {
-  const url = new URL("/api/stripe/portal", consoleServerBaseUrl)
-  url.searchParams.set("product", "wanta")
-  const portalUrl = unwrapConsoleData<string>(await fetchAuthenticatedJson(url))
-  if (!portalUrl) {
-    throw new Error("Wanta subscription portal URL response is invalid.")
-  }
-  return ensureHttpUrl(portalUrl)
 }

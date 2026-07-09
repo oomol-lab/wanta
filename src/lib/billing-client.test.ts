@@ -1,16 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   billingAuthRequiredMessage,
-  billingLogRanges,
   getBillingOverview,
   getBillingSummary,
   getCreditBalance,
-  readBillingLogs,
-  subscriptionCheckoutUrl,
-  subscriptionPortalUrl,
   topUpCheckoutUrl,
   updateWantaSubscription,
-  wantaSubscriptionPortalUrl,
 } from "./billing-client.ts"
 import { OomolHttpError } from "./oomol-http.ts"
 
@@ -47,10 +42,10 @@ describe("billing-client", () => {
     let seenInit: RequestInit | undefined
     vi.stubGlobal("fetch", async (_input: string | URL | Request, init?: RequestInit) => {
       seenInit = init
-      return Response.json({ data: "https://console.example.com/customer-portal", success: true })
+      return Response.json({ data: "https://console.example.com/checkout", success: true })
     })
 
-    await subscriptionPortalUrl()
+    await topUpCheckoutUrl("5_USD")
 
     expect(seenInit?.credentials).toBe("include")
     // 渲染层既拿不到也不应设置 token：cookie 由 Chromium 自动附带（守 R4）。
@@ -93,28 +88,22 @@ describe("billing-client", () => {
     expect(await topUpCheckoutUrl("20_USD")).toBe("https://console.example.com/checkout")
   })
 
-  it("keeps the console subscription page contract (pure URL build with userId)", () => {
-    const url = new URL(subscriptionCheckoutUrl("ai_pro", "user-1"))
-    expect(url.pathname).toBe("/api/user/subscriptions/page")
-    expect(url.searchParams.get("payment_type")).toBe("subscription")
-    expect(url.searchParams.get("client_platform")).toBe("chat-web")
-    expect(url.searchParams.get("plan")).toBe("ai_pro")
-    expect(url.searchParams.get("user_id")).toBe("user-1")
-    expect(url.searchParams.get("redirect")).toBe(url.searchParams.get("source_page"))
-    expect(new URL(url.searchParams.get("redirect") ?? "").pathname).toBe("/billing")
-  })
+  it("reads wrapped balance payloads for payment-required recovery", async () => {
+    vi.stubGlobal("fetch", async () =>
+      Response.json({
+        data: {
+          items: [
+            { currentCredit: "7.5", originalCredit: "10", serviceScope: "general" },
+            { currentCredit: "20", originalCredit: "20", serviceScope: "link" },
+          ],
+          total: { currentCredit: "27.5", originalCredit: "30" },
+        },
+      }),
+    )
 
-  it("keeps the stripe portal endpoint contract", async () => {
-    const requestedUrls: URL[] = []
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      requestedUrls.push(urlOf(input))
-      return Response.json({ data: "https://console.example.com/customer-portal", success: true })
-    })
+    const result = await getCreditBalance()
 
-    expect(await subscriptionPortalUrl()).toBe("https://console.example.com/customer-portal")
-    expect(requestedUrls).toHaveLength(1)
-    expect(requestedUrls[0]?.pathname).toBe("/api/stripe/portal")
-    expect(requestedUrls[0]?.searchParams.get("product")).toBe("ai")
+    expect(result).toEqual({ balance: "$7.5", hasCredits: true })
   })
 
   it("posts Wanta plan changes without seat fields", async () => {
@@ -151,19 +140,6 @@ describe("billing-client", () => {
 
     expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 1 })
     expect(result.paymentURL).toBe("https://console.example.com/wanta-seat-checkout")
-  })
-
-  it("keeps the Wanta stripe portal endpoint contract", async () => {
-    const requestedUrls: URL[] = []
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      requestedUrls.push(urlOf(input))
-      return Response.json({ data: "https://console.example.com/wanta-portal", success: true })
-    })
-
-    expect(await wantaSubscriptionPortalUrl()).toBe("https://console.example.com/wanta-portal")
-    expect(requestedUrls).toHaveLength(1)
-    expect(requestedUrls[0]?.pathname).toBe("/api/stripe/portal")
-    expect(requestedUrls[0]?.searchParams.get("product")).toBe("wanta")
   })
 
   it("caps credit usage pagination at 100 pages", async () => {
@@ -215,50 +191,6 @@ describe("billing-client", () => {
     expect(balanceRequests).toEqual(["first", "repeat-token"])
   })
 
-  it("stops billing log pagination when a page repeats", async () => {
-    const logPages: string[] = []
-    const log = {
-      createdAt: Date.UTC(2026, 5, 15),
-      debitCredit: "1",
-      eventID: "event-1",
-      payload: {},
-      serviceScope: "all",
-      source: "SERVICE_LLM",
-      sourceType: "chat",
-      subject: "chat",
-      traceID: "trace-1",
-      userID: "user-1",
-    }
-    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
-      const url = urlOf(input)
-      if (url.pathname === "/v1/balance/available") {
-        return Response.json({
-          data: {
-            deficit: "0",
-            items: [{ currentCredit: "1", originalCredit: "1" }],
-            total: { currentCredit: "1", originalCredit: "1" },
-          },
-        })
-      }
-      if (url.pathname === "/v1/logs/billing") {
-        logPages.push(url.searchParams.get("page") ?? "")
-        return Response.json({ items: [log] })
-      }
-      if (url.pathname === "/api/user/subscriptions") {
-        return Response.json({ data: { features: [], plan: null, plans: [], platforms: {} }, success: true })
-      }
-      if (url.pathname === "/api/user/subscriptions/schedulers") {
-        return Response.json({ data: [], success: true })
-      }
-      return Response.json({ data: { items: [], sourceTotals: {}, total: { eventCount: 0, totalCredit: "0" } } })
-    })
-
-    const overview = await getBillingOverview(30)
-
-    expect(overview.logs.length).toBe(1)
-    expect(logPages).toEqual(["1", "2"])
-  })
-
   it("returns core billing data when optional detail requests stall", async () => {
     vi.useFakeTimers()
     vi.stubGlobal("fetch", async (input: string | URL | Request) => {
@@ -289,75 +221,6 @@ describe("billing-client", () => {
     expect(overview.balance?.total.currentCredit).toBe("8")
     expect(overview.spend?.total.totalCredit).toBe("2")
     expect(overview.metering?.total.eventCount).toBe(4)
-    expect(overview.logs).toEqual([])
     expect(overview.subscription).toBeNull()
-    expect(overview.schedules).toEqual([])
-  })
-
-  it("billingLogRanges splits long record queries into backend-safe windows", () => {
-    const dayMs = 24 * 60 * 60 * 1000
-    const endTime = Date.UTC(2026, 5, 15)
-
-    expect(billingLogRanges(7, endTime)).toEqual([{ endTime, startTime: endTime - 7 * dayMs }])
-    expect(billingLogRanges(90, endTime)).toEqual([
-      { endTime, startTime: endTime - 30 * dayMs },
-      { endTime: endTime - 30 * dayMs, startTime: endTime - 60 * dayMs },
-      { endTime: endTime - 60 * dayMs, startTime: endTime - 90 * dayMs },
-    ])
-    expect(billingLogRanges(Number.NaN, endTime)).toEqual([{ endTime, startTime: endTime - 30 * dayMs }])
-  })
-
-  it("readBillingLogs accepts common response envelope shapes", () => {
-    const log = {
-      debitCredit: "0.1",
-      eventID: "event-1",
-      userID: "user-1",
-      source: "SERVICE_LLM",
-      subject: "oopilot",
-      sourceType: "quota",
-      serviceScope: "general",
-      traceID: "trace-1",
-      payload: {},
-      createdAt: Date.now(),
-    }
-
-    expect(readBillingLogs({ items: [log] })).toEqual([log])
-    expect(readBillingLogs({ data: { items: [log] } })).toEqual([log])
-    expect(readBillingLogs([log])).toEqual([log])
-    expect(readBillingLogs({ records: [log] })).toEqual([log])
-    expect(readBillingLogs({ items: [null, log] })).toEqual([log])
-
-    expect(
-      readBillingLogs({
-        data: {
-          list: [
-            {
-              amount: "0.25",
-              eventId: "event-2",
-              service: "SERVICE_LLM",
-              model: "oopilot",
-              service_scope: "general",
-              source_type: "quota",
-              timestamp: "2026-06-15T00:00:00.000Z",
-              traceId: "trace-2",
-              userId: "user-1",
-            },
-          ],
-        },
-      }),
-    ).toEqual([
-      {
-        createdAt: Date.UTC(2026, 5, 15),
-        debitCredit: "0.25",
-        eventID: "event-2",
-        payload: {},
-        serviceScope: "general",
-        source: "SERVICE_LLM",
-        sourceType: "quota",
-        subject: "oopilot",
-        traceID: "trace-2",
-        userID: "user-1",
-      },
-    ])
   })
 })

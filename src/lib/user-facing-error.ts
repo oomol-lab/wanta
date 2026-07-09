@@ -160,8 +160,7 @@ export function resolveUserFacingError(
   }
 
   if (status === 401 || includesAny(normalized, ["unauthorized", "sign in", "login required", "fresh sign-in"])) {
-    // 账单/用量走的是短命会话 token（与聊天用的 apiKey 相互独立）：会话过期只影响用量展示，
-    // 聊天仍可用。故 billing 作用域用专属文案点明"当前对话不受影响"，避免误导成"整个账号登出"。
+    // 账单请求也使用全应用唯一的会话 token。401 会触发全局会话过期；billing 作用域只保留更具体的恢复文案。
     const isBilling = area === "billing"
     return buildError(
       area,

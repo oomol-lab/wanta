@@ -17,6 +17,7 @@ import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { ChatConnectionDrawerState } from "./use-chat-connection-retry.ts"
+import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ChatStatus } from "ai"
@@ -128,6 +129,7 @@ export function AppShell() {
   const chatService = useChatService()
   const auth = useAuth()
   const [ready, setReady] = React.useState(false)
+  const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
   const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace, auth.state?.account?.id)
@@ -1527,7 +1529,8 @@ export function AppShell() {
   useAppCommandEvents(runAppCommand)
   useAppCommandShortcuts(runAppCommand)
 
-  const handleViewBilling = React.useCallback(() => {
+  const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
+    setBillingInitialTarget(target ?? null)
     setRoute("billing")
   }, [])
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
@@ -1553,6 +1556,7 @@ export function AppShell() {
       <React.Suspense fallback={<RouteLoadingFallback />}>
         <BillingRoute
           cacheScope={billingCacheScope}
+          initialTarget={billingInitialTarget}
           sharedConnectorCount={sharedConnectorCount}
           workspace={organizationWorkspace.activeWorkspace}
           onBack={() => setRoute("chat")}
@@ -1668,7 +1672,7 @@ export function AppShell() {
             onOpenSearch={handleOpenSearch}
             onRenameSession={handleRenameSession}
             onToggleSidebar={handleToggleSidebar}
-            onViewBilling={() => setRoute("billing")}
+            onViewBilling={handleViewBilling}
           />
 
           <main className="oo-content-surface min-h-0 min-w-0 overflow-hidden">

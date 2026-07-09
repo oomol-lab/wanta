@@ -67,21 +67,24 @@ export function useTurnOutputRecords(sessionId: string | null, messages: ChatMes
       return
     }
     const messageIds = messageIdsKey.split("\n")
-    void Promise.allSettled(
-      messageIds.map((messageId) => chatService.invoke("getTurnOutput", { sessionId, messageId })),
-    ).then((results) => {
-      if (cancelled) {
-        return
-      }
-      const fulfilledRecords = results.flatMap((result) =>
-        result.status === "fulfilled" && result.value ? [result.value] : [],
-      )
-      setRecords(
-        visibleTurnOutputRecords(fulfilledRecords).sort(
-          (left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right),
-        ),
-      )
-    })
+    void chatService
+      .invoke("getTurnOutputs", { sessionId, messageIds })
+      .then((nextRecords) => {
+        if (cancelled) {
+          return
+        }
+        setRecords(
+          visibleTurnOutputRecords(nextRecords).sort(
+            (left, right) => turnOutputRecordSortValue(left) - turnOutputRecordSortValue(right),
+          ),
+        )
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          console.error("[wanta] getTurnOutputs failed", error)
+          setRecords([])
+        }
+      })
     return () => {
       cancelled = true
     }

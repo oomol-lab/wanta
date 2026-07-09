@@ -7,6 +7,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, test, vi } from "vitest"
+import { ArtifactRootStore } from "./artifact-roots.ts"
 import { AuthorizationOverlayStore } from "./authorization.ts"
 import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from "./node.ts"
 import { TurnOutputStore } from "./turn-outputs.ts"
@@ -24,7 +25,9 @@ function createBridgeAgent(): {
   createArtifactDir: ReturnType<typeof vi.fn>
   createProcessDir: ReturnType<typeof vi.fn>
   emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
+  getMessages: ReturnType<typeof vi.fn>
   getPendingPermissions: ReturnType<typeof vi.fn>
+  getPendingQuestions: ReturnType<typeof vi.fn>
   promptStreaming: ReturnType<typeof vi.fn>
   rejectQuestion: ReturnType<typeof vi.fn>
   setSessionOrganizationName: ReturnType<typeof vi.fn>
@@ -37,7 +40,9 @@ function createBridgeAgent(): {
   const answerQuestion = vi.fn(async () => undefined)
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
+  const getMessages = vi.fn(async () => [])
   const getPendingPermissions = vi.fn(async () => [])
+  const getPendingQuestions = vi.fn(async () => [])
   const promptStreaming = vi.fn(async () => undefined)
   const rejectQuestion = vi.fn(async () => undefined)
   const clearSessionOrganizationName = vi.fn(async () => undefined)
@@ -61,8 +66,9 @@ function createBridgeAgent(): {
     rejectQuestion,
     setSessionOrganizationName,
     promptStreaming,
-    getMessages: vi.fn(async () => []),
+    getMessages,
     getPendingPermissions,
+    getPendingQuestions,
   } as unknown as AgentManager
   return {
     agent,
@@ -73,6 +79,8 @@ function createBridgeAgent(): {
     createProcessDir,
     emit: (event) => listener?.(event),
     getPendingPermissions,
+    getPendingQuestions,
+    getMessages,
     promptStreaming,
     rejectQuestion,
     setSessionOrganizationName,
@@ -211,6 +219,35 @@ test("sendMessage exposes active run snapshots with the request workspace", asyn
   assert.equal(run?.phase, "submitted")
   assert.deepEqual(run?.workspace, { type: "organization", organizationId: "org-id", organizationName: "acme-corp" })
   assert.ok(events.some((event) => event.event === "activeRunUpdated"))
+})
+
+test("getSessionSnapshot returns messages, pending asks, and active run together", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const messages: ChatMessage[] = [
+    { id: "user-1", role: "user", createdAt: 1, parts: [{ kind: "text", partId: "text-1", text: "hello" }] },
+  ]
+  bridge.getMessages.mockResolvedValue(messages)
+  bridge.getPendingQuestions.mockResolvedValue([
+    {
+      id: "question-1",
+      sessionId: "session-1",
+      questions: [{ header: "Pick", question: "Which one?", options: [{ label: "A" }] }],
+    },
+  ])
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+
+  const snapshot = await service.getSessionSnapshot("session-1")
+
+  assert.equal(snapshot.sessionId, "session-1")
+  assert.deepEqual(snapshot.messages, messages)
+  assert.equal(snapshot.pendingQuestions[0]?.id, "question-1")
+  assert.deepEqual(snapshot.pendingPermissions, [])
+  assert.equal(snapshot.activeRun?.phase, "submitted")
+  assert.equal(bridge.getMessages.mock.calls.length, 1)
+  assert.equal(bridge.getPendingQuestions.mock.calls.length, 1)
+  assert.equal(bridge.getPendingPermissions.mock.calls.length, 1)
 })
 
 test("setAgent clears active run snapshots", async () => {
@@ -544,6 +581,78 @@ test("stopGeneration finalizes process files produced before cancellation", asyn
     assert.equal(record?.files[0]?.name, "create.js")
     assert.ok(events.some((event) => event.event === "turnOutputUpdated"))
     assert.equal(events.at(-1)?.event, "generationStopped")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("getTurnOutputs returns requested records in order without exposing stored diffs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-turn-outputs-"))
+  try {
+    const store = new TurnOutputStore(root)
+    await store.write(
+      new Map([
+        [
+          "session-1",
+          new Map([
+            [
+              "assistant-1",
+              {
+                sessionId: "session-1",
+                messageId: "assistant-1",
+                artifactRoot: path.join(root, "artifacts-1"),
+                processRoot: path.join(root, "process-1"),
+                createdAt: 1,
+                completedAt: 2,
+                files: [
+                  {
+                    path: path.join(root, "process-1", "create.js"),
+                    name: "create.js",
+                    role: "process",
+                    changeKind: "added",
+                    mime: "text/plain",
+                    additions: 1,
+                    deletions: 0,
+                    diff: {
+                      kind: "text",
+                      path: path.join(root, "process-1", "create.js"),
+                      mime: "text/plain",
+                      additions: 1,
+                      deletions: 0,
+                      patch: "+console.log(1)\n",
+                    },
+                  },
+                ],
+                summary: { artifactCount: 0, processFileCount: 1, changedFileCount: 0, additions: 1, deletions: 0 },
+              },
+            ],
+            [
+              "assistant-2",
+              {
+                sessionId: "session-1",
+                messageId: "assistant-2",
+                createdAt: 3,
+                completedAt: 4,
+                files: [],
+                summary: { artifactCount: 0, processFileCount: 0, changedFileCount: 1, additions: 0, deletions: 0 },
+              },
+            ],
+          ]),
+        ],
+      ]),
+    )
+    const service = new ChatServiceImpl(null, { turnOutputStore: store })
+
+    const result = await service.getTurnOutputs({
+      sessionId: "session-1",
+      messageIds: ["assistant-2", "assistant-2", "missing", "assistant-1"],
+    })
+
+    assert.deepEqual(
+      result.map((record) => record.messageId),
+      ["assistant-2", "assistant-1"],
+    )
+    assert.deepEqual(Object.keys(result[1]?.files[0] ?? {}).includes("diff"), false)
   } finally {
     await rm(root, { force: true, recursive: true })
   }
@@ -1902,7 +2011,9 @@ test("resolveLocalArtifacts resolves an explicit artifact root without scanning 
   await writeFile(path.join(artifactRoot, "fresh.png"), "fresh")
   await writeFile(path.join(staleRoot, "stale.png"), "stale")
 
-  const service = new ChatServiceImpl(null)
+  const artifactRootStore = new ArtifactRootStore(root)
+  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", artifactRoot]])]]))
+  const service = new ChatServiceImpl(null, { artifactRootStore })
   const result = await service.resolveLocalArtifacts({
     artifactRoot,
     text: `ignore ${staleRoot}`,
@@ -1944,7 +2055,9 @@ test("resolveLocalArtifacts reads artifact pack manifests", async () => {
     }),
   )
 
-  const service = new ChatServiceImpl(null)
+  const artifactRootStore = new ArtifactRootStore(root)
+  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", artifactRoot]])]]))
+  const service = new ChatServiceImpl(null, { artifactRootStore })
   const result = await service.resolveLocalArtifacts({ artifactRoot })
 
   assert.equal(result.groups.length, 1)
@@ -1970,12 +2083,142 @@ test("resolveLocalArtifacts ignores broad directories extracted from assistant t
   assert.deepEqual(result.groups, [])
 })
 
+test("resolveLocalArtifacts skips untrusted text paths and rejects untrusted explicit roots", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifacts-untrusted-"))
+  try {
+    const artifactRoot = path.join(root, "turn")
+    await mkdir(artifactRoot, { recursive: true })
+    await writeFile(path.join(artifactRoot, "secret.txt"), "secret")
+
+    const service = new ChatServiceImpl(null)
+    const textResult = await service.resolveLocalArtifacts({ text: `Output: \`${artifactRoot}/secret.txt\`` })
+
+    assert.deepEqual(textResult.groups, [])
+    await assert.rejects(() => service.resolveLocalArtifacts({ artifactRoot }))
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("getLocalArtifactPreview rejects untrusted files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-preview-untrusted-"))
+  try {
+    const filePath = path.join(root, "script.py")
+    await writeFile(filePath, "print('hello')\n")
+    const service = new ChatServiceImpl(null)
+
+    await assert.rejects(() => service.getLocalArtifactPreview({ path: filePath }))
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("getAttachmentPreview rejects untrusted files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-preview-untrusted-"))
+  try {
+    const filePath = path.join(root, "image.png")
+    await writeFile(filePath, Buffer.from([1, 2, 3]))
+    const service = new ChatServiceImpl(null)
+
+    await assert.rejects(() => service.getAttachmentPreview({ path: filePath, mime: "image/png" }))
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("getAttachmentPreview allows user-selected attachment paths", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-preview-trusted-"))
+  try {
+    const filePath = path.join(root, "image.png")
+    await writeFile(filePath, Buffer.from([1, 2, 3]))
+    const service = new ChatServiceImpl(null, { trustedAttachmentPaths: new Set([filePath]) })
+
+    const result = await service.getAttachmentPreview({ path: filePath, mime: "image/png" })
+
+    assert.equal(result.dataUrl, "data:image/png;base64,AQID")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("getAttachmentPreview allows attachment paths restored from message history", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-preview-history-"))
+  try {
+    const filePath = path.join(root, "image.png")
+    await writeFile(filePath, Buffer.from([1, 2, 3]))
+    const bridge = createBridgeAgent()
+    bridge.getMessages.mockResolvedValue([
+      {
+        id: "user-1",
+        role: "user",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "attachment",
+            partId: "attachment-1",
+            attachment: {
+              id: "attachment-1",
+              name: "image.png",
+              mime: "image/png",
+              size: 3,
+              path: filePath,
+              kind: "file",
+            },
+          },
+        ],
+      },
+    ])
+    const service = new ChatServiceImpl(bridge.agent)
+
+    await service.getMessages("session-1")
+    const result = await service.getAttachmentPreview({ path: filePath, mime: "image/png" })
+
+    assert.equal(result.dataUrl, "data:image/png;base64,AQID")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("getAttachmentPreview allows paths approved by local permission asks", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-attachment-preview-permission-"))
+  try {
+    const sensitiveRoot = path.join(root, ".ssh")
+    await mkdir(sensitiveRoot, { recursive: true })
+    const filePath = path.join(sensitiveRoot, "image.png")
+    await writeFile(filePath, Buffer.from([1, 2, 3]))
+    const bridge = createBridgeAgent()
+    const service = new ChatServiceImpl(bridge.agent)
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    bridge.emit({
+      type: "permission.v2.asked",
+      properties: {
+        id: "permission-1",
+        sessionID: "session-1",
+        action: "external_directory",
+        resources: [sensitiveRoot],
+      },
+    })
+    await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+    await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "once" })
+
+    const result = await service.getAttachmentPreview({ path: filePath, mime: "image/png" })
+
+    assert.equal(result.dataUrl, "data:image/png;base64,AQID")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 test("getLocalArtifactPreview returns text for code artifacts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-preview-"))
   const filePath = path.join(root, "script.py")
   await writeFile(filePath, "print('hello')\n")
 
-  const service = new ChatServiceImpl(null)
+  const artifactRootStore = new ArtifactRootStore(root)
+  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", root]])]]))
+  const service = new ChatServiceImpl(null, { artifactRootStore })
   const result = await service.getLocalArtifactPreview({ path: filePath })
 
   assert.equal(result.kind, "text")
@@ -1989,7 +2232,9 @@ test("getLocalArtifactPreview rejects binary-looking text files", async () => {
   const filePath = path.join(root, "output.txt")
   await writeFile(filePath, Buffer.from([0, 1, 2, 3]))
 
-  const service = new ChatServiceImpl(null)
+  const artifactRootStore = new ArtifactRootStore(root)
+  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", root]])]]))
+  const service = new ChatServiceImpl(null, { artifactRootStore })
   const result = await service.getLocalArtifactPreview({ path: filePath })
 
   assert.equal(result.kind, "unsupported")

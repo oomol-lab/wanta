@@ -13,11 +13,13 @@ import type {
   AttachmentPreviewResult,
   AuthorizationInfo,
   ChatActiveRun,
+  ChatAttachment,
   ChatMessage,
   ChatPermissionRequest,
   ChatQuestionRequest,
   ChatRunPhase,
   ChatRunWorkspace,
+  ChatSessionSnapshot,
   ChatService,
   ChatProjectContext,
   GenerationInterruptedReason,
@@ -41,7 +43,7 @@ import type {
   TurnFileDiffRequest,
   TurnFileDiffResult,
   TurnOutputRecord,
-  TurnOutputRequest,
+  TurnOutputsRequest,
 } from "./common.ts"
 import type { SessionPermissionGrant } from "./permission-request.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
@@ -50,6 +52,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
+import { realpath } from "node:fs/promises"
 import os from "node:os"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
@@ -227,6 +230,7 @@ interface ChatServiceDeps {
   authorizationOverlayStore?: AuthorizationOverlayStore
   projectStore?: Pick<SessionProjectStore, "read">
   stoppedGenerationStore?: StoppedGenerationStore
+  trustedAttachmentPaths?: ReadonlySet<string>
   turnOutputStore?: TurnOutputStore
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
@@ -285,6 +289,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private parentSessionByChild = new Map<string, string>()
   private trustedProjectRoots = new Map<string, string>()
   private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
+  private trustedAttachmentPaths = new Map<string, Set<string>>()
+  private trustedPermissionPaths = new Map<string, Set<string>>()
   private permissionModes = new Map<string, AgentPermissionMode>()
   private permissionModeVersions = new Map<string, number>()
   private sessionPermissionGrants = new Map<string, SessionPermissionGrant[]>()
@@ -340,6 +346,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.parentSessionByChild.clear()
     this.trustedProjectRoots.clear()
     this.trustedSubagentSessionsByParent.clear()
+    this.trustedAttachmentPaths.clear()
+    this.trustedPermissionPaths.clear()
     this.permissionModes.clear()
     this.permissionModeVersions.clear()
     this.sessionPermissionGrants.clear()
@@ -941,6 +949,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!exists) {
       this.sessionPermissionGrants.set(sessionId, [...grants, grant])
     }
+    this.rememberTrustedPermissionResources(sessionId, request)
   }
 
   private rememberPendingPermissionRequest(request: ChatPermissionRequest): void {
@@ -984,6 +993,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     void this.agent
       .answerPermission(request.sessionId, request.id, "once")
       .then(() => {
+        this.rememberTrustedPermissionResources(request.sessionId, request)
         this.sendBestEffort(
           emit,
           "permissionReplied",
@@ -1117,7 +1127,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const permissionMode = this.permissionModes.get(parentSessionId)
     const permissionModeVersion = this.permissionModeVersions.get(parentSessionId)
     const sessionGrants = this.sessionPermissionGrants.get(parentSessionId)
-    if (!projectRoot && !permissionMode && !sessionGrants) {
+    const permissionPaths = this.trustedPermissionPaths.get(parentSessionId)
+    if (!projectRoot && !permissionMode && !sessionGrants && !permissionPaths) {
       return
     }
     if (projectRoot) {
@@ -1131,6 +1142,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (sessionGrants) {
       this.sessionPermissionGrants.set(childSessionId, [...sessionGrants])
+    }
+    if (permissionPaths) {
+      this.trustedPermissionPaths.set(childSessionId, new Set(permissionPaths))
     }
     const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId) ?? new Set<string>()
     childSessionIds.add(childSessionId)
@@ -1147,6 +1161,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.permissionModes.delete(childSessionId)
     this.permissionModeVersions.delete(childSessionId)
     this.sessionPermissionGrants.delete(childSessionId)
+    this.trustedPermissionPaths.delete(childSessionId)
     this.forgetSessionPendingPermissionRequests(childSessionId)
     if (childSessionIds.size === 0) {
       this.trustedSubagentSessionsByParent.delete(parentSessionId)
@@ -1163,9 +1178,140 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.permissionModes.delete(childSessionId)
       this.permissionModeVersions.delete(childSessionId)
       this.sessionPermissionGrants.delete(childSessionId)
+      this.trustedPermissionPaths.delete(childSessionId)
       this.forgetSessionPendingPermissionRequests(childSessionId)
     }
     this.trustedSubagentSessionsByParent.delete(parentSessionId)
+  }
+
+  private rememberTrustedAttachments(sessionId: string, attachments: readonly ChatAttachment[] | undefined): void {
+    if (!attachments?.length) {
+      return
+    }
+    const paths = this.trustedAttachmentPaths.get(sessionId) ?? new Set<string>()
+    for (const attachment of attachments) {
+      if (attachment.path.trim()) {
+        paths.add(attachment.path)
+      }
+      if (attachment.agentPath?.trim()) {
+        paths.add(attachment.agentPath)
+      }
+    }
+    if (paths.size > 0) {
+      this.trustedAttachmentPaths.set(sessionId, paths)
+    }
+  }
+
+  private rememberTrustedMessageAttachments(sessionId: string, messages: readonly ChatMessage[]): void {
+    const attachments: ChatAttachment[] = []
+    for (const message of messages) {
+      if (message.role !== "user") {
+        continue
+      }
+      for (const part of message.parts) {
+        if (part.kind === "attachment" && part.attachment) {
+          attachments.push(part.attachment)
+        }
+      }
+    }
+    this.rememberTrustedAttachments(sessionId, attachments)
+  }
+
+  private rememberTrustedPermissionResources(sessionId: string, request: ChatPermissionRequest): void {
+    const paths = this.trustedPermissionPaths.get(sessionId) ?? new Set<string>()
+    for (const resource of [...request.resources, ...(request.save ?? [])]) {
+      const wildcardIndex = resource.search(/[*?[\]{}]/u)
+      const candidate = wildcardIndex === -1 ? resource : resource.slice(0, wildcardIndex).replace(/[\\/]+$/u, "")
+      const filePath = normalizeLocalPathCandidate(candidate, os.homedir())
+      if (filePath) {
+        paths.add(filePath)
+      }
+    }
+    if (paths.size > 0) {
+      this.trustedPermissionPaths.set(sessionId, paths)
+    }
+  }
+
+  private async trustedLocalPathRoots(): Promise<string[]> {
+    const roots = new Set<string>()
+    for (const active of this.activeTurnOutputs.values()) {
+      roots.add(active.artifactRoot)
+      roots.add(active.processRoot)
+      if (active.projectRoot) {
+        roots.add(active.projectRoot)
+      }
+    }
+    for (const projectRoot of this.trustedProjectRoots.values()) {
+      roots.add(projectRoot)
+    }
+    for (const paths of this.trustedAttachmentPaths.values()) {
+      for (const filePath of paths) {
+        roots.add(filePath)
+      }
+    }
+    for (const filePath of this.deps.trustedAttachmentPaths ?? []) {
+      roots.add(filePath)
+    }
+    for (const paths of this.trustedPermissionPaths.values()) {
+      for (const filePath of paths) {
+        roots.add(filePath)
+      }
+    }
+    await Promise.all([this.ensureArtifactRootsLoaded(), this.ensureTurnOutputsLoaded()])
+    for (const sessionRoots of this.artifactRoots.values()) {
+      for (const artifactRoot of sessionRoots.values()) {
+        roots.add(artifactRoot)
+      }
+    }
+    for (const records of this.turnOutputs.values()) {
+      for (const record of records.values()) {
+        if (record.artifactRoot) {
+          roots.add(record.artifactRoot)
+        }
+        if (record.processRoot) {
+          roots.add(record.processRoot)
+        }
+        if (record.projectRoot) {
+          roots.add(record.projectRoot)
+        }
+      }
+    }
+    try {
+      const projects = await this.deps.projectStore?.read()
+      for (const project of projects?.values() ?? []) {
+        if (!project.archivedAt) {
+          roots.add(project.path)
+        }
+      }
+    } catch (error) {
+      console.warn("[wanta] failed to read trusted project roots:", error)
+      logDiagnostic("chat-service", "failed to read trusted project roots", { error }, "warn")
+    }
+    return [...roots].filter((root) => root.trim())
+  }
+
+  private async isPathInTrustedRoots(filePath: string, roots: readonly string[]): Promise<boolean> {
+    const target = await realpath(filePath).catch(() => null)
+    if (!target) {
+      return false
+    }
+    for (const root of roots) {
+      const trustedRoot = await realpath(root).catch(() => null)
+      if (trustedRoot && isPathInside(trustedRoot, target)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private async isTrustedLocalPath(filePath: string): Promise<boolean> {
+    return this.isPathInTrustedRoots(filePath, await this.trustedLocalPathRoots())
+  }
+
+  private async assertTrustedLocalPath(filePath: string): Promise<void> {
+    if (!(await this.isTrustedLocalPath(filePath))) {
+      throw new Error("Local path is not available from this conversation.")
+    }
   }
 
   private beginSessionGeneration(sessionId: string): SessionGeneration {
@@ -1519,6 +1665,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.activeRuns.get(sessionId) ?? null
   }
 
+  public async getSessionSnapshot(sessionId: string): Promise<ChatSessionSnapshot> {
+    const messages = await this.getMessages(sessionId)
+    const [pendingQuestions, pendingPermissions] = await Promise.all([
+      this.getPendingQuestions(sessionId),
+      this.getPendingPermissions(sessionId),
+    ])
+    return {
+      activeRun: this.activeRuns.get(sessionId) ?? null,
+      messages,
+      pendingPermissions,
+      pendingQuestions,
+      sessionId,
+    }
+  }
+
   public async sendMessage(req: SendMessageRequest): Promise<void> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
@@ -1528,6 +1689,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
       req.permissionModeVersion,
     )
+    this.rememberTrustedAttachments(req.sessionId, req.attachments)
     const organizationName = organizationNameFromRequest(req)
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
@@ -1853,17 +2015,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
+    await this.assertTrustedLocalPath(req.path)
     return attachmentPreview(req)
   }
 
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
+    await this.assertTrustedLocalPath(req.path)
     return localArtifactPreview(req)
   }
 
-  public async getTurnOutput(req: TurnOutputRequest): Promise<TurnOutputRecord | null> {
+  public async getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]> {
     await this.ensureTurnOutputsLoaded()
-    const record = this.turnOutputs.get(req.sessionId)?.get(req.messageId)
-    return record ? publicTurnOutputRecord(record) : null
+    const records = this.turnOutputs.get(req.sessionId)
+    if (!records) {
+      return []
+    }
+    const seen = new Set<string>()
+    const output: TurnOutputRecord[] = []
+    for (const messageId of req.messageIds) {
+      if (seen.has(messageId)) {
+        continue
+      }
+      seen.add(messageId)
+      const record = records.get(messageId)
+      if (record) {
+        output.push(publicTurnOutputRecord(record))
+      }
+    }
+    return output
   }
 
   public async getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult> {
@@ -1889,6 +2068,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const candidates = req.artifactRoot ? [req.artifactRoot] : extractLocalPathCandidates(req.text ?? "")
     const fromText = !req.artifactRoot
     const maxDirectoryItems = Math.max(1, Math.min(req.maxDirectoryItems ?? defaultMaxDirectoryItems, 200))
+    const trustedRoots = await this.trustedLocalPathRoots()
     const seen = new Set<string>()
     const groups: LocalArtifactGroup[] = []
     let pack: LocalArtifactPack | undefined
@@ -1899,6 +2079,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
       if (fromText && isBroadLocalArtifactPath(filePath, os.homedir())) {
         continue
+      }
+      if (!(await this.isPathInTrustedRoots(filePath, trustedRoots))) {
+        if (fromText) {
+          continue
+        }
+        throw new Error("Local artifact path is not available from this conversation.")
       }
       seen.add(filePath)
       const item = await localArtifactItem(filePath)
@@ -1922,6 +2108,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!item) {
       throw new Error("File does not exist.")
     }
+    await this.assertTrustedLocalPath(item.path)
     try {
       const result = await shell.openPath(item.path)
       if (result) {
@@ -1937,6 +2124,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!item) {
       throw new Error("File does not exist.")
     }
+    await this.assertTrustedLocalPath(item.path)
     try {
       shell.showItemInFolder(item.path)
     } catch (error) {
@@ -1976,13 +2164,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await this.ensureArtifactRootsLoaded()
     await this.ensureAuthorizationOverlaysLoaded()
     await this.ensureStoppedGenerationsLoaded()
-    return applyStoppedGenerations(
+    const displayedMessages = applyStoppedGenerations(
       applyAuthorizationOverlays(
         applyArtifactRoots(messages, this.artifactRoots.get(sessionId)),
         this.authorizationOverlays.get(sessionId),
       ),
       this.stoppedGenerations.get(sessionId),
     )
+    this.rememberTrustedMessageAttachments(sessionId, displayedMessages)
+    return displayedMessages
   }
 
   public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
@@ -2052,8 +2242,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
     if (req.reply === "always") {
-      let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
       if (!request) {
         try {
           request = (await this.agent.getPendingPermissions(req.sessionId)).find((item) => item.id === req.requestId)
@@ -2072,6 +2262,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     await this.agent.answerPermission(req.sessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
+    if (req.reply !== "reject" && request) {
+      this.rememberTrustedPermissionResources(req.sessionId, request)
+    }
     this.forgetPendingPermissionRequest(req.sessionId, req.requestId)
     this.removeActiveRunBlockingRequest(req.sessionId, req.requestId)
     this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)

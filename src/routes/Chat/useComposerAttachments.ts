@@ -171,7 +171,8 @@ export function useComposerAttachments({
       setInputError(null)
       const next: ComposerAttachmentInput[] = []
       for (const file of Array.from(files)) {
-        const path = globalThis.wanta?.getPathForFile(file)
+        const selectedPathForFile = globalThis.wanta?.selectedAttachmentPathForFile
+        const selected = selectedPathForFile ? await selectedPathForFile(file) : null
         const saver = globalThis.wanta?.saveClipboardAttachment
         let optimized: {
           name: string
@@ -190,7 +191,7 @@ export function useComposerAttachments({
             optimized = null
           }
         }
-        if (!path) {
+        if (!selected) {
           if (!saver) {
             setInputError(t("chat.attachmentPathUnavailable"))
             continue
@@ -217,11 +218,11 @@ export function useComposerAttachments({
           continue
         }
         next.push({
-          name: file.name || path.split(/[\\/]/).pop() || "attachment",
-          mime: file.type || "application/octet-stream",
-          size: file.size,
-          path,
-          kind: "file",
+          name: selected.name,
+          mime: selected.mime,
+          size: selected.size,
+          path: selected.path,
+          kind: selected.kind,
           ...(optimized
             ? {
                 agentMime: optimized.mime,

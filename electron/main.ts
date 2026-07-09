@@ -136,6 +136,7 @@ const artifactRootStore = new ArtifactRootStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"))
+const trustedAttachmentPaths = new Set<string>()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
 // 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
@@ -143,6 +144,7 @@ const chatService = new ChatServiceImpl(null, {
   authorizationOverlayStore,
   projectStore: sessionProjectStore,
   stoppedGenerationStore,
+  trustedAttachmentPaths,
   turnOutputStore,
   onSetAgentOrganization: handleAgentOrganizationChanged,
 })
@@ -390,13 +392,19 @@ function registerAttachmentDialogHandler(): void {
     if (result.canceled) {
       return []
     }
-    const items = await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))
-    return items.filter((item): item is SelectedAttachmentPath => Boolean(item))
+    const items = (await Promise.all(result.filePaths.map((filePath) => selectedAttachmentPath(filePath)))).filter(
+      (item): item is SelectedAttachmentPath => Boolean(item),
+    )
+    for (const item of items) {
+      rememberTrustedAttachmentPath(item.path)
+    }
+    return items
   })
   ipcMain.handle(
     "wanta:save-clipboard-attachment",
     async (_event, req: SaveClipboardAttachmentRequest): Promise<SelectedAttachmentPath> => {
       const attachment = await saveClipboardAttachment(app.getPath("userData"), req)
+      rememberTrustedAttachmentPath(attachment.path)
       return {
         name: attachment.name,
         mime: attachment.mime,
@@ -406,6 +414,16 @@ function registerAttachmentDialogHandler(): void {
       }
     },
   )
+  ipcMain.handle("wanta:selected-attachment-path-for-file", async (_event, filePath: unknown) => {
+    if (typeof filePath !== "string" || !filePath.trim()) {
+      return null
+    }
+    const item = await selectedAttachmentPath(filePath)
+    if (item) {
+      rememberTrustedAttachmentPath(item.path)
+    }
+    return item
+  })
   ipcMain.handle("wanta:select-project-directory", async (event): Promise<SelectedAttachmentPath | null> => {
     const parent = BrowserWindow.fromWebContents(event.sender) ?? undefined
     const options: Electron.OpenDialogOptions = {
@@ -424,6 +442,12 @@ function registerAttachmentDialogHandler(): void {
       kind: "directory",
     }
   })
+}
+
+function rememberTrustedAttachmentPath(filePath: string): void {
+  if (filePath.trim()) {
+    trustedAttachmentPaths.add(filePath)
+  }
 }
 
 function registerRendererErrorHandler(): void {

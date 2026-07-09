@@ -560,6 +560,11 @@ export interface TurnOutputRequest {
   messageId: string
 }
 
+export interface TurnOutputsRequest {
+  sessionId: string
+  messageIds: string[]
+}
+
 export interface TurnFileDiffRequest extends TurnOutputRequest {
   path: string
 }
@@ -572,6 +577,14 @@ export interface TurnFileDiffResult {
   deletions: number
   patch?: string
   truncated?: boolean
+}
+
+export interface ChatSessionSnapshot {
+  activeRun: ChatActiveRun | null
+  messages: ChatMessage[]
+  pendingPermissions: ChatPermissionRequest[]
+  pendingQuestions: ChatQuestionRequest[]
+  sessionId: string
 }
 
 export interface ResolveLocalArtifactsRequest {
@@ -797,7 +810,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
     getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
-    getTurnOutput(req: TurnOutputRequest): Promise<TurnOutputRecord | null>
+    getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]>
     getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
@@ -809,6 +822,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     stopGeneration(sessionId: string): Promise<void>
     getActiveRuns(): Promise<ChatActiveRun[]>
     getActiveRun(sessionId: string): Promise<ChatActiveRun | null>
+    getSessionSnapshot(sessionId: string): Promise<ChatSessionSnapshot>
     getMessages(sessionId: string): Promise<ChatMessage[]>
     getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]>
     answerQuestion(req: AnswerQuestionRequest): Promise<void>

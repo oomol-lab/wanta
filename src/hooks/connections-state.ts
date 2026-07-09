@@ -3,7 +3,7 @@ import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import { connectionWorkspaceKey } from "../lib/connection-workspace.ts"
 
-export type ConnectionBusy = "connect" | "disconnect" | "refresh" | null
+export type ConnectionBusy = "connect" | "disconnect" | "refresh" | "set_default" | null
 
 export interface ConnectionsState {
   actionError: UserFacingError | null

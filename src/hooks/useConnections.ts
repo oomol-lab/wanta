@@ -582,6 +582,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       }
       const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
+      dispatch({ type: "busySet", busy: "set_default" })
       try {
         const updatedApp = await setDefaultAccountRequest(svc, appId, action.currentWorkspace)
         if (isCurrentAction() && summaryRef.current) {
@@ -597,6 +598,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "set_default") })
         }
         return false
+      } finally {
+        if (isCurrentAction()) {
+          dispatch({ type: "busySet", busy: null })
+        }
       }
     },
     [beginAction, setCurrentSummary],

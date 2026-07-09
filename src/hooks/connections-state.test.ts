@@ -73,6 +73,10 @@ test("connectionsStateReducer clears only refresh busy when refresh completes", 
     connectionsStateReducer({ ...initialConnectionsState, busy: "connect" }, { type: "refreshFinished" }).busy,
     "connect",
   )
+  assert.equal(
+    connectionsStateReducer({ ...initialConnectionsState, busy: "set_default" }, { type: "refreshFinished" }).busy,
+    "set_default",
+  )
 })
 
 test("connectionsStateReducer starts refresh without replacing active actions", () => {
@@ -84,6 +88,10 @@ test("connectionsStateReducer starts refresh without replacing active actions", 
   assert.equal(
     connectionsStateReducer({ ...initialConnectionsState, busy: "disconnect" }, { type: "refreshStarted" }).busy,
     "disconnect",
+  )
+  assert.equal(
+    connectionsStateReducer({ ...initialConnectionsState, busy: "set_default" }, { type: "refreshStarted" }).busy,
+    "set_default",
   )
 })
 

@@ -256,7 +256,6 @@ export function BillingRoute({
           <AdditionalSeatsPanel
             currentAdditionalSeats={wantaOverview.additionalSeats}
             disabled={!billingContext.canManage}
-            hasPlan={wantaOverview.currentPlan !== null}
             loading={wantaLoading !== null}
             pendingPaymentUrl={pendingWantaPaymentUrl}
             workspaceLabel={billingContext.workspaceLabel}
@@ -578,7 +577,6 @@ function PlanComparisonCard({
 function AdditionalSeatsPanel({
   currentAdditionalSeats,
   disabled,
-  hasPlan,
   loading,
   pendingPaymentUrl,
   workspaceLabel,
@@ -586,7 +584,6 @@ function AdditionalSeatsPanel({
 }: {
   currentAdditionalSeats: number
   disabled: boolean
-  hasPlan: boolean
   loading: boolean
   pendingPaymentUrl: string
   workspaceLabel: string
@@ -600,7 +597,7 @@ function AdditionalSeatsPanel({
   }, [currentAdditionalSeats])
 
   const unchanged = additionalSeats === currentAdditionalSeats
-  const controlDisabled = disabled || !hasPlan || loading
+  const controlDisabled = disabled || loading
   const actionDisabled = controlDisabled || (!pendingPaymentUrl && unchanged)
 
   return (
@@ -675,9 +672,6 @@ function AdditionalSeatsPanel({
             {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
             {pendingPaymentUrl ? t("billing.wantaContinuePayment") : t("billing.wantaManageSeats")}
           </Button>
-          {!disabled && !hasPlan ? (
-            <p className="oo-text-caption text-muted-foreground">{t("billing.additionalSeats.requiresPlan")}</p>
-          ) : null}
         </div>
       </div>
     </BillingPanel>

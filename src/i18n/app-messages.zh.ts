@@ -480,7 +480,7 @@ export const zhCNMessages = {
     "当前成员数已超过计划席位容量。增加额外席位后，团队成员可以继续稳定使用 Wanta。",
   "billing.popover.proRecommendation":
     "团队人数或连接器调用频次正在接近 Plus 的主要场景，Pro 更适合稳定共享和高频自动化。",
-  "billing.popover.noPlanRecommendation": "选择 Wanta 计划后，团队可以共享连接权限、统一托管凭证，并使用组织管理能力。",
+  "billing.popover.noPlanRecommendation": "可先选择 Wanta 计划启用共享连接和组织管理；额外席位也可以单独添加。",
   "billing.popover.planDescription": "Wanta 计划提供团队共享和组织管理能力；额外席位、用量余额分别单独管理。",
   "billing.popover.manageSeats": "管理席位",
   "billing.summary": "用量概览",
@@ -537,7 +537,8 @@ export const zhCNMessages = {
   "billing.wantaProPlanDiscountPrice": "$80",
   "billing.wantaProPlanOriginalPrice": "$100",
   "billing.planStatus.title": "当前计划与席位",
-  "billing.planStatus.freeDescription": "先选择 Wanta 计划，再按团队人数补充额外席位。用量余额不足时仍可单独充值。",
+  "billing.planStatus.freeDescription":
+    "可以按团队人数单独添加额外席位；选择 Wanta 计划后会启用共享连接和组织管理能力。",
   "billing.planStatus.activeDescription": "当前计划负责团队席位、共享连接和组织管理；用量余额只处理运行时消耗。",
   "billing.planStatus.pendingDescription": "待支付完成前，计划或席位变更不会生效。",
   "billing.planStatus.overCapacityDescription": "当前成员数超过席位容量。建议增加额外席位或升级计划。",
@@ -548,13 +549,12 @@ export const zhCNMessages = {
   "billing.additionalSeats.meta": "每个 $6/月，和计划分开",
   "billing.additionalSeats.cardTitle": "额外席位",
   "billing.additionalSeats.description":
-    "{workspace} 需要更多成员使用 Wanta 时再加席位。席位一次加一个，不会和 Plus / Pro 计划捆绑。",
+    "{workspace} 需要更多成员使用 Wanta 时再加席位。席位一次加一个，和 Plus / Pro 计划分开管理。",
   "billing.additionalSeats.current": "当前额外席位",
   "billing.additionalSeats.unitPrice": "单价",
   "billing.additionalSeats.price": "$6/月",
   "billing.additionalSeats.organizationMembers": "组织成员数",
   "billing.additionalSeats.inputLabel": "额外席位数",
-  "billing.additionalSeats.requiresPlan": "先选择 Wanta 计划，再按需添加额外席位。",
   "billing.usageDetails.title": "展开用量明细",
   "billing.usageDetails.description": "用量分类、余额来源和每日消耗默认收起。",
   "billing.purchaseDialog.title": "充值用量余额",

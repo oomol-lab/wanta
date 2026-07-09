@@ -505,7 +505,7 @@ export const enMessages = {
   "billing.popover.proRecommendation":
     "Your team size or connector call frequency is getting close to the main Plus use case. Pro fits stable sharing and higher-frequency automation.",
   "billing.popover.noPlanRecommendation":
-    "Choose a Wanta plan so the team can share connection permissions, centralize credentials, and use organization management.",
+    "Choose a Wanta plan to enable shared connections and organization management. Extra seats can also be added separately.",
   "billing.popover.planDescription":
     "Wanta plans provide team sharing and organization management. Additional seats and usage balance are managed separately.",
   "billing.popover.manageSeats": "Manage seats",
@@ -564,7 +564,7 @@ export const enMessages = {
   "billing.wantaProPlanOriginalPrice": "$100",
   "billing.planStatus.title": "Current plan and seats",
   "billing.planStatus.freeDescription":
-    "Choose a Wanta plan first, then add extra seats as the team grows. Usage balance can still be topped up separately.",
+    "Extra seats can be added separately as the team grows. Choose a Wanta plan to enable shared connections and organization management.",
   "billing.planStatus.activeDescription":
     "The current plan covers team seats, shared connections, and organization management. Usage balance only handles runtime spend.",
   "billing.planStatus.pendingDescription": "Plan or seat changes take effect after the pending payment completes.",
@@ -577,13 +577,12 @@ export const enMessages = {
   "billing.additionalSeats.meta": "$6/mo each, separate from plans",
   "billing.additionalSeats.cardTitle": "Additional seats",
   "billing.additionalSeats.description":
-    "Add seats only when {workspace} needs more members using Wanta. Seats are added one at a time and never bundled with Plus or Pro.",
+    "Add seats when {workspace} needs more members using Wanta. Seats are added one at a time and managed separately from Plus or Pro.",
   "billing.additionalSeats.current": "Current additional seats",
   "billing.additionalSeats.unitPrice": "Unit price",
   "billing.additionalSeats.price": "$6/mo",
   "billing.additionalSeats.organizationMembers": "Organization members",
   "billing.additionalSeats.inputLabel": "Additional seats",
-  "billing.additionalSeats.requiresPlan": "Choose a Wanta plan before adding extra seats.",
   "billing.usageDetails.title": "Expand usage details",
   "billing.usageDetails.description": "Usage categories, balance sources, and daily spend stay collapsed by default.",
   "billing.purchaseDialog.title": "Top up usage balance",

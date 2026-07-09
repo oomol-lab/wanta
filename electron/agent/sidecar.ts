@@ -3,10 +3,13 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process"
 import type { Readable } from "node:stream"
 
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { promisify } from "node:util"
 import { logDiagnostic } from "../diagnostics-log.ts"
+
+const execFileAsync = promisify(execFile)
 
 export interface SidecarOptions {
   /** opencode 二进制绝对路径。 */
@@ -35,8 +38,12 @@ export interface SidecarExitInfo {
 
 const startupOutputMaxBytes = 64 * 1024
 const runtimeLineMaxLength = 8 * 1024
-/** SIGTERM 后给整组进程自行退出的宽限期，超时再 SIGKILL 兜底。 */
-const processGroupKillGraceMs = 2_000
+/** SIGTERM 后给整棵进程树自行退出的宽限期，超时再 SIGKILL 兜底。 */
+const processReapGraceMs = 2_000
+/** 宽限期内轮询后代是否已全部退出的间隔；一旦全部退出立即提前结束，不空等满宽限期。 */
+const processReapPollMs = 100
+/** 请求 opencode 自行 dispose 的超时：卡死时不拖累退出，交由 OS 进程树兜底回收。 */
+const opencodeDisposeTimeoutMs = 2_000
 
 /** OpenCode 本地 sidecar：spawn `opencode serve`、解析 URL、提供 SDK client、随 app 退出回收。 */
 export class OpencodeSidecar {
@@ -92,16 +99,19 @@ export class OpencodeSidecar {
     const proc = spawn(opencodeBinPath, ["serve", `--hostname=${hostname}`, "--port=0"], {
       cwd: workspaceDir,
       env: childEnv,
-      // unix：让 opencode 自成进程组（pgid === pid），dispose 时可对整组发信号，连同它派生的
-      // Bun 工具 worker / oo CLI 一并回收，避免主进程退出后残留孤儿进程。Windows 无对应语义。
+      // unix：让 opencode 自成 session/进程组，dev 下与终端信号隔离（Ctrl-C 不直达 opencode），
+      // 由主进程的 SIGINT/SIGTERM 处理器统一驱动回收。工具子进程的连根回收不再依赖它（见 reap()：
+      // opencode 的工具子进程会各自 setsid 逃逸出本组，改由 opencode 自身 dispose + OS 进程树兜底回收）。
+      // Windows 无进程组语义（回收走 taskkill /T）。
       detached: process.platform !== "win32",
     })
     this.proc = proc
 
     const url = await this.awaitServerUrl(proc, timeoutMs).catch((error: unknown) => {
-      // 启动失败（超时/提前退出/spawn 出错）时一定要回收已 spawn 的 opencode，
-      // 否则 detached 进程会成为孤儿；recoverRuntime 的重试更会不断叠加。
-      this.terminate(proc)
+      // 启动失败（超时/提前退出/spawn 出错）时一定要回收已 spawn 的 opencode 及其后代，
+      // 否则会成为孤儿；recoverRuntime 的重试更会不断叠加。后台回收即可，不阻塞抛错。
+      // 此刻 client 尚未建立（awaitServerUrl 失败），传 null 走 OS 进程树兜底回收。
+      void this.reap(proc, null)
       throw error
     })
 
@@ -174,70 +184,235 @@ export class OpencodeSidecar {
     })
   }
 
-  /** 回收 opencode 及其全部后代（unix 按进程组 SIGTERM，宽限期后 SIGKILL 兜底）。 */
-  private terminate(proc: ChildProcessWithoutNullStreams): void {
-    if (proc.pid === undefined) {
+  /**
+   * 回收 opencode 及其全部工具子进程。两级、互为兜底：
+   * 1. 先请 opencode 自己 dispose（`POST /global/dispose`）——它权威地知道自己 spawn 了哪些工具子进程
+   *    （bash 工具 / oo CLI，各自 setsid 逃逸出 opencode 进程组），会主动全部回收。**这是跨平台**的主路径
+   *    （Windows 同样有效，opencode 用自身机制杀子进程，与 OS 进程组/信号语义无关）；有超时，opencode 卡死不拖累退出。
+   * 2. 再按 OS 进程树杀掉 opencode 服务进程本身，并兜底清扫 dispose 可能漏掉的残留
+   *    （unix：ps 按 ppid 逐个 + 按组 SIGTERM/SIGKILL；win32：`taskkill /T /F` 连子树）。
+   */
+  private async reap(proc: ChildProcessWithoutNullStreams, client: OpencodeClient | null): Promise<void> {
+    const pid = proc.pid
+    // 主路径：让 opencode 回收自己的工具子进程（跨平台、权威、无 ps 竞态）。
+    await requestOpencodeDispose(client)
+    if (pid === undefined) {
       return
     }
-    terminateProcessTree(proc.pid, {
-      platform: process.platform,
-      killGroup: (groupId, signal) => process.kill(groupId, signal),
-      killSelf: (signal) => proc.kill(signal),
-      schedule: (fn, ms) => {
-        const timer = setTimeout(fn, ms)
-        timer.unref?.()
-      },
-    })
+    // 兜底：杀掉 opencode 进程本身 + 清扫任何残留后代（opencode 卡死/dispose 失败时的安全网）。
+    try {
+      if (process.platform === "win32") {
+        await reapWindowsProcessTree(pid, (command, args) => execFileAsync(command, args))
+      } else {
+        await reapProcessTree(pid, {
+          snapshot: listProcessSnapshot,
+          kill: (target, signal) => process.kill(target, signal),
+          isAlive: isProcessAlive,
+          delay: reapDelay,
+        })
+      }
+    } catch (error) {
+      // 回收尽力而为，绝不把异常抛出 dispose（退出/重启路径都不能因此卡住）。
+      console.warn("[wanta] failed to reap opencode process tree:", error)
+      logDiagnostic("opencode-sidecar", "failed to reap opencode process tree", { error, pid }, "warn")
+    }
   }
 
-  public dispose(): void {
+  /**
+   * 回收 sidecar：同步摘掉监听与 client 引用，返回回收 Promise。
+   * 退出路径应 await 该 Promise（确保 opencode 工具子进程连根回收后再让主进程退出）；
+   * 重启路径可 fire-and-forget（回收在后台自完成，不拖慢重启）。
+   */
+  public dispose(): Promise<void> {
     this.disposed = true
     this.streamLogCleanup?.()
     this.streamLogCleanup = null
     const proc = this.proc
+    const client = this.opencodeClient
     this.proc = null
     this.opencodeClient = null
     this.serverUrl = ""
-    if (proc) {
-      this.terminate(proc)
-    }
+    return proc ? this.reap(proc, client) : Promise.resolve()
   }
 }
 
-/** terminateProcessTree 的副作用依赖，便于注入与单测。 */
-export interface ProcessTreeTerminator {
-  platform: NodeJS.Platform
-  /** 向进程组发信号（groupId 传负 pid 表示整组）；组不存在时抛出。 */
-  killGroup: (groupId: number, signal: NodeJS.Signals) => void
-  /** 单进程兜底 kill（Windows 无进程组语义时使用）。 */
-  killSelf: (signal: NodeJS.Signals) => void
-  /** 调度 SIGKILL 兜底（实现应 unref，绝不可阻止进程退出）。 */
-  schedule: (fn: () => void, ms: number) => void
+export interface ProcessSnapshotEntry {
+  pid: number
+  ppid: number
+  pgid: number
+}
+
+/** reapProcessTree 的副作用依赖，便于注入与单测。 */
+export interface ProcessTreeReaper {
+  /** 快照全系统进程（pid/ppid/pgid），用于按 ppid 收集 root 的全部后代。 */
+  snapshot: () => Promise<ProcessSnapshotEntry[]>
+  /** 向单进程（正 target）或进程组（负 target）发信号；目标不存在时抛出。 */
+  kill: (target: number, signal: NodeJS.Signals) => void
+  /** 判断进程是否存活（kill(pid, 0)）。 */
+  isAlive: (pid: number) => boolean
+  /** 宽限期内的等待实现（便于测试注入即时 resolve）。 */
+  delay: (ms: number) => Promise<void>
+  graceMs?: number
+  pollMs?: number
+}
+
+/** 解析 `ps -eo pid=,ppid=,pgid=` 输出为进程快照。非法/空行跳过。 */
+export function parsePsSnapshot(stdout: string): ProcessSnapshotEntry[] {
+  const entries: ProcessSnapshotEntry[] = []
+  for (const line of stdout.split("\n")) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)$/)
+    if (match) {
+      entries.push({ pid: Number(match[1]), ppid: Number(match[2]), pgid: Number(match[3]) })
+    }
+  }
+  return entries
+}
+
+/** 按 ppid 从 root 深度收集整棵进程树（含 root 自身，root 在首位）。 */
+export function collectDescendantTree(rootPid: number, snapshot: ProcessSnapshotEntry[]): number[] {
+  const childrenByParent = new Map<number, number[]>()
+  for (const entry of snapshot) {
+    const siblings = childrenByParent.get(entry.ppid)
+    if (siblings) {
+      siblings.push(entry.pid)
+    } else {
+      childrenByParent.set(entry.ppid, [entry.pid])
+    }
+  }
+  const ordered: number[] = []
+  const seen = new Set<number>()
+  const stack = [rootPid]
+  while (stack.length > 0) {
+    const pid = stack.pop()
+    if (pid === undefined || seen.has(pid)) {
+      continue
+    }
+    seen.add(pid)
+    ordered.push(pid)
+    for (const child of childrenByParent.get(pid) ?? []) {
+      stack.push(child)
+    }
+  }
+  return ordered
 }
 
 /**
- * 回收一棵进程树。unix 下目标进程以 detached 方式 spawn，自成进程组（pgid === pid），
- * 故对 -pid 发 SIGTERM 可命中它及其所有后代（Bun 工具 worker / oo CLI）；宽限期后再 SIGKILL 兜底。
- * Windows 无对应语义，退回单进程 kill（与既有行为一致，不处理孙子进程）。
+ * 收集进程树内可安全按组回收的 pgid：仅当组长（pgid 所指进程）本身也在树内时才纳入，
+ * 绝不向组长在树外的进程组发信号，避免误伤无关进程。用于连带回收后代同组的兄弟进程。
  */
-export function terminateProcessTree(pid: number, deps: ProcessTreeTerminator): void {
-  if (deps.platform === "win32") {
-    deps.killSelf("SIGTERM")
+export function distinctProcessGroups(pids: number[], snapshot: ProcessSnapshotEntry[]): number[] {
+  const treePids = new Set(pids)
+  const pgidByPid = new Map(snapshot.map((entry) => [entry.pid, entry.pgid]))
+  const groups = new Set<number>()
+  for (const pid of pids) {
+    const pgid = pgidByPid.get(pid)
+    if (pgid !== undefined && pgid > 1 && treePids.has(pgid)) {
+      groups.add(pgid)
+    }
+  }
+  return [...groups]
+}
+
+/**
+ * 回收一棵进程树（unix）。opencode 的工具子进程（bash 工具 / Bun 工具 worker / oo CLI）会各自
+ * setsid 到独立 session/进程组，无法靠单一 `kill(-opencodePgid)` 命中——必须先快照、按 ppid
+ * 收集整棵树，再对每个后代 pid 及其所在进程组逐个 SIGTERM；宽限期内轮询，全部退出即提前结束，
+ * 否则 SIGKILL 兜底。快照必须在发信号前完成：一旦 opencode 死亡，其子进程会 reparent 到
+ * launchd（ppid=1）而失去关联。Windows 走 reapWindowsProcessTree（taskkill /T）。
+ */
+export async function reapProcessTree(rootPid: number, deps: ProcessTreeReaper): Promise<void> {
+  const safeKill = (target: number, signal: NodeJS.Signals): void => {
+    try {
+      deps.kill(target, signal)
+    } catch {
+      // 目标已退出或无权限：尽力而为，忽略。
+    }
+  }
+
+  const snapshot = await deps.snapshot().catch(() => [] as ProcessSnapshotEntry[])
+  const hasSnapshot = snapshot.length > 0
+  const pids = hasSnapshot ? collectDescendantTree(rootPid, snapshot) : [rootPid]
+  // 快照失败的降级：opencode 以 detached spawn（pgid === pid），至少按其自身进程组回收，
+  // 恢复到"单一进程组 kill"的旧行为，不至于连同组的直接子进程都漏掉。
+  const groups = hasSnapshot ? distinctProcessGroups(pids, snapshot) : [rootPid]
+
+  // SIGTERM：先按组（连带同组兄弟），再逐个 pid（组长已死时的兜底）。
+  for (const group of groups) {
+    safeKill(-group, "SIGTERM")
+  }
+  for (const pid of pids) {
+    safeKill(pid, "SIGTERM")
+  }
+
+  // 宽限期内轮询；后代全部退出即提前返回，避免空等。
+  const graceMs = deps.graceMs ?? processReapGraceMs
+  const pollMs = deps.pollMs ?? processReapPollMs
+  for (let waited = 0; waited < graceMs; waited += pollMs) {
+    await deps.delay(pollMs)
+    if (!pids.some((pid) => deps.isAlive(pid))) {
+      return
+    }
+  }
+
+  // 宽限期后仍有存活：SIGKILL 兜底。
+  for (const group of groups) {
+    safeKill(-group, "SIGKILL")
+  }
+  for (const pid of pids) {
+    safeKill(pid, "SIGKILL")
+  }
+}
+
+/**
+ * 请 opencode 自行 dispose（`POST /global/dispose`）——由 opencode 主动回收它 spawn 的全部工具子进程
+ * （权威、跨平台，不依赖 OS 进程组/信号语义）。带超时：opencode 卡死或已不可达时不拖累退出，
+ * 交由后续 OS 进程树回收兜底。尽力而为，任何错误都吞掉。
+ */
+async function requestOpencodeDispose(client: OpencodeClient | null): Promise<void> {
+  if (!client) {
     return
   }
   try {
-    deps.killGroup(-pid, "SIGTERM")
-  } catch {
-    // 组已消失或无权限：退回单进程，尽力而为。
-    deps.killSelf("SIGTERM")
+    await client.global.dispose({ signal: AbortSignal.timeout(opencodeDisposeTimeoutMs) })
+  } catch (error) {
+    // 已退出/卡死/超时：忽略，兜底回收会处理。
+    logDiagnostic("opencode-sidecar", "opencode self-dispose request failed", { error }, "trace")
   }
-  deps.schedule(() => {
-    try {
-      deps.killGroup(-pid, "SIGKILL")
-    } catch {
-      // 组已在宽限期内退出，无需处理。
-    }
-  }, processGroupKillGraceMs)
+}
+
+/**
+ * Windows 进程树回收：`taskkill /PID <pid> /T /F` 连带终止整棵子树（含孙子进程）。
+ * /T 按 ParentProcessId 递归，/F 强制。目标不存在时 taskkill 以非零码退出——吞掉即可。
+ */
+export async function reapWindowsProcessTree(
+  rootPid: number,
+  run: (command: string, args: string[]) => Promise<unknown>,
+): Promise<void> {
+  try {
+    await run("taskkill", ["/PID", String(rootPid), "/T", "/F"])
+  } catch {
+    // 进程已退出或无权限：尽力而为，忽略。
+  }
+}
+
+async function listProcessSnapshot(): Promise<ProcessSnapshotEntry[]> {
+  // execFile（异步子进程，非同步 fs）：主进程纪律允许；仅在回收路径按需调用。
+  const { stdout } = await execFileAsync("ps", ["-eo", "pid=,ppid=,pgid="], { maxBuffer: 8 * 1024 * 1024 })
+  return parsePsSnapshot(stdout)
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function reapDelay(ms: number): Promise<void> {
+  // 刻意不 unref：退出路径 await 本回收链时需保持事件循环存活，直到 SIGKILL 兜底送达。
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function appendBoundedOutput(current: string, next: string, maxBytes: number): string {

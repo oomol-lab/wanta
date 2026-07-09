@@ -857,15 +857,21 @@ export class AgentManager {
     await writeOoIdentitySettings(path.join(this.options.rootDir, "oo-store", "config"), organizationName)
   }
 
-  public dispose(): void {
+  /**
+   * 销毁 agent：同步摘掉事件流与引用，返回 sidecar 进程树回收的 Promise。
+   * 退出路径应 await（确保 opencode 及其工具子进程被连根回收后再退出主进程，
+   * 否则残留孤儿会被 macOS 判为"正在后台运行"）；重启路径可 fire-and-forget。
+   */
+  public dispose(): Promise<void> {
     this.disposed = true
     this.eventLoopStopped = true
     this.eventStreamAbort?.abort()
     this.eventStreamAbort = null
     this.eventSubscriber = null
     this.started = false
-    this.sidecar?.dispose()
+    const sidecar = this.sidecar
     this.sidecar = null
+    return sidecar?.dispose() ?? Promise.resolve()
   }
 
   private resolveModel(choice: ModelChoice | undefined): { providerID: string; modelID: string } {

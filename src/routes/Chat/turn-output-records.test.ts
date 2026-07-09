@@ -20,7 +20,6 @@ function record(messageId: string, changedFileCount: number, processFileCount: n
     completedAt: Number(messageId.replace(/\D/g, "")) || 1,
     files: [],
     summary: {
-      artifactCount: 0,
       changedFileCount,
       processFileCount,
       additions: 0,

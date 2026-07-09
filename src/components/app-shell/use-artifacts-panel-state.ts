@@ -47,6 +47,7 @@ interface UseArtifactsPanelStateResult {
   handleTurnOutputOpen: (selection: TurnOutputSelection) => void
   hasPanelSelection: boolean
   isArtifactsPanelResizing: boolean
+  latestArtifactSelection: ArtifactSelection | null
   setArtifactsPanelOpen: React.Dispatch<React.SetStateAction<boolean>>
   setArtifactsPanelMaximizedState: (maximized: boolean) => void
   turnOutputSelection: TurnOutputSelection | null
@@ -63,6 +64,8 @@ export function useArtifactsPanelState({
   sidebarWidth,
 }: UseArtifactsPanelStateOptions): UseArtifactsPanelStateResult {
   const [panelSelection, setPanelSelection] = React.useState<PanelSelection>(EMPTY_PANEL_SELECTION)
+  const [latestAutoPanelSelection, setLatestAutoPanelSelection] = React.useState<PanelSelection>(EMPTY_PANEL_SELECTION)
+  const [latestArtifactSelection, setLatestArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
   const [artifactsPanelMaximized, setArtifactsPanelMaximized] = React.useState(false)
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
@@ -149,6 +152,8 @@ export function useArtifactsPanelState({
 
   React.useEffect(() => {
     setPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestAutoPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestArtifactSelection(null)
     setArtifactsPanelOpen(false)
     setArtifactsPanelMaximizedState(false)
   }, [activeSessionId, setArtifactsPanelMaximizedState])
@@ -158,10 +163,13 @@ export function useArtifactsPanelState({
       return
     }
     setPanelSelection((current) => {
+      if (latestAutoPanelSelection.kind !== "empty") {
+        return latestAutoPanelSelection
+      }
       const released = releaseManualPanelSelection(current)
       return released === current ? current : released
     })
-  }, [artifactsPanelOpen])
+  }, [artifactsPanelOpen, latestAutoPanelSelection])
 
   React.useLayoutEffect(() => {
     const element = appChromeRef.current
@@ -326,6 +334,8 @@ export function useArtifactsPanelState({
 
   const handleArtifactsReset = React.useCallback(() => {
     setPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestAutoPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestArtifactSelection(null)
     setArtifactsPanelOpen(false)
     setArtifactsPanelMaximizedState(false)
   }, [setArtifactsPanelMaximizedState])
@@ -337,6 +347,8 @@ export function useArtifactsPanelState({
 
   const handleArtifactsAvailable = React.useCallback(
     (selection: ArtifactSelection) => {
+      setLatestArtifactSelection(selection)
+      setLatestAutoPanelSelection(artifactPanelSelection(selection, "auto"))
       setPanelSelection((current) => nextArtifactPanelSelection(current, selection, artifactsPanelOpen))
     },
     [artifactsPanelOpen],
@@ -349,6 +361,7 @@ export function useArtifactsPanelState({
 
   const handleTurnOutputAvailable = React.useCallback(
     (selection: TurnOutputSelection) => {
+      setLatestAutoPanelSelection((current) => nextTurnOutputPanelSelection(current, selection, false))
       setPanelSelection((current) => nextTurnOutputPanelSelection(current, selection, artifactsPanelOpen))
     },
     [artifactsPanelOpen],
@@ -377,6 +390,7 @@ export function useArtifactsPanelState({
     handleTurnOutputOpen,
     hasPanelSelection,
     isArtifactsPanelResizing,
+    latestArtifactSelection,
     setArtifactsPanelOpen: setArtifactsPanelOpenState,
     setArtifactsPanelMaximizedState,
     turnOutputSelection,

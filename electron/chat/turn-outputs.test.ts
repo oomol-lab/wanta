@@ -35,7 +35,7 @@ test("TurnOutputStore round trips records and strips diffs from public records",
           },
         },
       ],
-      summary: { artifactCount: 0, processFileCount: 1, changedFileCount: 0, additions: 1, deletions: 0 },
+      summary: { processFileCount: 1, changedFileCount: 0, additions: 1, deletions: 0 },
     })
 
     await store.write(records)
@@ -66,7 +66,7 @@ test("TurnOutputStore removes records for a deleted session", async () => {
       createdAt: 1,
       completedAt: 2,
       files: [],
-      summary: { artifactCount: 0, processFileCount: 0, changedFileCount: 0, additions: 0, deletions: 0 },
+      summary: { processFileCount: 0, changedFileCount: 0, additions: 0, deletions: 0 },
     }
     recordTurnOutput(records, {
       ...baseRecord,

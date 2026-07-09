@@ -54,7 +54,6 @@ function turnOutputSelection(messageId: string, filePath = `/tmp/${messageId}.lo
     ],
     summary: {
       additions: 1,
-      artifactCount: 0,
       changedFileCount: 0,
       deletions: 0,
       processFileCount: 1,

@@ -442,6 +442,7 @@ export function AppShell() {
     handleTurnOutputOpen,
     hasPanelSelection,
     isArtifactsPanelResizing,
+    latestArtifactSelection,
     setArtifactsPanelOpen,
     setArtifactsPanelMaximizedState,
     turnOutputSelection,
@@ -1704,7 +1705,7 @@ export function AppShell() {
                       startupError={startupError}
                       error={error}
                       emptyTitle={chatEmptyTitle}
-                      generatedArtifacts={artifactSelection}
+                      generatedArtifacts={latestArtifactSelection}
                       submitDisabled={!ready || chatBootstrapping || workspaceActivationBlocked || !sessionScope}
                       willQueueMessage={Boolean(
                         activeChatSessionId && (!chatTurnAllowsDirectSend(activeChatTurnState) || isSendInFlight()),

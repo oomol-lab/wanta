@@ -56,7 +56,6 @@ describe("TurnOutputShelf", () => {
       ],
       summary: {
         additions: 23,
-        artifactCount: 0,
         changedFileCount: 5,
         deletions: 6,
         processFileCount: 0,

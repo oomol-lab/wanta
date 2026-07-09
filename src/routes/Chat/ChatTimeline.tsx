@@ -896,12 +896,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
       )}
       {artifactSources.length > 0 ? (
         <React.Suspense fallback={null}>
-          <GeneratedArtifacts
-            layout="shelf"
-            sources={artifactSources}
-            onOpen={onArtifactsOpen}
-            onAvailable={onArtifactsAvailable}
-          />
+          <GeneratedArtifacts sources={artifactSources} onOpen={onArtifactsOpen} onAvailable={onArtifactsAvailable} />
         </React.Suspense>
       ) : null}
       {activeSessionId && turnOutputRecord ? (

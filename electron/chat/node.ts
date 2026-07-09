@@ -479,23 +479,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
               activeTurn.messageId = translated.data.messageId
             }
           }
-          if (artifactRoot) {
-            this.sendBestEffort(
-              emit,
-              "messageArtifacts",
-              {
-                sessionId: translated.data.sessionId,
-                messageId: translated.data.messageId,
-                artifactRoot,
-              },
-              { messageId: translated.data.messageId, sessionId: translated.data.sessionId },
-            )
-            void this.rememberArtifactRoot(translated.data.sessionId, translated.data.messageId, artifactRoot).catch(
-              (error: unknown) => {
-                console.warn("[wanta] failed to record artifact root", error)
-              },
-            )
-          }
         }
         if (translated.event === "toolCallStarted") {
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
@@ -1869,6 +1852,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     await this.deps.artifactRootStore?.write(this.artifactRoots)
   }
 
+  private async publishArtifactRoot(sessionId: string, messageId: string, artifactRoot: string): Promise<void> {
+    await this.rememberArtifactRoot(sessionId, messageId, artifactRoot).catch((error: unknown) => {
+      console.warn("[wanta] failed to record artifact root", error)
+    })
+    await this.send("messageArtifacts", { sessionId, messageId, artifactRoot }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit artifact root:", error)
+      logDiagnostic(
+        "chat-service",
+        "failed to emit artifact root",
+        { artifactRoot, error, messageId, sessionId },
+        "warn",
+      )
+    })
+  }
+
   private async rememberAuthorizationOverlay(
     sessionId: string,
     messageId: string,
@@ -1987,8 +1985,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
       projectOutputFiles(active.projectBaseline, active.projectRoot),
     ])
+    if (artifactGroup?.items.length) {
+      await this.publishArtifactRoot(sessionId, resolvedMessageId, active.artifactRoot)
+    }
     const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
-    if (files.length === 0 && !artifactGroup?.items.length) {
+    if (files.length === 0) {
       return
     }
     const record: StoredTurnOutputRecord = {
@@ -2000,7 +2001,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       createdAt: active.createdAt,
       completedAt: Date.now(),
       files,
-      summary: summarizeTurnFiles(files, artifactGroup?.items.length ?? 0),
+      summary: summarizeTurnFiles(files),
     }
     await this.rememberTurnOutput(record)
     await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
@@ -2051,9 +2052,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const file = record?.files.find((item) => item.path === req.path)
     if (!record || !file) {
       return { kind: "missing", path: req.path, mime: "application/octet-stream", additions: 0, deletions: 0 }
-    }
-    if (file.role === "artifact" && (!record.artifactRoot || !isPathInside(record.artifactRoot, file.path))) {
-      return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
     }
     if (file.role === "process" && (!record.processRoot || !isPathInside(record.processRoot, file.path))) {
       return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }

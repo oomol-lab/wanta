@@ -16,7 +16,7 @@ export function turnOutputRecordSortValue(record: TurnOutputRecord): number {
   return record.completedAt ?? record.createdAt
 }
 
-export function turnOutputInitialRole(record: TurnOutputRecord): Exclude<TurnOutputFileRole, "artifact"> {
+export function turnOutputInitialRole(record: TurnOutputRecord): TurnOutputFileRole {
   return record.summary.changedFileCount > 0 ? "project_change" : "process"
 }
 
@@ -50,7 +50,7 @@ export function useTurnOutputRecords(sessionId: string | null, messages: ChatMes
   const chatService = useChatService()
   const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
   const [refreshToken, setRefreshToken] = React.useState(0)
-  const messageIdsKey = React.useMemo(() => assistantMessageIds(messages).slice(-40).join("\n"), [messages])
+  const messageIdsKey = React.useMemo(() => assistantMessageIds(messages).join("\n"), [messages])
 
   React.useEffect(() => {
     return chatService.serverEvents.on("turnOutputUpdated", (event) => {

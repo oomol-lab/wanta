@@ -119,12 +119,8 @@ export function isPathInside(root: string, target: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))
 }
 
-export function summarizeTurnFiles(
-  files: StoredTurnOutputFile[],
-  artifactCount: number,
-): StoredTurnOutputRecord["summary"] {
+export function summarizeTurnFiles(files: StoredTurnOutputFile[]): StoredTurnOutputRecord["summary"] {
   return {
-    artifactCount,
     processFileCount: files.filter((file) => file.role === "process").length,
     changedFileCount: files.filter((file) => file.role === "project_change").length,
     additions: files.reduce((sum, file) => sum + file.additions, 0),

@@ -1,5 +1,4 @@
 import type {
-  ChatMessage,
   TurnFileDiffResult,
   TurnOutputFile,
   TurnOutputRecord,
@@ -13,8 +12,6 @@ import {
   ChevronRight,
   CopyIcon,
   ExternalLink,
-  FileCode2,
-  FileDiff,
   FolderOpen,
   Maximize2,
   Minimize2,
@@ -25,8 +22,6 @@ import { Diff as ReactDiff, Hunk, parseDiff } from "react-diff-view"
 import "react-diff-view/style/index.css"
 
 import { toast } from "sonner"
-import { turnOutputInitialRole, useTurnOutputRecords } from "./turn-output-records.ts"
-import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
@@ -36,17 +31,9 @@ import { cn } from "@/lib/utils"
 import { FileKindTile } from "@/routes/Chat/file-type-icons"
 
 export interface TurnOutputSelection {
-  initialRole?: Exclude<TurnOutputFileRole, "artifact">
+  initialRole?: TurnOutputFileRole
   record: TurnOutputRecord
   selectedPath?: string
-}
-
-interface GeneratedTurnOutputsProps {
-  layout?: "stack" | "shelf"
-  messages: ChatMessage[]
-  onAvailable: (selection: TurnOutputSelection) => void
-  onOpen: (selection: TurnOutputSelection) => void
-  sessionId: string | null
 }
 
 interface TurnOutputsPanelProps {
@@ -56,7 +43,7 @@ interface TurnOutputsPanelProps {
   selection: TurnOutputSelection | null
 }
 
-function roleFiles(record: TurnOutputRecord, role: Exclude<TurnOutputFileRole, "artifact">): TurnOutputFile[] {
+function roleFiles(record: TurnOutputRecord, role: TurnOutputFileRole): TurnOutputFile[] {
   return record.files.filter((file) => file.role === role)
 }
 
@@ -77,102 +64,6 @@ function ChangeCountLabel({
       <span className="font-medium text-[color:var(--success)]">+{additions}</span>
       <span className="font-medium text-[color:var(--destructive)]">-{deletions}</span>
     </span>
-  )
-}
-
-export function GeneratedTurnOutputs({
-  layout = "stack",
-  messages,
-  onAvailable,
-  onOpen,
-  sessionId,
-}: GeneratedTurnOutputsProps) {
-  const t = useT()
-  const records = useTurnOutputRecords(sessionId, messages)
-
-  React.useEffect(() => {
-    const latest = records.at(-1)
-    if (latest) {
-      onAvailable({ record: latest, initialRole: turnOutputInitialRole(latest) })
-    }
-  }, [onAvailable, records])
-
-  if (records.length === 0) {
-    return null
-  }
-
-  if (layout === "shelf") {
-    const latest = records.at(-1)
-    return latest ? <TurnOutputShelf record={latest} onOpen={onOpen} /> : null
-  }
-
-  return (
-    <section className="not-prose -mt-1 grid gap-1.5">
-      <div className="oo-text-caption-compact font-medium text-muted-foreground">{t("turnOutputs.title")}</div>
-      <div className="grid gap-1.5">
-        {records.map((record) => (
-          <TurnOutputSummaryRow key={`${record.sessionId}:${record.messageId}`} record={record} onOpen={onOpen} />
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function TurnOutputSummaryRow({
-  record,
-  onOpen,
-}: {
-  record: TurnOutputRecord
-  onOpen: (selection: TurnOutputSelection) => void
-}) {
-  const t = useT()
-  const hasProjectChanges = record.summary.changedFileCount > 0
-  const hasProcessFiles = record.summary.processFileCount > 0
-  const splitSummary = hasProjectChanges && hasProcessFiles
-
-  return (
-    <div className={cn("grid gap-1.5", splitSummary && "sm:grid-cols-2")}>
-      {hasProjectChanges ? (
-        <button
-          type="button"
-          className="oo-border-divider flex min-h-12 min-w-0 items-center gap-2 rounded-md border bg-muted/45 px-3 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={() => onOpen({ record, initialRole: "project_change" })}
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-            <FileDiff className="size-4" />
-          </span>
-          <span className="flex min-w-0 flex-1 items-center gap-3">
-            <span className="oo-text-label min-w-0 flex-1 truncate text-foreground">
-              {t("turnOutputs.changesSummary", { count: record.summary.changedFileCount })}
-            </span>
-            <ChangeCountLabel
-              additions={record.summary.additions}
-              className="shrink-0 justify-end"
-              deletions={record.summary.deletions}
-            />
-          </span>
-        </button>
-      ) : null}
-      {hasProcessFiles ? (
-        <button
-          type="button"
-          className="oo-border-divider flex min-h-12 min-w-0 items-center gap-2 rounded-md border bg-muted/45 px-3 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={() => onOpen({ record, initialRole: "process" })}
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-            <FileCode2 className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="oo-text-label block truncate text-foreground">
-              {t("turnOutputs.processSummary", { count: record.summary.processFileCount })}
-            </span>
-            <span className="oo-text-caption-compact block truncate text-muted-foreground">
-              {t("turnOutputs.reviewProcessFiles")}
-            </span>
-          </span>
-        </button>
-      ) : null}
-    </div>
   )
 }
 

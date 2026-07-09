@@ -518,12 +518,11 @@ export interface LocalArtifactPack {
   truncated: boolean
 }
 
-export type TurnOutputFileRole = "artifact" | "process" | "project_change"
+export type TurnOutputFileRole = "process" | "project_change"
 export type TurnOutputChangeKind = "added" | "modified" | "deleted"
 export type TurnOutputDiffKind = "text" | "binary" | "missing" | "too_large"
 
 export interface TurnOutputSummary {
-  artifactCount: number
   processFileCount: number
   changedFileCount: number
   additions: number

@@ -623,7 +623,7 @@ test("getTurnOutputs returns requested records in order without exposing stored 
                     },
                   },
                 ],
-                summary: { artifactCount: 0, processFileCount: 1, changedFileCount: 0, additions: 1, deletions: 0 },
+                summary: { processFileCount: 1, changedFileCount: 0, additions: 1, deletions: 0 },
               },
             ],
             [
@@ -634,7 +634,7 @@ test("getTurnOutputs returns requested records in order without exposing stored 
                 createdAt: 3,
                 completedAt: 4,
                 files: [],
-                summary: { artifactCount: 0, processFileCount: 0, changedFileCount: 1, additions: 0, deletions: 0 },
+                summary: { processFileCount: 0, changedFileCount: 1, additions: 0, deletions: 0 },
               },
             ],
           ]),
@@ -686,6 +686,43 @@ test("message completion records intermediate code files left in artifact root",
     const record = (await store.read()).get("session-1")?.get("assistant-1")
     assert.equal(record?.summary.processFileCount, 1)
     assert.equal(record?.files[0]?.name, "create_ppt.js")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("message completion publishes artifact-only outputs without turn output records", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-only-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    const artifactRootStore = new ArtifactRootStore(root)
+    const turnOutputStore = new TurnOutputStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { artifactRootStore, turnOutputStore })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "Create a report" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(artifactDir, "report.pdf"), "pdf", "utf8")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "messageArtifacts"))
+
+    assert.equal((await artifactRootStore.read()).get("session-1")?.get("assistant-1"), artifactDir)
+    assert.equal((await turnOutputStore.read()).get("session-1")?.get("assistant-1"), undefined)
+    assert.equal(
+      events.some((event) => event.event === "turnOutputUpdated"),
+      false,
+    )
   } finally {
     await rm(root, { force: true, recursive: true })
   }

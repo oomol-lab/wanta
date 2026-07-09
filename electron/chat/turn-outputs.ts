@@ -31,7 +31,6 @@ function validNumber(value: unknown): value is number {
 function normalizeSummary(value: unknown): TurnOutputSummary {
   const source = value && typeof value === "object" ? (value as Partial<TurnOutputSummary>) : {}
   return {
-    artifactCount: validNumber(source.artifactCount) ? source.artifactCount : 0,
     processFileCount: validNumber(source.processFileCount) ? source.processFileCount : 0,
     changedFileCount: validNumber(source.changedFileCount) ? source.changedFileCount : 0,
     additions: validNumber(source.additions) ? source.additions : 0,
@@ -48,7 +47,7 @@ function normalizeFile(value: unknown): StoredTurnOutputFile | null {
     return null
   }
   const role = source.role
-  if (role !== "artifact" && role !== "process" && role !== "project_change") {
+  if (role !== "process" && role !== "project_change") {
     return null
   }
   const changeKind = source.changeKind

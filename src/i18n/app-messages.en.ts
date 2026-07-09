@@ -857,9 +857,12 @@ export const enMessages = {
   "turnOutputs.changes": "Changes",
   "turnOutputs.processFiles": "Process files",
   "turnOutputs.changesSummary": "{count} changed file(s)",
+  "turnOutputs.editedSummary": "Edited {count} file(s)",
   "turnOutputs.processSummary": "{count} process file(s)",
   "turnOutputs.viewChanges": "View all changes ({count})",
   "turnOutputs.viewProcess": "View process ({count})",
+  "turnOutputs.reviewChanges": "Review",
+  "turnOutputs.showMoreFiles": "Show {count} more file(s)",
   "turnOutputs.reviewProcessFiles": "Review intermediate scripts and execution files",
   "turnOutputs.processCaution":
     "Process files may include raw data used during the task. Review them only when you need implementation details.",

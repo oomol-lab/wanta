@@ -3,6 +3,7 @@ import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { ManagedSkillGroupById, PublicSkillInstallState } from "./skill-route-model.ts"
 
 import {
+  canInstallPublicSkill,
   getPublicPackageInstallState,
   getPublicPackagePrimaryInstallSkill,
   getPublicPackagePrimarySkill,
@@ -179,8 +180,5 @@ export function buildProviderSkillRecommendations({
 export function getInstallableProviderSkillRecommendations(
   recommendations: readonly ProviderSkillRecommendation[],
 ): ProviderSkillRecommendation[] {
-  return recommendations.filter(
-    (recommendation) =>
-      recommendation.installState === "installable" || recommendation.installState === "partially-installed",
-  )
+  return recommendations.filter((recommendation) => canInstallPublicSkill(recommendation.installState))
 }

@@ -320,6 +320,7 @@ export interface WorkspaceActivationInput {
   connectionsRefreshing: boolean
   currentScopeKey: string
   loadedSessionScopeKey: string | null
+  organizationSkillsError: UserFacingError | null
   organizationSkillsSettled: boolean
   targetScopeKey: string | null
   workspaceMetadataError: UserFacingError | null
@@ -335,7 +336,7 @@ export type WorkspaceActivationPhase =
   | "connections"
   | "organization_skills"
 
-export type WorkspaceActivationFailureReason = "agent_scope" | "workspace_metadata"
+export type WorkspaceActivationFailureReason = "agent_scope" | "organization_skills" | "workspace_metadata"
 
 export type WorkspaceActivationState =
   | { status: "idle"; targetScopeKey: string | null }
@@ -360,6 +361,14 @@ export function resolveWorkspaceActivationState(input: WorkspaceActivationInput)
     return {
       error: input.agentScopeSyncError,
       reason: "agent_scope",
+      status: "failed",
+      targetScopeKey: input.targetScopeKey,
+    }
+  }
+  if (input.organizationSkillsError) {
+    return {
+      error: input.organizationSkillsError,
+      reason: "organization_skills",
       status: "failed",
       targetScopeKey: input.targetScopeKey,
     }

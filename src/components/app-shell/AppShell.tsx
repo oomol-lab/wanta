@@ -130,7 +130,7 @@ export function AppShell() {
   const [ready, setReady] = React.useState(false)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
   const organizationWorkspace = useOrganizationWorkspace(auth.state?.account?.id)
-  const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace)
+  const organizationSkills = useOrganizationSkills(organizationWorkspace.activeWorkspace, auth.state?.account?.id)
   const skillInventory = useSkillInventoryResource()
   const connections = useConnections(organizationWorkspace.connectionWorkspace)
   const organizationSkillGroupById = React.useMemo(
@@ -186,11 +186,14 @@ export function AppShell() {
     organizationWorkspace.activeWorkspace.type === "organization"
       ? organizationWorkspace.activeWorkspace.organizationId
       : null
+  const activeOrganizationSkillsMatched = organizationSkills.organizationId === activeOrganizationId
+  const organizationSkillsError =
+    activeOrganizationId && activeOrganizationSkillsMatched && !organizationSkills.loading
+      ? organizationSkills.error
+      : null
   const organizationSkillsSettled =
     !activeOrganizationId ||
-    (organizationSkills.organizationId === activeOrganizationId &&
-      !organizationSkills.loading &&
-      (organizationSkills.hasLoaded || organizationSkills.error !== null))
+    (activeOrganizationSkillsMatched && !organizationSkills.loading && organizationSkills.hasLoaded)
   const workspaceActivationState = resolveWorkspaceActivationState({
     agentScopeSyncError: connections.scopeSyncError,
     agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
@@ -199,6 +202,7 @@ export function AppShell() {
     connectionsRefreshing: connections.busy === "refresh",
     currentScopeKey,
     loadedSessionScopeKey: sessionsLoadedScopeKey,
+    organizationSkillsError,
     organizationSkillsSettled,
     targetScopeKey: workspaceSwitchTargetKey,
     workspaceMetadataError: organizationWorkspace.error,

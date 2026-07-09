@@ -4,11 +4,15 @@ import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildOrganizationSkillRecommendationItems } from "./organization-skill-manage-helpers.ts"
+import {
+  buildInstallableOrganizationRecommendationSkills,
+  buildOrganizationSkillRecommendationItems,
+} from "./organization-skill-manage-helpers.ts"
 
 function organizationSkill(input: Partial<OrganizationSkillConfigItem>): OrganizationSkillConfigItem {
   return {
     displayName: input.displayName ?? "Gmail",
+    enabled: input.enabled ?? true,
     id: input.id ?? "org-gmail",
     order: input.order ?? 0,
     packageName: input.packageName ?? "oo-gmail",
@@ -55,7 +59,6 @@ test("buildOrganizationSkillRecommendationItems merges sources and lets organiza
     normalizedQuery: "",
     providerRecommendations: [
       providerRecommendation({ packageName: "OO-GMAIL", skillId: "gmail" }),
-      providerRecommendation({ packageName: "oo-gmail", skillId: "gmail-admin" }),
       providerRecommendation({ packageName: "oo-slack", service: "slack", skillId: "slack" }),
     ],
     skills: [organizationSkill({ packageName: "oo-gmail", skillName: "gmail" })],
@@ -91,4 +94,26 @@ test("buildOrganizationSkillRecommendationItems applies source filter and query"
     items.map((item) => item.id),
     [],
   )
+})
+
+test("buildInstallableOrganizationRecommendationSkills includes runtime-missing and external-only recommendations", () => {
+  const items = buildOrganizationSkillRecommendationItems({
+    filter: "all",
+    normalizedQuery: "",
+    providerRecommendations: [
+      providerRecommendation({ installState: "external-installed", packageName: "oo-slack", skillId: "slack" }),
+      providerRecommendation({ installState: "installed", packageName: "oo-linear", skillId: "linear" }),
+    ],
+    skills: [organizationSkill({ packageName: "oo-gmail", skillName: "gmail" })],
+  })
+
+  const targets = buildInstallableOrganizationRecommendationSkills({
+    groupById: new Map(),
+    items,
+  })
+
+  assert.deepEqual(targets, [
+    { packageName: "oo-gmail", skillName: "gmail" },
+    { packageName: "oo-slack", skillName: "slack" },
+  ])
 })

@@ -1,4 +1,5 @@
 import type { DiscoverSkillFilter, InstalledSkillFilter, SkillPageTab } from "./skill-route-model.ts"
+import type { ReactNode } from "react"
 
 import { isDiscoverSkillFilter, isInstalledSkillFilter } from "./skill-route-model.ts"
 import { AppIcons } from "@/components/AppIcons"
@@ -23,6 +24,7 @@ interface SkillPageHeaderProps {
   organizationFilter: OrganizationSkillFilter
   organizationQuery: string
   organizationTabAvailable: boolean
+  organizationAction?: ReactNode
   onDiscoveryFilterChange: (filter: DiscoverSkillFilter) => void
   onDiscoveryQueryChange: (value: string) => void
   onInstalledFilterChange: (filter: InstalledSkillFilter) => void
@@ -41,6 +43,7 @@ export function SkillPageHeader({
   organizationFilter,
   organizationQuery,
   organizationTabAvailable,
+  organizationAction,
   onDiscoveryFilterChange,
   onDiscoveryQueryChange,
   onInstalledFilterChange,
@@ -86,8 +89,9 @@ export function SkillPageHeader({
         organizationTabAvailable={organizationTabAvailable}
         onTabChange={onTabChange}
       />
-      <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <SearchField
+          className="flex-1"
           placeholder={t(searchPlaceholder)}
           value={searchValue}
           onChange={(event) => {
@@ -123,6 +127,7 @@ export function SkillPageHeader({
             }
           }}
         />
+        {isOrganizationTab && organizationAction ? <div className="shrink-0">{organizationAction}</div> : null}
       </div>
     </header>
   )

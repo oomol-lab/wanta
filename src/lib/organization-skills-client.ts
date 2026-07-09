@@ -1,7 +1,5 @@
-import type { PublicSkillPackage } from "../../electron/skills/common.ts"
-
-import { packageAssetsBaseUrl, registryBaseUrl, searchBaseUrl } from "@/lib/domain"
-import { OomolAuthRequiredError, OomolHttpError, oomolFetch, oomolFetchJson } from "@/lib/oomol-http"
+import { orgControlBaseUrl, registryBaseUrl } from "@/lib/domain"
+import { oomolFetchJson } from "@/lib/oomol-http"
 import { resolvePackageAssetIconSource } from "@/lib/skill-icon-assets.ts"
 
 export type OrganizationSkillVersionPolicy = "latest" | "pinned"
@@ -12,6 +10,7 @@ export interface OrganizationSkillConfigItem {
   createdBy?: string
   description?: string
   displayName: string
+  enabled: boolean
   icon?: string
   id: string
   order: number
@@ -29,18 +28,51 @@ export interface OrganizationSkillConfig {
 }
 
 export interface AddOrganizationSkillInput {
+  enabled?: boolean
   packageName: string
   skillName: string
   version?: string
   versionPolicy?: OrganizationSkillVersionPolicy
 }
 
-interface RegistrySkillInfo {
-  description?: string
-  icon?: string
-  name?: string
-  path?: string
-  title?: string
+export interface UpdateOrganizationSkillInput {
+  enabled?: boolean
+  order?: number
+  version?: string
+  versionPolicy?: OrganizationSkillVersionPolicy
+}
+
+export interface ReorderOrganizationSkillInput {
+  id: string
+  order: number
+}
+
+export interface ResolvedOrganizationSkillManifestFile {
+  checksum?: string
+  path: string
+}
+
+export interface ResolvedOrganizationSkillManifest {
+  entry?: string
+  files: ResolvedOrganizationSkillManifestFile[]
+  format?: string
+}
+
+export interface ResolvedOrganizationSkill {
+  archiveUrl?: string
+  assetBaseUrl?: string
+  checksum?: string
+  configId: string
+  manifest?: ResolvedOrganizationSkillManifest
+  packageName: string
+  skillName: string
+  skillPath?: string
+  version: string
+}
+
+export interface ResolvedOrganizationSkills {
+  skills: ResolvedOrganizationSkill[]
+  updatedAt: string
 }
 
 interface OrganizationSkillPackageRawItem {
@@ -65,29 +97,7 @@ interface OrganizationSkillPackageResponse {
   data?: unknown
 }
 
-interface MySkillPackageRawItem {
-  description?: string
-  displayName?: string
-  downloadCount?: number
-  extra?: Record<string, string>
-  icon?: string
-  id?: string
-  maintainers?: Array<{ id?: string; name?: string; url?: string }>
-  name?: string
-  repositoryUrl?: string
-  skills?: RegistrySkillInfo[]
-  updateTime?: number
-  version?: string
-  visibility?: OrganizationSkillVisibility
-}
-
-interface MySkillPackagesResponse {
-  data?: MySkillPackageRawItem[]
-  next?: string | null
-}
-
 const organizationSkillRequestTimeoutMs = 15_000
-const mySkillsPageSize = 100
 const organizationSkillsApiFlag = "VITE_WANTA_ORGANIZATION_SKILLS_API"
 
 export function organizationSkillsApiEnabled(): boolean {
@@ -97,6 +107,14 @@ export function organizationSkillsApiEnabled(): boolean {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function asBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback
 }
 
 function asPlainObject(value: unknown): Record<string, unknown> | undefined {
@@ -118,8 +136,61 @@ function encodePackagePath(packageName: string): string {
     .join("/")
 }
 
+function normalizeVersionPolicy(value: unknown): OrganizationSkillVersionPolicy {
+  return value === "latest" ? "latest" : "pinned"
+}
+
 function normalizeVisibility(value: unknown): OrganizationSkillVisibility {
   return value === "private" || value === "public" ? value : "unknown"
+}
+
+export function normalizeOrganizationSkillConfigItem(value: unknown): OrganizationSkillConfigItem | undefined {
+  const item = asPlainObject(value)
+  if (!item) {
+    return undefined
+  }
+
+  const packageName = asString(item["packageName"] ?? item["package_name"])
+  const skillName = asString(item["skillName"] ?? item["skill_name"] ?? item["name"])
+  if (!packageName || !skillName) {
+    return undefined
+  }
+
+  const version = asString(item["version"]) ?? "latest"
+  return {
+    ...(asString(item["createdAt"] ?? item["created_at"])
+      ? { createdAt: asString(item["createdAt"] ?? item["created_at"]) }
+      : {}),
+    ...(asString(item["createdBy"] ?? item["created_by"])
+      ? { createdBy: asString(item["createdBy"] ?? item["created_by"]) }
+      : {}),
+    ...(asString(item["description"]) ? { description: asString(item["description"]) } : {}),
+    displayName: asString(item["displayName"] ?? item["display_name"] ?? item["title"]) ?? skillName,
+    enabled: asBoolean(item["enabled"], true),
+    ...(asString(item["icon"]) ? { icon: asString(item["icon"]) } : {}),
+    id: asString(item["id"]) ?? `${packageName}:${skillName}`,
+    order: asNumber(item["order"], 0),
+    packageName,
+    skillName,
+    ...(asString(item["updatedAt"] ?? item["updated_at"])
+      ? { updatedAt: asString(item["updatedAt"] ?? item["updated_at"]) }
+      : {}),
+    version,
+    versionPolicy: normalizeVersionPolicy(item["versionPolicy"] ?? item["version_policy"]),
+    visibility: normalizeVisibility(item["visibility"]),
+  }
+}
+
+export function normalizeOrganizationSkillConfig(value: unknown): OrganizationSkillConfig {
+  const payload = asPlainObject(value)
+  const rawSkills = Array.isArray(payload?.["skills"]) ? payload["skills"] : []
+  return {
+    skills: rawSkills
+      .map(normalizeOrganizationSkillConfigItem)
+      .filter((item): item is OrganizationSkillConfigItem => Boolean(item))
+      .sort(compareOrganizationSkills),
+    updatedAt: asString(payload?.["updatedAt"] ?? payload?.["updated_at"]) ?? new Date().toISOString(),
+  }
 }
 
 function compareOrganizationSkills(left: OrganizationSkillConfigItem, right: OrganizationSkillConfigItem): number {
@@ -172,6 +243,7 @@ function normalizeOrganizationSkillPackage(value: unknown, packageIndex: number)
           ? { description: asString(skill?.["description"]) ?? packageDescription }
           : {}),
         displayName: asString(skill?.["title"] ?? skill?.["displayName"]) ?? skillName,
+        enabled: true,
         ...(icon ? { icon } : {}),
         id: `${packageName}:${skillName}`,
         order: packageIndex * 1000 + skillIndex,
@@ -209,6 +281,7 @@ function createOrganizationSkillItemFromInput(input: AddOrganizationSkillInput):
   const version = input.version?.trim() || "latest"
   return {
     displayName: skillName,
+    enabled: input.enabled ?? true,
     id: `${packageName}:${skillName}`,
     order: 0,
     packageName,
@@ -244,6 +317,7 @@ export async function addOrganizationSkill(
   orgId: string,
   input: AddOrganizationSkillInput,
 ): Promise<OrganizationSkillConfigItem> {
+  // 当前 registry 接口关联的是 package；skillName 用于本地乐观项，刷新后以后端 package-infos 为准。
   await oomolFetchJson<void>(organizationSkillPackageUrl(input.packageName, orgId), {
     method: "PUT",
     timeoutMs: organizationSkillRequestTimeoutMs,
@@ -251,87 +325,121 @@ export async function addOrganizationSkill(
   return createOrganizationSkillItemFromInput(input)
 }
 
-export async function removeOrganizationSkill(orgId: string, configId: string): Promise<void> {
-  await oomolFetchJson<void>(organizationSkillPackageUrl(configId, orgId), {
+export async function updateOrganizationSkill(
+  orgId: string,
+  configId: string,
+  input: UpdateOrganizationSkillInput,
+): Promise<OrganizationSkillConfigItem> {
+  const response = await oomolFetchJson<unknown>(
+    new URL(`/v1/organizations/${encodePath(orgId)}/skills/${encodePath(configId)}`, orgControlBaseUrl),
+    {
+      body: JSON.stringify(input),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+      timeoutMs: organizationSkillRequestTimeoutMs,
+    },
+  )
+  const normalized = normalizeOrganizationSkillConfigItem(response)
+  if (!normalized) {
+    throw new Error("Organization Skill response is invalid.")
+  }
+  return normalized
+}
+
+export async function removeOrganizationSkill(orgId: string, packageName: string): Promise<void> {
+  await oomolFetchJson<void>(organizationSkillPackageUrl(packageName, orgId), {
     method: "DELETE",
     timeoutMs: organizationSkillRequestTimeoutMs,
   })
 }
 
-export async function listMyPublishedSkills(options: { lang?: "en" | "zh-CN"; next?: string } = {}): Promise<{
-  items: PublicSkillPackage[]
-  next: string | null
-  updatedAt: string
-}> {
-  const url = new URL("/v1/packages/-/my-skills", searchBaseUrl)
-  url.searchParams.set("size", String(mySkillsPageSize))
-  if (options.lang) {
-    url.searchParams.set("lang", options.lang)
-  }
-  if (options.next?.trim()) {
-    url.searchParams.set("next", options.next.trim())
-  }
-  const payload = await oomolFetchJson<MySkillPackagesResponse>(url, { timeoutMs: organizationSkillRequestTimeoutMs })
+export async function reorderOrganizationSkills(
+  orgId: string,
+  items: ReorderOrganizationSkillInput[],
+): Promise<OrganizationSkillConfig> {
+  const response = await oomolFetchJson<unknown>(
+    new URL(`/v1/organizations/${encodePath(orgId)}/skills/order`, orgControlBaseUrl),
+    {
+      body: JSON.stringify({ items }),
+      headers: { "content-type": "application/json" },
+      method: "PUT",
+      timeoutMs: organizationSkillRequestTimeoutMs,
+    },
+  )
+  return normalizeOrganizationSkillConfig(response)
+}
+
+export function normalizeResolvedOrganizationSkills(value: unknown): ResolvedOrganizationSkills {
+  const payload = asPlainObject(value)
+  const rawSkills = Array.isArray(payload?.["skills"]) ? payload["skills"] : []
   return {
-    items: (payload.data ?? [])
-      .map(normalizeMySkillPackage)
-      .filter((item): item is PublicSkillPackage => Boolean(item)),
-    next: payload.next ?? null,
-    updatedAt: new Date().toISOString(),
+    skills: rawSkills
+      .map((entry): ResolvedOrganizationSkill | undefined => {
+        const item = asPlainObject(entry)
+        const configId = asString(item?.["configId"] ?? item?.["config_id"])
+        const packageName = asString(item?.["packageName"] ?? item?.["package_name"])
+        const skillName = asString(item?.["skillName"] ?? item?.["skill_name"])
+        const version = asString(item?.["version"])
+        if (!configId || !packageName || !skillName || !version) {
+          return undefined
+        }
+        const manifest = normalizeResolvedManifest(item?.["manifest"])
+        return {
+          ...(asString(item?.["archiveUrl"] ?? item?.["archive_url"])
+            ? { archiveUrl: asString(item?.["archiveUrl"] ?? item?.["archive_url"]) }
+            : {}),
+          ...(asString(item?.["assetBaseUrl"] ?? item?.["asset_base_url"])
+            ? { assetBaseUrl: asString(item?.["assetBaseUrl"] ?? item?.["asset_base_url"]) }
+            : {}),
+          ...(asString(item?.["checksum"]) ? { checksum: asString(item?.["checksum"]) } : {}),
+          configId,
+          ...(manifest ? { manifest } : {}),
+          packageName,
+          skillName,
+          ...(asString(item?.["skillPath"] ?? item?.["skill_path"])
+            ? { skillPath: asString(item?.["skillPath"] ?? item?.["skill_path"]) }
+            : {}),
+          version,
+        }
+      })
+      .filter((item): item is ResolvedOrganizationSkill => Boolean(item)),
+    updatedAt: asString(payload?.["updatedAt"] ?? payload?.["updated_at"]) ?? new Date().toISOString(),
   }
 }
 
-function normalizeMySkillPackage(raw: MySkillPackageRawItem): PublicSkillPackage | undefined {
-  const name = raw.name?.trim()
-  if (!name) {
+function normalizeResolvedManifest(value: unknown): ResolvedOrganizationSkillManifest | undefined {
+  const manifest = asPlainObject(value)
+  if (!manifest) {
     return undefined
   }
-  const version = raw.version || raw.extra?.latestVersion || "latest"
+  const rawFiles = Array.isArray(manifest["files"]) ? manifest["files"] : []
+  const files = rawFiles
+    .map((entry): ResolvedOrganizationSkillManifestFile | undefined => {
+      const item = asPlainObject(entry)
+      const path = asString(item?.["path"])
+      if (!path) {
+        return undefined
+      }
+      return {
+        ...(asString(item?.["checksum"]) ? { checksum: asString(item?.["checksum"]) } : {}),
+        path,
+      }
+    })
+    .filter((item): item is ResolvedOrganizationSkillManifestFile => Boolean(item))
+  if (files.length === 0) {
+    return undefined
+  }
   return {
-    description: raw.description,
-    displayName: raw.displayName || name,
-    downloadCount: raw.downloadCount,
-    icon: raw.icon,
-    id: raw.id || `${name}@${version}`,
-    isTemplate: false,
-    maintainers: (raw.maintainers ?? []).map((maintainer) => ({
-      ...(maintainer.id ? { id: maintainer.id } : {}),
-      name: maintainer.name || name,
-      ...(maintainer.url ? { url: maintainer.url } : {}),
-    })),
-    name,
-    skills: (raw.skills ?? [])
-      .map((skill) => {
-        const skillName = skill.name || skill.path
-        return skillName
-          ? {
-              ...(skill.description ? { description: skill.description } : {}),
-              name: skillName,
-              title: skill.title || skill.name || skillName,
-            }
-          : undefined
-      })
-      .filter((skill): skill is PublicSkillPackage["skills"][number] => Boolean(skill)),
-    updateTime: raw.updateTime,
-    version,
-    visibility: normalizeVisibility(raw.visibility),
+    ...(asString(manifest["entry"]) ? { entry: asString(manifest["entry"]) } : {}),
+    files,
+    ...(asString(manifest["format"]) ? { format: asString(manifest["format"]) } : {}),
   }
 }
 
-export async function readSkillMarkdown(packageName: string, version: string, skillName: string): Promise<string> {
-  const url = new URL(
-    `/packages/${encodePath(packageName)}/${encodePath(version)}/files/package/skills/${encodePath(skillName)}/SKILL.md`,
-    packageAssetsBaseUrl,
+export async function listResolvedOrganizationSkills(orgId: string): Promise<ResolvedOrganizationSkills> {
+  const response = await oomolFetchJson<unknown>(
+    new URL(`/v1/organizations/${encodePath(orgId)}/skills/resolved`, orgControlBaseUrl),
+    { timeoutMs: organizationSkillRequestTimeoutMs },
   )
-  const response = await oomolFetch(url, {
-    headers: { Accept: "text/plain, */*" },
-    timeoutMs: organizationSkillRequestTimeoutMs,
-  })
-  if (response.status === 401) {
-    throw new OomolAuthRequiredError()
-  }
-  if (!response.ok) {
-    throw new OomolHttpError(`Skill Markdown request failed with status ${response.status}.`, response.status)
-  }
-  return response.text()
+  return normalizeResolvedOrganizationSkills(response)
 }

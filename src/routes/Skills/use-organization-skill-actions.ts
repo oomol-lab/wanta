@@ -49,34 +49,58 @@ export function useOrganizationSkillActions({
   const skillVersionReport = useSkillVersionReportResource()
   const homeSummaryResource = useHomeSummaryResource()
   const [runtimeSkillRemoveTarget, setRuntimeSkillRemoveTarget] = React.useState<RuntimeSkillRemoveTarget | null>(null)
+  const busyActionRef = React.useRef<BusyAction | null>(busyAction)
+
+  React.useEffect(() => {
+    busyActionRef.current = busyAction
+  }, [busyAction])
+
+  const beginAction = React.useCallback(
+    (action: BusyAction): boolean => {
+      if (busyActionRef.current) {
+        return false
+      }
+      busyActionRef.current = action
+      setBusyAction(action)
+      return true
+    },
+    [setBusyAction],
+  )
+
+  const endAction = React.useCallback((): void => {
+    busyActionRef.current = null
+    setBusyAction(null)
+  }, [setBusyAction])
 
   const installRuntimeSkill = React.useCallback(
     async (skill: { packageName: string; skillName: string }) => {
-      setBusyAction(`installSkill:${skill.packageName}:${skill.skillName}`)
+      if (!beginAction(`installSkill:${skill.packageName}:${skill.skillName}`)) {
+        return
+      }
       try {
         const nextInventory = await skillService.invoke("installRegistrySkill", {
           packageName: skill.packageName,
           skillId: skill.skillName,
         })
         skillInventory.setData(nextInventory)
+        skillVersionReport.invalidate()
         homeSummaryResource.invalidate()
         toast.success(t("skills.registryInstallDone", { name: skill.skillName }))
       } catch (error) {
         toast.error(t("skills.registryInstallFailed", { error: errorMessage(error) }))
       } finally {
-        setBusyAction(null)
+        endAction()
       }
     },
-    [homeSummaryResource, setBusyAction, skillInventory, skillService, t],
+    [beginAction, endAction, homeSummaryResource, skillInventory, skillService, skillVersionReport, t],
   )
 
   const removeRuntimeSkill = React.useCallback(async () => {
     const target = runtimeSkillRemoveTarget
-    if (!target || busyAction) {
+    if (!target || !beginAction(runtimeSkillRemoveBusyKey(target))) {
       return
     }
 
-    setBusyAction(runtimeSkillRemoveBusyKey(target))
     try {
       const nextInventory = await skillService.invoke("deleteSkill", {
         confirmed: true,
@@ -90,13 +114,13 @@ export function useOrganizationSkillActions({
     } catch (error) {
       toast.error(t("organizations.skillManageRemoveRuntimeFailed", { error: errorMessage(error) }))
     } finally {
-      setBusyAction(null)
+      endAction()
     }
   }, [
-    busyAction,
+    beginAction,
+    endAction,
     homeSummaryResource,
     runtimeSkillRemoveTarget,
-    setBusyAction,
     skillInventory,
     skillService,
     skillVersionReport,
@@ -106,11 +130,10 @@ export function useOrganizationSkillActions({
   const installRuntimeSkills = React.useCallback(
     async (skills: readonly { packageName: string; skillName: string }[]) => {
       const targets = skills.filter((skill) => skill.packageName.trim() && skill.skillName.trim())
-      if (targets.length === 0 || busyAction) {
+      if (targets.length === 0 || !beginAction("installSkillBatch")) {
         return
       }
 
-      setBusyAction("installSkillBatch")
       let installedCount = 0
       let failedCount = 0
       let firstError: unknown
@@ -130,6 +153,7 @@ export function useOrganizationSkillActions({
         }
         homeSummaryResource.invalidate()
         if (installedCount > 0) {
+          skillVersionReport.invalidate()
           toast.success(t("organizations.skillManageInstallMissingSuccess", { count: installedCount }))
         }
         if (failedCount > 0) {
@@ -141,10 +165,10 @@ export function useOrganizationSkillActions({
           )
         }
       } finally {
-        setBusyAction(null)
+        endAction()
       }
     },
-    [busyAction, homeSummaryResource, setBusyAction, skillInventory, skillService, t],
+    [beginAction, endAction, homeSummaryResource, skillInventory, skillService, skillVersionReport, t],
   )
 
   const linkOrganizationSkill = React.useCallback(
@@ -165,19 +189,22 @@ export function useOrganizationSkillActions({
           skillId: input.skillName,
         })
         skillInventory.setData(nextInventory)
+        skillVersionReport.invalidate()
         homeSummaryResource.invalidate()
       }
     },
-    [homeSummaryResource, organizationSkills, skillInventory, skillService],
+    [homeSummaryResource, organizationSkills, skillInventory, skillService, skillVersionReport],
   )
 
   const addOrganizationSkillFromRecommendation = React.useCallback(
     async (recommendation: ProviderSkillRecommendation, options: { installRuntime: boolean }) => {
-      if (!organizationSkills?.canManage || busyAction) {
+      if (
+        !organizationSkills?.canManage ||
+        !beginAction(`addSkill:${recommendation.packageName}:${recommendation.skillId}`)
+      ) {
         return
       }
 
-      setBusyAction(`addSkill:${recommendation.packageName}:${recommendation.skillId}`)
       try {
         await linkOrganizationSkill(
           {
@@ -191,15 +218,15 @@ export function useOrganizationSkillActions({
       } catch (error) {
         toast.error(errorMessage(error))
       } finally {
-        setBusyAction(null)
+        endAction()
       }
     },
-    [busyAction, linkOrganizationSkill, organizationSkills?.canManage, setBusyAction, t],
+    [beginAction, endAction, linkOrganizationSkill, organizationSkills?.canManage, t],
   )
 
   const addOrganizationSkillFromPackage = React.useCallback(
     async (pkg: PublicSkillPackage, options: { installRuntime: boolean; skillName?: string }) => {
-      if (!organizationSkills?.canManage || busyAction) {
+      if (!organizationSkills?.canManage) {
         return
       }
 
@@ -209,31 +236,32 @@ export function useOrganizationSkillActions({
         return
       }
 
-      setBusyAction(`addSkill:${input.packageName}:${input.skillName}`)
+      if (!beginAction(`addSkill:${input.packageName}:${input.skillName}`)) {
+        return
+      }
       try {
         await linkOrganizationSkill(input, options)
         toast.success(t("organizations.skillManageAddSuccess"))
       } catch (error) {
         toast.error(errorMessage(error))
       } finally {
-        setBusyAction(null)
+        endAction()
       }
     },
-    [busyAction, linkOrganizationSkill, organizationSkills?.canManage, setBusyAction, t],
+    [beginAction, endAction, linkOrganizationSkill, organizationSkills?.canManage, t],
   )
 
   const addOrganizationSkillBatch = React.useCallback(
     async (recommendations: readonly ProviderSkillRecommendation[], options: { installRuntime: boolean }) => {
-      if (!organizationSkills?.canManage || recommendations.length === 0 || busyAction) {
+      if (!organizationSkills?.canManage || recommendations.length === 0) {
         return
       }
 
       const plan = planProviderSkillRecommendationBulkLinks(recommendations, organizationSkills.skills)
-      if (plan.linkable.length === 0) {
+      if (plan.linkable.length === 0 || !beginAction("addSkillBatch")) {
         return
       }
 
-      setBusyAction("addSkillBatch")
       let linkedCount = 0
       let failedCount = 0
       let firstError: unknown
@@ -270,10 +298,10 @@ export function useOrganizationSkillActions({
           )
         }
       } finally {
-        setBusyAction(null)
+        endAction()
       }
     },
-    [busyAction, linkOrganizationSkill, organizationSkills, setBusyAction, t],
+    [beginAction, endAction, linkOrganizationSkill, organizationSkills, t],
   )
 
   return {

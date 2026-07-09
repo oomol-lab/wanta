@@ -44,9 +44,7 @@ import {
   createInstallRegistrySkillArgs,
   createPublishSkillArgs,
   createSkillPublishErrorMessage,
-  createSkillSearchArgs,
   createUpdateRegistrySkillArgs,
-  normalizeSkillSearchResults,
   readSkillPublishRequiredScope,
 } from "./actions.ts"
 import { SkillService as SkillServiceName } from "./common.ts"
@@ -228,14 +226,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         this.defaultRegistrySkillInstallInFlight = undefined
       }
     }
-  }
-
-  public async searchRegistrySkills(request: { query: string }) {
-    const result = await this.runOoCommand(createSkillSearchArgs(request.query), {
-      owner: "skill-service",
-    })
-
-    return normalizeSkillSearchResults(result.stdout)
   }
 
   public async installRegistrySkill(request: InstallRegistrySkillRequest): Promise<SkillInventory> {

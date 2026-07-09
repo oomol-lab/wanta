@@ -9,7 +9,6 @@ import type {
   ChatOrganizationSkillContext,
   ChatPermissionReply,
   ChatProjectContext,
-  ChatQuestionRequest,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
@@ -89,15 +88,9 @@ import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
-import {
-  chatTurnAllowsDirectSend,
-  chatTurnAllowsStop,
-  chatTurnQueuesNewMessage,
-  resolveChatTurnState,
-} from "@/routes/Chat/chat-turn-state"
+import { chatTurnAllowsDirectSend, chatTurnQueuesNewMessage, resolveChatTurnState } from "@/routes/Chat/chat-turn-state"
 import { chatTurnInputKey } from "@/routes/Chat/chat-turns"
 import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/composer-state"
-import { formatQuestionResumeMessage } from "@/routes/Chat/question-resume-message"
 import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 type ProjectSelectionSource = "composer" | "sidebar"
@@ -361,7 +354,6 @@ export function AppShell() {
     stop,
     answerPermission,
     answerQuestion,
-    discardQuestion,
     rejectQuestion,
     questionDrafts,
   } = useChat(activeChatSessionId, route === "chat" ? activeChatSessionId : null)
@@ -767,7 +759,7 @@ export function AppShell() {
   const initialSendPending = Boolean(activePendingChatTransition && !pendingCaughtUp)
   const bridgeInitialSendPending = initialSendPending && messages.length === 0
   const displayedStatus: ChatStatus = initialSendPending ? "submitted" : status
-  const activePendingQuestionCount = pendingQuestions.filter((item) => item.state === "active").length
+  const activePendingQuestionCount = pendingQuestions.length
   const activeChatTurnState = React.useMemo(
     () =>
       resolveChatTurnState({
@@ -1385,35 +1377,6 @@ export function AppShell() {
     [activeChatSessionId, answerPermission],
   )
 
-  const handleContinueQuestion = React.useCallback(
-    async (request: ChatQuestionRequest, answers: string[][]): Promise<void> => {
-      const sessionId = activeChatSessionId
-      if (!sessionId) {
-        return
-      }
-      if (!chatTurnAllowsDirectSend(activeChatTurnState)) {
-        if (!chatTurnAllowsStop(activeChatTurnState)) {
-          throw new Error("The current turn is waiting for another action.")
-        }
-        await stop(sessionId)
-      }
-      const result = await sendNow({ text: formatQuestionResumeMessage(t, request, answers) })
-      if (result.status === "accepted" && result.delivery === "sent") {
-        discardQuestion(sessionId, request.id)
-      }
-    },
-    [activeChatSessionId, activeChatTurnState, discardQuestion, sendNow, stop, t],
-  )
-
-  const handleDiscardQuestion = React.useCallback(
-    (requestId: string): void => {
-      if (activeChatSessionId) {
-        discardQuestion(activeChatSessionId, requestId)
-      }
-    },
-    [activeChatSessionId, discardQuestion],
-  )
-
   const handleRejectQuestion = React.useCallback(
     (requestId: string): Promise<void> =>
       activeChatSessionId ? rejectQuestion(activeChatSessionId, requestId) : Promise.resolve(),
@@ -1890,8 +1853,6 @@ export function AppShell() {
                       onAnswerQuestion={handleAnswerQuestion}
                       onAnswerPermission={handleAnswerPermission}
                       onPermissionModeChange={handlePermissionModeChange}
-                      onContinueQuestion={handleContinueQuestion}
-                      onDiscardQuestion={handleDiscardQuestion}
                       onRejectQuestion={handleRejectQuestion}
                       questionDrafts={questionDrafts}
                       onSetDefaultConnection={connections.setDefaultAccount}

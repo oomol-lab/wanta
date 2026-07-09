@@ -1028,10 +1028,9 @@ test("answerPermission restarts inactivity monitoring after a waiting permission
   assert.equal(bridge.abort.mock.calls.length, 1)
 })
 
-test("rejectQuestion ends the active generation so the session can accept new input", async () => {
+test("rejectQuestion resolves the waiting question without stopping the generation", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)
-  const events = captureServiceEvents(service)
   service.startEventBridge()
 
   await service.sendMessage({ sessionId: "session-1", text: "hello" })
@@ -1053,43 +1052,67 @@ test("rejectQuestion ends the active generation so the session can accept new in
       },
     },
   })
+  bridge.emit({
+    type: "question.asked",
+    properties: {
+      id: "question-1",
+      sessionID: "session-1",
+      questions: [{ header: "Title", question: "What title?", options: [] }],
+      tool: { messageID: "assistant-1", callID: "question-tool" },
+    },
+  })
   assert.equal(service.hasActiveGeneration(), true)
+  const waitingRun = await service.getActiveRun("session-1")
+  assert.equal(waitingRun?.activeAssistantMessageId, "assistant-1")
+  assert.deepEqual(waitingRun?.activeToolPartIds, ["question-tool"])
+  assert.deepEqual(waitingRun?.blockingRequestIds, ["question-1"])
+  assert.equal(waitingRun?.phase, "awaiting_question")
+  assert.equal(waitingRun?.sessionId, "session-1")
+  assert.deepEqual(waitingRun?.workspace, { type: "personal" })
 
   await service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" })
 
   assert.deepEqual(bridge.rejectQuestion.mock.calls, [["session-1", "question-1"]])
-  assert.equal(bridge.abort.mock.calls.length, 1)
-  assert.equal(events.at(-1)?.event, "generationStopped")
-  const stopped = events.at(-1)?.data as {
-    messageId?: string
-    partIds?: string[]
-    sessionId?: string
-    stoppedAt?: number
-  }
-  assert.equal(stopped.sessionId, "session-1")
-  assert.equal(stopped.messageId, "assistant-1")
-  assert.deepEqual(stopped.partIds, ["question-tool"])
-  assert.equal(typeof stopped.stoppedAt, "number")
-  assert.equal(service.hasActiveGeneration(), false)
+  assert.equal(bridge.abort.mock.calls.length, 0)
+  assert.equal(service.hasActiveGeneration(), true)
+  const activeRun = await service.getActiveRun("session-1")
+  assert.equal(activeRun?.phase, "thinking")
+  assert.deepEqual(activeRun?.blockingRequestIds, [])
 })
 
-test("rejectQuestion still stops the generation when OpenCode does not acknowledge the rejection", async () => {
+test("rejectQuestion does not stop the generation when OpenCode rejects the cancellation", async () => {
+  const bridge = createBridgeAgent()
+  bridge.rejectQuestion.mockRejectedValueOnce(new Error("reject failed"))
+  const service = new ChatServiceImpl(bridge.agent)
+
+  await service.sendMessage({ sessionId: "session-1", text: "hello" })
+  assert.equal(service.hasActiveGeneration(), true)
+
+  await assert.rejects(() => service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" }), {
+    message: "reject failed",
+  })
+
+  assert.equal(bridge.abort.mock.calls.length, 0)
+  assert.equal(service.hasActiveGeneration(), true)
+})
+
+test("rejectQuestion times out without stopping the generation", async () => {
   vi.useFakeTimers()
   const bridge = createBridgeAgent()
   bridge.rejectQuestion.mockImplementationOnce(() => new Promise<void>(() => undefined))
   const service = new ChatServiceImpl(bridge.agent)
-  const events = captureServiceEvents(service)
 
   await service.sendMessage({ sessionId: "session-1", text: "hello" })
   assert.equal(service.hasActiveGeneration(), true)
 
   const request = service.rejectQuestion({ sessionId: "session-1", requestId: "question-1" })
+  const rejection = assert.rejects(request, {
+    message: "Timed out (question rejection, 5000ms)",
+  })
   await vi.advanceTimersByTimeAsync(5_000)
-  await request
-
-  assert.equal(bridge.abort.mock.calls.length, 1)
-  assert.equal(events.at(-1)?.event, "generationStopped")
-  assert.equal(service.hasActiveGeneration(), false)
+  await rejection
+  assert.equal(bridge.abort.mock.calls.length, 0)
+  assert.equal(service.hasActiveGeneration(), true)
 })
 
 test("sendMessage passes selected context, organization skills, and project as per-turn system prompt", async () => {

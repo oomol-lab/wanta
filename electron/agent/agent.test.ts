@@ -294,6 +294,10 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /avoid writing manual navigation paths/)
   assert.match(WANTA_SYSTEM_PROMPT, /use bash normally/)
   assert.match(WANTA_SYSTEM_PROMPT, /basic safety boundaries/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Ask the user a narrow follow-up question only when/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Question prompts are runtime interruptions/)
+  assert.match(WANTA_SYSTEM_PROMPT, /If the user rejects or cancels a question, do not ask the same question again/)
+  assert.match(WANTA_SYSTEM_PROMPT, /do not simulate continuation by replaying the old question/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {

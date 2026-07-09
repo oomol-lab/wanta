@@ -3,6 +3,7 @@ import type {
   AssistantActivityEvent,
   ChatPermissionReply,
   ChatPermissionRequest,
+  ChatQuestionRequest,
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
@@ -13,7 +14,6 @@ import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnRetrySource } from "./chat-turns.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
-import type { ChatPendingQuestion } from "./question-state.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
@@ -55,7 +55,6 @@ import {
   visibleUserText,
 } from "./message-text.ts"
 import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
-import { questionPromptBusy } from "./question-state.ts"
 import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
 import { renderBlocks } from "./render-blocks.ts"
 import { formatWholeSecondDuration } from "./tool-activity.ts"
@@ -950,7 +949,7 @@ interface ChatTimelineProps {
   billingCacheScope: string
   messages: ChatMessage[]
   pendingPermissions: ChatPermissionRequest[]
-  pendingQuestions: ChatPendingQuestion[]
+  pendingQuestions: ChatQuestionRequest[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
   isGenerating: boolean
@@ -962,11 +961,8 @@ interface ChatTimelineProps {
   onTurnOutputAvailable: (selection: TurnOutputSelection) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
-  onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
-  onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
-  onStop: () => Promise<void> | void
   onViewBilling?: () => void
 }
 
@@ -987,11 +983,8 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   onTurnOutputAvailable,
   onAnswerQuestion,
   onAnswerPermission,
-  onContinueQuestion,
-  onDiscardQuestion,
   onRejectQuestion,
   questionDrafts,
-  onStop,
   onViewBilling,
 }: ChatTimelineProps) {
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
@@ -1140,21 +1133,15 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             />
           )
         })}
-        {pendingQuestions.map(({ request, state }) => (
+        {pendingQuestions.map((request) => (
           <div key={request.id} className="flex justify-start">
             <div className="w-full max-w-full">
               <QuestionPromptCard
                 request={request}
-                state={state}
-                busy={questionPromptBusy(state, status)}
-                isGenerating={isGenerating}
-                currentGenerationQuestion={request.tool?.messageId === activeAssistantMessageId}
+                busy={status === "submitted"}
                 onAnswer={onAnswerQuestion}
-                onContinue={onContinueQuestion}
-                onDiscard={onDiscardQuestion}
                 onReject={onRejectQuestion}
                 questionDrafts={questionDrafts}
-                onStop={onStop}
               />
             </div>
           </div>

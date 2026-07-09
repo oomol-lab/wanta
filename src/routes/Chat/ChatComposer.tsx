@@ -4,13 +4,13 @@ import type {
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
+  ChatQuestionRequest,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ConnectionAccountPaletteItem } from "./composer-palette-items.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
-import type { ChatPendingQuestion } from "./question-state.ts"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
@@ -70,7 +70,7 @@ interface ChatComposerProps {
   initialSendPending: boolean
   messages: ChatMessage[]
   permissionMode: AgentPermissionMode
-  pendingQuestions: ChatPendingQuestion[]
+  pendingQuestions: ChatQuestionRequest[]
   placeholder: string
   organizationSkills?: ChatOrganizationSkillContext[]
   providers: ConnectionProvider[]
@@ -242,7 +242,7 @@ export function ChatComposer({
   const voiceInput = useVoiceComposerInput(appendVoiceTranscription)
   const { attachments, contextMentions, dismissedTriggerKey, draft, draftSelection } = composer
   const isGenerating = status === "submitted" || status === "streaming"
-  const activePendingQuestion = pendingQuestions.find((item) => item.state === "active")?.request
+  const activePendingQuestion = pendingQuestions[0]
   const composerQuestionBlocked = Boolean(activePendingQuestion && !isSingleTextQuestion(activePendingQuestion))
   const composerAttachmentsDisabled = Boolean(activePendingQuestion)
   const composerSubmitStatus = activePendingQuestion ? "ready" : status

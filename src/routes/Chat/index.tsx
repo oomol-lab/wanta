@@ -6,12 +6,12 @@ import type {
   ChatOrganizationSkillContext,
   ChatPermissionReply,
   ChatPermissionRequest,
+  ChatQuestionRequest,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ChatTurnRetrySource } from "./chat-turns.ts"
 import type { ComposerState } from "./composer-state.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
-import type { ChatPendingQuestion } from "./question-state.ts"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
 import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components/app-shell/chat-queue"
 import type { UserFacingError } from "@/lib/user-facing-error"
@@ -39,7 +39,7 @@ interface ChatAreaProps {
   messages: ChatMessage[]
   permissionMode: AgentPermissionMode
   pendingPermissions: ChatPermissionRequest[]
-  pendingQuestions: ChatPendingQuestion[]
+  pendingQuestions: ChatQuestionRequest[]
   status: ChatStatus
   activity: AssistantActivityEvent | null
   showEmptyState: boolean
@@ -66,8 +66,6 @@ interface ChatAreaProps {
   onPermissionModeChange: (mode: AgentPermissionMode) => void
   onAnswerQuestion: (requestId: string, answers: string[][]) => Promise<void>
   onAnswerPermission: (requestId: string, reply: ChatPermissionReply) => Promise<void>
-  onContinueQuestion: (request: ChatPendingQuestion["request"], answers: string[][]) => Promise<void>
-  onDiscardQuestion: (requestId: string) => void
   onRejectQuestion: (requestId: string) => Promise<void>
   questionDrafts: QuestionDraftStore
   onSetDefaultConnection?: (service: string, appId: string) => Promise<boolean>
@@ -254,8 +252,6 @@ export const ChatArea = React.memo(function ChatArea({
   onPermissionModeChange,
   onAnswerQuestion,
   onAnswerPermission,
-  onContinueQuestion,
-  onDiscardQuestion,
   onRejectQuestion,
   questionDrafts,
   onSetDefaultConnection,
@@ -277,7 +273,7 @@ export const ChatArea = React.memo(function ChatArea({
   const t = useT()
   const [fullAccessDialogOpen, setFullAccessDialogOpen] = React.useState(false)
   const hasMessages = messages.length > 0
-  const activeQuestionCount = pendingQuestions.filter((item) => item.state === "active").length
+  const activeQuestionCount = pendingQuestions.length
   const turnState = resolveChatTurnState({
     initialSendPending,
     pendingPermissionCount: pendingPermissions.length,
@@ -395,11 +391,8 @@ export const ChatArea = React.memo(function ChatArea({
       onTurnOutputAvailable={onTurnOutputAvailable}
       onAnswerQuestion={onAnswerQuestion}
       onAnswerPermission={onAnswerPermission}
-      onContinueQuestion={onContinueQuestion}
-      onDiscardQuestion={onDiscardQuestion}
       onRejectQuestion={onRejectQuestion}
       questionDrafts={questionDrafts}
-      onStop={onStop}
       onViewBilling={onViewBilling}
     />
   )

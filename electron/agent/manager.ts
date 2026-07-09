@@ -172,6 +172,9 @@ export function isUserVisibleSession(session: RawSession): boolean {
 export class AgentManager {
   private options: AgentManagerOptions
   private sidecar: OpencodeSidecar | null = null
+  // 启动中（尚未就绪、还没赋给 sidecar）的实例：它已 spawn opencode，dispose 必须能回收它，
+  // 否则"启动期间退出/重启"会漏掉这个正在拉起的 opencode，形成新的残留孤儿。
+  private startingSidecar: OpencodeSidecar | null = null
   private eventStreamAbort: AbortController | null = null
   private eventSubscriber: AgentEventSubscriber | null = null
   private eventLoopRestartFailures = 0
@@ -305,8 +308,22 @@ export class AgentManager {
       serverPassword: disableServerAuth ? undefined : randomBytes(24).toString("hex"),
       onExit: (info) => this.handleSidecarExit(info),
     })
-    // 仅在 sidecar 完全就绪后才赋值并标记 ready，避免 client 在启动期被访问。
-    await sidecar.start()
+    // 启动期间也要能被 dispose 回收（此实例已 spawn opencode）：先登记为 startingSidecar，
+    // start 结束后再清掉。仅在 sidecar 完全就绪后才赋值 this.sidecar 并标记 ready，避免 client 在启动期被访问。
+    this.startingSidecar = sidecar
+    try {
+      await sidecar.start()
+    } finally {
+      if (this.startingSidecar === sidecar) {
+        this.startingSidecar = null
+      }
+    }
+    // 启动过程中若已 dispose（退出/重启在启动期插入），此 sidecar 已拉起 opencode，就地回收后返回，
+    // 绝不再赋值/标记 ready。OpencodeSidecar.dispose 幂等，与 dispose() 里对 startingSidecar 的回收互不冲突。
+    if (this.disposed) {
+      await sidecar.dispose()
+      return
+    }
     this.sidecar = sidecar
     this.started = true
   }
@@ -869,8 +886,11 @@ export class AgentManager {
     this.eventStreamAbort = null
     this.eventSubscriber = null
     this.started = false
-    const sidecar = this.sidecar
+    // 同时回收"启动中"的实例：退出/重启可能正卡在 startSidecar 的 await 上，此时 this.sidecar 仍为
+    // null，但 startingSidecar 已 spawn opencode，必须一并连根回收，否则它会成为漏网孤儿。
+    const sidecar = this.sidecar ?? this.startingSidecar
     this.sidecar = null
+    this.startingSidecar = null
     return sidecar?.dispose() ?? Promise.resolve()
   }
 

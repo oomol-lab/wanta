@@ -1050,6 +1050,7 @@ export const enMessages = {
   "connections.emptyTitle": "No provider connected yet",
   "connections.readyEmptyDescription": "The connection service is available, but no provider is connected yet.",
   "connections.oauthWaiting": "Waiting for authorization",
+  "connections.oauthInProgress": "Authorization in progress",
   "connections.oauthClientConfig": "OAuth client",
   "connections.oauthClientRequired": "OAuth client config is required before connecting.",
   "connections.oauthServiceUnavailable": "OAuth is not available for this provider.",

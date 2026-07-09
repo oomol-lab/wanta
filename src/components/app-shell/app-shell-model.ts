@@ -40,7 +40,7 @@ export const EMPTY_CONNECTION_PROVIDERS: ConnectionProvider[] = []
 export const NEW_SESSION_COMPOSER_DRAFT_KEY = "__new_session__"
 export const NO_DRAFT_PROJECT_ID = "__no_project__"
 
-export { connectionWorkspaceKey as connectionWorkspaceSwitchKey } from "@/hooks/connection-oauth-pending"
+export { connectionWorkspaceKey as connectionWorkspaceSwitchKey } from "@/lib/connection-workspace"
 
 export interface RecommendedSkillIdentity {
   packageName?: string

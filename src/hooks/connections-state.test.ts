@@ -38,7 +38,7 @@ function summary(workspace: ConnectionWorkspace): ConnectionSummary {
   }
 }
 
-test("connectionsStateReducer keeps old summary hidden while workspace sync starts", () => {
+test("connectionsStateReducer clears old summary while workspace sync starts", () => {
   const previousSummary = summary({ type: "personal" })
   const loadedState = connectionsStateReducer(initialConnectionsState, {
     summary: previousSummary,
@@ -55,7 +55,7 @@ test("connectionsStateReducer keeps old summary hidden while workspace sync star
     { type: "workspaceSyncStarted" },
   )
 
-  assert.equal(next.summary, previousSummary)
+  assert.equal(next.summary, null)
   assert.equal(next.summaryWorkspaceKey, null)
   assert.equal(next.agentScopeWorkspaceKey, null)
   assert.equal(next.busy, "refresh")

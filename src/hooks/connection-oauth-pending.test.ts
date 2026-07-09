@@ -104,7 +104,7 @@ describe("connection OAuth pending key", () => {
     expect(readOAuthPendingOperation(operation.key, operation.expiresAt, storage)).toBeNull()
   })
 
-  it("reads pending OAuth operations for a workspace newest first", () => {
+  it("keeps only one pending OAuth operation per workspace", () => {
     const personal = { type: "personal" } as const
     const organization = { organizationName: "acme", type: "organization" } as const
     const first = createOAuthPendingOperation(personal, { authType: "oauth2", service: "gmail" }, 1, 1_000)
@@ -115,7 +115,7 @@ describe("connection OAuth pending key", () => {
     rememberOAuthPendingOperation(second, storage)
     rememberOAuthPendingOperation(otherWorkspace, storage)
 
-    expect(readOAuthPendingOperationsForWorkspace(personal, 3_000, storage)).toEqual([second, first])
+    expect(readOAuthPendingOperationsForWorkspace(personal, 3_000, storage)).toEqual([second])
     expect(readOAuthPendingOperationsForWorkspace(organization, 3_000, storage)).toEqual([otherWorkspace])
   })
 })

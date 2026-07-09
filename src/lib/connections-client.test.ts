@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   clearConnectorCache,
   connectProvider,
+  getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
   isProviderConnectionActive,
   startOAuthConnect,
@@ -18,7 +19,8 @@ describe("connections-client", () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
         data: [
-          { service: "gmail", status: "active" },
+          { id: "app-1", service: "gmail", status: "active" },
+          { id: "app-2", service: "gmail", status: "active" },
           { service: "slack", status: "reauth_required" },
         ],
       }),
@@ -27,8 +29,12 @@ describe("connections-client", () => {
 
     await expect(isProviderConnectionActive("gmail", { type: "personal" })).resolves.toBe(true)
     await expect(isProviderConnectionActive("slack", { type: "personal" })).resolves.toBe(false)
+    await expect(getActiveConnectionAppIdsForService("gmail", { type: "personal" })).resolves.toEqual([
+      "app-1",
+      "app-2",
+    ])
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps")
   })
 

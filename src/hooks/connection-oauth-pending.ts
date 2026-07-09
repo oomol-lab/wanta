@@ -1,6 +1,9 @@
 import type { ConnectionConnectInput, ConnectionWorkspace } from "../../electron/connections/common.ts"
 
 import { storageKey } from "../../electron/branding.ts"
+import { connectionWorkspaceKey } from "@/lib/connection-workspace"
+
+export { connectionWorkspaceKey } from "@/lib/connection-workspace"
 
 export const connectionOAuthPendingTtlMs = 5 * 60_000
 
@@ -18,10 +21,6 @@ export interface OAuthPendingOperation {
 
 const oauthPendingStorageKey = storageKey("connection-oauth-pending")
 const memoryOAuthPendingOperations = new Map<string, OAuthPendingOperation>()
-
-export function connectionWorkspaceKey(workspace: ConnectionWorkspace): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
-}
 
 export function createConnectionPollingKey(service: string, appId?: string): string {
   return appId ? `${service}\0${appId}` : service
@@ -180,6 +179,11 @@ export function pruneExpiredOAuthPendingOperations(now = Date.now(), storage = o
 
 export function rememberOAuthPendingOperation(operation: OAuthPendingOperation, storage = oauthPendingStorage()): void {
   pruneExpiredOAuthPendingOperations(operation.createdAt, storage)
+  for (const existing of memoryOAuthPendingOperations.values()) {
+    if (existing.workspaceKey === operation.workspaceKey && existing.key !== operation.key) {
+      memoryOAuthPendingOperations.delete(existing.key)
+    }
+  }
   memoryOAuthPendingOperations.set(operation.key, operation)
   persistOAuthPendingOperations(storage)
 }

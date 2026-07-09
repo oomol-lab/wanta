@@ -273,6 +273,7 @@ function ConnectionPanel({
   const activeAuthType =
     selectedAuthType && usableAuthTypes.includes(selectedAuthType) ? selectedAuthType : usableAuthTypes[0]
   const isPolling = isConnectionServicePollingTarget(polling, provider.service)
+  const authorizationBlocked = polling !== null && !isPolling
   const noAuthReady = isNoAuthReadyProvider(provider)
 
   React.useEffect(() => {
@@ -317,6 +318,16 @@ function ConnectionPanel({
                 {t("common.cancel")}
               </Button>
             </>
+          ) : authorizationBlocked ? (
+            <>
+              <Button size="sm" disabled className="gap-1.5">
+                <Loader size={16} />
+                {t("connections.oauthInProgress")}
+              </Button>
+              <Button size="sm" variant="outline" onClick={onCancelPolling}>
+                {t("common.cancel")}
+              </Button>
+            </>
           ) : (
             <Button
               size="sm"
@@ -352,6 +363,7 @@ function ConnectionPanel({
           onDisconnect={onDisconnect}
           polling={polling}
           provider={provider}
+          reconnectBlocked={authorizationBlocked}
         />
       ) : null}
     </div>

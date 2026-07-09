@@ -1,7 +1,7 @@
 import type { ConnectionSummary } from "../../electron/connections/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
-import { connectionWorkspaceKey } from "./connection-oauth-pending.ts"
+import { connectionWorkspaceKey } from "../lib/connection-workspace.ts"
 
 export type ConnectionBusy = "connect" | "disconnect" | "refresh" | null
 
@@ -92,6 +92,7 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
         busy: "refresh",
         polling: null,
         scopeSyncError: null,
+        summary: null,
         summaryError: null,
         summaryWorkspaceKey: null,
       }

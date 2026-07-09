@@ -32,6 +32,7 @@ export function ConnectionAccountsList({
   onDisconnect,
   polling,
   provider,
+  reconnectBlocked,
 }: {
   busy: UseConnections["busy"]
   canSetDefault: boolean
@@ -44,6 +45,7 @@ export function ConnectionAccountsList({
   onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
   provider: ConnectionProviderSummary
+  reconnectBlocked?: boolean
 }) {
   const t = useT()
   const servicePolling = isConnectionServicePollingTarget(polling, provider.service)
@@ -67,6 +69,7 @@ export function ConnectionAccountsList({
           onConnect={onConnect}
           onDisconnect={onDisconnect}
           provider={provider}
+          reconnectBlocked={Boolean(reconnectBlocked)}
           servicePolling={servicePolling}
         />
       ))}
@@ -84,6 +87,7 @@ function ConnectionAccountItem({
   onConnect,
   onDisconnect,
   provider,
+  reconnectBlocked,
   servicePolling,
 }: {
   app: ConnectionAppSummary
@@ -99,6 +103,7 @@ function ConnectionAccountItem({
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
   provider: ConnectionProviderSummary
+  reconnectBlocked: boolean
   servicePolling: boolean
 }) {
   const t = useT()
@@ -247,11 +252,15 @@ function ConnectionAccountItem({
             variant="outline"
             size="sm"
             className={accountActionButtonClassName}
-            disabled={servicePolling || busy === "connect"}
+            disabled={servicePolling || reconnectBlocked || busy === "connect"}
             onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
           >
-            {servicePolling ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
-            {servicePolling ? t("connections.oauthWaiting") : t("connections.reconnect")}
+            {servicePolling || reconnectBlocked ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
+            {servicePolling
+              ? t("connections.oauthWaiting")
+              : reconnectBlocked
+                ? t("connections.oauthInProgress")
+                : t("connections.reconnect")}
           </Button>
         ) : null}
         {provider.canDisconnect ? (

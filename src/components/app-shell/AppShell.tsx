@@ -4,20 +4,19 @@ import type {
   AgentPermissionMode,
   AgentRuntimeStatus,
   AuthorizationInfo,
-  ChatAttachment,
   ChatContextMention,
   ChatOrganizationSkillContext,
   ChatPermissionReply,
-  ChatProjectContext,
   ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ModelChoice } from "../../../electron/models/common.ts"
-import type { SessionInfo, SessionProject, SessionScope } from "../../../electron/session/common.ts"
+import type { SessionInfo, SessionProject } from "../../../electron/session/common.ts"
 import type { ConnectionAuthIntent } from "./app-shell-connection-drawer-model.ts"
 import type { ChatSendRequest, ChatSendResult, TurnRetryOptions } from "./app-shell-model.ts"
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
 import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
+import type { ChatConnectionDrawerState } from "./use-chat-connection-retry.ts"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ChatStatus } from "ai"
@@ -26,12 +25,9 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
 import { APP_COMMANDS } from "../../../electron/app-command.ts"
-import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
 import { buildFallbackSessionTitle } from "../../../electron/session/title.ts"
 import {
   activeProjectIdForComposer,
-  AUTH_RETRY_POLL_INTERVAL_MS,
-  AUTH_RETRY_POLL_TIMEOUT_MS,
   buildSessionTitleInput,
   chatSendAccepted,
   connectionWorkspaceSwitchKey,
@@ -67,6 +63,7 @@ import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
+import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
 import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
@@ -94,12 +91,6 @@ import { hasComposerDraftContent, toCachedComposerState } from "@/routes/Chat/co
 import { getInstallableOrganizationSkills } from "@/routes/Skills/skill-route-model"
 
 type ProjectSelectionSource = "composer" | "sidebar"
-
-interface ChatConnectionDrawerState {
-  authIntent: ConnectionAuthIntent | null
-  open: boolean
-  selectedService: string | null
-}
 
 const ArchivedRoute = React.lazy(() =>
   import("@/routes/Archived").then((module) => ({ default: module.ArchivedRoute })),
@@ -412,28 +403,6 @@ export function AppShell() {
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
   )
-  // 聊天内"去授权"后待重试的原 action：provider 连上后自动重发。
-  const pendingRetry = React.useRef<{
-    drawerKey: string
-    sessionId: string
-    service: string
-    text: string
-    attachments: ChatAttachment[]
-    contextMentions?: ChatContextMention[]
-    organizationSkills?: ChatOrganizationSkillContext[]
-    projectContext?: ChatProjectContext
-    model?: ModelChoice
-    reasoningLevel?: ReasoningLevel
-    mode?: AgentMode
-    permissionMode?: AgentPermissionMode
-    sessionScope: SessionScope
-  } | null>(null)
-  const [pendingRetryWatch, setPendingRetryWatch] = React.useState<{
-    drawerKey: string
-    service: string
-    sessionId: string
-    startedAt: number
-  } | null>(null)
   const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
@@ -566,85 +535,6 @@ export function AppShell() {
     setIsDraftSession(false)
     setPendingChatTransition(null)
   }, [activeSessionId, sessionsSettledForCurrentScope, visibleSessions])
-
-  // R5 闭环：待重试的 provider 一旦连上，刷新已授权清单后自动重发原 action。
-  React.useEffect(() => {
-    if (!pendingRetryWatch) {
-      return
-    }
-
-    let cancelled = false
-    const refreshUntilConnected = async (): Promise<void> => {
-      if (Date.now() - pendingRetryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
-        if (
-          !cancelled &&
-          pendingRetry.current?.sessionId === pendingRetryWatch.sessionId &&
-          pendingRetry.current.service === pendingRetryWatch.service
-        ) {
-          pendingRetry.current = null
-        }
-        setChatConnectionDrawers((current) => {
-          if (!Object.hasOwn(current, pendingRetryWatch.drawerKey)) {
-            return current
-          }
-          const next = { ...current }
-          delete next[pendingRetryWatch.drawerKey]
-          return next
-        })
-        setPendingRetryWatch(null)
-        return
-      }
-      await connections.refresh({ forceRefresh: true })
-    }
-
-    void refreshUntilConnected()
-    const id = window.setInterval(() => {
-      void refreshUntilConnected()
-    }, AUTH_RETRY_POLL_INTERVAL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [connections.refresh, pendingRetryWatch])
-
-  React.useEffect(() => {
-    const pending = pendingRetry.current
-    if (!pending) {
-      return
-    }
-    if (sessionScopeKey(sessionScope) !== sessionScopeKey(pending.sessionScope)) {
-      return
-    }
-    const connected = connections.summary?.providers.some(
-      (p) =>
-        p.service === pending.service &&
-        p.status === "connected" &&
-        (p.appStatus === "active" || isConnectionlessNoAuthProvider(p)),
-    )
-    if (connected) {
-      pendingRetry.current = null
-      setPendingRetryWatch(null)
-      setChatConnectionDrawers((current) => {
-        if (!Object.hasOwn(current, pending.drawerKey)) {
-          return current
-        }
-        const next = { ...current }
-        delete next[pending.drawerKey]
-        return next
-      })
-      setRoute("chat")
-      void send(pending.sessionId, pending.text, pending.attachments, {
-        contextMentions: pending.contextMentions ?? [],
-        organizationSkills: pending.organizationSkills ?? [],
-        projectContext: pending.projectContext,
-        model: pending.model,
-        reasoningLevel: pending.reasoningLevel,
-        sessionScope: pending.sessionScope,
-        mode: pending.mode,
-        permissionMode: pending.permissionMode,
-      })
-    }
-  }, [connections.summary, send, sessionScope])
 
   React.useEffect(() => {
     if (!activeChatSessionId || !activeSession) {
@@ -903,43 +793,6 @@ export function AppShell() {
     setSearchOpen(false)
     setComposerFocusRequest((request) => request + 1)
   }, [])
-
-  const handleOpenConnections = React.useCallback((): void => {
-    setChatConnectionDrawers((current) => {
-      if (!Object.hasOwn(current, activeComposerDraftKey)) {
-        return current
-      }
-      const next = { ...current }
-      delete next[activeComposerDraftKey]
-      return next
-    })
-    setSelectedService(null)
-    setRoute("connections")
-  }, [activeComposerDraftKey])
-  const handleOpenChatConnectionProvider = React.useCallback(
-    (service: string): void => {
-      setRoute("chat")
-      setChatConnectionDrawers((current) => ({
-        ...current,
-        [activeComposerDraftKey]: {
-          authIntent: null,
-          open: true,
-          selectedService: service,
-        },
-      }))
-    },
-    [activeComposerDraftKey],
-  )
-  const handleCloseChatConnectionDrawer = React.useCallback((): void => {
-    setChatConnectionDrawers((current) => {
-      if (!Object.hasOwn(current, activeComposerDraftKey)) {
-        return current
-      }
-      const next = { ...current }
-      delete next[activeComposerDraftKey]
-      return next
-    })
-  }, [activeComposerDraftKey])
 
   const handleReturnToConnections = React.useCallback((): void => {
     setSearchOpen(false)
@@ -1239,6 +1092,7 @@ export function AppShell() {
     handleQueuedMessageResume,
     holdQueuedSessionIfQueued,
     queueActiveMessage,
+    queueSessionMessage,
     releaseActiveQueue,
   } = useChatQueueState({
     activeSessionId: activeChatSessionId,
@@ -1248,6 +1102,61 @@ export function AppShell() {
     sendQueuedMessage: sendNow,
     status,
   })
+
+  const { cancelRetryForDrawer, clearRetries, prepareRetry } = useChatConnectionRetry({
+    connections,
+    isSessionRunning,
+    queueSessionMessage,
+    send,
+    sessionScope,
+    setActiveSessionId,
+    setChatConnectionDrawers,
+    setIsDraftSession,
+    setPendingChatTransition,
+    setRoute,
+  })
+
+  const handleOpenConnections = React.useCallback((): void => {
+    cancelRetryForDrawer(activeComposerDraftKey)
+    setChatConnectionDrawers((current) => {
+      if (!Object.hasOwn(current, activeComposerDraftKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[activeComposerDraftKey]
+      return next
+    })
+    setSelectedService(null)
+    setRoute("connections")
+  }, [activeComposerDraftKey, cancelRetryForDrawer])
+
+  const handleOpenChatConnectionProvider = React.useCallback(
+    (service: string): void => {
+      setRoute("chat")
+      cancelRetryForDrawer(activeComposerDraftKey)
+      setChatConnectionDrawers((current) => ({
+        ...current,
+        [activeComposerDraftKey]: {
+          authIntent: null,
+          open: true,
+          selectedService: service,
+        },
+      }))
+    },
+    [activeComposerDraftKey, cancelRetryForDrawer],
+  )
+
+  const handleCloseChatConnectionDrawer = React.useCallback((): void => {
+    cancelRetryForDrawer(activeComposerDraftKey)
+    setChatConnectionDrawers((current) => {
+      if (!Object.hasOwn(current, activeComposerDraftKey)) {
+        return current
+      }
+      const next = { ...current }
+      delete next[activeComposerDraftKey]
+      return next
+    })
+  }, [activeComposerDraftKey, cancelRetryForDrawer])
 
   React.useEffect(() => {
     if (activeChatSessionId) {
@@ -1266,8 +1175,7 @@ export function AppShell() {
       holdQueuedSessionIfQueued(previousSessionId)
     }
     previousActiveChatSessionIdRef.current = null
-    pendingRetry.current = null
-    setPendingRetryWatch(null)
+    clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
     setActiveSessionId(null)
@@ -1283,7 +1191,7 @@ export function AppShell() {
     draftProjectFallbacksById.current.clear()
     handleArtifactsReset()
     releaseTransientFocus()
-  }, [activeWorkspaceKey, handleArtifactsReset, holdQueuedSessionIfQueued])
+  }, [activeWorkspaceKey, clearRetries, handleArtifactsReset, holdQueuedSessionIfQueued])
 
   React.useEffect(() => {
     if (!sessionsSettledForCurrentScope || !activeChatSessionId) {
@@ -1519,7 +1427,7 @@ export function AppShell() {
       if (activeChatSessionId && sessionScope && source && (source.text || source.attachments.length > 0)) {
         const retryKey = chatTurnInputKey(source)
         const storedOptions = turnRetryOptionsBySession.current.get(activeChatSessionId)?.get(retryKey)
-        pendingRetry.current = {
+        prepareRetry({
           drawerKey: activeComposerDraftKey,
           sessionId: activeChatSessionId,
           service: auth.service,
@@ -1537,23 +1445,16 @@ export function AppShell() {
             storedOptions?.permissionMode ??
             lastPermissionModeBySession.current.get(activeChatSessionId) ??
             displayedPermissionMode,
-        }
-        setPendingRetryWatch({
-          drawerKey: activeComposerDraftKey,
-          service: auth.service,
-          sessionId: activeChatSessionId,
-          startedAt: Date.now(),
         })
-        void connections.refresh({ forceRefresh: true })
       }
     },
     [
       activeComposerDraftKey,
       activeProjectContext,
       activeChatSessionId,
-      connections.refresh,
       displayedPermissionMode,
       organizationSkills.chatContextSkills,
+      prepareRetry,
       sessionScope,
     ],
   )

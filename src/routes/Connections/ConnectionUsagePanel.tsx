@@ -34,6 +34,7 @@ export function ProviderUsagePanel({
   const [logs, setLogs] = React.useState<ConnectionExecutionLogSummary | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
+  const requestIdRef = React.useRef(0)
   const providerUsage = usage ?? {
     calls: 0,
     errors: 0,
@@ -47,21 +48,32 @@ export function ProviderUsagePanel({
     if (providerUsage.calls <= 0) {
       return
     }
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
     setLoading(true)
     setError(null)
     try {
-      setLogs(await connections.getExecutionLogs({ service: provider.service, limit: executionLogLimit }))
+      const nextLogs = await connections.getExecutionLogs({ service: provider.service, limit: executionLogLimit })
+      if (requestIdRef.current === requestId) {
+        setLogs(nextLogs)
+      }
     } catch (err) {
-      setError(resolveUserFacingError(err, { area: "connections" }))
+      if (requestIdRef.current === requestId) {
+        setError(resolveUserFacingError(err, { area: "connections" }))
+      }
     } finally {
-      setLoading(false)
+      if (requestIdRef.current === requestId) {
+        setLoading(false)
+      }
     }
   }, [connections, provider.service, providerUsage.calls])
 
   React.useEffect(() => {
+    requestIdRef.current += 1
     setIsUsageDialogOpen(false)
     setLogs(null)
     setError(null)
+    setLoading(false)
   }, [provider.service])
 
   React.useEffect(() => {

@@ -1004,6 +1004,7 @@ export const zhCNMessages = {
   "connections.emptyTitle": "还没有连接服务商",
   "connections.readyEmptyDescription": "连接服务可用，但当前还没有服务商被连接。",
   "connections.oauthWaiting": "等待授权完成",
+  "connections.oauthInProgress": "正在授权",
   "connections.oauthClientConfig": "OAuth 客户端",
   "connections.oauthClientRequired": "连接前需要配置 OAuth 客户端。",
   "connections.oauthServiceUnavailable": "这个服务商暂不可用 OAuth 连接。",

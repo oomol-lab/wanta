@@ -63,11 +63,11 @@ interface UseChatConnectionRetryOptions {
   queueSessionMessage: QueueSessionMessage
   send: UseChat["send"]
   sessionScope: SessionScope | null
-  setActiveSessionId: React.Dispatch<React.SetStateAction<string | null>>
   setChatConnectionDrawers: SetChatConnectionDrawers
   setIsDraftSession: React.Dispatch<React.SetStateAction<boolean>>
   setPendingChatTransition: React.Dispatch<React.SetStateAction<PendingChatTransition | null>>
   setRoute: React.Dispatch<React.SetStateAction<Route>>
+  setSelectedSessionId: React.Dispatch<React.SetStateAction<string | null>>
 }
 
 function providerIsRetryReady(provider: ConnectionProviderSummary, service: string): boolean {
@@ -84,11 +84,11 @@ export function useChatConnectionRetry({
   queueSessionMessage,
   send,
   sessionScope,
-  setActiveSessionId,
   setChatConnectionDrawers,
   setIsDraftSession,
   setPendingChatTransition,
   setRoute,
+  setSelectedSessionId,
 }: UseChatConnectionRetryOptions) {
   const { isProviderActive, refresh, summary } = connections
   const pendingRetry = React.useRef<PendingChatConnectionRetry | null>(null)
@@ -196,7 +196,7 @@ export function useChatConnectionRetry({
       return next
     })
     setRoute("chat")
-    setActiveSessionId(pending.sessionId)
+    setSelectedSessionId(pending.sessionId)
     setIsDraftSession(false)
     setPendingChatTransition(null)
 
@@ -234,11 +234,11 @@ export function useChatConnectionRetry({
     queueSessionMessage,
     send,
     sessionScope,
-    setActiveSessionId,
     setChatConnectionDrawers,
     setIsDraftSession,
     setPendingChatTransition,
     setRoute,
+    setSelectedSessionId,
     summary,
   ])
 

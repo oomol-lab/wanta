@@ -56,6 +56,28 @@ test("buildProjectSidebarGroups keeps idle child order stable when updatedAt cha
   )
 })
 
+test("buildProjectSidebarGroups keeps the selected hidden child visible", () => {
+  const groups = buildProjectSidebarGroups(
+    [project("project", 1_000)],
+    [
+      session("sixth", "project", 1_000),
+      session("fifth", "project", 2_000),
+      session("fourth", "project", 3_000),
+      session("third", "project", 4_000),
+      session("second", "project", 5_000),
+      session("first", "project", 6_000),
+    ],
+    {},
+    { selectedSessionId: "sixth" },
+  )
+
+  assert.deepEqual(
+    groups[0]?.sessions.map((item) => item.id),
+    ["first", "second", "third", "fourth", "fifth", "sixth"],
+  )
+  assert.equal(groups[0]?.hiddenCount, 0)
+})
+
 test("buildProjectSidebarGroups keeps project order while a child session is running", () => {
   const groups = buildProjectSidebarGroups(
     [project("idle-project", 9_000), project("running-project", 1_000)],

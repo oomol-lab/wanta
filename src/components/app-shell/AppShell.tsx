@@ -632,8 +632,9 @@ export function AppShell() {
       .sort((a, b) => compareRunningSessions(a, b, sidebarSessionOrder) || (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))
   }, [sidebarSessionOrder, visibleProjectSessions, visibleProjects])
   const projectSidebarGroups = React.useMemo(
-    () => buildProjectSidebarGroups(visibleProjects, visibleProjectSessions, sidebarSessionOrder),
-    [sidebarSessionOrder, visibleProjectSessions, visibleProjects],
+    () =>
+      buildProjectSidebarGroups(visibleProjects, visibleProjectSessions, sidebarSessionOrder, { selectedSessionId }),
+    [selectedSessionId, sidebarSessionOrder, visibleProjectSessions, visibleProjects],
   )
   const projectPinnedGroups = React.useMemo(
     () => projectSidebarGroups.filter((group) => group.project.pinnedAt),
@@ -697,10 +698,16 @@ export function AppShell() {
     if (selectableSidebarSessions.some((session) => session.id === selectedSessionId)) {
       return
     }
+    if (selectableSidebarSessions.length > 0) {
+      setSelectedSessionId(selectableSidebarSessions[0].id)
+      setDraftProjectId(null)
+      setPendingChatTransition(null)
+      return
+    }
     if (visibleSessions.some((session) => session.id === selectedSessionId)) {
       return
     }
-    setSelectedSessionId(selectableSidebarSessions[0]?.id ?? null)
+    setSelectedSessionId(null)
     setDraftProjectId(null)
     setPendingChatTransition(null)
   }, [isDraftSession, selectableSidebarSessions, selectedSessionId, sessionsSettledForCurrentScope, visibleSessions])
@@ -1128,11 +1135,11 @@ export function AppShell() {
     queueSessionMessage,
     send,
     sessionScope,
-    setActiveSessionId: setSelectedSessionId,
     setChatConnectionDrawers,
     setIsDraftSession,
     setPendingChatTransition,
     setRoute,
+    setSelectedSessionId,
   })
 
   const handleOpenConnections = React.useCallback((): void => {

@@ -180,5 +180,20 @@ export function buildProviderSkillRecommendations({
 export function getInstallableProviderSkillRecommendations(
   recommendations: readonly ProviderSkillRecommendation[],
 ): ProviderSkillRecommendation[] {
-  return recommendations.filter((recommendation) => canInstallPublicSkill(recommendation.installState))
+  const seenSkillKeys = new Set<string>()
+
+  return recommendations.filter((recommendation) => {
+    if (!canInstallPublicSkill(recommendation.installState)) {
+      return false
+    }
+
+    const packageName = recommendation.packageName.trim().toLowerCase()
+    const skillId = recommendation.skillId.trim().toLowerCase()
+    const key = packageName && skillId ? `${packageName}\u0000${skillId}` : ""
+    if (!key || seenSkillKeys.has(key)) {
+      return false
+    }
+    seenSkillKeys.add(key)
+    return true
+  })
 }

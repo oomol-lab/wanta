@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils"
 export const discoverAutoLoadThresholdPx = 160
 
 export type SkillSelectionKey = string
-export type SkillPageTab = "discover" | "installed" | "organization"
+export type SkillPageTab = "discover" | "installed" | "recommended" | "organization"
 export type DiscoverSkillFilter = "all" | "mine"
 export type InstalledSkillFilter = "all" | "wanta" | "codex" | "claude-code" | "updates" | "local"
 export type SkillDocumentViewMode = "preview" | "raw"

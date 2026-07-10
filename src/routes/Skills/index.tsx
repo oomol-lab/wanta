@@ -25,6 +25,7 @@ import {
 } from "./organization-skill-manage-helpers.ts"
 import { OrganizationInstallMissingButton } from "./OrganizationSkillManageRows.tsx"
 import { OrganizationSkillsPane } from "./OrganizationSkillsPane.tsx"
+import { PersonalSkillRecommendationsPane } from "./PersonalSkillRecommendationsPane.tsx"
 import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupStatus,
@@ -143,6 +144,7 @@ export function SkillsRoute({
   const [organizationFilter, setOrganizationFilter] = React.useState<OrganizationSkillFilter>("all")
   const [organizationQuery, setOrganizationQuery] = React.useState("")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
+  const [recommendedQuery, setRecommendedQuery] = React.useState("")
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
@@ -237,6 +239,12 @@ export function SkillsRoute({
 
   React.useEffect(() => {
     if (activeTab === "organization" && workspace.activeWorkspace.type !== "organization") {
+      setActiveTab("discover")
+    }
+  }, [activeTab, workspace.activeWorkspace.type])
+
+  React.useEffect(() => {
+    if (activeTab === "recommended" && workspace.activeWorkspace.type !== "personal") {
       setActiveTab("discover")
     }
   }, [activeTab, workspace.activeWorkspace.type])
@@ -640,6 +648,35 @@ export function SkillsRoute({
         onClick={() => installOrganizationRuntimeSkills(organizationHeaderInstallTargets)}
       />
     ) : null
+  const installPersonalRuntimeSkills = React.useCallback(
+    (skills: readonly { packageName: string; skillName: string }[]) =>
+      installOrganizationRuntimeSkills(skills, "personal"),
+    [installOrganizationRuntimeSkills],
+  )
+  const personalRecommendationInstallTargets = React.useMemo(
+    () =>
+      installableProviderSkillRecommendations.map((recommendation) => ({
+        packageName: recommendation.packageName,
+        skillName: recommendation.skillId,
+      })),
+    [installableProviderSkillRecommendations],
+  )
+  const personalRecommendationInstallAction =
+    activeTab === "recommended" && personalRecommendationInstallTargets.length > 1 ? (
+      <Button
+        type="button"
+        size="sm"
+        disabled={Boolean(organizationSkillBusyAction)}
+        onClick={() => installPersonalRuntimeSkills(personalRecommendationInstallTargets)}
+      >
+        {organizationSkillBusyAction === "installSkillBatch" ? (
+          <AppIcons.status.loading className="animate-spin" />
+        ) : (
+          <AppIcons.action.installPackage />
+        )}
+        {t("skills.personalRecommendationsInstallAll", { count: personalRecommendationInstallTargets.length })}
+      </Button>
+    ) : null
 
   return (
     <>
@@ -654,15 +691,27 @@ export function SkillsRoute({
           organizationQuery={organizationQuery}
           organizationTabAvailable={workspace.activeWorkspace.type === "organization"}
           organizationAction={organizationInstallMissingAction}
+          recommendedAction={personalRecommendationInstallAction}
+          recommendedQuery={recommendedQuery}
+          recommendedTabAvailable={workspace.activeWorkspace.type === "personal"}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
           onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
           onOrganizationFilterChange={setOrganizationFilter}
           onOrganizationQueryChange={setOrganizationQuery}
+          onRecommendedQueryChange={setRecommendedQuery}
           onTabChange={setActiveTab}
         />
-        {activeTab === "organization" ? (
+        {activeTab === "recommended" ? (
+          <PersonalSkillRecommendationsPane
+            busyAction={organizationSkillBusyAction}
+            isLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
+            query={recommendedQuery}
+            recommendations={installableProviderSkillRecommendations}
+            onInstallRuntimeSkill={installOrganizationRuntimeSkill}
+          />
+        ) : activeTab === "organization" ? (
           <OrganizationSkillsPane
             busyAction={organizationSkillBusyAction}
             groupById={installedSkillGroupById}

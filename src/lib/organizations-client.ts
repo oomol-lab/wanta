@@ -434,13 +434,18 @@ export async function listUserSummaries(userIds: string[]): Promise<Record<strin
   return normalizeUserSummaryMap(await requestApiJson(`/v1/users/summaries?${searchParams.toString()}`))
 }
 
-export async function searchUsers(keyword: string): Promise<OrganizationUserSearchResult[]> {
+export async function searchUsers(
+  keyword: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<OrganizationUserSearchResult[]> {
   const normalized = keyword.trim()
   if (!normalized) {
     return []
   }
   return normalizeUserSearchResults(
-    await requestApiJson(`/v1/users?${new URLSearchParams({ keyword: normalized }).toString()}`),
+    await requestApiJson(`/v1/users?${new URLSearchParams({ keyword: normalized }).toString()}`, {
+      signal: options.signal,
+    }),
   )
 }
 

@@ -10,6 +10,8 @@ interface UseOrganizationMemberSearchOptions {
   members: OrganizationMember[]
 }
 
+const memberSearchCacheMs = 60_000
+
 function preferredSearchUserId(
   items: MemberSearchState["items"],
   query: string,
@@ -47,6 +49,9 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
     query: "",
   })
   const memberSearchRequestId = React.useRef(0)
+  const searchCache = React.useRef(
+    new Map<string, { loadedAt: number; users: Awaited<ReturnType<typeof searchUsers>> }>(),
+  )
 
   const resetMemberSearch = React.useCallback((): void => {
     setMemberInput("")
@@ -66,12 +71,32 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
     }
 
     setMemberSearch({ error: null, items: [], loading: true, query })
+    const normalizedQuery = query.toLowerCase()
+    const cached = searchCache.current.get(normalizedQuery)
+    if (cached && Date.now() - cached.loadedAt < memberSearchCacheMs) {
+      const existingMemberIds = new Set(members.map((member) => member.user_id))
+      setMemberSearch({
+        error: null,
+        items: cached.users
+          .filter((user) => !existingMemberIds.has(user.user_id))
+          .map((user) => {
+            const displayName = user.nickname || user.username
+            return { ...user, displayName, fallback: userFallback(displayName), userId: user.user_id }
+          }),
+        loading: false,
+        query,
+      })
+      return
+    }
+
+    const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void searchUsers(query)
+      void searchUsers(query, { signal: controller.signal })
         .then((users) => {
           if (memberSearchRequestId.current !== requestId) {
             return
           }
+          searchCache.current.set(normalizedQuery, { loadedAt: Date.now(), users })
           const existingMemberIds = new Set(members.map((member) => member.user_id))
           setMemberSearch({
             error: null,
@@ -86,13 +111,19 @@ export function useOrganizationMemberSearch({ addMemberOpen, members }: UseOrgan
           })
         })
         .catch((error) => {
+          if (controller.signal.aborted) {
+            return
+          }
           if (memberSearchRequestId.current === requestId) {
             setMemberSearch({ error: errorMessage(error), items: [], loading: false, query })
           }
         })
     }, 250)
 
-    return () => window.clearTimeout(timer)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
   }, [addMemberOpen, memberInput, members])
 
   React.useEffect(() => {

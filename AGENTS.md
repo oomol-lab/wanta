@@ -96,13 +96,14 @@ npm run build:mac    # build:app + prepare:binaries + electron-builder
 
 ## 文档索引
 
-| 文档                                                 | 何时读                                                                                                     |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [docs/project-overview.md](docs/project-overview.md) | 想知道 Wanta 是什么、为谁做、与 OOMOL 云 / oo CLI / oo-desktop 的关系、原计划 vs 实际交付                  |
-| [docs/architecture.md](docs/architecture.md)         | 改任何主/渲染进程代码前：进程划分、Agent 内核、IPC 模式、聊天流式数据流、登录与连接面板流程、模块地图      |
-| [docs/key-decisions.md](docs/key-decisions.md)       | 想知道"为什么是现在这样"：9 个重大决策的背景 → 决策 → 理由 → 后果（含被否方案；个别条目理由并入背景/决策） |
-| [docs/development.md](docs/development.md)           | 搭环境、.env、跑 dev、测试、lint/format、打包签名发布、CI、各特殊目录的角色                                |
-| [docs/conventions.md](docs/conventions.md)           | 写代码前：命名/布局/安全/错误处理/UI 与 i18n 约定、R1–R8 编号体系、验证纪律                                |
+| 文档                                                               | 何时读                                                                                                     |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| [docs/project-overview.md](docs/project-overview.md)               | 想知道 Wanta 是什么、为谁做、与 OOMOL 云 / oo CLI / oo-desktop 的关系、原计划 vs 实际交付                  |
+| [docs/architecture.md](docs/architecture.md)                       | 改任何主/渲染进程代码前：进程划分、Agent 内核、IPC 模式、聊天流式数据流、登录与连接面板流程、模块地图      |
+| [docs/key-decisions.md](docs/key-decisions.md)                     | 想知道"为什么是现在这样"：9 个重大决策的背景 → 决策 → 理由 → 后果（含被否方案；个别条目理由并入背景/决策） |
+| [docs/development.md](docs/development.md)                         | 搭环境、.env、跑 dev、测试、lint/format、打包签名发布、CI、各特殊目录的角色                                |
+| [docs/conventions.md](docs/conventions.md)                         | 写代码前：命名/布局/安全/错误处理/UI 与 i18n 约定、R1–R8 编号体系、验证纪律                                |
+| [docs/network-request-caching.md](docs/network-request-caching.md) | 改渲染层读取请求前：缓存边界、TTL、在途合并和变更后的定向失效                                              |
 
 ## 快速事实
 

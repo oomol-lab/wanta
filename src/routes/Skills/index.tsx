@@ -18,17 +18,13 @@ import * as React from "react"
 import { toast } from "sonner"
 import { DiscoverSkillsPane } from "./DiscoverSkillsPane.tsx"
 import { InstalledSkillsPane } from "./InstalledSkillsPane.tsx"
-import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
-import {
-  buildInstallableOrganizationRecommendationSkills,
-  buildOrganizationSkillRecommendationItems,
-} from "./organization-skill-manage-helpers.ts"
 import { OrganizationInstallMissingButton } from "./OrganizationSkillManageRows.tsx"
 import { OrganizationSkillsPane } from "./OrganizationSkillsPane.tsx"
 import { PersonalSkillRecommendationsPane } from "./PersonalSkillRecommendationsPane.tsx"
 import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupStatus,
+  getInstallableOrganizationSkills,
   getLocalSkillPublishPath,
   getPublicPackagePrimarySkill,
   getRuntimeHosts,
@@ -435,28 +431,16 @@ export function SkillsRoute({
       return []
     }
 
-    const recommendedPlan = planProviderSkillRecommendationBulkLinks(
-      providerSkillRecommendations,
-      organizationSkills.skills,
-    )
-    const items = buildOrganizationSkillRecommendationItems({
-      filter: organizationFilter,
-      normalizedQuery: "",
-      providerRecommendations: recommendedPlan.linkable,
-      skills: organizationSkills.skills,
-    })
-    return buildInstallableOrganizationRecommendationSkills({
-      groupById: installedSkillGroupById,
-      items,
-    })
+    return getInstallableOrganizationSkills(installedSkillGroupById, organizationSkills.skills).map((skill) => ({
+      packageName: skill.packageName,
+      skillName: skill.skillName,
+    }))
   }, [
     activeOrganizationId,
     activeTab,
     installedSkillGroupById,
-    organizationFilter,
     organizationSkills.organizationId,
     organizationSkills.skills,
-    providerSkillRecommendations,
   ])
 
   const updateRegistrySkill = React.useCallback(

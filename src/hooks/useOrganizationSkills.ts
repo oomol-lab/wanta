@@ -56,7 +56,82 @@ interface OrganizationSkillCacheEntry {
 }
 
 const organizationSkillCacheMs = 30_000
-let organizationSkillCache: OrganizationSkillCacheEntry | null = null
+const organizationSkillPersistentCacheMaxAgeMs = 24 * 60 * 60 * 1000
+const organizationSkillPersistentCacheStorageKey = "wanta.organization-skill-cache.v1"
+const organizationSkillCache = new Map<string, OrganizationSkillCacheEntry>()
+let organizationSkillPersistentCacheRead = false
+
+function isOrganizationSkillCacheEntry(value: unknown): value is OrganizationSkillCacheEntry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false
+  }
+
+  const entry = value as Partial<OrganizationSkillCacheEntry>
+  return (
+    typeof entry.cacheKey === "string" &&
+    typeof entry.fetchedAt === "number" &&
+    Number.isFinite(entry.fetchedAt) &&
+    typeof entry.organizationId === "string" &&
+    Array.isArray(entry.skills)
+  )
+}
+
+function readPersistentOrganizationSkillCache(): void {
+  if (typeof window === "undefined" || organizationSkillPersistentCacheRead) {
+    return
+  }
+
+  organizationSkillPersistentCacheRead = true
+  try {
+    const serialized = window.localStorage.getItem(organizationSkillPersistentCacheStorageKey)
+    const entries = serialized ? JSON.parse(serialized) : []
+    if (!Array.isArray(entries)) {
+      return
+    }
+    const minimumFetchedAt = Date.now() - organizationSkillPersistentCacheMaxAgeMs
+    for (const entry of entries) {
+      if (isOrganizationSkillCacheEntry(entry) && entry.fetchedAt >= minimumFetchedAt) {
+        organizationSkillCache.set(entry.cacheKey, entry)
+      }
+    }
+  } catch {
+    // localStorage 不可用或内容已损坏时退回网络请求，不影响组织切换。
+  }
+}
+
+function persistOrganizationSkillCache(): void {
+  if (typeof window === "undefined") {
+    return
+  }
+
+  try {
+    const minimumFetchedAt = Date.now() - organizationSkillPersistentCacheMaxAgeMs
+    const entries = [...organizationSkillCache.values()].filter((entry) => entry.fetchedAt >= minimumFetchedAt)
+    window.localStorage.setItem(organizationSkillPersistentCacheStorageKey, JSON.stringify(entries))
+  } catch {
+    // 配置缓存只是体验优化，存储失败不能阻断组织 Skill 的正常加载。
+  }
+}
+
+function getOrganizationSkillCacheEntry(
+  cacheKey: string,
+  organizationId: string,
+): OrganizationSkillCacheEntry | undefined {
+  readPersistentOrganizationSkillCache()
+  const entry = organizationSkillCache.get(cacheKey)
+  return entry?.organizationId === organizationId ? entry : undefined
+}
+
+function setOrganizationSkillCacheEntry(entry: OrganizationSkillCacheEntry): void {
+  organizationSkillCache.set(entry.cacheKey, entry)
+  persistOrganizationSkillCache()
+}
+
+function deleteOrganizationSkillCacheEntry(cacheKey: string): void {
+  if (organizationSkillCache.delete(cacheKey)) {
+    persistOrganizationSkillCache()
+  }
+}
 
 function organizationWorkspaceKey(workspace: WorkspaceSelection): string {
   return workspace.type === "organization" ? workspace.organizationId : "personal"
@@ -107,10 +182,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
     latestOrganizationIdRef.current = organizationId
     latestCacheKeyRef.current = cacheKey
     requestIdRef.current += 1
-    setSkills([])
-    setSkillsOrganizationId(null)
+    const cached = organizationId ? getOrganizationSkillCacheEntry(cacheKey, organizationId) : undefined
+    setSkills(cached?.skills ?? [])
+    setSkillsOrganizationId(cached ? organizationId : null)
     setError(null)
-    setHasLoaded(false)
+    setHasLoaded(Boolean(cached))
     if (!organizationId || !remoteApiEnabled) {
       setLoading(false)
       setSkillsOrganizationId(organizationId)
@@ -130,13 +206,9 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
       }
 
       const now = Date.now()
-      if (
-        !options.forceRefresh &&
-        organizationSkillCache?.cacheKey === cacheKey &&
-        organizationSkillCache?.organizationId === organizationId &&
-        now - organizationSkillCache.fetchedAt < organizationSkillCacheMs
-      ) {
-        setSkills(organizationSkillCache.skills)
+      const cached = getOrganizationSkillCacheEntry(cacheKey, organizationId)
+      if (!options.forceRefresh && cached && now - cached.fetchedAt < organizationSkillCacheMs) {
+        setSkills(cached.skills)
         setSkillsOrganizationId(organizationId)
         setError(null)
         setHasLoaded(true)
@@ -152,7 +224,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
         if (requestIdRef.current !== requestId) {
           return
         }
-        organizationSkillCache = { cacheKey, fetchedAt: Date.now(), organizationId, skills: config.skills }
+        setOrganizationSkillCacheEntry({ cacheKey, fetchedAt: Date.now(), organizationId, skills: config.skills })
         setSkills(config.skills)
         setSkillsOrganizationId(organizationId)
         setError(null)
@@ -160,15 +232,17 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
       } catch (cause) {
         if (requestIdRef.current === requestId) {
           if (isOrganizationSkillsUnavailable(cause)) {
-            organizationSkillCache = { cacheKey, fetchedAt: Date.now(), organizationId, skills: [] }
+            setOrganizationSkillCacheEntry({ cacheKey, fetchedAt: Date.now(), organizationId, skills: [] })
             setSkills([])
             setSkillsOrganizationId(organizationId)
             setError(null)
             setHasLoaded(true)
           } else {
-            setSkillsOrganizationId(organizationId)
+            const fallback = getOrganizationSkillCacheEntry(cacheKey, organizationId)
+            setSkills(fallback?.skills ?? [])
+            setSkillsOrganizationId(fallback ? organizationId : null)
             setError(organizationSkillError(cause))
-            setHasLoaded(false)
+            setHasLoaded(Boolean(fallback))
           }
         }
       } finally {
@@ -188,9 +262,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
 
   const reloadAfterMutation = React.useCallback(
     async (targetOrganizationId: string, targetCacheKey: string): Promise<void> => {
-      if (organizationSkillCache?.cacheKey === targetCacheKey) {
-        organizationSkillCache = null
-      }
+      deleteOrganizationSkillCacheEntry(targetCacheKey)
       if (latestOrganizationIdRef.current !== targetOrganizationId || latestCacheKeyRef.current !== targetCacheKey) {
         return
       }
@@ -272,12 +344,12 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
         ) {
           return
         }
-        organizationSkillCache = {
+        setOrganizationSkillCacheEntry({
           cacheKey,
           fetchedAt: Date.now(),
           organizationId: targetOrganizationId,
           skills: config.skills,
-        }
+        })
         setSkills(config.skills)
         setSkillsOrganizationId(targetOrganizationId)
         setError(null)
@@ -295,11 +367,13 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
     [cacheKey, organizationId, remoteApiEnabled],
   )
 
+  const cached = organizationId ? getOrganizationSkillCacheEntry(cacheKey, organizationId) : undefined
   const skillsBelongToCurrentOrganization = skillsOrganizationId === organizationId
-  const currentSkills = skillsBelongToCurrentOrganization ? skills : []
+  const currentSkills = skillsBelongToCurrentOrganization ? skills : (cached?.skills ?? [])
   const currentError = skillsBelongToCurrentOrganization ? error : null
-  const currentHasLoaded = skillsBelongToCurrentOrganization ? hasLoaded : false
-  const currentLoading = loading || Boolean(organizationId && remoteApiEnabled && !skillsBelongToCurrentOrganization)
+  const currentHasLoaded = skillsBelongToCurrentOrganization ? hasLoaded : Boolean(cached)
+  const currentLoading =
+    loading || Boolean(organizationId && remoteApiEnabled && !skillsBelongToCurrentOrganization && !cached)
   const chatContextSkills = React.useMemo(
     () => currentSkills.filter((skill) => skill.enabled).map(toChatContextSkill),
     [currentSkills],

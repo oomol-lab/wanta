@@ -231,6 +231,7 @@ test("getInstallableOrganizationSkills only returns runtime-missing skills", () 
     { packageName: "@alice/installed", skillName: "installed", version: "1.0.0" },
     { packageName: "@alice/missing", skillName: "missing", version: "1.0.0" },
     { packageName: "@alice/external", skillName: "external", version: "1.0.0" },
+    { enabled: false, packageName: "@alice/disabled", skillName: "disabled", version: "1.0.0" },
   ]
 
   assert.deepEqual(

@@ -506,6 +506,9 @@ export function getInstallableOrganizationSkills<T extends OrganizationSkillRunt
   skills: readonly T[],
 ): T[] {
   return skills.filter((skill) => {
+    if ("enabled" in skill && skill.enabled === false) {
+      return false
+    }
     const status = getOrganizationSkillRuntimeStatus(groupById, skill).state
     return status === "missing" || status === "external-only"
   })

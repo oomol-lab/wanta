@@ -832,6 +832,7 @@ export const zhCNMessages = {
   "artifacts.kindFile": "文件",
   "turnOutputs.panelTitle": "审查",
   "turnOutputs.processDetails": "执行详情",
+  "turnOutputs.sections": "审查内容",
   "turnOutputs.changes": "变更",
   "turnOutputs.processFiles": "过程文件",
   "turnOutputs.changesSummary": "{count} 个文件变更",

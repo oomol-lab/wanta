@@ -12,6 +12,8 @@ import {
   ChevronRight,
   CopyIcon,
   ExternalLink,
+  FileCode2,
+  FileDiff,
   FolderOpen,
   Maximize2,
   Minimize2,
@@ -22,6 +24,7 @@ import { Diff as ReactDiff, Hunk, parseDiff } from "react-diff-view"
 import "react-diff-view/style/index.css"
 
 import { toast } from "sonner"
+import { availableTurnOutputRole } from "./turn-output-role.ts"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
@@ -143,12 +146,18 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   const [collapsedPaths, setCollapsedPaths] = React.useState<Set<string>>(() => new Set())
   const processFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "process") : []), [selection])
   const changeFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "project_change") : []), [selection])
-  const activeRole = initialRole === "process" && processFiles.length > 0 ? "process" : "project_change"
+  const requestedRole = availableTurnOutputRole(initialRole, processFiles.length, changeFiles.length)
+  const [activeRole, setActiveRole] = React.useState<TurnOutputFileRole>(requestedRole)
   const activeFiles = activeRole === "project_change" ? changeFiles : processFiles
+  const hasRoleSwitch = changeFiles.length > 0 && processFiles.length > 0
   const { openPath, showInFolder } = useTurnFileActions()
   const allCollapsed = activeFiles.length > 0 && activeFiles.every((file) => collapsedPaths.has(file.path))
   const activeAdditions = activeFiles.reduce((sum, file) => sum + file.additions, 0)
   const activeDeletions = activeFiles.reduce((sum, file) => sum + file.deletions, 0)
+
+  React.useEffect(() => {
+    setActiveRole(requestedRole)
+  }, [requestedRole, selection?.record.messageId, selection?.selectedPath])
 
   React.useEffect(() => {
     setCollapsedPaths(new Set(activeRole === "process" ? activeFiles.map((file) => file.path) : []))
@@ -206,6 +215,45 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
           </button>
         </div>
       </header>
+
+      {hasRoleSwitch ? (
+        <div className="oo-border-divider border-b px-3 py-2">
+          <div
+            role="tablist"
+            aria-label={t("turnOutputs.sections")}
+            className="inline-flex max-w-full items-center gap-1 rounded-lg bg-muted p-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeRole === "project_change"}
+              className={cn(
+                "oo-text-control flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                activeRole === "project_change" && "bg-background font-medium text-foreground shadow-xs",
+              )}
+              onClick={() => setActiveRole("project_change")}
+            >
+              <FileDiff className="size-3.5 shrink-0" />
+              <span className="truncate">{t("turnOutputs.changes")}</span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">{changeFiles.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeRole === "process"}
+              className={cn(
+                "oo-text-control flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                activeRole === "process" && "bg-background font-medium text-foreground shadow-xs",
+              )}
+              onClick={() => setActiveRole("process")}
+            >
+              <FileCode2 className="size-3.5 shrink-0" />
+              <span className="truncate">{t("turnOutputs.processFiles")}</span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">{processFiles.length}</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="oo-turn-review-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         <section className="min-w-0 pb-3">

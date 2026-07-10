@@ -871,6 +871,7 @@ export const enMessages = {
   "artifacts.kindFile": "File",
   "turnOutputs.panelTitle": "Review",
   "turnOutputs.processDetails": "Execution details",
+  "turnOutputs.sections": "Review sections",
   "turnOutputs.changes": "Changes",
   "turnOutputs.processFiles": "Process files",
   "turnOutputs.changesSummary": "{count} changed file(s)",

@@ -163,13 +163,14 @@ export function buildSessionTitleInput(
 }
 
 export function sessionTitleGenerationKey(
-  input: { text: string; attachmentNames?: string[] },
+  input: { text: string; attachmentNames?: string[]; model?: ModelChoice },
   allowPlaceholder: boolean,
   replaceableTitle?: string,
 ): string {
   return JSON.stringify({
     allowPlaceholder,
     attachmentNames: input.attachmentNames ?? [],
+    model: input.model ?? null,
     replaceableTitle: replaceableTitle ?? "",
     text: input.text,
   })

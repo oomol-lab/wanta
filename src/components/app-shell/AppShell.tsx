@@ -983,7 +983,7 @@ export function AppShell() {
       try {
         setRoute("chat")
         let sessionId = activeChatSessionId
-        const titleInput = buildSessionTitleInput(messages, text, attachments)
+        const titleInput = { ...buildSessionTitleInput(messages, text, attachments), model }
         const fallbackTitle = buildFallbackSessionTitle(titleInput)
         const autoFallbackTitle = sessionId ? getAutoFallbackTitle(sessionId) : undefined
         const allowPlaceholderTitle =

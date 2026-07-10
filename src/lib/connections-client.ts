@@ -65,6 +65,17 @@ interface ConnectorCacheEntry {
   meta: unknown
 }
 
+export interface ConnectorReadOptions {
+  forceRefresh?: boolean
+  /** 同一次 UI 刷新产生的强制读取可合并；新 mutation 使用新的 generation。 */
+  refreshGeneration?: string
+}
+
+interface ConnectorInFlightEntry {
+  promise: Promise<{ data: unknown; meta: unknown }>
+  refreshGeneration?: string
+}
+
 interface OAuthClientConfigsCacheEntry {
   data: ConnectionUserOAuthClientConfigSummary[] | null
   fetchedAt: number
@@ -72,7 +83,7 @@ interface OAuthClientConfigsCacheEntry {
 }
 
 const connectorGetCache = new Map<string, ConnectorCacheEntry>()
-const connectorGetInFlight = new Map<string, Promise<{ data: unknown; meta: unknown }>>()
+const connectorGetInFlight = new Map<string, ConnectorInFlightEntry>()
 const connectorGetRequestVersions = new Map<string, number>()
 const oauthConnectInFlight = new Map<string, Promise<OAuthConnectStart>>()
 const oauthClientConfigsCache: OAuthClientConfigsCacheEntry = { data: null, fetchedAt: 0, promise: null }
@@ -203,7 +214,7 @@ async function requestConnectorGlobal<T>(
 async function getConnector<T>(
   path: string,
   workspace: ConnectionWorkspace,
-  options: { forceRefresh?: boolean } = {},
+  options: ConnectorReadOptions = {},
 ): Promise<{ data: T; meta: unknown }> {
   const cacheKey = `${connectionWorkspaceKey(workspace)}:${path}`
   const cached = connectorGetCache.get(cacheKey)
@@ -212,8 +223,12 @@ async function getConnector<T>(
     return { data: cached.data as T, meta: cached.meta }
   }
   const inFlight = connectorGetInFlight.get(cacheKey)
-  if (!options.forceRefresh && inFlight) {
-    return inFlight as Promise<{ data: T; meta: unknown }>
+  if (
+    inFlight &&
+    (!options.forceRefresh ||
+      (Boolean(options.refreshGeneration) && inFlight.refreshGeneration === options.refreshGeneration))
+  ) {
+    return inFlight.promise as Promise<{ data: T; meta: unknown }>
   }
 
   const requestGeneration = connectorReadCacheGeneration
@@ -223,12 +238,15 @@ async function getConnector<T>(
   const trackedRequest = request.finally(() => {
     if (
       connectorGetRequestVersions.get(cacheKey) === requestVersion &&
-      connectorGetInFlight.get(cacheKey) === trackedRequest
+      connectorGetInFlight.get(cacheKey)?.promise === trackedRequest
     ) {
       connectorGetInFlight.delete(cacheKey)
     }
   })
-  connectorGetInFlight.set(cacheKey, trackedRequest as Promise<{ data: unknown; meta: unknown }>)
+  connectorGetInFlight.set(cacheKey, {
+    promise: trackedRequest as Promise<{ data: unknown; meta: unknown }>,
+    refreshGeneration: options.refreshGeneration,
+  })
   return trackedRequest
 }
 
@@ -290,7 +308,7 @@ function normalizeOptionalUsageSummary(
 
 export async function getConnectionCatalogSummary(
   workspace: ConnectionWorkspace,
-  options: { forceRefresh?: boolean } = {},
+  options: ConnectorReadOptions = {},
 ): Promise<ConnectionSummary> {
   const [appsResult, providersResult] = await Promise.all([
     getConnector<RawApp[]>("/v1/apps", workspace, options),
@@ -313,7 +331,7 @@ export async function getConnectionCatalogSummary(
  */
 export async function getConnectionUsageSummary(
   workspace: ConnectionWorkspace,
-  options: { forceRefresh?: boolean } = {},
+  options: ConnectorReadOptions = {},
 ): Promise<ConnectionUsageSummary> {
   const usageResults = await Promise.allSettled([
     getConnector<unknown>(`/v1/usage/daily?days=${connectionUsageSummaryDays}`, workspace, options),
@@ -325,7 +343,7 @@ export async function getConnectionUsageSummary(
 /** 完整摘要保留给显式动作和详情读取；目录首屏使用 getConnectionCatalogSummary 后台补齐 usage。 */
 export async function getConnectionSummary(
   workspace: ConnectionWorkspace,
-  options: { forceRefresh?: boolean } = {},
+  options: ConnectorReadOptions = {},
 ): Promise<ConnectionSummary> {
   const [catalog, usage] = await Promise.all([
     getConnectionCatalogSummary(workspace, options),
@@ -382,9 +400,7 @@ export async function getConnectionAppDetail(
   appId: string,
   workspace: ConnectionWorkspace,
 ): Promise<ConnectionAppDetail> {
-  const result = await getConnector<RawApp>(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace, {
-    forceRefresh: true,
-  })
+  const result = await getConnector<RawApp>(`/v1/apps/by-id/${encodeURIComponent(appId)}`, workspace)
   const app = normalizeConnectionAppDetail(result.data)
   if (!app) {
     throw new Error(`Connection app ${appId} is not available`)

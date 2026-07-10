@@ -72,7 +72,9 @@ describe("connections-client", () => {
       id: "app-1",
       credentialFields: [{ key: "roleArn", label: "Role ARN", displayValue: "role-a", secret: false }],
     })
+    await expect(getConnectionAppDetail("app-1", { type: "personal" })).resolves.toMatchObject({ id: "app-1" })
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("returns the provider catalog before requesting background usage", async () => {
@@ -194,6 +196,34 @@ describe("connections-client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect")
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v1/apps/by-id/app-2/connect")
+  })
+
+  it("deduplicates force-refresh requests within the same refresh generation", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/apps")) {
+        return Response.json({ data: [{ id: "app-1", service: "gmail", status: "active" }] })
+      }
+      if (url.includes("/v1/providers")) {
+        return Response.json({ data: [{ authTypes: ["oauth2"], service: "gmail" }] })
+      }
+      if (url.includes("/v1/usage/daily")) {
+        return Response.json({ data: [] })
+      }
+      if (url.includes("/v1/usage/services")) {
+        return Response.json({ data: [] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const request = { forceRefresh: true, refreshGeneration: "workspace:personal:refresh-1" }
+    await Promise.all([
+      getConnectionSummary({ type: "personal" }, request),
+      getConnectionSummary({ type: "personal" }, request),
+    ])
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it("shares OAuth client config reads and clears them after an update", async () => {

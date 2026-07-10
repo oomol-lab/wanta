@@ -199,14 +199,18 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       summaryRequestSequence.current = requestId
       const generation = workspaceGeneration.current
       const key = connectionWorkspaceKey(currentWorkspace)
+      const connectorReadOptions = {
+        ...request,
+        refreshGeneration: `summary:${key}:${requestId}`,
+      }
       const visibleRefresh = !options.silent || summaryRef.current === null
       if (visibleRefresh) {
         visibleSummaryRequestSequence.current = requestId
         dispatch({ type: "refreshStarted" })
       }
       try {
-        const usageRequest = getConnectionUsageSummary(currentWorkspace, request)
-        const next = await getConnectionCatalogSummary(currentWorkspace, request)
+        const usageRequest = getConnectionUsageSummary(currentWorkspace, connectorReadOptions)
+        const next = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
           dispatch({ type: "refreshSucceeded", summary: next })
           void usageRequest.then((usage) => {
@@ -287,7 +291,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
             return false
           }
           if (isOAuthOperationConnectedFromActiveAppIds(activeAppIds, operation)) {
-            const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+            const next = await getConnectionSummary(currentWorkspace, {
+              forceRefresh: true,
+              refreshGeneration: `oauth-complete:${operation.key}:${operation.actionId}`,
+            })
             if (!isCurrentOAuth()) {
               return false
             }
@@ -448,7 +455,12 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       try {
         if (input.authType !== "oauth2") {
           await connectProvider(input, currentWorkspace)
-          applySummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
+          applySummary(
+            await getConnectionSummary(currentWorkspace, {
+              forceRefresh: true,
+              refreshGeneration: `connect:${connectionWorkspaceKey(currentWorkspace)}:${action.actionId}`,
+            }),
+          )
           return isCurrentAction()
         }
 
@@ -522,7 +534,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       dispatch({ type: "busySet", busy: "disconnect" })
       try {
         await disconnectProviderRequest(svc, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `disconnect:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }
@@ -556,7 +571,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       dispatch({ type: "busySet", busy: "disconnect" })
       try {
         await disconnectAccountRequest(appId, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `disconnect:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }
@@ -593,7 +611,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         if (isCurrentAction() && summaryRef.current) {
           setCurrentSummary(applyDefaultAccountUpdate(summaryRef.current, svc, appId, updatedApp))
         }
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `set-default:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(applyDefaultAccountUpdate(next, svc, appId, updatedApp))
         }
@@ -627,7 +648,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       dispatch({ type: "busySet", busy: "update_alias" })
       try {
         await updateAliasRequest(appId, alias, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `update-alias:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }

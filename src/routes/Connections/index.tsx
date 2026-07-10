@@ -484,9 +484,11 @@ export function ConnectionsPanel({
                 </Button>
               ) : null}
             </div>
-            <div className="oo-text-caption oo-text-muted">
-              {summaryError ? userFacingErrorDescription(summaryError, t) : t("connections.drawerLoading")}
-            </div>
+            {summaryError ? (
+              <div className="oo-text-caption oo-text-muted">{userFacingErrorDescription(summaryError, t)}</div>
+            ) : (
+              <ConnectionDrawerSkeleton />
+            )}
           </section>
         )}
         <ConnectDialog
@@ -664,6 +666,16 @@ export function ConnectionsPanel({
         }}
       />
     </SplitViewRoot>
+  )
+}
+
+function ConnectionDrawerSkeleton() {
+  return (
+    <div className="grid gap-2" aria-hidden="true">
+      <div className="h-3 w-4/5 animate-pulse rounded-sm bg-muted" />
+      <div className="h-3 w-3/5 animate-pulse rounded-sm bg-muted" />
+      <div className="mt-1 h-8 w-28 animate-pulse rounded-md bg-muted" />
+    </div>
   )
 }
 

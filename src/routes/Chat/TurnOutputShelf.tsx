@@ -118,7 +118,11 @@ export function TurnOutputShelf({
   if (!hasProjectChanges) {
     return (
       <div className="not-prose mt-2 w-full min-w-0 rounded-lg border border-border bg-background">
-        <div className="flex min-w-0 items-center justify-between gap-3 px-3 py-3">
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          onClick={() => onOpen({ record, initialRole: "process" })}
+        >
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
               <CheckSquare className="size-4" />
@@ -132,15 +136,11 @@ export function TurnOutputShelf({
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            className="oo-text-control flex h-8 shrink-0 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            onClick={() => onOpen({ record, initialRole: "process" })}
-          >
+          <span className="oo-text-control flex h-8 shrink-0 items-center gap-1 rounded-md border border-border px-2.5 font-medium">
             {t("turnOutputs.reviewChanges")}
             <ChevronRight className="size-3.5" />
-          </button>
-        </div>
+          </span>
+        </button>
       </div>
     )
   }

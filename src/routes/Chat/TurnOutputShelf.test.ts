@@ -20,6 +20,18 @@ function changedFile(path: string, additions: number, deletions: number): TurnOu
   }
 }
 
+function processFile(path: string): TurnOutputRecord["files"][number] {
+  return {
+    path,
+    name: path.split("/").pop() ?? path,
+    role: "process",
+    changeKind: "added",
+    mime: "text/plain",
+    additions: 0,
+    deletions: 0,
+  }
+}
+
 function renderTurnOutputShelf(record: TurnOutputRecord): string {
   return renderToStaticMarkup(
     React.createElement(
@@ -75,5 +87,29 @@ describe("TurnOutputShelf", () => {
     expect(html).toContain("electron/session/node.ts")
     expect(html).toContain("再显示 2 个文件")
     expect(html).not.toContain("src/routes/Chat/TurnOutputShelf.tsx")
+  })
+
+  it("makes the entire process file bar open the review drawer", () => {
+    const record: TurnOutputRecord = {
+      sessionId: "session-1",
+      messageId: "assistant-1",
+      createdAt: 1,
+      completedAt: 2,
+      files: [processFile("/tmp/process/script.ts")],
+      summary: {
+        additions: 0,
+        changedFileCount: 0,
+        deletions: 0,
+        processFileCount: 1,
+      },
+    }
+
+    const html = renderTurnOutputShelf(record)
+
+    expect(html).toContain('class="flex w-full min-w-0 items-center justify-between gap-3 rounded-lg')
+    expect(html).toContain("1 个过程文件")
+    expect(html).toContain("查看中间脚本和执行文件")
+    expect(html).toContain("审核")
+    expect(html).not.toContain('class="flex min-w-0 items-center justify-between gap-3 px-3 py-3"')
   })
 })

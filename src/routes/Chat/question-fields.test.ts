@@ -6,6 +6,7 @@ import {
   deriveQuestionFields,
   initialFieldDrafts,
   isQuestionDraftSnapshotPristine,
+  questionStepLabel,
 } from "./question-fields.ts"
 
 describe("question-fields", () => {
@@ -173,6 +174,52 @@ describe("question-fields", () => {
     expect(fields[0].label).toBe("收件人")
     expect(fields[0].kind).toBe("email")
     expect(fields[0].options).toEqual([])
+  })
+
+  it("uses short headers for separate structured question steps", () => {
+    const request: ChatQuestionRequest = {
+      id: "q1",
+      sessionId: "s1",
+      questions: [
+        {
+          header: "目标受众",
+          question: "这个 skill 的目标受众是谁？是给 AI agent 使用，还是给人类开发者参考？",
+          options: [],
+        },
+        {
+          header: "消费场景",
+          question: "这个 skill 需要覆盖哪些消费场景？",
+          options: [],
+        },
+      ],
+    }
+
+    const fields = deriveQuestionFields(request)
+
+    expect(fields.map((field) => ({ label: field.label, prompt: field.prompt }))).toEqual([
+      {
+        label: "目标受众",
+        prompt: "这个 skill 的目标受众是谁？是给 AI agent 使用，还是给人类开发者参考？",
+      },
+      { label: "消费场景", prompt: "这个 skill 需要覆盖哪些消费场景？" },
+    ])
+  })
+
+  it("falls back when a legacy question is too long for a step label", () => {
+    const field = deriveQuestionFields({
+      id: "q1",
+      sessionId: "s1",
+      questions: [
+        {
+          header: "Skill 需求",
+          question:
+            "1. 这个 skill 的目标受众是谁？是给 AI agent 使用，还是给人类开发者参考？ 2. 这个 skill 需要覆盖哪些消费场景？",
+          options: [],
+        },
+      ],
+    })[0]
+
+    expect(questionStepLabel(field, "问题 1")).toBe("问题 1")
   })
 
   it("treats only unchanged first-step drafts as pristine", () => {

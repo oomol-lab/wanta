@@ -9,7 +9,7 @@ import type {
 } from "../chat/common.ts"
 import type { ModelChoice } from "../models/common.ts"
 import type { PersistedCustomModel } from "../models/store.ts"
-import type { SessionInfo } from "../session/common.ts"
+import type { GenerateSessionTitleRequest, SessionInfo } from "../session/common.ts"
 import type { BuildSessionTitleInput } from "../session/title.ts"
 import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@opencode-ai/sdk/v2/client"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
@@ -133,8 +133,9 @@ export interface GeneratedSessionTitle {
 const sessionTitleSystemPrompt = [
   "Generate a concise chat title as a task label.",
   'Return JSON only, exactly like {"title":"Gmail 三日报告"}.',
+  "Return the JSON immediately without analysis or reasoning.",
   "Keep the user's language when possible.",
-  "Aim for a short phrase, usually 2-8 words.",
+  "Keep Chinese titles within about 10 characters and English titles within 6 words.",
   "- Preserve complete brand, product, app, domain, and file names. Never cut Gmail to Gma or truncate any word.",
   "- Prefer the core action and object; remove polite wording such as help me, 请, 帮我, 麻烦.",
   "- No URLs, no ellipses, no markdown, no explanations, no trailing punctuation.",
@@ -143,7 +144,8 @@ const sessionTitleSystemPrompt = [
   'User: 你帮我将这个店铺中商品相关的图片都抓下来 -> {"title":"抓取店铺商品图片"}',
   'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
 ].join("\n")
-const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
+const sessionTitleRequestTimeoutMs = 30_000
+const sessionTitleMaxTokens = 512
 const eventStreamMaxReconnectAttempts = 5
 const eventStreamRestartInitialDelayMs = 500
 const eventStreamRestartMaxDelayMs = 5_000
@@ -580,7 +582,7 @@ export class AgentManager {
     await this.client.session.delete({ sessionID: id })
   }
 
-  public async generateSessionTitle(input: BuildSessionTitleInput): Promise<GeneratedSessionTitle> {
+  public async generateSessionTitle(input: GenerateSessionTitleRequest): Promise<GeneratedSessionTitle> {
     const fallback = buildFallbackSessionTitle(input)
     const titleSource = buildTitleSource(input)
     if (!titleSource) {
@@ -588,7 +590,7 @@ export class AgentManager {
     }
 
     try {
-      const rawTitle = await this.requestSessionTitle(titleSource)
+      const rawTitle = await this.requestSessionTitle(titleSource, input.model)
       const title = sanitizeGeneratedSessionTitle(rawTitle, input)
       return title.usedFallback ? { generated: false, title: fallback } : { generated: true, title: title.title }
     } catch (error) {
@@ -597,7 +599,12 @@ export class AgentManager {
     }
   }
 
-  private async requestSessionTitle(titleSource: string, previousTitle?: string): Promise<string> {
+  private async requestSessionTitle(
+    titleSource: string,
+    modelChoice: ModelChoice | undefined,
+    previousTitle?: string,
+  ): Promise<string> {
+    const target = this.resolveSessionTitleTarget(modelChoice)
     const messages = [
       {
         role: "system",
@@ -610,25 +617,44 @@ export class AgentManager {
           : titleSource,
       },
     ]
-    const response = await fetch(`${llmBaseUrl}/chat/completions`, {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+    if (target.apiKey) {
+      headers.Authorization = `Bearer ${target.apiKey}`
+    }
+    const response = await fetch(`${target.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.options.authToken}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
-        model: sessionTitleModelID,
+        model: target.modelID,
         temperature: 0.1,
-        max_tokens: 80,
+        max_tokens: sessionTitleMaxTokens,
         messages,
       }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(sessionTitleRequestTimeoutMs),
     })
     if (!response.ok) {
       throw new Error(`session title request failed: ${response.status} ${response.statusText}`)
     }
     const payload = (await response.json()) as ChatCompletionResponse
     return payload.choices?.[0]?.message?.content ?? ""
+  }
+
+  private resolveSessionTitleTarget(choice: ModelChoice | undefined): {
+    apiKey: string
+    baseUrl: string
+    modelID: string
+  } {
+    const resolved = this.resolveModel(choice)
+    if (choice?.kind !== "custom") {
+      return { apiKey: this.options.authToken, baseUrl: llmBaseUrl, modelID: resolved.modelID }
+    }
+    const customModel = this.options.customModels?.find((item) => item.id === choice.id)
+    if (!customModel) {
+      throw new Error("Selected custom model is no longer available.")
+    }
+    return { apiKey: customModel.apiKey, baseUrl: customModel.baseUrl, modelID: resolved.modelID }
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {

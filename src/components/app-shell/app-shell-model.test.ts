@@ -10,6 +10,7 @@ import {
   resolveNewSessionTarget,
   resolveWorkspaceActivationState,
   sessionRecordScopeKey,
+  sessionTitleGenerationKey,
   shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
   workspaceActivationBlocksInput,
@@ -369,6 +370,15 @@ describe("composer draft scope keys", () => {
     expect(sessionRecordScopeKey(undefined)).toBe("personal")
     expect(sessionRecordScopeKey({ type: "organization", organizationId: "org-a", organizationName: "A" })).toBe(
       "organization:org-a",
+    )
+  })
+})
+
+describe("session title generation keys", () => {
+  test("separates requests that use different chat models", () => {
+    const input = { text: "分析注册来源" }
+    expect(sessionTitleGenerationKey({ ...input, model: { kind: "builtin", id: "deepseek-v4-flash" } }, true)).not.toBe(
+      sessionTitleGenerationKey({ ...input, model: { kind: "custom", id: "custom-1" } }, true),
     )
   })
 })

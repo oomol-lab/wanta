@@ -1,3 +1,4 @@
+import type { ModelChoice } from "../models/common.ts"
 import type { ServiceName } from "@oomol/connection"
 
 import { serviceName } from "../branding.ts"
@@ -67,6 +68,7 @@ export interface CreateSessionRequest {
 export interface GenerateSessionTitleRequest {
   text: string
   attachmentNames?: string[]
+  model?: ModelChoice
 }
 
 export interface GenerateSessionTitleResult {

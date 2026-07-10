@@ -372,14 +372,14 @@ describe("AgentManager", () => {
     expect(reject).toHaveBeenCalledWith({ requestID: "q1" })
   })
 
-  it("uses a generated session title without local length scoring or rewrite", async () => {
-    const fetchMock = vi.fn(async () => {
+  it("uses the selected builtin model to generate a session title", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
       return new Response(
         JSON.stringify({
           choices: [
             {
               message: {
-                content: '{"title":"PostHog 近 3 天注册来源分析报告"}',
+                content: '{"title":"PostHog 注册来源"}',
               },
             },
           ],
@@ -397,10 +397,53 @@ describe("AgentManager", () => {
     })
 
     const title = await manager.generateSessionTitle({
+      model: { kind: "builtin", id: "gpt-5.5" },
       text: "你 PostHog 看一下近三天的数据，帮我看一下他们注册主要是来自于哪里？",
     })
 
-    expect(title).toEqual({ generated: true, title: "PostHog 近 3 天注册来源分析报告" })
+    expect(title).toEqual({ generated: true, title: "PostHog 注册来源" })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    const request = fetchMock.mock.calls[0]?.[1]
+    expect(request).toBeDefined()
+    expect(JSON.parse(String(request?.body))).toMatchObject({ max_tokens: 512, model: "gpt-5.5" })
+    expect(request?.headers).toMatchObject({ Authorization: "Bearer test" })
+  })
+
+  it("uses the selected custom model endpoint and credential to generate a session title", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"自定义模型标题"}' } }] }), {
+        status: 200,
+      })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const manager = new AgentManager({
+      authToken: "test",
+      customModels: [
+        {
+          apiKey: "custom-secret",
+          baseUrl: "https://models.example.test/v1/",
+          id: "custom-1",
+          modelName: "custom-model",
+          providerId: "openrouter",
+          providerName: "Custom provider",
+        },
+      ],
+      opencodeBinPath: "/tmp/opencode",
+      ooBinPath: "/tmp/oo",
+      rootDir: "/tmp/wanta-agent",
+    })
+
+    const title = await manager.generateSessionTitle({
+      model: { kind: "custom", id: "custom-1" },
+      text: "帮我分析一下注册来源",
+    })
+
+    expect(title).toEqual({ generated: true, title: "自定义模型标题" })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, request] = fetchMock.mock.calls[0] ?? []
+    expect(String(url)).toBe("https://models.example.test/v1/chat/completions")
+    expect(request?.headers).toMatchObject({ Authorization: "Bearer custom-secret" })
+    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "custom-model" })
   })
 })

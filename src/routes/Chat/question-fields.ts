@@ -52,8 +52,8 @@ function stripQuestionWords(value: string): string {
     .trim()
 }
 
-function inferFieldLabel(prompt: string): string {
-  const compact = stripQuestionWords(prompt)
+function inferFieldLabel(prompt: string, header?: string): string {
+  const compact = stripQuestionWords(header ?? "") || stripQuestionWords(prompt)
   const lower = compact.toLowerCase()
   if (/收件人|recipient|\bto\b/.test(lower)) {
     return "收件人"
@@ -148,8 +148,9 @@ function createField(
   prompt: string,
   options: ChatQuestionOption[],
   value = "",
+  header?: string,
 ): QuestionField {
-  const label = inferFieldLabel(prompt)
+  const label = inferFieldLabel(prompt, header)
   const kind = inferFieldKind(label, prompt)
   return {
     id: `${requestId}:${questionIndex}:${label}:${prompt}`,
@@ -167,7 +168,7 @@ function createField(
 
 function fieldsForQuestion(requestId: string, question: ChatQuestionInfo, questionIndex: number): QuestionField[] {
   const prompts = extractNumberedPrompts(question.question)
-  const fallback = createField(requestId, questionIndex, question.question, [], "")
+  const fallback = createField(requestId, questionIndex, question.question, [], "", question.header)
   const fallbackOptions = usefulOptions(fallback.kind, question)
   const optionPrompts = fallbackOptions.length > 0 ? [] : extractOptionFieldPrompts(question.options)
   const fields =
@@ -191,6 +192,12 @@ function fieldsForQuestion(requestId: string, question: ChatQuestionInfo, questi
 
 export function deriveQuestionFields(request: ChatQuestionRequest): QuestionField[] {
   return request.questions.flatMap((question, index) => fieldsForQuestion(request.id, question, index))
+}
+
+export function questionStepLabel(field: QuestionField, fallback: string): string {
+  const label = field.label.trim()
+  const maximumLength = /[\u3400-\u9fff]/.test(label) ? 10 : 32
+  return label && Array.from(label).length <= maximumLength ? label : fallback
 }
 
 function dedupeFields(fields: QuestionField[]): QuestionField[] {

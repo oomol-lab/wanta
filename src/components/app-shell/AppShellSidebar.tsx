@@ -261,7 +261,7 @@ export function SessionItem({
     <div
       onClick={handleRowClick}
       className={cn(
-        "oo-sidebar-nav-item group oo-text-body flex h-8 items-center rounded-md px-3",
+        "oo-sidebar-nav-item group oo-text-body relative flex h-8 items-center rounded-md px-3",
         selected && "bg-sidebar-accent text-sidebar-accent-foreground",
       )}
     >
@@ -272,10 +272,10 @@ export function SessionItem({
         onKeyDown={handleRenameKeyDown}
         aria-current={selected ? "page" : undefined}
         title={session.title}
-        className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
+        className="flex h-full w-full min-w-0 items-center gap-2 text-left"
       >
         {leadingSlot}
-        <span className="oo-sidebar-nav-label min-w-0 truncate">{session.title}</span>
+        <span className="oo-sidebar-nav-label min-w-0 flex-1 truncate">{session.title}</span>
         {running ? (
           <span
             title={t("aria.sessionRunning")}
@@ -301,7 +301,7 @@ export function SessionItem({
           </span>
         ) : null}
       </button>
-      <div className="pointer-events-none ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+      <div className="pointer-events-none absolute right-3 flex items-center gap-0.5 bg-sidebar pl-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:bg-sidebar-accent group-hover:opacity-100 focus-within:pointer-events-auto focus-within:bg-sidebar-accent focus-within:opacity-100">
         <button
           type="button"
           aria-label={pinned ? t("aria.unpinSession") : t("aria.pinSession")}

@@ -25,7 +25,7 @@ interface UseSessionTitleGenerationResult {
   isAutoRefreshable: (session: SessionInfo, allowPlaceholder: boolean, fallbackTitle?: string) => boolean
   refreshGeneratedTitle: (
     sessionId: string,
-    input: { text: string; attachmentNames?: string[] },
+    input: GenerateSessionTitleRequest,
     allowPlaceholder: boolean,
     replaceableTitle?: string,
   ) => Promise<void>
@@ -69,7 +69,7 @@ export function useSessionTitleGeneration({
   const refreshGeneratedTitle = React.useCallback(
     async (
       sessionId: string,
-      input: { text: string; attachmentNames?: string[] },
+      input: GenerateSessionTitleRequest,
       allowPlaceholder: boolean,
       replaceableTitle?: string,
     ) => {

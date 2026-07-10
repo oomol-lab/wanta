@@ -4,7 +4,12 @@ import type { QuestionDraftStore, QuestionField, QuestionFieldDraft, QuestionFie
 import { Check } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { answersFromFieldDrafts, canSubmitFieldAnswers, deriveQuestionFields } from "./question-fields.ts"
+import {
+  answersFromFieldDrafts,
+  canSubmitFieldAnswers,
+  deriveQuestionFields,
+  questionStepLabel,
+} from "./question-fields.ts"
 import { useQuestionPromptDrafts } from "./question-prompt-drafts.ts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -128,20 +133,23 @@ function QuestionStepIndicator({
   fields: QuestionField[]
   onSelect: (index: number) => void
 }) {
+  const t = useT()
   return (
-    <ol className="inline-flex max-w-full flex-wrap items-center gap-1 border-b border-border" role="tablist">
+    <ol className="flex w-full min-w-0 items-center gap-1 overflow-x-auto border-b border-border" role="tablist">
       {fields.map((field, index) => {
         const answered = canSubmitFieldAnswers([field], [drafts[index] ?? { value: "", selected: [] }])
         const active = index === activeIndex
+        const label = questionStepLabel(field, t("chat.questionFallbackLabel", { index: index + 1 }))
         return (
-          <li key={field.id} className="min-w-0">
+          <li key={field.id} className="min-w-24 flex-1">
             <button
               type="button"
               role="tab"
               aria-selected={active}
+              title={field.prompt ?? field.label}
               disabled={disabled}
               className={cn(
-                "flex min-w-0 items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                "flex w-full min-w-0 items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                 active
                   ? "border-foreground text-foreground"
                   : answered
@@ -162,7 +170,7 @@ function QuestionStepIndicator({
               >
                 {index + 1}
               </span>
-              <span className="oo-text-label min-w-0 truncate">{field.label}</span>
+              <span className="oo-text-label min-w-0 truncate">{label}</span>
             </button>
           </li>
         )
@@ -301,11 +309,8 @@ export function QuestionPromptCard({
               key={field.id}
               className={cn("space-y-2.5", spaciousField ? "max-h-64 min-h-28 overflow-y-auto pr-1" : "min-h-0")}
             >
-              <Label
-                htmlFor={inputId}
-                className={cn("oo-text-label block font-semibold text-foreground", fields.length > 1 && "sr-only")}
-              >
-                {fields.length > 1 ? `${index + 1}. ${field.label}` : field.label}
+              <Label htmlFor={inputId} className="oo-text-label block font-semibold text-foreground">
+                {field.prompt ?? field.label}
               </Label>
 
               {field.options.length > 0 ? (

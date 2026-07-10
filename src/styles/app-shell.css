@@ -151,7 +151,7 @@
   }
 
   .oo-sidebar-session-time {
-    min-width: 3rem;
+    min-width: 2.5rem;
     color: var(--sidebar-muted-foreground);
     font-size: var(--oo-font-caption);
     font-weight: 400;

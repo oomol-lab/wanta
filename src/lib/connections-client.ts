@@ -35,6 +35,7 @@ import { normalizeUsageSummary } from "../../electron/connections/usage.ts"
 import { connectionWorkspaceKey } from "@/lib/connection-workspace"
 import { connectorBaseUrl, consoleBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 // 连接器面板的全部 HTTP 在渲染层直接发起：原先这些是渲染业务驱动、却由主进程 ConnectionsServiceImpl
 // 代发的请求（且在每 2s 的 oauth 轮询里高频触发，正是"主进程做太多"的典型）。凭证经 httpOnly 会话 cookie
@@ -297,13 +298,26 @@ function normalizeOptionalUsageSummary(
 ): ConnectionSummary["usage"] {
   const [dailyResult, servicesResult] = results
   if (dailyResult?.status !== "fulfilled" || servicesResult?.status !== "fulfilled") {
+    const cause =
+      dailyResult?.status === "rejected"
+        ? dailyResult.reason
+        : servicesResult?.status === "rejected"
+          ? servicesResult.reason
+          : new Error("Connection usage response is incomplete.")
+    reportConnectionUsageFailure("Connection usage request failed", cause)
     return createEmptyConnectionUsageSummary()
   }
   try {
     return normalizeUsageSummary(dailyResult.value.data, servicesResult.value.data)
-  } catch {
+  } catch (error) {
+    reportConnectionUsageFailure("Connection usage response normalization failed", error)
     return createEmptyConnectionUsageSummary()
   }
+}
+
+function reportConnectionUsageFailure(operation: string, cause: unknown): void {
+  console.warn("[wanta] connection usage request failed", { error: cause, operation })
+  reportRendererHandledError("connections", operation, cause)
 }
 
 export async function getConnectionCatalogSummary(

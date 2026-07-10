@@ -229,3 +229,14 @@ test("connectionsStateReducer hydrates usage only for the active workspace", () 
   assert.equal(hydrated.summary?.usage.calls, 3)
   assert.equal(hydrated.summary?.usageLoading, false)
 })
+
+test("connectionsStateReducer clears usage loading when background hydration fails", () => {
+  const loaded = connectionsStateReducer(initialConnectionsState, {
+    summary: { ...summary({ type: "personal" }), usageLoading: true },
+    type: "summarySet",
+  })
+
+  const failed = connectionsStateReducer(loaded, { type: "usageHydrationFailed", workspaceKey: "personal" })
+
+  assert.equal(failed.summary?.usageLoading, false)
+})

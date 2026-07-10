@@ -209,13 +209,22 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         dispatch({ type: "refreshStarted" })
       }
       try {
-        const usageRequest = getConnectionUsageSummary(currentWorkspace, connectorReadOptions)
+        // 创建时立即吸收失败，避免目录读取失败或工作区切换后留下未处理 rejection。
+        const usageRequest = getConnectionUsageSummary(currentWorkspace, connectorReadOptions).then(
+          (usage) => ({ ok: true as const, usage }),
+          (error: unknown) => ({ error, ok: false as const }),
+        )
         const next = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
           dispatch({ type: "refreshSucceeded", summary: next })
-          void usageRequest.then((usage) => {
+          void usageRequest.then((result) => {
             if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
-              dispatch({ type: "usageHydrated", usage, workspaceKey: key })
+              if (result.ok) {
+                dispatch({ type: "usageHydrated", usage: result.usage, workspaceKey: key })
+              } else {
+                reportRendererHandledError("connections", "background connection usage request failed", result.error)
+                dispatch({ type: "usageHydrationFailed", workspaceKey: key })
+              }
             }
           })
         }

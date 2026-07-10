@@ -26,6 +26,7 @@ export type ConnectionsStateAction =
   | { type: "refreshStarted" }
   | { type: "refreshSucceeded"; summary: ConnectionSummary }
   | { type: "summarySet"; summary: ConnectionSummary }
+  | { type: "usageHydrationFailed"; workspaceKey: string }
   | { type: "usageHydrated"; usage: ConnectionUsageSummary; workspaceKey: string }
   | { type: "workspacePending" }
   | { type: "workspaceScopeSyncFailed"; error: UserFacingError }
@@ -79,6 +80,14 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
       return {
         ...state,
         summary: { ...state.summary, usage: action.usage, usageLoading: false },
+      }
+    case "usageHydrationFailed":
+      if (!state.summary || state.summaryWorkspaceKey !== action.workspaceKey) {
+        return state
+      }
+      return {
+        ...state,
+        summary: { ...state.summary, usageLoading: false },
       }
     case "workspacePending":
       return initialConnectionsState

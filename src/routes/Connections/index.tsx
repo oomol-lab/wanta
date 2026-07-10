@@ -815,6 +815,7 @@ function ProviderListSkeleton() {
     <div
       className="grid"
       style={{ gap: providerGridGapPx, gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))" }}
+      aria-hidden="true"
     >
       {Array.from({ length: 12 }, (_, index) => (
         <div

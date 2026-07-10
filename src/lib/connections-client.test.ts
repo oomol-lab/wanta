@@ -17,6 +17,7 @@ import { consoleBaseUrl } from "./domain.ts"
 describe("connections-client", () => {
   afterEach(() => {
     clearConnectorCache()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -109,6 +110,32 @@ describe("connections-client", () => {
 
     expect(usage.calls).toBe(3)
     expect(usage.services).toMatchObject([{ calls: 3, service: "gmail" }])
+  })
+
+  it("degrades a failed usage request to an empty summary without rejecting", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/usage/daily")) {
+        return new Response("unavailable", { status: 503, statusText: "Service Unavailable" })
+      }
+      if (url.includes("/v1/usage/services")) {
+        return Response.json({ data: [{ service: "gmail", totalCount: 3 }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    await expect(getConnectionUsageSummary({ type: "personal" })).resolves.toEqual({
+      calls: 0,
+      days: 7,
+      errors: 0,
+      points: [],
+      recent: null,
+      services: [],
+      success: 0,
+    })
+    expect(warning).toHaveBeenCalledOnce()
   })
 
   it("sends a dev app protocol in the OAuth return URI from the Vite renderer", async () => {

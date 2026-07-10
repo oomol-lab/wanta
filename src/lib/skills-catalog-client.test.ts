@@ -6,7 +6,7 @@ import {
   listPublicSkillPackages,
   readPublicSkillPackageByName,
   searchPublicSkillPackages,
-} from "@/lib/skills-catalog-client.ts"
+} from "@/lib/skills-catalog-client"
 
 afterEach(() => {
   clearSkillCatalogCacheForTest()

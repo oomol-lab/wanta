@@ -1,6 +1,7 @@
 import type {
   SubscriptionStatus,
   WantaPendingPaymentResult,
+  WantaSubscriptionChangePayload,
   WantaSubscriptionPlan,
 } from "../../../electron/chat/common.ts"
 
@@ -49,6 +50,12 @@ export interface WantaPendingPaymentTargets {
   additionalSeats: number | null
   paymentUrl: string
   plan: WantaSubscriptionPlan | null
+}
+
+export interface WantaSubscriptionActionDisabledInput {
+  canManage: boolean
+  isSessionExpired: boolean
+  isSubmitting: boolean
 }
 
 export function buildWantaSubscriptionOverview({
@@ -122,6 +129,29 @@ export function resolveWantaPendingPaymentTargets({
       : null
   const plan = additionalSeats === null ? (pendingPlan ?? currentPlan) : null
   return { additionalSeats, paymentUrl, plan }
+}
+
+/**
+ * 账单概览只是页面展示数据，不能作为创建或继续结账的前置条件：概览接口失败、超时或仍在加载时，
+ * 用户仍应能通过计划接口创建支付链接。真正的鉴权由该接口处理，已过期会话才禁用操作。
+ */
+export function isWantaSubscriptionActionDisabled({
+  canManage,
+  isSessionExpired,
+  isSubmitting,
+}: WantaSubscriptionActionDisabledInput): boolean {
+  return !canManage || isSessionExpired || isSubmitting
+}
+
+/** Wanta 计划变更必须带上目标席位数，与 console 的订阅预览/提交契约保持一致。 */
+export function buildWantaPlanChange(
+  plan: WantaSubscriptionPlan | null,
+  additionalSeats: number,
+): WantaSubscriptionChangePayload {
+  return {
+    additional_seats: Math.max(0, Math.floor(additionalSeats)),
+    plan,
+  }
 }
 
 function recommendWantaAction({

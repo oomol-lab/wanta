@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { buildWantaSubscriptionOverview, resolveWantaPendingPaymentTargets } from "./wanta-subscription-model.ts"
+import {
+  buildWantaPlanChange,
+  buildWantaSubscriptionOverview,
+  isWantaSubscriptionActionDisabled,
+  resolveWantaPendingPaymentTargets,
+} from "./wanta-subscription-model.ts"
 
 describe("buildWantaSubscriptionOverview", () => {
   it("uses Wanta plan capacity plus additional seats", () => {
@@ -289,6 +294,52 @@ describe("resolveWantaPendingPaymentTargets", () => {
       additionalSeats: null,
       paymentUrl: "https://console.example.com/renew",
       plan: "wanta_plus",
+    })
+  })
+})
+
+describe("isWantaSubscriptionActionDisabled", () => {
+  it("keeps checkout available while the billing overview is unavailable", () => {
+    // 概览数据不是结账接口的输入；网络慢或概览降级时也必须能选择计划并创建支付链接。
+    expect(
+      isWantaSubscriptionActionDisabled({
+        canManage: true,
+        isSessionExpired: false,
+        isSubmitting: false,
+      }),
+    ).toBe(false)
+  })
+
+  it("disables checkout for permission, authentication, and active submission states", () => {
+    expect(
+      isWantaSubscriptionActionDisabled({
+        canManage: false,
+        isSessionExpired: false,
+        isSubmitting: false,
+      }),
+    ).toBe(true)
+    expect(
+      isWantaSubscriptionActionDisabled({
+        canManage: true,
+        isSessionExpired: true,
+        isSubmitting: false,
+      }),
+    ).toBe(true)
+    expect(
+      isWantaSubscriptionActionDisabled({
+        canManage: true,
+        isSessionExpired: false,
+        isSubmitting: true,
+      }),
+    ).toBe(true)
+  })
+})
+
+describe("buildWantaPlanChange", () => {
+  it("keeps the current seat target when changing plans", () => {
+    expect(buildWantaPlanChange("wanta_pro", 3.8)).toEqual({
+      additional_seats: 3,
+      plan: "wanta_pro",
     })
   })
 })

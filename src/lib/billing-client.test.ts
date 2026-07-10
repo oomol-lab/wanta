@@ -4,6 +4,7 @@ import {
   getBillingOverview,
   getBillingSummary,
   getCreditBalance,
+  previewWantaSubscription,
   topUpCheckoutUrl,
   updateWantaSubscription,
 } from "./billing-client.ts"
@@ -162,7 +163,7 @@ describe("billing-client", () => {
     expect(result).toEqual({ balance: "$7.5", hasCredits: true })
   })
 
-  it("posts Wanta plan changes without seat fields", async () => {
+  it("posts complete Wanta plan changes", async () => {
     const request = stubWantaSubscriptionFetch({
       additionalSeats: 0,
       currentPeriodEnd: 0,
@@ -174,10 +175,43 @@ describe("billing-client", () => {
       targetPlan: "wanta_plus",
     })
 
-    const result = await updateWantaSubscription({ plan: "wanta_plus" })
+    const result = await updateWantaSubscription({ additional_seats: 0, plan: "wanta_plus" })
 
-    expect(JSON.parse(request.requestBody())).toEqual({ plan: "wanta_plus" })
+    expect(JSON.parse(request.requestBody())).toEqual({ additional_seats: 0, plan: "wanta_plus" })
     expect(result.paymentURL).toBe("https://console.example.com/wanta-checkout")
+  })
+
+  it("requests a Wanta plan preview before submission", async () => {
+    let body = ""
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      expect(urlOf(input).pathname).toBe("/api/user/subscriptions/wanta/preview")
+      body = String(init?.body ?? "")
+      return Response.json({
+        data: {
+          amountDue: 3200,
+          changeTiming: "immediate",
+          currency: "usd",
+          mode: "create",
+          targetAdditionalSeats: 0,
+          targetPlan: "wanta_plus",
+          total: 3200,
+        },
+        success: true,
+      })
+    })
+
+    const preview = await previewWantaSubscription({ additional_seats: 0, plan: "wanta_plus" })
+
+    expect(JSON.parse(body)).toEqual({ additional_seats: 0, plan: "wanta_plus" })
+    expect(preview).toEqual({
+      amountDue: 3200,
+      changeTiming: "immediate",
+      currency: "usd",
+      mode: "create",
+      targetAdditionalSeats: 0,
+      targetPlan: "wanta_plus",
+      total: 3200,
+    })
   })
 
   it("posts Wanta seat changes without plan fields", async () => {

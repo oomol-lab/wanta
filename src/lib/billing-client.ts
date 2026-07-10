@@ -8,6 +8,7 @@ import type {
   RechargePrice,
   SubscriptionStatus,
   WantaSubscriptionChangePayload,
+  WantaSubscriptionPreviewResult,
   WantaSubscriptionUpdateResult,
   WantaPendingPaymentResult,
   WantaSubscriptionPlan,
@@ -171,6 +172,24 @@ function readWantaSubscriptionUpdate(payload: unknown): WantaSubscriptionUpdateR
     pendingUpdateExpiresAt: readOptionalTimestampField(record, ["pendingUpdateExpiresAt", "pending_update_expires_at"]),
     scheduledUpdate: readBooleanField(record, ["scheduledUpdate", "scheduled_update"]),
     scheduledEffectiveAt: readOptionalTimestampField(record, ["scheduledEffectiveAt", "scheduled_effective_at"]),
+  }
+}
+
+function readWantaSubscriptionPreview(payload: unknown): WantaSubscriptionPreviewResult {
+  const source = unwrapConsoleData<unknown>(payload)
+  if (!source || typeof source !== "object") {
+    throw new Error("Wanta subscription preview response is invalid.")
+  }
+  const record = source as Record<string, unknown>
+  return {
+    amountDue: readOptionalNumberField(record, ["amountDue", "amount_due"]) ?? 0,
+    changeTiming:
+      record["changeTiming"] === "next_cycle" || record["change_timing"] === "next_cycle" ? "next_cycle" : "immediate",
+    currency: readStringField(record, ["currency"]),
+    mode: record["mode"] === "update" ? "update" : "create",
+    targetAdditionalSeats: readIntegerField(record, ["targetAdditionalSeats", "target_additional_seats"]),
+    targetPlan: readPlanField(record, ["targetPlan", "target_plan"]),
+    total: readOptionalNumberField(record, ["total"]) ?? 0,
   }
 }
 
@@ -469,6 +488,20 @@ export async function updateWantaSubscription(
 ): Promise<WantaSubscriptionUpdateResult> {
   const url = new URL("/api/user/subscriptions/wanta", consoleServerBaseUrl)
   return readWantaSubscriptionUpdate(
+    await oomolFetchJson<unknown>(url, {
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      timeoutMs: billingRequestTimeoutMs,
+    }),
+  )
+}
+
+export async function previewWantaSubscription(
+  payload: WantaSubscriptionChangePayload,
+): Promise<WantaSubscriptionPreviewResult> {
+  const url = new URL("/api/user/subscriptions/wanta/preview", consoleServerBaseUrl)
+  return readWantaSubscriptionPreview(
     await oomolFetchJson<unknown>(url, {
       body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" },

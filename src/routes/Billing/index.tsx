@@ -1,4 +1,10 @@
-import type { BillingPeriodDays, CreditItem, WantaSubscriptionPlan } from "../../../electron/chat/common.ts"
+import type {
+  BillingPeriodDays,
+  CreditItem,
+  WantaSubscriptionChangePayload,
+  WantaSubscriptionPlan,
+  WantaSubscriptionPreviewResult,
+} from "../../../electron/chat/common.ts"
 import type { CategorySummary, UsageCategory } from "./usage.ts"
 import type { WantaSubscriptionOverview } from "./wanta-subscription-model.ts"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
@@ -37,13 +43,19 @@ import {
   statsTotalEvents,
   toNumber,
 } from "./usage.ts"
-import { buildWantaSubscriptionOverview, resolveWantaPendingPaymentTargets } from "./wanta-subscription-model.ts"
+import {
+  buildWantaPlanChange,
+  buildWantaSubscriptionOverview,
+  isWantaSubscriptionActionDisabled,
+  resolveWantaPendingPaymentTargets,
+} from "./wanta-subscription-model.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { PageRouteShell } from "@/components/PageRouteShell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -52,7 +64,8 @@ import { useAuth } from "@/hooks/useAuth"
 import { useBillableSeats } from "@/hooks/useBillableSeats"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { updateWantaSubscription } from "@/lib/billing-client"
+import { previewWantaSubscription, updateWantaSubscription } from "@/lib/billing-client"
+import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { cn } from "@/lib/utils"
 
 interface BillingRouteProps {
@@ -64,6 +77,12 @@ interface BillingRouteProps {
 }
 
 const periods: BillingPeriodDays[] = [7, 30, 90]
+type WantaLoadingTarget = WantaSubscriptionPlan | "checkout" | "seats"
+
+interface WantaCheckoutPreview {
+  payload: WantaSubscriptionChangePayload
+  preview: WantaSubscriptionPreviewResult
+}
 
 export function BillingRoute({
   cacheScope,
@@ -77,7 +96,8 @@ export function BillingRoute({
   const chatService = useChatService()
   const [period, setPeriod] = React.useState<BillingPeriodDays>(30)
   const [purchaseOpen, setPurchaseOpen] = React.useState(false)
-  const [wantaLoading, setWantaLoading] = React.useState<WantaSubscriptionPlan | "seats" | null>(null)
+  const [wantaLoading, setWantaLoading] = React.useState<WantaLoadingTarget | null>(null)
+  const [wantaCheckoutPreview, setWantaCheckoutPreview] = React.useState<WantaCheckoutPreview | null>(null)
   const { data, error, loading, refresh } = useBillingOverview(period, { cacheScope })
   const seatState = useBillableSeats(workspace)
   const planComparisonRef = React.useRef<HTMLElement | null>(null)
@@ -136,7 +156,11 @@ export function BillingRoute({
     [data?.wantaPendingPayment, wantaOverview.additionalSeats, wantaOverview.currentPlan],
   )
   const pendingWantaPaymentUrl = pendingWantaPaymentTargets.paymentUrl
-  const wantaActionDisabled = !billingContext.canManage || isSessionExpired || !data || wantaLoading !== null
+  const wantaActionDisabled = isWantaSubscriptionActionDisabled({
+    canManage: billingContext.canManage,
+    isSessionExpired,
+    isSubmitting: wantaLoading !== null,
+  })
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const availableShare =
@@ -163,54 +187,94 @@ export function BillingRoute({
     },
     [chatService],
   )
-  const handleWantaPlan = React.useCallback(
-    async (plan: WantaSubscriptionPlan) => {
-      setWantaLoading(plan)
+  const reportWantaCheckoutFailure = React.useCallback(
+    (operation: string, cause: unknown) => {
+      reportRendererHandledError("billing.wanta", operation, cause)
+      toast.error(t("billing.wantaCheckoutFailed", { error: wantaCheckoutErrorMessage(cause) }))
+    },
+    [t],
+  )
+  const previewWantaCheckout = React.useCallback(
+    async (payload: WantaSubscriptionChangePayload, loadingTarget: WantaLoadingTarget) => {
+      setWantaLoading(loadingTarget)
       try {
-        if (pendingWantaPaymentUrl && pendingWantaPaymentTargets.plan === plan) {
-          await openExternalCheckout(pendingWantaPaymentUrl)
-          return
-        }
-        const result = await updateWantaSubscription({ plan })
-        const paymentUrl = result.paymentURL?.trim()
-        if (paymentUrl) {
-          await openExternalCheckout(paymentUrl)
-          return
-        }
-        toast.success(t("billing.wantaSubscriptionUpdated"))
-        void refresh({ force: true })
-      } catch {
-        toast.error(t("billing.purchaseDialog.checkoutFailed"))
+        setWantaCheckoutPreview({ payload, preview: await previewWantaSubscription(payload) })
+      } catch (cause) {
+        reportWantaCheckoutFailure("Wanta subscription preview failed", cause)
       } finally {
         setWantaLoading(null)
       }
     },
-    [openExternalCheckout, pendingWantaPaymentTargets.plan, pendingWantaPaymentUrl, refresh, t],
+    [reportWantaCheckoutFailure],
+  )
+  const handleWantaPlan = React.useCallback(
+    async (plan: WantaSubscriptionPlan) => {
+      if (pendingWantaPaymentUrl && pendingWantaPaymentTargets.plan === plan) {
+        setWantaLoading(plan)
+        try {
+          await openExternalCheckout(pendingWantaPaymentUrl)
+        } catch (cause) {
+          reportWantaCheckoutFailure("Opening pending Wanta payment failed", cause)
+        } finally {
+          setWantaLoading(null)
+        }
+        return
+      }
+      await previewWantaCheckout(buildWantaPlanChange(plan, wantaOverview.additionalSeats), plan)
+    },
+    [
+      openExternalCheckout,
+      pendingWantaPaymentTargets.plan,
+      pendingWantaPaymentUrl,
+      previewWantaCheckout,
+      reportWantaCheckoutFailure,
+      wantaOverview.additionalSeats,
+    ],
   )
   const handleWantaSeats = React.useCallback(
     async (additionalSeats: number) => {
-      setWantaLoading("seats")
-      try {
-        if (pendingWantaPaymentUrl && pendingWantaPaymentTargets.additionalSeats === additionalSeats) {
+      if (pendingWantaPaymentUrl && pendingWantaPaymentTargets.additionalSeats === additionalSeats) {
+        setWantaLoading("seats")
+        try {
           await openExternalCheckout(pendingWantaPaymentUrl)
-          return
+        } catch (cause) {
+          reportWantaCheckoutFailure("Opening pending Wanta payment failed", cause)
+        } finally {
+          setWantaLoading(null)
         }
-        const result = await updateWantaSubscription({ additional_seats: additionalSeats })
-        const paymentUrl = result.paymentURL?.trim()
-        if (paymentUrl) {
-          await openExternalCheckout(paymentUrl)
-          return
-        }
+        return
+      }
+      await previewWantaCheckout({ additional_seats: additionalSeats }, "seats")
+    },
+    [
+      openExternalCheckout,
+      pendingWantaPaymentTargets.additionalSeats,
+      pendingWantaPaymentUrl,
+      previewWantaCheckout,
+      reportWantaCheckoutFailure,
+    ],
+  )
+  const handleConfirmWantaCheckout = React.useCallback(async () => {
+    if (!wantaCheckoutPreview) {
+      return
+    }
+    setWantaLoading("checkout")
+    try {
+      const result = await updateWantaSubscription(wantaCheckoutPreview.payload)
+      const paymentUrl = result.paymentURL?.trim()
+      if (paymentUrl) {
+        await openExternalCheckout(paymentUrl)
+      } else {
         toast.success(t("billing.wantaSubscriptionUpdated"))
         void refresh({ force: true })
-      } catch {
-        toast.error(t("billing.purchaseDialog.checkoutFailed"))
-      } finally {
-        setWantaLoading(null)
       }
-    },
-    [openExternalCheckout, pendingWantaPaymentTargets.additionalSeats, pendingWantaPaymentUrl, refresh, t],
-  )
+      setWantaCheckoutPreview(null)
+    } catch (cause) {
+      reportWantaCheckoutFailure("Wanta subscription update failed", cause)
+    } finally {
+      setWantaLoading(null)
+    }
+  }, [openExternalCheckout, refresh, reportWantaCheckoutFailure, t, wantaCheckoutPreview])
 
   React.useEffect(() => {
     if (initialTarget !== "plans") {
@@ -306,6 +370,16 @@ export function BillingRoute({
           totalSpend={totalSpend}
         />
       </PageRouteShell>
+      <WantaSubscriptionPreviewDialog
+        loading={wantaLoading === "checkout"}
+        preview={wantaCheckoutPreview}
+        onClose={() => {
+          if (wantaLoading !== "checkout") {
+            setWantaCheckoutPreview(null)
+          }
+        }}
+        onConfirm={() => void handleConfirmWantaCheckout()}
+      />
       <CreditPurchaseModal
         cacheScope={cacheScope}
         open={purchaseOpen}
@@ -437,7 +511,7 @@ const PlanComparison = React.forwardRef<
   {
     currentPlan: WantaSubscriptionPlan | null
     disabled: boolean
-    loadingPlan: WantaSubscriptionPlan | "seats" | null
+    loadingPlan: WantaLoadingTarget | null
     pendingPaymentPlan: WantaSubscriptionPlan | null
     onChoosePlan: (plan: WantaSubscriptionPlan) => void
   }
@@ -496,6 +570,75 @@ const PlanComparison = React.forwardRef<
     </BillingPanel>
   )
 })
+
+function WantaSubscriptionPreviewDialog({
+  loading,
+  preview,
+  onClose,
+  onConfirm,
+}: {
+  loading: boolean
+  preview: WantaCheckoutPreview | null
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  const t = useT()
+  const details = preview?.preview
+  const targetPlan = details?.targetPlan ? wantaPlanLabel(details.targetPlan, t) : t("billing.wantaNoPlan")
+
+  return (
+    <Dialog
+      open={Boolean(preview)}
+      title={t("billing.wantaPreview.title")}
+      description={t("billing.wantaPreview.description")}
+      closeLabel={t("common.cancel")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button type="button" variant="outline" disabled={loading} onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" disabled={!details || loading} onClick={onConfirm}>
+            {loading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+            {t("billing.wantaPreview.confirm")}
+          </Button>
+        </>
+      }
+    >
+      {details ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <WantaPreviewMetric label={t("billing.wantaPreview.plan")} value={targetPlan} />
+          <WantaPreviewMetric label={t("billing.wantaPreview.seats")} value={String(details.targetAdditionalSeats)} />
+          <WantaPreviewMetric
+            label={t("billing.wantaPreview.dueNow")}
+            value={formatWantaPreviewMoney(details.amountDue, details.currency)}
+          />
+          <WantaPreviewMetric
+            label={t("billing.wantaPreview.total")}
+            value={formatWantaPreviewMoney(details.total, details.currency)}
+          />
+          <WantaPreviewMetric
+            label={t("billing.wantaPreview.timing")}
+            value={t(
+              details.changeTiming === "next_cycle"
+                ? "billing.wantaPreview.nextCycle"
+                : "billing.wantaPreview.immediate",
+            )}
+          />
+        </div>
+      ) : null}
+    </Dialog>
+  )
+}
+
+function WantaPreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+      <div className="oo-text-caption text-muted-foreground">{label}</div>
+      <div className="oo-text-title mt-1 text-foreground">{value}</div>
+    </div>
+  )
+}
 
 function WantaPromotionNotice() {
   const t = useT()
@@ -1071,6 +1214,21 @@ function categoryIcon(category: UsageCategory): React.ReactNode {
 
 function wantaPlanLabel(plan: WantaSubscriptionPlan, t: ReturnType<typeof useT>): string {
   return plan === "wanta_pro" ? t("billing.wantaProPlanTitle") : t("billing.wantaPlusPlanTitle")
+}
+
+function wantaCheckoutErrorMessage(cause: unknown): string {
+  return cause instanceof Error && cause.message.trim() ? cause.message : "Unknown error"
+}
+
+function formatWantaPreviewMoney(value: number, currency: string | null): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      currency: currency?.toUpperCase() || "USD",
+      style: "currency",
+    }).format(value / 100)
+  } catch {
+    return `$${(value / 100).toFixed(2)}`
+  }
 }
 
 function balanceSourceLabel(sourceType: string, t: ReturnType<typeof useT>): string {

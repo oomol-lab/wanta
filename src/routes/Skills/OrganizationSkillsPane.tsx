@@ -27,7 +27,7 @@ import {
   getSkillRowStatusBadgeClassName,
 } from "./skill-route-model.ts"
 import { SkillListRow } from "./SkillListRow.tsx"
-import { SkillIconFrame, SkillManagementSheet } from "./SkillUiParts.tsx"
+import { SkillIconFrame, SkillManagementSheet, SkillPageScrollArea } from "./SkillUiParts.tsx"
 import { AppIcons } from "@/components/AppIcons"
 import { ErrorNotice } from "@/components/ErrorNotice"
 import { InspectorCard, InspectorInsetCard } from "@/components/InspectorPanel"
@@ -83,9 +83,9 @@ export function OrganizationSkillsPane({
 
   if (workspace.activeWorkspace.type !== "organization") {
     return (
-      <div className="min-h-0 overflow-auto px-3 py-3">
+      <SkillPageScrollArea>
         <div className="oo-text-body oo-text-muted px-1 py-3">{t("skills.organizationPersonalEmpty")}</div>
-      </div>
+      </SkillPageScrollArea>
     )
   }
 
@@ -148,7 +148,7 @@ export function OrganizationSkillsPane({
   }
 
   return (
-    <div className="min-h-0 overflow-auto px-3 py-3">
+    <SkillPageScrollArea>
       {selectedOrganizationSkills ? (
         <div className="grid gap-3">
           {selectedOrganizationSkills.error ? (
@@ -280,7 +280,7 @@ export function OrganizationSkillsPane({
         }}
         onConfirm={() => void removeOrganizationSkill()}
       />
-    </div>
+    </SkillPageScrollArea>
   )
 }
 

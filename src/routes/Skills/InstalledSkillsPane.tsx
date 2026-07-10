@@ -21,7 +21,7 @@ import {
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
 import { SkillListRow } from "./SkillListRow.tsx"
-import { SkillIconFrame, SkillManagementSheet } from "./SkillUiParts.tsx"
+import { SkillIconFrame, SkillManagementSheet, SkillPageScrollArea } from "./SkillUiParts.tsx"
 import { AgentIcon } from "@/components/AgentIcon"
 import { AppIcons } from "@/components/AppIcons"
 import { Badge } from "@/components/ui/badge"
@@ -65,7 +65,7 @@ export function InstalledSkillsPane({
   const { t } = useAppI18n()
 
   return (
-    <div className="min-h-0 overflow-auto px-3 py-3">
+    <SkillPageScrollArea>
       <div className="grid gap-3">
         <CliUpdateNotice
           cli={cliVersionCheck}
@@ -97,7 +97,7 @@ export function InstalledSkillsPane({
           {detailContent}
         </SkillManagementSheet>
       ) : null}
-    </div>
+    </SkillPageScrollArea>
   )
 }
 

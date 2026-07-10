@@ -4,7 +4,7 @@ import type { ProviderSkillRecommendation } from "./provider-skill-recommendatio
 import * as React from "react"
 import { providerRecommendationMatchesQuery } from "./organization-skill-manage-helpers.ts"
 import { SkillListRow } from "./SkillListRow.tsx"
-import { SkillIconFrame } from "./SkillUiParts.tsx"
+import { SkillIconFrame, SkillPageScrollArea } from "./SkillUiParts.tsx"
 import { AppIcons } from "@/components/AppIcons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,8 +35,8 @@ export function PersonalSkillRecommendationsPane({
     [normalizedQuery, recommendations],
   )
   return (
-    <div className="min-h-0 overflow-auto px-3 py-3">
-      <div className="grid gap-3 pr-1">
+    <SkillPageScrollArea>
+      <div className="grid gap-3">
         {isLoading ? (
           <PersonalSkillRecommendationListSkeleton />
         ) : filteredRecommendations.length === 0 ? (
@@ -103,7 +103,7 @@ export function PersonalSkillRecommendationsPane({
           </div>
         )}
       </div>
-    </div>
+    </SkillPageScrollArea>
   )
 }
 

@@ -17,7 +17,7 @@ import {
 } from "./skill-route-model.ts"
 import { SkillErrorNotice } from "./SkillErrorNotice.tsx"
 import { SkillListRow } from "./SkillListRow.tsx"
-import { SkillIconFrame } from "./SkillUiParts.tsx"
+import { SkillIconFrame, SkillPageScrollArea } from "./SkillUiParts.tsx"
 import { AppIcons } from "@/components/AppIcons"
 import { SkeletonText } from "@/components/LoadingSkeletons"
 import { Badge } from "@/components/ui/badge"
@@ -127,7 +127,7 @@ export function DiscoverSkillsPane({
   )
 
   return (
-    <div className="min-h-0 overflow-auto px-3 py-3" onScroll={handleScroll}>
+    <SkillPageScrollArea onScroll={handleScroll}>
       <div className="grid gap-3">
         {onOpenOrganizationRecommendations && providerRecommendations.length > 0 ? (
           <ProviderSkillRecommendationNotice
@@ -201,7 +201,7 @@ export function DiscoverSkillsPane({
           onOpenManagedSkill={onOpenManagedSkill}
         />
       ) : null}
-    </div>
+    </SkillPageScrollArea>
   )
 }
 

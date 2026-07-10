@@ -8,6 +8,26 @@ import { Button } from "@/components/ui/button"
 import { useAppI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
 
+/** 技能页各 Tab 共用的可滚动内容区，预留双侧滚动条空间以保证列表留白对称。 */
+export function SkillPageScrollArea({
+  children,
+  className,
+  onScroll,
+}: {
+  children: React.ReactNode
+  className?: string
+  onScroll?: React.UIEventHandler<HTMLDivElement>
+}) {
+  return (
+    <div
+      className={cn("min-h-0 [scrollbar-gutter:stable_both-edges] overflow-auto px-3 py-3", className)}
+      onScroll={onScroll}
+    >
+      {children}
+    </div>
+  )
+}
+
 export function SkillManagementSheet({
   children,
   onClose,

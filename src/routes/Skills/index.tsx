@@ -57,7 +57,12 @@ import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecomme
 import { useAppI18n } from "@/i18n"
 import { addOrganizationSkill } from "@/lib/organization-skills-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
-import { listMyPublishedSkillPackages, listPublicSkillPackages } from "@/lib/skills-catalog-client"
+import {
+  invalidateMyPublishedSkillCatalog,
+  invalidatePublicSkillCatalog,
+  listMyPublishedSkillPackages,
+  listPublicSkillPackages,
+} from "@/lib/skills-catalog-client"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 type SkillOperationError = {
@@ -269,7 +274,7 @@ export function SkillsRoute({
       dispatchPublicPackageCatalog({ append, requestId, type: "load-start" })
 
       try {
-        const catalog = await listPublicSkillPackages({ next })
+        const catalog = await listPublicSkillPackages({ forceRefresh: options.forceRefresh, next })
         dispatchPublicPackageCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (cause) {
         dispatchPublicPackageCatalog({
@@ -297,6 +302,7 @@ export function SkillsRoute({
       try {
         const catalog = await listMyPublishedSkillPackages({
           account: { avatarUrl: account.avatarUrl, id: account.id, name: account.name },
+          forceRefresh: options.forceRefresh,
           next,
         })
         dispatchMyPublishedPackageCatalog({ append, catalog, requestId, type: "load-success" })
@@ -528,6 +534,10 @@ export function SkillsRoute({
           path: skillPath,
           visibility: options.visibility,
         })
+        if (authResource.data?.status === "authenticated" && authResource.data.account) {
+          invalidateMyPublishedSkillCatalog(authResource.data.account.id)
+        }
+        invalidatePublicSkillCatalog()
         inventoryResource.setData(result.inventory)
         await versionResource
           .refresh({ forceRefresh: true, silent: true })
@@ -558,6 +568,7 @@ export function SkillsRoute({
       }
     },
     [
+      authResource.data,
       homeSummaryResource,
       inventoryResource,
       loadMyPublishedSkillPackages,

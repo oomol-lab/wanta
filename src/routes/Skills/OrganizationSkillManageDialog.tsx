@@ -118,6 +118,7 @@ export function OrganizationSkillManageDialog({
   const [marketExactLoading, setMarketExactLoading] = React.useState(false)
   const marketRequestIdRef = React.useRef(0)
   const marketExactRequestIdRef = React.useRef(0)
+  const marketLoadedQueryRef = React.useRef<string | null>(null)
   const marketAutoLoadRequestedRef = React.useRef(false)
   const marketScrollContainerRef = React.useRef<HTMLDivElement | null>(null)
   const marketLoadMoreAnchorRef = React.useRef<HTMLDivElement | null>(null)
@@ -179,6 +180,7 @@ export function OrganizationSkillManageDialog({
     setActiveTab("recommendations")
     setRecommendationSourceFilter("all")
     setSearchQuery("")
+    marketLoadedQueryRef.current = null
     setMarketExactPackage(null)
     setMarketExactLoading(false)
   }, [isActive, organizationSkills.organizationId])
@@ -194,8 +196,8 @@ export function OrganizationSkillManageDialog({
 
       try {
         const catalog = query
-          ? await searchPublicSkillPackages({ next, query })
-          : await listPublicSkillPackages({ next })
+          ? await searchPublicSkillPackages({ forceRefresh: options.forceRefresh, next, query })
+          : await listPublicSkillPackages({ forceRefresh: options.forceRefresh, next })
         dispatchMarketCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (error) {
         dispatchMarketCatalog({ error: errorMessage(error), requestId, type: "load-error" })
@@ -210,7 +212,9 @@ export function OrganizationSkillManageDialog({
     }
 
     const load = () => {
-      void loadMarketPackages({ clearItems: true, forceRefresh: true, query: marketQuery }).catch((error: unknown) => {
+      const clearItems = marketLoadedQueryRef.current !== marketQuery
+      marketLoadedQueryRef.current = marketQuery
+      void loadMarketPackages({ clearItems, query: marketQuery }).catch((error: unknown) => {
         reportRendererHandledError("organization-skills", "market package load failed", error)
       })
     }

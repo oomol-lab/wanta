@@ -20,6 +20,18 @@ const publicSkillSearchResultSize = 100
 const myPublishedSkillPackageInfoConcurrency = 10
 const publicSkillSearchPackageInfoConcurrency = 8
 const skillCatalogRequestTimeoutMs = 10_000
+const publicSkillPackageListCacheMs = 5 * 60_000
+const publicSkillSearchCacheMs = 2 * 60_000
+const publicSkillPackageInfoCacheMs = 10 * 60_000
+const myPublishedSkillPackageCacheMs = 2 * 60_000
+
+interface SkillCatalogCacheEntry {
+  expiresAt: number
+  value: unknown
+}
+
+const skillCatalogCache = new Map<string, SkillCatalogCacheEntry>()
+const skillCatalogPendingRequests = new Map<string, Promise<unknown>>()
 
 export interface MyPublishedSkillAccount {
   id: string
@@ -28,11 +40,13 @@ export interface MyPublishedSkillAccount {
 }
 
 export interface ListPublicSkillPackagesInput {
+  forceRefresh?: boolean
   next?: string
   size?: number
 }
 
 export interface SearchPublicSkillPackagesInput {
+  forceRefresh?: boolean
   next?: string
   query: string
   size?: number
@@ -40,6 +54,7 @@ export interface SearchPublicSkillPackagesInput {
 
 export interface ListMyPublishedSkillPackagesInput {
   account: MyPublishedSkillAccount
+  forceRefresh?: boolean
   next?: string
 }
 
@@ -71,22 +86,104 @@ interface PublicSkillSearchGroup {
   visibility: PublicSkillPackage["visibility"]
 }
 
+function skillCatalogPageKey(next: string | undefined, size: number | undefined): string {
+  return JSON.stringify({ next: next?.trim() || null, size: size ?? null })
+}
+
+function skillCatalogPackageKey(scope: string, packageName: string, version: string): string {
+  return `${scope}:package:${packageName.trim().toLowerCase()}:${version.trim().toLowerCase() || "latest"}`
+}
+
+function readCachedSkillCatalogValue<T>(key: string): T | undefined {
+  const cached = skillCatalogCache.get(key)
+  if (!cached || Date.now() >= cached.expiresAt) {
+    return undefined
+  }
+  return cached.value as T
+}
+
+function readCachedSkillCatalog<T>(
+  key: string,
+  cacheMs: number,
+  forceRefresh: boolean | undefined,
+  load: () => Promise<T>,
+): Promise<T> {
+  if (!forceRefresh) {
+    const cached = readCachedSkillCatalogValue<T>(key)
+    if (cached !== undefined) {
+      return Promise.resolve(cached)
+    }
+  }
+
+  const pending = skillCatalogPendingRequests.get(key) as Promise<T> | undefined
+  if (pending) {
+    return pending
+  }
+
+  const request = load()
+    .then((value) => {
+      skillCatalogCache.set(key, { expiresAt: Date.now() + cacheMs, value })
+      return value
+    })
+    .finally(() => {
+      if (skillCatalogPendingRequests.get(key) === request) {
+        skillCatalogPendingRequests.delete(key)
+      }
+    })
+  skillCatalogPendingRequests.set(key, request)
+  return request
+}
+
+export function clearSkillCatalogCache(): void {
+  skillCatalogCache.clear()
+  skillCatalogPendingRequests.clear()
+}
+
+export function clearSkillCatalogCacheForTest(): void {
+  clearSkillCatalogCache()
+}
+
+export function invalidatePublicSkillCatalog(): void {
+  for (const key of skillCatalogCache.keys()) {
+    if (key.startsWith("public:") || key.startsWith("search:")) {
+      skillCatalogCache.delete(key)
+    }
+  }
+}
+
+export function invalidateMyPublishedSkillCatalog(accountId: string): void {
+  const keyPrefix = `my:${accountId}:`
+  const packagePrefix = `account:${accountId}:package:`
+  for (const key of skillCatalogCache.keys()) {
+    if (key.startsWith(keyPrefix) || key.startsWith(packagePrefix)) {
+      skillCatalogCache.delete(key)
+    }
+  }
+}
+
 export async function listPublicSkillPackages(
   input: ListPublicSkillPackagesInput = {},
 ): Promise<PublicSkillPackageCatalog> {
-  const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
   const next = input.next?.trim()
-  if (next) {
-    url.searchParams.set("next", next)
-  }
-  if (input.size && Number.isFinite(input.size)) {
-    url.searchParams.set("size", String(Math.min(Math.max(Math.trunc(input.size), 1), publicSkillPackagePageSize)))
-  }
-  const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
-  if (!response.ok) {
-    throw new Error(`Public Skill list request failed with status ${response.status}.`)
-  }
-  return resolvePublicSkillPackageCatalog(normalizePublicSkillPackageCatalog(await response.text()))
+  const size =
+    input.size && Number.isFinite(input.size)
+      ? Math.min(Math.max(Math.trunc(input.size), 1), publicSkillPackagePageSize)
+      : undefined
+  const cacheKey = `public:list:${skillCatalogPageKey(next, size)}`
+  return readCachedSkillCatalog(cacheKey, publicSkillPackageListCacheMs, input.forceRefresh, async () => {
+    const url = new URL("/v1/packages/-/skills-list", searchBaseUrl)
+    if (next) {
+      url.searchParams.set("next", next)
+    }
+    if (size) {
+      url.searchParams.set("size", String(size))
+    }
+    const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
+    if (!response.ok) {
+      throw new Error(`Public Skill list request failed with status ${response.status}.`)
+    }
+    return resolvePublicSkillPackageCatalog(normalizePublicSkillPackageCatalog(await response.text()))
+  })
 }
 
 export async function searchPublicSkillPackages(
@@ -94,36 +191,37 @@ export async function searchPublicSkillPackages(
 ): Promise<PublicSkillPackageCatalog> {
   const query = input.query.trim()
   if (!query) {
-    return listPublicSkillPackages({ next: input.next, size: input.size })
+    return listPublicSkillPackages({ forceRefresh: input.forceRefresh, next: input.next, size: input.size })
   }
 
-  const url = new URL("/v1/packages/-/skills-search", searchBaseUrl)
-  url.searchParams.set("keywords", query)
   const next = input.next?.trim()
-  if (next) {
-    url.searchParams.set("next", next)
-  }
-  url.searchParams.set(
-    "size",
-    String(Math.min(Math.max(Math.trunc(input.size ?? publicSkillSearchResultSize), 1), publicSkillSearchResultSize)),
-  )
+  const size = Math.min(Math.max(Math.trunc(input.size ?? publicSkillSearchResultSize), 1), publicSkillSearchResultSize)
+  const cacheKey = `search:skills:${query.toLocaleLowerCase()}:${skillCatalogPageKey(next, size)}`
+  return readCachedSkillCatalog(cacheKey, publicSkillSearchCacheMs, input.forceRefresh, async () => {
+    const url = new URL("/v1/packages/-/skills-search", searchBaseUrl)
+    url.searchParams.set("keywords", query)
+    if (next) {
+      url.searchParams.set("next", next)
+    }
+    url.searchParams.set("size", String(size))
 
-  const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
-  if (!response.ok) {
-    throw new Error(`Public Skill search request failed with status ${response.status}.`)
-  }
+    const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
+    if (!response.ok) {
+      throw new Error(`Public Skill search request failed with status ${response.status}.`)
+    }
 
-  const searchCatalog = normalizePublicSkillSearchCatalog(await response.text())
-  const items = await mapWithConcurrency(
-    searchCatalog.items,
-    publicSkillSearchPackageInfoConcurrency,
-    enrichPublicSkillSearchGroup,
-  )
-  return {
-    items,
-    next: searchCatalog.next,
-    updatedAt: searchCatalog.updatedAt,
-  }
+    const searchCatalog = normalizePublicSkillSearchCatalog(await response.text())
+    const items = await mapWithConcurrency(
+      searchCatalog.items,
+      publicSkillSearchPackageInfoConcurrency,
+      enrichPublicSkillSearchGroup,
+    )
+    return {
+      items,
+      next: searchCatalog.next,
+      updatedAt: searchCatalog.updatedAt,
+    }
+  })
 }
 
 async function readMyPublishedSkillPackageList(next?: string): Promise<PublicSkillPackageCatalog> {
@@ -144,28 +242,32 @@ async function readMyPublishedSkillPackageList(next?: string): Promise<PublicSki
 async function fetchRegistrySkillPackageInfo(
   packageName: string,
   maintainer: PublicSkillPackageMaintainer,
-  options: { returnNullOnNotFound?: boolean; version?: string } = {},
+  options: { cacheScope?: string; forceRefresh?: boolean; returnNullOnNotFound?: boolean; version?: string } = {},
 ): Promise<PublicSkillPackage | null | undefined> {
   const version = options.version?.trim() || "latest"
-  const url = new URL(
-    `/-/oomol/package-info/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
-    registryBaseUrl,
-  )
-  const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
-  if (response.status === 404 && options.returnNullOnNotFound) {
-    return null
-  }
-  if (!response.ok) {
-    throw new Error(`Registry Skill package info request failed with status ${response.status}.`)
-  }
-  const packageInfo = normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
-  return packageInfo ? resolvePublicSkillPackageIcon(packageInfo) : packageInfo
+  const cacheScope = options.cacheScope ?? "public"
+  const cacheKey = skillCatalogPackageKey(cacheScope, packageName, version)
+  return readCachedSkillCatalog(cacheKey, publicSkillPackageInfoCacheMs, options.forceRefresh, async () => {
+    const url = new URL(
+      `/-/oomol/package-info/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`,
+      registryBaseUrl,
+    )
+    const response = await oomolFetch(url, { timeoutMs: skillCatalogRequestTimeoutMs })
+    if (response.status === 404 && options.returnNullOnNotFound) {
+      return null
+    }
+    if (!response.ok) {
+      throw new Error(`Registry Skill package info request failed with status ${response.status}.`)
+    }
+    const packageInfo = normalizeRegistrySkillPackageInfo(await response.text(), maintainer)
+    return packageInfo ? resolvePublicSkillPackageIcon(packageInfo) : packageInfo
+  })
 }
 
 async function readRegistrySkillPackageInfo(
   packageName: string,
   maintainer: PublicSkillPackageMaintainer,
-  options: { version?: string } = {},
+  options: { cacheScope?: string; forceRefresh?: boolean; version?: string } = {},
 ): Promise<PublicSkillPackage | undefined> {
   return (await fetchRegistrySkillPackageInfo(packageName, maintainer, options)) ?? undefined
 }
@@ -238,39 +340,44 @@ async function mapWithConcurrency<T, R>(
 export async function listMyPublishedSkillPackages(
   input: ListMyPublishedSkillPackagesInput,
 ): Promise<PublicSkillPackageCatalog> {
-  const publishedPackages = await readMyPublishedSkillPackageList(input.next)
-  const maintainer: PublicSkillPackageMaintainer = {
-    id: input.account.id,
-    name: input.account.name,
-    url: input.account.avatarUrl,
-  }
-  const items = (
-    await mapWithConcurrency(
-      publishedPackages.items,
-      myPublishedSkillPackageInfoConcurrency,
-      async (publishedPackage) => {
-        let packageInfo: PublicSkillPackage | undefined
-        try {
-          packageInfo = await readRegistrySkillPackageInfo(publishedPackage.name, maintainer)
-        } catch (error) {
-          console.warn("[wanta] failed to read my published skill package info:", error)
-          reportRendererHandledError(
-            "skillsCatalog.readMyPublishedPackageInfo",
-            "Failed to read published Skill package info",
-            error,
-          )
-          packageInfo = undefined
-        }
-        return mergeMyPublishedPackage(publishedPackage, packageInfo)
-      },
-    )
-  ).filter((item): item is PublicSkillPackage => Boolean(item))
+  const cacheKey = `my:${input.account.id}:${skillCatalogPageKey(input.next, undefined)}`
+  return readCachedSkillCatalog(cacheKey, myPublishedSkillPackageCacheMs, input.forceRefresh, async () => {
+    const publishedPackages = await readMyPublishedSkillPackageList(input.next)
+    const maintainer: PublicSkillPackageMaintainer = {
+      id: input.account.id,
+      name: input.account.name,
+      url: input.account.avatarUrl,
+    }
+    const items = (
+      await mapWithConcurrency(
+        publishedPackages.items,
+        myPublishedSkillPackageInfoConcurrency,
+        async (publishedPackage) => {
+          let packageInfo: PublicSkillPackage | undefined
+          try {
+            packageInfo = await readRegistrySkillPackageInfo(publishedPackage.name, maintainer, {
+              cacheScope: `account:${input.account.id}`,
+            })
+          } catch (error) {
+            console.warn("[wanta] failed to read my published skill package info:", error)
+            reportRendererHandledError(
+              "skillsCatalog.readMyPublishedPackageInfo",
+              "Failed to read published Skill package info",
+              error,
+            )
+            packageInfo = undefined
+          }
+          return mergeMyPublishedPackage(publishedPackage, packageInfo)
+        },
+      )
+    ).filter((item): item is PublicSkillPackage => Boolean(item))
 
-  return {
-    items: items.sort(compareMyPublishedPackages).map(resolvePublicSkillPackageIcon),
-    next: publishedPackages.next,
-    updatedAt: new Date().toISOString(),
-  }
+    return {
+      items: items.sort(compareMyPublishedPackages).map(resolvePublicSkillPackageIcon),
+      next: publishedPackages.next,
+      updatedAt: new Date().toISOString(),
+    }
+  })
 }
 
 function resolvePublicSkillPackageCatalog(catalog: PublicSkillPackageCatalog): PublicSkillPackageCatalog {

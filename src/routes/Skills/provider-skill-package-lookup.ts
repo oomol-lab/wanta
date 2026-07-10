@@ -13,7 +13,7 @@ import {
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { readPublicSkillPackageByName, searchPublicSkillPackages } from "@/lib/skills-catalog-client"
 
-const providerSkillPackageCacheMs = 30_000
+const providerSkillPackageCacheMs = 10 * 60_000
 const missingProviderSkillPackageCacheMs = 24 * 60 * 60_000
 
 interface ProviderSkillPackageCacheEntry {

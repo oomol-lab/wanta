@@ -158,23 +158,66 @@ export function removeTurnOutputsForSession(records: TurnOutputRecords, sessionI
   return records.delete(sessionId)
 }
 
+function cloneTurnOutputRecords(records: TurnOutputRecords): TurnOutputRecords {
+  return new Map([...records].map(([sessionId, messages]) => [sessionId, new Map(messages)]))
+}
+
 export class TurnOutputStore {
   private readonly file: string
+  private records: TurnOutputRecords | undefined
+  private mutationQueue: Promise<void> = Promise.resolve()
 
   public constructor(dir: string) {
     this.file = path.join(dir, "turn-outputs.json")
   }
 
   public async read(): Promise<TurnOutputRecords> {
+    await this.mutationQueue
+    return cloneTurnOutputRecords(await this.loadRecords())
+  }
+
+  private async loadRecords(): Promise<TurnOutputRecords> {
+    if (this.records) {
+      return this.records
+    }
     try {
-      return normalizeRecords(JSON.parse(await readFile(this.file, "utf-8")))
+      this.records = normalizeRecords(JSON.parse(await readFile(this.file, "utf-8")))
     } catch (error) {
       logStoreReadFailure("turn outputs", this.file, error)
-      return new Map()
+      this.records = new Map()
     }
+    return this.records
   }
 
   public async write(records: TurnOutputRecords): Promise<void> {
+    const snapshot = cloneTurnOutputRecords(records)
+    await this.enqueueMutation(async () => {
+      await this.persist(snapshot)
+      this.records = snapshot
+    })
+  }
+
+  public async record(record: StoredTurnOutputRecord): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = cloneTurnOutputRecords(await this.loadRecords())
+      recordTurnOutput(records, record)
+      await this.persist(records)
+      this.records = records
+    })
+  }
+
+  public async removeSession(sessionId: string): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = cloneTurnOutputRecords(await this.loadRecords())
+      if (!removeTurnOutputsForSession(records, sessionId)) {
+        return
+      }
+      await this.persist(records)
+      this.records = records
+    })
+  }
+
+  private async persist(records: TurnOutputRecords): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true })
     const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
     try {
@@ -186,11 +229,12 @@ export class TurnOutputStore {
     }
   }
 
-  public async removeSession(sessionId: string): Promise<void> {
-    const records = await this.read()
-    if (!removeTurnOutputsForSession(records, sessionId)) {
-      return
-    }
-    await this.write(records)
+  private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {
+    const operation = this.mutationQueue.catch(() => undefined).then(mutation)
+    this.mutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    )
+    await operation
   }
 }

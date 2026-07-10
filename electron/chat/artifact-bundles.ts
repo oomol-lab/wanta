@@ -11,9 +11,11 @@ import type {
 import { createHash, randomUUID } from "node:crypto"
 import { lookup } from "node:dns/promises"
 import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { request as requestHttps } from "node:https"
 import { isIP } from "node:net"
 import os from "node:os"
 import path from "node:path"
+import { Readable } from "node:stream"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
 import { mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
 import { localArtifactItem } from "./local-artifacts.ts"
@@ -485,9 +487,16 @@ function privateIpAddress(address: string): boolean {
   )
 }
 
+type RemoteImageFetcher = (url: URL, addresses: readonly string[], signal: AbortSignal) => Promise<Response>
+
 interface MaterializeAssistantArtifactsOptions {
-  fetcher?: typeof fetch
+  fetcher?: RemoteImageFetcher
   resolveHostname?: (hostname: string) => Promise<string[]>
+}
+
+interface PublicHttpsTarget {
+  addresses: string[]
+  url: URL
 }
 
 async function defaultResolveHostname(hostname: string): Promise<string[]> {
@@ -496,10 +505,10 @@ async function defaultResolveHostname(hostname: string): Promise<string[]> {
     .catch(() => [])
 }
 
-async function publicHttpsUrl(
+async function publicHttpsTarget(
   value: string,
   resolveHostname: (hostname: string) => Promise<string[]>,
-): Promise<URL | null> {
+): Promise<PublicHttpsTarget | null> {
   let url: URL
   try {
     url = new URL(value)
@@ -517,7 +526,93 @@ async function publicHttpsUrl(
   if (addresses.length === 0 || addresses.some(privateIpAddress)) {
     return null
   }
-  return url
+  return { addresses, url }
+}
+
+function pinnedHttpsResponse(url: URL, address: string, signal: AbortSignal): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "")
+    const request = requestHttps(
+      {
+        headers: { accept: "image/*", host: url.host },
+        hostname: address,
+        method: "GET",
+        path: `${url.pathname}${url.search}`,
+        port: url.port ? Number(url.port) : 443,
+        servername: isIP(hostname) ? undefined : hostname,
+        signal,
+      },
+      (message) => {
+        const headers = new Headers()
+        for (let index = 0; index < message.rawHeaders.length; index += 2) {
+          const name = message.rawHeaders[index]
+          const value = message.rawHeaders[index + 1]
+          if (name && value) {
+            headers.append(name, value)
+          }
+        }
+        resolve(
+          new Response(Readable.toWeb(message) as ReadableStream<Uint8Array>, {
+            headers,
+            status: message.statusCode ?? 500,
+            statusText: message.statusMessage,
+          }),
+        )
+      },
+    )
+    request.once("error", reject)
+    request.end()
+  })
+}
+
+async function defaultRemoteImageFetcher(
+  url: URL,
+  addresses: readonly string[],
+  signal: AbortSignal,
+): Promise<Response> {
+  let lastError: unknown
+  for (const address of addresses) {
+    try {
+      return await pinnedHttpsResponse(url, address, signal)
+    } catch (error) {
+      if (signal.aborted) {
+        throw error
+      }
+      lastError = error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("No validated address accepted the HTTPS connection.")
+}
+
+export async function readResponseBodyWithinLimit(response: Response, maxBytes: number): Promise<Buffer | null> {
+  if (!response.body || !Number.isFinite(maxBytes) || maxBytes < 0) {
+    return null
+  }
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) {
+        break
+      }
+      size += chunk.value.byteLength
+      if (size > maxBytes) {
+        await reader.cancel().catch(() => undefined)
+        return null
+      }
+      chunks.push(chunk.value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return size > 0
+    ? Buffer.concat(
+        chunks.map((chunk) => Buffer.from(chunk)),
+        size,
+      )
+    : null
 }
 
 function dataImage(value: string): { bytes: Buffer; mime: string } | null {
@@ -545,23 +640,20 @@ async function remoteImage(
   value: string,
   options: Required<MaterializeAssistantArtifactsOptions>,
 ): Promise<{ bytes: Buffer; mime: string; name?: string } | null> {
-  let url = await publicHttpsUrl(value, options.resolveHostname)
-  if (!url) {
+  let target = await publicHttpsTarget(value, options.resolveHostname)
+  if (!target) {
     return null
   }
   for (let redirect = 0; redirect <= maxRemoteRedirects; redirect += 1) {
-    const response = await options.fetcher(url, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(remoteImageTimeoutMs),
-    })
+    const response = await options.fetcher(target.url, target.addresses, AbortSignal.timeout(remoteImageTimeoutMs))
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location")
       await response.body?.cancel()
       if (!location || redirect === maxRemoteRedirects) {
         return null
       }
-      url = await publicHttpsUrl(new URL(location, url).toString(), options.resolveHostname)
-      if (!url) {
+      target = await publicHttpsTarget(new URL(location, target.url).toString(), options.resolveHostname)
+      if (!target) {
         return null
       }
       continue
@@ -576,11 +668,11 @@ async function remoteImage(
       await response.body?.cancel()
       return null
     }
-    const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.length === 0 || bytes.length > maxMaterializedImageBytes) {
+    const bytes = await readResponseBodyWithinLimit(response, maxMaterializedImageBytes)
+    if (!bytes) {
       return null
     }
-    const name = decodeURIComponent(url.pathname.split("/").pop() ?? "") || undefined
+    const name = decodeURIComponent(target.url.pathname.split("/").pop() ?? "") || undefined
     return { bytes, mime, name }
   }
   return null
@@ -598,7 +690,7 @@ export async function materializeAssistantArtifacts(
   }
   const materializedOrigins = new Map<string, ArtifactItemOrigin>()
   const remoteOptions: Required<MaterializeAssistantArtifactsOptions> = {
-    fetcher: options.fetcher ?? fetch,
+    fetcher: options.fetcher ?? defaultRemoteImageFetcher,
     resolveHostname: options.resolveHostname ?? defaultResolveHostname,
   }
   const seen = new Set<string>()
@@ -742,23 +834,66 @@ export function recordArtifactBundle(records: ArtifactBundles, bundle: ArtifactB
   records.set(bundle.sessionId, sessionRecords)
 }
 
+function cloneArtifactBundles(records: ArtifactBundles): ArtifactBundles {
+  return new Map([...records].map(([sessionId, messages]) => [sessionId, new Map(messages)]))
+}
+
 export class ArtifactBundleStore {
   private readonly file: string
+  private records: ArtifactBundles | undefined
+  private mutationQueue: Promise<void> = Promise.resolve()
 
   public constructor(dir: string) {
     this.file = path.join(dir, "artifact-bundles.json")
   }
 
   public async read(): Promise<ArtifactBundles> {
+    await this.mutationQueue
+    return cloneArtifactBundles(await this.loadRecords())
+  }
+
+  private async loadRecords(): Promise<ArtifactBundles> {
+    if (this.records) {
+      return this.records
+    }
     try {
-      return normalizeArtifactBundles(JSON.parse(await readFile(this.file, "utf-8")))
+      this.records = normalizeArtifactBundles(JSON.parse(await readFile(this.file, "utf-8")))
     } catch (error) {
       logStoreReadFailure("artifact bundles", this.file, error)
-      return new Map()
+      this.records = new Map()
     }
+    return this.records
   }
 
   public async write(records: ArtifactBundles): Promise<void> {
+    const snapshot = cloneArtifactBundles(records)
+    await this.enqueueMutation(async () => {
+      await this.persist(snapshot)
+      this.records = snapshot
+    })
+  }
+
+  public async record(bundle: ArtifactBundle): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = cloneArtifactBundles(await this.loadRecords())
+      recordArtifactBundle(records, bundle)
+      await this.persist(records)
+      this.records = records
+    })
+  }
+
+  public async removeSession(sessionId: string): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = cloneArtifactBundles(await this.loadRecords())
+      if (!records.delete(sessionId)) {
+        return
+      }
+      await this.persist(records)
+      this.records = records
+    })
+  }
+
+  private async persist(records: ArtifactBundles): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true })
     const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
     try {
@@ -770,11 +905,12 @@ export class ArtifactBundleStore {
     }
   }
 
-  public async removeSession(sessionId: string): Promise<void> {
-    const records = await this.read()
-    if (!records.delete(sessionId)) {
-      return
-    }
-    await this.write(records)
+  private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {
+    const operation = this.mutationQueue.catch(() => undefined).then(mutation)
+    this.mutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    )
+    await operation
   }
 }

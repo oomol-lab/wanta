@@ -83,6 +83,7 @@ import {
   upsertRemovedSkillRecord,
 } from "./removed-store.ts"
 import { assertSafeResetPaths } from "./reset.ts"
+import { isExternalRuntimeMirrorRecord, reconcileExternalRuntimeSkillMirrors } from "./runtime-mirrors.ts"
 import { scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
 import { resolveUsableRegistrySkillSourcePath } from "./source.ts"
 import { createVersionReportCacheKey } from "./version-report-cache.ts"
@@ -714,6 +715,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   ): Promise<boolean> {
     const externalSkills = await scanInstalledSkills()
     const manifestStore = await readManifestStore(this.getManifestPath())
+    const externalSkillRoots = supportedAgents.map((agent) => resolveAgentSkillRoot(agent))
     const sortedSkills = [...externalSkills].sort((left, right) => {
       const leftAgentIndex = supportedAgents.findIndex((agent) => agent.id === left.agent.id)
       const rightAgentIndex = supportedAgents.findIndex((agent) => agent.id === right.agent.id)
@@ -724,6 +726,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       )
     })
     const mirroredSkillIds = new Set<string>()
+    const activeMirrorTargets = new Set<string>()
     let synced = false
 
     for (const skill of sortedSkills) {
@@ -743,11 +746,16 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       mirroredSkillIds.add(skillId)
       const targetPath = this.resolveSharedSkillTargetPath(skillId)
       const mirrorRecord = this.readRuntimeMirrorManifestRecord(manifestStore, targetPath)
+      const managedMirrorRecord =
+        mirrorRecord && isExternalRuntimeMirrorRecord(mirrorRecord, this.getSharedAgentSkillRoot(), externalSkillRoots)
+          ? mirrorRecord
+          : undefined
       const targetExists = await this.runtimeSkillTargetExists(skillId)
-      if (
-        targetExists &&
-        (!mirrorRecord || mirrorRecord.sourcePath !== skill.path || mirrorRecord.hash === skill.hash)
-      ) {
+      if (targetExists && !managedMirrorRecord) {
+        continue
+      }
+      activeMirrorTargets.add(targetPath)
+      if (targetExists && managedMirrorRecord?.sourcePath === skill.path && managedMirrorRecord.hash === skill.hash) {
         continue
       }
       try {
@@ -768,7 +776,23 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       }
     }
 
-    return synced
+    const reconciliation = await reconcileExternalRuntimeSkillMirrors({
+      activeTargetPaths: activeMirrorTargets,
+      externalSkillRoots,
+      manifestPath: this.getManifestPath(),
+      sharedSkillRoot: this.getSharedAgentSkillRoot(),
+    })
+    for (const result of reconciliation.skipped) {
+      console.warn("[wanta] skipped stale external runtime skill cleanup:", result)
+      logDiagnostic(
+        "skills",
+        "skipped stale external runtime skill cleanup",
+        { path: result.path, reason: result.reason, status: result.status },
+        "warn",
+      )
+    }
+
+    return synced || reconciliation.changed
   }
 
   private readRuntimeMirrorManifestRecord(

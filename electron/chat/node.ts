@@ -309,10 +309,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private pendingPermissionRequests = new Map<string, ChatPermissionRequest>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
-  private artifactBundles: ArtifactBundles = new Map()
-  private artifactBundlesLoaded = false
-  private artifactBundlesLoadPromise: Promise<void> | null = null
-  private artifactBundleWritePromise: Promise<void> = Promise.resolve()
+  private transientArtifactBundles: ArtifactBundles = new Map()
   private authorizationOverlays: AuthorizationOverlays = new Map()
   private authorizationOverlaysLoaded = false
   private authorizationOverlaysLoadPromise: Promise<void> | null = null
@@ -320,10 +317,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private stoppedGenerations: StoppedGenerations = new Map()
   private stoppedGenerationsLoaded = false
   private stoppedGenerationsLoadPromise: Promise<void> | null = null
-  private turnOutputs: TurnOutputRecords = new Map()
-  private turnOutputsLoaded = false
-  private turnOutputsLoadPromise: Promise<void> | null = null
-  private turnOutputWritePromise: Promise<void> = Promise.resolve()
+  private transientTurnOutputs: TurnOutputRecords = new Map()
   private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredWorkspaceOrganizationName: string | undefined
 
@@ -365,19 +359,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.sessionPermissionGrants.clear()
     this.automaticPermissionReplies.clear()
     this.pendingPermissionRequests.clear()
-    this.artifactBundles.clear()
-    this.artifactBundlesLoaded = false
-    this.artifactBundlesLoadPromise = null
-    this.artifactBundleWritePromise = Promise.resolve()
+    this.transientArtifactBundles.clear()
     this.authorizationOverlays.clear()
     this.authorizationOverlaysLoaded = false
     this.authorizationOverlaysLoadPromise = null
     this.stoppedGenerations.clear()
     this.stoppedGenerationsLoaded = false
     this.stoppedGenerationsLoadPromise = null
-    this.turnOutputs.clear()
-    this.turnOutputsLoaded = false
-    this.turnOutputsLoadPromise = null
+    this.transientTurnOutputs.clear()
     this.desiredWorkspaceOrganizationName = undefined
     this.scopeMutationQueue = Promise.resolve()
   }
@@ -991,6 +980,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent || decision.type !== "allow") {
       return false
     }
+    const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+    const displayRequest =
+      displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
     const replyKey = permissionReplyKey(request.sessionId, request.id)
     if (this.automaticPermissionReplies.has(replyKey)) {
       return true
@@ -1003,12 +995,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.sendBestEffort(
           emit,
           "permissionReplied",
-          { sessionId: request.sessionId, requestId: request.id },
-          { sessionId: request.sessionId },
+          { sessionId: displaySessionId, requestId: request.id },
+          { sessionId: displaySessionId },
         )
-        this.forgetPendingPermissionRequest(request.sessionId, request.id)
-        this.removeActiveRunBlockingRequest(request.sessionId, request.id)
-        this.scheduleGenerationInactivityWatchdogAfterReply(request.sessionId)
+        this.forgetPendingPermissionRequest(displaySessionId, request.id)
+        this.removeActiveRunBlockingRequest(displaySessionId, request.id)
+        this.scheduleGenerationInactivityWatchdogAfterReply(displaySessionId)
       })
       .catch((error: unknown) => {
         console.warn("[wanta] failed to approve local access permission:", error)
@@ -1018,13 +1010,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           { action: request.action, error, reason: decision.reason, sessionId: request.sessionId },
           "warn",
         )
-        this.rememberPendingPermissionRequest(request)
-        this.addActiveRunBlockingRequest(request.sessionId, request.id, "awaiting_permission")
+        this.rememberPendingPermissionRequest(displayRequest)
+        this.addActiveRunBlockingRequest(displaySessionId, request.id, "awaiting_permission")
         this.sendBestEffort(
           emit,
           "permissionAsked",
-          { sessionId: request.sessionId, request },
-          { sessionId: request.sessionId },
+          { sessionId: displaySessionId, request: displayRequest },
+          { sessionId: displaySessionId },
         )
       })
       .finally(() => {
@@ -1263,13 +1255,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         roots.add(filePath)
       }
     }
-    await Promise.all([this.ensureArtifactBundlesLoaded(), this.ensureTurnOutputsLoaded()])
-    for (const records of this.artifactBundles.values()) {
+    const [artifactBundles, turnOutputs] = await Promise.all([this.readArtifactBundles(), this.readTurnOutputs()])
+    for (const records of artifactBundles.values()) {
       for (const bundle of records.values()) {
         roots.add(bundle.rootPath)
       }
     }
-    for (const records of this.turnOutputs.values()) {
+    for (const records of turnOutputs.values()) {
       for (const record of records.values()) {
         if (record.processRoot) {
           roots.add(record.processRoot)
@@ -1833,44 +1825,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.stoppedGenerationsLoadPromise
   }
 
-  private async ensureTurnOutputsLoaded(): Promise<void> {
-    if (this.turnOutputsLoaded) {
-      return
-    }
-    if (this.turnOutputsLoadPromise) {
-      return this.turnOutputsLoadPromise
-    }
-    this.turnOutputsLoadPromise = (async () => {
-      this.turnOutputs = (await this.deps.turnOutputStore?.read()) ?? new Map()
-      this.turnOutputsLoaded = true
-      this.turnOutputsLoadPromise = null
-    })()
-    return this.turnOutputsLoadPromise
+  private async readTurnOutputs(): Promise<TurnOutputRecords> {
+    return this.deps.turnOutputStore?.read() ?? this.transientTurnOutputs
   }
 
-  private async ensureArtifactBundlesLoaded(): Promise<void> {
-    if (this.artifactBundlesLoaded) {
-      return
-    }
-    if (this.artifactBundlesLoadPromise) {
-      return this.artifactBundlesLoadPromise
-    }
-    this.artifactBundlesLoadPromise = (async () => {
-      this.artifactBundles = (await this.deps.artifactBundleStore?.read()) ?? new Map()
-      this.artifactBundlesLoaded = true
-      this.artifactBundlesLoadPromise = null
-    })()
-    return this.artifactBundlesLoadPromise
+  private async readArtifactBundles(): Promise<ArtifactBundles> {
+    return this.deps.artifactBundleStore?.read() ?? this.transientArtifactBundles
   }
 
   private async rememberArtifactBundle(bundle: ArtifactBundle): Promise<void> {
-    await this.ensureArtifactBundlesLoaded()
-    recordArtifactBundle(this.artifactBundles, bundle)
-    const write = this.artifactBundleWritePromise
-      .catch(() => undefined)
-      .then(() => this.deps.artifactBundleStore?.write(this.artifactBundles))
-    this.artifactBundleWritePromise = write ?? Promise.resolve()
-    await write
+    if (this.deps.artifactBundleStore) {
+      await this.deps.artifactBundleStore.record(bundle)
+      return
+    }
+    recordArtifactBundle(this.transientArtifactBundles, bundle)
   }
 
   private async publishArtifactBundle(bundle: ArtifactBundle): Promise<void> {
@@ -1947,20 +1915,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async rememberTurnOutput(record: StoredTurnOutputRecord): Promise<void> {
-    await this.ensureTurnOutputsLoaded()
-    recordTurnOutput(this.turnOutputs, record)
-    const write = this.turnOutputWritePromise
-      .catch((error: unknown) => {
-        this.logQueuedWriteFailure("turn output", error)
-      })
-      .then(async () => {
-        await this.deps.turnOutputStore?.write(this.turnOutputs)
-      })
-    this.turnOutputWritePromise = write.then(
-      () => undefined,
-      () => undefined,
-    )
-    await write
+    if (this.deps.turnOutputStore) {
+      await this.deps.turnOutputStore.record(record)
+      return
+    }
+    recordTurnOutput(this.transientTurnOutputs, record)
   }
 
   private async projectBaseline(project: ChatProjectContext | undefined): Promise<{
@@ -2109,8 +2068,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]> {
-    await this.ensureTurnOutputsLoaded()
-    const records = this.turnOutputs.get(req.sessionId)
+    const records = (await this.readTurnOutputs()).get(req.sessionId)
     if (!records) {
       return []
     }
@@ -2130,8 +2088,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getArtifactBundles(req: ArtifactBundlesRequest): Promise<ArtifactBundle[]> {
-    await this.ensureArtifactBundlesLoaded()
-    const records = this.artifactBundles.get(req.sessionId)
+    const records = (await this.readArtifactBundles()).get(req.sessionId)
     if (!records) {
       return []
     }
@@ -2151,8 +2108,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult> {
-    await this.ensureTurnOutputsLoaded()
-    const record = this.turnOutputs.get(req.sessionId)?.get(req.messageId)
+    const record = (await this.readTurnOutputs()).get(req.sessionId)?.get(req.messageId)
     const file = record?.files.find((item) => item.path === req.path)
     if (!record || !file) {
       return { kind: "missing", path: req.path, mime: "application/octet-stream", additions: 0, deletions: 0 }
@@ -2366,8 +2322,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.setSessionPermissionModeValue(req.sessionId, req.permissionMode, req.version)) {
       return
     }
+    const affectedSessionIds = [req.sessionId]
+    for (const childSessionId of this.trustedSubagentSessionsByParent.get(req.sessionId) ?? []) {
+      if (this.setSessionPermissionModeValue(childSessionId, req.permissionMode, req.version)) {
+        affectedSessionIds.push(childSessionId)
+      }
+    }
     if (req.permissionMode === "full_access") {
-      await this.autoAnswerPendingPermissions(req.sessionId)
+      await Promise.all(affectedSessionIds.map((sessionId) => this.autoAnswerPendingPermissions(sessionId)))
     }
     this.emitSessionActivity(req.sessionId)
   }

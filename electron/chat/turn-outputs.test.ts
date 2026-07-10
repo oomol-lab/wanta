@@ -81,10 +81,16 @@ test("TurnOutputStore removes records for a deleted session", async () => {
 
     await store.write(records)
     await store.removeSession("session-1")
+    await store.record({
+      ...baseRecord,
+      sessionId: "session-3",
+      messageId: "message-3",
+    })
 
-    const next = await store.read()
+    const next = await new TurnOutputStore(root).read()
     assert.equal(next.has("session-1"), false)
     assert.equal(next.get("session-2")?.has("message-2"), true)
+    assert.equal(next.get("session-3")?.has("message-3"), true)
   } finally {
     await rm(root, { force: true, recursive: true })
   }

@@ -1943,6 +1943,91 @@ test("task subagent permission prompts are displayed on the parent run without t
   assert.equal(bridge.abort.mock.calls.length, 0)
 })
 
+test("full access mode propagates to active task subagents and clears their parent-facing permissions", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    permissionMode: "default",
+    permissionModeVersion: 1,
+    sessionId: "parent-session",
+    text: "Analyze broadly",
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: {
+            parentSessionId: "parent-session",
+            sessionId: "child-session",
+          },
+        },
+      },
+    },
+  })
+  const childPermission = {
+    id: "permission-1",
+    sessionId: "child-session",
+    action: "bash",
+    resources: ["npm install"],
+    metadata: { command: "npm install" },
+  }
+  bridge.getPendingPermissions.mockImplementation(async (sessionId: string) =>
+    sessionId === "child-session" ? [childPermission] : [],
+  )
+
+  assert.deepEqual(await service.getPendingPermissions("parent-session"), [
+    { ...childPermission, sessionId: "parent-session" },
+  ])
+  await service.setPermissionMode({
+    permissionMode: "full_access",
+    sessionId: "parent-session",
+    version: 2,
+  })
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls, [["child-session", "permission-1", "once"]])
+  await waitForCondition(() => events.some((event) => event.event === "permissionReplied"))
+  const replied = events.find((event) => event.event === "permissionReplied") as
+    | { data: { requestId?: string; sessionId?: string } }
+    | undefined
+  assert.deepEqual(replied?.data, { requestId: "permission-1", sessionId: "parent-session" })
+
+  bridge.getPendingPermissions.mockResolvedValue([])
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-2",
+      sessionID: "child-session",
+      action: "bash",
+      resources: ["npm install another-package"],
+      metadata: { command: "npm install another-package" },
+    },
+  })
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+
+  assert.deepEqual(bridge.answerPermission.mock.calls[1], ["child-session", "permission-2", "once"])
+  assert.equal(
+    events.some(
+      (event) =>
+        event.event === "permissionAsked" &&
+        (event.data as { request?: { id?: string } }).request?.id === "permission-2",
+    ),
+    false,
+  )
+})
+
 test("trusted project permission approval does not cover paths outside the project", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"

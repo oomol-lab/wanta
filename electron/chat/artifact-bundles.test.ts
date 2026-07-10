@@ -10,6 +10,7 @@ import {
   generatedImagePreviewCount,
   markdownImageCount,
   materializeAssistantArtifacts,
+  readResponseBodyWithinLimit,
   recordArtifactBundle,
   recoverMisplacedTurnArtifacts,
 } from "./artifact-bundles.ts"
@@ -222,11 +223,15 @@ test("materializeAssistantArtifacts turns a data image preview into a ready arti
 test("materializeAssistantArtifacts downloads an HTTPS image preview into the artifact bundle", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-https-preview-"))
   try {
-    const fetcher = async () =>
-      new Response("remote-image", {
+    let resolutions = 0
+    const requests: Array<{ addresses: readonly string[]; url: string }> = []
+    const fetcher = async (url: URL, addresses: readonly string[]) => {
+      requests.push({ addresses, url: url.toString() })
+      return new Response("remote-image", {
         status: 200,
         headers: { "content-type": "image/png" },
       })
+    }
     const origins = await materializeAssistantArtifacts(
       [
         {
@@ -246,7 +251,10 @@ test("materializeAssistantArtifacts downloads an HTTPS image preview into the ar
       root,
       {
         fetcher,
-        resolveHostname: async () => ["93.184.216.34"],
+        resolveHostname: async () => {
+          resolutions += 1
+          return resolutions === 1 ? ["93.184.216.34"] : ["127.0.0.1"]
+        },
       },
     )
     const bundle = await buildArtifactBundle({
@@ -262,9 +270,29 @@ test("materializeAssistantArtifacts downloads an HTTPS image preview into the ar
     assert.equal(await readFile(path.join(root, "generated.png"), "utf8"), "remote-image")
     assert.equal(bundle?.status, "ready")
     assert.equal(bundle?.items[0]?.origin, "assistant_preview")
+    assert.equal(resolutions, 1)
+    assert.deepEqual(requests, [{ addresses: ["93.184.216.34"], url: "https://cdn.example.com/generated?id=1" }])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test("readResponseBodyWithinLimit cancels a response before buffering bytes over the limit", async () => {
+  let cancelled = false
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      cancel: () => {
+        cancelled = true
+      },
+      start: (controller) => {
+        controller.enqueue(new Uint8Array([1, 2, 3, 4]))
+        controller.enqueue(new Uint8Array([5, 6, 7, 8]))
+      },
+    }),
+  )
+
+  assert.equal(await readResponseBodyWithinLimit(response, 5), null)
+  assert.equal(cancelled, true)
 })
 
 test("materializeAssistantArtifacts refuses HTTPS image previews that resolve to private addresses", async () => {
@@ -434,7 +462,11 @@ test("ArtifactBundleStore round trips records and removes a session", async () =
 
     assert.equal((await store.read()).get("session-1")?.get("assistant-1")?.items[0]?.name, "report.pdf")
     await store.removeSession("session-1")
-    assert.equal((await store.read()).has("session-1"), false)
+    await store.record({ ...bundle, id: "bundle-2", messageId: "assistant-2", sessionId: "session-2" })
+
+    const restored = await new ArtifactBundleStore(root).read()
+    assert.equal(restored.has("session-1"), false)
+    assert.equal(restored.get("session-2")?.has("assistant-2"), true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

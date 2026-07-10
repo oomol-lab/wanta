@@ -173,6 +173,8 @@ export default defineConfig(({ command, mode }) => {
         "@iconify-icons/tabler/photo-star",
         "streamdown",
         "motion/react",
+        "pdfjs-dist",
+        "pdfjs-dist/web/pdf_viewer.mjs",
         "radix-ui",
         "use-stick-to-bottom",
       ],

@@ -34,6 +34,7 @@ import {
   CodeBlockTitle,
 } from "@/components/ai-elements/code-block"
 import { MessageResponse } from "@/components/ai-elements/message"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
@@ -473,6 +474,11 @@ export function ArtifactConsumablePreview({
   pack?: LocalArtifactPack | null
 }) {
   const t = useT()
+  const lazyPreviewFallback = (
+    <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-center text-muted-foreground">
+      {t("artifacts.previewReadFailed")}
+    </div>
+  )
 
   if (preview?.kind === "image" && preview.dataUrl) {
     return (
@@ -511,37 +517,43 @@ export function ArtifactConsumablePreview({
 
   if (preview?.kind === "pdf" && preview.dataUrl) {
     return (
-      <React.Suspense
-        fallback={
-          <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
-            {t("artifacts.previewLoading")}
-          </div>
-        }
-      >
-        <ArtifactPdfPreview dataUrl={preview.dataUrl} name={item.name} />
-      </React.Suspense>
+      <ErrorBoundary key={`${item.path}:pdf`} fallback={lazyPreviewFallback}>
+        <React.Suspense
+          fallback={
+            <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
+              {t("artifacts.previewLoading")}
+            </div>
+          }
+        >
+          <ArtifactPdfPreview dataUrl={preview.dataUrl} name={item.name} />
+        </React.Suspense>
+      </ErrorBoundary>
     )
   }
 
   if (preview?.kind === "document" && preview.documentFormat === "docx" && preview.dataUrl) {
     return (
-      <React.Suspense
-        fallback={
-          <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
-            {t("artifacts.previewLoading")}
-          </div>
-        }
-      >
-        <ArtifactDocxPreview dataUrl={preview.dataUrl} name={item.name} />
-      </React.Suspense>
+      <ErrorBoundary key={`${item.path}:docx`} fallback={lazyPreviewFallback}>
+        <React.Suspense
+          fallback={
+            <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
+              {t("artifacts.previewLoading")}
+            </div>
+          }
+        >
+          <ArtifactDocxPreview dataUrl={preview.dataUrl} name={item.name} />
+        </React.Suspense>
+      </ErrorBoundary>
     )
   }
 
   if (preview?.kind === "spreadsheet") {
     return (
-      <React.Suspense fallback={<ArtifactSpreadsheetLoadingPreview />}>
-        <ArtifactUniverSpreadsheetPreview preview={preview} />
-      </React.Suspense>
+      <ErrorBoundary key={`${item.path}:spreadsheet`} fallback={lazyPreviewFallback}>
+        <React.Suspense fallback={<ArtifactSpreadsheetLoadingPreview />}>
+          <ArtifactUniverSpreadsheetPreview preview={preview} />
+        </React.Suspense>
+      </ErrorBoundary>
     )
   }
 

@@ -4,7 +4,12 @@ import type { QuestionDraftStore, QuestionField, QuestionFieldDraft, QuestionFie
 import { Check } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { answersFromFieldDrafts, canSubmitFieldAnswers, deriveQuestionFields } from "./question-fields.ts"
+import {
+  answersFromFieldDrafts,
+  canSubmitFieldAnswers,
+  deriveQuestionFields,
+  questionStepLabel,
+} from "./question-fields.ts"
 import { useQuestionPromptDrafts } from "./question-prompt-drafts.ts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -128,11 +133,13 @@ function QuestionStepIndicator({
   fields: QuestionField[]
   onSelect: (index: number) => void
 }) {
+  const t = useT()
   return (
     <ol className="flex w-full min-w-0 items-center gap-1 overflow-x-auto border-b border-border" role="tablist">
       {fields.map((field, index) => {
         const answered = canSubmitFieldAnswers([field], [drafts[index] ?? { value: "", selected: [] }])
         const active = index === activeIndex
+        const label = questionStepLabel(field, t("chat.questionFallbackLabel", { index: index + 1 }))
         return (
           <li key={field.id} className="min-w-24 flex-1">
             <button
@@ -163,7 +170,7 @@ function QuestionStepIndicator({
               >
                 {index + 1}
               </span>
-              <span className="oo-text-label min-w-0 truncate">{field.label}</span>
+              <span className="oo-text-label min-w-0 truncate">{label}</span>
             </button>
           </li>
         )

@@ -194,6 +194,12 @@ export function deriveQuestionFields(request: ChatQuestionRequest): QuestionFiel
   return request.questions.flatMap((question, index) => fieldsForQuestion(request.id, question, index))
 }
 
+export function questionStepLabel(field: QuestionField, fallback: string): string {
+  const label = field.label.trim()
+  const maximumLength = /[\u3400-\u9fff]/.test(label) ? 10 : 32
+  return label && Array.from(label).length <= maximumLength ? label : fallback
+}
+
 function dedupeFields(fields: QuestionField[]): QuestionField[] {
   const seen = new Set<string>()
   return fields.filter((field) => {

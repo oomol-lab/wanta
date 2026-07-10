@@ -6,6 +6,7 @@ import {
   deriveQuestionFields,
   initialFieldDrafts,
   isQuestionDraftSnapshotPristine,
+  questionStepLabel,
 } from "./question-fields.ts"
 
 describe("question-fields", () => {
@@ -202,6 +203,23 @@ describe("question-fields", () => {
       },
       { label: "消费场景", prompt: "这个 skill 需要覆盖哪些消费场景？" },
     ])
+  })
+
+  it("falls back when a legacy question is too long for a step label", () => {
+    const field = deriveQuestionFields({
+      id: "q1",
+      sessionId: "s1",
+      questions: [
+        {
+          header: "Skill 需求",
+          question:
+            "1. 这个 skill 的目标受众是谁？是给 AI agent 使用，还是给人类开发者参考？ 2. 这个 skill 需要覆盖哪些消费场景？",
+          options: [],
+        },
+      ],
+    })[0]
+
+    expect(questionStepLabel(field, "问题 1")).toBe("问题 1")
   })
 
   it("treats only unchanged first-step drafts as pristine", () => {

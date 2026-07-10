@@ -29,7 +29,6 @@ import { cn } from "@/lib/utils"
 export function AppShellNavigationSidebar({
   accountName,
   activeRoute,
-  activeSessionId,
   avatarUrl,
   collapsed,
   collapsedProjectIds,
@@ -65,6 +64,7 @@ export function AppShellNavigationSidebar({
   projectRegularGroups,
   projectSessions,
   projectSidebarGroups,
+  selectedSessionId,
   sessionsError,
   sidebarSegment,
   sidebarSessionGroups,
@@ -75,7 +75,6 @@ export function AppShellNavigationSidebar({
 }: {
   accountName?: string
   activeRoute: Route
-  activeSessionId: string | null
   avatarUrl?: string
   collapsed: boolean
   collapsedProjectIds: ReadonlySet<string>
@@ -111,6 +110,7 @@ export function AppShellNavigationSidebar({
   projectRegularGroups: ProjectSidebarGroup[]
   projectSessions: SessionInfo[]
   projectSidebarGroups: ProjectSidebarGroup[]
+  selectedSessionId: string | null
   sessionsError: UserFacingError | null
   sidebarSegment: SidebarSegment
   sidebarSessionGroups: SidebarSessionGroups
@@ -124,7 +124,7 @@ export function AppShellNavigationSidebar({
     <ProjectSidebarGroupItem
       key={group.project.id}
       group={group}
-      activeSessionId={activeRoute === "chat" ? activeSessionId : null}
+      selectedSessionId={activeRoute === "chat" ? selectedSessionId : null}
       expanded={!collapsedProjectIds.has(group.project.id)}
       hasUnreadSession={hasUnreadSession}
       isSessionRunning={isSessionRunning}
@@ -147,7 +147,7 @@ export function AppShellNavigationSidebar({
     <SessionItem
       key={session.id}
       session={session}
-      active={activeRoute === "chat" && activeSessionId === session.id}
+      selected={activeRoute === "chat" && selectedSessionId === session.id}
       running={isSessionRunning(session.id)}
       unread={hasUnreadSession(session.id)}
       now={now}

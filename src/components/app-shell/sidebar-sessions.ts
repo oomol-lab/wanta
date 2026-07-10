@@ -38,7 +38,9 @@ export function compareRunningSessions(left: SessionInfo, right: SessionInfo, or
 }
 
 export function compareSidebarSessions(left: SessionInfo, right: SessionInfo, order: SidebarSessionOrder = {}): number {
-  return compareRunningSessions(left, right, order) || right.updatedAt - left.updatedAt
+  return (
+    compareRunningSessions(left, right, order) || right.createdAt - left.createdAt || left.id.localeCompare(right.id)
+  )
 }
 
 export function groupSidebarSessions(sessions: SessionInfo[], order: SidebarSessionOrder = {}): SidebarSessionGroups {

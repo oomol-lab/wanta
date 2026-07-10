@@ -54,7 +54,7 @@ import {
   workspaceSelectionSwitchKey,
   WORKSPACE_SWITCH_TIMEOUT_MS,
 } from "./app-shell-model.ts"
-import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
+import { buildProjectSidebarGroups, projectSidebarSessionsInRenderOrder } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
 import { AppShellConnectionDrawer } from "./AppShellConnectionDrawer.tsx"
 import { AppShellMainTitlebar } from "./AppShellMainTitlebar.tsx"
@@ -293,7 +293,7 @@ export function AppShell() {
     return () => window.clearTimeout(timeoutId)
   }, [workspaceSwitchTargetKey])
   const [route, setRoute] = React.useState<Route>(initialRoute)
-  const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null)
+  const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
   const [draftPermissionMode, setDraftPermissionMode] = React.useState<AgentPermissionMode>("default")
   const [draftProjectId, setDraftProjectId] = React.useState<string | null>(null)
@@ -323,12 +323,12 @@ export function AppShell() {
   const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
   const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
   const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
-  const selectedSession = activeSessionId
-    ? (visibleSessions.find((session) => session.id === activeSessionId) ?? null)
+  const selectedSession = selectedSessionId
+    ? (visibleSessions.find((session) => session.id === selectedSessionId) ?? null)
     : null
   const selectedSessionMatchesScope =
     Boolean(selectedSession) && sessionRecordScopeKey(selectedSession?.scope) === currentScopeKey
-  const activeChatSessionId = selectedSessionMatchesScope ? activeSessionId : null
+  const activeChatSessionId = selectedSessionMatchesScope ? selectedSessionId : null
   const activeSession = selectedSessionMatchesScope ? (selectedSession ?? undefined) : undefined
 
   const {
@@ -422,10 +422,6 @@ export function AppShell() {
   const sendInFlightKeysRef = React.useRef(new Set<string>())
   const workspaceResetKeyRef = React.useRef(activeWorkspaceKey)
   const previousActiveChatSessionIdRef = React.useRef<string | null>(null)
-  const activeSidebarSessions = React.useMemo(
-    () => (sidebarSegment === "projects" ? visibleProjectSessions : visibleTaskSessions),
-    [visibleProjectSessions, sidebarSegment, visibleTaskSessions],
-  )
   const {
     artifactSelection,
     artifactsPanelContentRef,
@@ -509,40 +505,6 @@ export function AppShell() {
     }
   }, [ready])
 
-  // 默认选中最近的会话。用 layout effect 避免 sessions 加载完成后的中间帧先绘制空聊天态。
-  React.useLayoutEffect(() => {
-    if (sessionsSettledForCurrentScope && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0) {
-      setActiveSessionId(activeSidebarSessions[0].id)
-    }
-  }, [activeSidebarSessions, sessionsSettledForCurrentScope, activeSessionId, isDraftSession])
-
-  React.useEffect(() => {
-    if (!sessionsSettledForCurrentScope || isDraftSession || !activeSessionId) {
-      return
-    }
-    if (activeSidebarSessions.some((session) => session.id === activeSessionId)) {
-      return
-    }
-    if (visibleSessions.some((session) => session.id === activeSessionId)) {
-      return
-    }
-    setActiveSessionId(activeSidebarSessions[0]?.id ?? null)
-    setDraftProjectId(null)
-    setPendingChatTransition(null)
-  }, [activeSessionId, activeSidebarSessions, isDraftSession, sessionsSettledForCurrentScope, visibleSessions])
-
-  React.useEffect(() => {
-    if (!sessionsSettledForCurrentScope || !activeSessionId) {
-      return
-    }
-    if (visibleSessions.some((session) => session.id === activeSessionId)) {
-      return
-    }
-    setActiveSessionId(null)
-    setIsDraftSession(false)
-    setPendingChatTransition(null)
-  }, [activeSessionId, sessionsSettledForCurrentScope, visibleSessions])
-
   React.useEffect(() => {
     if (!activeChatSessionId || !activeSession) {
       return
@@ -575,10 +537,7 @@ export function AppShell() {
     refreshGeneratedTitle,
     rememberAutoFallbackTitle,
   } = useSessionTitleGeneration({
-    activeSession,
     generateTitle,
-    messages,
-    messagesLoaded,
     rename,
     sessions: visibleSessions,
   })
@@ -645,25 +604,6 @@ export function AppShell() {
       }),
     [activePendingQuestionCount, displayedStatus, initialSendPending, pendingPermissions.length],
   )
-  const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
-  const needsDefaultSessionSelection =
-    sessionsSettledForCurrentScope && !isDraftSession && !activeSessionId && activeSidebarSessions.length > 0
-  const startupError =
-    agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
-  const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
-  const chatBootstrapping =
-    !startupError &&
-    ((!ready && !hasVisibleLoadedSession) ||
-      !sessionsSettledForCurrentScope ||
-      needsDefaultSessionSelection ||
-      Boolean(activeChatSessionId && !messagesLoaded && !activePendingChatTransition))
-  const showChatEmptyState =
-    ready &&
-    sessionsSettledForCurrentScope &&
-    !activePendingChatTransition &&
-    (!activeChatSessionId || (messagesLoaded && messages.length === 0))
-  const showComposerProjectContext = route === "chat"
-  const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const isSessionRunning = React.useCallback(
     (sessionId: string): boolean => {
       if (sessionId === activeChatSessionId) {
@@ -703,6 +643,82 @@ export function AppShell() {
     () => projectSidebarGroups.filter((group) => !group.project.pinnedAt),
     [projectSidebarGroups],
   )
+  const selectableTaskSidebarSessions = React.useMemo(
+    () => [...sidebarSessionGroups.pinned, ...sidebarSessionGroups.regular],
+    [sidebarSessionGroups],
+  )
+  const selectableProjectSidebarSessions = React.useMemo(
+    () =>
+      projectSidebarSessionsInRenderOrder({
+        pinnedGroups: projectPinnedGroups,
+        pinnedSessions: projectPinnedSessions,
+        regularGroups: projectRegularGroups,
+      }),
+    [projectPinnedGroups, projectPinnedSessions, projectRegularGroups],
+  )
+  const selectableSidebarSessions = React.useMemo(
+    () => (sidebarSegment === "projects" ? selectableProjectSidebarSessions : selectableTaskSidebarSessions),
+    [selectableProjectSidebarSessions, selectableTaskSidebarSessions, sidebarSegment],
+  )
+  const displayedPermissionMode = activeChatSessionId ? permissionMode : draftPermissionMode
+  const needsDefaultSessionSelection =
+    sessionsSettledForCurrentScope && !isDraftSession && !selectedSessionId && selectableSidebarSessions.length > 0
+  const startupError =
+    agentStatus.status === "error" ? resolveUserFacingError(agentStatus.message, { area: "agent" }) : null
+  const hasVisibleLoadedSession = Boolean(activeChatSessionId && messagesLoaded)
+  const chatBootstrapping =
+    !startupError &&
+    ((!ready && !hasVisibleLoadedSession) ||
+      !sessionsSettledForCurrentScope ||
+      needsDefaultSessionSelection ||
+      Boolean(activeChatSessionId && !messagesLoaded && !activePendingChatTransition))
+  const showChatEmptyState =
+    ready &&
+    sessionsSettledForCurrentScope &&
+    !activePendingChatTransition &&
+    (!activeChatSessionId || (messagesLoaded && messages.length === 0))
+
+  // 默认选中当前侧边栏里实际排在最前面的会话，避免内部数据顺序和 UI 顺序不一致。
+  React.useLayoutEffect(() => {
+    if (
+      sessionsSettledForCurrentScope &&
+      !isDraftSession &&
+      !selectedSessionId &&
+      selectableSidebarSessions.length > 0
+    ) {
+      setSelectedSessionId(selectableSidebarSessions[0].id)
+    }
+  }, [selectableSidebarSessions, sessionsSettledForCurrentScope, selectedSessionId, isDraftSession])
+
+  React.useEffect(() => {
+    if (!sessionsSettledForCurrentScope || isDraftSession || !selectedSessionId) {
+      return
+    }
+    if (selectableSidebarSessions.some((session) => session.id === selectedSessionId)) {
+      return
+    }
+    if (visibleSessions.some((session) => session.id === selectedSessionId)) {
+      return
+    }
+    setSelectedSessionId(selectableSidebarSessions[0]?.id ?? null)
+    setDraftProjectId(null)
+    setPendingChatTransition(null)
+  }, [isDraftSession, selectableSidebarSessions, selectedSessionId, sessionsSettledForCurrentScope, visibleSessions])
+
+  React.useEffect(() => {
+    if (!sessionsSettledForCurrentScope || !selectedSessionId) {
+      return
+    }
+    if (visibleSessions.some((session) => session.id === selectedSessionId)) {
+      return
+    }
+    setSelectedSessionId(null)
+    setIsDraftSession(false)
+    setPendingChatTransition(null)
+  }, [selectedSessionId, sessionsSettledForCurrentScope, visibleSessions])
+
+  const showComposerProjectContext = route === "chat"
+  const chatEmptyTitle = activeProject ? t("project.chatEmptyTitle", { project: activeProject.name }) : undefined
   const titlebarTitle =
     route === "settings"
       ? t("settings.title")
@@ -810,7 +826,7 @@ export function AppShell() {
     (target: ReturnType<typeof resolveNewSessionTarget>): void => {
       const targetDraftKey = newSessionComposerDraftKey(sessionScope, target.projectId)
       clearComposerDraft(targetDraftKey)
-      setActiveSessionId(null)
+      setSelectedSessionId(null)
       setIsDraftSession(true)
       setDraftPermissionMode("default")
       setDraftProjectId(target.projectId ?? NO_DRAFT_PROJECT_ID)
@@ -920,7 +936,7 @@ export function AppShell() {
   }, [handleSelectProjectDirectory])
 
   const handleSelectSession = React.useCallback((session: SessionInfo): void => {
-    setActiveSessionId(session.id)
+    setSelectedSessionId(session.id)
     setIsDraftSession(false)
     setDraftProjectId(null)
     setRoute("chat")
@@ -997,7 +1013,7 @@ export function AppShell() {
           sessionId = info.id
           rememberAutoFallbackTitle(sessionId, fallbackTitle)
           if (isCurrentSendTarget()) {
-            setActiveSessionId(sessionId)
+            setSelectedSessionId(sessionId)
             setIsDraftSession(false)
             setSidebarSegment(info.projectId ? "projects" : "tasks")
             setPendingChatTransition((pending) =>
@@ -1112,7 +1128,7 @@ export function AppShell() {
     queueSessionMessage,
     send,
     sessionScope,
-    setActiveSessionId,
+    setActiveSessionId: setSelectedSessionId,
     setChatConnectionDrawers,
     setIsDraftSession,
     setPendingChatTransition,
@@ -1181,7 +1197,7 @@ export function AppShell() {
     clearRetries()
     setChatConnectionDrawers({})
     setSelectedService(null)
-    setActiveSessionId(null)
+    setSelectedSessionId(null)
     setIsDraftSession(false)
     setDraftPermissionMode("default")
     setDraftProjectId(null)
@@ -1321,7 +1337,7 @@ export function AppShell() {
       setArchiveConfirming(false)
     }
     if (activeChatSessionId === session.id) {
-      setActiveSessionId(nextActiveSessionIdAfterArchive(activeSidebarSessions, session.id))
+      setSelectedSessionId(nextActiveSessionIdAfterArchive(selectableSidebarSessions, session.id))
       setIsDraftSession(false)
       setPendingChatTransition(null)
       setRoute("chat")
@@ -1364,7 +1380,7 @@ export function AppShell() {
         return
       }
       if (activeChatSessionId) {
-        setActiveSessionId(null)
+        setSelectedSessionId(null)
       }
       setIsDraftSession(true)
       setDraftProjectId(NO_DRAFT_PROJECT_ID)
@@ -1572,7 +1588,7 @@ export function AppShell() {
           listArchived={listArchived}
           onBack={() => setRoute("chat")}
           onOpenSession={(session) => {
-            setActiveSessionId(session.id)
+            setSelectedSessionId(session.id)
             setIsDraftSession(false)
             setPendingChatTransition(null)
             setRoute("chat")
@@ -1602,7 +1618,7 @@ export function AppShell() {
       <AppShellNavigationSidebar
         accountName={auth.state?.account?.name}
         activeRoute={route}
-        activeSessionId={activeChatSessionId}
+        selectedSessionId={selectedSessionId}
         avatarUrl={auth.state?.account?.avatarUrl}
         collapsed={sidebarCollapsed}
         collapsedProjectIds={collapsedProjectIds}

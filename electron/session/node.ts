@@ -191,10 +191,6 @@ export class SessionServiceImpl
       scope,
       ...(scopedProjectId ? { projectId: scopedProjectId } : {}),
     })
-    if (scopedProjectId) {
-      this.touchProject(scopedProjectId, info.updatedAt)
-      await this.persistProjects()
-    }
     await this.persistMetadata()
     this.broadcastChangedBestEffort("create session")
     return { ...info, scope, ...(scopedProjectId ? { projectId: scopedProjectId } : {}) }
@@ -253,8 +249,6 @@ export class SessionServiceImpl
     const scope = normalizeSessionScope(current.scope)
     if (project && !project.archivedAt && sessionScopeMatches(project.scope, scope)) {
       next.projectId = project.id
-      this.touchProject(project.id)
-      await this.persistProjects()
     } else {
       delete next.projectId
     }
@@ -524,12 +518,6 @@ export class SessionServiceImpl
     if (!this.markUsed(id, usedAt)) {
       return
     }
-    await this.ensureMetadataLoaded()
-    await this.ensureProjectsLoaded()
-    const projectId = this.sessionMetadata.get(id)?.projectId
-    if (projectId && this.touchProject(projectId, usedAt)) {
-      await this.persistProjects()
-    }
     await this.persistActivity()
     try {
       await this.refreshAndEmit()
@@ -605,15 +593,6 @@ export class SessionServiceImpl
 
   private async persistProjects(): Promise<void> {
     await this.deps.projectStore?.write(this.projects)
-  }
-
-  private touchProject(id: string, updatedAt = Date.now()): boolean {
-    const current = this.projects.get(id)
-    if (!current || updatedAt <= current.updatedAt) {
-      return false
-    }
-    this.projects.set(id, { ...current, updatedAt })
-    return true
   }
 
   private setMetadataEntry(id: string, metadata: SessionMetadata): void {

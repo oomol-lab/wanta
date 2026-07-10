@@ -219,7 +219,7 @@ function WorkspaceMenuContent({
 
 export function SessionItem({
   session,
-  active,
+  selected,
   running,
   unread,
   now,
@@ -230,7 +230,7 @@ export function SessionItem({
   leadingSlot,
 }: {
   session: SessionInfo
-  active: boolean
+  selected: boolean
   running: boolean
   unread: boolean
   now: number
@@ -251,12 +251,18 @@ export function SessionItem({
       onRenameRequest()
     }
   }
+  const handleRowClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (event.target === event.currentTarget) {
+      onSelect()
+    }
+  }
 
   return (
     <div
+      onClick={handleRowClick}
       className={cn(
         "oo-sidebar-nav-item group oo-text-body flex h-8 items-center rounded-md px-3",
-        active && "bg-sidebar-accent text-sidebar-accent-foreground",
+        selected && "bg-sidebar-accent text-sidebar-accent-foreground",
       )}
     >
       <button
@@ -264,8 +270,9 @@ export function SessionItem({
         onClick={onSelect}
         onDoubleClick={onRenameRequest}
         onKeyDown={handleRenameKeyDown}
+        aria-current={selected ? "page" : undefined}
         title={session.title}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
       >
         {leadingSlot}
         <span className="oo-sidebar-nav-label min-w-0 truncate">{session.title}</span>
@@ -294,12 +301,15 @@ export function SessionItem({
           </span>
         ) : null}
       </button>
-      <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">
+      <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:flex">
         <button
           type="button"
           aria-label={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
           title={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
-          onClick={onPinToggle}
+          onClick={(event) => {
+            event.stopPropagation()
+            onPinToggle()
+          }}
           className={cn(
             "flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             pinned && "text-sidebar-accent-foreground",
@@ -311,7 +321,10 @@ export function SessionItem({
           type="button"
           aria-label={running ? t("aria.archiveRunningSession") : t("aria.archiveSession")}
           title={running ? t("aria.archiveRunningSession") : t("aria.archiveSession")}
-          onClick={onArchive}
+          onClick={(event) => {
+            event.stopPropagation()
+            onArchive()
+          }}
           disabled={running}
           className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
@@ -393,7 +406,6 @@ export function SidebarSegmentControl({
 }
 
 export function ProjectSidebarGroupItem({
-  activeSessionId,
   expanded,
   group,
   hasUnreadSession,
@@ -410,9 +422,9 @@ export function ProjectSidebarGroupItem({
   onPinSession,
   onRenameSession,
   onSelectSession,
+  selectedSessionId,
   onShowProjectInFolder,
 }: {
-  activeSessionId: string | null
   expanded: boolean
   group: ProjectSidebarGroup
   hasUnreadSession: (sessionId: string) => boolean
@@ -429,6 +441,7 @@ export function ProjectSidebarGroupItem({
   onPinSession: (session: SessionInfo) => void
   onRenameSession: (session: SessionInfo) => void
   onSelectSession: (session: SessionInfo) => void
+  selectedSessionId: string | null
   onShowProjectInFolder: (project: SessionProject) => void
 }) {
   const t = useT()
@@ -530,7 +543,7 @@ export function ProjectSidebarGroupItem({
               <SessionItem
                 key={session.id}
                 session={session}
-                active={activeSessionId === session.id}
+                selected={selectedSessionId === session.id}
                 running={isSessionRunning(session.id)}
                 unread={hasUnreadSession(session.id)}
                 now={now}

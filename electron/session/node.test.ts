@@ -756,7 +756,7 @@ test("assignSessionProject persists only projects in the session scope", async (
   await service.assignSessionProject({ sessionId: "session", projectId: "personal-project" })
 
   assert.equal((await persistedMetadata.read()).get("session")?.projectId, "personal-project")
-  assert.ok(((await persistedProjects.read()).get("personal-project")?.updatedAt ?? 0) > personalProject.updatedAt)
+  assert.equal((await persistedProjects.read()).get("personal-project")?.updatedAt, personalProject.updatedAt)
 
   await service.assignSessionProject({ sessionId: "session", projectId: "organization-project" })
 
@@ -769,7 +769,7 @@ test("assignSessionProject persists only projects in the session scope", async (
   assert.equal((await persistedProjects.read()).get("archived-project")?.updatedAt, archivedProject.updatedAt)
 })
 
-test("recordUseAndEmit touches assigned project activity", async () => {
+test("recordUseAndEmit keeps the assigned project's order unchanged", async () => {
   const persistedProjects = projectStore(
     new Map([
       [
@@ -803,7 +803,7 @@ test("recordUseAndEmit touches assigned project activity", async () => {
 
   await service.recordUseAndEmit("session", 5_000)
 
-  assert.equal((await persistedProjects.read()).get("project")?.updatedAt, 5_000)
+  assert.equal((await persistedProjects.read()).get("project")?.updatedAt, 1_000)
 })
 
 test("archive clears pinned state", async () => {

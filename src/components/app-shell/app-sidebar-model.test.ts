@@ -2,7 +2,7 @@ import type { SessionInfo, SessionProject } from "../../../electron/session/comm
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildProjectSidebarGroups } from "./app-sidebar-model.ts"
+import { buildProjectSidebarGroups, projectSidebarSessionsInRenderOrder } from "./app-sidebar-model.ts"
 
 function project(id: string, updatedAt: number): SessionProject {
   return {
@@ -41,7 +41,22 @@ test("buildProjectSidebarGroups orders running sessions first inside a project",
   )
 })
 
-test("buildProjectSidebarGroups orders running projects by run start", () => {
+test("buildProjectSidebarGroups keeps idle child order stable when updatedAt changes", () => {
+  const groups = buildProjectSidebarGroups(
+    [project("project", 1_000)],
+    [
+      { ...session("viewed", "project", 5_000), createdAt: 1_000 },
+      { ...session("newer", "project", 2_000), createdAt: 2_000 },
+    ],
+  )
+
+  assert.deepEqual(
+    groups[0]?.sessions.map((item) => item.id),
+    ["newer", "viewed"],
+  )
+})
+
+test("buildProjectSidebarGroups keeps project order while a child session is running", () => {
   const groups = buildProjectSidebarGroups(
     [project("idle-project", 9_000), project("running-project", 1_000)],
     [session("idle", "idle-project", 9_000), session("running", "running-project", 2_000)],
@@ -53,6 +68,29 @@ test("buildProjectSidebarGroups orders running projects by run start", () => {
 
   assert.deepEqual(
     groups.map((group) => group.project.id),
-    ["running-project", "idle-project"],
+    ["idle-project", "running-project"],
+  )
+})
+
+test("projectSidebarSessionsInRenderOrder mirrors the project sidebar sections", () => {
+  const pinnedGroup = {
+    hiddenCount: 0,
+    project: { ...project("pinned-project", 3_000), pinnedAt: 4_000 },
+    sessions: [session("pinned-child", "pinned-project", 3_000)],
+  }
+  const regularGroup = {
+    hiddenCount: 0,
+    project: project("regular-project", 2_000),
+    sessions: [session("regular-child", "regular-project", 2_000)],
+  }
+  const pinnedSession = session("pinned-session", "regular-project", 1_000)
+
+  assert.deepEqual(
+    projectSidebarSessionsInRenderOrder({
+      pinnedGroups: [pinnedGroup],
+      pinnedSessions: [pinnedSession],
+      regularGroups: [regularGroup],
+    }).map((item) => item.id),
+    ["pinned-child", "pinned-session", "regular-child"],
   )
 })

@@ -31,6 +31,18 @@ test("groupSidebarSessions shows pinned sessions before regular sessions", () =>
   )
 })
 
+test("groupSidebarSessions keeps idle sessions in creation order when updatedAt changes", () => {
+  const groups = groupSidebarSessions([
+    session("viewed", 5_000, { createdAt: 1_000 }),
+    session("newer", 2_000, { createdAt: 2_000 }),
+  ])
+
+  assert.deepEqual(
+    groups.regular.map((item) => item.id),
+    ["newer", "viewed"],
+  )
+})
+
 test("groupSidebarSessions orders running regular sessions by run start", () => {
   const groups = groupSidebarSessions(
     [session("idle-new", 5_000), session("running-old", 1_000), session("running-new", 2_000)],

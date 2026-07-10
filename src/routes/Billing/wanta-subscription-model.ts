@@ -1,6 +1,7 @@
 import type {
   SubscriptionStatus,
   WantaPendingPaymentResult,
+  WantaSubscriptionChangePayload,
   WantaSubscriptionPlan,
 } from "../../../electron/chat/common.ts"
 
@@ -140,6 +141,17 @@ export function isWantaSubscriptionActionDisabled({
   isSubmitting,
 }: WantaSubscriptionActionDisabledInput): boolean {
   return !canManage || isSessionExpired || isSubmitting
+}
+
+/** Wanta 计划变更必须带上目标席位数，与 console 的订阅预览/提交契约保持一致。 */
+export function buildWantaPlanChange(
+  plan: WantaSubscriptionPlan | null,
+  additionalSeats: number,
+): WantaSubscriptionChangePayload {
+  return {
+    additional_seats: Math.max(0, Math.floor(additionalSeats)),
+    plan,
+  }
 }
 
 function recommendWantaAction({

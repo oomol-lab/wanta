@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildWantaPlanChange,
   buildWantaSubscriptionOverview,
   isWantaSubscriptionActionDisabled,
   resolveWantaPendingPaymentTargets,
@@ -331,5 +332,14 @@ describe("isWantaSubscriptionActionDisabled", () => {
         isSubmitting: true,
       }),
     ).toBe(true)
+  })
+})
+
+describe("buildWantaPlanChange", () => {
+  it("keeps the current seat target when changing plans", () => {
+    expect(buildWantaPlanChange("wanta_pro", 3.8)).toEqual({
+      additional_seats: 3,
+      plan: "wanta_pro",
+    })
   })
 })

@@ -165,7 +165,9 @@ export function artifactGroupDisplayItem(
 ): LocalArtifactItem | undefined {
   if (
     group.root?.kind === "directory" &&
-    (pack?.display === "file_list" || pack?.display === "project" || (!pack && group.totalItems > 1))
+    (pack?.display === "file_list" ||
+      pack?.display === "project" ||
+      (!pack && group.totalItems > 1 && !group.items.every(isImageArtifact)))
   ) {
     return group.root
   }

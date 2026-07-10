@@ -58,10 +58,9 @@ export interface MessageAttachmentEvent {
   partId: string
   attachment: ChatAttachment
 }
-export interface MessageArtifactsEvent {
+export interface ArtifactBundleUpdatedEvent {
   sessionId: string
   messageId: string
-  artifactRoot: string
 }
 export interface TurnOutputUpdatedEvent {
   sessionId: string
@@ -318,7 +317,6 @@ export interface ChatMessage {
   role: ChatRole
   parts: ChatMessagePart[]
   createdAt: number
-  artifactRoot?: string
   tokenUsage?: ChatTokenUsage
 }
 
@@ -496,6 +494,12 @@ export type LocalArtifactPackKind =
   | "mixed"
 
 export type LocalArtifactDisplayMode = "gallery" | "document" | "table" | "project" | "file_list" | "single"
+export type ArtifactBundleKind = LocalArtifactPackKind
+export type ArtifactBundleDisplay = LocalArtifactDisplayMode
+export type ArtifactBundleStatus = "ready" | "partial" | "failed"
+export type ArtifactBundleFailure = "generated_preview_not_persisted"
+export type ArtifactItemStatus = "ready" | "missing"
+export type ArtifactItemOrigin = "managed_output" | "assistant_attachment" | "assistant_preview"
 
 export type LocalArtifactEntryRole = "primary" | "supporting" | "summary" | "metadata"
 
@@ -516,6 +520,33 @@ export interface LocalArtifactPack {
   supporting: LocalArtifactEntry[]
   totalItems: number
   truncated: boolean
+}
+
+export interface ArtifactBundle {
+  id: string
+  sessionId: string
+  messageId: string
+  rootPath: string
+  status: ArtifactBundleStatus
+  kind: ArtifactBundleKind
+  display: ArtifactBundleDisplay
+  items: ArtifactItem[]
+  totalItems: number
+  truncated: boolean
+  createdAt: number
+  completedAt?: number
+  failure?: ArtifactBundleFailure
+}
+
+export interface ArtifactItem extends LocalArtifactItem {
+  id: string
+  status: ArtifactItemStatus
+  origin: ArtifactItemOrigin
+}
+
+export interface ArtifactBundlesRequest {
+  sessionId: string
+  messageIds: string[]
 }
 
 export type TurnOutputFileRole = "process" | "project_change"
@@ -545,7 +576,6 @@ export interface TurnOutputFile {
 export interface TurnOutputRecord {
   sessionId: string
   messageId: string
-  artifactRoot?: string
   processRoot?: string
   projectRoot?: string
   createdAt: number
@@ -587,8 +617,7 @@ export interface ChatSessionSnapshot {
 }
 
 export interface ResolveLocalArtifactsRequest {
-  text?: string
-  artifactRoot?: string
+  artifactRoot: string
   maxDirectoryItems?: number
 }
 
@@ -739,7 +768,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messageDelta: MessageDeltaEvent
     messageReasoningDelta: MessageReasoningDeltaEvent
     messageAttachment: MessageAttachmentEvent
-    messageArtifacts: MessageArtifactsEvent
+    artifactBundleUpdated: ArtifactBundleUpdatedEvent
     turnOutputUpdated: TurnOutputUpdatedEvent
     assistantActivity: AssistantActivityEvent
     toolCallStarted: ToolCallStartedEvent
@@ -767,6 +796,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]>
     getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
+    getArtifactBundles(req: ArtifactBundlesRequest): Promise<ArtifactBundle[]>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
     showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void>
     /** 用系统浏览器打开一个 http/https URL（额度中心等渲染层已自行解析好 URL 后调用；主进程仅校验+外开）。 */

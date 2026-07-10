@@ -11,9 +11,9 @@ import type {
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
-import type { GeneratedArtifactSource } from "./artifact-sources.ts"
 import type { AssistantTimelineBlock } from "./assistant-timeline.ts"
 import type { ChatTurn, ChatTurnProcessStatus, ChatTurnRetrySource } from "./chat-turns.ts"
+import type { ProcessOpenPreference } from "./process-activity-open.ts"
 import type { QuestionDraftStore } from "./question-fields.ts"
 import type { TranslateFn } from "@/i18n/i18n"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
@@ -24,8 +24,7 @@ import type { StickToBottomContext } from "use-stick-to-bottom"
 import { ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
 import * as React from "react"
 import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
-import { useResolvedArtifactGroups } from "./artifact-resolution.ts"
-import { collectVisibleGeneratedArtifactSources } from "./artifact-sources.ts"
+import { useArtifactBundles } from "./artifact-bundle-records.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { attachmentWithPreview } from "./chat-attachment-utils.ts"
 import {
@@ -59,6 +58,7 @@ import {
   visibleUserText,
 } from "./message-text.ts"
 import { PermissionRequiredCard } from "./PermissionRequiredCard.tsx"
+import { processOpenAfterStatusChange, processShouldOpenAutomatically } from "./process-activity-open.ts"
 import { QuestionPromptCard } from "./QuestionPromptCard.tsx"
 import { renderBlocks } from "./render-blocks.ts"
 import { formatWholeSecondDuration } from "./tool-activity.ts"
@@ -101,36 +101,6 @@ const EMPTY_ARTIFACT_GROUPS: ResolvedArtifactGroup[] = []
 
 function noopArtifactsAvailable(_selection: ArtifactSelection): void {
   // 只有最新的产物需要自动成为右侧面板的默认选择。
-}
-
-function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((item, index) => item === right[index])
-}
-
-function artifactSourceEquals(left: GeneratedArtifactSource, right: GeneratedArtifactSource): boolean {
-  return (
-    left.messageId === right.messageId &&
-    left.artifactRoot === right.artifactRoot &&
-    left.requestText === right.requestText &&
-    left.text === right.text &&
-    stringArraysEqual(left.sourcePaths, right.sourcePaths)
-  )
-}
-
-function reuseStableArtifactSources(
-  previous: GeneratedArtifactSource[],
-  next: GeneratedArtifactSource[],
-): GeneratedArtifactSource[] {
-  let changed = previous.length !== next.length
-  const stable = next.map((source, index) => {
-    const previousSource = previous[index]
-    if (previousSource && artifactSourceEquals(previousSource, source)) {
-      return previousSource
-    }
-    changed = true
-    return source
-  })
-  return changed ? stable : previous
 }
 
 function artifactGroupArraysEqual(
@@ -233,12 +203,7 @@ function TurnProcessActivity({
 }) {
   const t = useT()
   const status = chatTurnProcessStatus(process, live)
-  const shouldOpen =
-    status === "running" ||
-    status === "retrying" ||
-    status === "needsAction" ||
-    status === "error" ||
-    !process.hasFinalAnswer
+  const shouldOpen = processShouldOpenAutomatically(status, process.hasFinalAnswer)
   const statusKey = [
     status,
     live ? "live" : "",
@@ -258,23 +223,17 @@ function TurnProcessActivity({
     !activeTool && status === "running" && process.activity && process.tools.length > 0
       ? process.tools.at(-1)?.partId
       : undefined
-  const forceOpen = status === "needsAction" || (status === "error" && !process.hasFinalAnswer)
-  const userChangedOpenRef = React.useRef(false)
+  const openPreferenceRef = React.useRef<ProcessOpenPreference>("auto")
 
   React.useEffect(() => {
-    if (forceOpen) {
-      userChangedOpenRef.current = false
-      setOpen(true)
-      return
-    }
-    if (userChangedOpenRef.current) {
-      return
-    }
-    // 活跃步骤展开后不因工具间隙或最终回答流式输出的短暂状态自动收起。
-    if (shouldOpen) {
-      setOpen(true)
-    }
-  }, [forceOpen, shouldOpen, statusKey])
+    setOpen(
+      processOpenAfterStatusChange({
+        hasFinalAnswer: process.hasFinalAnswer,
+        preference: openPreferenceRef.current,
+        status,
+      }),
+    )
+  }, [process.hasFinalAnswer, status, statusKey])
 
   React.useEffect(() => {
     if (status !== "running" && status !== "retrying") {
@@ -286,7 +245,7 @@ function TurnProcessActivity({
   }, [status])
 
   const handleOpenChange = React.useCallback((nextOpen: boolean) => {
-    userChangedOpenRef.current = true
+    openPreferenceRef.current = nextOpen ? "user_open" : "user_closed"
     setOpen(nextOpen)
   }, [])
 
@@ -966,7 +925,6 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const stableTurnsRef = React.useRef<ChatTurn[]>([])
   const assistantActionTextByMessageIdRef = React.useRef<Map<string, string>>(new Map())
-  const visibleArtifactSourcesRef = React.useRef<GeneratedArtifactSource[]>([])
   const artifactGroupsByMessageIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const artifactGroupsByTurnIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
@@ -976,6 +934,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     stableTurnsRef.current = stableTurns
     return stableTurns
   }, [groupedTurns])
+  const artifactBundles = useArtifactBundles(activeSessionId, messages)
   const turnOutputRecords = useTurnOutputRecords(activeSessionId, messages)
   const turnOutputRecordsByMessage = React.useMemo(
     () => turnOutputRecordsByMessageId(turnOutputRecords),
@@ -1014,13 +973,26 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     assistantActionTextByMessageIdRef.current = stable
     return stable
   }, [activeAssistantMessageId, messages])
-  const visibleArtifactSources = React.useMemo(() => {
-    const next = collectVisibleGeneratedArtifactSources(messages, isGenerating)
-    const stable = reuseStableArtifactSources(visibleArtifactSourcesRef.current, next)
-    visibleArtifactSourcesRef.current = stable
-    return stable
-  }, [isGenerating, messages])
-  const visibleArtifactGroups = useResolvedArtifactGroups(visibleArtifactSources)
+  const visibleArtifactGroups = React.useMemo<ResolvedArtifactGroup[]>(
+    () =>
+      artifactBundles.map((bundle) => ({
+        messageId: bundle.messageId,
+        group: {
+          root: {
+            path: bundle.rootPath,
+            name: bundle.rootPath.split(/[\\/]/u).pop() ?? bundle.rootPath,
+            kind: "directory" as const,
+            mime: "inode/directory",
+          },
+          items: bundle.items,
+          totalItems: bundle.totalItems,
+          truncated: bundle.truncated,
+        },
+        status: bundle.status,
+        ...(bundle.failure ? { failure: bundle.failure } : {}),
+      })),
+    [artifactBundles],
+  )
   const artifactGroupsByMessageId = React.useMemo(() => {
     const byMessageId = new Map<string, ResolvedArtifactGroup[]>()
     for (const group of visibleArtifactGroups) {

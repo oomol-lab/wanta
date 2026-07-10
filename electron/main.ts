@@ -25,7 +25,7 @@ import { isAttachmentPickerKind } from "./attachment-picker.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
 import { branding } from "./branding.ts"
-import { ArtifactRootStore } from "./chat/artifact-roots.ts"
+import { ArtifactBundleStore } from "./chat/artifact-bundles.ts"
 import { mimeFromPath } from "./chat/artifacts.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
@@ -132,7 +132,7 @@ const authStore = new AuthStore(app.getPath("userData"))
 const sessionActivityStore = new SessionActivityStore(app.getPath("userData"))
 const sessionMetadataStore = new SessionMetadataStore(app.getPath("userData"))
 const sessionProjectStore = new SessionProjectStore(app.getPath("userData"))
-const artifactRootStore = new ArtifactRootStore(app.getPath("userData"))
+const artifactBundleStore = new ArtifactBundleStore(app.getPath("userData"))
 const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("userData"))
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"))
@@ -140,7 +140,7 @@ const trustedAttachmentPaths = new Set<string>()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
 // 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
-  artifactRootStore,
+  artifactBundleStore,
   authorizationOverlayStore,
   projectStore: sessionProjectStore,
   stoppedGenerationStore,
@@ -152,7 +152,7 @@ const sessionService = new SessionServiceImpl(null, {
   activityStore: sessionActivityStore,
   metadataStore: sessionMetadataStore,
   onSessionRemoved: async (sessionId) => {
-    await Promise.all([artifactRootStore.removeSession(sessionId), turnOutputStore.removeSession(sessionId)]).catch(
+    await Promise.all([artifactBundleStore.removeSession(sessionId), turnOutputStore.removeSession(sessionId)]).catch(
       (error: unknown) => {
         console.warn("[wanta] failed to clean removed session outputs", error)
       },

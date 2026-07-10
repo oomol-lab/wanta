@@ -47,7 +47,6 @@ import {
   setGenerationNoticePart,
   setAttachmentPart,
   setErrorPart,
-  setMessageArtifactRoot,
   setPart,
   setReasoningPart,
   setTextPart,
@@ -797,10 +796,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         removeAnsweredPendingQuestions(e.sessionId)
         flushPendingTextDeltas()
         patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
-      }),
-      chatService.serverEvents.on("messageArtifacts", (e) => {
-        removeAnsweredPendingQuestions(e.sessionId)
-        patch(e.sessionId, (msgs) => setMessageArtifactRoot(msgs, e))
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
         removeAnsweredPendingQuestions(e.sessionId)

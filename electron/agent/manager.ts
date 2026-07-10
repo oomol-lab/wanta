@@ -979,7 +979,7 @@ function sleep(ms: number): Promise<void> {
   })
 }
 
-function buildArtifactSystem(artifactDir: string | undefined): string | undefined {
+export function buildArtifactSystem(artifactDir: string | undefined): string | undefined {
   if (!artifactDir) {
     return undefined
   }
@@ -988,13 +988,14 @@ function buildArtifactSystem(artifactDir: string | undefined): string | undefine
     `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
     "- Do not create files just because this artifact directory is provided.",
     "- For edits to an existing local project, modify the requested project files in place; use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
-    "- Treat that directory as one user-facing artifact pack. Create a machine-readable manifest named .wanta-artifact.json in the artifact directory when you create any deliverable files.",
-    "- The manifest must be valid JSON with: version: 1, title, kind, display, optional summary, items, and optional supporting. Choose kind from image_set, document, spreadsheet, presentation, web_page, code_project, archive, mixed. Choose display from gallery, document, table, project, file_list, single.",
-    "- Manifest item paths must be relative paths inside the artifact directory. Mark each main user-facing deliverable with role primary. Use summary only for a separate short summary file, never for the main report itself. Do not mark temporary scripts, caches, raw connector JSON, or intermediate files as primary.",
-    "- Treat HTML reports, images, PDFs, charts, spreadsheets, presentations, archives, and documents as user-facing deliverables. For a single HTML report, use kind web_page or document, display single or document, and include the HTML file as a primary item.",
-    "- For image sets, put the primary images in display order, use stable padded names such as 001.jpg and 002.jpg, set kind to image_set, set display to gallery, and include only user-facing images as primary items.",
+    "- Wanta indexes the directory recursively and determines the artifact type from the actual files. Do not create a manifest or describe files that do not exist.",
+    "- Treat HTML reports, images, PDFs, charts, spreadsheets, presentations, archives, and documents as user-facing deliverables.",
+    "- For image sets, save every final image in display order with stable padded names such as 001.jpg and 002.jpg.",
+    "- Image preview and artifact persistence are separate outputs, and both are required for every final generated image whenever the source can be materialized. Preserve a useful inline preview whenever an image provider or tool returns a viewable image, even when that preview is remote, data-backed, or temporary.",
+    "- Persist every final generated image into this directory. If a tool returns only a remote, data-backed, or temporary preview, keep the preview reference intact so Wanta can materialize the same image during turn finalization. Do not describe it as a saved local file until persistence succeeds.",
     "- When the final deliverable is one to four image files and inline viewing helps the user, include Markdown image references in the final response using their absolute local paths, for example ![short title](</absolute/path/image.png>).",
-    "- When there are many images, such as crawled or downloaded image sets, do not inline every image in the final response. Summarize the set and rely on the artifact pack for browsing.",
+    "- If only a provider-backed image preview is available, keep that preview visible in the final response instead of omitting it. Wanta will materialize supported preview sources and independently report persistence failures.",
+    "- When there are many images, such as crawled or downloaded image sets, do not inline every image in the final response. Summarize the set and rely on the artifact browser.",
     "- Do not reuse output folders from earlier turns or other chats.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
     "- When you finish, summarize the deliverable contents and report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
@@ -1010,7 +1011,7 @@ function buildProcessSystem(processDir: string | undefined): string | undefined 
     "Intermediate process file contract for this turn:",
     `- Use this exact directory for temporary scripts, raw service responses, debug logs, scratch data, and other implementation files that help you complete the task but are not the user-facing deliverable: ${processDir}`,
     "- Do not put final deliverables in this process directory.",
-    "- Do not put process files in the artifact manifest unless the user explicitly asked for source code or scripts as the deliverable.",
+    "- Do not put process files in the artifact directory unless the user explicitly asked for source code or scripts as the deliverable.",
     "- Prefer short, descriptive filenames such as create_presentation.js, transform_data.py, raw-input.json, or render-log.txt.",
     "- Do not mention process files in the final response unless the user asks for implementation details, debugging details, or source files.",
   ].join("\n")

@@ -2,11 +2,13 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
-import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
+import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
   AgentPermissionMode,
+  ArtifactBundle,
+  ArtifactBundlesRequest,
   AnswerPermissionRequest,
   AnswerQuestionRequest,
   AttachmentPreviewRequest,
@@ -58,8 +60,13 @@ import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
-import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
-import { extractLocalPathCandidates, isBroadLocalArtifactPath, normalizeLocalPathCandidate } from "./artifacts.ts"
+import {
+  buildArtifactBundle,
+  generatedImagePreviewCount,
+  materializeAssistantArtifacts,
+  recordArtifactBundle,
+} from "./artifact-bundles.ts"
+import { normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./authorization.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
@@ -226,7 +233,7 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 }
 
 interface ChatServiceDeps {
-  artifactRootStore?: ArtifactRootStore
+  artifactBundleStore?: ArtifactBundleStore
   authorizationOverlayStore?: AuthorizationOverlayStore
   projectStore?: Pick<SessionProjectStore, "read">
   stoppedGenerationStore?: StoppedGenerationStore
@@ -298,9 +305,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private pendingPermissionRequests = new Map<string, ChatPermissionRequest>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
-  private artifactRoots: ArtifactRoots = new Map()
-  private artifactRootsLoaded = false
-  private artifactRootsLoadPromise: Promise<void> | null = null
+  private artifactBundles: ArtifactBundles = new Map()
+  private artifactBundlesLoaded = false
+  private artifactBundlesLoadPromise: Promise<void> | null = null
+  private artifactBundleWritePromise: Promise<void> = Promise.resolve()
   private authorizationOverlays: AuthorizationOverlays = new Map()
   private authorizationOverlaysLoaded = false
   private authorizationOverlaysLoadPromise: Promise<void> | null = null
@@ -353,9 +361,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.sessionPermissionGrants.clear()
     this.automaticPermissionReplies.clear()
     this.pendingPermissionRequests.clear()
-    this.artifactRoots.clear()
-    this.artifactRootsLoaded = false
-    this.artifactRootsLoadPromise = null
+    this.artifactBundles.clear()
+    this.artifactBundlesLoaded = false
+    this.artifactBundlesLoadPromise = null
+    this.artifactBundleWritePromise = Promise.resolve()
     this.authorizationOverlays.clear()
     this.authorizationOverlaysLoaded = false
     this.authorizationOverlaysLoadPromise = null
@@ -1240,17 +1249,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         roots.add(filePath)
       }
     }
-    await Promise.all([this.ensureArtifactRootsLoaded(), this.ensureTurnOutputsLoaded()])
-    for (const sessionRoots of this.artifactRoots.values()) {
-      for (const artifactRoot of sessionRoots.values()) {
-        roots.add(artifactRoot)
+    await Promise.all([this.ensureArtifactBundlesLoaded(), this.ensureTurnOutputsLoaded()])
+    for (const records of this.artifactBundles.values()) {
+      for (const bundle of records.values()) {
+        roots.add(bundle.rootPath)
       }
     }
     for (const records of this.turnOutputs.values()) {
       for (const record of records.values()) {
-        if (record.artifactRoot) {
-          roots.add(record.artifactRoot)
-        }
         if (record.processRoot) {
           roots.add(record.processRoot)
         }
@@ -1814,19 +1820,45 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.turnOutputsLoadPromise
   }
 
-  private async ensureArtifactRootsLoaded(): Promise<void> {
-    if (this.artifactRootsLoaded) {
+  private async ensureArtifactBundlesLoaded(): Promise<void> {
+    if (this.artifactBundlesLoaded) {
       return
     }
-    if (this.artifactRootsLoadPromise) {
-      return this.artifactRootsLoadPromise
+    if (this.artifactBundlesLoadPromise) {
+      return this.artifactBundlesLoadPromise
     }
-    this.artifactRootsLoadPromise = (async () => {
-      this.artifactRoots = (await this.deps.artifactRootStore?.read()) ?? new Map()
-      this.artifactRootsLoaded = true
-      this.artifactRootsLoadPromise = null
+    this.artifactBundlesLoadPromise = (async () => {
+      this.artifactBundles = (await this.deps.artifactBundleStore?.read()) ?? new Map()
+      this.artifactBundlesLoaded = true
+      this.artifactBundlesLoadPromise = null
     })()
-    return this.artifactRootsLoadPromise
+    return this.artifactBundlesLoadPromise
+  }
+
+  private async rememberArtifactBundle(bundle: ArtifactBundle): Promise<void> {
+    await this.ensureArtifactBundlesLoaded()
+    recordArtifactBundle(this.artifactBundles, bundle)
+    const write = this.artifactBundleWritePromise
+      .catch(() => undefined)
+      .then(() => this.deps.artifactBundleStore?.write(this.artifactBundles))
+    this.artifactBundleWritePromise = write ?? Promise.resolve()
+    await write
+  }
+
+  private async publishArtifactBundle(bundle: ArtifactBundle): Promise<void> {
+    await this.rememberArtifactBundle(bundle)
+    await this.send("artifactBundleUpdated", {
+      sessionId: bundle.sessionId,
+      messageId: bundle.messageId,
+    }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit artifact bundle update", error)
+      logDiagnostic(
+        "chat-service",
+        "failed to emit artifact bundle update",
+        { error, messageId: bundle.messageId, sessionId: bundle.sessionId },
+        "warn",
+      )
+    })
   }
 
   private async ensureAuthorizationOverlaysLoaded(): Promise<void> {
@@ -1842,29 +1874,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.authorizationOverlaysLoadPromise = null
     })()
     return this.authorizationOverlaysLoadPromise
-  }
-
-  private async rememberArtifactRoot(sessionId: string, messageId: string, artifactRoot: string): Promise<void> {
-    await this.ensureArtifactRootsLoaded()
-    if (!recordArtifactRoot(this.artifactRoots, sessionId, messageId, artifactRoot)) {
-      return
-    }
-    await this.deps.artifactRootStore?.write(this.artifactRoots)
-  }
-
-  private async publishArtifactRoot(sessionId: string, messageId: string, artifactRoot: string): Promise<void> {
-    await this.rememberArtifactRoot(sessionId, messageId, artifactRoot).catch((error: unknown) => {
-      console.warn("[wanta] failed to record artifact root", error)
-    })
-    await this.send("messageArtifacts", { sessionId, messageId, artifactRoot }).catch((error: unknown) => {
-      console.warn("[wanta] failed to emit artifact root:", error)
-      logDiagnostic(
-        "chat-service",
-        "failed to emit artifact root",
-        { artifactRoot, error, messageId, sessionId },
-        "warn",
-      )
-    })
   }
 
   private async rememberAuthorizationOverlay(
@@ -1979,14 +1988,37 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!active || !resolvedMessageId) {
       return
     }
-    const [artifactGroup, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
-      directoryArtifacts(active.artifactRoot, defaultMaxDirectoryItems),
+    const messages = await this.agent?.getMessages(sessionId).catch(() => [])
+    const materializedOrigins = await materializeAssistantArtifacts(
+      messages ?? [],
+      resolvedMessageId,
+      active.artifactRoot,
+    ).catch((error: unknown) => {
+      console.warn("[wanta] failed to materialize assistant artifacts", error)
+      logDiagnostic(
+        "chat-service",
+        "failed to materialize assistant artifacts",
+        { error, messageId: resolvedMessageId, sessionId },
+        "warn",
+      )
+      return new Map()
+    })
+    const [artifactBundle, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
+      buildArtifactBundle({
+        artifactRoot: active.artifactRoot,
+        completedAt: Date.now(),
+        createdAt: active.createdAt,
+        generatedPreviewCount: generatedImagePreviewCount(messages ?? [], resolvedMessageId),
+        materializedOrigins,
+        messageId: resolvedMessageId,
+        sessionId,
+      }),
       processOutputFiles(active.processRoot),
       intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
       projectOutputFiles(active.projectBaseline, active.projectRoot),
     ])
-    if (artifactGroup?.items.length) {
-      await this.publishArtifactRoot(sessionId, resolvedMessageId, active.artifactRoot)
+    if (artifactBundle) {
+      await this.publishArtifactBundle(artifactBundle)
     }
     const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
     if (files.length === 0) {
@@ -1995,7 +2027,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const record: StoredTurnOutputRecord = {
       sessionId,
       messageId: resolvedMessageId,
-      artifactRoot: active.artifactRoot,
       processRoot: active.processRoot,
       ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
       createdAt: active.createdAt,
@@ -2046,6 +2077,27 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return output
   }
 
+  public async getArtifactBundles(req: ArtifactBundlesRequest): Promise<ArtifactBundle[]> {
+    await this.ensureArtifactBundlesLoaded()
+    const records = this.artifactBundles.get(req.sessionId)
+    if (!records) {
+      return []
+    }
+    const seen = new Set<string>()
+    const bundles: ArtifactBundle[] = []
+    for (const messageId of req.messageIds) {
+      if (seen.has(messageId)) {
+        continue
+      }
+      seen.add(messageId)
+      const bundle = records.get(messageId)
+      if (bundle) {
+        bundles.push(bundle)
+      }
+    }
+    return bundles
+  }
+
   public async getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult> {
     await this.ensureTurnOutputsLoaded()
     const record = this.turnOutputs.get(req.sessionId)?.get(req.messageId)
@@ -2063,8 +2115,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult> {
-    const candidates = req.artifactRoot ? [req.artifactRoot] : extractLocalPathCandidates(req.text ?? "")
-    const fromText = !req.artifactRoot
+    const candidates = [req.artifactRoot]
     const maxDirectoryItems = Math.max(1, Math.min(req.maxDirectoryItems ?? defaultMaxDirectoryItems, 200))
     const trustedRoots = await this.trustedLocalPathRoots()
     const seen = new Set<string>()
@@ -2075,13 +2126,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (!filePath || seen.has(filePath)) {
         continue
       }
-      if (fromText && isBroadLocalArtifactPath(filePath, os.homedir())) {
-        continue
-      }
       if (!(await this.isPathInTrustedRoots(filePath, trustedRoots))) {
-        if (fromText) {
-          continue
-        }
         throw new Error("Local artifact path is not available from this conversation.")
       }
       seen.add(filePath)
@@ -2159,14 +2204,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return []
     }
     const messages = await this.agent.getMessages(sessionId)
-    await this.ensureArtifactRootsLoaded()
     await this.ensureAuthorizationOverlaysLoaded()
     await this.ensureStoppedGenerationsLoaded()
     const displayedMessages = applyStoppedGenerations(
-      applyAuthorizationOverlays(
-        applyArtifactRoots(messages, this.artifactRoots.get(sessionId)),
-        this.authorizationOverlays.get(sessionId),
-      ),
+      applyAuthorizationOverlays(messages, this.authorizationOverlays.get(sessionId)),
       this.stoppedGenerations.get(sessionId),
     )
     this.rememberTrustedMessageAttachments(sessionId, displayedMessages)

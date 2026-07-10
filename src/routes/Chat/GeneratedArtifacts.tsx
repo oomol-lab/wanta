@@ -14,6 +14,7 @@ import {
   Maximize2,
   Minimize2,
   PanelRightClose,
+  TriangleAlert,
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
@@ -299,7 +300,26 @@ function selectionWithContext(
   return { messageId, group, groups, ...(pack ? { pack } : {}), selectedPath }
 }
 
-function GeneratedArtifactsShelf({
+function ArtifactPersistenceWarning({ partial = false }: { partial?: boolean }) {
+  const t = useT()
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div className="min-w-0">
+          <p className="oo-text-label text-foreground">
+            {t(partial ? "artifacts.persistencePartialTitle" : "artifacts.persistenceFailedTitle")}
+          </p>
+          <p className="oo-text-caption mt-0.5 text-muted-foreground">
+            {t(partial ? "artifacts.persistencePartialDescription" : "artifacts.persistenceFailedDescription")}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function GeneratedArtifactsShelf({
   groups,
   onContextMenu,
   onOpen,
@@ -316,6 +336,14 @@ function GeneratedArtifactsShelf({
   const primaryDisplayItem = primary ? artifactGroupDisplayItem(primary.group, primary.pack) : null
   const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
+  if (primary?.status === "failed") {
+    return (
+      <section className="not-prose mt-2">
+        <ArtifactPersistenceWarning />
+      </section>
+    )
+  }
+
   if (!primary || !primaryDisplayItem || entries.length === 0) {
     return null
   }
@@ -327,9 +355,16 @@ function GeneratedArtifactsShelf({
     primaryDisplayItem.path,
     primary.pack,
   )
+  const allImages = entries.every((entry) => isImageArtifact(entry.item))
+  const title =
+    primary.pack?.title ??
+    (allImages && entries.length > 1
+      ? t("artifacts.imageCount", { count: entries.length })
+      : readableArtifactTitle(primaryDisplayItem))
 
   return (
     <section className="not-prose mt-2 grid gap-1.5">
+      {primary.status === "partial" ? <ArtifactPersistenceWarning partial /> : null}
       <button
         type="button"
         title={primary.group.root?.path ?? primaryDisplayItem.path}
@@ -343,9 +378,7 @@ function GeneratedArtifactsShelf({
       >
         <FileKindTile source={primaryDisplayItem} pack={primary.pack} className="size-9" iconClassName="size-4" />
         <span className="min-w-0 flex-1">
-          <span className="oo-text-label block truncate text-foreground">
-            {primary.pack?.title ?? readableArtifactTitle(primaryDisplayItem)}
-          </span>
+          <span className="oo-text-label block truncate text-foreground">{title}</span>
           <span className="oo-text-caption-compact block truncate text-muted-foreground">
             {artifactMetaLabel(t, primaryDisplayItem, primary.pack)}
           </span>
@@ -374,7 +407,7 @@ export function GeneratedArtifacts({ groups, onOpen, onAvailable, selectionGroup
   React.useEffect(() => {
     const resolved = groups.at(-1)
     const selectedPath = resolved ? artifactGroupDisplayItem(resolved.group, resolved.pack)?.path : undefined
-    if (resolved && selectedPath) {
+    if (resolved && resolved.status !== "failed" && selectedPath) {
       onAvailable(selectionWithContext(resolved.group, resolved.messageId, panelGroups, selectedPath, resolved.pack))
     }
   }, [groups, onAvailable, panelGroups])

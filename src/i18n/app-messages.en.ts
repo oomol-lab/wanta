@@ -800,6 +800,12 @@ export const enMessages = {
   "artifacts.emptyTitle": "No artifacts yet",
   "artifacts.emptyDescription":
     "Markdown, images, videos, audio, and other generated files will appear here when this conversation has them.",
+  "artifacts.persistenceFailedTitle": "Artifact not saved",
+  "artifacts.persistenceFailedDescription":
+    "The generated result was shown in the response but was not saved as a local file that can be reopened.",
+  "artifacts.persistencePartialTitle": "Some artifacts were not saved",
+  "artifacts.persistencePartialDescription":
+    "Some generated results were not saved as local files. Only successfully saved items are listed below.",
   "artifacts.viewAll": "View all {count}",
   "artifacts.viewAllOutputs": "View all outputs ({count})",
   "artifacts.count": "{count} items",

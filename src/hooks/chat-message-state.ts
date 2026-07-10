@@ -9,7 +9,6 @@ import type {
   ChatQuestionRequest,
   ChatRole,
   MessageAttachmentEvent,
-  MessageArtifactsEvent,
   MessageDeltaEvent,
   MessageErrorEvent,
   MessagePartRemovedEvent,
@@ -117,7 +116,6 @@ function sameMessageValue(left: ChatMessage, right: ChatMessage): boolean {
     left.clientId === right.clientId &&
     left.role === right.role &&
     left.createdAt === right.createdAt &&
-    left.artifactRoot === right.artifactRoot &&
     left.parts === right.parts &&
     jsonLikeEqual(left.contextMentions, right.contextMentions) &&
     jsonLikeEqual(left.tokenUsage, right.tokenUsage)
@@ -566,13 +564,6 @@ export function setAttachmentPart(msgs: ChatMessage[], event: MessageAttachmentE
   )
 }
 
-export function setMessageArtifactRoot(msgs: ChatMessage[], event: MessageArtifactsEvent): ChatMessage[] {
-  const ensured = ensureMessage(msgs, event.messageId, "assistant")
-  return ensured.map((message) =>
-    message.id === event.messageId ? { ...message, artifactRoot: event.artifactRoot } : message,
-  )
-}
-
 function messageText(message: Pick<ChatMessage, "parts">): string {
   return message.parts
     .filter((part) => part.kind === "text")
@@ -716,14 +707,10 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
   const missingLocalUsers = missingLocalUserMessages(current, fetched)
   const localUserByContent = localUsersByContent(current)
   const currentById = new Map(current.map((message) => [message.id, message]))
-  const artifactRootByMessageId = new Map(
-    current.flatMap((message) => (message.artifactRoot ? [[message.id, message.artifactRoot] as const] : [])),
-  )
   const fetchedWithLocalState = fetched.map((message) => {
     const matchedLocalUser =
       message.role === "user" ? localUserByContent.get(userMessageContentKey(message))?.shift() : undefined
     const currentMessage = currentById.get(message.id) ?? matchedLocalUser
-    const artifactRoot = artifactRootByMessageId.get(message.id)
     return reuseStableFetchedMessage(currentMessage, {
       ...message,
       clientId: currentMessage?.clientId ?? message.clientId ?? serverClientId(message.id),
@@ -731,7 +718,6 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
         ? { contextMentions: currentMessage.contextMentions }
         : {}),
       parts: preserveLocalErrorParts(message.parts, currentErrorPartsById.get(message.id)),
-      ...(artifactRoot && !message.artifactRoot ? { artifactRoot } : {}),
     })
   })
   const merged = insertMessagesByCreatedAt(fetchedWithLocalState, missingLocalUsers)

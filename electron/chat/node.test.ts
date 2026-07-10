@@ -3,11 +3,11 @@ import type { SessionProject } from "../session/common.ts"
 import type { ChatMessage } from "./common.ts"
 
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, test, vi } from "vitest"
-import { ArtifactRootStore } from "./artifact-roots.ts"
+import { ArtifactBundleStore, buildArtifactBundle, recordArtifactBundle } from "./artifact-bundles.ts"
 import { AuthorizationOverlayStore } from "./authorization.ts"
 import { buildContextMentionsSystem, ChatServiceImpl, isAbortErrorMessage } from "./node.ts"
 import { TurnOutputStore } from "./turn-outputs.ts"
@@ -600,7 +600,6 @@ test("getTurnOutputs returns requested records in order without exposing stored 
               {
                 sessionId: "session-1",
                 messageId: "assistant-1",
-                artifactRoot: path.join(root, "artifacts-1"),
                 processRoot: path.join(root, "process-1"),
                 createdAt: 1,
                 completedAt: 2,
@@ -702,9 +701,9 @@ test("message completion publishes artifact-only outputs without turn output rec
     const bridge = createBridgeAgent()
     bridge.createArtifactDir.mockResolvedValue(artifactDir)
     bridge.createProcessDir.mockResolvedValue(processDir)
-    const artifactRootStore = new ArtifactRootStore(root)
+    const artifactBundleStore = new ArtifactBundleStore(root)
     const turnOutputStore = new TurnOutputStore(root)
-    const service = new ChatServiceImpl(bridge.agent, { artifactRootStore, turnOutputStore })
+    const service = new ChatServiceImpl(bridge.agent, { artifactBundleStore, turnOutputStore })
     const events = captureServiceEvents(service)
     service.startEventBridge()
 
@@ -715,14 +714,164 @@ test("message completion publishes artifact-only outputs without turn output rec
     })
     await writeFile(path.join(artifactDir, "report.pdf"), "pdf", "utf8")
     bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
-    await waitForCondition(() => events.some((event) => event.event === "messageArtifacts"))
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
 
-    assert.equal((await artifactRootStore.read()).get("session-1")?.get("assistant-1"), artifactDir)
+    assert.equal((await artifactBundleStore.read()).get("session-1")?.get("assistant-1")?.items[0]?.name, "report.pdf")
     assert.equal((await turnOutputStore.read()).get("session-1")?.get("assistant-1"), undefined)
     assert.equal(
       events.some((event) => event.event === "turnOutputUpdated"),
       false,
     )
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("message completion exposes a failed artifact bundle when an image preview was not persisted", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-failed-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    bridge.getMessages.mockResolvedValue([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "text",
+            partId: "text-1",
+            text: "![generated](https://127.0.0.1/generated.png)",
+          },
+        ],
+      },
+    ])
+    const artifactBundleStore = new ArtifactBundleStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { artifactBundleStore })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "Create an image" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
+
+    const bundle = (await artifactBundleStore.read()).get("session-1")?.get("assistant-1")
+    assert.equal(bundle?.status, "failed")
+    assert.equal(bundle?.failure, "generated_preview_not_persisted")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("message completion materializes a data image preview into a ready artifact bundle", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-data-preview-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    bridge.getMessages.mockResolvedValue([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "text",
+            partId: "text-1",
+            text: "![generated](data:image/png;base64,aW1hZ2U=)",
+          },
+        ],
+      },
+    ])
+    const artifactBundleStore = new ArtifactBundleStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { artifactBundleStore })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "Create an image" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
+
+    const bundle = (await artifactBundleStore.read()).get("session-1")?.get("assistant-1")
+    assert.equal(bundle?.status, "ready")
+    assert.equal(bundle?.items[0]?.name, "generated-001.png")
+    assert.equal(bundle?.items[0]?.origin, "assistant_preview")
+    assert.equal(await readFile(path.join(artifactDir, "generated-001.png"), "utf8"), "image")
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("message completion materializes assistant file attachments into managed artifact storage", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-attachment-"))
+  try {
+    const artifactDir = path.join(root, "artifacts")
+    const processDir = path.join(root, "process")
+    const temporaryImage = path.join(root, "generated.png")
+    await mkdir(artifactDir, { recursive: true })
+    await mkdir(processDir, { recursive: true })
+    await writeFile(temporaryImage, "image")
+
+    const bridge = createBridgeAgent()
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    bridge.getMessages.mockResolvedValue([
+      {
+        id: "assistant-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [
+          {
+            kind: "attachment",
+            partId: "image-1",
+            attachment: {
+              id: "image-1",
+              kind: "file",
+              mime: "image/png",
+              name: "generated.png",
+              path: temporaryImage,
+              size: 5,
+            },
+          },
+        ],
+      },
+    ])
+    const artifactBundleStore = new ArtifactBundleStore(root)
+    const service = new ChatServiceImpl(bridge.agent, { artifactBundleStore })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "Create an image" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
+
+    const item = (await artifactBundleStore.read()).get("session-1")?.get("assistant-1")?.items[0]
+    assert.equal(item?.name, "generated.png")
+    assert.equal(item?.origin, "assistant_attachment")
+    assert.equal(await readFile(path.join(artifactDir, "generated.png"), "utf8"), "image")
   } finally {
     await rm(root, { force: true, recursive: true })
   }
@@ -2039,22 +2188,27 @@ test("buildContextMentionsSystem returns undefined without selected context", ()
   assert.equal(buildContextMentionsSystem([]), undefined)
 })
 
-test("resolveLocalArtifacts resolves an explicit artifact root without scanning unrelated text paths", async () => {
+test("resolveLocalArtifacts resolves a registered artifact directory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifacts-"))
   const artifactRoot = path.join(root, "turn")
-  const staleRoot = path.join(root, "stale")
   await mkdir(artifactRoot, { recursive: true })
-  await mkdir(staleRoot, { recursive: true })
   await writeFile(path.join(artifactRoot, "fresh.png"), "fresh")
-  await writeFile(path.join(staleRoot, "stale.png"), "stale")
 
-  const artifactRootStore = new ArtifactRootStore(root)
-  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", artifactRoot]])]]))
-  const service = new ChatServiceImpl(null, { artifactRootStore })
-  const result = await service.resolveLocalArtifacts({
+  const artifactBundleStore = new ArtifactBundleStore(root)
+  const bundle = await buildArtifactBundle({
     artifactRoot,
-    text: `ignore ${staleRoot}`,
+    completedAt: 2,
+    createdAt: 1,
+    generatedPreviewCount: 0,
+    messageId: "assistant-1",
+    sessionId: "session-1",
   })
+  assert.ok(bundle)
+  const records = new Map()
+  recordArtifactBundle(records, bundle)
+  await artifactBundleStore.write(records)
+  const service = new ChatServiceImpl(null, { artifactBundleStore })
+  const result = await service.resolveLocalArtifacts({ artifactRoot })
 
   assert.equal(result.groups.length, 1)
   assert.equal(result.groups[0]?.root?.path, artifactRoot)
@@ -2092,9 +2246,20 @@ test("resolveLocalArtifacts reads artifact pack manifests", async () => {
     }),
   )
 
-  const artifactRootStore = new ArtifactRootStore(root)
-  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", artifactRoot]])]]))
-  const service = new ChatServiceImpl(null, { artifactRootStore })
+  const artifactBundleStore = new ArtifactBundleStore(root)
+  const bundle = await buildArtifactBundle({
+    artifactRoot,
+    completedAt: 2,
+    createdAt: 1,
+    generatedPreviewCount: 0,
+    messageId: "assistant-1",
+    sessionId: "session-1",
+  })
+  assert.ok(bundle)
+  const records = new Map()
+  recordArtifactBundle(records, bundle)
+  await artifactBundleStore.write(records)
+  const service = new ChatServiceImpl(null, { artifactBundleStore })
   const result = await service.resolveLocalArtifacts({ artifactRoot })
 
   assert.equal(result.groups.length, 1)
@@ -2111,16 +2276,7 @@ test("resolveLocalArtifacts reads artifact pack manifests", async () => {
   )
 })
 
-test("resolveLocalArtifacts ignores broad directories extracted from assistant text", async () => {
-  const service = new ChatServiceImpl(null)
-  const result = await service.resolveLocalArtifacts({
-    text: "The path separator is `/`, and CI/CD is green.",
-  })
-
-  assert.deepEqual(result.groups, [])
-})
-
-test("resolveLocalArtifacts skips untrusted text paths and rejects untrusted explicit roots", async () => {
+test("resolveLocalArtifacts rejects an unregistered directory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifacts-untrusted-"))
   try {
     const artifactRoot = path.join(root, "turn")
@@ -2128,9 +2284,6 @@ test("resolveLocalArtifacts skips untrusted text paths and rejects untrusted exp
     await writeFile(path.join(artifactRoot, "secret.txt"), "secret")
 
     const service = new ChatServiceImpl(null)
-    const textResult = await service.resolveLocalArtifacts({ text: `Output: \`${artifactRoot}/secret.txt\`` })
-
-    assert.deepEqual(textResult.groups, [])
     await assert.rejects(() => service.resolveLocalArtifacts({ artifactRoot }))
   } finally {
     await rm(root, { force: true, recursive: true })
@@ -2253,9 +2406,7 @@ test("getLocalArtifactPreview returns text for code artifacts", async () => {
   const filePath = path.join(root, "script.py")
   await writeFile(filePath, "print('hello')\n")
 
-  const artifactRootStore = new ArtifactRootStore(root)
-  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", root]])]]))
-  const service = new ChatServiceImpl(null, { artifactRootStore })
+  const service = new ChatServiceImpl(null, { trustedAttachmentPaths: new Set([root]) })
   const result = await service.getLocalArtifactPreview({ path: filePath })
 
   assert.equal(result.kind, "text")
@@ -2269,9 +2420,7 @@ test("getLocalArtifactPreview rejects binary-looking text files", async () => {
   const filePath = path.join(root, "output.txt")
   await writeFile(filePath, Buffer.from([0, 1, 2, 3]))
 
-  const artifactRootStore = new ArtifactRootStore(root)
-  await artifactRootStore.write(new Map([["session-1", new Map([["assistant-1", root]])]]))
-  const service = new ChatServiceImpl(null, { artifactRootStore })
+  const service = new ChatServiceImpl(null, { trustedAttachmentPaths: new Set([root]) })
   const result = await service.getLocalArtifactPreview({ path: filePath })
 
   assert.equal(result.kind, "unsupported")

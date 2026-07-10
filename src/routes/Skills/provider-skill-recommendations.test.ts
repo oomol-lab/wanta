@@ -33,13 +33,14 @@ test("getConventionalProviderSkillPackageName derives the official package conve
   assert.equal(getConventionalProviderSkillPackageName(providerCandidate("bad service", "Bad Service")), null)
 })
 
-test("getConnectedProviderSkillCandidates keeps active connected providers as package candidates", () => {
+test("getConnectedProviderSkillCandidates keeps configured active providers as package candidates", () => {
   const candidates = getConnectedProviderSkillCandidates([
     provider("Gmail"),
     provider("github", { appStatus: "reauth_required" }),
     provider("notion", { status: "available" }),
     provider("gmail", { displayName: "Gmail Duplicate" }),
     provider("amap", { appStatus: undefined }),
+    provider("quickchart", { actionKind: "no_auth", appCount: 0, appStatus: undefined }),
     provider("posthog", { displayName: "PostHog" }),
     provider("google_bigquery"),
     provider("bad service"),
@@ -163,11 +164,11 @@ test("getInstallableProviderSkillRecommendations de-duplicates the same runtime 
 
 function provider(
   service: string,
-  options: Partial<Pick<ConnectionProvider, "appStatus" | "displayName" | "status">> = {},
+  options: Partial<Pick<ConnectionProvider, "actionKind" | "appCount" | "appStatus" | "displayName" | "status">> = {},
 ): ConnectionProvider {
   return {
-    actionKind: "oauth2",
-    appCount: 1,
+    actionKind: options.actionKind ?? "oauth2",
+    appCount: options.appCount ?? 1,
     apps: [],
     authTypes: ["oauth2"],
     canDisconnect: true,

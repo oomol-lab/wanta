@@ -2,6 +2,7 @@ import type { ConnectionProvider } from "../../../electron/connections/common.ts
 import type { PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { ManagedSkillGroupById, PublicSkillInstallState } from "./skill-route-model.ts"
 
+import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
 import {
   canInstallPublicSkill,
   getPublicPackageInstallState,
@@ -147,7 +148,14 @@ export function getConnectedProviderSkillCandidates(
 
   for (const provider of providers) {
     const service = normalizeProviderService(provider.service)
-    if (!service || !providerServicePattern.test(service) || provider.status !== "connected") {
+    // 无需配置、对所有工作区默认可用的 no_auth 连接不代表用户自己的已连接服务，
+    // 因此不据此推荐安装对应 Skill。
+    if (
+      !service ||
+      !providerServicePattern.test(service) ||
+      provider.status !== "connected" ||
+      isConnectionlessNoAuthProvider(provider)
+    ) {
       continue
     }
     if (provider.appStatus && provider.appStatus !== "active") {

@@ -5,12 +5,18 @@ import { isManagedPythonExecutable, managedPythonExecutable } from "../agent/pyt
 import { hasUnsafeShellSyntax, shellWords } from "./shell-syntax.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
-export type SessionPermissionGrantKind = "project_dev_command" | "python_dependency_install" | "request"
+export type SessionPermissionGrantKind =
+  | "project_dependency_install"
+  | "project_dev_command"
+  | "python_dependency_install"
+  | "request"
 
 export interface SessionPermissionGrant {
   action: string
+  generationId?: string
   kind?: SessionPermissionGrantKind
   patterns: string[]
+  projectRoot?: string
   processRoot?: string
 }
 
@@ -61,6 +67,7 @@ const HIGH_RISK_COMMAND_PATTERNS: readonly RegExp[] = [
   /\brm\s+[^;&|]*-[^\s;&|]*f[^\s;&|]*r/i,
   /\brm\s+[^;&|]*-[^\s;&|]*r\b/i,
   /\bfind\b[^;&|]*\s-delete\b/i,
+  /\bfind\b[^;&|]*\s-(?:exec|execdir|ok|okdir)\b/i,
   /\bchmod\s+(?:-[^\s]+\s+)*777\b/i,
   /\bchmod\s+(?:-[^\s]+\s+)*-R\b/i,
   /\bchown\s+(?:-[^\s]+\s+)*(?:root|[^;&|]*\/(?:etc|bin|sbin|usr|system|library))/i,
@@ -89,6 +96,45 @@ const HIGH_RISK_COMMAND_PATH_PATTERNS: readonly RegExp[] = [
   /(^|[/\s"'=])(?:\.netrc|\.npmrc|\.pypirc|credentials|id_dsa|id_ecdsa|id_ed25519|id_rsa)(?=$|[/\s"';&|<>])/i,
   /(^|[/\s"'=])(?:cookies|login data|keychain|keychains)(?=$|[/\s"';&|<>])/i,
 ]
+
+const SENSITIVE_COMMAND_RESOURCE_PATTERN =
+  /(^|[\s"'=])(?:~|\$HOME|\/Users\/[^/\s"']+)\/(?:\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.gcloud|\.config\/(?:gh|gcloud)|Library\/(?:Keychains|Mail|Messages|AddressBook|Calendars|Application Support\/(?:Google\/Chrome|Firefox|Brave|Microsoft Edge)))(?:\/|[\s"';&|<>]|$)/i
+
+function pathValue(value: string): string {
+  const separator = value.indexOf("=")
+  return (separator >= 0 ? value.slice(separator + 1) : value).trim()
+}
+
+function looksLikeLocalPath(value: string): boolean {
+  const candidate = pathValue(value)
+  return (
+    candidate === "~" ||
+    candidate === "$HOME" ||
+    candidate.startsWith("/") ||
+    candidate.startsWith("~/") ||
+    candidate.startsWith("$HOME/") ||
+    candidate.startsWith("file://")
+  )
+}
+
+function commandAccessResources(command: string): string[] {
+  if (hasUnsafeShellSyntax(command)) {
+    return []
+  }
+  const words = shellWords(command)
+  return words ? words.map(pathValue).filter(looksLikeLocalPath) : []
+}
+
+function isShallowDirectoryListing(command: string): boolean {
+  if (hasUnsafeShellSyntax(command)) {
+    return false
+  }
+  const words = shellWords(command)
+  if (!words || words[0] !== "ls") {
+    return false
+  }
+  return !words.some((word) => word === "-R" || word === "--recursive")
+}
 
 export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boolean {
   if (permissionRequestKind(request) !== "command") {
@@ -190,7 +236,8 @@ function isSensitiveResource(resource: string): boolean {
     basename === "id_ecdsa" ||
     basename === "id_ed25519" ||
     basename === "id_rsa" ||
-    basename === "login data"
+    basename === "login data" ||
+    basename === "chat.db"
   ) {
     return true
   }
@@ -199,8 +246,17 @@ function isSensitiveResource(resource: string): boolean {
     segments.includes(".ssh") ||
     segments.includes(".aws") ||
     segments.includes(".gnupg") ||
+    segments.includes(".kube") ||
+    segments.includes(".docker") ||
+    segments.includes(".azure") ||
+    segments.includes(".gcloud") ||
     containsSegmentSequence(segments, [".config", "gh"]) ||
+    containsSegmentSequence(segments, [".config", "gcloud"]) ||
     containsSegmentSequence(segments, ["library", "keychains"]) ||
+    containsSegmentSequence(segments, ["library", "mail"]) ||
+    containsSegmentSequence(segments, ["library", "messages"]) ||
+    containsSegmentSequence(segments, ["library", "addressbook"]) ||
+    containsSegmentSequence(segments, ["library", "calendars"]) ||
     containsSegmentSequence(segments, ["library", "application support", "google", "chrome"]) ||
     containsSegmentSequence(segments, ["library", "application support", "firefox"]) ||
     containsSegmentSequence(segments, ["library", "application support", "brave"]) ||
@@ -235,19 +291,46 @@ function isBroadResource(resource: string): boolean {
   return false
 }
 
+export function permissionRequestHasSensitiveResource(request: ChatPermissionRequest): boolean {
+  const values = [...request.resources, ...(request.save ?? [])].filter((value) => value.trim())
+  if (values.some(isSensitiveResource)) {
+    return true
+  }
+  if (permissionRequestKind(request) !== "command") {
+    return false
+  }
+  const command = commandText(request)
+  return commandAccessResources(command).some(isSensitiveResource) || SENSITIVE_COMMAND_RESOURCE_PATTERN.test(command)
+}
+
+export function permissionRequestHasBroadResource(request: ChatPermissionRequest): boolean {
+  const values = [...request.resources, ...(request.save ?? [])].filter((value) => value.trim())
+  if (values.some(isBroadResource)) {
+    return true
+  }
+  const command = commandText(request)
+  return (
+    permissionRequestKind(request) === "command" &&
+    !isShallowDirectoryListing(command) &&
+    commandAccessResources(command).some(isBroadResource)
+  )
+}
+
 export function permissionRequestNeedsDefaultPrompt(request: ChatPermissionRequest): boolean {
   if (isHighRiskPermissionRequest(request)) {
+    return true
+  }
+  if (permissionRequestHasSensitiveResource(request)) {
     return true
   }
   const kind = permissionRequestKind(request)
   if (kind === "network") {
     return false
   }
-  const values = [...request.resources, ...(request.save ?? [])].filter((value) => value.trim())
   if (kind === "command") {
-    return false
+    return permissionRequestHasBroadResource(request)
   }
-  return values.some((resource) => isSensitiveResource(resource) || isBroadResource(resource))
+  return permissionRequestHasBroadResource(request)
 }
 
 function escapeRegExp(value: string): string {

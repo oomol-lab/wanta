@@ -48,7 +48,7 @@ export interface OpencodeCustomModel {
 
 // 内置工具与自定义连接器工具并存；本地 shell、写入和越出私有 scratch workspace
 // 的路径访问经 permission ask 进入 ChatService 本地访问策略。默认访问会自动批准普通 bash/文件操作，
-// 只把基础安全边界推给 UI。连接器自定义工具不受内置工具 permission 影响。
+// 并可对当前项目内、标准包管理器的依赖操作授予一次任务级窄权限；其余基础安全边界推给 UI。连接器自定义工具不受内置工具 permission 影响。
 // 保留直接 oo CLI 的 OpenCode 快速路径：oo 由 WANTA_OO_BIN/PATH 指向 Wanta 内置二进制。
 const WANTA_PERMISSION = {
   edit: "ask",

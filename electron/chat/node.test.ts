@@ -2090,7 +2090,7 @@ test("always permission reply stores a main-process session grant", async () => 
       id: "permission-1",
       sessionID: "session-1",
       action: "external_directory",
-      resources: ["/Users/example/.ssh"],
+      resources: ["/Users/example"],
     },
   })
 
@@ -2103,7 +2103,7 @@ test("always permission reply stores a main-process session grant", async () => 
       id: "permission-2",
       sessionID: "session-1",
       action: "external_directory",
-      resources: ["/Users/example/.ssh/config"],
+      resources: ["/Users/example/Documents/finance/report.xlsx"],
     },
   })
 
@@ -2223,6 +2223,62 @@ test("default command approvals still prompt unsafe package mutations", async ()
     ["session-1", "permission-1", "once"],
     ["session-1", "permission-2", "once"],
   ])
+})
+
+test("project dependency task approval avoids repeated prompts during the active generation", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({
+    projectContext: { id: "project-1", name: "wanta", path: projectPath },
+    sessionId: "session-1",
+    text: "Install and use the dependency",
+  })
+  const install = `cd ${projectPath} && pnpm install`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [install],
+      metadata: { command: install },
+    },
+  })
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+
+  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
+  const addDependency = `cd ${projectPath} && pnpm add zod`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-2",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [addDependency],
+      metadata: { command: addDependency },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {

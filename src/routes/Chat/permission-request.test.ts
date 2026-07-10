@@ -6,8 +6,11 @@ import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
   managedPythonDependencyInstall,
+  permissionRequestHasBroadResource,
+  permissionRequestHasSensitiveResource,
   permissionRequestNeedsDefaultPrompt,
   permissionCommand,
   permissionPrimaryResource,
@@ -45,6 +48,19 @@ test("renderer permission helpers recognize likely project dev commands without 
   )
   assert.equal(isLikelyProjectDevCommandRequest(permission({ metadata: { command: "npm install" } })), false)
   assert.equal(isLikelyProjectDevCommandRequest(permission({ metadata: { command: "npm run lint -- --fix" } })), false)
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "cd /Users/me/code/app && pnpm add zod" } }),
+    ),
+    true,
+  )
+  assert.equal(isLikelyProjectDependencyInstallRequest(permission({ metadata: { command: "npm install" } })), false)
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "cd /Users/me/code/app && npm install --global eslint" } }),
+    ),
+    false,
+  )
 })
 
 test("high risk command detection marks destructive commands for default access prompts", () => {
@@ -66,6 +82,10 @@ test("high risk command detection marks destructive commands for default access 
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git push origin main" } })), true)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git -C /tmp/repo push" } })), true)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "cat ~/.ssh/id_rsa" } })), true)
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "find ~/Documents -exec cat {} \\;" } })),
+    true,
+  )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "oo connector apps posthog 2>&1 | head -80" } })),
     false,
@@ -127,6 +147,13 @@ test("default prompt detection only flags basic safety boundaries", () => {
     false,
   )
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "npm install" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ -type f" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -la ~" } })), false)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~" } })), true)
+  assert.equal(
+    permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "rg invoice /Users/me/Documents" } })),
+    false,
+  )
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ action: "external_directory", resources: ["/Users/me/Desktop"] })),
     false,
@@ -138,6 +165,30 @@ test("default prompt detection only flags basic safety boundaries", () => {
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ action: "edit", resources: ["/Users/me/code/app/.env"] })),
     true,
+  )
+})
+
+test("permission helpers distinguish sensitive data from ordinary and broad reads", () => {
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ metadata: { command: "sqlite3 ~/Library/Messages/chat.db '.tables'" } }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ metadata: { command: "cat ~/Library/Mail/V10/MailData/Envelope Index" } }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(permission({ metadata: { command: "cat ~/Documents/report.md" } })),
+    false,
+  )
+  assert.equal(permissionRequestHasBroadResource(permission({ metadata: { command: "cat ~" } })), true)
+  assert.equal(
+    permissionRequestHasBroadResource(permission({ metadata: { command: "cat ~/Documents/report.md" } })),
+    false,
   )
 })
 

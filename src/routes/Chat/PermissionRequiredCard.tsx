@@ -4,9 +4,11 @@ import type { PermissionRequestKind } from "./permission-request.ts"
 import { FolderLock, ShieldAlert, Terminal, X } from "lucide-react"
 import {
   isHighRiskPermissionRequest,
+  isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
   managedPythonDependencyInstall,
   permissionCommand,
+  permissionRequestHasSensitiveResource,
   permissionPrimaryResource,
   permissionRequestKind,
 } from "./permission-request.ts"
@@ -33,9 +35,15 @@ export function PermissionRequiredCard({
   const highRisk = isHighRiskPermissionRequest(request)
   const resource = kind === "command" ? permissionCommand(request) : permissionPrimaryResource(request)
   const projectDevCommand = kind === "command" && isLikelyProjectDevCommandRequest(request)
+  const projectDependencyInstall = isLikelyProjectDependencyInstallRequest(request)
   const pythonDependencyInstall = managedPythonDependencyInstall(request)
+  const sensitiveResource = permissionRequestHasSensitiveResource(request)
+  const taskScopedDependencyInstall = Boolean(
+    pythonDependencyInstall || (projectDependencyInstall && !sensitiveResource),
+  )
   const canAllowForSession = Boolean(
-    (!highRisk || pythonDependencyInstall) &&
+    (!highRisk || taskScopedDependencyInstall) &&
+    !sensitiveResource &&
     (request.save?.length || request.resources.length || (kind === "command" && resource)),
   )
   const Icon = kind === "command" ? Terminal : kind === "path" || kind === "edit" ? FolderLock : ShieldAlert
@@ -80,13 +88,26 @@ export function PermissionRequiredCard({
         }),
         title: t("chat.permissionPythonDependencyTitle"),
       }
-    : highRisk
+    : sensitiveResource
       ? {
           ...copyByKind[kind],
-          description: t("chat.permissionHighRiskDescription", { command: resource ?? request.action }),
-          title: t("chat.permissionHighRiskTitle"),
+          description: t("chat.permissionSensitiveDataDescription", { resource: resource ?? request.action }),
+          title: t("chat.permissionSensitiveDataTitle"),
         }
-      : copyByKind[kind]
+      : projectDependencyInstall
+        ? {
+            ...copyByKind.command,
+            allowForSessionLabel: t("chat.permissionRequiredAllowProjectDependenciesTask"),
+            description: t("chat.permissionProjectDependencyDescription", { command: resource ?? request.action }),
+            title: t("chat.permissionProjectDependencyTitle"),
+          }
+        : highRisk
+          ? {
+              ...copyByKind[kind],
+              description: t("chat.permissionHighRiskDescription", { command: resource ?? request.action }),
+              title: t("chat.permissionHighRiskTitle"),
+            }
+          : copyByKind[kind]
   return (
     <section className="rounded-lg border border-border bg-background p-3 shadow-sm">
       <div className="flex items-start gap-3">
@@ -99,7 +120,7 @@ export function PermissionRequiredCard({
             <p className="oo-text-caption break-words whitespace-pre-line text-muted-foreground">{copy.description}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {pythonDependencyInstall ? (
+            {taskScopedDependencyInstall ? (
               <>
                 <Button size="sm" onClick={() => onAllowForSession(request.id)} disabled={busy}>
                   <Terminal className="size-4" />

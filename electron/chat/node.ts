@@ -933,6 +933,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const grant = localAccessGrantForRequest(request, {
       ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       ...(managedPythonProcessRoot ? { managedPythonProcessRoot } : {}),
+      ...(generationId ? { projectDependencyGenerationId: generationId } : {}),
     })
     if (!grant) {
       return
@@ -943,6 +944,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         item.action === grant.action &&
         item.kind === grant.kind &&
         item.patterns.join("\n") === grant.patterns.join("\n") &&
+        item.generationId === grant.generationId &&
+        item.projectRoot === grant.projectRoot &&
         item.processRoot === grant.processRoot,
     )
     if (!exists) {
@@ -977,6 +980,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   ): boolean {
     const projectRoot = this.trustedProjectRoots.get(request.sessionId)
     const decision = evaluateLocalAccessRequest(request, {
+      activeGenerationId: this.sessionGenerations.get(request.sessionId)?.id,
       permissionMode: this.sessionPermissionMode(request.sessionId),
       sessionGrants: this.sessionPermissionGrants.get(request.sessionId),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),

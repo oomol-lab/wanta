@@ -5,13 +5,16 @@ import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  permissionRequestHasSensitiveResource,
   permissionRequestNeedsDefaultPrompt,
   permissionRequestKind,
   requestMatchesManagedPythonDependencyInstallGrant,
   requestMatchesSessionGrant,
 } from "./permission-request.ts"
 import {
+  createProjectDependencyInstallTaskGrant,
   createProjectDevCommandSessionGrant,
+  requestMatchesProjectDependencyInstallTaskGrant,
   requestMatchesProjectDevCommandSessionGrant,
 } from "./project-dev-command.ts"
 import { projectPermissionRequestInsideRoot } from "./project-permission.ts"
@@ -40,27 +43,42 @@ export type LocalAccessDecision =
     }
 
 export interface LocalAccessPolicyContext {
+  activeGenerationId?: string
   permissionMode: AgentPermissionMode
   sessionGrants?: readonly SessionPermissionGrant[]
   trustedProjectRoot?: string
 }
 
-function hasMatchingSessionGrant(
+function hasMatchingNarrowSessionGrant(
   request: ChatPermissionRequest,
   grants: readonly SessionPermissionGrant[] | undefined,
   trustedProjectRoot: string | undefined,
+  activeGenerationId: string | undefined,
 ): boolean {
   return Boolean(
     grants?.some((grant) => {
+      if (
+        trustedProjectRoot &&
+        requestMatchesProjectDependencyInstallTaskGrant(request, grant, trustedProjectRoot, activeGenerationId)
+      ) {
+        return true
+      }
       if (trustedProjectRoot && requestMatchesProjectDevCommandSessionGrant(request, grant, trustedProjectRoot)) {
         return true
       }
       if (requestMatchesManagedPythonDependencyInstallGrant(request, grant)) {
         return true
       }
-      return requestMatchesSessionGrant(request, grant)
+      return false
     }),
   )
+}
+
+function hasMatchingGenericSessionGrant(
+  request: ChatPermissionRequest,
+  grants: readonly SessionPermissionGrant[] | undefined,
+): boolean {
+  return Boolean(grants?.some((grant) => requestMatchesSessionGrant(request, grant)))
 }
 
 export function evaluateLocalAccessRequest(
@@ -72,7 +90,25 @@ export function evaluateLocalAccessRequest(
   if (context.permissionMode === "full_access") {
     return { type: "allow", reason: "full_access", kind, highRisk }
   }
-  if (hasMatchingSessionGrant(request, context.sessionGrants, context.trustedProjectRoot)) {
+  // 通用目录 grant 不得越过凭证、私密应用数据等敏感读取边界；只有完全访问才会跳过这层保护。
+  if (permissionRequestHasSensitiveResource(request)) {
+    return { type: "prompt", kind, highRisk }
+  }
+  if (
+    hasMatchingNarrowSessionGrant(
+      request,
+      context.sessionGrants,
+      context.trustedProjectRoot,
+      context.activeGenerationId,
+    )
+  ) {
+    return { type: "allow", reason: "session_grant", kind, highRisk }
+  }
+  // 通用目录 grant 只用于普通访问，不能把一次路径允许扩大成高风险 shell 操作。
+  if (highRisk) {
+    return { type: "prompt", kind, highRisk }
+  }
+  if (hasMatchingGenericSessionGrant(request, context.sessionGrants)) {
     return { type: "allow", reason: "session_grant", kind, highRisk }
   }
   if (permissionRequestNeedsDefaultPrompt(request)) {
@@ -98,8 +134,21 @@ export function evaluateLocalAccessRequest(
 
 export function localAccessGrantForRequest(
   request: ChatPermissionRequest,
-  context: Pick<LocalAccessPolicyContext, "trustedProjectRoot"> & { managedPythonProcessRoot?: string } = {},
+  context: Pick<LocalAccessPolicyContext, "trustedProjectRoot"> & {
+    managedPythonProcessRoot?: string
+    projectDependencyGenerationId?: string
+  } = {},
 ): SessionPermissionGrant | null {
+  if (context.trustedProjectRoot && context.projectDependencyGenerationId) {
+    const projectDependencyGrant = createProjectDependencyInstallTaskGrant(
+      request,
+      context.trustedProjectRoot,
+      context.projectDependencyGenerationId,
+    )
+    if (projectDependencyGrant) {
+      return projectDependencyGrant
+    }
+  }
   if (context.trustedProjectRoot) {
     const projectDevGrant = createProjectDevCommandSessionGrant(request, context.trustedProjectRoot)
     if (projectDevGrant) {

@@ -769,7 +769,9 @@ export const enMessages = {
   "chat.permissionPathTitle": "Access folder?",
   "chat.permissionEditTitle": "Modify file?",
   "chat.permissionHighRiskTitle": "Confirm high-risk command",
+  "chat.permissionSensitiveDataTitle": "Confirm private data access",
   "chat.permissionPythonDependencyTitle": "Install Python dependencies?",
+  "chat.permissionProjectDependencyTitle": "Modify project dependencies?",
   "chat.permissionRequiredDescription":
     "Wanta needs to run a local operation for this step.\nAllowing this step does not enable full access.",
   "chat.permissionCommandDescription":
@@ -778,13 +780,18 @@ export const enMessages = {
   "chat.permissionEditDescription": "Wanta wants to modify:\n{path}\nAllowing this step does not enable full access.",
   "chat.permissionHighRiskDescription":
     "Wanta wants to run a high-risk command:\n{command}\nConfirm that it matches the current task.",
+  "chat.permissionSensitiveDataDescription":
+    "Wanta wants to access a resource that may contain credentials or personal data:\n{resource}\nConfirm that it matches the current task.",
   "chat.permissionPythonDependencyDescription":
     "Wanta needs to install these packages in an isolated Python environment for this task:\n{packages}\nThis will not modify your system Python or user-wide packages.",
+  "chat.permissionProjectDependencyDescription":
+    "Wanta wants to run a dependency operation in the current project:\n{command}\nAllowing it will avoid repeated confirmations for standard dependency operations in this project during this task.",
   "chat.permissionRequiredAllowOnce": "Allow this step",
   "chat.permissionRequiredAllowSession": "Allow in this chat",
   "chat.permissionRequiredAllowCommandSession": "Allow this command in this chat",
   "chat.permissionRequiredAllowProjectDevSession": "Allow project dev commands in this chat",
   "chat.permissionRequiredAllowPythonDependenciesTask": "Allow these Python dependencies for this task",
+  "chat.permissionRequiredAllowProjectDependenciesTask": "Allow project dependency operations for this task",
   "chat.permissionRequiredAllowPathSession": "Allow this folder in this chat",
   "chat.permissionRequiredAllowEditSession": "Allow this path in this chat",
   "chat.permissionRequiredReject": "Cancel this step",

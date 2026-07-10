@@ -1,9 +1,11 @@
+import type { ArtifactBundleStore } from "./artifact-bundles.ts"
 import type { TurnFileDiffResult, TurnOutputFile, TurnOutputRecord, TurnOutputSummary } from "./common.ts"
 
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
+import { buildArtifactBundle } from "./artifact-bundles.ts"
 
 export interface StoredTurnOutputFile extends TurnOutputFile {
   diff: TurnFileDiffResult
@@ -127,6 +129,59 @@ function normalizeRecords(value: unknown): TurnOutputRecords {
   return records
 }
 
+async function migrateLegacyArtifactBundles(
+  value: unknown,
+  artifactBundleStore: ArtifactBundleStore | undefined,
+): Promise<{ complete: boolean; found: boolean }> {
+  const sessions = value && typeof value === "object" ? (value as PersistedTurnOutputs).sessions : undefined
+  if (!sessions || typeof sessions !== "object" || !artifactBundleStore) {
+    return { complete: false, found: false }
+  }
+  let complete = true
+  let found = false
+  for (const rawMessages of Object.values(sessions)) {
+    if (!rawMessages || typeof rawMessages !== "object") {
+      continue
+    }
+    for (const rawRecord of Object.values(rawMessages)) {
+      if (!rawRecord || typeof rawRecord !== "object") {
+        continue
+      }
+      const source = rawRecord as unknown as Record<string, unknown>
+      const artifactRoot = validString(source["artifactRoot"]) ? source["artifactRoot"] : undefined
+      const files = Array.isArray(source["files"]) ? source["files"] : []
+      const hasLegacyArtifacts = files.some(
+        (file) => file && typeof file === "object" && (file as { role?: unknown }).role === "artifact",
+      )
+      if (
+        !artifactRoot ||
+        !hasLegacyArtifacts ||
+        !validString(source["sessionId"]) ||
+        !validString(source["messageId"])
+      ) {
+        continue
+      }
+      found = true
+      const bundle = await buildArtifactBundle({
+        artifactRoot,
+        completedAt: validNumber(source["completedAt"]) ? source["completedAt"] : Date.now(),
+        createdAt: validNumber(source["createdAt"]) ? source["createdAt"] : Date.now(),
+        generatedPreviewCount: 0,
+        messageId: source["messageId"],
+        sessionId: source["sessionId"],
+      }).catch(() => null)
+      if (!bundle) {
+        complete = false
+        continue
+      }
+      await artifactBundleStore.record(bundle).catch(() => {
+        complete = false
+      })
+    }
+  }
+  return { complete, found }
+}
+
 function serializeRecords(records: TurnOutputRecords): PersistedTurnOutputs {
   const sessions: PersistedTurnOutputs["sessions"] = {}
   for (const [sessionId, messages] of records) {
@@ -163,11 +218,13 @@ function cloneTurnOutputRecords(records: TurnOutputRecords): TurnOutputRecords {
 }
 
 export class TurnOutputStore {
+  private readonly artifactBundleStore: ArtifactBundleStore | undefined
   private readonly file: string
   private records: TurnOutputRecords | undefined
   private mutationQueue: Promise<void> = Promise.resolve()
 
-  public constructor(dir: string) {
+  public constructor(dir: string, artifactBundleStore?: ArtifactBundleStore) {
+    this.artifactBundleStore = artifactBundleStore
     this.file = path.join(dir, "turn-outputs.json")
   }
 
@@ -180,11 +237,20 @@ export class TurnOutputStore {
     if (this.records) {
       return this.records
     }
+    let persisted: unknown
     try {
-      this.records = normalizeRecords(JSON.parse(await readFile(this.file, "utf-8")))
+      persisted = JSON.parse(await readFile(this.file, "utf-8"))
     } catch (error) {
       logStoreReadFailure("turn outputs", this.file, error)
       this.records = new Map()
+      return this.records
+    }
+    this.records = normalizeRecords(persisted)
+    const migration = await migrateLegacyArtifactBundles(persisted, this.artifactBundleStore)
+    if (migration.found && migration.complete) {
+      await this.persist(this.records).catch((error: unknown) => {
+        console.warn("[wanta] failed to finalize legacy artifact migration", error)
+      })
     }
     return this.records
   }

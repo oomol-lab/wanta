@@ -301,7 +301,7 @@ export function SessionItem({
           </span>
         ) : null}
       </button>
-      <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-hover:flex">
+      <div className="pointer-events-none ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
         <button
           type="button"
           aria-label={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
@@ -311,7 +311,7 @@ export function SessionItem({
             onPinToggle()
           }}
           className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            "flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             pinned && "text-sidebar-accent-foreground",
           )}
         >
@@ -326,7 +326,7 @@ export function SessionItem({
             onArchive()
           }}
           disabled={running}
-          className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Archive className="size-3.5" />
         </button>

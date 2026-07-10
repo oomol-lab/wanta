@@ -456,7 +456,7 @@ export const zhCNMessages = {
   "billing.purchaseCredits": "充值余额",
   "billing.popover.tooltip": "计划与席位",
   "billing.popover.title": "计划与席位",
-  "billing.popover.close": "关闭计划与用量弹窗",
+  "billing.popover.close": "关闭计划与席位弹窗",
   "billing.popover.viewDetails": "查看详情",
   "billing.popover.retry": "重试",
   "billing.popover.loadFailed": "暂时无法读取用量",

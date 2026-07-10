@@ -151,6 +151,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const effectiveWorkspace = React.useRef<ConnectionWorkspace | null>(workspace)
   const workspaceGeneration = React.useRef(0)
   const summaryRequestSequence = React.useRef(0)
+  const visibleSummaryRequestSequence = React.useRef(0)
   const summaryRef = React.useRef<ConnectionSummary | null>(summary)
   effectiveWorkspace.current = workspace
   summaryRef.current = summary
@@ -166,6 +167,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const invalidateWorkspaceWork = React.useCallback((): void => {
     workspaceGeneration.current += 1
     summaryRequestSequence.current += 1
+    visibleSummaryRequestSequence.current += 1
     actionSequence.current += 1
     pollSequence.current += 1
     pollAbort.current?.controller.abort()
@@ -206,6 +208,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       const key = connectionWorkspaceKey(currentWorkspace)
       const visibleRefresh = !options.silent || summaryRef.current === null
       if (visibleRefresh) {
+        visibleSummaryRequestSequence.current = requestId
         dispatch({ type: "refreshStarted" })
       }
       try {
@@ -222,7 +225,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
         return null
       } finally {
-        if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
+        if (
+          visibleRefresh &&
+          visibleSummaryRequestSequence.current === requestId &&
+          isCurrentWorkspace(generation, key)
+        ) {
           dispatch({ type: "refreshFinished" })
         }
       }
@@ -619,6 +626,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       }
       const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
+      dispatch({ type: "busySet", busy: "update_alias" })
       try {
         await updateAliasRequest(appId, alias, action.currentWorkspace)
         const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
@@ -631,6 +639,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "update_alias") })
         }
         return false
+      } finally {
+        if (isCurrentAction()) {
+          dispatch({ type: "busySet", busy: null })
+        }
       }
     },
     [beginAction, setCurrentSummary],

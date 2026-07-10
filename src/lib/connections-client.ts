@@ -65,6 +65,7 @@ interface ConnectorCacheEntry {
 
 const connectorGetCache = new Map<string, ConnectorCacheEntry>()
 const connectorGetInFlight = new Map<string, Promise<{ data: unknown; meta: unknown }>>()
+const connectorGetRequestVersions = new Map<string, number>()
 const oauthConnectInFlight = new Map<string, Promise<OAuthConnectStart>>()
 let connectorReadCacheGeneration = 0
 
@@ -72,6 +73,7 @@ function clearConnectorReadCache(): void {
   connectorReadCacheGeneration += 1
   connectorGetCache.clear()
   connectorGetInFlight.clear()
+  connectorGetRequestVersions.clear()
 }
 
 export function clearConnectorCache(): void {
@@ -199,9 +201,14 @@ async function getConnector<T>(
   }
 
   const requestGeneration = connectorReadCacheGeneration
-  const request = fetchConnectorGet<T>(path, workspace, cacheKey, cached, requestGeneration)
+  const requestVersion = (connectorGetRequestVersions.get(cacheKey) ?? 0) + 1
+  connectorGetRequestVersions.set(cacheKey, requestVersion)
+  const request = fetchConnectorGet<T>(path, workspace, cacheKey, cached, requestGeneration, requestVersion)
   const trackedRequest = request.finally(() => {
-    if (connectorGetInFlight.get(cacheKey) === trackedRequest) {
+    if (
+      connectorGetRequestVersions.get(cacheKey) === requestVersion &&
+      connectorGetInFlight.get(cacheKey) === trackedRequest
+    ) {
       connectorGetInFlight.delete(cacheKey)
     }
   })
@@ -215,6 +222,7 @@ async function fetchConnectorGet<T>(
   cacheKey: string,
   cached: ConnectorCacheEntry | undefined,
   generation: number,
+  requestVersion: number,
 ): Promise<{ data: T; meta: unknown }> {
   const response = await oomolFetch(`${connectorBaseUrl}${path}`, {
     headers: {
@@ -226,7 +234,9 @@ async function fetchConnectorGet<T>(
   })
 
   if (response.status === 304 && cached) {
-    cached.fetchedAt = Date.now()
+    if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
+      cached.fetchedAt = Date.now()
+    }
     return { data: cached.data as T, meta: cached.meta }
   }
 
@@ -236,7 +246,7 @@ async function fetchConnectorGet<T>(
   }
 
   const result = unwrapConnectorEnvelope<T>(payload)
-  if (connectorReadCacheGeneration === generation) {
+  if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
     connectorGetCache.set(cacheKey, {
       data: result.data,
       etag: asString(response.headers.get("etag")),

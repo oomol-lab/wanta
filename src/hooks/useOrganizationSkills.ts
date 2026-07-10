@@ -188,11 +188,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
 
   const reloadAfterMutation = React.useCallback(
     async (targetOrganizationId: string, targetCacheKey: string): Promise<void> => {
-      if (latestOrganizationIdRef.current !== targetOrganizationId || latestCacheKeyRef.current !== targetCacheKey) {
-        return
-      }
       if (organizationSkillCache?.cacheKey === targetCacheKey) {
         organizationSkillCache = null
+      }
+      if (latestOrganizationIdRef.current !== targetOrganizationId || latestCacheKeyRef.current !== targetCacheKey) {
+        return
       }
       await refresh({ forceRefresh: true })
     },
@@ -242,7 +242,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
       const targetOrganizationId = organizationId
       const targetCacheKey = cacheKey
       const targetSkill = skills.find((skill) => skill.id === configId)
-      await removeOrganizationSkill(targetOrganizationId, targetSkill?.packageName ?? configId)
+      if (!targetSkill?.packageName) {
+        await reloadAfterMutation(targetOrganizationId, targetCacheKey)
+        return
+      }
+      await removeOrganizationSkill(targetOrganizationId, targetSkill.packageName)
       await reloadAfterMutation(targetOrganizationId, targetCacheKey)
     },
     [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled, skills],
@@ -259,24 +263,34 @@ export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?:
       const targetOrganizationId = organizationId
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
-      const config = await reorderOrganizationSkills(targetOrganizationId, items)
-      if (
-        requestIdRef.current !== requestId ||
-        latestOrganizationIdRef.current !== targetOrganizationId ||
-        latestCacheKeyRef.current !== cacheKey
-      ) {
-        return
+      try {
+        const config = await reorderOrganizationSkills(targetOrganizationId, items)
+        if (
+          requestIdRef.current !== requestId ||
+          latestOrganizationIdRef.current !== targetOrganizationId ||
+          latestCacheKeyRef.current !== cacheKey
+        ) {
+          return
+        }
+        organizationSkillCache = {
+          cacheKey,
+          fetchedAt: Date.now(),
+          organizationId: targetOrganizationId,
+          skills: config.skills,
+        }
+        setSkills(config.skills)
+        setSkillsOrganizationId(targetOrganizationId)
+        setError(null)
+        setHasLoaded(true)
+      } finally {
+        if (
+          requestIdRef.current === requestId &&
+          latestOrganizationIdRef.current === targetOrganizationId &&
+          latestCacheKeyRef.current === cacheKey
+        ) {
+          setLoading(false)
+        }
       }
-      organizationSkillCache = {
-        cacheKey,
-        fetchedAt: Date.now(),
-        organizationId: targetOrganizationId,
-        skills: config.skills,
-      }
-      setSkills(config.skills)
-      setSkillsOrganizationId(targetOrganizationId)
-      setError(null)
-      setHasLoaded(true)
     },
     [cacheKey, organizationId, remoteApiEnabled],
   )

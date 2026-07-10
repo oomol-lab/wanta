@@ -319,6 +319,22 @@ function ArtifactPersistenceWarning({ partial = false }: { partial?: boolean }) 
   )
 }
 
+function lastDisplayableArtifactGroup(
+  groups: readonly ResolvedArtifactGroup[],
+): { displayItem: LocalArtifactItem; resolved: ResolvedArtifactGroup } | null {
+  for (let index = groups.length - 1; index >= 0; index -= 1) {
+    const resolved = groups[index]
+    if (!resolved || resolved.status === "failed") {
+      continue
+    }
+    const displayItem = artifactGroupDisplayItem(resolved.group, resolved.pack)
+    if (displayItem) {
+      return { displayItem, resolved }
+    }
+  }
+  return null
+}
+
 export function GeneratedArtifactsShelf({
   groups,
   onContextMenu,
@@ -332,20 +348,21 @@ export function GeneratedArtifactsShelf({
 }) {
   const t = useT()
   const entries = flattenPanelEntries(groups)
-  const primary = groups.at(-1)
-  const primaryDisplayItem = primary ? artifactGroupDisplayItem(primary.group, primary.pack) : null
+  const newest = groups.at(-1)
+  const displayable = lastDisplayableArtifactGroup(groups)
+  const primary = displayable?.resolved
+  const primaryDisplayItem = displayable?.displayItem
   const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
-  if (primary?.status === "failed") {
+  if (!primary || !primaryDisplayItem || entries.length === 0) {
+    if (newest?.status !== "failed") {
+      return null
+    }
     return (
       <section className="not-prose mt-2">
         <ArtifactPersistenceWarning />
       </section>
     )
-  }
-
-  if (!primary || !primaryDisplayItem || entries.length === 0) {
-    return null
   }
 
   const selection = selectionWithContext(
@@ -371,7 +388,11 @@ export function GeneratedArtifactsShelf({
 
   return (
     <section className="not-prose mt-2 grid gap-1.5">
-      {primary.status === "partial" ? <ArtifactPersistenceWarning partial /> : null}
+      {newest?.status === "failed" ? (
+        <ArtifactPersistenceWarning />
+      ) : primary.status === "partial" ? (
+        <ArtifactPersistenceWarning partial />
+      ) : null}
       <button
         type="button"
         title={title}
@@ -400,10 +421,12 @@ export function GeneratedArtifacts({ groups, onOpen, onAvailable, selectionGroup
   const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
   React.useEffect(() => {
-    const resolved = groups.at(-1)
-    const selectedPath = resolved ? artifactGroupDisplayItem(resolved.group, resolved.pack)?.path : undefined
-    if (resolved && resolved.status !== "failed" && selectedPath) {
-      onAvailable(selectionWithContext(resolved.group, resolved.messageId, panelGroups, selectedPath, resolved.pack))
+    const displayable = lastDisplayableArtifactGroup(groups)
+    if (displayable) {
+      const { displayItem, resolved } = displayable
+      onAvailable(
+        selectionWithContext(resolved.group, resolved.messageId, panelGroups, displayItem.path, resolved.pack),
+      )
     }
   }, [groups, onAvailable, panelGroups])
 

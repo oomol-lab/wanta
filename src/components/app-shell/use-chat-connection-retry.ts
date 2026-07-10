@@ -128,26 +128,30 @@ export function useChatConnectionRetry({
     }
 
     let cancelled = false
+    let timeoutId: number | undefined
+    const handleTimeout = (): void => {
+      if (
+        pendingRetry.current?.sessionId === retryWatch.sessionId &&
+        pendingRetry.current.service === retryWatch.service
+      ) {
+        pendingRetry.current = null
+      }
+      setChatConnectionDrawers((current) => {
+        if (!Object.hasOwn(current, retryWatch.drawerKey)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[retryWatch.drawerKey]
+        return next
+      })
+      setRetryWatch(null)
+    }
     const refreshUntilConnected = async (): Promise<void> => {
       if (cancelled) {
         return
       }
       if (Date.now() - retryWatch.startedAt >= AUTH_RETRY_POLL_TIMEOUT_MS) {
-        if (
-          pendingRetry.current?.sessionId === retryWatch.sessionId &&
-          pendingRetry.current.service === retryWatch.service
-        ) {
-          pendingRetry.current = null
-        }
-        setChatConnectionDrawers((current) => {
-          if (!Object.hasOwn(current, retryWatch.drawerKey)) {
-            return current
-          }
-          const next = { ...current }
-          delete next[retryWatch.drawerKey]
-          return next
-        })
-        setRetryWatch(null)
+        handleTimeout()
         return
       }
 
@@ -160,16 +164,21 @@ export function useChatConnectionRetry({
         if (!cancelled) {
           reportRendererHandledError("connections.authRetry", "Failed to check provider connection state", error)
         }
+      } finally {
+        if (!cancelled) {
+          timeoutId = window.setTimeout(() => {
+            void refreshUntilConnected()
+          }, AUTH_RETRY_POLL_INTERVAL_MS)
+        }
       }
     }
 
     void refreshUntilConnected()
-    const id = window.setInterval(() => {
-      void refreshUntilConnected()
-    }, AUTH_RETRY_POLL_INTERVAL_MS)
     return () => {
       cancelled = true
-      window.clearInterval(id)
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId)
+      }
     }
   }, [isProviderActive, refresh, retryWatch, setChatConnectionDrawers])
 

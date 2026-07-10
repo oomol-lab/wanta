@@ -26,6 +26,8 @@ const maxMaterializedImageBytes = 32 * 1024 * 1024
 const remoteImageTimeoutMs = 30_000
 const maxRemoteRedirects = 3
 const maxArtifactBaselineFiles = 10_000
+const maxAssistantArtifactSources = 32
+const maxConcurrentArtifactMaterializations = 4
 const markdownImagePattern = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/gu
 
 interface PersistedArtifactBundles {
@@ -454,37 +456,76 @@ export async function recoverMisplacedTurnArtifacts(
   return origins
 }
 
-function privateIpv4(address: string): boolean {
+function globallyRoutableIpv4(address: string): boolean {
   const parts = address.split(".").map(Number)
-  const [first = -1, second = -1] = parts
-  return (
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false
+  }
+  const [first = -1, second = -1, third = -1] = parts
+  return !(
     first === 0 ||
     first === 10 ||
     first === 127 ||
     (first === 100 && second >= 64 && second <= 127) ||
     (first === 169 && second === 254) ||
     (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 0 && third === 0) ||
+    (first === 192 && second === 0 && third === 2) ||
+    (first === 192 && second === 88 && third === 99) ||
     (first === 192 && second === 168) ||
+    (first === 198 && (second === 18 || second === 19)) ||
+    (first === 198 && second === 51 && third === 100) ||
+    (first === 203 && second === 0 && third === 113) ||
     first >= 224
   )
 }
 
-function privateIpAddress(address: string): boolean {
-  if (isIP(address) === 4) {
-    return privateIpv4(address)
+function expandedIpv6Segments(address: string): number[] | null {
+  if (isIP(address) !== 6 || address.includes(".")) {
+    return null
   }
-  const normalized = address.toLowerCase()
-  if (normalized.startsWith("::ffff:")) {
-    return true
+  const halves = address.toLowerCase().split("::")
+  if (halves.length > 2) {
+    return null
   }
-  return (
-    normalized === "::" ||
-    normalized === "::1" ||
-    normalized.startsWith("fc") ||
-    normalized.startsWith("fd") ||
-    /^fe[89ab]/u.test(normalized) ||
-    normalized.startsWith("ff")
+  const left = halves[0] ? halves[0].split(":") : []
+  const right = halves[1] ? halves[1].split(":") : []
+  const missing = 8 - left.length - right.length
+  if ((halves.length === 1 && missing !== 0) || missing < 0) {
+    return null
+  }
+  const segments = [...left, ...Array.from({ length: missing }, () => "0"), ...right].map((part) =>
+    Number.parseInt(part || "0", 16),
   )
+  return segments.length === 8 && segments.every((part) => Number.isInteger(part) && part >= 0 && part <= 0xffff)
+    ? segments
+    : null
+}
+
+function globallyRoutableIpv6(address: string): boolean {
+  const segments = expandedIpv6Segments(address)
+  if (!segments) {
+    return false
+  }
+  const [first = 0, second = 0] = segments
+  if (first < 0x2000 || first > 0x3fff) {
+    return false
+  }
+  // IETF 特殊用途、文档、ORCHID、6to4 与基准测试网段不可作为远程制成品来源。
+  if (first === 0x2001 && (second <= 0x01ff || second === 0x0db8)) {
+    return false
+  }
+  if (first === 0x2002 || (first === 0x3fff && second <= 0x0fff)) {
+    return false
+  }
+  return true
+}
+
+function globallyRoutableIpAddress(address: string): boolean {
+  if (isIP(address) === 4) {
+    return globallyRoutableIpv4(address)
+  }
+  return globallyRoutableIpv6(address)
 }
 
 type RemoteImageFetcher = (url: URL, addresses: readonly string[], signal: AbortSignal) => Promise<Response>
@@ -523,7 +564,7 @@ async function publicHttpsTarget(
     return null
   }
   const addresses = isIP(hostname) ? [hostname] : await resolveHostname(hostname)
-  if (addresses.length === 0 || addresses.some(privateIpAddress)) {
+  if (addresses.length === 0 || !addresses.every(globallyRoutableIpAddress)) {
     return null
   }
   return { addresses, url }
@@ -696,6 +737,9 @@ export async function materializeAssistantArtifacts(
   const seen = new Set<string>()
   const artifacts: AssistantArtifactSource[] = []
   for (const artifact of assistantArtifactSources(messages, messageId)) {
+    if (artifacts.length >= maxAssistantArtifactSources) {
+      break
+    }
     const candidate = artifact.source.trim()
     const source = normalizeLocalPathCandidate(candidate, os.homedir())
     const sourceKey = source ?? candidate
@@ -706,8 +750,15 @@ export async function materializeAssistantArtifacts(
     artifacts.push(artifact)
   }
   const reservedTargets = new Set<string>()
-  await Promise.all(
-    artifacts.map(async (artifact, index) => {
+  let nextArtifactIndex = 0
+  const materializeNextArtifact = async (): Promise<void> => {
+    while (nextArtifactIndex < artifacts.length) {
+      const index = nextArtifactIndex
+      nextArtifactIndex += 1
+      const artifact = artifacts[index]
+      if (!artifact) {
+        continue
+      }
       const candidate = artifact.source.trim()
       const source = normalizeLocalPathCandidate(candidate, os.homedir())
       try {
@@ -717,14 +768,14 @@ export async function materializeAssistantArtifacts(
             stat(source).catch(() => null),
           ])
           if (!realSource || !sourceStat?.isFile()) {
-            return
+            continue
           }
           if (realSource === root || realSource.startsWith(`${root}${path.sep}`)) {
-            return
+            continue
           }
           const mime = artifact.mime ?? mimeFromPath(realSource)
           if (artifact.origin === "assistant_preview" && !mime.startsWith("image/")) {
-            return
+            continue
           }
           const target = await uniqueArtifactTarget(
             root,
@@ -733,14 +784,14 @@ export async function materializeAssistantArtifacts(
           )
           await copyFile(realSource, target)
           materializedOrigins.set(path.relative(root, target), artifact.origin)
-          return
+          continue
         }
 
         const fallback = `generated-${String(index + 1).padStart(3, "0")}`
         const data = dataImage(candidate)
         const downloaded = data ? { ...data, name: artifact.name } : await remoteImage(candidate, remoteOptions)
         if (!downloaded || (artifact.mime && !artifact.mime.startsWith("image/"))) {
-          return
+          continue
         }
         const target = await uniqueArtifactTarget(
           root,
@@ -755,7 +806,12 @@ export async function materializeAssistantArtifacts(
           error instanceof Error ? error.name : "unknown error",
         )
       }
-    }),
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(maxConcurrentArtifactMaterializations, artifacts.length) }, () =>
+      materializeNextArtifact(),
+    ),
   )
   return materializedOrigins
 }

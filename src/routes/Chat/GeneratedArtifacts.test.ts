@@ -249,6 +249,28 @@ describe("GeneratedArtifactsShelf", () => {
     expect(html).toContain("部分制成品未保存")
     expect(html).toContain("001")
   })
+
+  it("falls back to the latest displayable group when a newer group is empty", () => {
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: {
+          items: [artifactItem("earlier-report.pdf", "application/pdf")],
+          totalItems: 1,
+          truncated: false,
+        },
+        status: "ready",
+      },
+      {
+        messageId: "assistant-2",
+        group: { items: [], totalItems: 0, truncated: false },
+        status: "ready",
+      },
+    ])
+
+    expect(html).toContain("earlier report")
+    expect(html).toContain("<button")
+  })
 })
 
 describe("artifact composer palette", () => {

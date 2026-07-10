@@ -147,7 +147,15 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   const processFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "process") : []), [selection])
   const changeFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "project_change") : []), [selection])
   const requestedRole = availableTurnOutputRole(initialRole, processFiles.length, changeFiles.length)
-  const [activeRole, setActiveRole] = React.useState<TurnOutputFileRole>(requestedRole)
+  const roleSelectionKey = `${selection?.record.messageId ?? "none"}\0${selection?.selectedPath ?? ""}\0${requestedRole}`
+  const [roleSelection, setRoleSelection] = React.useState<{ key: string; role: TurnOutputFileRole }>(() => ({
+    key: roleSelectionKey,
+    role: requestedRole,
+  }))
+  const activeRole =
+    roleSelection.key === roleSelectionKey
+      ? availableTurnOutputRole(roleSelection.role, processFiles.length, changeFiles.length)
+      : requestedRole
   const activeFiles = activeRole === "project_change" ? changeFiles : processFiles
   const hasRoleSwitch = changeFiles.length > 0 && processFiles.length > 0
   const { openPath, showInFolder } = useTurnFileActions()
@@ -155,9 +163,12 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   const activeAdditions = activeFiles.reduce((sum, file) => sum + file.additions, 0)
   const activeDeletions = activeFiles.reduce((sum, file) => sum + file.deletions, 0)
 
-  React.useEffect(() => {
-    setActiveRole(requestedRole)
-  }, [requestedRole, selection?.record.messageId, selection?.selectedPath])
+  const selectActiveRole = React.useCallback(
+    (role: TurnOutputFileRole): void => {
+      setRoleSelection({ key: roleSelectionKey, role })
+    },
+    [roleSelectionKey],
+  )
 
   React.useEffect(() => {
     setCollapsedPaths(new Set(activeRole === "process" ? activeFiles.map((file) => file.path) : []))
@@ -231,7 +242,7 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
                 "oo-text-control flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 activeRole === "project_change" && "bg-background font-medium text-foreground shadow-xs",
               )}
-              onClick={() => setActiveRole("project_change")}
+              onClick={() => selectActiveRole("project_change")}
             >
               <FileDiff className="size-3.5 shrink-0" />
               <span className="truncate">{t("turnOutputs.changes")}</span>
@@ -245,7 +256,7 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
                 "oo-text-control flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 activeRole === "process" && "bg-background font-medium text-foreground shadow-xs",
               )}
-              onClick={() => setActiveRole("process")}
+              onClick={() => selectActiveRole("process")}
             >
               <FileCode2 className="size-3.5 shrink-0" />
               <span className="truncate">{t("turnOutputs.processFiles")}</span>

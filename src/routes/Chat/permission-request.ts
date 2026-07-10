@@ -43,6 +43,34 @@ function commandBodyAfterLikelyCd(command: string): string {
   return match?.[1]?.trim() || command.trim()
 }
 
+/** 依赖安装授权只分析第一条包管理器命令，避免后续 shell 片段或参数分隔符扩大授权范围。 */
+function firstPackageManagerCommandWords(command: string): string[] {
+  const body = commandBodyAfterLikelyCd(command)
+  const separatorIndex = body.search(/&&|[;|]/u)
+  const firstCommand = separatorIndex >= 0 ? body.slice(0, separatorIndex) : body
+  const words = firstCommand.trim().split(/\s+/u)
+  const argumentSeparatorIndex = words.indexOf("--")
+  return argumentSeparatorIndex >= 0 ? words.slice(0, argumentSeparatorIndex) : words
+}
+
+function hasDeniedProjectDependencyOption(words: readonly string[]): boolean {
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index] ?? ""
+    const option = word.includes("=") ? word.slice(0, word.indexOf("=")) : word
+    if (deniedProjectDependencyOptions.has(option)) {
+      return true
+    }
+    if (option !== "--location") {
+      continue
+    }
+    const location = word.includes("=") ? word.slice(word.indexOf("=") + 1) : words[index + 1]
+    if (location?.toLowerCase() === "global") {
+      return true
+    }
+  }
+  return false
+}
+
 function packageManagerScript(command: string): string | undefined {
   const words = command.split(/\s+/u)
   const manager = words[0]?.toLowerCase()
@@ -65,23 +93,21 @@ export function isLikelyProjectDependencyInstallRequest(request: ChatPermissionR
   if (!command) {
     return false
   }
+  const words = firstPackageManagerCommandWords(command)
   const hasExplicitProjectTarget =
     /^cd\s+(?:"[^"]+"|'[^']+'|[^\s;&|<>]+)\s+&&\s+/iu.test(command.trim()) ||
-    /(?:^|\s)(?:-C|--cwd|--dir|--prefix)(?:=|\s+)/u.test(command)
+    words.some((word) => {
+      const option = word.includes("=") ? word.slice(0, word.indexOf("=")) : word
+      return projectDependencyOptionsWithValue.has(option)
+    })
   if (!hasExplicitProjectTarget) {
     return false
   }
-  const words = commandBodyAfterLikelyCd(command).split(/\s+/u)
   const manager = words[0]?.toLowerCase()
   if (!manager || !["bun", "npm", "pnpm", "yarn"].includes(manager)) {
     return false
   }
-  if (
-    words.slice(1).some((word) => {
-      const option = word.includes("=") ? word.slice(0, word.indexOf("=")) : word
-      return deniedProjectDependencyOptions.has(option)
-    })
-  ) {
+  if (hasDeniedProjectDependencyOption(words)) {
     return false
   }
   for (let index = 1; index < words.length; index += 1) {

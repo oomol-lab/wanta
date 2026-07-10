@@ -91,12 +91,13 @@ export function ArchivedRoute({
   const refreshArchived = React.useCallback(
     async (options: { showLoading?: boolean } = {}) => {
       const requestId = ++refreshRequestId.current
+      if (options.showLoading) {
+        setLoaded(false)
+        setError(null)
+      }
       if (!ready) {
         setLoaded(false)
         return
-      }
-      if (options.showLoading) {
-        setLoaded(false)
       }
       try {
         const nextSessions = await listArchived()

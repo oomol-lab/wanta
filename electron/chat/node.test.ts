@@ -1882,6 +1882,57 @@ test("task subagent activity keeps the parent generation fresh without trusted p
   assert.equal(lastEventData<{ kind?: string }>(events).kind, "tool_running_without_output")
 })
 
+test("task subagent abort errors are attributed to the user-stopped parent generation", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  await service.sendMessage({ sessionId: "parent-session", text: "Analyze broadly" })
+  bridge.emit({
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "parent-session", role: "assistant" } },
+  })
+  bridge.emit({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id: "task-1",
+        sessionID: "parent-session",
+        messageID: "assistant-1",
+        type: "tool",
+        callID: "call-1",
+        tool: "task",
+        state: {
+          status: "running",
+          input: {},
+          metadata: { parentSessionId: "parent-session", sessionId: "child-session" },
+        },
+      },
+    },
+  })
+  bridge.abort.mockImplementationOnce(async () => {
+    bridge.emit({
+      type: "session.error",
+      properties: { sessionID: "child-session", error: { name: "AbortError" } },
+    })
+  })
+
+  await service.stopGeneration("parent-session")
+  await waitForCondition(() => events.some((event) => event.event === "generationStopped"))
+
+  assert.equal(
+    events.some((event) => event.event === "messageError"),
+    false,
+  )
+  assert.equal(
+    events
+      .filter((event) => event.event === "generationStopped")
+      .every((event) => (event.data as { sessionId?: string }).sessionId === "parent-session"),
+    true,
+  )
+})
+
 test("task subagent permission prompts are displayed on the parent run without trusted project context", async () => {
   vi.useFakeTimers()
   const bridge = createBridgeAgent()
@@ -2432,6 +2483,24 @@ test("project dependency task approval avoids repeated prompts during the active
     ["session-1", "permission-2", "once"],
   ])
   assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
+
+  await service.sendMessage({
+    projectContext: { id: "project-1", name: "wanta", path: projectPath },
+    sessionId: "session-1",
+    text: "Start a new task",
+  })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-3",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [addDependency],
+      metadata: { command: addDependency },
+    },
+  })
+  await waitForCondition(() => events.filter((event) => event.event === "permissionAsked").length === 2)
+  assert.equal(bridge.answerPermission.mock.calls.length, 2)
 })
 
 test("buildContextMentionsSystem returns undefined without selected context", () => {

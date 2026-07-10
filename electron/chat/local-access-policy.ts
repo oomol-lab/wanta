@@ -57,6 +57,9 @@ function hasMatchingNarrowSessionGrant(
 ): boolean {
   return Boolean(
     grants?.some((grant) => {
+      if (grant.generationId && grant.generationId !== activeGenerationId) {
+        return false
+      }
       if (
         trustedProjectRoot &&
         requestMatchesProjectDependencyInstallTaskGrant(request, grant, trustedProjectRoot, activeGenerationId)

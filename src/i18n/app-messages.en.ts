@@ -59,7 +59,7 @@ export const enMessages = {
   "error.connections.permissionConnect.title": "No permission to connect",
   "error.connections.permissionReconnect.title": "No permission to reconnect",
   "error.connections.permissionDisconnect.title": "No permission to disconnect",
-  "error.connections.permissionDetail.title": "You can't configure this connection",
+  "error.connections.permissionDetail.title": "No permission to view connection details",
   "error.connections.permissionSetDefault.title": "No permission to set the default connection",
   "error.connections.permissionSummary.title": "No permission to read connectors",
   "error.connections.permissionUpdateAlias.title": "No permission to update the connection name",

@@ -39,7 +39,7 @@ export function PermissionRequiredCard({
   const pythonDependencyInstall = managedPythonDependencyInstall(request)
   const sensitiveResource = permissionRequestHasSensitiveResource(request)
   const taskScopedDependencyInstall = Boolean(
-    pythonDependencyInstall || (projectDependencyInstall && !sensitiveResource),
+    (pythonDependencyInstall || projectDependencyInstall) && !sensitiveResource,
   )
   const canAllowForSession = Boolean(
     (!highRisk || taskScopedDependencyInstall) &&
@@ -79,20 +79,20 @@ export function PermissionRequiredCard({
       title: t("chat.permissionPathTitle"),
     },
   }
-  const copy = pythonDependencyInstall
+  const copy = sensitiveResource
     ? {
-        ...copyByKind.command,
-        allowForSessionLabel: t("chat.permissionRequiredAllowPythonDependenciesTask"),
-        description: t("chat.permissionPythonDependencyDescription", {
-          packages: pythonDependencyInstall.packages.join(", "),
-        }),
-        title: t("chat.permissionPythonDependencyTitle"),
+        ...copyByKind[kind],
+        description: t("chat.permissionSensitiveDataDescription", { resource: resource ?? request.action }),
+        title: t("chat.permissionSensitiveDataTitle"),
       }
-    : sensitiveResource
+    : pythonDependencyInstall
       ? {
-          ...copyByKind[kind],
-          description: t("chat.permissionSensitiveDataDescription", { resource: resource ?? request.action }),
-          title: t("chat.permissionSensitiveDataTitle"),
+          ...copyByKind.command,
+          allowForSessionLabel: t("chat.permissionRequiredAllowPythonDependenciesTask"),
+          description: t("chat.permissionPythonDependencyDescription", {
+            packages: pythonDependencyInstall.packages.join(", "),
+          }),
+          title: t("chat.permissionPythonDependencyTitle"),
         }
       : projectDependencyInstall
         ? {

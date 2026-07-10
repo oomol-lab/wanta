@@ -137,7 +137,7 @@ export function ModelReasoningPicker({
     if (open && modelSubmenuOpen) {
       updateModelMenuPosition()
     }
-  }, [modelSubmenuOpen, open, updateModelMenuPosition])
+  }, [menuStyle, modelSubmenuOpen, open, updateModelMenuPosition])
 
   const focusRootItem = React.useCallback((item: ModelReasoningRootItem | undefined): void => {
     if (!item) {

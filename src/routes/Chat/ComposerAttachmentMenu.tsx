@@ -45,6 +45,41 @@ export function ComposerAttachmentMenu({
     [closeMenu, disabled],
   )
 
+  React.useEffect(() => {
+    if (!open) {
+      return
+    }
+    const frame = window.requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [menuRef, open])
+
+  const handleMenuKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+        return
+      }
+      const items = [
+        ...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []),
+      ]
+      if (items.length === 0) {
+        return
+      }
+      event.preventDefault()
+      const currentIndex = items.findIndex((item) => item === document.activeElement)
+      const direction = event.key === "ArrowDown" ? 1 : -1
+      const nextIndex =
+        currentIndex < 0
+          ? direction > 0
+            ? 0
+            : items.length - 1
+          : (currentIndex + direction + items.length) % items.length
+      items[nextIndex]?.focus()
+    },
+    [menuRef],
+  )
+
   return (
     <PromptInputTools className="shrink-0 justify-start">
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFileInputChange} />
@@ -57,6 +92,7 @@ export function ComposerAttachmentMenu({
           title={t("chat.attachFile")}
           aria-label={t("chat.attachFile")}
           aria-expanded={open}
+          aria-haspopup="menu"
           disabled={disabled}
           className="size-8 rounded-full"
           onClick={toggleMenu}
@@ -69,8 +105,10 @@ export function ComposerAttachmentMenu({
         ? createPortal(
             <div
               ref={menuRef}
+              role="menu"
               style={menuStyle}
               className="fixed z-[130] rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+              onKeyDown={handleMenuKeyDown}
             >
               <AttachmentMenuButton disabled={disabled} onClick={() => selectAndClose(onSelectFile)}>
                 <FileIcon className="size-4" />
@@ -100,6 +138,7 @@ function AttachmentMenuButton({
   return (
     <button
       type="button"
+      role="menuitem"
       disabled={disabled}
       className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
       onClick={onClick}

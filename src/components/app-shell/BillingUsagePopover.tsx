@@ -339,7 +339,7 @@ function PlanStatusBadge({
       <button
         type="button"
         title={label}
-        className="cursor-pointer focus-visible:outline-none"
+        className="cursor-pointer focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:outline-none"
         onClick={(event) => {
           event.stopPropagation()
           onClick()

@@ -98,7 +98,7 @@ const HIGH_RISK_COMMAND_PATH_PATTERNS: readonly RegExp[] = [
 ]
 
 const SENSITIVE_COMMAND_RESOURCE_PATTERN =
-  /(^|[\s"'=])(?:~|\$HOME|\/Users\/[^/\s"']+)\/(?:\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.gcloud|\.config\/(?:gh|gcloud)|Library\/(?:Keychains|Mail|Messages|AddressBook|Calendars|Application Support\/(?:Google\/Chrome|Firefox|Brave|Microsoft Edge)))(?:\/|[\s"';&|<>]|$)/i
+  /(^|[\s"'=])(?:~|\$HOME|\$\{HOME\}|\/Users\/[^/\s"']+)\/(?:\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.azure|\.gcloud|\.config\/(?:gh|gcloud)|Library\/(?:Keychains|Mail|Messages|AddressBook|Calendars|Application Support\/(?:Google\/Chrome|Firefox|Brave|Microsoft Edge)))(?:\/|[\s"';&|<>]|$)/i
 
 function pathValue(value: string): string {
   const separator = value.indexOf("=")
@@ -110,9 +110,12 @@ function looksLikeLocalPath(value: string): boolean {
   return (
     candidate === "~" ||
     candidate === "$HOME" ||
+    candidate === "${HOME}" ||
+    /^[A-Za-z]:[\\/]/u.test(candidate) ||
     candidate.startsWith("/") ||
     candidate.startsWith("~/") ||
     candidate.startsWith("$HOME/") ||
+    candidate.startsWith("${HOME}/") ||
     candidate.startsWith("file://")
   )
 }
@@ -236,8 +239,7 @@ function isSensitiveResource(resource: string): boolean {
     basename === "id_ecdsa" ||
     basename === "id_ed25519" ||
     basename === "id_rsa" ||
-    basename === "login data" ||
-    basename === "chat.db"
+    basename === "login data"
   ) {
     return true
   }

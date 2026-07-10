@@ -109,6 +109,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private versionReportCacheGeneration = 0
   private inventoryInFlight: { promise: Promise<SkillInventory>; writeManifest: boolean } | undefined
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
+  private externalRuntimeSkillSyncTail: Promise<void> = Promise.resolve()
   private inventoryChangeTimer: NodeJS.Timeout | undefined
   private runtimeSkillSyncTimer: NodeJS.Timeout | undefined
   private removedSkillStore: RemovedSkillStore | undefined
@@ -711,6 +712,23 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   private async syncExternalAgentSkillsToRuntimeRoot(
+    removedStore: Awaited<ReturnType<RemovedSkillStore["read"]>>,
+  ): Promise<boolean> {
+    let synced = false
+    const operation = this.externalRuntimeSkillSyncTail
+      .catch(() => undefined)
+      .then(async () => {
+        synced = await this.syncExternalAgentSkillsToRuntimeRootNow(removedStore)
+      })
+    this.externalRuntimeSkillSyncTail = operation.then(
+      () => undefined,
+      () => undefined,
+    )
+    await operation
+    return synced
+  }
+
+  private async syncExternalAgentSkillsToRuntimeRootNow(
     removedStore: Awaited<ReturnType<RemovedSkillStore["read"]>>,
   ): Promise<boolean> {
     const externalSkills = await scanInstalledSkills()

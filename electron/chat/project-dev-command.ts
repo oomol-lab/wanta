@@ -41,6 +41,24 @@ const deniedDevCommandArguments = new Set([
 ])
 const deniedProjectDependencyOptions = new Set(["-g", "--global", "--global-folder", "--registry", "--userconfig"])
 
+function hasDeniedProjectDependencyOption(words: readonly string[]): boolean {
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index]
+    const option = optionName(word)
+    if (deniedProjectDependencyOptions.has(option)) {
+      return true
+    }
+    if (option !== "--location") {
+      continue
+    }
+    const location = word.includes("=") ? optionValue(word) : words[index + 1]
+    if (location?.toLowerCase() === "global") {
+      return true
+    }
+  }
+  return false
+}
+
 function splitLeadingAnd(command: string): { left: string; right: string } | undefined {
   let singleQuoted = false
   let doubleQuoted = false
@@ -197,7 +215,7 @@ function packageDependencyInstallAllowed(words: readonly string[]): boolean {
   if (!command || !packageDependencyVerbs.has(command.value.toLowerCase())) {
     return false
   }
-  return !words.slice(1).some((word) => deniedProjectDependencyOptions.has(optionName(word)))
+  return !hasDeniedProjectDependencyOption(words)
 }
 
 function commandExplicitlyTargetsProject(command: string, projectRoot: string): boolean {

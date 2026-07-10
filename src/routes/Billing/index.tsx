@@ -136,7 +136,7 @@ export function BillingRoute({
     [data?.wantaPendingPayment, wantaOverview.additionalSeats, wantaOverview.currentPlan],
   )
   const pendingWantaPaymentUrl = pendingWantaPaymentTargets.paymentUrl
-  const wantaActionDisabled = !billingContext.canManage || isSessionExpired || !data
+  const wantaActionDisabled = !billingContext.canManage || isSessionExpired || !data || wantaLoading !== null
   const averageDailySpend = period > 0 ? totalSpend / period : 0
   const coverageDays = averageDailySpend > 0 ? Math.floor(currentCredit / averageDailySpend) : 0
   const availableShare =

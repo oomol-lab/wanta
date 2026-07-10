@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
+import { ArtifactBundleStore } from "./artifact-bundles.ts"
 import { publicTurnOutputRecord, recordTurnOutput, TurnOutputStore } from "./turn-outputs.ts"
 
 test("TurnOutputStore round trips records and strips diffs from public records", async () => {
@@ -91,6 +92,64 @@ test("TurnOutputStore removes records for a deleted session", async () => {
     assert.equal(next.has("session-1"), false)
     assert.equal(next.get("session-2")?.has("message-2"), true)
     assert.equal(next.get("session-3")?.has("message-3"), true)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("TurnOutputStore migrates legacy artifact files into ArtifactBundleStore", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-turn-output-migration-"))
+  const artifactRoot = path.join(root, "legacy-artifacts")
+  try {
+    await mkdir(artifactRoot)
+    const reportPath = path.join(artifactRoot, "report.pdf")
+    await writeFile(reportPath, "pdf")
+    await writeFile(
+      path.join(root, "turn-outputs.json"),
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          "session-1": {
+            "message-1": {
+              sessionId: "session-1",
+              messageId: "message-1",
+              artifactRoot,
+              createdAt: 1,
+              completedAt: 2,
+              files: [
+                {
+                  path: reportPath,
+                  name: "report.pdf",
+                  role: "artifact",
+                  changeKind: "added",
+                  mime: "application/pdf",
+                  additions: 0,
+                  deletions: 0,
+                  diff: {
+                    kind: "binary",
+                    path: reportPath,
+                    mime: "application/pdf",
+                    additions: 0,
+                    deletions: 0,
+                  },
+                },
+              ],
+              summary: { artifactCount: 1, processFileCount: 0, changedFileCount: 0, additions: 0, deletions: 0 },
+            },
+          },
+        },
+      }),
+    )
+    const artifactStore = new ArtifactBundleStore(root)
+    const turnStore = new TurnOutputStore(root, artifactStore)
+
+    const records = await turnStore.read()
+    const bundle = (await artifactStore.read()).get("session-1")?.get("message-1")
+
+    assert.deepEqual(records.get("session-1")?.get("message-1")?.files, [])
+    assert.equal(bundle?.rootPath, artifactRoot)
+    assert.equal(bundle?.items[0]?.path, reportPath)
+    assert.equal((await readFile(path.join(root, "turn-outputs.json"), "utf8")).includes("artifactRoot"), false)
   } finally {
     await rm(root, { force: true, recursive: true })
   }

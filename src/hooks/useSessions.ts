@@ -225,26 +225,22 @@ export function useSessions({ enabled = true, scope }: { enabled?: boolean; scop
       if (!isCurrentScope(mutationScopeKey)) {
         return
       }
-      const existingSession = sessions.find((session) => session.id === sessionId)
-      const updatedSession = existingSession ? { ...existingSession } : undefined
-      if (updatedSession) {
-        if (projectId) {
-          updatedSession.projectId = projectId
-        } else {
-          delete updatedSession.projectId
-        }
-      }
       setSessions((current) =>
         current.map((session) => {
           if (session.id !== sessionId) {
             return session
           }
-          return updatedSession ?? session
+          const next = { ...session }
+          if (projectId) {
+            next.projectId = projectId
+          } else {
+            delete next.projectId
+          }
+          return next
         }),
       )
-      await refresh()
     },
-    [isCurrentScope, scopeKey, sessionService, refresh, sessions],
+    [isCurrentScope, scopeKey, sessionService],
   )
 
   const setSessionPermissionMode = React.useCallback(

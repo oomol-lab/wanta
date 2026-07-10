@@ -82,6 +82,14 @@ test("project dependency installs require an explicit, bounded project target", 
   assert.equal(isProjectDependencyInstallRequest(permission("npm install"), root), false)
   assert.equal(isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --global eslint`), root), false)
   assert.equal(
+    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --location=global eslint`), root),
+    false,
+  )
+  assert.equal(
+    isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --location global eslint`), root),
+    false,
+  )
+  assert.equal(
     isProjectDependencyInstallRequest(permission(`cd ${root} && npm install --registry https://example.test`), root),
     false,
   )

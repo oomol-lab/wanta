@@ -252,6 +252,8 @@ interface SessionGeneration {
   id: string
 }
 
+const trustedLocalPathRootsCacheMs = 1_000
+
 interface StopSessionGenerationOptions {
   abortAgent: boolean
   reason: "system" | "user"
@@ -302,6 +304,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
   private trustedAttachmentPaths = new Map<string, Set<string>>()
   private trustedPermissionPaths = new Map<string, Set<string>>()
+  private trustedLocalPathRootsCache: { expiresAt: number; roots: string[] } | undefined
+  private trustedLocalPathRootsGeneration = 0
   private permissionModes = new Map<string, AgentPermissionMode>()
   private permissionModeVersions = new Map<string, number>()
   private sessionPermissionGrants = new Map<string, SessionPermissionGrant[]>()
@@ -354,6 +358,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.trustedSubagentSessionsByParent.clear()
     this.trustedAttachmentPaths.clear()
     this.trustedPermissionPaths.clear()
+    this.invalidateTrustedLocalPathRoots()
     this.permissionModes.clear()
     this.permissionModeVersions.clear()
     this.sessionPermissionGrants.clear()
@@ -406,12 +411,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (failedSessionId && this.connectionFailedSessions.has(failedSessionId)) {
           continue
         }
-        if (
-          translated.event === "agentError" &&
-          sourceSessionId &&
-          this.consumeUserStopAbort(sourceSessionId, translated.data.message)
-        ) {
-          const sessionId = sourceSessionId
+        const userStoppedSessionId =
+          translated.event === "agentError" && sourceSessionId
+            ? [sourceSessionId, generationSessionId]
+                .filter((sessionId): sessionId is string => Boolean(sessionId))
+                .find((sessionId) => this.consumeUserStopAbort(sessionId, translated.data.message))
+            : undefined
+        if (translated.event === "agentError" && userStoppedSessionId) {
+          const sessionId = generationSessionId ?? userStoppedSessionId
           const messageId = this.activeAssistantMessages.get(sessionId)
           const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
           const stoppedAt = Date.now()
@@ -673,7 +680,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!activeGenerationId) {
       return
     }
-    this.activeTurnOutputs.delete(activeGenerationId)
+    if (this.activeTurnOutputs.delete(activeGenerationId)) {
+      this.invalidateTrustedLocalPathRoots()
+    }
   }
 
   private activeTurnOutputForSession(sessionId: string): ActiveTurnOutput | undefined {
@@ -922,14 +931,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const trustedProjectRoot = this.trustedProjectRoots.get(sessionId)
     const generationId = this.sessionGenerations.get(sessionId)?.id
     const managedPythonProcessRoot = generationId ? this.activeTurnOutputs.get(generationId)?.processRoot : undefined
-    const grant = localAccessGrantForRequest(request, {
+    const candidate = localAccessGrantForRequest(request, {
       ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       ...(managedPythonProcessRoot ? { managedPythonProcessRoot } : {}),
       ...(generationId ? { projectDependencyGenerationId: generationId } : {}),
     })
-    if (!grant) {
+    if (!candidate) {
       return
     }
+    const grant =
+      candidate.kind === "python_dependency_install" && generationId ? { ...candidate, generationId } : candidate
     const grants = this.sessionPermissionGrants.get(sessionId) ?? []
     const exists = grants.some(
       (item) =>
@@ -944,6 +955,25 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.sessionPermissionGrants.set(sessionId, [...grants, grant])
     }
     this.rememberTrustedPermissionResources(sessionId, request)
+  }
+
+  private removeGenerationPermissionGrants(sessionId: string, generationId: string | undefined): void {
+    if (!generationId) {
+      return
+    }
+    const grants = this.sessionPermissionGrants.get(sessionId)
+    if (!grants) {
+      return
+    }
+    const retained = grants.filter((grant) => grant.generationId !== generationId)
+    if (retained.length === grants.length) {
+      return
+    }
+    if (retained.length > 0) {
+      this.sessionPermissionGrants.set(sessionId, retained)
+    } else {
+      this.sessionPermissionGrants.delete(sessionId)
+    }
   }
 
   private rememberPendingPermissionRequest(request: ChatPermissionRequest): void {
@@ -1147,6 +1177,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId) ?? new Set<string>()
     childSessionIds.add(childSessionId)
     this.trustedSubagentSessionsByParent.set(parentSessionId, childSessionIds)
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private forgetTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
@@ -1164,6 +1195,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (childSessionIds.size === 0) {
       this.trustedSubagentSessionsByParent.delete(parentSessionId)
     }
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private forgetTrustedSubagentSessions(parentSessionId: string): void {
@@ -1180,6 +1212,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.forgetSessionPendingPermissionRequests(childSessionId)
     }
     this.trustedSubagentSessionsByParent.delete(parentSessionId)
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private rememberTrustedAttachments(sessionId: string, attachments: readonly ChatAttachment[] | undefined): void {
@@ -1197,6 +1230,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (paths.size > 0) {
       this.trustedAttachmentPaths.set(sessionId, paths)
+      this.invalidateTrustedLocalPathRoots()
     }
   }
 
@@ -1227,10 +1261,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     if (paths.size > 0) {
       this.trustedPermissionPaths.set(sessionId, paths)
+      this.invalidateTrustedLocalPathRoots()
     }
   }
 
+  private invalidateTrustedLocalPathRoots(): void {
+    this.trustedLocalPathRootsGeneration += 1
+    this.trustedLocalPathRootsCache = undefined
+  }
+
   private async trustedLocalPathRoots(): Promise<string[]> {
+    const cached = this.trustedLocalPathRootsCache
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.roots
+    }
+    const generation = this.trustedLocalPathRootsGeneration
     const roots = new Set<string>()
     for (const active of this.activeTurnOutputs.values()) {
       roots.add(active.artifactRoot)
@@ -1282,7 +1327,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       console.warn("[wanta] failed to read trusted project roots:", error)
       logDiagnostic("chat-service", "failed to read trusted project roots", { error }, "warn")
     }
-    return [...roots].filter((root) => root.trim())
+    const normalizedRoots = (
+      await Promise.all([...roots].filter((root) => root.trim()).map((root) => realpath(root).catch(() => null)))
+    ).filter((root): root is string => Boolean(root))
+    if (this.trustedLocalPathRootsGeneration !== generation) {
+      return this.trustedLocalPathRoots()
+    }
+    this.trustedLocalPathRootsCache = {
+      expiresAt: Date.now() + trustedLocalPathRootsCacheMs,
+      roots: normalizedRoots,
+    }
+    return normalizedRoots
   }
 
   private async isPathInTrustedRoots(filePath: string, roots: readonly string[]): Promise<boolean> {
@@ -1291,8 +1346,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return false
     }
     for (const root of roots) {
-      const trustedRoot = await realpath(root).catch(() => null)
-      if (trustedRoot && isPathInside(trustedRoot, target)) {
+      if (isPathInside(root, target)) {
         return true
       }
     }
@@ -1312,6 +1366,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private beginSessionGeneration(sessionId: string): SessionGeneration {
     const previousGeneration = this.sessionGenerations.get(sessionId)
     previousGeneration?.controller.abort()
+    this.removeGenerationPermissionGrants(sessionId, previousGeneration?.id)
     const generation = { controller: new AbortController(), id: crypto.randomUUID() }
     this.sessionGenerations.set(sessionId, generation)
     return generation
@@ -1337,6 +1392,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.forgetChildSessions(sessionId)
     this.forgetTrustedSubagentSessions(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
+    this.removeGenerationPermissionGrants(sessionId, generation?.id)
     this.sessionGenerations.delete(sessionId)
     this.deleteActiveRun(sessionId, generationId)
     void this.agent?.clearSessionOrganizationName(sessionId).catch((error: unknown) => {
@@ -1716,6 +1772,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       } else {
         this.trustedProjectRoots.delete(req.sessionId)
       }
+      this.invalidateTrustedLocalPathRoots()
       const project = await this.projectBaseline(req.projectContext)
       const artifactBaseline = await captureArtifactSessionBaseline(
         this.agent.artifactSessionDir(req.sessionId),
@@ -1742,6 +1799,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
       })
+      this.invalidateTrustedLocalPathRoots()
       const promptGeneration = activeGeneration
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.updateActiveRun(req.sessionId, { phase: "submitted" })
@@ -1836,9 +1894,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private async rememberArtifactBundle(bundle: ArtifactBundle): Promise<void> {
     if (this.deps.artifactBundleStore) {
       await this.deps.artifactBundleStore.record(bundle)
+      this.invalidateTrustedLocalPathRoots()
       return
     }
     recordArtifactBundle(this.transientArtifactBundles, bundle)
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private async publishArtifactBundle(bundle: ArtifactBundle): Promise<void> {
@@ -1917,9 +1977,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private async rememberTurnOutput(record: StoredTurnOutputRecord): Promise<void> {
     if (this.deps.turnOutputStore) {
       await this.deps.turnOutputStore.record(record)
+      this.invalidateTrustedLocalPathRoots()
       return
     }
     recordTurnOutput(this.transientTurnOutputs, record)
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private async projectBaseline(project: ChatProjectContext | undefined): Promise<{
@@ -1969,7 +2031,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const generationId = this.sessionGenerations.get(sessionId)?.id
     const active = generationId ? this.activeTurnOutputs.get(generationId) : undefined
     if (generationId) {
-      this.activeTurnOutputs.delete(generationId)
+      if (this.activeTurnOutputs.delete(generationId)) {
+        this.invalidateTrustedLocalPathRoots()
+      }
     }
     const resolvedMessageId = messageId ?? active?.messageId
     if (!active) {

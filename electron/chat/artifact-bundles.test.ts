@@ -332,6 +332,102 @@ test("materializeAssistantArtifacts refuses HTTPS image previews that resolve to
   }
 })
 
+test("materializeAssistantArtifacts rejects reserved and documentation address ranges", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-reserved-preview-"))
+  try {
+    let requests = 0
+    for (const address of ["198.18.0.1", "192.0.2.1", "2001:db8::1", "3fff::1"]) {
+      const origins = await materializeAssistantArtifacts(
+        [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            createdAt: 1,
+            parts: [
+              {
+                kind: "text",
+                partId: "text-1",
+                text: "![generated](https://reserved.example/image.png)",
+              },
+            ],
+          },
+        ],
+        "assistant-1",
+        root,
+        {
+          fetcher: async () => {
+            requests += 1
+            return new Response("image", { headers: { "content-type": "image/png" } })
+          },
+          resolveHostname: async () => [address],
+        },
+      )
+      assert.equal(origins.size, 0)
+    }
+    assert.equal(requests, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("materializeAssistantArtifacts bounds source count and download concurrency", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-concurrency-preview-"))
+  try {
+    let activeRequests = 0
+    let maxActiveRequests = 0
+    let requestCount = 0
+    let releaseRequests: () => void = () => undefined
+    const requestGate = new Promise<void>((resolve) => {
+      releaseRequests = resolve
+    })
+    const materialization = materializeAssistantArtifacts(
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          createdAt: 1,
+          parts: [
+            {
+              kind: "text",
+              partId: "text-1",
+              text: Array.from(
+                { length: 40 },
+                (_, index) => `![generated](https://cdn.example.com/image-${index + 1}.png)`,
+              ).join("\n"),
+            },
+          ],
+        },
+      ],
+      "assistant-1",
+      root,
+      {
+        fetcher: async () => {
+          requestCount += 1
+          activeRequests += 1
+          maxActiveRequests = Math.max(maxActiveRequests, activeRequests)
+          await requestGate
+          activeRequests -= 1
+          return new Response("image", { headers: { "content-type": "image/png" } })
+        },
+        resolveHostname: async () => ["93.184.216.34"],
+      },
+    )
+
+    while (requestCount < 4) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+    assert.equal(activeRequests, 4)
+    releaseRequests()
+    const origins = await materialization
+
+    assert.equal(requestCount, 32)
+    assert.equal(maxActiveRequests, 4)
+    assert.equal(origins.size, 32)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("materializeAssistantArtifacts refuses redirects from public image URLs into private addresses", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-private-redirect-"))
   try {

@@ -61,6 +61,32 @@ test("renderer permission helpers recognize likely project dev commands without 
     ),
     false,
   )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "cd /Users/me/code/app && npm install --location=global eslint" } }),
+    ),
+    false,
+  )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "npm install zod && echo --prefix /tmp/not-a-project" } }),
+    ),
+    false,
+  )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "npm install zod -- --prefix /tmp/not-a-project" } }),
+    ),
+    false,
+  )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({
+        metadata: { command: "npm --prefix /Users/me/code/app install zod && npm --global install eslint" },
+      }),
+    ),
+    true,
+  )
 })
 
 test("high risk command detection marks destructive commands for default access prompts", () => {
@@ -183,6 +209,28 @@ test("permission helpers distinguish sensitive data from ordinary and broad read
   )
   assert.equal(
     permissionRequestHasSensitiveResource(permission({ metadata: { command: "cat ~/Documents/report.md" } })),
+    false,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(permission({ metadata: { command: "type C:/Users/me/.kube/config" } })),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ metadata: { command: 'sqlite3 "${HOME}/Library/Messages/chat.db" ".tables"' } }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ action: "external_directory", resources: ["C:\\Users\\me\\.ssh\\id_ed25519"] }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ action: "edit", resources: ["/Users/me/code/app/fixtures/chat.db"] }),
+    ),
     false,
   )
   assert.equal(permissionRequestHasBroadResource(permission({ metadata: { command: "cat ~" } })), true)

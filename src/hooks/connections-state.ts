@@ -1,4 +1,4 @@
-import type { ConnectionSummary } from "../../electron/connections/common.ts"
+import type { ConnectionSummary, ConnectionUsageSummary } from "../../electron/connections/common.ts"
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import { connectionWorkspaceKey } from "../lib/connection-workspace.ts"
@@ -26,6 +26,8 @@ export type ConnectionsStateAction =
   | { type: "refreshStarted" }
   | { type: "refreshSucceeded"; summary: ConnectionSummary }
   | { type: "summarySet"; summary: ConnectionSummary }
+  | { type: "usageHydrationFailed"; workspaceKey: string }
+  | { type: "usageHydrated"; usage: ConnectionUsageSummary; workspaceKey: string }
   | { type: "workspacePending" }
   | { type: "workspaceScopeSyncFailed"; error: UserFacingError }
   | { type: "workspaceScopeSynced"; workspaceKey: string }
@@ -70,6 +72,22 @@ export function connectionsStateReducer(state: ConnectionsState, action: Connect
         summary: action.summary,
         summaryError: null,
         summaryWorkspaceKey: connectionSummaryWorkspaceKey(action.summary),
+      }
+    case "usageHydrated":
+      if (!state.summary || state.summaryWorkspaceKey !== action.workspaceKey) {
+        return state
+      }
+      return {
+        ...state,
+        summary: { ...state.summary, usage: action.usage, usageLoading: false },
+      }
+    case "usageHydrationFailed":
+      if (!state.summary || state.summaryWorkspaceKey !== action.workspaceKey) {
+        return state
+      }
+      return {
+        ...state,
+        summary: { ...state.summary, usageLoading: false },
       }
     case "workspacePending":
       return initialConnectionsState

@@ -18,17 +18,13 @@ import * as React from "react"
 import { toast } from "sonner"
 import { DiscoverSkillsPane } from "./DiscoverSkillsPane.tsx"
 import { InstalledSkillsPane } from "./InstalledSkillsPane.tsx"
-import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
-import {
-  buildInstallableOrganizationRecommendationSkills,
-  buildOrganizationSkillRecommendationItems,
-} from "./organization-skill-manage-helpers.ts"
 import { OrganizationInstallMissingButton } from "./OrganizationSkillManageRows.tsx"
 import { OrganizationSkillsPane } from "./OrganizationSkillsPane.tsx"
 import { PersonalSkillRecommendationsPane } from "./PersonalSkillRecommendationsPane.tsx"
 import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupStatus,
+  getInstallableOrganizationSkills,
   getLocalSkillPublishPath,
   getPublicPackagePrimarySkill,
   getRuntimeHosts,
@@ -61,7 +57,12 @@ import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecomme
 import { useAppI18n } from "@/i18n"
 import { addOrganizationSkill } from "@/lib/organization-skills-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
-import { listMyPublishedSkillPackages, listPublicSkillPackages } from "@/lib/skills-catalog-client"
+import {
+  invalidateMyPublishedSkillCatalog,
+  invalidatePublicSkillCatalog,
+  listMyPublishedSkillPackages,
+  listPublicSkillPackages,
+} from "@/lib/skills-catalog-client"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 
 type SkillOperationError = {
@@ -273,7 +274,7 @@ export function SkillsRoute({
       dispatchPublicPackageCatalog({ append, requestId, type: "load-start" })
 
       try {
-        const catalog = await listPublicSkillPackages({ next })
+        const catalog = await listPublicSkillPackages({ forceRefresh: options.forceRefresh, next })
         dispatchPublicPackageCatalog({ append, catalog, requestId, type: "load-success" })
       } catch (cause) {
         dispatchPublicPackageCatalog({
@@ -301,6 +302,7 @@ export function SkillsRoute({
       try {
         const catalog = await listMyPublishedSkillPackages({
           account: { avatarUrl: account.avatarUrl, id: account.id, name: account.name },
+          forceRefresh: options.forceRefresh,
           next,
         })
         dispatchMyPublishedPackageCatalog({ append, catalog, requestId, type: "load-success" })
@@ -435,28 +437,16 @@ export function SkillsRoute({
       return []
     }
 
-    const recommendedPlan = planProviderSkillRecommendationBulkLinks(
-      providerSkillRecommendations,
-      organizationSkills.skills,
-    )
-    const items = buildOrganizationSkillRecommendationItems({
-      filter: organizationFilter,
-      normalizedQuery: "",
-      providerRecommendations: recommendedPlan.linkable,
-      skills: organizationSkills.skills,
-    })
-    return buildInstallableOrganizationRecommendationSkills({
-      groupById: installedSkillGroupById,
-      items,
-    })
+    return getInstallableOrganizationSkills(installedSkillGroupById, organizationSkills.skills).map((skill) => ({
+      packageName: skill.packageName,
+      skillName: skill.skillName,
+    }))
   }, [
     activeOrganizationId,
     activeTab,
     installedSkillGroupById,
-    organizationFilter,
     organizationSkills.organizationId,
     organizationSkills.skills,
-    providerSkillRecommendations,
   ])
 
   const updateRegistrySkill = React.useCallback(
@@ -544,6 +534,10 @@ export function SkillsRoute({
           path: skillPath,
           visibility: options.visibility,
         })
+        if (authResource.data?.status === "authenticated" && authResource.data.account) {
+          invalidateMyPublishedSkillCatalog(authResource.data.account.id)
+        }
+        invalidatePublicSkillCatalog()
         inventoryResource.setData(result.inventory)
         await versionResource
           .refresh({ forceRefresh: true, silent: true })
@@ -574,6 +568,7 @@ export function SkillsRoute({
       }
     },
     [
+      authResource.data,
       homeSummaryResource,
       inventoryResource,
       loadMyPublishedSkillPackages,
@@ -719,7 +714,9 @@ export function SkillsRoute({
             organizationQuery={organizationQuery}
             organizationSkills={organizationSkills}
             providerRecommendationsLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
+            providerRecommendationsPendingCount={providerSkillRecommendationsState.pendingCount}
             providerRecommendations={providerSkillRecommendations}
+            providerRecommendationsTotalCount={providerSkillRecommendationsState.totalCount}
             workspace={workspace}
             onAddRecommendation={addOrganizationSkillFromRecommendation}
             onInstallRuntimeSkill={installOrganizationRuntimeSkill}

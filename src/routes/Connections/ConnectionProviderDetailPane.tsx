@@ -193,22 +193,27 @@ export function ProviderDetail({
           provider={provider}
           usage={usage}
           usageDays={summary?.usage.days ?? 7}
+          usageLoading={Boolean(summary?.usageLoading)}
         />
       ) : null}
 
       <section className="grid gap-1.5">
         <h3 className="oo-text-title px-0.5">{t("connections.providerDetails")}</h3>
-        <dl className="overflow-hidden rounded-md border">
-          {noAuthReady ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
-          {noAuthReady ? null : (
-            <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
-          )}
-          <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
-          <DetailRow label={t("connections.service")} value={provider.service} mono />
-          {noAuthReady ? null : (
-            <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
-          )}
-        </dl>
+        {detailLoading && !detail ? (
+          <ProviderDetailsSkeleton />
+        ) : (
+          <dl className="overflow-hidden rounded-md border">
+            {noAuthReady ? null : <DetailRow label={t("connections.account")} value={accountValue} />}
+            {noAuthReady ? null : (
+              <DetailRow label={t("connections.auth")} value={formatAuthTypes(provider.authTypes, t)} />
+            )}
+            <DetailRow label={t("connections.category")} value={formatProviderCategoryLabels(provider, t)} />
+            <DetailRow label={t("connections.service")} value={provider.service} mono />
+            {noAuthReady ? null : (
+              <DetailRow label={t("connections.updatedAt")} value={formatDateTime(provider.connectedUpdatedAt, t)} />
+            )}
+          </dl>
+        )}
       </section>
     </div>
   )
@@ -289,6 +294,10 @@ function ConnectionPanel({
     setSelectedAuthType(currentAuthType)
   }, [currentAuthType, provider.service])
 
+  if (actionsPending) {
+    return <ConnectionPanelSkeleton />
+  }
+
   return (
     <div className="grid gap-2.5 border-t pt-3">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -302,7 +311,7 @@ function ConnectionPanel({
           </h3>
           {detailLoading ? <Loader className="oo-icon-muted shrink-0" size={16} /> : null}
         </div>
-        {actionsPending || noAuthReady ? null : (
+        {noAuthReady ? null : (
           <AuthTypeToggleGroup
             authTypes={usableAuthTypes}
             value={activeAuthType ?? null}
@@ -311,7 +320,7 @@ function ConnectionPanel({
         )}
       </div>
 
-      {actionsPending ? null : noAuthReady ? (
+      {noAuthReady ? (
         <div className="oo-text-caption oo-text-muted rounded-md border bg-muted/30 px-3 py-2">
           {t("connections.noAuthReadyDescription")}
         </div>
@@ -363,7 +372,7 @@ function ConnectionPanel({
         <div className="oo-text-caption oo-text-muted">{t("connections.unsupportedConnectionDescription")}</div>
       )}
 
-      {!actionsPending && provider.apps.length > 0 ? (
+      {provider.apps.length > 0 ? (
         <ConnectionAccountsList
           busy={busy}
           canSetDefault={canSetDefault}
@@ -375,6 +384,35 @@ function ConnectionPanel({
           reconnectBlocked={authorizationBlocked}
         />
       ) : null}
+    </div>
+  )
+}
+
+function ConnectionPanelSkeleton() {
+  return (
+    <div className="grid gap-2.5 border-t pt-3" aria-hidden="true">
+      <div className="flex items-center justify-between gap-2">
+        <div className="h-4 w-36 animate-pulse rounded-sm bg-muted" />
+        <div className="h-8 w-28 animate-pulse rounded-md bg-muted" />
+      </div>
+      <div className="h-8 w-28 animate-pulse rounded-md bg-muted" />
+      <div className="grid gap-1 overflow-hidden rounded-md border p-2.5">
+        <div className="h-3 w-3/5 animate-pulse rounded-sm bg-muted" />
+        <div className="h-3 w-2/5 animate-pulse rounded-sm bg-muted" />
+      </div>
+    </div>
+  )
+}
+
+function ProviderDetailsSkeleton() {
+  return (
+    <div className="grid gap-0.5 overflow-hidden rounded-md border p-2.5" aria-hidden="true">
+      {Array.from({ length: 4 }, (_, index) => (
+        <div key={index} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2 py-1.5">
+          <div className="h-3 w-16 animate-pulse rounded-sm bg-muted" />
+          <div className="h-3 w-32 animate-pulse rounded-sm bg-muted" />
+        </div>
+      ))}
     </div>
   )
 }

@@ -53,15 +53,19 @@ import { useAuthStateResource, useSkillInventoryResource } from "@/components/Ap
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAppI18n } from "@/i18n"
 import {
+  getOrganizationAppAccessResource,
+  getOrganizationMembersResource,
+  getOrganizationProviderOptionsResource,
+  getOrganizationUserSummariesResource,
+  invalidateOrganizationDetailsResource,
+} from "@/lib/organization-details-resource"
+import {
   addOrganizationMember,
   createOrganization,
   disableOrganizationMembers,
   enableOrganizationMembers,
   getOrganizationAppAccess,
   isOrganizationMemberLimitError,
-  listOrganizationMembers,
-  listOrganizationProviderOptions,
-  listUserSummaries,
   removeOrganizationMember,
   updateOrganizationAppAccess,
   updateOrganization,
@@ -275,7 +279,7 @@ export function OrganizationManagementRoute({
   }, [])
 
   const loadSelectedDetails = React.useCallback(
-    async (organization: Organization, canManageDetails: boolean, _options: { forceRefresh?: boolean } = {}) => {
+    async (organization: Organization, canManageDetails: boolean, options: { forceRefresh?: boolean } = {}) => {
       const requestId = detailsRequestId.current + 1
       const preserveCurrentData = detailsOrganizationIdRef.current === organization.id
       detailsRequestId.current = requestId
@@ -290,17 +294,32 @@ export function OrganizationManagementRoute({
       )
 
       try {
-        const membersRequest = settle(listOrganizationMembers(organization.id))
+        const resourceAccountId = activeAccountId ?? "anonymous"
+        const membersRequest = settle(
+          getOrganizationMembersResource(resourceAccountId, organization.id, { forceRefresh: options.forceRefresh }),
+        )
         const providerOptionsRequest = canManageDetails
-          ? settle(listOrganizationProviderOptions(organization.name))
+          ? settle(
+              getOrganizationProviderOptionsResource(resourceAccountId, organization.id, organization.name, {
+                forceRefresh: options.forceRefresh,
+              }),
+            )
           : Promise.resolve<AsyncResult<OrganizationProviderOption[]>>({ ok: true, value: [] })
         const appAccessRequest = canManageDetails
-          ? settle(getOrganizationAppAccess(organization.id))
+          ? settle(
+              getOrganizationAppAccessResource(resourceAccountId, organization.id, {
+                forceRefresh: options.forceRefresh,
+              }),
+            )
           : Promise.resolve<AsyncResult<OrganizationAppAccess | null>>({ ok: true, value: null })
         const fallbackUserIds = uniqueStrings([organization.creator_user_id, activeAccountId ?? ""])
         const loadSummaries = (userIds: string[]): Promise<AsyncResult<Record<string, OrganizationUserSummary>>> =>
           userIds.length > 0
-            ? settle(listUserSummaries(userIds))
+            ? settle(
+                getOrganizationUserSummariesResource(resourceAccountId, organization.id, userIds, {
+                  forceRefresh: options.forceRefresh,
+                }),
+              )
             : Promise.resolve<AsyncResult<Record<string, OrganizationUserSummary>>>({ ok: true, value: {} })
 
         const membersResult = await membersRequest
@@ -679,6 +698,7 @@ export function OrganizationManagementRoute({
       setAddMemberError(null)
       try {
         await addOrganizationMember({ orgId: selectedOrganization.id, userId })
+        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
         toast.success(t("organizations.addMemberSuccess"))
         resetMemberSearch()
         setAddMemberOpen(false)
@@ -698,6 +718,7 @@ export function OrganizationManagementRoute({
     },
     [
       activeSearchUserId,
+      activeAccountId,
       canManage,
       memberInput,
       memberSearch.items.length,
@@ -721,6 +742,7 @@ export function OrganizationManagementRoute({
           orgId: selectedOrganization.id,
           userId: member.user_id,
         })
+        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
         toast.success(t("organizations.removeMemberSuccess"))
         await reloadMembersAndAccess()
       } catch (error) {
@@ -729,7 +751,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [canManage, reloadMembersAndAccess, selectedOrganization, t],
+    [activeAccountId, canManage, reloadMembersAndAccess, selectedOrganization, t],
   )
 
   const updateMembersStatus = React.useCallback(
@@ -750,6 +772,7 @@ export function OrganizationManagementRoute({
         } else {
           await enableOrganizationMembers({ orgId: selectedOrganization.id, userIds: normalizedUserIds })
         }
+        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
         toast.success(disabled ? t("organizations.disableMembersSuccess") : t("organizations.enableMembersSuccess"))
         await reloadMembersAndAccess()
       } catch (error) {
@@ -758,7 +781,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [canManage, reloadMembersAndAccess, selectedOrganization, t],
+    [activeAccountId, canManage, reloadMembersAndAccess, selectedOrganization, t],
   )
 
   const handleEnableMembers = React.useCallback(
@@ -839,6 +862,7 @@ export function OrganizationManagementRoute({
             : providerAccessForm.providers
         const nextAccess = setProviderGrant(parsed.access, userId, providers, allProviders)
         const updated = await updateOrganizationAppAccess(selectedOrganization.id, nextAccess)
+        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
         setAppAccessState(readyState(updated))
         setProviderAccessForm(initialProviderAccessForm)
         toast.success(t("organizations.providerAccessSaveSuccess"))
@@ -848,7 +872,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [canManage, providerAccessError, providerAccessForm, selectedOrganization, t],
+    [activeAccountId, canManage, providerAccessError, providerAccessForm, selectedOrganization, t],
   )
 
   const handleRevokeProviderAccess = React.useCallback(
@@ -869,6 +893,7 @@ export function OrganizationManagementRoute({
           selectedOrganization.id,
           removeProviderGrant(parsed.access, grant.userId),
         )
+        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
         setAppAccessState(readyState(updated))
         toast.success(t("organizations.providerAccessRevokeSuccess"))
       } catch (error) {
@@ -877,7 +902,7 @@ export function OrganizationManagementRoute({
         setBusyAction(null)
       }
     },
-    [canManage, providerAccessError, selectedOrganization, t],
+    [activeAccountId, canManage, providerAccessError, selectedOrganization, t],
   )
 
   return (
@@ -928,6 +953,8 @@ export function OrganizationManagementRoute({
                         providerRecommendationsLoading={
                           connectedProvidersLoading || providerSkillPackageLookup.isLoading
                         }
+                        providerRecommendationsResolvedCount={providerSkillPackageLookup.resolvedCount}
+                        providerRecommendationsTotalCount={providerSkillPackageLookup.totalCount}
                         providerRecommendations={providerSkillRecommendations}
                         onAddRecommendation={addOrganizationSkillFromRecommendation}
                         onAddRecommendationBatch={addOrganizationSkillBatch}

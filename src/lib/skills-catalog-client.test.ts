@@ -1,10 +1,51 @@
 import assert from "node:assert/strict"
 import { afterEach, test, vi } from "vitest"
 import { packageAssetsBaseUrl, registryBaseUrl, searchBaseUrl } from "@/lib/domain"
-import { searchPublicSkillPackages } from "@/lib/skills-catalog-client.ts"
+import {
+  clearSkillCatalogCacheForTest,
+  listPublicSkillPackages,
+  readPublicSkillPackageByName,
+  searchPublicSkillPackages,
+} from "@/lib/skills-catalog-client"
 
 afterEach(() => {
+  clearSkillCatalogCacheForTest()
   vi.unstubAllGlobals()
+})
+
+test("public Skill lists share cached and in-flight requests", async () => {
+  const fetchMock = vi.fn(async () => {
+    return new Response(JSON.stringify({ data: [] }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    })
+  })
+  vi.stubGlobal("fetch", fetchMock)
+
+  await Promise.all([listPublicSkillPackages(), listPublicSkillPackages()])
+  await listPublicSkillPackages()
+
+  assert.equal(fetchMock.mock.calls.length, 1)
+})
+
+test("exact public package lookups reuse the shared package detail cache", async () => {
+  const fetchMock = vi.fn(async () => {
+    return new Response(
+      JSON.stringify({
+        packageName: "@acme/demo",
+        packageVersion: "1.2.3",
+        skills: [{ name: "demo", title: "Demo" }],
+        title: "Demo Package",
+      }),
+      { headers: { "content-type": "application/json" }, status: 200 },
+    )
+  })
+  vi.stubGlobal("fetch", fetchMock)
+
+  await Promise.all([readPublicSkillPackageByName("@acme/demo"), readPublicSkillPackageByName("@acme/demo")])
+  await readPublicSkillPackageByName("@acme/demo")
+
+  assert.equal(fetchMock.mock.calls.length, 1)
 })
 
 test("searchPublicSkillPackages searches remotely and enriches registry package details", async () => {

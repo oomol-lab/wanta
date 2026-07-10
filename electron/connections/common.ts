@@ -225,6 +225,8 @@ export interface ConnectionSummary {
   providerCount: number
   providers: ConnectionProviderSummary[]
   usage: ConnectionUsageSummary
+  /** 目录已可用但后台用量聚合仍在读取时为 true，避免详情面板把空聚合误展示为“暂无调用”。 */
+  usageLoading?: boolean
   message?: string
   updatedAt: string
   workspace: ConnectionWorkspace

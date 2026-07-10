@@ -23,11 +23,13 @@ export function ProviderUsagePanel({
   provider,
   usage,
   usageDays,
+  usageLoading = false,
 }: {
   connections: UseConnections
   provider: ConnectionProviderSummary
   usage?: ConnectionUsageServiceItem
   usageDays: number
+  usageLoading?: boolean
 }) {
   const t = useT()
   const [isUsageDialogOpen, setIsUsageDialogOpen] = React.useState(false)
@@ -82,6 +84,10 @@ export function ProviderUsagePanel({
     }
   }, [error, isUsageDialogOpen, loadLogs, loading, logs, providerUsage.calls])
 
+  if (usageLoading) {
+    return <ProviderUsageSkeleton />
+  }
+
   const usageTitle =
     providerUsage.calls > 0
       ? t("connections.usageCompactCalls", { count: providerUsage.calls })
@@ -132,6 +138,22 @@ export function ProviderUsagePanel({
         onClose={() => setIsUsageDialogOpen(false)}
         onRefresh={() => void loadLogs()}
       />
+    </section>
+  )
+}
+
+function ProviderUsageSkeleton() {
+  const t = useT()
+  return (
+    <section className="grid gap-1.5" aria-label={t("connections.usageTitle")}>
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <div className="h-4 w-20 animate-pulse rounded-sm bg-muted" />
+        <div className="h-8 w-24 animate-pulse rounded-md bg-muted" />
+      </div>
+      <div className="grid gap-2 rounded-md bg-[var(--oo-inspector-surface)] px-2.5 py-2">
+        <div className="h-4 w-28 animate-pulse rounded-sm bg-muted" />
+        <div className="h-3 w-44 animate-pulse rounded-sm bg-muted" />
+      </div>
     </section>
   )
 }

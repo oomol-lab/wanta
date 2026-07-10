@@ -1,7 +1,8 @@
 import type { WorkspaceSelection } from "./useOrganizationWorkspace.ts"
 
 import * as React from "react"
-import { listOrganizationMembers } from "@/lib/organizations-client"
+import { useAuth } from "@/hooks/useAuth"
+import { getCachedOrganizationMembers, getOrganizationMembersResource } from "@/lib/organization-details-resource"
 
 export interface UseBillableSeats {
   count: number | null
@@ -10,13 +11,18 @@ export interface UseBillableSeats {
 }
 
 export function useBillableSeats(workspace: WorkspaceSelection, enabled = true): UseBillableSeats {
-  const [count, setCount] = React.useState<number | null>(null)
+  const { state: authState } = useAuth()
+  const accountId = authState?.status === "authenticated" ? (authState.account?.id ?? null) : null
+  const organizationId = workspace.type === "organization" ? workspace.organizationId : null
+  const cachedMembers = accountId && organizationId ? getCachedOrganizationMembers(accountId, organizationId) : null
+  const [count, setCount] = React.useState<number | null>(() =>
+    cachedMembers ? Math.max(1, cachedMembers.length) : null,
+  )
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const organizationId = workspace.type === "organization" ? workspace.organizationId : null
 
   React.useEffect(() => {
-    if (!enabled || !organizationId) {
+    if (!enabled || !accountId || !organizationId) {
       setCount(null)
       setError(null)
       setLoading(false)
@@ -24,9 +30,17 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     }
 
     let cancelled = false
+    const cached = getCachedOrganizationMembers(accountId, organizationId)
+    if (cached) {
+      setCount(Math.max(1, cached.length))
+      setError(null)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError(null)
-    void listOrganizationMembers(organizationId)
+    void getOrganizationMembersResource(accountId, organizationId)
       .then((members) => {
         if (!cancelled) {
           setCount(Math.max(1, members.length))
@@ -47,7 +61,7 @@ export function useBillableSeats(workspace: WorkspaceSelection, enabled = true):
     return () => {
       cancelled = true
     }
-  }, [enabled, organizationId])
+  }, [accountId, enabled, organizationId])
 
   return { count, error, loading }
 }

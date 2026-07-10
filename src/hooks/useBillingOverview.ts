@@ -2,7 +2,7 @@ import type { BillingOverviewResult, BillingPeriodDays } from "../../electron/ch
 import type { UserFacingError } from "../lib/user-facing-error.ts"
 
 import * as React from "react"
-import { getBillingOverview, getBillingSummary } from "../lib/billing-client.ts"
+import { getBillingOverview } from "../lib/billing-client.ts"
 import { resolveUserFacingError } from "../lib/user-facing-error.ts"
 
 const defaultStaleMs = 60_000
@@ -17,7 +17,6 @@ interface BillingOverviewCacheEntry {
 export interface UseBillingOverviewOptions {
   cacheScope?: string
   enabled?: boolean
-  summaryOnly?: boolean
   staleMs?: number
 }
 
@@ -36,14 +35,11 @@ const overviewCache = new Map<string, Map<BillingPeriodDays, BillingOverviewCach
 
 export function useBillingOverview(
   days: BillingPeriodDays,
-  {
-    cacheScope = "default",
-    enabled = true,
-    staleMs = defaultStaleMs,
-    summaryOnly = false,
-  }: UseBillingOverviewOptions = {},
+  { cacheScope = "default", enabled = true, staleMs = defaultStaleMs }: UseBillingOverviewOptions = {},
 ): UseBillingOverview {
-  const cacheScopeKey = `${cacheScope}:${summaryOnly ? "summary" : "overview"}`
+  // 顶部浮层、购买弹窗和账单详情页展示的是同一个账单实体，只是读取字段不同。缓存边界
+  // 必须按账号/工作区（由调用方的 cacheScope 提供）划分，不能再按页面展示形态拆成两份。
+  const cacheScopeKey = cacheScope
   const [data, setData] = React.useState<BillingOverviewResult | null>(() => cachedData(cacheScopeKey, days))
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<UserFacingError | null>(null)
@@ -78,12 +74,8 @@ export function useBillingOverview(
       setLoading(true)
       setError(null)
 
-      const promise =
-        force || !entry.promise
-          ? startBillingOverviewRequest(entry, () => {
-              return summaryOnly ? getBillingSummary(days) : getBillingOverview(days)
-            })
-          : entry.promise
+      // 手动刷新也复用已在途请求，避免浮层、详情页或重试按钮同时触发时又发起一套账单聚合请求。
+      const promise = entry.promise ?? startBillingOverviewRequest(entry, () => getBillingOverview(days))
 
       try {
         const nextData = await promise
@@ -111,7 +103,7 @@ export function useBillingOverview(
         }
       }
     },
-    [cacheScopeKey, days, staleMs, summaryOnly],
+    [cacheScopeKey, days, staleMs],
   )
 
   React.useEffect(() => {

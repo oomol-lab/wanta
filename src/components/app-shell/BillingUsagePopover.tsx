@@ -49,7 +49,6 @@ export function BillingUsagePopover({
   const { data, error, loading, refresh } = useBillingOverview(usagePeriodDays, {
     cacheScope,
     enabled: open,
-    summaryOnly: true,
     staleMs: cacheFreshMs,
   })
   // 会话过期后全局登录态会失效：重新登录刷新会话，而非误导用户去充值。

@@ -65,4 +65,20 @@ describe("provider Skill package lookup", () => {
     await expect(readProviderSkillPackage(candidate)).resolves.toBe(posthogPackage)
     expect(searchPublicSkillPackages).toHaveBeenCalledTimes(2)
   })
+
+  test("stops fallback searches after a high-confidence package match", async () => {
+    vi.mocked(readPublicSkillPackageByName).mockResolvedValue(null)
+    vi.mocked(searchPublicSkillPackages).mockResolvedValue({
+      items: [posthogPackage],
+      next: null,
+      updatedAt: "2026-07-10T00:00:00Z",
+    })
+
+    await expect(readProviderSkillPackage({ providerDisplayName: "PostHog", service: "posthog" })).resolves.toBe(
+      posthogPackage,
+    )
+
+    expect(searchPublicSkillPackages).toHaveBeenCalledTimes(1)
+    expect(searchPublicSkillPackages).toHaveBeenCalledWith({ query: "PostHog", size: 12 })
+  })
 })

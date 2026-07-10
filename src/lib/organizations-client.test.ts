@@ -7,6 +7,7 @@ import {
   isOrganizationMemberLimitError,
   listOrganizationMembers,
   OrganizationRequestError,
+  searchUsers,
   updateOrganization,
   uploadOrganizationAvatar,
 } from "./organizations-client.ts"
@@ -115,6 +116,17 @@ describe("organizations-client", () => {
       { disable: true, role: "member", user_id: "member-1" },
       { role: "member", user_id: "member-2" },
     ])
+  })
+
+  it("forwards the member-search abort signal to the request", async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ users: [] }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    await searchUsers("alice", { signal: controller.signal })
+
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    expect(init?.signal).toBe(controller.signal)
   })
 
   it("updates organization member status in batches", async () => {

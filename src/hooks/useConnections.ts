@@ -20,10 +20,12 @@ import {
   disconnectAccount as disconnectAccountRequest,
   disconnectProvider as disconnectProviderRequest,
   getActiveConnectionAppIdsForService,
+  getConnectionCatalogSummary,
   getConnectionAppDetail,
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
+  getConnectionUsageSummary,
   isProviderConnectionActive,
   setDefaultAccount as setDefaultAccountRequest,
   startOAuthConnect,
@@ -80,15 +82,6 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 
 function sameWorkspace(workspace: ConnectionWorkspace | null, key: string): boolean {
   return workspace ? connectionWorkspaceKey(workspace) === key : key === "pending"
-}
-
-function activeAppIdsForService(summary: ConnectionSummary | null, service: string): string[] {
-  return (
-    summary?.apps
-      .filter((app) => app.service === service && app.status === "active")
-      .map((app) => app.id)
-      .filter(Boolean) ?? []
-  )
 }
 
 function isOAuthOperationConnectedFromActiveAppIds(
@@ -206,15 +199,34 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       summaryRequestSequence.current = requestId
       const generation = workspaceGeneration.current
       const key = connectionWorkspaceKey(currentWorkspace)
+      const connectorReadOptions = {
+        ...request,
+        refreshGeneration: `summary:${key}:${requestId}`,
+      }
       const visibleRefresh = !options.silent || summaryRef.current === null
       if (visibleRefresh) {
         visibleSummaryRequestSequence.current = requestId
         dispatch({ type: "refreshStarted" })
       }
       try {
-        const next = await getConnectionSummary(currentWorkspace, request)
+        // 创建时立即吸收失败，避免目录读取失败或工作区切换后留下未处理 rejection。
+        const usageRequest = getConnectionUsageSummary(currentWorkspace, connectorReadOptions).then(
+          (usage) => ({ ok: true as const, usage }),
+          (error: unknown) => ({ error, ok: false as const }),
+        )
+        const next = await getConnectionCatalogSummary(currentWorkspace, connectorReadOptions)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
           dispatch({ type: "refreshSucceeded", summary: next })
+          void usageRequest.then((result) => {
+            if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
+              if (result.ok) {
+                dispatch({ type: "usageHydrated", usage: result.usage, workspaceKey: key })
+              } else {
+                reportRendererHandledError("connections", "background connection usage request failed", result.error)
+                dispatch({ type: "usageHydrationFailed", workspaceKey: key })
+              }
+            }
+          })
         }
         return next
       } catch (err) {
@@ -288,7 +300,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
             return false
           }
           if (isOAuthOperationConnectedFromActiveAppIds(activeAppIds, operation)) {
-            const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+            const next = await getConnectionSummary(currentWorkspace, {
+              forceRefresh: true,
+              refreshGeneration: `oauth-complete:${operation.key}:${operation.actionId}`,
+            })
             if (!isCurrentOAuth()) {
               return false
             }
@@ -449,22 +464,26 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       try {
         if (input.authType !== "oauth2") {
           await connectProvider(input, currentWorkspace)
-          applySummary(await getConnectionSummary(currentWorkspace, { forceRefresh: true }))
+          applySummary(
+            await getConnectionSummary(currentWorkspace, {
+              forceRefresh: true,
+              refreshGeneration: `connect:${connectionWorkspaceKey(currentWorkspace)}:${action.actionId}`,
+            }),
+          )
           return isCurrentAction()
         }
 
-        // oauth2：渲染层取授权 URL → 交主进程用系统浏览器打开 → 轮询直到连上。
-        const baselineSummary = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+        // oauth2：建立“当前服务已有连接”的最小基线即可；不为此阻塞性重拉 Provider 目录和用量统计。
+        const existingActiveAppIds = await getActiveConnectionAppIdsForService(input.service, currentWorkspace)
         if (!isCurrentAction()) {
           return false
         }
-        applySummary(baselineSummary)
         const pending = createOAuthPendingOperation(
           action.currentWorkspace,
           input,
           actionId,
           Date.now(),
-          activeAppIdsForService(baselineSummary, input.service),
+          existingActiveAppIds,
         )
         startedOAuthPending = pending
         oauthPending.current = pending
@@ -524,7 +543,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       dispatch({ type: "busySet", busy: "disconnect" })
       try {
         await disconnectProviderRequest(svc, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `disconnect:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }
@@ -558,7 +580,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       dispatch({ type: "busySet", busy: "disconnect" })
       try {
         await disconnectAccountRequest(appId, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `disconnect:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }
@@ -595,7 +620,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         if (isCurrentAction() && summaryRef.current) {
           setCurrentSummary(applyDefaultAccountUpdate(summaryRef.current, svc, appId, updatedApp))
         }
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `set-default:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(applyDefaultAccountUpdate(next, svc, appId, updatedApp))
         }
@@ -629,7 +657,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       dispatch({ type: "busySet", busy: "update_alias" })
       try {
         await updateAliasRequest(appId, alias, action.currentWorkspace)
-        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
+        const next = await getConnectionSummary(action.currentWorkspace, {
+          forceRefresh: true,
+          refreshGeneration: `update-alias:${connectionWorkspaceKey(action.currentWorkspace)}:${action.actionId}`,
+        })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }

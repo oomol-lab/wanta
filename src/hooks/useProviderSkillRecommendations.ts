@@ -13,7 +13,10 @@ export interface ProviderSkillRecommendationsState {
   error: string | null
   installable: ProviderSkillRecommendation[]
   isLoading: boolean
+  pendingCount: number
   recommendations: ProviderSkillRecommendation[]
+  resolvedCount: number
+  totalCount: number
 }
 
 export function useProviderSkillRecommendations({
@@ -42,6 +45,9 @@ export function useProviderSkillRecommendations({
     error: packageLookup.error,
     installable,
     isLoading: packageLookup.isLoading,
+    pendingCount: packageLookup.pendingCount,
     recommendations,
+    resolvedCount: packageLookup.resolvedCount,
+    totalCount: packageLookup.totalCount,
   }
 }

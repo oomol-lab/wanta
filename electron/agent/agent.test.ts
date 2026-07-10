@@ -298,6 +298,8 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /basic safety boundaries/)
   assert.match(WANTA_SYSTEM_PROMPT, /Ask the user a narrow follow-up question only when/)
   assert.match(WANTA_SYSTEM_PROMPT, /Question prompts are runtime interruptions/)
+  assert.match(WANTA_SYSTEM_PROMPT, /one structured question entry per field/)
+  assert.match(WANTA_SYSTEM_PROMPT, /short noun-phrase header/)
   assert.match(WANTA_SYSTEM_PROMPT, /If the user rejects or cancels a question, do not ask the same question again/)
   assert.match(WANTA_SYSTEM_PROMPT, /do not simulate continuation by replaying the old question/)
 })

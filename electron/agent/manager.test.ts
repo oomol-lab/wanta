@@ -372,14 +372,14 @@ describe("AgentManager", () => {
     expect(reject).toHaveBeenCalledWith({ requestID: "q1" })
   })
 
-  it("uses a generated session title without local length scoring or rewrite", async () => {
-    const fetchMock = vi.fn(async () => {
+  it("uses the fast model to generate a session title once", async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
       return new Response(
         JSON.stringify({
           choices: [
             {
               message: {
-                content: '{"title":"PostHog 近 3 天注册来源分析报告"}',
+                content: '{"title":"PostHog 注册来源"}',
               },
             },
           ],
@@ -400,7 +400,10 @@ describe("AgentManager", () => {
       text: "你 PostHog 看一下近三天的数据，帮我看一下他们注册主要是来自于哪里？",
     })
 
-    expect(title).toEqual({ generated: true, title: "PostHog 近 3 天注册来源分析报告" })
+    expect(title).toEqual({ generated: true, title: "PostHog 注册来源" })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    const request = fetchMock.mock.calls[0]?.[1]
+    expect(request).toBeDefined()
+    expect(JSON.parse(String(request?.body))).toMatchObject({ model: "deepseek-v4-flash" })
   })
 })

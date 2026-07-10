@@ -175,6 +175,35 @@ describe("question-fields", () => {
     expect(fields[0].options).toEqual([])
   })
 
+  it("uses short headers for separate structured question steps", () => {
+    const request: ChatQuestionRequest = {
+      id: "q1",
+      sessionId: "s1",
+      questions: [
+        {
+          header: "目标受众",
+          question: "这个 skill 的目标受众是谁？是给 AI agent 使用，还是给人类开发者参考？",
+          options: [],
+        },
+        {
+          header: "消费场景",
+          question: "这个 skill 需要覆盖哪些消费场景？",
+          options: [],
+        },
+      ],
+    }
+
+    const fields = deriveQuestionFields(request)
+
+    expect(fields.map((field) => ({ label: field.label, prompt: field.prompt }))).toEqual([
+      {
+        label: "目标受众",
+        prompt: "这个 skill 的目标受众是谁？是给 AI agent 使用，还是给人类开发者参考？",
+      },
+      { label: "消费场景", prompt: "这个 skill 需要覆盖哪些消费场景？" },
+    ])
+  })
+
   it("treats only unchanged first-step drafts as pristine", () => {
     const initialDrafts = [{ selected: [], value: "" }]
 

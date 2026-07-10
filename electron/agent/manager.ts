@@ -134,7 +134,7 @@ const sessionTitleSystemPrompt = [
   "Generate a concise chat title as a task label.",
   'Return JSON only, exactly like {"title":"Gmail 三日报告"}.',
   "Keep the user's language when possible.",
-  "Aim for a short phrase, usually 2-8 words.",
+  "Keep Chinese titles within about 10 characters and English titles within 6 words.",
   "- Preserve complete brand, product, app, domain, and file names. Never cut Gmail to Gma or truncate any word.",
   "- Prefer the core action and object; remove polite wording such as help me, 请, 帮我, 麻烦.",
   "- No URLs, no ellipses, no markdown, no explanations, no trailing punctuation.",
@@ -143,7 +143,8 @@ const sessionTitleSystemPrompt = [
   'User: 你帮我将这个店铺中商品相关的图片都抓下来 -> {"title":"抓取店铺商品图片"}',
   'User: Search 1688 product images with Metaso and Puppeteer -> {"title":"1688 Product Images"}',
 ].join("\n")
-const sessionTitleModelID = resolveBuiltinModel("oopilot").runtime.modelID
+const sessionTitleModelID = resolveBuiltinModel("deepseek-v4-flash").runtime.modelID
+const sessionTitleRequestTimeoutMs = 30_000
 const eventStreamMaxReconnectAttempts = 5
 const eventStreamRestartInitialDelayMs = 500
 const eventStreamRestartMaxDelayMs = 5_000
@@ -622,7 +623,7 @@ export class AgentManager {
         max_tokens: 80,
         messages,
       }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(sessionTitleRequestTimeoutMs),
     })
     if (!response.ok) {
       throw new Error(`session title request failed: ${response.status} ${response.statusText}`)

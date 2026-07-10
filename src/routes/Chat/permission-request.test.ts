@@ -7,6 +7,7 @@ import {
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
   isLikelyProjectDevCommandRequest,
+  managedPythonDependencyInstall,
   permissionRequestNeedsDefaultPrompt,
   permissionCommand,
   permissionPrimaryResource,
@@ -50,6 +51,10 @@ test("high risk command detection marks destructive commands for default access 
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm test" } })), false)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm install" } })), true)
   assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "python3 -m pip install openpyxl" } })),
+    true,
+  )
+  assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "npm --prefix /tmp/app install" } })),
     true,
   )
@@ -65,6 +70,41 @@ test("high risk command detection marks destructive commands for default access 
     isHighRiskPermissionRequest(permission({ metadata: { command: "oo connector apps posthog 2>&1 | head -80" } })),
     false,
   )
+})
+
+test("managed Python dependency installs are narrow enough for a task approval", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const command = `${processRoot}/.wanta-python/bin/python -m pip install openpyxl fpdf2`
+  const request = permission({ metadata: { command } })
+
+  assert.deepEqual(managedPythonDependencyInstall(request), { packages: ["openpyxl", "fpdf2"] })
+  assert.deepEqual(managedPythonDependencyInstall(request, processRoot), { packages: ["openpyxl", "fpdf2"] })
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({ metadata: { command: "pip3 install --user openpyxl fpdf2" } }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({ metadata: { command: `${command} --extra-index-url https://example.test/simple` } }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(permission({ metadata: { command: `${command} && rm -rf /tmp/x` } }), processRoot),
+    null,
+  )
+
+  const grant = createSessionPermissionGrant(request, { managedPythonProcessRoot: processRoot })
+  assert.deepEqual(grant, {
+    action: "bash",
+    kind: "python_dependency_install",
+    patterns: ["openpyxl", "fpdf2"],
+    processRoot,
+  })
 })
 
 test("oo CLI permission requests are recognized for automatic approval", () => {

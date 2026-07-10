@@ -1,14 +1,21 @@
 import type { ChatPermissionRequest } from "./common.ts"
 
 import { isPureOoCliCommand } from "../agent/oo-command-permission.ts"
+import { isManagedPythonExecutable, managedPythonExecutable } from "../agent/python-environment.ts"
+import { hasUnsafeShellSyntax, shellWords } from "./shell-syntax.ts"
 
 export type PermissionRequestKind = "command" | "edit" | "path" | "network" | "local"
-export type SessionPermissionGrantKind = "project_dev_command" | "request"
+export type SessionPermissionGrantKind = "project_dev_command" | "python_dependency_install" | "request"
 
 export interface SessionPermissionGrant {
   action: string
   kind?: SessionPermissionGrantKind
   patterns: string[]
+  processRoot?: string
+}
+
+export interface ManagedPythonDependencyInstall {
+  packages: string[]
 }
 
 export function permissionAction(request: ChatPermissionRequest): string {
@@ -99,6 +106,45 @@ export function isHighRiskPermissionRequest(request: ChatPermissionRequest): boo
 
 export function isOoCliPermissionRequest(request: ChatPermissionRequest): boolean {
   return permissionRequestKind(request) === "command" && isPureOoCliCommand(commandText(request))
+}
+
+const pythonPackageNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u
+
+function canonicalPythonPackageName(value: string): string {
+  return value.toLowerCase().replace(/[._-]+/gu, "-")
+}
+
+/**
+ * 仅识别 Wanta 单次任务私有 venv 中、无额外参数的 PyPI 包名安装。
+ * 这是展示“允许本次任务安装依赖”入口的前提，不把任意 pip 命令扩展成会话授权。
+ */
+export function managedPythonDependencyInstall(
+  request: ChatPermissionRequest,
+  processRoot?: string,
+): ManagedPythonDependencyInstall | null {
+  if (permissionRequestKind(request) !== "command") {
+    return null
+  }
+  const command = permissionCommand(request)
+  if (!command || hasUnsafeShellSyntax(command)) {
+    return null
+  }
+  const words = shellWords(command)
+  if (!words || words.length < 5) {
+    return null
+  }
+  const executable = words[0] ?? ""
+  if (processRoot ? executable !== managedPythonExecutable(processRoot) : !isManagedPythonExecutable(executable)) {
+    return null
+  }
+  if (words[1] !== "-m" || words[2] !== "pip" || words[3] !== "install") {
+    return null
+  }
+  const packages = words.slice(4)
+  if (packages.length === 0 || !packages.every((item) => pythonPackageNamePattern.test(item))) {
+    return null
+  }
+  return { packages: [...new Set(packages.map(canonicalPythonPackageName))] }
 }
 
 function normalizeResourceText(resource: string): string {
@@ -234,7 +280,20 @@ function patternMatches(pattern: string, value: string): boolean {
   return new RegExp(`^${source}$`).test(normalizedValue)
 }
 
-export function createSessionPermissionGrant(request: ChatPermissionRequest): SessionPermissionGrant | null {
+export function createSessionPermissionGrant(
+  request: ChatPermissionRequest,
+  context: { managedPythonProcessRoot?: string } = {},
+): SessionPermissionGrant | null {
+  const processRoot = context.managedPythonProcessRoot
+  const managedPythonInstall = processRoot ? managedPythonDependencyInstall(request, processRoot) : null
+  if (managedPythonInstall) {
+    return {
+      action: permissionAction(request),
+      kind: "python_dependency_install",
+      patterns: managedPythonInstall.packages,
+      processRoot,
+    }
+  }
   const basePatterns = request.save?.length
     ? request.save
     : request.resources.length > 0
@@ -260,4 +319,15 @@ export function requestMatchesSessionGrant(request: ChatPermissionRequest, grant
     (value): value is string => typeof value === "string" && value.trim().length > 0,
   )
   return values.some((value) => grant.patterns.some((pattern) => patternMatches(pattern, value)))
+}
+
+export function requestMatchesManagedPythonDependencyInstallGrant(
+  request: ChatPermissionRequest,
+  grant: SessionPermissionGrant,
+): boolean {
+  if (grant.kind !== "python_dependency_install" || permissionAction(request) !== grant.action || !grant.processRoot) {
+    return false
+  }
+  const install = managedPythonDependencyInstall(request, grant.processRoot)
+  return Boolean(install && install.packages.every((packageName) => grant.patterns.includes(packageName)))
 }

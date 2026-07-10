@@ -54,9 +54,10 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
-import { realpath } from "node:fs/promises"
+import { realpath, rm } from "node:fs/promises"
 import os from "node:os"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
+import { managedPythonEnvironmentPath } from "../agent/python-environment.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
@@ -927,7 +928,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private addSessionPermissionGrant(sessionId: string, request: ChatPermissionRequest): void {
     const trustedProjectRoot = this.trustedProjectRoots.get(sessionId)
-    const grant = localAccessGrantForRequest(request, trustedProjectRoot ? { trustedProjectRoot } : {})
+    const generationId = this.sessionGenerations.get(sessionId)?.id
+    const managedPythonProcessRoot = generationId ? this.activeTurnOutputs.get(generationId)?.processRoot : undefined
+    const grant = localAccessGrantForRequest(request, {
+      ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
+      ...(managedPythonProcessRoot ? { managedPythonProcessRoot } : {}),
+    })
     if (!grant) {
       return
     }
@@ -936,7 +942,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       (item) =>
         item.action === grant.action &&
         item.kind === grant.kind &&
-        item.patterns.join("\n") === grant.patterns.join("\n"),
+        item.patterns.join("\n") === grant.patterns.join("\n") &&
+        item.processRoot === grant.processRoot,
     )
     if (!exists) {
       this.sessionPermissionGrants.set(sessionId, [...grants, grant])
@@ -1985,65 +1992,74 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.activeTurnOutputs.delete(generationId)
     }
     const resolvedMessageId = messageId ?? active?.messageId
-    if (!active || !resolvedMessageId) {
+    if (!active) {
       return
     }
-    const messages = await this.agent?.getMessages(sessionId).catch(() => [])
-    const materializedOrigins = await materializeAssistantArtifacts(
-      messages ?? [],
-      resolvedMessageId,
-      active.artifactRoot,
-    ).catch((error: unknown) => {
-      console.warn("[wanta] failed to materialize assistant artifacts", error)
-      logDiagnostic(
-        "chat-service",
-        "failed to materialize assistant artifacts",
-        { error, messageId: resolvedMessageId, sessionId },
-        "warn",
-      )
-      return new Map()
-    })
-    const [artifactBundle, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
-      buildArtifactBundle({
-        artifactRoot: active.artifactRoot,
-        completedAt: Date.now(),
-        createdAt: active.createdAt,
-        generatedPreviewCount: generatedImagePreviewCount(messages ?? [], resolvedMessageId),
-        materializedOrigins,
-        messageId: resolvedMessageId,
+    try {
+      if (!resolvedMessageId) {
+        return
+      }
+      const messages = await this.agent?.getMessages(sessionId).catch(() => [])
+      const materializedOrigins = await materializeAssistantArtifacts(
+        messages ?? [],
+        resolvedMessageId,
+        active.artifactRoot,
+      ).catch((error: unknown) => {
+        console.warn("[wanta] failed to materialize assistant artifacts", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to materialize assistant artifacts",
+          { error, messageId: resolvedMessageId, sessionId },
+          "warn",
+        )
+        return new Map()
+      })
+      const [artifactBundle, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
+        buildArtifactBundle({
+          artifactRoot: active.artifactRoot,
+          completedAt: Date.now(),
+          createdAt: active.createdAt,
+          generatedPreviewCount: generatedImagePreviewCount(messages ?? [], resolvedMessageId),
+          materializedOrigins,
+          messageId: resolvedMessageId,
+          sessionId,
+        }),
+        processOutputFiles(active.processRoot),
+        intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
+        projectOutputFiles(active.projectBaseline, active.projectRoot),
+      ])
+      if (artifactBundle) {
+        await this.publishArtifactBundle(artifactBundle)
+      }
+      const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
+      if (files.length === 0) {
+        return
+      }
+      const record: StoredTurnOutputRecord = {
         sessionId,
-      }),
-      processOutputFiles(active.processRoot),
-      intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
-      projectOutputFiles(active.projectBaseline, active.projectRoot),
-    ])
-    if (artifactBundle) {
-      await this.publishArtifactBundle(artifactBundle)
-    }
-    const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
-    if (files.length === 0) {
-      return
-    }
-    const record: StoredTurnOutputRecord = {
-      sessionId,
-      messageId: resolvedMessageId,
-      processRoot: active.processRoot,
-      ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
-      createdAt: active.createdAt,
-      completedAt: Date.now(),
-      files,
-      summary: summarizeTurnFiles(files),
-    }
-    await this.rememberTurnOutput(record)
-    await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
-      console.warn("[wanta] failed to emit turn output update:", error)
-      logDiagnostic(
-        "chat-service",
-        "failed to emit turn output update",
-        { error, messageId: resolvedMessageId, sessionId },
-        "warn",
+        messageId: resolvedMessageId,
+        processRoot: active.processRoot,
+        ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
+        createdAt: active.createdAt,
+        completedAt: Date.now(),
+        files,
+        summary: summarizeTurnFiles(files),
+      }
+      await this.rememberTurnOutput(record)
+      await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
+        console.warn("[wanta] failed to emit turn output update:", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to emit turn output update",
+          { error, messageId: resolvedMessageId, sessionId },
+          "warn",
+        )
+      })
+    } finally {
+      await rm(managedPythonEnvironmentPath(active.processRoot), { force: true, recursive: true }).catch(
+        () => undefined,
       )
-    })
+    }
   }
 
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {

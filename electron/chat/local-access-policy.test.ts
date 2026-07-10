@@ -102,6 +102,44 @@ test("local access policy prompts high-risk commands in default mode", () => {
   )
 })
 
+test("task-scoped managed Python grants only cover the approved packages in the task environment", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const grant = localAccessGrantForRequest(
+    permission({
+      metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install openpyxl fpdf2` },
+    }),
+    { managedPythonProcessRoot: processRoot },
+  )
+
+  assert.deepEqual(grant, {
+    action: "bash",
+    kind: "python_dependency_install",
+    patterns: ["openpyxl", "fpdf2"],
+    processRoot,
+  })
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install openpyxl` } }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install requests` } }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `pip3 install --break-system-packages --user openpyxl` } }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
 test("local access policy allows requests in full access mode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "rm -rf /tmp/wanta-test" } }), {

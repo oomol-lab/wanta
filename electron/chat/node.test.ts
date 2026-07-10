@@ -2117,6 +2117,48 @@ test("always permission reply stores a main-process session grant", async () => 
   assert.equal(bridge.getPendingPermissions.mock.calls.length, 0)
 })
 
+test("managed Python dependency task approval reuses only the active turn environment", async () => {
+  const bridge = createBridgeAgent()
+  const processRoot = path.join(os.tmpdir(), "wanta-python-task-1")
+  bridge.createProcessDir.mockResolvedValue(processRoot)
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+  await service.sendMessage({ sessionId: "session-1", text: "Create a spreadsheet" })
+
+  const command = `${processRoot}/.wanta-python/bin/python -m pip install openpyxl fpdf2`
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-1",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [command],
+      metadata: { command },
+    },
+  })
+  await waitForCondition(() => events.some((event) => event.event === "permissionAsked"))
+
+  await service.answerPermission({ sessionId: "session-1", requestId: "permission-1", reply: "always" })
+  bridge.emit({
+    type: "permission.v2.asked",
+    properties: {
+      id: "permission-2",
+      sessionID: "session-1",
+      action: "bash",
+      resources: [`${processRoot}/.wanta-python/bin/python -m pip install openpyxl`],
+      metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install openpyxl` },
+    },
+  })
+
+  await waitForCondition(() => bridge.answerPermission.mock.calls.length === 2)
+  assert.deepEqual(bridge.answerPermission.mock.calls, [
+    ["session-1", "permission-1", "once"],
+    ["session-1", "permission-2", "once"],
+  ])
+  assert.equal(events.filter((event) => event.event === "permissionAsked").length, 1)
+})
+
 test("default command approvals still prompt unsafe package mutations", async () => {
   const bridge = createBridgeAgent()
   const projectPath = "/Users/example/code/wanta"

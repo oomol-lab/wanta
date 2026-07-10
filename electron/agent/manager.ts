@@ -28,6 +28,7 @@ import { normalizeMessage, normalizePermissionRequest, normalizeQuestionRequest 
 import { normalizeWantaAgentMode } from "./mode.ts"
 import { writeOoIdentitySettings } from "./oo-identity.ts"
 import { buildOoEnv } from "./oo.ts"
+import { managedPythonEnvironmentPath, managedPythonExecutable } from "./python-environment.ts"
 import { opencodeReasoningVariant } from "./reasoning.ts"
 import { OpencodeSidecar } from "./sidecar.ts"
 import { ensureAgentWorkspace } from "./workspace.ts"
@@ -1007,11 +1008,21 @@ function buildProcessSystem(processDir: string | undefined): string | undefined 
   if (!processDir) {
     return undefined
   }
+  const pythonEnvironmentDir = managedPythonEnvironmentPath(processDir)
+  const pythonExecutable = managedPythonExecutable(processDir)
+  const createPythonEnvironment =
+    process.platform === "win32"
+      ? `py -3 -m venv ${JSON.stringify(pythonEnvironmentDir)}`
+      : `python3 -m venv ${JSON.stringify(pythonEnvironmentDir)}`
   return [
     "Intermediate process file contract for this turn:",
     `- Use this exact directory for temporary scripts, raw service responses, debug logs, scratch data, and other implementation files that help you complete the task but are not the user-facing deliverable: ${processDir}`,
     "- Do not put final deliverables in this process directory.",
     "- Do not put process files in the artifact directory unless the user explicitly asked for source code or scripts as the deliverable.",
+    "- When a task needs third-party Python modules, create and use this task-private virtual environment instead of the system Python:",
+    `  - Create it when needed: ${createPythonEnvironment}`,
+    `  - Install simple PyPI package names only with: ${JSON.stringify(pythonExecutable)} -m pip install <package ...>`,
+    "  - Do not use pip or pip3 directly, --user, --break-system-packages, sudo, alternative indexes, local paths, URLs, or requirements files.",
     "- Prefer short, descriptive filenames such as create_presentation.js, transform_data.py, raw-input.json, or render-log.txt.",
     "- Do not mention process files in the final response unless the user asks for implementation details, debugging details, or source files.",
   ].join("\n")

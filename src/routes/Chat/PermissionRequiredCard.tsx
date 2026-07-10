@@ -5,6 +5,7 @@ import { FolderLock, ShieldAlert, Terminal, X } from "lucide-react"
 import {
   isHighRiskPermissionRequest,
   isLikelyProjectDevCommandRequest,
+  managedPythonDependencyInstall,
   permissionCommand,
   permissionPrimaryResource,
   permissionRequestKind,
@@ -32,8 +33,10 @@ export function PermissionRequiredCard({
   const highRisk = isHighRiskPermissionRequest(request)
   const resource = kind === "command" ? permissionCommand(request) : permissionPrimaryResource(request)
   const projectDevCommand = kind === "command" && isLikelyProjectDevCommandRequest(request)
+  const pythonDependencyInstall = managedPythonDependencyInstall(request)
   const canAllowForSession = Boolean(
-    !highRisk && (request.save?.length || request.resources.length || (kind === "command" && resource)),
+    (!highRisk || pythonDependencyInstall) &&
+    (request.save?.length || request.resources.length || (kind === "command" && resource)),
   )
   const Icon = kind === "command" ? Terminal : kind === "path" || kind === "edit" ? FolderLock : ShieldAlert
   const copyByKind: Record<
@@ -68,13 +71,22 @@ export function PermissionRequiredCard({
       title: t("chat.permissionPathTitle"),
     },
   }
-  const copy = highRisk
+  const copy = pythonDependencyInstall
     ? {
-        ...copyByKind[kind],
-        description: t("chat.permissionHighRiskDescription", { command: resource ?? request.action }),
-        title: t("chat.permissionHighRiskTitle"),
+        ...copyByKind.command,
+        allowForSessionLabel: t("chat.permissionRequiredAllowPythonDependenciesTask"),
+        description: t("chat.permissionPythonDependencyDescription", {
+          packages: pythonDependencyInstall.packages.join(", "),
+        }),
+        title: t("chat.permissionPythonDependencyTitle"),
       }
-    : copyByKind[kind]
+    : highRisk
+      ? {
+          ...copyByKind[kind],
+          description: t("chat.permissionHighRiskDescription", { command: resource ?? request.action }),
+          title: t("chat.permissionHighRiskTitle"),
+        }
+      : copyByKind[kind]
   return (
     <section className="rounded-lg border border-border bg-background p-3 shadow-sm">
       <div className="flex items-start gap-3">
@@ -87,16 +99,31 @@ export function PermissionRequiredCard({
             <p className="oo-text-caption break-words whitespace-pre-line text-muted-foreground">{copy.description}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => onAllowOnce(request.id)} disabled={busy}>
-              <ShieldAlert className="size-4" />
-              {t("chat.permissionRequiredAllowOnce")}
-            </Button>
-            {canAllowForSession ? (
-              <Button size="sm" variant="outline" onClick={() => onAllowForSession(request.id)} disabled={busy}>
-                <Icon className="size-4" />
-                {copy.allowForSessionLabel}
-              </Button>
-            ) : null}
+            {pythonDependencyInstall ? (
+              <>
+                <Button size="sm" onClick={() => onAllowForSession(request.id)} disabled={busy}>
+                  <Terminal className="size-4" />
+                  {copy.allowForSessionLabel}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => onAllowOnce(request.id)} disabled={busy}>
+                  <ShieldAlert className="size-4" />
+                  {t("chat.permissionRequiredAllowOnce")}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" onClick={() => onAllowOnce(request.id)} disabled={busy}>
+                  <ShieldAlert className="size-4" />
+                  {t("chat.permissionRequiredAllowOnce")}
+                </Button>
+                {canAllowForSession ? (
+                  <Button size="sm" variant="outline" onClick={() => onAllowForSession(request.id)} disabled={busy}>
+                    <Icon className="size-4" />
+                    {copy.allowForSessionLabel}
+                  </Button>
+                ) : null}
+              </>
+            )}
             <Button size="sm" variant="outline" onClick={() => onReject(request.id)} disabled={busy}>
               <X className="size-4" />
               {t("chat.permissionRequiredReject")}

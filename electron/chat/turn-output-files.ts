@@ -4,6 +4,7 @@ import type { StoredTurnOutputFile, StoredTurnOutputRecord } from "./turn-output
 
 import { open, readdir } from "node:fs/promises"
 import path from "node:path"
+import { WANTA_MANAGED_PYTHON_ENV_DIRNAME } from "../agent/python-environment.ts"
 import { buildUnifiedDiff, collectGitTurnDiffs } from "../git/turn-diff.ts"
 import { mimeFromPath } from "./artifacts.ts"
 import { artifactPackVisiblePaths, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
@@ -142,7 +143,11 @@ async function listProcessFiles(rootDir: string): Promise<string[]> {
       return
     }
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))) {
-      if (found.length >= maxProcessFiles || entry.name === ".DS_Store") {
+      if (
+        found.length >= maxProcessFiles ||
+        entry.name === ".DS_Store" ||
+        entry.name === WANTA_MANAGED_PYTHON_ENV_DIRNAME
+      ) {
         continue
       }
       const absolute = path.join(dir, entry.name)

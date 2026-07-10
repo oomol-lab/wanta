@@ -7,6 +7,7 @@ import {
   isOoCliPermissionRequest,
   permissionRequestNeedsDefaultPrompt,
   permissionRequestKind,
+  requestMatchesManagedPythonDependencyInstallGrant,
   requestMatchesSessionGrant,
 } from "./permission-request.ts"
 import {
@@ -54,6 +55,9 @@ function hasMatchingSessionGrant(
       if (trustedProjectRoot && requestMatchesProjectDevCommandSessionGrant(request, grant, trustedProjectRoot)) {
         return true
       }
+      if (requestMatchesManagedPythonDependencyInstallGrant(request, grant)) {
+        return true
+      }
       return requestMatchesSessionGrant(request, grant)
     }),
   )
@@ -94,7 +98,7 @@ export function evaluateLocalAccessRequest(
 
 export function localAccessGrantForRequest(
   request: ChatPermissionRequest,
-  context: Pick<LocalAccessPolicyContext, "trustedProjectRoot"> = {},
+  context: Pick<LocalAccessPolicyContext, "trustedProjectRoot"> & { managedPythonProcessRoot?: string } = {},
 ): SessionPermissionGrant | null {
   if (context.trustedProjectRoot) {
     const projectDevGrant = createProjectDevCommandSessionGrant(request, context.trustedProjectRoot)
@@ -102,5 +106,5 @@ export function localAccessGrantForRequest(
       return projectDevGrant
     }
   }
-  return createSessionPermissionGrant(request)
+  return createSessionPermissionGrant(request, context)
 }

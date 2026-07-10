@@ -60,7 +60,7 @@
 
 - **能力三处同步**：`config.ts` 的 tools 配置（现状：无禁用表，内置工具全启用）、permission（agent 级 + 根级）、`system-prompt.ts` 提示词。改任何能力策略三处必须一起改。
 - **permission 的 `"ask"` 必须有 UI 验证**：`permission.asked` / `permission.v2.asked`
-  先经 ChatService 主进程本地访问策略处理；默认访问把 bash 作为正常工作通道，自动批准普通 shell 命令、脚本、项目检查、数据处理、简单输出过滤、普通文件读写与具体非敏感路径；只把基础安全边界推给 UI：凭证/密钥路径、宽泛 home/system 根、破坏性删除、依赖安装、提权、`git push/reset/clean`、发布/部署、基础设施变更等。本会话 grant 仍可覆盖用户已明确允许的请求；完全访问 = 会话级本地 YOLO，确认后由主进程自动 reply 本会话本地 permission，不再逐次做本地风险判断。
+  先经 ChatService 主进程本地访问策略处理；默认访问把 bash 作为正常工作通道，自动批准普通 shell 命令、脚本、项目检查、数据处理、简单输出过滤、普通文件读写与具体非敏感路径；只把基础安全边界推给 UI：凭证/密钥路径、宽泛 home/system 根、破坏性删除、依赖安装、提权、`git push/reset/clean`、发布/部署、基础设施变更等。第三方 Python 依赖必须放进每轮 process 目录下的私有 `.wanta-python` venv；仅允许该 venv 中无额外参数、纯包名的 `python -m pip install` 获得“本次任务允许这些 Python 依赖”的窄 grant，绝不覆盖 `--user`、`--break-system-packages`、额外索引、URL/本地路径/requirements 文件或新顶级包。本会话 grant 仍可覆盖用户已明确允许的请求；完全访问 = 会话级本地 YOLO，确认后由主进程自动 reply 本会话本地 permission，不再逐次做本地风险判断。
   新增 ask 规则要验证 pending permission 查询、事件推送、自动审批去重与 reply。
 - **oo CLI 快速路径**：OpenCode 配置仍保留首 token 为 `oo` / `$WANTA_OO_BIN` / `${WANTA_OO_BIN}` 的快速放行；
   其余本地 bash / external_directory ask 才进入 ChatService 默认访问策略。shell 管道/重定向本身不是提示理由，只有命中基础安全风险时才提示；`sudo`、管道执行 shell、写入敏感路径等仍需确认。

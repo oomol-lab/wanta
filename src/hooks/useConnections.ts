@@ -20,10 +20,12 @@ import {
   disconnectAccount as disconnectAccountRequest,
   disconnectProvider as disconnectProviderRequest,
   getActiveConnectionAppIdsForService,
+  getConnectionCatalogSummary,
   getConnectionAppDetail,
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
+  getConnectionUsageSummary,
   isProviderConnectionActive,
   setDefaultAccount as setDefaultAccountRequest,
   startOAuthConnect,
@@ -80,15 +82,6 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 
 function sameWorkspace(workspace: ConnectionWorkspace | null, key: string): boolean {
   return workspace ? connectionWorkspaceKey(workspace) === key : key === "pending"
-}
-
-function activeAppIdsForService(summary: ConnectionSummary | null, service: string): string[] {
-  return (
-    summary?.apps
-      .filter((app) => app.service === service && app.status === "active")
-      .map((app) => app.id)
-      .filter(Boolean) ?? []
-  )
 }
 
 function isOAuthOperationConnectedFromActiveAppIds(
@@ -212,9 +205,15 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         dispatch({ type: "refreshStarted" })
       }
       try {
-        const next = await getConnectionSummary(currentWorkspace, request)
+        const usageRequest = getConnectionUsageSummary(currentWorkspace, request)
+        const next = await getConnectionCatalogSummary(currentWorkspace, request)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
           dispatch({ type: "refreshSucceeded", summary: next })
+          void usageRequest.then((usage) => {
+            if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
+              dispatch({ type: "usageHydrated", usage, workspaceKey: key })
+            }
+          })
         }
         return next
       } catch (err) {
@@ -453,18 +452,17 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           return isCurrentAction()
         }
 
-        // oauth2：渲染层取授权 URL → 交主进程用系统浏览器打开 → 轮询直到连上。
-        const baselineSummary = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+        // oauth2：建立“当前服务已有连接”的最小基线即可；不为此阻塞性重拉 Provider 目录和用量统计。
+        const existingActiveAppIds = await getActiveConnectionAppIdsForService(input.service, currentWorkspace)
         if (!isCurrentAction()) {
           return false
         }
-        applySummary(baselineSummary)
         const pending = createOAuthPendingOperation(
           action.currentWorkspace,
           input,
           actionId,
           Date.now(),
-          activeAppIdsForService(baselineSummary, input.service),
+          existingActiveAppIds,
         )
         startedOAuthPending = pending
         oauthPending.current = pending

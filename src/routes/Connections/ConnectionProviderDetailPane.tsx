@@ -193,6 +193,7 @@ export function ProviderDetail({
           provider={provider}
           usage={usage}
           usageDays={summary?.usage.days ?? 7}
+          usageLoading={Boolean(summary?.usageLoading)}
         />
       ) : null}
 

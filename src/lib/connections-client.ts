@@ -6,6 +6,7 @@ import type {
   ConnectionExecutionLogSummary,
   ConnectionProviderDetail,
   ConnectionSummary,
+  ConnectionUsageSummary,
   ConnectionUserOAuthClientConfigSummary,
   ConnectionWorkspace,
   UpsertConnectionOAuthClientConfigPayload,
@@ -43,6 +44,7 @@ import { oomolFetch } from "@/lib/oomol-http"
 
 const connectorRequestTimeoutMs = 20_000
 const connectorGetCacheMs = 30_000
+const oauthClientConfigCacheMs = 5 * 60_000
 
 const executionLogDefaultLimit = 12
 const executionLogMaxLimit = 50
@@ -63,10 +65,17 @@ interface ConnectorCacheEntry {
   meta: unknown
 }
 
+interface OAuthClientConfigsCacheEntry {
+  data: ConnectionUserOAuthClientConfigSummary[] | null
+  fetchedAt: number
+  promise: Promise<ConnectionUserOAuthClientConfigSummary[]> | null
+}
+
 const connectorGetCache = new Map<string, ConnectorCacheEntry>()
 const connectorGetInFlight = new Map<string, Promise<{ data: unknown; meta: unknown }>>()
 const connectorGetRequestVersions = new Map<string, number>()
 const oauthConnectInFlight = new Map<string, Promise<OAuthConnectStart>>()
+const oauthClientConfigsCache: OAuthClientConfigsCacheEntry = { data: null, fetchedAt: 0, promise: null }
 let connectorReadCacheGeneration = 0
 
 function clearConnectorReadCache(): void {
@@ -76,8 +85,15 @@ function clearConnectorReadCache(): void {
   connectorGetRequestVersions.clear()
 }
 
+function clearOAuthClientConfigsCache(): void {
+  oauthClientConfigsCache.data = null
+  oauthClientConfigsCache.fetchedAt = 0
+  oauthClientConfigsCache.promise = null
+}
+
 export function clearConnectorCache(): void {
   clearConnectorReadCache()
+  clearOAuthClientConfigsCache()
   oauthConnectInFlight.clear()
 }
 
@@ -272,26 +288,50 @@ function normalizeOptionalUsageSummary(
   }
 }
 
+export async function getConnectionCatalogSummary(
+  workspace: ConnectionWorkspace,
+  options: { forceRefresh?: boolean } = {},
+): Promise<ConnectionSummary> {
+  const [appsResult, providersResult] = await Promise.all([
+    getConnector<RawApp[]>("/v1/apps", workspace, options),
+    getConnector<RawProvider[]>("/v1/providers", workspace, options),
+  ])
+  return {
+    ...mergeConnectionSummary({
+      apps: appsResult.data,
+      meta: appsResult.meta as RawAppListMeta | null,
+      providers: providersResult.data,
+      usage: createEmptyConnectionUsageSummary(),
+      workspace,
+    }),
+    usageLoading: true,
+  }
+}
+
+/**
+ * 目录可交互后再补齐用量。统计请求失败时降级为空统计，不能阻塞 apps/providers 首屏。
+ */
+export async function getConnectionUsageSummary(
+  workspace: ConnectionWorkspace,
+  options: { forceRefresh?: boolean } = {},
+): Promise<ConnectionUsageSummary> {
+  const usageResults = await Promise.allSettled([
+    getConnector<unknown>(`/v1/usage/daily?days=${connectionUsageSummaryDays}`, workspace, options),
+    getConnector<unknown>(`/v1/usage/services?days=${connectionUsageSummaryDays}`, workspace, options),
+  ])
+  return normalizeOptionalUsageSummary(usageResults)
+}
+
+/** 完整摘要保留给显式动作和详情读取；目录首屏使用 getConnectionCatalogSummary 后台补齐 usage。 */
 export async function getConnectionSummary(
   workspace: ConnectionWorkspace,
   options: { forceRefresh?: boolean } = {},
 ): Promise<ConnectionSummary> {
-  const usageResultsRequest = Promise.allSettled([
-    getConnector<unknown>(`/v1/usage/daily?days=${connectionUsageSummaryDays}`, workspace, options),
-    getConnector<unknown>(`/v1/usage/services?days=${connectionUsageSummaryDays}`, workspace, options),
+  const [catalog, usage] = await Promise.all([
+    getConnectionCatalogSummary(workspace, options),
+    getConnectionUsageSummary(workspace, options),
   ])
-  const [appsResult, providersResult, usageResults] = await Promise.all([
-    getConnector<RawApp[]>("/v1/apps", workspace, options),
-    getConnector<RawProvider[]>("/v1/providers", workspace, options),
-    usageResultsRequest,
-  ])
-  return mergeConnectionSummary({
-    apps: appsResult.data,
-    meta: appsResult.meta as RawAppListMeta | null,
-    providers: providersResult.data,
-    usage: normalizeOptionalUsageSummary(usageResults),
-    workspace,
-  })
+  return { ...catalog, usage, usageLoading: false }
 }
 
 export async function getActiveConnectionAppIdsForService(
@@ -433,10 +473,32 @@ async function requestOAuthConnect(
 }
 
 export async function listOAuthClientConfigs(): Promise<ConnectionUserOAuthClientConfigSummary[]> {
-  const result = await requestConnectorGlobal<ConnectionUserOAuthClientConfigSummary[]>("/v1/oauth-client-configs", {
+  if (oauthClientConfigsCache.data && Date.now() - oauthClientConfigsCache.fetchedAt < oauthClientConfigCacheMs) {
+    return oauthClientConfigsCache.data
+  }
+  if (oauthClientConfigsCache.promise) {
+    return oauthClientConfigsCache.promise
+  }
+
+  const request = requestConnectorGlobal<ConnectionUserOAuthClientConfigSummary[]>("/v1/oauth-client-configs", {
     method: "GET",
-  })
-  return result.data
+  }).then((result) => result.data)
+  oauthClientConfigsCache.promise = request
+  void request.then(
+    (data) => {
+      if (oauthClientConfigsCache.promise === request) {
+        oauthClientConfigsCache.data = data
+        oauthClientConfigsCache.fetchedAt = Date.now()
+        oauthClientConfigsCache.promise = null
+      }
+    },
+    () => {
+      if (oauthClientConfigsCache.promise === request) {
+        oauthClientConfigsCache.promise = null
+      }
+    },
+  )
+  return request
 }
 
 export async function getOAuthClientConfig(service: string): Promise<ConnectionUserOAuthClientConfigSummary | null> {
@@ -459,6 +521,7 @@ export async function upsertOAuthClientConfig(
       body: JSON.stringify(payload),
     },
   )
+  clearOAuthClientConfigsCache()
   clearConnectorReadCache()
   return result.data
 }

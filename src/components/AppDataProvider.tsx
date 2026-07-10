@@ -5,6 +5,7 @@ import type { AppDataResources } from "@/components/AppDataContext"
 import * as React from "react"
 import { useAppContext } from "@/components/AppContext"
 import { AppDataContext } from "@/components/AppDataContext"
+import { clearConnectorCache } from "@/lib/connections-client"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { createResource } from "@/lib/resource-store"
 import { clearSkillCatalogCache } from "@/lib/skills-catalog-client"
@@ -59,6 +60,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     return authService.serverEvents.on("authStateChanged", (nextAuthState) => {
+      clearConnectorCache()
       clearSkillCatalogCache()
       resources.authState.setData(nextAuthState)
       resources.skillInventory.invalidate()

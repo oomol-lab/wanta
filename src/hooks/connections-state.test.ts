@@ -204,3 +204,28 @@ test("connectionsStateReducer derives summary workspace keys consistently", () =
   assert.equal(organization.summaryWorkspaceKey, "organization:acme")
   assert.equal(organization.summaryError, null)
 })
+
+test("connectionsStateReducer hydrates usage only for the active workspace", () => {
+  const currentSummary = summary({ type: "personal" })
+  const loaded = connectionsStateReducer(initialConnectionsState, { summary: currentSummary, type: "summarySet" })
+  const usage = {
+    calls: 3,
+    days: 7,
+    errors: 1,
+    points: [{ calls: 3, date: "2026-07-10", errors: 1, success: 2 }],
+    recent: { calls: 3, date: "2026-07-10", errors: 1, success: 2 },
+    services: [],
+    success: 2,
+  }
+
+  const ignored = connectionsStateReducer(loaded, {
+    type: "usageHydrated",
+    usage,
+    workspaceKey: "organization:other",
+  })
+  const hydrated = connectionsStateReducer(loaded, { type: "usageHydrated", usage, workspaceKey: "personal" })
+
+  assert.equal(ignored, loaded)
+  assert.equal(hydrated.summary?.usage.calls, 3)
+  assert.equal(hydrated.summary?.usageLoading, false)
+})

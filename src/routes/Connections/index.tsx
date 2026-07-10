@@ -534,6 +534,7 @@ export function ConnectionsPanel({
           attentionCount={attentionCount}
           categoryFilters={categoryFilters}
           connectedCount={connectedCount}
+          loading={summaryLoading}
           query={query}
           totalCount={summary?.providerCount ?? providers.length}
           onFilterChange={setActiveFilter}
@@ -671,6 +672,7 @@ function ConnectionListToolbar({
   attentionCount,
   categoryFilters,
   connectedCount,
+  loading,
   onFilterChange,
   onQueryChange,
   query,
@@ -680,6 +682,7 @@ function ConnectionListToolbar({
   attentionCount: number
   categoryFilters: ConnectionCategoryFilter[]
   connectedCount: number
+  loading: boolean
   onFilterChange: (filter: ConnectionCatalogFilter) => void
   onQueryChange: (query: string) => void
   query: string
@@ -724,9 +727,17 @@ function ConnectionListToolbar({
               }
             }}
           >
-            <FilterToggleItem count={totalCount} label={t("connections.filterAll")} value="all" />
-            <FilterToggleItem count={connectedCount} label={t("connections.filterConnected")} value="connected" />
-            <FilterToggleItem count={attentionCount} label={t("connections.needsAttention")} value="attention" />
+            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
+            <FilterToggleItem
+              count={loading ? null : connectedCount}
+              label={t("connections.filterConnected")}
+              value="connected"
+            />
+            <FilterToggleItem
+              count={loading ? null : attentionCount}
+              label={t("connections.needsAttention")}
+              value="attention"
+            />
             {visibleCategoryFilters.map((filter) => (
               <FilterToggleItem
                 key={filter.label}
@@ -769,24 +780,31 @@ function ConnectionListToolbar({
   )
 }
 
-function FilterToggleItem({ count, label, value }: { count: number; label: string; value: string }) {
+function FilterToggleItem({ count, label, value }: { count: number | null; label: string; value: string }) {
   return (
     <ToggleGroupItem
       value={value}
       className="group/filter max-w-48 cursor-pointer gap-1.5 rounded-md border border-[var(--oo-control-border)] px-2.5 transition-[background-color,border-color,color,box-shadow,transform] hover:border-[var(--selection-ring)] active:translate-y-px active:scale-[0.98] data-[state=on]:!border-[var(--accent-ring)] data-[state=on]:!bg-[var(--accent-soft)] data-[state=on]:!text-foreground data-[state=on]:!shadow-[inset_0_0_0_1px_var(--accent-ring)] data-[state=on]:hover:!bg-[var(--accent-soft)]"
     >
       <span className="truncate">{label}</span>
-      <span className="oo-text-micro oo-text-muted transition-colors group-data-[state=on]/filter:text-[var(--accent-strong)]">
-        {count}
-      </span>
+      {count === null ? (
+        <span className="h-3 w-5 animate-pulse rounded-sm bg-muted" aria-hidden="true" />
+      ) : (
+        <span className="oo-text-micro oo-text-muted transition-colors group-data-[state=on]/filter:text-[var(--accent-strong)]">
+          {count}
+        </span>
+      )}
     </ToggleGroupItem>
   )
 }
 
 function ProviderListSkeleton() {
   return (
-    <div className="grid gap-2">
-      {Array.from({ length: 8 }, (_, index) => (
+    <div
+      className="grid"
+      style={{ gap: providerGridGapPx, gridTemplateColumns: "repeat(auto-fill, minmax(13.5rem, 1fr))" }}
+    >
+      {Array.from({ length: 12 }, (_, index) => (
         <div
           key={index}
           className="grid h-[68px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border bg-card px-2.5 py-1.5"

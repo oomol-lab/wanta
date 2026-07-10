@@ -4,9 +4,13 @@ import {
   connectProvider,
   getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
+  getConnectionCatalogSummary,
   getConnectionSummary,
+  getConnectionUsageSummary,
   isProviderConnectionActive,
+  listOAuthClientConfigs,
   startOAuthConnect,
+  upsertOAuthClientConfig,
 } from "./connections-client.ts"
 import { consoleBaseUrl } from "./domain.ts"
 
@@ -69,6 +73,40 @@ describe("connections-client", () => {
       credentialFields: [{ key: "roleArn", label: "Role ARN", displayValue: "role-a", secret: false }],
     })
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1")
+  })
+
+  it("returns the provider catalog before requesting background usage", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/v1/apps")) {
+        return Response.json({ data: [{ id: "app-1", service: "gmail", status: "active" }] })
+      }
+      if (url.includes("/v1/providers")) {
+        return Response.json({ data: [{ authTypes: ["oauth2"], displayName: "Gmail", service: "gmail" }] })
+      }
+      if (url.includes("/v1/usage/daily")) {
+        return Response.json({ data: [{ date: "2026-07-10", totalCount: 3 }] })
+      }
+      if (url.includes("/v1/usage/services")) {
+        return Response.json({ data: [{ service: "gmail", totalCount: 3 }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const summary = await getConnectionCatalogSummary({ type: "personal" })
+
+    expect(summary.providers.map((provider) => provider.service)).toEqual(["gmail"])
+    expect(summary.usageLoading).toBe(true)
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(
+      expect.arrayContaining([expect.stringContaining("/v1/apps"), expect.stringContaining("/v1/providers")]),
+    )
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/v1/usage/"))).toBe(false)
+
+    const usage = await getConnectionUsageSummary({ type: "personal" })
+
+    expect(usage.calls).toBe(3)
+    expect(usage.services).toMatchObject([{ calls: 3, service: "gmail" }])
   })
 
   it("sends a dev app protocol in the OAuth return URI from the Vite renderer", async () => {
@@ -156,6 +194,30 @@ describe("connections-client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect")
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v1/apps/by-id/app-2/connect")
+  })
+
+  it("shares OAuth client config reads and clears them after an update", async () => {
+    let configReads = 0
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (url.includes("/v1/oauth-client-configs/gmail") && init?.method === "PUT") {
+        return Response.json({ data: { configured: true, service: "gmail" } })
+      }
+      if (url.includes("/v1/oauth-client-configs")) {
+        configReads += 1
+        return Response.json({ data: [{ configured: true, service: "gmail" }] })
+      }
+      throw new Error(`Unexpected URL: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const [first, second] = await Promise.all([listOAuthClientConfigs(), listOAuthClientConfigs()])
+    await listOAuthClientConfigs()
+    await upsertOAuthClientConfig("gmail", { clientId: "client-id" })
+    await listOAuthClientConfigs()
+
+    expect(first).toEqual(second)
+    expect(configReads).toBe(2)
   })
 
   it("keeps the newest force-refresh response in the per-path cache", async () => {

@@ -22,6 +22,7 @@ function createBridgeAgent(): {
   abort: ReturnType<typeof vi.fn>
   answerPermission: ReturnType<typeof vi.fn>
   answerQuestion: ReturnType<typeof vi.fn>
+  artifactSessionDir: ReturnType<typeof vi.fn>
   createArtifactDir: ReturnType<typeof vi.fn>
   createProcessDir: ReturnType<typeof vi.fn>
   emit: (event: { type: string; data?: Record<string, unknown>; properties?: Record<string, unknown> }) => void
@@ -38,6 +39,7 @@ function createBridgeAgent(): {
   const abort = vi.fn(async () => undefined)
   const answerPermission = vi.fn(async () => undefined)
   const answerQuestion = vi.fn(async () => undefined)
+  const artifactSessionDir = vi.fn(() => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createArtifactDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-artifacts"))
   const createProcessDir = vi.fn(async () => path.join(os.tmpdir(), "wanta-test-process"))
   const getMessages = vi.fn(async () => [])
@@ -60,6 +62,7 @@ function createBridgeAgent(): {
     abort,
     answerPermission,
     answerQuestion,
+    artifactSessionDir,
     createArtifactDir,
     createProcessDir,
     clearSessionOrganizationName,
@@ -75,6 +78,7 @@ function createBridgeAgent(): {
     abort,
     answerPermission,
     answerQuestion,
+    artifactSessionDir,
     createArtifactDir,
     createProcessDir,
     emit: (event) => listener?.(event),
@@ -721,6 +725,70 @@ test("message completion publishes artifact-only outputs without turn output rec
     assert.equal(
       events.some((event) => event.event === "turnOutputUpdated"),
       false,
+    )
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+test("message completion recovers files that a reused script writes into an old artifact turn", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-artifact-recovery-"))
+  try {
+    const sessionRoot = path.join(root, "artifacts", "session-1")
+    const oldArtifactDir = path.join(sessionRoot, "old-turn")
+    const artifactDir = path.join(sessionRoot, "current-turn")
+    const processDir = path.join(root, "process", "session-1", "current-turn")
+    await mkdir(oldArtifactDir, { recursive: true })
+    await mkdir(artifactDir)
+    await mkdir(processDir, { recursive: true })
+    await writeFile(path.join(oldArtifactDir, "existing.pdf"), "existing")
+
+    const artifactBundleStore = new ArtifactBundleStore(root)
+    const oldBundle = await buildArtifactBundle({
+      artifactRoot: oldArtifactDir,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      messageId: "assistant-old",
+      sessionId: "session-1",
+    })
+    assert.ok(oldBundle)
+    const records = new Map()
+    recordArtifactBundle(records, oldBundle)
+    await artifactBundleStore.write(records)
+
+    const bridge = createBridgeAgent()
+    bridge.artifactSessionDir.mockReturnValue(sessionRoot)
+    bridge.createArtifactDir.mockResolvedValue(artifactDir)
+    bridge.createProcessDir.mockResolvedValue(processDir)
+    const service = new ChatServiceImpl(bridge.agent, { artifactBundleStore })
+    const events = captureServiceEvents(service)
+    service.startEventBridge()
+
+    await service.sendMessage({ sessionId: "session-1", text: "Create three mock files" })
+    bridge.emit({
+      type: "message.updated",
+      properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+    })
+    await writeFile(path.join(oldArtifactDir, "sales.xlsx"), "sales")
+    await writeFile(path.join(oldArtifactDir, "training.pdf"), "training")
+    await writeFile(path.join(oldArtifactDir, "budget.pdf"), "budget")
+    bridge.emit({ type: "session.idle", properties: { sessionID: "session-1" } })
+    await waitForCondition(() => events.some((event) => event.event === "artifactBundleUpdated"))
+
+    const stored = await artifactBundleStore.read()
+    const currentBundle = stored.get("session-1")?.get("assistant-1")
+    assert.deepEqual(
+      currentBundle?.items.map((item) => item.name),
+      ["budget.pdf", "sales.xlsx", "training.pdf"],
+    )
+    assert.ok(currentBundle?.items.every((item) => item.origin === "recovered_output"))
+    assert.deepEqual(
+      stored
+        .get("session-1")
+        ?.get("assistant-old")
+        ?.items.map((item) => item.name),
+      ["existing.pdf"],
     )
   } finally {
     await rm(root, { force: true, recursive: true })

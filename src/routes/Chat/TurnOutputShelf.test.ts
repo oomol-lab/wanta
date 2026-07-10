@@ -89,7 +89,7 @@ describe("TurnOutputShelf", () => {
     expect(html).not.toContain("src/routes/Chat/TurnOutputShelf.tsx")
   })
 
-  it("makes the entire process file bar open the review drawer", () => {
+  it("renders process files as secondary execution details rather than final artifacts", () => {
     const record: TurnOutputRecord = {
       sessionId: "session-1",
       messageId: "assistant-1",
@@ -106,10 +106,10 @@ describe("TurnOutputShelf", () => {
 
     const html = renderTurnOutputShelf(record)
 
-    expect(html).toContain('class="flex w-full min-w-0 items-center justify-between gap-3 rounded-lg')
-    expect(html).toContain("1 个过程文件")
-    expect(html).toContain("查看中间脚本和执行文件")
-    expect(html).toContain("审核")
-    expect(html).not.toContain('class="flex min-w-0 items-center justify-between gap-3 px-3 py-3"')
+    expect(html).toContain('class="flex min-w-0 items-center gap-2 rounded-md')
+    expect(html).toContain("执行详情")
+    expect(html).toContain("1 个过程文件 · 不属于最终制成品")
+    expect(html).not.toContain("审核")
+    expect(html).not.toContain("rounded-lg border border-border")
   })
 })

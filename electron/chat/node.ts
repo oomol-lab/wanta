@@ -2,7 +2,7 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
-import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
+import type { ArtifactBundleStore, ArtifactBundles, ArtifactSessionBaseline } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
@@ -63,9 +63,11 @@ import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
 import {
   buildArtifactBundle,
+  captureArtifactSessionBaseline,
   generatedImagePreviewCount,
   materializeAssistantArtifacts,
   recordArtifactBundle,
+  recoverMisplacedTurnArtifacts,
 } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./authorization.ts"
@@ -112,6 +114,7 @@ function permissionReplyKey(sessionId: string, requestId: string): string {
 }
 
 interface ActiveTurnOutput {
+  artifactBaseline?: ArtifactSessionBaseline
   artifactRoot: string
   createdAt: number
   generationId: string
@@ -1722,6 +1725,19 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.trustedProjectRoots.delete(req.sessionId)
       }
       const project = await this.projectBaseline(req.projectContext)
+      const artifactBaseline = await captureArtifactSessionBaseline(
+        this.agent.artifactSessionDir(req.sessionId),
+        artifactDir,
+      ).catch((error: unknown) => {
+        console.warn("[wanta] failed to capture artifact session baseline", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to capture artifact session baseline",
+          { error, sessionId: req.sessionId },
+          "warn",
+        )
+        return null
+      })
       this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
       this.enqueuePendingProcessDir(req.sessionId, processDir)
       this.activeTurnOutputs.set(activeGeneration.id, {
@@ -1730,6 +1746,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         createdAt: Date.now(),
         generationId: activeGeneration.id,
         requestText: req.text,
+        ...(artifactBaseline ? { artifactBaseline } : {}),
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
       })
@@ -2018,6 +2035,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         )
         return new Map()
       })
+      const recoveredOrigins = await recoverMisplacedTurnArtifacts(active.artifactBaseline, active.artifactRoot).catch(
+        (error: unknown) => {
+          console.warn("[wanta] failed to recover misplaced turn artifacts", error)
+          logDiagnostic(
+            "chat-service",
+            "failed to recover misplaced turn artifacts",
+            { error, messageId: resolvedMessageId, sessionId },
+            "warn",
+          )
+          return new Map()
+        },
+      )
+      for (const [relativePath, origin] of recoveredOrigins) {
+        materializedOrigins.set(relativePath, origin)
+      }
       const [artifactBundle, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
         buildArtifactBundle({
           artifactRoot: active.artifactRoot,

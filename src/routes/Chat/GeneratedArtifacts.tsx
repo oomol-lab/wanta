@@ -356,18 +356,25 @@ export function GeneratedArtifactsShelf({
     primary.pack,
   )
   const allImages = entries.every((entry) => isImageArtifact(entry.item))
+  const itemCount = Math.max(entries.length, primary.group.totalItems)
+  const isCollection = itemCount > 1
   const title =
     primary.pack?.title ??
-    (allImages && entries.length > 1
-      ? t("artifacts.imageCount", { count: entries.length })
-      : readableArtifactTitle(primaryDisplayItem))
+    (allImages && isCollection
+      ? t("artifacts.imageCount", { count: itemCount })
+      : isCollection
+        ? t("artifacts.outputCount", { count: itemCount })
+        : readableArtifactTitle(primaryDisplayItem))
+  const meta = isCollection
+    ? t("artifacts.collectionDescription")
+    : artifactMetaLabel(t, primaryDisplayItem, primary.pack)
 
   return (
     <section className="not-prose mt-2 grid gap-1.5">
       {primary.status === "partial" ? <ArtifactPersistenceWarning partial /> : null}
       <button
         type="button"
-        title={primary.group.root?.path ?? primaryDisplayItem.path}
+        title={title}
         className="oo-border-divider flex min-h-16 min-w-0 items-center gap-3 rounded-lg border bg-muted/55 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         onClick={() => onOpen(selection)}
         onContextMenu={(event) => {
@@ -379,22 +386,10 @@ export function GeneratedArtifactsShelf({
         <FileKindTile source={primaryDisplayItem} pack={primary.pack} className="size-9" iconClassName="size-4" />
         <span className="min-w-0 flex-1">
           <span className="oo-text-label block truncate text-foreground">{title}</span>
-          <span className="oo-text-caption-compact block truncate text-muted-foreground">
-            {artifactMetaLabel(t, primaryDisplayItem, primary.pack)}
-          </span>
+          <span className="oo-text-caption-compact block truncate text-muted-foreground">{meta}</span>
         </span>
-        <ExternalLink className="size-4 shrink-0 text-muted-foreground" />
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
       </button>
-      {entries.length > 1 ? (
-        <button
-          type="button"
-          className="oo-text-caption flex h-8 w-fit min-w-0 items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
-          onClick={() => onOpen(selection)}
-        >
-          <span>{t("artifacts.viewAllOutputs", { count: entries.length })}</span>
-          <ChevronRight className="size-4 shrink-0" />
-        </button>
-      ) : null}
     </section>
   )
 }

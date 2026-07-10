@@ -1,15 +1,17 @@
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { test } from "vitest"
 import {
   ArtifactBundleStore,
   buildArtifactBundle,
+  captureArtifactSessionBaseline,
   generatedImagePreviewCount,
   markdownImageCount,
   materializeAssistantArtifacts,
   recordArtifactBundle,
+  recoverMisplacedTurnArtifacts,
 } from "./artifact-bundles.ts"
 
 test("buildArtifactBundle infers an image gallery without a model-authored manifest", async () => {
@@ -337,6 +339,74 @@ test("materializeAssistantArtifacts refuses redirects from public image URLs int
 
     assert.equal(requests, 1)
     assert.equal(origins.size, 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("recoverMisplacedTurnArtifacts copies only files created or changed in old turn directories", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-recovery-"))
+  try {
+    const sessionRoot = path.join(root, "session-1")
+    const oldTurn = path.join(sessionRoot, "old-turn")
+    const currentTurn = path.join(sessionRoot, "current-turn")
+    await mkdir(path.join(oldTurn, "nested"), { recursive: true })
+    await mkdir(currentTurn)
+    await writeFile(path.join(oldTurn, "unchanged.pdf"), "unchanged")
+    await writeFile(path.join(oldTurn, "modified.xlsx"), "before")
+    await writeFile(path.join(currentTurn, "report.pdf"), "current")
+
+    const baseline = await captureArtifactSessionBaseline(sessionRoot, currentTurn)
+    assert.ok(baseline)
+    await writeFile(path.join(oldTurn, "modified.xlsx"), "after-with-a-different-size")
+    await writeFile(path.join(oldTurn, "report.pdf"), "misplaced")
+    await writeFile(path.join(oldTurn, "nested", "new.pdf"), "nested")
+
+    const origins = await recoverMisplacedTurnArtifacts(baseline, currentTurn)
+    const bundle = await buildArtifactBundle({
+      artifactRoot: currentTurn,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      materializedOrigins: origins,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(await readFile(path.join(currentTurn, "modified.xlsx"), "utf8"), "after-with-a-different-size")
+    assert.equal(await readFile(path.join(currentTurn, "report.pdf"), "utf8"), "current")
+    assert.equal(await readFile(path.join(currentTurn, "report-2.pdf"), "utf8"), "misplaced")
+    assert.equal(await readFile(path.join(currentTurn, "nested", "new.pdf"), "utf8"), "nested")
+    assert.equal(
+      bundle?.items.find((item) => item.name === "unchanged.pdf"),
+      undefined,
+    )
+    assert.ok(bundle?.items.every((item) => item.origin === "recovered_output" || item.name === "report.pdf"))
+    assert.equal(bundle?.items.find((item) => item.name === "new.pdf")?.origin, "recovered_output")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("artifact session recovery ignores symlinks and roots outside the captured session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-recovery-boundary-"))
+  try {
+    const sessionRoot = path.join(root, "session-1")
+    const oldTurn = path.join(sessionRoot, "old-turn")
+    const currentTurn = path.join(sessionRoot, "current-turn")
+    const outside = path.join(root, "outside.pdf")
+    await mkdir(oldTurn, { recursive: true })
+    await mkdir(currentTurn)
+    await writeFile(outside, "outside")
+
+    const baseline = await captureArtifactSessionBaseline(sessionRoot, currentTurn)
+    assert.ok(baseline)
+    await symlink(outside, path.join(oldTurn, "linked.pdf"))
+
+    const origins = await recoverMisplacedTurnArtifacts(baseline, currentTurn)
+
+    assert.equal(origins.size, 0)
+    assert.equal(await captureArtifactSessionBaseline(root, root), null)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

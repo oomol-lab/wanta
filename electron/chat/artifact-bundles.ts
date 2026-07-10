@@ -10,7 +10,7 @@ import type {
 
 import { createHash, randomUUID } from "node:crypto"
 import { lookup } from "node:dns/promises"
-import { copyFile, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { isIP } from "node:net"
 import os from "node:os"
 import path from "node:path"
@@ -23,11 +23,24 @@ export type ArtifactBundles = Map<string, Map<string, ArtifactBundle>>
 const maxMaterializedImageBytes = 32 * 1024 * 1024
 const remoteImageTimeoutMs = 30_000
 const maxRemoteRedirects = 3
+const maxArtifactBaselineFiles = 10_000
 const markdownImagePattern = /!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^"']*["'])?\s*\)/gu
 
 interface PersistedArtifactBundles {
   version?: number
   sessions?: Record<string, Record<string, ArtifactBundle>>
+}
+
+interface ArtifactFileFingerprint {
+  modifiedAt: number
+  size: number
+}
+
+export interface ArtifactSessionBaseline {
+  complete: boolean
+  currentArtifactRoot: string
+  files: ReadonlyMap<string, ArtifactFileFingerprint>
+  sessionRoot: string
 }
 
 function validText(value: unknown): value is string {
@@ -301,6 +314,144 @@ async function uniqueArtifactTarget(root: string, fileName: string, reserved: Se
   }
 }
 
+function pathInside(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`)
+}
+
+async function artifactSessionFiles(
+  sessionRoot: string,
+  excludedRoot: string,
+): Promise<{ complete: boolean; files: Map<string, ArtifactFileFingerprint> }> {
+  const files = new Map<string, ArtifactFileFingerprint>()
+  let complete = true
+  const visit = async (directory: string): Promise<void> => {
+    if (!complete) {
+      return
+    }
+    let entries
+    try {
+      entries = await readdir(directory, { withFileTypes: true })
+    } catch {
+      complete = false
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.isSymbolicLink()) {
+        continue
+      }
+      const absolutePath = path.join(directory, entry.name)
+      if (pathInside(excludedRoot, absolutePath)) {
+        continue
+      }
+      if (entry.isDirectory()) {
+        await visit(absolutePath)
+        continue
+      }
+      if (!entry.isFile()) {
+        continue
+      }
+      if (files.size >= maxArtifactBaselineFiles) {
+        complete = false
+        return
+      }
+      const fileStat = await lstat(absolutePath).catch(() => null)
+      if (!fileStat?.isFile() || fileStat.isSymbolicLink()) {
+        continue
+      }
+      files.set(path.relative(sessionRoot, absolutePath), {
+        modifiedAt: fileStat.mtimeMs,
+        size: fileStat.size,
+      })
+    }
+  }
+  await visit(sessionRoot)
+  return { complete, files }
+}
+
+/**
+ * 记录本轮开始前同一会话全部旧制成品目录的文件状态。
+ * 当前轮目录必须是会话目录的子目录；不满足该边界时禁用恢复，避免扫描无关路径。
+ */
+export async function captureArtifactSessionBaseline(
+  sessionRoot: string,
+  currentArtifactRoot: string,
+): Promise<ArtifactSessionBaseline | null> {
+  const [resolvedSessionRoot, resolvedArtifactRoot] = await Promise.all([
+    realpath(sessionRoot).catch(() => null),
+    realpath(currentArtifactRoot).catch(() => null),
+  ])
+  if (
+    !resolvedSessionRoot ||
+    !resolvedArtifactRoot ||
+    resolvedSessionRoot === resolvedArtifactRoot ||
+    !pathInside(resolvedSessionRoot, resolvedArtifactRoot)
+  ) {
+    return null
+  }
+  const snapshot = await artifactSessionFiles(resolvedSessionRoot, resolvedArtifactRoot)
+  return {
+    complete: snapshot.complete,
+    currentArtifactRoot: resolvedArtifactRoot,
+    files: snapshot.files,
+    sessionRoot: resolvedSessionRoot,
+  }
+}
+
+/**
+ * 恢复模型误写到旧轮目录的新文件或被修改文件，并复制到当前轮目录。
+ * 旧轮目录保持不变；恢复结果由当前轮的 bundle 独立归档。
+ */
+export async function recoverMisplacedTurnArtifacts(
+  baseline: ArtifactSessionBaseline | null | undefined,
+  currentArtifactRoot: string,
+): Promise<Map<string, ArtifactItemOrigin>> {
+  if (!baseline?.complete) {
+    return new Map()
+  }
+  const resolvedArtifactRoot = await realpath(currentArtifactRoot).catch(() => null)
+  if (!resolvedArtifactRoot || resolvedArtifactRoot !== baseline.currentArtifactRoot) {
+    return new Map()
+  }
+  const current = await artifactSessionFiles(baseline.sessionRoot, resolvedArtifactRoot)
+  if (!current.complete) {
+    return new Map()
+  }
+  const changed = [...current.files].filter(([relativePath, fingerprint]) => {
+    const previous = baseline.files.get(relativePath)
+    return !previous || previous.size !== fingerprint.size || previous.modifiedAt !== fingerprint.modifiedAt
+  })
+  const origins = new Map<string, ArtifactItemOrigin>()
+  const reservedTargets = new Set<string>()
+  for (const [relativePath] of changed.sort(([left], [right]) => left.localeCompare(right))) {
+    const segments = relativePath.split(path.sep)
+    if (segments.length < 2) {
+      continue
+    }
+    const source = path.join(baseline.sessionRoot, relativePath)
+    const sourceStat = await lstat(source).catch(() => null)
+    if (!sourceStat?.isFile() || sourceStat.isSymbolicLink()) {
+      continue
+    }
+    const relativeTarget = path.join(...segments.slice(1))
+    const targetDirectory = path.join(resolvedArtifactRoot, path.dirname(relativeTarget))
+    if (!pathInside(resolvedArtifactRoot, targetDirectory)) {
+      continue
+    }
+    try {
+      await mkdir(targetDirectory, { recursive: true })
+      const target = await uniqueArtifactTarget(targetDirectory, path.basename(relativeTarget), reservedTargets)
+      await copyFile(source, target)
+      origins.set(path.relative(resolvedArtifactRoot, target), "recovered_output")
+    } catch (error) {
+      console.warn(
+        "[wanta] failed to recover misplaced turn artifact",
+        error instanceof Error ? error.name : "unknown error",
+      )
+    }
+  }
+  return origins
+}
+
 function privateIpv4(address: string): boolean {
   const parts = address.split(".").map(Number)
   const [first = -1, second = -1] = parts
@@ -489,7 +640,7 @@ export async function materializeAssistantArtifacts(
             reservedTargets,
           )
           await copyFile(realSource, target)
-          materializedOrigins.set(path.basename(target), artifact.origin)
+          materializedOrigins.set(path.relative(root, target), artifact.origin)
           return
         }
 
@@ -505,7 +656,7 @@ export async function materializeAssistantArtifacts(
           reservedTargets,
         )
         await writeFile(target, downloaded.bytes)
-        materializedOrigins.set(path.basename(target), artifact.origin)
+        materializedOrigins.set(path.relative(root, target), artifact.origin)
       } catch (error) {
         console.warn(
           "[wanta] failed to materialize assistant artifact",
@@ -566,7 +717,7 @@ export async function buildArtifactBundle(input: {
     ...item,
     id: stableArtifactId(sessionId, messageId, path.relative(artifactRoot, item.path)),
     status: "ready",
-    origin: materializedOrigins.get(item.name) ?? "managed_output",
+    origin: materializedOrigins.get(path.relative(artifactRoot, item.path)) ?? "managed_output",
   }))
   return {
     id: stableArtifactId(sessionId, messageId, "bundle"),

@@ -181,7 +181,9 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
       )}
     >
       <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]">
-        <div className="oo-text-title min-w-0 truncate">{t("turnOutputs.panelTitle")}</div>
+        <div className="oo-text-title min-w-0 truncate">
+          {t(activeRole === "process" ? "turnOutputs.processDetails" : "turnOutputs.panelTitle")}
+        </div>
         <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
           <button
             type="button"

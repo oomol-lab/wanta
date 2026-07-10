@@ -195,6 +195,32 @@ describe("artifact group display", () => {
 })
 
 describe("GeneratedArtifactsShelf", () => {
+  it("renders one meaningful collection card without a duplicate view-all action", () => {
+    const internalFolderName = "1783659231256-c0b6cdb5-b417-4ffc-87d9-9b32e68fa1c1"
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: {
+          root: artifactFolder(internalFolderName),
+          items: [
+            artifactItem("项目任务清单.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            artifactItem("员工通讯录.pdf", "application/pdf"),
+            artifactItem("故障复盘报告.pdf", "application/pdf"),
+          ],
+          totalItems: 3,
+          truncated: false,
+        },
+        status: "ready",
+      },
+    ])
+
+    expect(html).toContain("3 个制成品")
+    expect(html).toContain("点击查看和预览全部文件")
+    expect(html).not.toContain("查看所有产物")
+    expect(html).not.toContain(internalFolderName)
+    expect(html.match(/<button/g)).toHaveLength(1)
+  })
+
   it("renders a visible failure instead of silently omitting an unpersisted image", () => {
     const html = renderArtifactShelf([
       {

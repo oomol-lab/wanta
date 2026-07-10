@@ -70,13 +70,14 @@
 - sidecar cwd = `userData/agent/workspace`，不可改（`.opencode/tools/` 在其下）；文件访问越界走 `external_directory: "ask"`，由 ChatService 本地访问策略处理。
 - `parseConnectorErrorCode`（`oo.ts`）与 `call_action` 内联正则必须保持一致，改一处要同步另一处。`AUTH_BLOCKING_ERROR_CODES`（`connection_required` 等）来自 connector 上游而非 oo-cli，**权威定义**是 connector OpenAPI 错误 schema（`https://connector.<endpoint>/openapi.json`，需 `Authorization: Bearer <会话 token>`）——增删该集合先核对此处。
 - 新增需要 endpoint 的代码：从 `domain.ts` import 派生常量；不要新增 `__OO_ENDPOINT__` 引用点（define 覆盖范围需与 vite/vitest 配置同步；当前三处 define：renderer/main/preload）。
-- **制成品只认系统登记的真实文件**：生产者写入每轮托管输出目录，主进程建立并持久化 `ArtifactBundle`，渲染层只消费结构化 bundle。禁止解析 assistant 自由文本、复制内容或任意路径来推断制成品；禁止依赖模型生成的 manifest 决定文件是否存在、类型或数量。图片正文预览与制成品持久化必须解耦且最终图片两者都要产出：主进程可从明确的 assistant 图片附件或 Markdown 图片节点物化本地/data/公开 HTTPS 图片，但不能从普通文案猜路径；远程物化必须限制协议、内网地址、重定向、MIME、大小和超时。未持久化时必须产生明确失败状态，不能通过隐藏预览来规避失败。
+- **制成品只认系统登记的真实文件**：生产者写入每轮托管输出目录，主进程建立并持久化 `ArtifactBundle`，渲染层只消费结构化 bundle。禁止解析 assistant 自由文本、复制内容或任意路径来推断制成品；禁止依赖模型生成的 manifest 决定文件是否存在、类型或数量。图片正文预览与制成品持久化必须解耦且最终图片两者都要产出：主进程可从明确的 assistant 图片附件或 Markdown 图片节点物化本地/data/公开 HTTPS 图片，但不能从普通文案猜路径；远程物化必须限制协议、内网地址、重定向、MIME、大小和超时。未持久化时必须产生明确失败状态，不能通过隐藏预览来规避失败。每轮开始记录当前会话旧制成品目录的文件基线；若旧脚本误写旧目录，结束时只恢复基线后新增/变化的普通文件到当前轮，禁止改写旧 bundle、跨会话扫描、跟随符号链接，基线不完整时禁止恢复。
 
 ## 8. 渲染层 / UI
 
 - 无路由库：页面切换是 `AppShell.tsx` 内部 state，新增"页面"先考虑是否真的需要路由库。
 - 流式渲染稳定性：文本 part 用稳定 React key（partId），`upsertPart` 原地替换——不重挂载、无闪烁；`messageDelta` 是累计全文非增量。
 - streaming 时 Enter 必须只发送、不停止（停止仅响应按钮显式点击；曾是 HIGH 回归）。
+- 聊天结果的视觉层级固定为：最终制成品使用单文件/集合卡片；项目原位修改使用审查卡片；中间脚本、临时数据和日志只使用次级“执行详情”入口。多文件制成品不得同时提供行为相同的集合卡片和“查看全部”入口，不得把内部轮次目录名展示给用户，也不得把 process 文件标成制成品。
 - vendored 组件规则：新 vendored 文件放 `src/components/ui/` 或 `src/components/ai-elements/`（享受 `react/only-export-components` override）；`ui/badge.tsx` 是 shadcn 标准 + 项目自有 success/warning/muted 变体的合并版，升级勿直接覆盖；registry 源码自带的 `// @ts-expect-error ... v6` 注释 vendoring 时必须删除（本项目装的就是 ai v6，该指令变"未使用"会卡 ts-check）。
 - `src/index.css` 的 `@source "../node_modules/streamdown/dist"` 不可删（Tailwind v4 不扫 node_modules，删了 streamdown 的类不生成）。
 - i18n：自研轻量实现（`src/i18n/i18n.ts`），扁平 dot key + `{var}` 占位，zh-CN 基准 + en 镜像，新增文案两个 locale 都要加；`useT()` 取翻译函数。

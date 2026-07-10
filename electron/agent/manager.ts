@@ -805,20 +805,32 @@ export class AgentManager {
     return this.createTurnDir("artifacts", sessionId)
   }
 
+  public artifactSessionDir(sessionId: string): string {
+    return this.sessionTurnRoot("artifacts", sessionId)
+  }
+
   public async createProcessDir(sessionId: string): Promise<string> {
     return this.createTurnDir("process", sessionId)
   }
 
   private async createTurnDir(kind: "artifacts" | "process", sessionId: string): Promise<string> {
-    const root = path.join(this.options.rootDir, kind)
-    const dir = path.join(root, sanitizeArtifactPathSegment(sessionId), `${Date.now()}-${randomUUID()}`)
-    const resolvedRoot = path.resolve(root)
+    const root = this.sessionTurnRoot(kind, sessionId)
+    const dir = path.join(root, `${Date.now()}-${randomUUID()}`)
     const resolvedDir = path.resolve(dir)
-    if (!resolvedDir.startsWith(`${resolvedRoot}${path.sep}`)) {
+    if (!resolvedDir.startsWith(`${root}${path.sep}`)) {
       throw new Error("Invalid turn directory segment.")
     }
     await mkdir(resolvedDir, { recursive: true })
     return resolvedDir
+  }
+
+  private sessionTurnRoot(kind: "artifacts" | "process", sessionId: string): string {
+    const root = path.resolve(this.options.rootDir, kind)
+    const dir = path.resolve(root, sanitizeArtifactPathSegment(sessionId))
+    if (!dir.startsWith(`${root}${path.sep}`)) {
+      throw new Error("Invalid session directory segment.")
+    }
+    return dir
   }
 
   /** 阻塞发送（headless 验证用）：发送并返回该会话全部消息。 */
@@ -998,6 +1010,7 @@ export function buildArtifactSystem(artifactDir: string | undefined): string | u
     "- If only a provider-backed image preview is available, keep that preview visible in the final response instead of omitting it. Wanta will materialize supported preview sources and independently report persistence failures.",
     "- When there are many images, such as crawled or downloaded image sets, do not inline every image in the final response. Summarize the set and rely on the artifact browser.",
     "- Do not reuse output folders from earlier turns or other chats.",
+    "- If you reuse a script from an earlier turn, copy or update it before running and replace every embedded output path with this turn's artifact directory. Never run a prior-turn script while it still targets an earlier output directory.",
     "- Do not write deliverables to Desktop, Downloads, the OpenCode workspace, or prior output directories unless the user explicitly requested that exact destination.",
     "- When you finish, summarize the deliverable contents and report generated file paths in prose or inline code, not fenced code blocks; fenced blocks are only for code or multi-line text.",
     "- Do not open generated files with system commands unless the user explicitly asks you to open them externally; the app is responsible for surfacing artifacts in the UI.",

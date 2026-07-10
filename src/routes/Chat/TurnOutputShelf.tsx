@@ -1,7 +1,7 @@
 import type { TurnOutputRecord } from "../../../electron/chat/common.ts"
 import type { TurnOutputSelection } from "./TurnOutputs.tsx"
 
-import { CheckSquare, ChevronDown, ChevronRight, FileDiff } from "lucide-react"
+import { ChevronDown, ChevronRight, FileCode2, FileDiff } from "lucide-react"
 import * as React from "react"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -117,29 +117,20 @@ export function TurnOutputShelf({
 
   if (!hasProjectChanges) {
     return (
-      <div className="not-prose mt-2 w-full min-w-0 rounded-lg border border-border bg-background">
+      <div className="not-prose mt-1 min-w-0">
         <button
           type="button"
-          className="flex w-full min-w-0 items-center justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           onClick={() => onOpen({ record, initialRole: "process" })}
         >
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              <CheckSquare className="size-4" />
+          <FileCode2 className="size-4 shrink-0" />
+          <span className="min-w-0">
+            <span className="oo-text-label block truncate text-foreground">{t("turnOutputs.processDetails")}</span>
+            <span className="oo-text-caption-compact block truncate">
+              {t("turnOutputs.processNotArtifact", { count: intermediateFiles.length })}
             </span>
-            <div className="min-w-0">
-              <div className="oo-text-label truncate text-foreground">
-                {t("turnOutputs.processSummary", { count: intermediateFiles.length })}
-              </div>
-              <div className="oo-text-caption-compact truncate text-muted-foreground">
-                {t("turnOutputs.reviewProcessFiles")}
-              </div>
-            </div>
-          </div>
-          <span className="oo-text-control flex h-8 shrink-0 items-center gap-1 rounded-md border border-border px-2.5 font-medium">
-            {t("turnOutputs.reviewChanges")}
-            <ChevronRight className="size-3.5" />
           </span>
+          <ChevronRight className="size-3.5 shrink-0" />
         </button>
       </div>
     )

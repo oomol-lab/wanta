@@ -86,6 +86,8 @@ export class OpencodeSidecar {
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...env,
+      // 外部 agent skill 由 SkillService 扫描后同步到私有 workspace；sidecar 不直接扫全局根，避免同名旧副本抢占。
+      OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
       OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
       OPENCODE_CONFIG_DIR: opencodeConfigDir,
       XDG_CONFIG_HOME: xdgConfigHome,

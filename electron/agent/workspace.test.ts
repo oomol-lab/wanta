@@ -71,6 +71,27 @@ test("ensureAgentWorkspace rebuilds .opencode/skill so removed bundled skills do
   }
 })
 
+test("ensureAgentWorkspace rebuilds .opencode/tools so removed tool sources do not linger", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
+  try {
+    const workspaceDir = path.join(base, "workspace")
+    const staleToolPath = path.join(workspaceDir, ".opencode", "tools", "check_provider_connection.ts")
+
+    await ensureAgentWorkspace(workspaceDir)
+    await writeFile(staleToolPath, "export default {}", "utf-8")
+    assert.ok(await exists(staleToolPath), "stale tool fixture written")
+
+    await ensureAgentWorkspace(workspaceDir)
+
+    assert.equal(await exists(staleToolPath), false, "removed tool cleared")
+    for (const toolName of Object.keys(AGENT_TOOL_FILES)) {
+      assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools", toolName)), `tool ${toolName} remains`)
+    }
+  } finally {
+    await rm(base, { force: true, recursive: true })
+  }
+})
+
 test("ensureAgentWorkspace works without a bundled skills directory", async () => {
   const base = await mkdtemp(path.join(os.tmpdir(), "wanta-workspace-"))
   try {
@@ -78,6 +99,7 @@ test("ensureAgentWorkspace works without a bundled skills directory", async () =
     await ensureAgentWorkspace(workspaceDir, path.join(base, "does-not-exist"))
     assert.ok(await exists(path.join(workspaceDir, ".opencode", "tools")), "tools still written")
     assert.equal(await exists(path.join(workspaceDir, ".opencode", "skill")), false, "no skill dir when source missing")
+    assert.ok(await exists(path.join(workspaceDir, ".opencode", "skills")), "runtime skills dir still exists")
   } finally {
     await rm(base, { force: true, recursive: true })
   }

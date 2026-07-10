@@ -12,7 +12,9 @@ import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 export async function ensureAgentWorkspace(rootDir: string, bundledSkillsDir?: string): Promise<string> {
   const opencodeDir = path.join(rootDir, ".opencode")
   const toolsDir = path.join(opencodeDir, "tools")
-  await mkdir(toolsDir, { recursive: true })
+  const runtimeSkillsDir = path.join(opencodeDir, "skills")
+  await rm(toolsDir, { force: true, recursive: true })
+  await Promise.all([mkdir(toolsDir, { recursive: true }), mkdir(runtimeSkillsDir, { recursive: true })])
   await Promise.all(
     Object.entries(AGENT_TOOL_FILES).map(([name, source]) => writeFile(path.join(toolsDir, name), source, "utf-8")),
   )

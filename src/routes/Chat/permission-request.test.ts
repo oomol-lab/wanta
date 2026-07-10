@@ -6,7 +6,11 @@ import {
   createSessionPermissionGrant,
   isHighRiskPermissionRequest,
   isOoCliPermissionRequest,
+  isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
+  managedPythonDependencyInstall,
+  permissionRequestHasBroadResource,
+  permissionRequestHasSensitiveResource,
   permissionRequestNeedsDefaultPrompt,
   permissionCommand,
   permissionPrimaryResource,
@@ -44,11 +48,54 @@ test("renderer permission helpers recognize likely project dev commands without 
   )
   assert.equal(isLikelyProjectDevCommandRequest(permission({ metadata: { command: "npm install" } })), false)
   assert.equal(isLikelyProjectDevCommandRequest(permission({ metadata: { command: "npm run lint -- --fix" } })), false)
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "cd /Users/me/code/app && pnpm add zod" } }),
+    ),
+    true,
+  )
+  assert.equal(isLikelyProjectDependencyInstallRequest(permission({ metadata: { command: "npm install" } })), false)
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "cd /Users/me/code/app && npm install --global eslint" } }),
+    ),
+    false,
+  )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "cd /Users/me/code/app && npm install --location=global eslint" } }),
+    ),
+    false,
+  )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "npm install zod && echo --prefix /tmp/not-a-project" } }),
+    ),
+    false,
+  )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({ metadata: { command: "npm install zod -- --prefix /tmp/not-a-project" } }),
+    ),
+    false,
+  )
+  assert.equal(
+    isLikelyProjectDependencyInstallRequest(
+      permission({
+        metadata: { command: "npm --prefix /Users/me/code/app install zod && npm --global install eslint" },
+      }),
+    ),
+    true,
+  )
 })
 
 test("high risk command detection marks destructive commands for default access prompts", () => {
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm test" } })), false)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "npm install" } })), true)
+  assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "python3 -m pip install openpyxl" } })),
+    true,
+  )
   assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "npm --prefix /tmp/app install" } })),
     true,
@@ -62,9 +109,48 @@ test("high risk command detection marks destructive commands for default access 
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "git -C /tmp/repo push" } })), true)
   assert.equal(isHighRiskPermissionRequest(permission({ metadata: { command: "cat ~/.ssh/id_rsa" } })), true)
   assert.equal(
+    isHighRiskPermissionRequest(permission({ metadata: { command: "find ~/Documents -exec cat {} \\;" } })),
+    true,
+  )
+  assert.equal(
     isHighRiskPermissionRequest(permission({ metadata: { command: "oo connector apps posthog 2>&1 | head -80" } })),
     false,
   )
+})
+
+test("managed Python dependency installs are narrow enough for a task approval", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const command = `${processRoot}/.wanta-python/bin/python -m pip install openpyxl fpdf2`
+  const request = permission({ metadata: { command } })
+
+  assert.deepEqual(managedPythonDependencyInstall(request), { packages: ["openpyxl", "fpdf2"] })
+  assert.deepEqual(managedPythonDependencyInstall(request, processRoot), { packages: ["openpyxl", "fpdf2"] })
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({ metadata: { command: "pip3 install --user openpyxl fpdf2" } }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(
+      permission({ metadata: { command: `${command} --extra-index-url https://example.test/simple` } }),
+      processRoot,
+    ),
+    null,
+  )
+  assert.equal(
+    managedPythonDependencyInstall(permission({ metadata: { command: `${command} && rm -rf /tmp/x` } }), processRoot),
+    null,
+  )
+
+  const grant = createSessionPermissionGrant(request, { managedPythonProcessRoot: processRoot })
+  assert.deepEqual(grant, {
+    action: "bash",
+    kind: "python_dependency_install",
+    patterns: ["openpyxl", "fpdf2"],
+    processRoot,
+  })
 })
 
 test("oo CLI permission requests are recognized for automatic approval", () => {
@@ -87,6 +173,13 @@ test("default prompt detection only flags basic safety boundaries", () => {
     false,
   )
   assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "npm install" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "find ~ -type f" } })), true)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -la ~" } })), false)
+  assert.equal(permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "ls -R ~" } })), true)
+  assert.equal(
+    permissionRequestNeedsDefaultPrompt(permission({ metadata: { command: "rg invoice /Users/me/Documents" } })),
+    false,
+  )
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ action: "external_directory", resources: ["/Users/me/Desktop"] })),
     false,
@@ -98,6 +191,52 @@ test("default prompt detection only flags basic safety boundaries", () => {
   assert.equal(
     permissionRequestNeedsDefaultPrompt(permission({ action: "edit", resources: ["/Users/me/code/app/.env"] })),
     true,
+  )
+})
+
+test("permission helpers distinguish sensitive data from ordinary and broad reads", () => {
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ metadata: { command: "sqlite3 ~/Library/Messages/chat.db '.tables'" } }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ metadata: { command: "cat ~/Library/Mail/V10/MailData/Envelope Index" } }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(permission({ metadata: { command: "cat ~/Documents/report.md" } })),
+    false,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(permission({ metadata: { command: "type C:/Users/me/.kube/config" } })),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ metadata: { command: 'sqlite3 "${HOME}/Library/Messages/chat.db" ".tables"' } }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ action: "external_directory", resources: ["C:\\Users\\me\\.ssh\\id_ed25519"] }),
+    ),
+    true,
+  )
+  assert.equal(
+    permissionRequestHasSensitiveResource(
+      permission({ action: "edit", resources: ["/Users/me/code/app/fixtures/chat.db"] }),
+    ),
+    false,
+  )
+  assert.equal(permissionRequestHasBroadResource(permission({ metadata: { command: "cat ~" } })), true)
+  assert.equal(
+    permissionRequestHasBroadResource(permission({ metadata: { command: "cat ~/Documents/report.md" } })),
+    false,
   )
 })
 

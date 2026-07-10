@@ -1,7 +1,6 @@
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ManagedSkillGroup, PublicSkillPackage, PublishSkillResult } from "../../../electron/skills/common.ts"
-import type { BusyAction, OrganizationSkillLinkInput } from "./organization-management-model.ts"
-import type { ProviderSkillRecommendation } from "./provider-skill-recommendations.ts"
+import type { BusyAction } from "./organization-management-model.ts"
 import type {
   DiscoverSkillFilter,
   InstalledSkillFilter,
@@ -19,7 +18,14 @@ import * as React from "react"
 import { toast } from "sonner"
 import { DiscoverSkillsPane } from "./DiscoverSkillsPane.tsx"
 import { InstalledSkillsPane } from "./InstalledSkillsPane.tsx"
+import { planProviderSkillRecommendationBulkLinks } from "./organization-management-model.ts"
+import {
+  buildInstallableOrganizationRecommendationSkills,
+  buildOrganizationSkillRecommendationItems,
+} from "./organization-skill-manage-helpers.ts"
+import { OrganizationInstallMissingButton } from "./OrganizationSkillManageRows.tsx"
 import { OrganizationSkillsPane } from "./OrganizationSkillsPane.tsx"
+import { PersonalSkillRecommendationsPane } from "./PersonalSkillRecommendationsPane.tsx"
 import { skillErrorMessage } from "./skill-errors.ts"
 import {
   getGroupStatus,
@@ -37,6 +43,7 @@ import {
 } from "./skill-route-model.ts"
 import { SkillDetailContent } from "./SkillDetailContent.tsx"
 import { SkillPageHeader } from "./SkillPageHeader.tsx"
+import { useOrganizationSkillActions } from "./use-organization-skill-actions.ts"
 import { useSkillService } from "@/components/AppContext"
 import {
   useAuthStateResource,
@@ -137,6 +144,7 @@ export function SkillsRoute({
   const [organizationFilter, setOrganizationFilter] = React.useState<OrganizationSkillFilter>("all")
   const [organizationQuery, setOrganizationQuery] = React.useState("")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
+  const [recommendedQuery, setRecommendedQuery] = React.useState("")
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
@@ -159,7 +167,6 @@ export function SkillsRoute({
   const updateRegistryInFlightRef = React.useRef(false)
   const cliUpdateInFlightRef = React.useRef(false)
   const installRegistryInFlightRef = React.useRef(false)
-  const organizationSkillInFlightRef = React.useRef(false)
   const requestedVersionCheckRef = React.useRef(false)
   const publicPackageRequestIdRef = React.useRef(0)
   const myPublishedPackageRequestIdRef = React.useRef(0)
@@ -232,6 +239,12 @@ export function SkillsRoute({
 
   React.useEffect(() => {
     if (activeTab === "organization" && workspace.activeWorkspace.type !== "organization") {
+      setActiveTab("discover")
+    }
+  }, [activeTab, workspace.activeWorkspace.type])
+
+  React.useEffect(() => {
+    if (activeTab === "recommended" && workspace.activeWorkspace.type !== "personal") {
       setActiveTab("discover")
     }
   }, [activeTab, workspace.activeWorkspace.type])
@@ -402,156 +415,49 @@ export function SkillsRoute({
     [homeSummaryResource, inventoryResource, skillService, t, versionResource],
   )
 
-  const beginOrganizationSkillAction = React.useCallback((action: BusyAction): boolean => {
-    if (organizationSkillInFlightRef.current) {
-      return false
+  const {
+    addOrganizationSkillFromRecommendation,
+    installRuntimeSkill: installOrganizationRuntimeSkill,
+    installRuntimeSkills: installOrganizationRuntimeSkills,
+  } = useOrganizationSkillActions({
+    busyAction: organizationSkillBusyAction,
+    organizationSkills,
+    setBusyAction: setOrganizationSkillBusyAction,
+  })
+  const activeOrganizationId =
+    workspace.activeWorkspace.type === "organization" ? workspace.activeWorkspace.organizationId : null
+  const organizationHeaderInstallTargets = React.useMemo(() => {
+    if (
+      activeTab !== "organization" ||
+      !activeOrganizationId ||
+      organizationSkills.organizationId !== activeOrganizationId
+    ) {
+      return []
     }
-    organizationSkillInFlightRef.current = true
-    setOrganizationSkillBusyAction(action)
-    return true
-  }, [])
 
-  const endOrganizationSkillAction = React.useCallback((): void => {
-    organizationSkillInFlightRef.current = false
-    setOrganizationSkillBusyAction(null)
-  }, [])
-
-  const installOrganizationRuntimeSkill = React.useCallback(
-    async (skill: { packageName: string; skillName: string }) => {
-      if (!beginOrganizationSkillAction(`installSkill:${skill.packageName}:${skill.skillName}`)) {
-        return
-      }
-
-      try {
-        const nextInventory = await skillService.invoke("installRegistrySkill", {
-          packageName: skill.packageName,
-          skillId: skill.skillName,
-        })
-        inventoryResource.setData(nextInventory)
-        homeSummaryResource.invalidate()
-        versionResource.invalidate()
-        toast.success(t("skills.registryInstallDone", { name: skill.skillName }))
-      } catch (cause) {
-        toast.error(t("skills.registryInstallFailed", { error: skillErrorMessage(cause, t) }))
-      } finally {
-        endOrganizationSkillAction()
-      }
-    },
-    [
-      beginOrganizationSkillAction,
-      endOrganizationSkillAction,
-      homeSummaryResource,
-      inventoryResource,
-      skillService,
-      t,
-      versionResource,
-    ],
-  )
-
-  const installOrganizationRuntimeSkills = React.useCallback(
-    async (skills: readonly { packageName: string; skillName: string }[]) => {
-      const targets = skills.filter((skill) => skill.packageName.trim() && skill.skillName.trim())
-      if (targets.length === 0 || !beginOrganizationSkillAction("installSkillBatch")) {
-        return
-      }
-
-      let installedCount = 0
-      let failedCount = 0
-      let firstError: unknown
-      try {
-        for (const skill of targets) {
-          try {
-            const nextInventory = await skillService.invoke("installRegistrySkill", {
-              packageName: skill.packageName,
-              skillId: skill.skillName,
-            })
-            inventoryResource.setData(nextInventory)
-            installedCount += 1
-          } catch (cause) {
-            failedCount += 1
-            firstError ??= cause
-          }
-        }
-        homeSummaryResource.invalidate()
-        versionResource.invalidate()
-        if (installedCount > 0) {
-          toast.success(t("organizations.skillManageInstallMissingSuccess", { count: installedCount }))
-        }
-        if (failedCount > 0) {
-          toast.error(
-            t("organizations.skillManageInstallMissingFailed", {
-              count: failedCount,
-              error: skillErrorMessage(firstError, t),
-            }),
-          )
-        }
-      } finally {
-        endOrganizationSkillAction()
-      }
-    },
-    [
-      beginOrganizationSkillAction,
-      endOrganizationSkillAction,
-      homeSummaryResource,
-      inventoryResource,
-      skillService,
-      t,
-      versionResource,
-    ],
-  )
-
-  const linkOrganizationSkill = React.useCallback(
-    async (input: OrganizationSkillLinkInput, options: { installRuntime: boolean }) => {
-      if (!organizationSkills.canManage) {
-        return
-      }
-
-      await organizationSkills.addSkill({
-        packageName: input.packageName,
-        skillName: input.skillName,
-        version: input.version,
-        versionPolicy: "pinned",
-      })
-      if (options.installRuntime) {
-        const nextInventory = await skillService.invoke("installRegistrySkill", {
-          packageName: input.packageName,
-          skillId: input.skillName,
-        })
-        inventoryResource.setData(nextInventory)
-        homeSummaryResource.invalidate()
-        versionResource.invalidate()
-      }
-    },
-    [homeSummaryResource, inventoryResource, organizationSkills, skillService, versionResource],
-  )
-
-  const addOrganizationSkillFromRecommendation = React.useCallback(
-    async (recommendation: ProviderSkillRecommendation, options: { installRuntime: boolean }) => {
-      if (
-        !organizationSkills.canManage ||
-        !beginOrganizationSkillAction(`addSkill:${recommendation.packageName}:${recommendation.skillId}`)
-      ) {
-        return
-      }
-
-      try {
-        await linkOrganizationSkill(
-          {
-            packageName: recommendation.packageName,
-            skillName: recommendation.skillId,
-            version: recommendation.package.version,
-          },
-          options,
-        )
-        toast.success(t("organizations.skillManageAddSuccess"))
-      } catch (cause) {
-        toast.error(skillErrorMessage(cause, t))
-      } finally {
-        endOrganizationSkillAction()
-      }
-    },
-    [beginOrganizationSkillAction, endOrganizationSkillAction, linkOrganizationSkill, organizationSkills.canManage, t],
-  )
+    const recommendedPlan = planProviderSkillRecommendationBulkLinks(
+      providerSkillRecommendations,
+      organizationSkills.skills,
+    )
+    const items = buildOrganizationSkillRecommendationItems({
+      filter: organizationFilter,
+      normalizedQuery: "",
+      providerRecommendations: recommendedPlan.linkable,
+      skills: organizationSkills.skills,
+    })
+    return buildInstallableOrganizationRecommendationSkills({
+      groupById: installedSkillGroupById,
+      items,
+    })
+  }, [
+    activeOrganizationId,
+    activeTab,
+    installedSkillGroupById,
+    organizationFilter,
+    organizationSkills.organizationId,
+    organizationSkills.skills,
+    providerSkillRecommendations,
+  ])
 
   const updateRegistrySkill = React.useCallback(
     async (skill: Pick<ManagedSkillGroup, "id" | "kind" | "packageName">) => {
@@ -733,6 +639,44 @@ export function SkillsRoute({
     updateRegistrySkill,
     updatingRegistrySkillId,
   }
+  const organizationInstallMissingAction =
+    activeTab === "organization" && organizationHeaderInstallTargets.length > 1 ? (
+      <OrganizationInstallMissingButton
+        busy={organizationSkillBusyAction === "installSkillBatch"}
+        count={organizationHeaderInstallTargets.length}
+        disabled={Boolean(organizationSkillBusyAction)}
+        onClick={() => installOrganizationRuntimeSkills(organizationHeaderInstallTargets)}
+      />
+    ) : null
+  const installPersonalRuntimeSkills = React.useCallback(
+    (skills: readonly { packageName: string; skillName: string }[]) =>
+      installOrganizationRuntimeSkills(skills, "personal"),
+    [installOrganizationRuntimeSkills],
+  )
+  const personalRecommendationInstallTargets = React.useMemo(
+    () =>
+      installableProviderSkillRecommendations.map((recommendation) => ({
+        packageName: recommendation.packageName,
+        skillName: recommendation.skillId,
+      })),
+    [installableProviderSkillRecommendations],
+  )
+  const personalRecommendationInstallAction =
+    activeTab === "recommended" && personalRecommendationInstallTargets.length > 1 ? (
+      <Button
+        type="button"
+        size="sm"
+        disabled={Boolean(organizationSkillBusyAction)}
+        onClick={() => installPersonalRuntimeSkills(personalRecommendationInstallTargets)}
+      >
+        {organizationSkillBusyAction === "installSkillBatch" ? (
+          <AppIcons.status.loading className="animate-spin" />
+        ) : (
+          <AppIcons.action.installPackage />
+        )}
+        {t("skills.personalRecommendationsInstallAll", { count: personalRecommendationInstallTargets.length })}
+      </Button>
+    ) : null
 
   return (
     <>
@@ -746,15 +690,28 @@ export function SkillsRoute({
           organizationFilter={organizationFilter}
           organizationQuery={organizationQuery}
           organizationTabAvailable={workspace.activeWorkspace.type === "organization"}
+          organizationAction={organizationInstallMissingAction}
+          recommendedAction={personalRecommendationInstallAction}
+          recommendedQuery={recommendedQuery}
+          recommendedTabAvailable={workspace.activeWorkspace.type === "personal"}
           onDiscoveryFilterChange={setDiscoveryFilter}
           onDiscoveryQueryChange={setDiscoveryQuery}
           onInstalledFilterChange={setInstalledFilter}
           onInstalledQueryChange={setQuery}
           onOrganizationFilterChange={setOrganizationFilter}
           onOrganizationQueryChange={setOrganizationQuery}
+          onRecommendedQueryChange={setRecommendedQuery}
           onTabChange={setActiveTab}
         />
-        {activeTab === "organization" ? (
+        {activeTab === "recommended" ? (
+          <PersonalSkillRecommendationsPane
+            busyAction={organizationSkillBusyAction}
+            isLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
+            query={recommendedQuery}
+            recommendations={installableProviderSkillRecommendations}
+            onInstallRuntimeSkill={installOrganizationRuntimeSkill}
+          />
+        ) : activeTab === "organization" ? (
           <OrganizationSkillsPane
             busyAction={organizationSkillBusyAction}
             groupById={installedSkillGroupById}
@@ -766,7 +723,6 @@ export function SkillsRoute({
             workspace={workspace}
             onAddRecommendation={addOrganizationSkillFromRecommendation}
             onInstallRuntimeSkill={installOrganizationRuntimeSkill}
-            onInstallRuntimeSkills={installOrganizationRuntimeSkills}
             onOpenManagedSkill={openManagedPublicSkill}
           />
         ) : activeTab === "discover" ? (

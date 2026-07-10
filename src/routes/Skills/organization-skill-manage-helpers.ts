@@ -3,9 +3,15 @@ import type { OrganizationSkillFilter } from "./SkillPageHeader.tsx"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { useAppI18n } from "@/i18n"
 import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill-recommendations.ts"
+import type { ManagedSkillGroupById, OrganizationSkillRuntimeState } from "@/routes/Skills/skill-route-model.ts"
 
-import { organizationSkillIdentityKey } from "./organization-management-model.ts"
-import { getOrganizationSkillRuntimeStatus } from "./skill-route-model.ts"
+import {
+  createOrganizationSkillPackageSet,
+  organizationSkillIdentityKey,
+  organizationSkillPackageKey,
+  organizationSkillPackageLinked,
+} from "./organization-management-model.ts"
+import { canInstallPublicSkill, getOrganizationSkillRuntimeStatus } from "./skill-route-model.ts"
 
 export function looksLikeSkillPackageName(query: string): boolean {
   const normalized = query.trim()
@@ -59,6 +65,23 @@ export function providerRecommendationMatchesQuery(
   ].some((value) => value.toLowerCase().includes(normalizedQuery))
 }
 
+export function providerRecommendationSkillDescription(
+  recommendation: ProviderSkillRecommendation,
+): string | undefined {
+  return (
+    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ??
+    recommendation.package.description
+  )
+}
+
+export function canInstallProviderRecommendationRuntime(recommendation: ProviderSkillRecommendation): boolean {
+  return canInstallPublicSkill(recommendation.installState)
+}
+
+export function canOpenManagedProviderRecommendation(recommendation: ProviderSkillRecommendation): boolean {
+  return recommendation.installState === "installed" || recommendation.installState === "name-conflict"
+}
+
 export type OrganizationSkillRecommendationItem =
   | {
       id: string
@@ -82,9 +105,7 @@ export function buildOrganizationSkillRecommendationItems({
   providerRecommendations: readonly ProviderSkillRecommendation[]
   skills: UseOrganizationSkills["skills"]
 }): OrganizationSkillRecommendationItem[] {
-  const configuredSkillKeys = new Set(
-    skills.map((skill) => organizationSkillIdentityKey(skill.packageName, skill.skillName)).filter(Boolean),
-  )
+  const configuredPackageKeys = createOrganizationSkillPackageSet(skills)
   const configuredItems: OrganizationSkillRecommendationItem[] =
     filter === "recommended"
       ? []
@@ -92,18 +113,25 @@ export function buildOrganizationSkillRecommendationItems({
           .filter((skill) => organizationSkillMatchesQuery(skill, normalizedQuery))
           .map((skill) => ({ id: `configured:${skill.id}`, skill, type: "configured" }))
 
-  const seenRecommendedKeys = new Set<string>()
+  const seenRecommendedPackageKeys = new Set<string>()
   const recommendedItems: OrganizationSkillRecommendationItem[] =
     filter === "configured"
       ? []
       : providerRecommendations
           .filter((recommendation) => {
-            const key = organizationSkillIdentityKey(recommendation.packageName, recommendation.skillId)
-            if (configuredSkillKeys.has(key) || seenRecommendedKeys.has(key)) {
+            if (!providerRecommendationMatchesQuery(recommendation, normalizedQuery)) {
               return false
             }
-            seenRecommendedKeys.add(key)
-            return providerRecommendationMatchesQuery(recommendation, normalizedQuery)
+            const packageKey = organizationSkillPackageKey(recommendation.packageName)
+            if (
+              !packageKey ||
+              organizationSkillPackageLinked(configuredPackageKeys, recommendation.packageName) ||
+              seenRecommendedPackageKeys.has(packageKey)
+            ) {
+              return false
+            }
+            seenRecommendedPackageKeys.add(packageKey)
+            return true
           })
           .map((recommendation) => ({
             id: `recommended:${recommendation.service}:${recommendation.packageName}:${recommendation.skillId}`,
@@ -115,7 +143,7 @@ export function buildOrganizationSkillRecommendationItems({
 }
 
 export function organizationRuntimeStatusLabel(
-  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
+  state: OrganizationSkillRuntimeState,
   t: ReturnType<typeof useAppI18n>["t"],
 ): string {
   switch (state) {
@@ -136,12 +164,78 @@ export function organizationRuntimeStatusLabel(
   }
 }
 
-export function organizationRuntimeStatusTone(
-  state: ReturnType<typeof getOrganizationSkillRuntimeStatus>["state"],
-): "attention" | "pending" | "ready" {
+export function organizationRuntimeStatusTone(state: OrganizationSkillRuntimeState): "attention" | "pending" | "ready" {
   return state === "installed-same"
     ? "ready"
     : state === "missing" || state === "external-only"
       ? "pending"
       : "attention"
+}
+
+export function shouldShowOrganizationRuntimeStatusOnCard(state: OrganizationSkillRuntimeState): boolean {
+  return state !== "installed-same" && state !== "missing" && state !== "external-only"
+}
+
+export function canOpenManagedOrganizationSkill(state: OrganizationSkillRuntimeState): boolean {
+  return (
+    state === "installed-same" ||
+    state === "installed-modified" ||
+    state === "installed-version-mismatch" ||
+    state === "local-conflict" ||
+    state === "same-id-different-package" ||
+    state === "unknown-conflict"
+  )
+}
+
+export interface OrganizationSkillRuntimeInstallTarget {
+  packageName: string
+  skillName: string
+}
+
+export function buildInstallableOrganizationRecommendationSkills({
+  groupById,
+  items,
+}: {
+  groupById: ManagedSkillGroupById
+  items: readonly OrganizationSkillRecommendationItem[]
+}): OrganizationSkillRuntimeInstallTarget[] {
+  const seenSkillKeys = new Set<string>()
+  const installableSkills: OrganizationSkillRuntimeInstallTarget[] = []
+
+  for (const item of items) {
+    const skill =
+      item.type === "configured"
+        ? getInstallableConfiguredSkill(groupById, item.skill)
+        : getInstallableRecommendedSkill(item.recommendation)
+    if (!skill) {
+      continue
+    }
+
+    const key = organizationSkillIdentityKey(skill.packageName, skill.skillName)
+    if (!key || seenSkillKeys.has(key)) {
+      continue
+    }
+    seenSkillKeys.add(key)
+    installableSkills.push(skill)
+  }
+
+  return installableSkills
+}
+
+function getInstallableConfiguredSkill(
+  groupById: ManagedSkillGroupById,
+  skill: UseOrganizationSkills["skills"][number],
+): OrganizationSkillRuntimeInstallTarget | null {
+  const state = getOrganizationSkillRuntimeStatus(groupById, skill).state
+  return skill.enabled && (state === "missing" || state === "external-only")
+    ? { packageName: skill.packageName, skillName: skill.skillName }
+    : null
+}
+
+function getInstallableRecommendedSkill(
+  recommendation: ProviderSkillRecommendation,
+): OrganizationSkillRuntimeInstallTarget | null {
+  return canInstallProviderRecommendationRuntime(recommendation)
+    ? { packageName: recommendation.packageName, skillName: recommendation.skillId }
+    : null
 }

@@ -26,6 +26,20 @@ import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 type SendQueuedMessage = (request: ChatSendRequest & { afterOptimisticSubmit?: () => void }) => Promise<ChatSendResult>
 
+export type QueueSessionMessage = (
+  sessionId: string,
+  text: string,
+  attachments: ChatAttachment[],
+  contextMentions: ChatContextMention[] | undefined,
+  model?: ModelChoice,
+  reasoningLevel?: ReasoningLevel,
+  mode?: AgentMode,
+  permissionMode?: AgentPermissionMode,
+  organizationSkills?: ChatOrganizationSkillContext[],
+  projectContext?: ChatProjectContext,
+  sessionScope?: SessionScope,
+) => void
+
 interface UseChatQueueStateOptions {
   activeSessionId: string | null
   dispatchBlocked: boolean
@@ -49,6 +63,38 @@ export function useChatQueueState({
   const activeQueuedMessages = activeSessionId ? (queuedMessagesBySession[activeSessionId] ?? []) : []
   const activeQueueHeld = activeSessionId ? heldQueuedSessions.has(activeSessionId) : false
 
+  const queueSessionMessage = React.useCallback(
+    (
+      sessionId: string,
+      text: string,
+      attachments: ChatAttachment[],
+      contextMentions: ChatContextMention[] | undefined,
+      model?: ModelChoice,
+      reasoningLevel?: ReasoningLevel,
+      mode?: AgentMode,
+      permissionMode?: AgentPermissionMode,
+      organizationSkills?: ChatOrganizationSkillContext[],
+      projectContext?: ChatProjectContext,
+      sessionScope?: SessionScope,
+    ): void => {
+      const queuedMessage = createQueuedChatMessage(
+        sessionId,
+        text,
+        attachments,
+        contextMentions,
+        model,
+        reasoningLevel,
+        mode,
+        permissionMode,
+        organizationSkills,
+        projectContext,
+        sessionScope,
+      )
+      setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
+    },
+    [],
+  )
+
   const queueActiveMessage = React.useCallback(
     (
       text: string,
@@ -65,7 +111,7 @@ export function useChatQueueState({
       if (!activeSessionId) {
         return false
       }
-      const queuedMessage = createQueuedChatMessage(
+      queueSessionMessage(
         activeSessionId,
         text,
         attachments,
@@ -78,10 +124,9 @@ export function useChatQueueState({
         projectContext,
         sessionScope,
       )
-      setQueuedMessagesBySession((current) => appendQueuedMessage(current, queuedMessage))
       return true
     },
-    [activeSessionId],
+    [activeSessionId, queueSessionMessage],
   )
 
   const releaseActiveQueue = React.useCallback((): void => {
@@ -245,6 +290,7 @@ export function useChatQueueState({
     holdActiveQueueIfQueued,
     holdQueuedSessionIfQueued,
     queueActiveMessage,
+    queueSessionMessage,
     releaseActiveQueue,
   }
 }

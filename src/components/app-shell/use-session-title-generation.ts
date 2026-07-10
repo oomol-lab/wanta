@@ -1,4 +1,3 @@
-import type { ChatAttachment, ChatMessage } from "../../../electron/chat/common.ts"
 import type {
   GenerateSessionTitleRequest,
   GenerateSessionTitleResult,
@@ -8,7 +7,6 @@ import type {
 import * as React from "react"
 import { buildFallbackSessionTitle, shouldAutoRefreshSessionTitle } from "../../../electron/session/title.ts"
 import {
-  buildSessionTitleInput,
   isSessionTitleAutoRefreshable,
   sessionTitleGenerationKey,
   SESSION_TITLE_RETRY_DELAY_MS,
@@ -16,10 +14,7 @@ import {
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 interface UseSessionTitleGenerationOptions {
-  activeSession?: SessionInfo
   generateTitle: (input: GenerateSessionTitleRequest) => Promise<GenerateSessionTitleResult>
-  messages: ChatMessage[]
-  messagesLoaded: boolean
   rename: (sessionId: string, title: string) => Promise<void>
   sessions: SessionInfo[]
 }
@@ -37,11 +32,9 @@ interface UseSessionTitleGenerationResult {
   rememberAutoFallbackTitle: (sessionId: string, title: string) => void
 }
 
+/** 标题仅在发送消息的路径主动生成；浏览历史会话不能改写标题或影响侧边栏排序。 */
 export function useSessionTitleGeneration({
-  activeSession,
   generateTitle,
-  messages,
-  messagesLoaded,
   rename,
   sessions,
 }: UseSessionTitleGenerationOptions): UseSessionTitleGenerationResult {
@@ -188,21 +181,6 @@ export function useSessionTitleGeneration({
     },
     [generateTitle, isAutoRefreshable, rename],
   )
-
-  React.useEffect(() => {
-    if (!activeSession || !messagesLoaded || messages.length === 0) {
-      return
-    }
-    const titleInput = buildSessionTitleInput(messages, "", [] as ChatAttachment[])
-    if (!titleInput.text && !titleInput.attachmentNames?.length) {
-      return
-    }
-    const fallbackTitle = buildFallbackSessionTitle(titleInput)
-    if (!isAutoRefreshable(activeSession, true, fallbackTitle)) {
-      return
-    }
-    void refreshGeneratedTitle(activeSession.id, titleInput, true, activeSession.title)
-  }, [activeSession, isAutoRefreshable, messages, messagesLoaded, refreshGeneratedTitle])
 
   return {
     clearAutoFallbackTitle,

@@ -4,7 +4,10 @@ import type { ProviderSkillRecommendation } from "@/routes/Skills/provider-skill
 
 import assert from "node:assert/strict"
 import { test } from "vitest"
-import { buildOrganizationSkillRecommendationItems } from "./organization-skill-manage-helpers.ts"
+import {
+  buildInstallableOrganizationRecommendationSkills,
+  buildOrganizationSkillRecommendationItems,
+} from "./organization-skill-manage-helpers.ts"
 
 function organizationSkill(input: Partial<OrganizationSkillConfigItem>): OrganizationSkillConfigItem {
   return {
@@ -91,4 +94,26 @@ test("buildOrganizationSkillRecommendationItems applies source filter and query"
     items.map((item) => item.id),
     [],
   )
+})
+
+test("buildInstallableOrganizationRecommendationSkills includes runtime-missing and external-only recommendations", () => {
+  const items = buildOrganizationSkillRecommendationItems({
+    filter: "all",
+    normalizedQuery: "",
+    providerRecommendations: [
+      providerRecommendation({ installState: "external-installed", packageName: "oo-slack", skillId: "slack" }),
+      providerRecommendation({ installState: "installed", packageName: "oo-linear", skillId: "linear" }),
+    ],
+    skills: [organizationSkill({ packageName: "oo-gmail", skillName: "gmail" })],
+  })
+
+  const targets = buildInstallableOrganizationRecommendationSkills({
+    groupById: new Map(),
+    items,
+  })
+
+  assert.deepEqual(targets, [
+    { packageName: "oo-gmail", skillName: "gmail" },
+    { packageName: "oo-slack", skillName: "slack" },
+  ])
 })

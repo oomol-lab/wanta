@@ -102,6 +102,90 @@ test("local access policy prompts high-risk commands in default mode", () => {
   )
 })
 
+test("task-scoped managed Python grants only cover the approved packages in the task environment", () => {
+  const processRoot = "/tmp/wanta-process/task-1"
+  const grant = localAccessGrantForRequest(
+    permission({
+      metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install openpyxl fpdf2` },
+    }),
+    { managedPythonProcessRoot: processRoot },
+  )
+
+  assert.deepEqual(grant, {
+    action: "bash",
+    kind: "python_dependency_install",
+    patterns: ["openpyxl", "fpdf2"],
+    processRoot,
+  })
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install openpyxl` } }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `${processRoot}/.wanta-python/bin/python -m pip install requests` } }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `pip3 install --break-system-packages --user openpyxl` } }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
+test("task-scoped project dependency grants cover only the active project task", () => {
+  const root = "/Users/example/code/wanta"
+  const grant = localAccessGrantForRequest(permission({ metadata: { command: `cd ${root} && pnpm install` } }), {
+    projectDependencyGenerationId: "turn-1",
+    trustedProjectRoot: root,
+  })
+
+  assert.deepEqual(grant, {
+    action: "bash",
+    generationId: "turn-1",
+    kind: "project_dependency_install",
+    patterns: ["project_dependency_install"],
+    projectRoot: root,
+  })
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add zod` } }), {
+      activeGenerationId: "turn-1",
+      permissionMode: "default",
+      sessionGrants: grant ? [grant] : [],
+      trustedProjectRoot: root,
+    }),
+    { type: "allow", reason: "session_grant", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: `cd ${root} && pnpm add zod` } }), {
+      activeGenerationId: "turn-2",
+      permissionMode: "default",
+      sessionGrants: grant ? [grant] : [],
+      trustedProjectRoot: root,
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ metadata: { command: `cd ${root} && pnpm add zod --registry https://example.test` } }),
+      {
+        activeGenerationId: "turn-1",
+        permissionMode: "default",
+        sessionGrants: grant ? [grant] : [],
+        trustedProjectRoot: root,
+      },
+    ),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
 test("local access policy allows requests in full access mode", () => {
   assert.deepEqual(
     evaluateLocalAccessRequest(permission({ metadata: { command: "rm -rf /tmp/wanta-test" } }), {
@@ -113,19 +197,67 @@ test("local access policy allows requests in full access mode", () => {
 
 test("local access policy allows requests covered by a session grant", () => {
   const grant = localAccessGrantForRequest(
-    permission({ action: "external_directory", resources: ["/Users/example/.ssh"] }),
+    permission({ action: "external_directory", resources: ["/Users/example/Documents/finance"] }),
   )
 
   assert.ok(grant)
   assert.deepEqual(
     evaluateLocalAccessRequest(
-      permission({ action: "external_directory", resources: ["/Users/example/.ssh/config"] }),
+      permission({ action: "external_directory", resources: ["/Users/example/Documents/finance/report.xlsx"] }),
       {
         permissionMode: "default",
         sessionGrants: [grant],
       },
     ),
     { type: "allow", reason: "session_grant", kind: "path", highRisk: false },
+  )
+})
+
+test("generic folder grants do not cover sensitive descendants", () => {
+  const grant = localAccessGrantForRequest(permission({ action: "external_directory", resources: ["/Users/example"] }))
+
+  assert.ok(grant)
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ action: "external_directory", resources: ["/Users/example/Documents/report.pdf"] }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "allow", reason: "session_grant", kind: "path", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(
+      permission({ action: "external_directory", resources: ["/Users/example/.ssh/id_ed25519"] }),
+      { permissionMode: "default", sessionGrants: [grant] },
+    ),
+    { type: "prompt", kind: "path", highRisk: false },
+  )
+})
+
+test("generic folder grants do not cover high-risk shell commands", () => {
+  const grant = localAccessGrantForRequest(
+    permission({ action: "bash", metadata: { command: "find ~/Documents -type f" }, save: ["find *"] }),
+  )
+
+  assert.ok(grant)
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "find ~/Documents -exec cat {} \\;" } }), {
+      permissionMode: "default",
+      sessionGrants: [grant],
+    }),
+    { type: "prompt", kind: "command", highRisk: true },
+  )
+})
+
+test("local access policy prompts broad shell scans but keeps specific ordinary reads smooth", () => {
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "find ~ -type f" } }), { permissionMode: "default" }),
+    { type: "prompt", kind: "command", highRisk: false },
+  )
+  assert.deepEqual(
+    evaluateLocalAccessRequest(permission({ metadata: { command: "cat /Users/example/Documents/brief.md" } }), {
+      permissionMode: "default",
+    }),
+    { type: "allow", reason: "default_command", kind: "command", highRisk: false },
   )
 })
 

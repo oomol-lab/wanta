@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { AgentManager, isUserVisibleSession } from "./manager.ts"
+import { AgentManager, buildArtifactSystem, isUserVisibleSession } from "./manager.ts"
 
 afterEach(() => {
   vi.useRealTimers()
@@ -63,6 +63,16 @@ describe("AgentManager", () => {
     } finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("keeps image previews visible independently from artifact persistence", () => {
+    const system = buildArtifactSystem("/tmp/wanta-artifacts/turn")
+
+    expect(system).toContain("both are required for every final generated image")
+    expect(system).toContain("keep that preview visible")
+    expect(system).toContain("Wanta can materialize the same image")
+    expect(system).toContain("replace every embedded output path")
+    expect(system).not.toContain("Do not present a remote")
   })
 
   it("syncs the oo CLI default identity with the active organization", async () => {

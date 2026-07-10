@@ -116,6 +116,30 @@ test("buildProviderSkillRecommendations reads packages by provider service and c
   )
 })
 
+test("getInstallableProviderSkillRecommendations de-duplicates the same runtime Skill", () => {
+  const recommendations = [
+    {
+      ...providerCandidate("gmail", "Gmail"),
+      installState: "installable" as const,
+      package: publicPackage("oo-gmail"),
+      packageName: "oo-gmail",
+      skillId: "gmail",
+    },
+    {
+      ...providerCandidate("google-mail", "Google Mail"),
+      installState: "partially-installed" as const,
+      package: publicPackage("oo-gmail"),
+      packageName: "OO-GMAIL",
+      skillId: "GMAIL",
+    },
+  ]
+
+  assert.deepEqual(
+    getInstallableProviderSkillRecommendations(recommendations).map((recommendation) => recommendation.service),
+    ["gmail"],
+  )
+})
+
 function provider(
   service: string,
   options: Partial<Pick<ConnectionProvider, "appStatus" | "displayName" | "status">> = {},

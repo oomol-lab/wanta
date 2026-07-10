@@ -63,6 +63,7 @@ import {
   SplitViewRoot,
 } from "@/components/ui/split-view"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { getOAuthClientConfig } from "@/lib/connections-client"
 import { resolveConnectionError } from "@/lib/connections-error"
@@ -153,9 +154,20 @@ export function ConnectionsPanel({
   const selectedProviderDetail = selectedDetailCacheKey && detailCacheKey === selectedDetailCacheKey ? detail : null
   const selectedProviderDetailLoading = Boolean(selectedDetailCacheKey) && detailLoading
   const selectedProviderDetailError = selectedDetailCacheKey ? detailError : null
+  const selectedProviderActionsBlocked = Boolean(
+    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailError,
+  )
+  const selectedProviderActionsPending = Boolean(
+    selectedProviderNeedsDetail && !selectedProviderDetail && selectedProviderDetailLoading,
+  )
   const detailErrorNotice = selectedProvider
-    ? getConnectionDetailErrorNotice({ actionError, detailError: selectedProviderDetailError })
+    ? getConnectionDetailErrorNotice({
+        actionError,
+        detailError: selectedProviderDetailError,
+        workspace: summary?.workspace ?? null,
+      })
     : null
+  const summaryLoading = busy === "refresh" && !summary
   const listErrorNotice = getConnectionListErrorNotice({
     summaryError,
     detailError: detailErrorNotice?.error ?? null,
@@ -324,6 +336,9 @@ export function ConnectionsPanel({
       authType: Exclude<ConnectionAuthType, null>,
       appId?: string,
     ): Promise<void> => {
+      if (polling && !isConnectionServicePollingTarget(polling, provider.service)) {
+        return
+      }
       const requestId = connectRequestIdRef.current + 1
       connectRequestIdRef.current = requestId
       const requestIsCurrent = (): boolean => connectRequestIdRef.current === requestId
@@ -406,6 +421,7 @@ export function ConnectionsPanel({
       detailCacheKey,
       getAppDetail,
       getProviderDetail,
+      polling,
       summaryWorkspaceKey,
     ],
   )
@@ -434,6 +450,8 @@ export function ConnectionsPanel({
             authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
             busy={busy}
             detail={selectedProviderDetail}
+            actionsBlocked={selectedProviderActionsBlocked}
+            actionsPending={selectedProviderActionsPending}
             errorNotice={detailErrorNotice}
             detailLoading={selectedProviderDetailLoading}
             connections={connections}
@@ -537,7 +555,9 @@ export function ConnectionsPanel({
                 showDiagnosticsCopy={listErrorNotice.showDiagnosticsCopy}
               />
             ) : null}
-            {filteredProviders.length === 0 ? (
+            {summaryLoading ? (
+              <ProviderListSkeleton />
+            ) : filteredProviders.length === 0 ? (
               <EmptyList summary={summary} hasQuery={Boolean(normalizedQuery)} />
             ) : (
               <ProviderCatalog
@@ -562,6 +582,8 @@ export function ConnectionsPanel({
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
               detail={selectedProviderDetail}
+              actionsBlocked={selectedProviderActionsBlocked}
+              actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}
               connections={connections}
@@ -589,6 +611,8 @@ export function ConnectionsPanel({
               authIntent={authIntent?.service === selectedProvider.service ? authIntent : null}
               busy={busy}
               detail={selectedProviderDetail}
+              actionsBlocked={selectedProviderActionsBlocked}
+              actionsPending={selectedProviderActionsPending}
               errorNotice={detailErrorNotice}
               detailLoading={selectedProviderDetailLoading}
               connections={connections}
@@ -756,6 +780,26 @@ function FilterToggleItem({ count, label, value }: { count: number; label: strin
         {count}
       </span>
     </ToggleGroupItem>
+  )
+}
+
+function ProviderListSkeleton() {
+  return (
+    <div className="grid gap-2">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div
+          key={index}
+          className="grid h-[68px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md border bg-card px-2.5 py-1.5"
+        >
+          <div className="size-9 animate-pulse rounded-md bg-muted" />
+          <div className="grid gap-1.5">
+            <div className="h-4 w-32 animate-pulse rounded-sm bg-muted" />
+            <div className="h-3 w-24 animate-pulse rounded-sm bg-muted" />
+          </div>
+          <div className="h-3 w-12 animate-pulse rounded-sm bg-muted" />
+        </div>
+      ))}
+    </div>
   )
 }
 

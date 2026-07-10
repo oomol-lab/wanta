@@ -4,7 +4,8 @@ import { Check, ChevronDown, Hammer, ListChecks } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { WANTA_AGENT_MODES } from "../../../electron/agent/mode.ts"
-import { clampNumber, nextModelMenuIndex } from "./model-control-utils.ts"
+import { nextModelMenuIndex } from "./model-control-utils.ts"
+import { useComposerMenu } from "./useComposerMenu.ts"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -44,42 +45,18 @@ export function AgentModePicker({
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const [activeIndex, setActiveIndex] = React.useState(0)
-  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({})
-  const rootRef = React.useRef<HTMLDivElement | null>(null)
-  const menuRef = React.useRef<HTMLDivElement | null>(null)
-  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const itemRefs = React.useRef(new Map<AgentMode, HTMLButtonElement>())
+  const { closeMenu, handleTriggerKeyDown, menuRef, menuStyle, rootRef, toggleMenu, triggerRef } = useComposerMenu({
+    align: "left",
+    disabled,
+    minHeight: 120,
+    open,
+    setOpen,
+    width: 164,
+  })
   const selectedLabel = agentModeLabel(value, t)
   const activeMode = agentModeOptions[activeIndex]
   const activeItemElementId = activeMode ? agentModeMenuItemElementId(activeMode) : undefined
-
-  const updateMenuPosition = React.useCallback(() => {
-    const anchor = rootRef.current
-    if (!anchor) {
-      return
-    }
-    const rect = anchor.getBoundingClientRect()
-    const margin = 16
-    const gap = 8
-    const width = Math.min(164, window.innerWidth - margin * 2)
-    const left = clampNumber(rect.left, margin, window.innerWidth - width - margin)
-    const bottom = Math.max(margin, window.innerHeight - rect.top + gap)
-    const maxHeight = Math.max(120, rect.top - margin - gap)
-    setMenuStyle({ left, bottom, width, maxHeight })
-  }, [])
-
-  React.useLayoutEffect(() => {
-    if (open) {
-      updateMenuPosition()
-    }
-  }, [open, updateMenuPosition])
-
-  const closeMenu = React.useCallback((restoreFocus = true): void => {
-    setOpen(false)
-    if (restoreFocus) {
-      window.requestAnimationFrame(() => triggerRef.current?.focus())
-    }
-  }, [])
 
   const focusMode = React.useCallback((mode: AgentMode | undefined): void => {
     if (!mode) {
@@ -100,12 +77,6 @@ export function AgentModePicker({
   )
 
   React.useEffect(() => {
-    if (disabled && open) {
-      closeMenu(false)
-    }
-  }, [closeMenu, disabled, open])
-
-  React.useEffect(() => {
     if (!open) {
       return
     }
@@ -114,34 +85,6 @@ export function AgentModePicker({
     setActiveIndex(nextIndex)
     window.requestAnimationFrame(() => focusMode(agentModeOptions[nextIndex]))
   }, [focusMode, open, value])
-
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-    const onMouseDown = (event: MouseEvent): void => {
-      const target = event.target as Node
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
-        closeMenu(false)
-      }
-    }
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        closeMenu()
-      }
-    }
-    const onReposition = (): void => updateMenuPosition()
-    document.addEventListener("mousedown", onMouseDown)
-    document.addEventListener("keydown", onKeyDown)
-    window.addEventListener("resize", onReposition)
-    window.addEventListener("scroll", onReposition, true)
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown)
-      document.removeEventListener("keydown", onKeyDown)
-      window.removeEventListener("resize", onReposition)
-      window.removeEventListener("scroll", onReposition, true)
-    }
-  }, [closeMenu, open, updateMenuPosition])
 
   const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === "Tab") {
@@ -255,20 +198,8 @@ export function AgentModePicker({
         aria-haspopup="menu"
         disabled={disabled}
         className="oo-composer-control-button h-8 max-w-full min-w-0 shrink rounded-full px-2"
-        onClick={() => {
-          if (!disabled) {
-            setOpen((value) => !value)
-          }
-        }}
-        onKeyDown={(event) => {
-          if (disabled) {
-            return
-          }
-          if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ") {
-            event.preventDefault()
-            setOpen(true)
-          }
-        }}
+        onClick={toggleMenu}
+        onKeyDown={handleTriggerKeyDown}
       >
         <AgentModeIcon mode={value} />
         <span className="oo-composer-control-label min-w-0 flex-1 truncate text-left">{selectedLabel}</span>

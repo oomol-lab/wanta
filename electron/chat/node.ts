@@ -2,24 +2,30 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
-import type { ArtifactRootStore, ArtifactRoots } from "./artifact-roots.ts"
+import type { ArtifactBundleStore, ArtifactBundles, ArtifactSessionBaseline } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
   AgentPermissionMode,
+  ArtifactBundle,
+  ArtifactBundlesRequest,
   AnswerPermissionRequest,
   AnswerQuestionRequest,
   AttachmentPreviewRequest,
   AttachmentPreviewResult,
   AuthorizationInfo,
   ChatActiveRun,
+  ChatAttachment,
   ChatMessage,
   ChatPermissionRequest,
   ChatQuestionRequest,
   ChatRunPhase,
   ChatRunWorkspace,
+  ChatSessionSnapshot,
   ChatService,
   ChatProjectContext,
+  GenerationInterruptedReason,
+  GenerationNoticeKind,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
   LocalArtifactGroup,
@@ -39,7 +45,7 @@ import type {
   TurnFileDiffRequest,
   TurnFileDiffResult,
   TurnOutputRecord,
-  TurnOutputRequest,
+  TurnOutputsRequest,
 } from "./common.ts"
 import type { SessionPermissionGrant } from "./permission-request.ts"
 import type { StoppedGenerationStore, StoppedGenerations } from "./stopped-generations.ts"
@@ -48,13 +54,22 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
+import { realpath, rm } from "node:fs/promises"
 import os from "node:os"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
+import { managedPythonEnvironmentPath } from "../agent/python-environment.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
-import { applyArtifactRoots, recordArtifactRoot } from "./artifact-roots.ts"
-import { extractLocalPathCandidates, isBroadLocalArtifactPath, normalizeLocalPathCandidate } from "./artifacts.ts"
+import {
+  buildArtifactBundle,
+  captureArtifactSessionBaseline,
+  generatedImagePreviewCount,
+  materializeAssistantArtifacts,
+  recordArtifactBundle,
+  recoverMisplacedTurnArtifacts,
+} from "./artifact-bundles.ts"
+import { normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./authorization.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
 import {
@@ -70,6 +85,11 @@ import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack }
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 import {
+  generationNoticeKindForInactivity,
+  inactivityWatchdogActionForEvent,
+  terminalConnectionInterruption,
+} from "./turn-lifecycle.ts"
+import {
   intermediateArtifactProcessFiles,
   isPathInside,
   normalizeProjectPath,
@@ -82,6 +102,7 @@ import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 export { buildContextMentionsSystem } from "./context-system.ts"
 
 const userStopAbortWindowMs = 30_000
+const generationSubmitTimeoutMs = 45_000
 const generationStartAckTimeoutMs = 45_000
 const generationInactivityTimeoutMs = 2 * 60_000
 const generationActiveToolInactivityTimeoutMs = 10 * 60_000
@@ -93,6 +114,7 @@ function permissionReplyKey(sessionId: string, requestId: string): string {
 }
 
 interface ActiveTurnOutput {
+  artifactBaseline?: ArtifactSessionBaseline
   artifactRoot: string
   createdAt: number
   generationId: string
@@ -215,10 +237,11 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 }
 
 interface ChatServiceDeps {
-  artifactRootStore?: ArtifactRootStore
+  artifactBundleStore?: ArtifactBundleStore
   authorizationOverlayStore?: AuthorizationOverlayStore
   projectStore?: Pick<SessionProjectStore, "read">
   stoppedGenerationStore?: StoppedGenerationStore
+  trustedAttachmentPaths?: ReadonlySet<string>
   turnOutputStore?: TurnOutputStore
   /** 渲染层切换组织 workspace 时，同步 agent 的组织作用域（main 持有 agent 与 activeAgentOrganizationName）。 */
   onSetAgentOrganization?: (organizationName: string | undefined) => Promise<void> | void
@@ -227,6 +250,14 @@ interface ChatServiceDeps {
 interface SessionGeneration {
   controller: AbortController
   id: string
+}
+
+const trustedLocalPathRootsCacheMs = 1_000
+
+interface StopSessionGenerationOptions {
+  abortAgent: boolean
+  reason: "system" | "user"
+  throwOnAbortFailure: boolean
 }
 
 export function isAbortErrorMessage(message: string): boolean {
@@ -267,8 +298,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private generationStartWatchdogs = new Map<string, NodeJS.Timeout>()
   private generationInactivityWatchdogs = new Map<string, NodeJS.Timeout>()
   private connectionFailedSessions = new Set<string>()
+  private childSessionsByParent = new Map<string, Set<string>>()
+  private parentSessionByChild = new Map<string, string>()
   private trustedProjectRoots = new Map<string, string>()
   private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
+  private trustedAttachmentPaths = new Map<string, Set<string>>()
+  private trustedPermissionPaths = new Map<string, Set<string>>()
+  private trustedLocalPathRootsCache: { expiresAt: number; roots: string[] } | undefined
+  private trustedLocalPathRootsGeneration = 0
   private permissionModes = new Map<string, AgentPermissionMode>()
   private permissionModeVersions = new Map<string, number>()
   private sessionPermissionGrants = new Map<string, SessionPermissionGrant[]>()
@@ -276,9 +313,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private pendingPermissionRequests = new Map<string, ChatPermissionRequest>()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
-  private artifactRoots: ArtifactRoots = new Map()
-  private artifactRootsLoaded = false
-  private artifactRootsLoadPromise: Promise<void> | null = null
+  private transientArtifactBundles: ArtifactBundles = new Map()
   private authorizationOverlays: AuthorizationOverlays = new Map()
   private authorizationOverlaysLoaded = false
   private authorizationOverlaysLoadPromise: Promise<void> | null = null
@@ -286,10 +321,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private stoppedGenerations: StoppedGenerations = new Map()
   private stoppedGenerationsLoaded = false
   private stoppedGenerationsLoadPromise: Promise<void> | null = null
-  private turnOutputs: TurnOutputRecords = new Map()
-  private turnOutputsLoaded = false
-  private turnOutputsLoadPromise: Promise<void> | null = null
-  private turnOutputWritePromise: Promise<void> = Promise.resolve()
+  private transientTurnOutputs: TurnOutputRecords = new Map()
   private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredWorkspaceOrganizationName: string | undefined
 
@@ -320,25 +352,26 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.clearAllGenerationStartWatchdogs()
     this.clearAllGenerationInactivityWatchdogs()
     this.connectionFailedSessions.clear()
+    this.childSessionsByParent.clear()
+    this.parentSessionByChild.clear()
     this.trustedProjectRoots.clear()
     this.trustedSubagentSessionsByParent.clear()
+    this.trustedAttachmentPaths.clear()
+    this.trustedPermissionPaths.clear()
+    this.invalidateTrustedLocalPathRoots()
     this.permissionModes.clear()
     this.permissionModeVersions.clear()
     this.sessionPermissionGrants.clear()
     this.automaticPermissionReplies.clear()
     this.pendingPermissionRequests.clear()
-    this.artifactRoots.clear()
-    this.artifactRootsLoaded = false
-    this.artifactRootsLoadPromise = null
+    this.transientArtifactBundles.clear()
     this.authorizationOverlays.clear()
     this.authorizationOverlaysLoaded = false
     this.authorizationOverlaysLoadPromise = null
     this.stoppedGenerations.clear()
     this.stoppedGenerationsLoaded = false
     this.stoppedGenerationsLoadPromise = null
-    this.turnOutputs.clear()
-    this.turnOutputsLoaded = false
-    this.turnOutputsLoadPromise = null
+    this.transientTurnOutputs.clear()
     this.desiredWorkspaceOrganizationName = undefined
     this.scopeMutationQueue = Promise.resolve()
   }
@@ -372,15 +405,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     this.agent.subscribe((event) => {
       for (const translated of translateOpencodeEvent(event)) {
-        if (translated.data.sessionId && this.connectionFailedSessions.has(translated.data.sessionId)) {
+        const sourceSessionId = translated.data.sessionId
+        const generationSessionId = sourceSessionId ? this.generationWatchdogSessionId(sourceSessionId) : null
+        const failedSessionId = generationSessionId ?? sourceSessionId
+        if (failedSessionId && this.connectionFailedSessions.has(failedSessionId)) {
           continue
         }
-        if (
-          translated.event === "agentError" &&
-          translated.data.sessionId &&
-          this.consumeUserStopAbort(translated.data.sessionId, translated.data.message)
-        ) {
-          const sessionId = translated.data.sessionId
+        const userStoppedSessionId =
+          translated.event === "agentError" && sourceSessionId
+            ? [sourceSessionId, generationSessionId]
+                .filter((sessionId): sessionId is string => Boolean(sessionId))
+                .find((sessionId) => this.consumeUserStopAbort(sessionId, translated.data.message))
+            : undefined
+        if (translated.event === "agentError" && userStoppedSessionId) {
+          const sessionId = generationSessionId ?? userStoppedSessionId
           const messageId = this.activeAssistantMessages.get(sessionId)
           const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
           const stoppedAt = Date.now()
@@ -411,24 +449,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (this.shouldSuppressUserStoppedEvent(translated)) {
           continue
         }
-        const sessionId = translated.data.sessionId
-        if (sessionId) {
-          this.clearGenerationStartWatchdog(sessionId)
+        const activitySessionId = generationSessionId ?? sourceSessionId
+        if (activitySessionId) {
+          this.clearGenerationStartWatchdog(activitySessionId)
         }
         if (translated.event === "messageStarted") {
-          this.emitSessionActivity(translated.data.sessionId)
+          this.emitSessionActivity(generationSessionId ?? translated.data.sessionId)
         }
         if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
-          const generationSessionId = this.generationWatchdogSessionId(translated.data.sessionId)
           if (generationSessionId) {
             this.clearGenerationInactivityWatchdog(generationSessionId)
           }
           continue
         }
-        if (translated.event === "permissionAsked") {
-          this.rememberPendingPermissionRequest(translated.data.request)
+        const displayed = this.translatedForDisplay(translated)
+        const displayedSessionId = displayed.data.sessionId
+        if (
+          sourceSessionId &&
+          generationSessionId &&
+          sourceSessionId !== generationSessionId &&
+          displayed === translated
+        ) {
+          this.scheduleGenerationInactivityWatchdog(generationSessionId)
+          continue
         }
-        this.updateActiveRunFromEvent(translated)
+        if (displayed.event === "permissionAsked") {
+          this.rememberPendingPermissionRequest(displayed.data.request)
+        }
+        this.updateActiveRunFromEvent(displayed)
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
           this.activeToolParts.set(translated.data.sessionId, new Set())
@@ -439,23 +487,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
               activeTurn.messageId = translated.data.messageId
             }
-          }
-          if (artifactRoot) {
-            this.sendBestEffort(
-              emit,
-              "messageArtifacts",
-              {
-                sessionId: translated.data.sessionId,
-                messageId: translated.data.messageId,
-                artifactRoot,
-              },
-              { messageId: translated.data.messageId, sessionId: translated.data.sessionId },
-            )
-            void this.rememberArtifactRoot(translated.data.sessionId, translated.data.messageId, artifactRoot).catch(
-              (error: unknown) => {
-                console.warn("[wanta] failed to record artifact root", error)
-              },
-            )
           }
         }
         if (translated.event === "toolCallStarted") {
@@ -470,6 +501,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           })
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
+            this.rememberChildSession(translated.data.sessionId, childSessionId)
             this.rememberTrustedSubagentSession(translated.data.sessionId, childSessionId)
           }
         }
@@ -486,6 +518,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           })
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
+            this.forgetChildSession(translated.data.sessionId, childSessionId)
             this.forgetTrustedSubagentSession(translated.data.sessionId, childSessionId)
           }
           if (translated.data.authorization) {
@@ -501,20 +534,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "agentError" && translated.data.sessionId) {
           const sessionId = translated.data.sessionId
-          const messageId = this.activeAssistantMessages.get(sessionId)
           this.clearGenerationInactivityWatchdog(sessionId)
-          void this.finalizeTurnOutput(sessionId, messageId)
-            .catch((error: unknown) => {
-              console.warn("[wanta] failed to finalize errored turn output", error)
-            })
-            .finally(() => {
-              this.clearSessionGeneration(sessionId)
-              this.activeAssistantMessages.delete(sessionId)
-              this.activeToolParts.delete(sessionId)
-              this.deleteActiveRun(sessionId)
-              this.emitSessionActivity(sessionId)
-              this.emitMessageError(emit, sessionId, translated.data.message, messageId)
-            })
+          void this.interruptSessionGeneration(emit, sessionId, "runtime_error", translated.data.message, {
+            abortAgent: false,
+          })
           continue
         }
         if (translated.event === "messageCompleted") {
@@ -535,9 +558,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
           continue
         }
-        if (sessionId) {
-          const generationSessionId = this.generationWatchdogSessionId(sessionId)
-          if (translated.event === "questionAsked" || translated.event === "permissionAsked") {
+        if (sourceSessionId) {
+          if (inactivityWatchdogActionForEvent(displayed.event) === "pause") {
             if (generationSessionId) {
               this.clearGenerationInactivityWatchdog(generationSessionId)
             }
@@ -545,7 +567,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             this.scheduleGenerationInactivityWatchdog(generationSessionId)
           }
         }
-        this.sendBestEffort(emit, translated.event, translated.data, { sessionId: translated.data.sessionId })
+        this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
       }
     }, handleConnectionStatus)
   }
@@ -570,14 +592,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (sessionIds.size === 0) {
       return
     }
-    const terminalMessage =
-      status.status === "failed"
-        ? "CHAT_COMPLETION_INTERRUPTED: OpenCode event stream reconnection failed."
-        : status.status === "runtime_recovered"
-          ? "CHAT_COMPLETION_INTERRUPTED: OpenCode runtime restarted before this turn completed."
-          : status.status === "runtime_failed"
-            ? "CHAT_COMPLETION_INTERRUPTED: OpenCode runtime could not restart."
-            : null
+    const terminal = terminalConnectionInterruption(status)
     for (const sessionId of sessionIds) {
       const messageId = this.activeAssistantMessages.get(sessionId)
       this.sendBestEffort(
@@ -594,22 +609,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         },
         { messageId, sessionId },
       )
-      if (!terminalMessage) {
+      if (!terminal) {
         continue
       }
       this.connectionFailedSessions.add(sessionId)
-      void this.finalizeTurnOutput(sessionId, messageId)
-        .catch((error: unknown) => {
-          console.warn("[wanta] failed to finalize disconnected turn output", error)
-        })
-        .finally(() => {
-          this.clearSessionGeneration(sessionId)
-          this.activeAssistantMessages.delete(sessionId)
-          this.activeToolParts.delete(sessionId)
-          this.deleteActiveRun(sessionId)
-          this.emitSessionActivity(sessionId)
-          this.emitMessageError(emit, sessionId, terminalMessage, messageId)
-        })
+      void this.interruptSessionGeneration(emit, sessionId, terminal.reason, terminal.message, {
+        abortAgent: false,
+      })
     }
   }
 
@@ -674,7 +680,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!activeGenerationId) {
       return
     }
-    this.activeTurnOutputs.delete(activeGenerationId)
+    if (this.activeTurnOutputs.delete(activeGenerationId)) {
+      this.invalidateTrustedLocalPathRoots()
+    }
   }
 
   private activeTurnOutputForSession(sessionId: string): ActiveTurnOutput | undefined {
@@ -921,19 +929,50 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private addSessionPermissionGrant(sessionId: string, request: ChatPermissionRequest): void {
     const trustedProjectRoot = this.trustedProjectRoots.get(sessionId)
-    const grant = localAccessGrantForRequest(request, trustedProjectRoot ? { trustedProjectRoot } : {})
-    if (!grant) {
+    const generationId = this.sessionGenerations.get(sessionId)?.id
+    const managedPythonProcessRoot = generationId ? this.activeTurnOutputs.get(generationId)?.processRoot : undefined
+    const candidate = localAccessGrantForRequest(request, {
+      ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
+      ...(managedPythonProcessRoot ? { managedPythonProcessRoot } : {}),
+      ...(generationId ? { projectDependencyGenerationId: generationId } : {}),
+    })
+    if (!candidate) {
       return
     }
+    const grant =
+      candidate.kind === "python_dependency_install" && generationId ? { ...candidate, generationId } : candidate
     const grants = this.sessionPermissionGrants.get(sessionId) ?? []
     const exists = grants.some(
       (item) =>
         item.action === grant.action &&
         item.kind === grant.kind &&
-        item.patterns.join("\n") === grant.patterns.join("\n"),
+        item.patterns.join("\n") === grant.patterns.join("\n") &&
+        item.generationId === grant.generationId &&
+        item.projectRoot === grant.projectRoot &&
+        item.processRoot === grant.processRoot,
     )
     if (!exists) {
       this.sessionPermissionGrants.set(sessionId, [...grants, grant])
+    }
+    this.rememberTrustedPermissionResources(sessionId, request)
+  }
+
+  private removeGenerationPermissionGrants(sessionId: string, generationId: string | undefined): void {
+    if (!generationId) {
+      return
+    }
+    const grants = this.sessionPermissionGrants.get(sessionId)
+    if (!grants) {
+      return
+    }
+    const retained = grants.filter((grant) => grant.generationId !== generationId)
+    if (retained.length === grants.length) {
+      return
+    }
+    if (retained.length > 0) {
+      this.sessionPermissionGrants.set(sessionId, retained)
+    } else {
+      this.sessionPermissionGrants.delete(sessionId)
     }
   }
 
@@ -963,6 +1002,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   ): boolean {
     const projectRoot = this.trustedProjectRoots.get(request.sessionId)
     const decision = evaluateLocalAccessRequest(request, {
+      activeGenerationId: this.sessionGenerations.get(request.sessionId)?.id,
       permissionMode: this.sessionPermissionMode(request.sessionId),
       sessionGrants: this.sessionPermissionGrants.get(request.sessionId),
       ...(projectRoot ? { trustedProjectRoot: projectRoot } : {}),
@@ -970,6 +1010,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent || decision.type !== "allow") {
       return false
     }
+    const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+    const displayRequest =
+      displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
     const replyKey = permissionReplyKey(request.sessionId, request.id)
     if (this.automaticPermissionReplies.has(replyKey)) {
       return true
@@ -978,15 +1021,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     void this.agent
       .answerPermission(request.sessionId, request.id, "once")
       .then(() => {
+        this.rememberTrustedPermissionResources(request.sessionId, request)
         this.sendBestEffort(
           emit,
           "permissionReplied",
-          { sessionId: request.sessionId, requestId: request.id },
-          { sessionId: request.sessionId },
+          { sessionId: displaySessionId, requestId: request.id },
+          { sessionId: displaySessionId },
         )
-        this.forgetPendingPermissionRequest(request.sessionId, request.id)
-        this.removeActiveRunBlockingRequest(request.sessionId, request.id)
-        this.scheduleGenerationInactivityWatchdogAfterReply(request.sessionId)
+        this.forgetPendingPermissionRequest(displaySessionId, request.id)
+        this.removeActiveRunBlockingRequest(displaySessionId, request.id)
+        this.scheduleGenerationInactivityWatchdogAfterReply(displaySessionId)
       })
       .catch((error: unknown) => {
         console.warn("[wanta] failed to approve local access permission:", error)
@@ -996,13 +1040,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           { action: request.action, error, reason: decision.reason, sessionId: request.sessionId },
           "warn",
         )
-        this.rememberPendingPermissionRequest(request)
-        this.addActiveRunBlockingRequest(request.sessionId, request.id, "awaiting_permission")
+        this.rememberPendingPermissionRequest(displayRequest)
+        this.addActiveRunBlockingRequest(displaySessionId, request.id, "awaiting_permission")
         this.sendBestEffort(
           emit,
           "permissionAsked",
-          { sessionId: request.sessionId, request },
-          { sessionId: request.sessionId },
+          { sessionId: displaySessionId, request: displayRequest },
+          { sessionId: displaySessionId },
         )
       })
       .finally(() => {
@@ -1034,12 +1078,85 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
+  private rememberChildSession(parentSessionId: string, childSessionId: string): void {
+    const childSessionIds = this.childSessionsByParent.get(parentSessionId) ?? new Set<string>()
+    childSessionIds.add(childSessionId)
+    this.childSessionsByParent.set(parentSessionId, childSessionIds)
+    this.parentSessionByChild.set(childSessionId, parentSessionId)
+  }
+
+  private forgetChildSession(parentSessionId: string, childSessionId: string): void {
+    const childSessionIds = this.childSessionsByParent.get(parentSessionId)
+    if (childSessionIds) {
+      childSessionIds.delete(childSessionId)
+      if (childSessionIds.size === 0) {
+        this.childSessionsByParent.delete(parentSessionId)
+      }
+    }
+    if (this.parentSessionByChild.get(childSessionId) === parentSessionId) {
+      this.parentSessionByChild.delete(childSessionId)
+    }
+  }
+
+  private forgetChildSessions(parentSessionId: string): void {
+    const childSessionIds = this.childSessionsByParent.get(parentSessionId)
+    if (!childSessionIds) {
+      return
+    }
+    for (const childSessionId of childSessionIds) {
+      if (this.parentSessionByChild.get(childSessionId) === parentSessionId) {
+        this.parentSessionByChild.delete(childSessionId)
+      }
+    }
+    this.childSessionsByParent.delete(parentSessionId)
+  }
+
+  private displaySessionIdForEvent(sessionId: string): string {
+    return this.parentSessionByChild.get(sessionId) ?? sessionId
+  }
+
+  private translatedForDisplay(translated: ChatEmit): ChatEmit {
+    const sessionId = translated.data.sessionId
+    if (!sessionId) {
+      return translated
+    }
+    const displaySessionId = this.displaySessionIdForEvent(sessionId)
+    if (displaySessionId === sessionId) {
+      return translated
+    }
+    switch (translated.event) {
+      case "permissionAsked":
+        return {
+          ...translated,
+          data: {
+            sessionId: displaySessionId,
+            request: { ...translated.data.request, sessionId: displaySessionId },
+          },
+        }
+      case "questionAsked":
+        return {
+          ...translated,
+          data: {
+            sessionId: displaySessionId,
+            request: { ...translated.data.request, sessionId: displaySessionId },
+          },
+        }
+      case "permissionReplied":
+      case "questionRejected":
+      case "questionReplied":
+        return { ...translated, data: { ...translated.data, sessionId: displaySessionId } }
+      default:
+        return translated
+    }
+  }
+
   private rememberTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
     const projectRoot = this.trustedProjectRoots.get(parentSessionId)
     const permissionMode = this.permissionModes.get(parentSessionId)
     const permissionModeVersion = this.permissionModeVersions.get(parentSessionId)
     const sessionGrants = this.sessionPermissionGrants.get(parentSessionId)
-    if (!projectRoot && !permissionMode && !sessionGrants) {
+    const permissionPaths = this.trustedPermissionPaths.get(parentSessionId)
+    if (!projectRoot && !permissionMode && !sessionGrants && !permissionPaths) {
       return
     }
     if (projectRoot) {
@@ -1054,9 +1171,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (sessionGrants) {
       this.sessionPermissionGrants.set(childSessionId, [...sessionGrants])
     }
+    if (permissionPaths) {
+      this.trustedPermissionPaths.set(childSessionId, new Set(permissionPaths))
+    }
     const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId) ?? new Set<string>()
     childSessionIds.add(childSessionId)
     this.trustedSubagentSessionsByParent.set(parentSessionId, childSessionIds)
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private forgetTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
@@ -1069,10 +1190,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.permissionModes.delete(childSessionId)
     this.permissionModeVersions.delete(childSessionId)
     this.sessionPermissionGrants.delete(childSessionId)
+    this.trustedPermissionPaths.delete(childSessionId)
     this.forgetSessionPendingPermissionRequests(childSessionId)
     if (childSessionIds.size === 0) {
       this.trustedSubagentSessionsByParent.delete(parentSessionId)
     }
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private forgetTrustedSubagentSessions(parentSessionId: string): void {
@@ -1085,14 +1208,165 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.permissionModes.delete(childSessionId)
       this.permissionModeVersions.delete(childSessionId)
       this.sessionPermissionGrants.delete(childSessionId)
+      this.trustedPermissionPaths.delete(childSessionId)
       this.forgetSessionPendingPermissionRequests(childSessionId)
     }
     this.trustedSubagentSessionsByParent.delete(parentSessionId)
+    this.invalidateTrustedLocalPathRoots()
+  }
+
+  private rememberTrustedAttachments(sessionId: string, attachments: readonly ChatAttachment[] | undefined): void {
+    if (!attachments?.length) {
+      return
+    }
+    const paths = this.trustedAttachmentPaths.get(sessionId) ?? new Set<string>()
+    for (const attachment of attachments) {
+      if (attachment.path.trim()) {
+        paths.add(attachment.path)
+      }
+      if (attachment.agentPath?.trim()) {
+        paths.add(attachment.agentPath)
+      }
+    }
+    if (paths.size > 0) {
+      this.trustedAttachmentPaths.set(sessionId, paths)
+      this.invalidateTrustedLocalPathRoots()
+    }
+  }
+
+  private rememberTrustedMessageAttachments(sessionId: string, messages: readonly ChatMessage[]): void {
+    const attachments: ChatAttachment[] = []
+    for (const message of messages) {
+      if (message.role !== "user") {
+        continue
+      }
+      for (const part of message.parts) {
+        if (part.kind === "attachment" && part.attachment) {
+          attachments.push(part.attachment)
+        }
+      }
+    }
+    this.rememberTrustedAttachments(sessionId, attachments)
+  }
+
+  private rememberTrustedPermissionResources(sessionId: string, request: ChatPermissionRequest): void {
+    const paths = this.trustedPermissionPaths.get(sessionId) ?? new Set<string>()
+    for (const resource of [...request.resources, ...(request.save ?? [])]) {
+      const wildcardIndex = resource.search(/[*?[\]{}]/u)
+      const candidate = wildcardIndex === -1 ? resource : resource.slice(0, wildcardIndex).replace(/[\\/]+$/u, "")
+      const filePath = normalizeLocalPathCandidate(candidate, os.homedir())
+      if (filePath) {
+        paths.add(filePath)
+      }
+    }
+    if (paths.size > 0) {
+      this.trustedPermissionPaths.set(sessionId, paths)
+      this.invalidateTrustedLocalPathRoots()
+    }
+  }
+
+  private invalidateTrustedLocalPathRoots(): void {
+    this.trustedLocalPathRootsGeneration += 1
+    this.trustedLocalPathRootsCache = undefined
+  }
+
+  private async trustedLocalPathRoots(): Promise<string[]> {
+    const cached = this.trustedLocalPathRootsCache
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.roots
+    }
+    const generation = this.trustedLocalPathRootsGeneration
+    const roots = new Set<string>()
+    for (const active of this.activeTurnOutputs.values()) {
+      roots.add(active.artifactRoot)
+      roots.add(active.processRoot)
+      if (active.projectRoot) {
+        roots.add(active.projectRoot)
+      }
+    }
+    for (const projectRoot of this.trustedProjectRoots.values()) {
+      roots.add(projectRoot)
+    }
+    for (const paths of this.trustedAttachmentPaths.values()) {
+      for (const filePath of paths) {
+        roots.add(filePath)
+      }
+    }
+    for (const filePath of this.deps.trustedAttachmentPaths ?? []) {
+      roots.add(filePath)
+    }
+    for (const paths of this.trustedPermissionPaths.values()) {
+      for (const filePath of paths) {
+        roots.add(filePath)
+      }
+    }
+    const [artifactBundles, turnOutputs] = await Promise.all([this.readArtifactBundles(), this.readTurnOutputs()])
+    for (const records of artifactBundles.values()) {
+      for (const bundle of records.values()) {
+        roots.add(bundle.rootPath)
+      }
+    }
+    for (const records of turnOutputs.values()) {
+      for (const record of records.values()) {
+        if (record.processRoot) {
+          roots.add(record.processRoot)
+        }
+        if (record.projectRoot) {
+          roots.add(record.projectRoot)
+        }
+      }
+    }
+    try {
+      const projects = await this.deps.projectStore?.read()
+      for (const project of projects?.values() ?? []) {
+        if (!project.archivedAt) {
+          roots.add(project.path)
+        }
+      }
+    } catch (error) {
+      console.warn("[wanta] failed to read trusted project roots:", error)
+      logDiagnostic("chat-service", "failed to read trusted project roots", { error }, "warn")
+    }
+    const normalizedRoots = (
+      await Promise.all([...roots].filter((root) => root.trim()).map((root) => realpath(root).catch(() => null)))
+    ).filter((root): root is string => Boolean(root))
+    if (this.trustedLocalPathRootsGeneration !== generation) {
+      return this.trustedLocalPathRoots()
+    }
+    this.trustedLocalPathRootsCache = {
+      expiresAt: Date.now() + trustedLocalPathRootsCacheMs,
+      roots: normalizedRoots,
+    }
+    return normalizedRoots
+  }
+
+  private async isPathInTrustedRoots(filePath: string, roots: readonly string[]): Promise<boolean> {
+    const target = await realpath(filePath).catch(() => null)
+    if (!target) {
+      return false
+    }
+    for (const root of roots) {
+      if (isPathInside(root, target)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  private async isTrustedLocalPath(filePath: string): Promise<boolean> {
+    return this.isPathInTrustedRoots(filePath, await this.trustedLocalPathRoots())
+  }
+
+  private async assertTrustedLocalPath(filePath: string): Promise<void> {
+    if (!(await this.isTrustedLocalPath(filePath))) {
+      throw new Error("Local path is not available from this conversation.")
+    }
   }
 
   private beginSessionGeneration(sessionId: string): SessionGeneration {
     const previousGeneration = this.sessionGenerations.get(sessionId)
     previousGeneration?.controller.abort()
+    this.removeGenerationPermissionGrants(sessionId, previousGeneration?.id)
     const generation = { controller: new AbortController(), id: crypto.randomUUID() }
     this.sessionGenerations.set(sessionId, generation)
     return generation
@@ -1115,8 +1389,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     this.clearGenerationStartWatchdog(sessionId)
     this.clearGenerationInactivityWatchdog(sessionId)
+    this.forgetChildSessions(sessionId)
     this.forgetTrustedSubagentSessions(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
+    this.removeGenerationPermissionGrants(sessionId, generation?.id)
     this.sessionGenerations.delete(sessionId)
     this.deleteActiveRun(sessionId, generationId)
     void this.agent?.clearSessionOrganizationName(sessionId).catch((error: unknown) => {
@@ -1132,16 +1408,34 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
       console.warn("[wanta] generation did not receive an OpenCode event before timeout:", { sessionId })
       logDiagnostic("chat-service", "generation did not receive opencode event before timeout", { sessionId }, "warn")
-      const messageId = this.activeAssistantMessages.get(sessionId)
-      void this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: false }).finally(() => {
-        this.emitMessageError(
-          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-          sessionId,
-          "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not acknowledge this message. Please retry.",
-          messageId,
-        )
-      })
+      void this.interruptSessionGeneration(
+        this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+        sessionId,
+        "start_timeout",
+        "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not acknowledge this message. Please retry.",
+        { abortAgent: true },
+      )
     }, generationStartAckTimeoutMs)
+    timer.unref?.()
+    this.generationStartWatchdogs.set(sessionId, timer)
+  }
+
+  private scheduleGenerationSubmitWatchdog(sessionId: string, generationId: string): void {
+    this.clearGenerationStartWatchdog(sessionId)
+    const timer = setTimeout(() => {
+      if (!this.isCurrentGeneration(sessionId, generationId)) {
+        return
+      }
+      console.warn("[wanta] generation was not accepted by OpenCode before timeout:", { sessionId })
+      logDiagnostic("chat-service", "generation was not accepted by opencode before timeout", { sessionId }, "warn")
+      void this.interruptSessionGeneration(
+        this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+        sessionId,
+        "submit_timeout",
+        "CHAT_COMPLETION_INTERRUPTED: Agent runtime did not accept this message. Please retry.",
+        { abortAgent: true },
+      )
+    }, generationSubmitTimeoutMs)
     timer.unref?.()
     this.generationStartWatchdogs.set(sessionId, timer)
   }
@@ -1177,41 +1471,97 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const generationId = generation.id
     const timeoutMs = this.generationInactivityTimeoutForSession(sessionId)
     const timer = setTimeout(() => {
+      this.generationInactivityWatchdogs.delete(sessionId)
       if (!this.isCurrentGeneration(sessionId, generationId)) {
         return
       }
+      const noticeKind = generationNoticeKindForInactivity({
+        activeToolCount: this.activeToolParts.get(sessionId)?.size ?? 0,
+        blocked: Boolean(this.activeRunBlockingPhase(sessionId)),
+      })
+      if (!noticeKind) {
+        return
+      }
       console.warn("[wanta] generation stopped receiving OpenCode events before completion:", {
+        noticeKind,
         sessionId,
         timeoutMs,
       })
       logDiagnostic(
         "chat-service",
-        "generation stopped receiving opencode events before completion",
-        { sessionId, timeoutMs },
+        "generation has not received opencode events recently",
+        { noticeKind, sessionId, timeoutMs },
         "warn",
       )
-      const messageId = this.activeAssistantMessages.get(sessionId)
-      void this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: false }).finally(() => {
-        this.emitMessageError(
-          this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
-          sessionId,
-          "CHAT_COMPLETION_INTERRUPTED: Agent runtime stopped sending updates before the response completed. Please retry.",
-          messageId,
-        )
-      })
+      this.emitGenerationNotice(
+        this.send.bind(this) as (event: string, data: unknown) => Promise<void>,
+        sessionId,
+        noticeKind,
+      )
     }, timeoutMs)
     timer.unref?.()
     this.generationInactivityWatchdogs.set(sessionId, timer)
+  }
+
+  private emitGenerationNotice(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    kind: GenerationNoticeKind,
+  ): void {
+    const messageId = this.activeAssistantMessages.get(sessionId)
+    const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+    this.sendBestEffort(
+      emit,
+      "generationNotice",
+      {
+        sessionId,
+        ...(messageId ? { messageId } : {}),
+        ...(partIds.length > 0 ? { partIds } : {}),
+        createdAt: Date.now(),
+        kind,
+      },
+      { messageId, sessionId },
+    )
+  }
+
+  private async interruptSessionGeneration(
+    emit: (event: string, data: unknown) => Promise<void>,
+    sessionId: string,
+    reason: GenerationInterruptedReason,
+    message: string,
+    options: { abortAgent: boolean },
+  ): Promise<void> {
+    const messageId = this.activeAssistantMessages.get(sessionId)
+    const partIds = [...(this.activeToolParts.get(sessionId) ?? [])]
+    const interruptedAt = Date.now()
+    await this.stopSessionGeneration(sessionId, {
+      abortAgent: options.abortAgent,
+      reason: "system",
+      throwOnAbortFailure: false,
+    })
+    this.sendBestEffort(
+      emit,
+      "generationInterrupted",
+      {
+        sessionId,
+        ...(messageId ? { messageId } : {}),
+        ...(partIds.length > 0 ? { partIds } : {}),
+        interruptedAt,
+        reason,
+        message,
+      },
+      { messageId, sessionId },
+    )
+    this.emitMessageError(emit, sessionId, message, messageId)
   }
 
   private generationWatchdogSessionId(sessionId: string): string | null {
     if (this.sessionGenerations.has(sessionId)) {
       return sessionId
     }
-    for (const [parentSessionId, childSessionIds] of this.trustedSubagentSessionsByParent) {
-      if (childSessionIds.has(sessionId) && this.sessionGenerations.has(parentSessionId)) {
-        return parentSessionId
-      }
+    const parentSessionId = this.parentSessionByChild.get(sessionId)
+    if (parentSessionId && this.sessionGenerations.has(parentSessionId)) {
+      return parentSessionId
     }
     return null
   }
@@ -1305,10 +1655,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return translated.event !== "messageCompleted"
   }
 
-  private async stopSessionGeneration(
-    sessionId: string,
-    options: { abortAgent: boolean; throwOnAbortFailure: boolean },
-  ): Promise<void> {
+  private async stopSessionGeneration(sessionId: string, options: StopSessionGenerationOptions): Promise<void> {
     if (!this.agent) {
       return
     }
@@ -1328,7 +1675,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         console.warn("[wanta] generation abort failed:", error)
       }
     }
-    if (messageId) {
+    if (options.reason === "user" && messageId) {
       await this.rememberStoppedGeneration(sessionId, messageId, partIds, stoppedAt).catch((error: unknown) => {
         console.warn("[wanta] failed to record stopped generation", error)
       })
@@ -1342,13 +1689,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.deleteActiveTurnOutput(sessionId, generation?.id)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
-    await this.send("generationStopped", {
-      sessionId,
-      ...(messageId ? { messageId, partIds, stoppedAt } : {}),
-    }).catch((error: unknown) => {
-      console.warn("[wanta] failed to emit generation stopped:", error)
-      logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
-    })
+    if (options.reason === "user") {
+      await this.send("generationStopped", {
+        sessionId,
+        ...(messageId ? { messageId, partIds, stoppedAt } : {}),
+      }).catch((error: unknown) => {
+        console.warn("[wanta] failed to emit generation stopped:", error)
+        logDiagnostic("chat-service", "failed to emit generation stopped", { error, sessionId }, "warn")
+      })
+    }
   }
 
   public async isReady(): Promise<boolean> {
@@ -1367,6 +1716,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.activeRuns.get(sessionId) ?? null
   }
 
+  public async getSessionSnapshot(sessionId: string): Promise<ChatSessionSnapshot> {
+    const messages = await this.getMessages(sessionId)
+    const [pendingQuestions, pendingPermissions] = await Promise.all([
+      this.getPendingQuestions(sessionId),
+      this.getPendingPermissions(sessionId),
+    ])
+    return {
+      activeRun: this.activeRuns.get(sessionId) ?? null,
+      messages,
+      pendingPermissions,
+      pendingQuestions,
+      sessionId,
+    }
+  }
+
   public async sendMessage(req: SendMessageRequest): Promise<void> {
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
@@ -1376,6 +1740,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       req.permissionMode ?? this.sessionPermissionMode(req.sessionId),
       req.permissionModeVersion,
     )
+    this.rememberTrustedAttachments(req.sessionId, req.attachments)
     const organizationName = organizationNameFromRequest(req)
     let generation: SessionGeneration | undefined
     let artifactDir: string | undefined
@@ -1407,7 +1772,21 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       } else {
         this.trustedProjectRoots.delete(req.sessionId)
       }
+      this.invalidateTrustedLocalPathRoots()
       const project = await this.projectBaseline(req.projectContext)
+      const artifactBaseline = await captureArtifactSessionBaseline(
+        this.agent.artifactSessionDir(req.sessionId),
+        artifactDir,
+      ).catch((error: unknown) => {
+        console.warn("[wanta] failed to capture artifact session baseline", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to capture artifact session baseline",
+          { error, sessionId: req.sessionId },
+          "warn",
+        )
+        return null
+      })
       this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
       this.enqueuePendingProcessDir(req.sessionId, processDir)
       this.activeTurnOutputs.set(activeGeneration.id, {
@@ -1416,13 +1795,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         createdAt: Date.now(),
         generationId: activeGeneration.id,
         requestText: req.text,
+        ...(artifactBaseline ? { artifactBaseline } : {}),
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
       })
+      this.invalidateTrustedLocalPathRoots()
       const promptGeneration = activeGeneration
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.updateActiveRun(req.sessionId, { phase: "submitted" })
-      this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
+      this.scheduleGenerationSubmitWatchdog(req.sessionId, promptGeneration.id)
       void this.agent
         .promptStreaming(req.sessionId, req.text, {
           attachments: req.attachments,
@@ -1439,6 +1820,15 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             buildProjectContextSystem(req.projectContext),
             buildPermissionModeSystem(req.permissionMode),
           ),
+        })
+        .then(() => {
+          if (
+            this.isCurrentGeneration(req.sessionId, promptGeneration.id) &&
+            !promptGeneration.controller.signal.aborted &&
+            !this.activeAssistantMessages.has(req.sessionId)
+          ) {
+            this.scheduleGenerationStartWatchdog(req.sessionId, promptGeneration.id)
+          }
         })
         .catch((error: unknown) => {
           if (artifactDir) {
@@ -1493,34 +1883,38 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     return this.stoppedGenerationsLoadPromise
   }
 
-  private async ensureTurnOutputsLoaded(): Promise<void> {
-    if (this.turnOutputsLoaded) {
-      return
-    }
-    if (this.turnOutputsLoadPromise) {
-      return this.turnOutputsLoadPromise
-    }
-    this.turnOutputsLoadPromise = (async () => {
-      this.turnOutputs = (await this.deps.turnOutputStore?.read()) ?? new Map()
-      this.turnOutputsLoaded = true
-      this.turnOutputsLoadPromise = null
-    })()
-    return this.turnOutputsLoadPromise
+  private async readTurnOutputs(): Promise<TurnOutputRecords> {
+    return this.deps.turnOutputStore?.read() ?? this.transientTurnOutputs
   }
 
-  private async ensureArtifactRootsLoaded(): Promise<void> {
-    if (this.artifactRootsLoaded) {
+  private async readArtifactBundles(): Promise<ArtifactBundles> {
+    return this.deps.artifactBundleStore?.read() ?? this.transientArtifactBundles
+  }
+
+  private async rememberArtifactBundle(bundle: ArtifactBundle): Promise<void> {
+    if (this.deps.artifactBundleStore) {
+      await this.deps.artifactBundleStore.record(bundle)
+      this.invalidateTrustedLocalPathRoots()
       return
     }
-    if (this.artifactRootsLoadPromise) {
-      return this.artifactRootsLoadPromise
-    }
-    this.artifactRootsLoadPromise = (async () => {
-      this.artifactRoots = (await this.deps.artifactRootStore?.read()) ?? new Map()
-      this.artifactRootsLoaded = true
-      this.artifactRootsLoadPromise = null
-    })()
-    return this.artifactRootsLoadPromise
+    recordArtifactBundle(this.transientArtifactBundles, bundle)
+    this.invalidateTrustedLocalPathRoots()
+  }
+
+  private async publishArtifactBundle(bundle: ArtifactBundle): Promise<void> {
+    await this.rememberArtifactBundle(bundle)
+    await this.send("artifactBundleUpdated", {
+      sessionId: bundle.sessionId,
+      messageId: bundle.messageId,
+    }).catch((error: unknown) => {
+      console.warn("[wanta] failed to emit artifact bundle update", error)
+      logDiagnostic(
+        "chat-service",
+        "failed to emit artifact bundle update",
+        { error, messageId: bundle.messageId, sessionId: bundle.sessionId },
+        "warn",
+      )
+    })
   }
 
   private async ensureAuthorizationOverlaysLoaded(): Promise<void> {
@@ -1536,14 +1930,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.authorizationOverlaysLoadPromise = null
     })()
     return this.authorizationOverlaysLoadPromise
-  }
-
-  private async rememberArtifactRoot(sessionId: string, messageId: string, artifactRoot: string): Promise<void> {
-    await this.ensureArtifactRootsLoaded()
-    if (!recordArtifactRoot(this.artifactRoots, sessionId, messageId, artifactRoot)) {
-      return
-    }
-    await this.deps.artifactRootStore?.write(this.artifactRoots)
   }
 
   private async rememberAuthorizationOverlay(
@@ -1589,20 +1975,13 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   private async rememberTurnOutput(record: StoredTurnOutputRecord): Promise<void> {
-    await this.ensureTurnOutputsLoaded()
-    recordTurnOutput(this.turnOutputs, record)
-    const write = this.turnOutputWritePromise
-      .catch((error: unknown) => {
-        this.logQueuedWriteFailure("turn output", error)
-      })
-      .then(async () => {
-        await this.deps.turnOutputStore?.write(this.turnOutputs)
-      })
-    this.turnOutputWritePromise = write.then(
-      () => undefined,
-      () => undefined,
-    )
-    await write
+    if (this.deps.turnOutputStore) {
+      await this.deps.turnOutputStore.record(record)
+      this.invalidateTrustedLocalPathRoots()
+      return
+    }
+    recordTurnOutput(this.transientTurnOutputs, record)
+    this.invalidateTrustedLocalPathRoots()
   }
 
   private async projectBaseline(project: ChatProjectContext | undefined): Promise<{
@@ -1652,68 +2031,151 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const generationId = this.sessionGenerations.get(sessionId)?.id
     const active = generationId ? this.activeTurnOutputs.get(generationId) : undefined
     if (generationId) {
-      this.activeTurnOutputs.delete(generationId)
+      if (this.activeTurnOutputs.delete(generationId)) {
+        this.invalidateTrustedLocalPathRoots()
+      }
     }
     const resolvedMessageId = messageId ?? active?.messageId
-    if (!active || !resolvedMessageId) {
+    if (!active) {
       return
     }
-    const [artifactGroup, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
-      directoryArtifacts(active.artifactRoot, defaultMaxDirectoryItems),
-      processOutputFiles(active.processRoot),
-      intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
-      projectOutputFiles(active.projectBaseline, active.projectRoot),
-    ])
-    const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
-    if (files.length === 0 && !artifactGroup?.items.length) {
-      return
-    }
-    const record: StoredTurnOutputRecord = {
-      sessionId,
-      messageId: resolvedMessageId,
-      artifactRoot: active.artifactRoot,
-      processRoot: active.processRoot,
-      ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
-      createdAt: active.createdAt,
-      completedAt: Date.now(),
-      files,
-      summary: summarizeTurnFiles(files, artifactGroup?.items.length ?? 0),
-    }
-    await this.rememberTurnOutput(record)
-    await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
-      console.warn("[wanta] failed to emit turn output update:", error)
-      logDiagnostic(
-        "chat-service",
-        "failed to emit turn output update",
-        { error, messageId: resolvedMessageId, sessionId },
-        "warn",
+    try {
+      if (!resolvedMessageId) {
+        return
+      }
+      const messages = await this.agent?.getMessages(sessionId).catch(() => [])
+      const materializedOrigins = await materializeAssistantArtifacts(
+        messages ?? [],
+        resolvedMessageId,
+        active.artifactRoot,
+      ).catch((error: unknown) => {
+        console.warn("[wanta] failed to materialize assistant artifacts", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to materialize assistant artifacts",
+          { error, messageId: resolvedMessageId, sessionId },
+          "warn",
+        )
+        return new Map()
+      })
+      const recoveredOrigins = await recoverMisplacedTurnArtifacts(active.artifactBaseline, active.artifactRoot).catch(
+        (error: unknown) => {
+          console.warn("[wanta] failed to recover misplaced turn artifacts", error)
+          logDiagnostic(
+            "chat-service",
+            "failed to recover misplaced turn artifacts",
+            { error, messageId: resolvedMessageId, sessionId },
+            "warn",
+          )
+          return new Map()
+        },
       )
-    })
+      for (const [relativePath, origin] of recoveredOrigins) {
+        materializedOrigins.set(relativePath, origin)
+      }
+      const [artifactBundle, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
+        buildArtifactBundle({
+          artifactRoot: active.artifactRoot,
+          completedAt: Date.now(),
+          createdAt: active.createdAt,
+          generatedPreviewCount: generatedImagePreviewCount(messages ?? [], resolvedMessageId),
+          materializedOrigins,
+          messageId: resolvedMessageId,
+          sessionId,
+        }),
+        processOutputFiles(active.processRoot),
+        intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
+        projectOutputFiles(active.projectBaseline, active.projectRoot),
+      ])
+      if (artifactBundle) {
+        await this.publishArtifactBundle(artifactBundle)
+      }
+      const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
+      if (files.length === 0) {
+        return
+      }
+      const record: StoredTurnOutputRecord = {
+        sessionId,
+        messageId: resolvedMessageId,
+        processRoot: active.processRoot,
+        ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
+        createdAt: active.createdAt,
+        completedAt: Date.now(),
+        files,
+        summary: summarizeTurnFiles(files),
+      }
+      await this.rememberTurnOutput(record)
+      await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
+        console.warn("[wanta] failed to emit turn output update:", error)
+        logDiagnostic(
+          "chat-service",
+          "failed to emit turn output update",
+          { error, messageId: resolvedMessageId, sessionId },
+          "warn",
+        )
+      })
+    } finally {
+      await rm(managedPythonEnvironmentPath(active.processRoot), { force: true, recursive: true }).catch(
+        () => undefined,
+      )
+    }
   }
 
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
+    await this.assertTrustedLocalPath(req.path)
     return attachmentPreview(req)
   }
 
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
+    await this.assertTrustedLocalPath(req.path)
     return localArtifactPreview(req)
   }
 
-  public async getTurnOutput(req: TurnOutputRequest): Promise<TurnOutputRecord | null> {
-    await this.ensureTurnOutputsLoaded()
-    const record = this.turnOutputs.get(req.sessionId)?.get(req.messageId)
-    return record ? publicTurnOutputRecord(record) : null
+  public async getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]> {
+    const records = (await this.readTurnOutputs()).get(req.sessionId)
+    if (!records) {
+      return []
+    }
+    const seen = new Set<string>()
+    const output: TurnOutputRecord[] = []
+    for (const messageId of req.messageIds) {
+      if (seen.has(messageId)) {
+        continue
+      }
+      seen.add(messageId)
+      const record = records.get(messageId)
+      if (record) {
+        output.push(publicTurnOutputRecord(record))
+      }
+    }
+    return output
+  }
+
+  public async getArtifactBundles(req: ArtifactBundlesRequest): Promise<ArtifactBundle[]> {
+    const records = (await this.readArtifactBundles()).get(req.sessionId)
+    if (!records) {
+      return []
+    }
+    const seen = new Set<string>()
+    const bundles: ArtifactBundle[] = []
+    for (const messageId of req.messageIds) {
+      if (seen.has(messageId)) {
+        continue
+      }
+      seen.add(messageId)
+      const bundle = records.get(messageId)
+      if (bundle) {
+        bundles.push(bundle)
+      }
+    }
+    return bundles
   }
 
   public async getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult> {
-    await this.ensureTurnOutputsLoaded()
-    const record = this.turnOutputs.get(req.sessionId)?.get(req.messageId)
+    const record = (await this.readTurnOutputs()).get(req.sessionId)?.get(req.messageId)
     const file = record?.files.find((item) => item.path === req.path)
     if (!record || !file) {
       return { kind: "missing", path: req.path, mime: "application/octet-stream", additions: 0, deletions: 0 }
-    }
-    if (file.role === "artifact" && (!record.artifactRoot || !isPathInside(record.artifactRoot, file.path))) {
-      return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
     }
     if (file.role === "process" && (!record.processRoot || !isPathInside(record.processRoot, file.path))) {
       return { kind: "missing", path: req.path, mime: file.mime, additions: 0, deletions: 0 }
@@ -1725,9 +2187,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult> {
-    const candidates = req.artifactRoot ? [req.artifactRoot] : extractLocalPathCandidates(req.text ?? "")
-    const fromText = !req.artifactRoot
+    const candidates = [req.artifactRoot]
     const maxDirectoryItems = Math.max(1, Math.min(req.maxDirectoryItems ?? defaultMaxDirectoryItems, 200))
+    const trustedRoots = await this.trustedLocalPathRoots()
     const seen = new Set<string>()
     const groups: LocalArtifactGroup[] = []
     let pack: LocalArtifactPack | undefined
@@ -1736,8 +2198,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       if (!filePath || seen.has(filePath)) {
         continue
       }
-      if (fromText && isBroadLocalArtifactPath(filePath, os.homedir())) {
-        continue
+      if (!(await this.isPathInTrustedRoots(filePath, trustedRoots))) {
+        throw new Error("Local artifact path is not available from this conversation.")
       }
       seen.add(filePath)
       const item = await localArtifactItem(filePath)
@@ -1761,6 +2223,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!item) {
       throw new Error("File does not exist.")
     }
+    await this.assertTrustedLocalPath(item.path)
     try {
       const result = await shell.openPath(item.path)
       if (result) {
@@ -1776,6 +2239,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!item) {
       throw new Error("File does not exist.")
     }
+    await this.assertTrustedLocalPath(item.path)
     try {
       shell.showItemInFolder(item.path)
     } catch (error) {
@@ -1804,7 +2268,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     this.markUserStopped(sessionId)
-    await this.stopSessionGeneration(sessionId, { abortAgent: true, throwOnAbortFailure: true })
+    await this.stopSessionGeneration(sessionId, { abortAgent: true, reason: "user", throwOnAbortFailure: true })
   }
 
   public async getMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -1812,23 +2276,30 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return []
     }
     const messages = await this.agent.getMessages(sessionId)
-    await this.ensureArtifactRootsLoaded()
     await this.ensureAuthorizationOverlaysLoaded()
     await this.ensureStoppedGenerationsLoaded()
-    return applyStoppedGenerations(
-      applyAuthorizationOverlays(
-        applyArtifactRoots(messages, this.artifactRoots.get(sessionId)),
-        this.authorizationOverlays.get(sessionId),
-      ),
+    const displayedMessages = applyStoppedGenerations(
+      applyAuthorizationOverlays(messages, this.authorizationOverlays.get(sessionId)),
       this.stoppedGenerations.get(sessionId),
     )
+    this.rememberTrustedMessageAttachments(sessionId, displayedMessages)
+    return displayedMessages
   }
 
   public async getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]> {
     if (!this.agent) {
       return []
     }
-    return this.agent.getPendingQuestions(sessionId)
+    const sessionIds = [sessionId, ...(this.childSessionsByParent.get(sessionId) ?? [])]
+    const questions: ChatQuestionRequest[] = []
+    for (const currentSessionId of sessionIds) {
+      const sessionQuestions = await this.agent.getPendingQuestions(currentSessionId)
+      for (const request of sessionQuestions) {
+        const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+        questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
+      }
+    }
+    return questions
   }
 
   public async answerQuestion(req: AnswerQuestionRequest): Promise<void> {
@@ -1859,14 +2330,20 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return []
     }
-    const permissions = await this.agent.getPendingPermissions(sessionId)
+    const sessionIds = [sessionId, ...(this.childSessionsByParent.get(sessionId) ?? [])]
     const pendingPermissions: ChatPermissionRequest[] = []
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
-    for (const request of permissions) {
-      if (!this.answerLocalAccessPermission(emit, request)) {
-        this.rememberPendingPermissionRequest(request)
-        this.addActiveRunBlockingRequest(request.sessionId, request.id, "awaiting_permission")
-        pendingPermissions.push(request)
+    for (const currentSessionId of sessionIds) {
+      const permissions = await this.agent.getPendingPermissions(currentSessionId)
+      for (const request of permissions) {
+        if (!this.answerLocalAccessPermission(emit, request)) {
+          const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+          const displayRequest =
+            displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
+          this.rememberPendingPermissionRequest(displayRequest)
+          this.addActiveRunBlockingRequest(displaySessionId, displayRequest.id, "awaiting_permission")
+          pendingPermissions.push(displayRequest)
+        }
       }
     }
     return pendingPermissions
@@ -1876,8 +2353,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       throw new Error("Agent not configured (sign in first)")
     }
+    let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
     if (req.reply === "always") {
-      let request = this.pendingPermissionRequest(req.sessionId, req.requestId)
       if (!request) {
         try {
           request = (await this.agent.getPendingPermissions(req.sessionId)).find((item) => item.id === req.requestId)
@@ -1896,6 +2373,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       }
     }
     await this.agent.answerPermission(req.sessionId, req.requestId, req.reply === "always" ? "once" : req.reply)
+    if (req.reply !== "reject" && request) {
+      this.rememberTrustedPermissionResources(req.sessionId, request)
+    }
     this.forgetPendingPermissionRequest(req.sessionId, req.requestId)
     this.removeActiveRunBlockingRequest(req.sessionId, req.requestId)
     this.scheduleGenerationInactivityWatchdogAfterReply(req.sessionId)
@@ -1906,8 +2386,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.setSessionPermissionModeValue(req.sessionId, req.permissionMode, req.version)) {
       return
     }
+    const affectedSessionIds = [req.sessionId]
+    for (const childSessionId of this.trustedSubagentSessionsByParent.get(req.sessionId) ?? []) {
+      if (this.setSessionPermissionModeValue(childSessionId, req.permissionMode, req.version)) {
+        affectedSessionIds.push(childSessionId)
+      }
+    }
     if (req.permissionMode === "full_access") {
-      await this.autoAnswerPendingPermissions(req.sessionId)
+      await Promise.all(affectedSessionIds.map((sessionId) => this.autoAnswerPendingPermissions(sessionId)))
     }
     this.emitSessionActivity(req.sessionId)
   }

@@ -1,5 +1,4 @@
 import type {
-  ChatMessage,
   TurnFileDiffResult,
   TurnOutputFile,
   TurnOutputRecord,
@@ -25,8 +24,7 @@ import { Diff as ReactDiff, Hunk, parseDiff } from "react-diff-view"
 import "react-diff-view/style/index.css"
 
 import { toast } from "sonner"
-import { turnOutputInitialRole, useTurnOutputRecords } from "./turn-output-records.ts"
-import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
+import { availableTurnOutputRole } from "./turn-output-role.ts"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { writeClipboardText } from "@/lib/clipboard"
@@ -36,17 +34,9 @@ import { cn } from "@/lib/utils"
 import { FileKindTile } from "@/routes/Chat/file-type-icons"
 
 export interface TurnOutputSelection {
-  initialRole?: Exclude<TurnOutputFileRole, "artifact">
+  initialRole?: TurnOutputFileRole
   record: TurnOutputRecord
   selectedPath?: string
-}
-
-interface GeneratedTurnOutputsProps {
-  layout?: "stack" | "shelf"
-  messages: ChatMessage[]
-  onAvailable: (selection: TurnOutputSelection) => void
-  onOpen: (selection: TurnOutputSelection) => void
-  sessionId: string | null
 }
 
 interface TurnOutputsPanelProps {
@@ -56,7 +46,7 @@ interface TurnOutputsPanelProps {
   selection: TurnOutputSelection | null
 }
 
-function roleFiles(record: TurnOutputRecord, role: Exclude<TurnOutputFileRole, "artifact">): TurnOutputFile[] {
+function roleFiles(record: TurnOutputRecord, role: TurnOutputFileRole): TurnOutputFile[] {
   return record.files.filter((file) => file.role === role)
 }
 
@@ -77,102 +67,6 @@ function ChangeCountLabel({
       <span className="font-medium text-[color:var(--success)]">+{additions}</span>
       <span className="font-medium text-[color:var(--destructive)]">-{deletions}</span>
     </span>
-  )
-}
-
-export function GeneratedTurnOutputs({
-  layout = "stack",
-  messages,
-  onAvailable,
-  onOpen,
-  sessionId,
-}: GeneratedTurnOutputsProps) {
-  const t = useT()
-  const records = useTurnOutputRecords(sessionId, messages)
-
-  React.useEffect(() => {
-    const latest = records.at(-1)
-    if (latest) {
-      onAvailable({ record: latest, initialRole: turnOutputInitialRole(latest) })
-    }
-  }, [onAvailable, records])
-
-  if (records.length === 0) {
-    return null
-  }
-
-  if (layout === "shelf") {
-    const latest = records.at(-1)
-    return latest ? <TurnOutputShelf record={latest} onOpen={onOpen} /> : null
-  }
-
-  return (
-    <section className="not-prose -mt-1 grid gap-1.5">
-      <div className="oo-text-caption-compact font-medium text-muted-foreground">{t("turnOutputs.title")}</div>
-      <div className="grid gap-1.5">
-        {records.map((record) => (
-          <TurnOutputSummaryRow key={`${record.sessionId}:${record.messageId}`} record={record} onOpen={onOpen} />
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function TurnOutputSummaryRow({
-  record,
-  onOpen,
-}: {
-  record: TurnOutputRecord
-  onOpen: (selection: TurnOutputSelection) => void
-}) {
-  const t = useT()
-  const hasProjectChanges = record.summary.changedFileCount > 0
-  const hasProcessFiles = record.summary.processFileCount > 0
-  const splitSummary = hasProjectChanges && hasProcessFiles
-
-  return (
-    <div className={cn("grid gap-1.5", splitSummary && "sm:grid-cols-2")}>
-      {hasProjectChanges ? (
-        <button
-          type="button"
-          className="oo-border-divider flex min-h-12 min-w-0 items-center gap-2 rounded-md border bg-muted/45 px-3 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={() => onOpen({ record, initialRole: "project_change" })}
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-            <FileDiff className="size-4" />
-          </span>
-          <span className="flex min-w-0 flex-1 items-center gap-3">
-            <span className="oo-text-label min-w-0 flex-1 truncate text-foreground">
-              {t("turnOutputs.changesSummary", { count: record.summary.changedFileCount })}
-            </span>
-            <ChangeCountLabel
-              additions={record.summary.additions}
-              className="shrink-0 justify-end"
-              deletions={record.summary.deletions}
-            />
-          </span>
-        </button>
-      ) : null}
-      {hasProcessFiles ? (
-        <button
-          type="button"
-          className="oo-border-divider flex min-h-12 min-w-0 items-center gap-2 rounded-md border bg-muted/45 px-3 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={() => onOpen({ record, initialRole: "process" })}
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
-            <FileCode2 className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="oo-text-label block truncate text-foreground">
-              {t("turnOutputs.processSummary", { count: record.summary.processFileCount })}
-            </span>
-            <span className="oo-text-caption-compact block truncate text-muted-foreground">
-              {t("turnOutputs.reviewProcessFiles")}
-            </span>
-          </span>
-        </button>
-      ) : null}
-    </div>
   )
 }
 
@@ -252,12 +146,29 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   const [collapsedPaths, setCollapsedPaths] = React.useState<Set<string>>(() => new Set())
   const processFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "process") : []), [selection])
   const changeFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "project_change") : []), [selection])
-  const activeRole = initialRole === "process" && processFiles.length > 0 ? "process" : "project_change"
+  const requestedRole = availableTurnOutputRole(initialRole, processFiles.length, changeFiles.length)
+  const roleSelectionKey = `${selection?.record.messageId ?? "none"}\0${selection?.selectedPath ?? ""}\0${requestedRole}`
+  const [roleSelection, setRoleSelection] = React.useState<{ key: string; role: TurnOutputFileRole }>(() => ({
+    key: roleSelectionKey,
+    role: requestedRole,
+  }))
+  const activeRole =
+    roleSelection.key === roleSelectionKey
+      ? availableTurnOutputRole(roleSelection.role, processFiles.length, changeFiles.length)
+      : requestedRole
   const activeFiles = activeRole === "project_change" ? changeFiles : processFiles
+  const hasRoleSwitch = changeFiles.length > 0 && processFiles.length > 0
   const { openPath, showInFolder } = useTurnFileActions()
   const allCollapsed = activeFiles.length > 0 && activeFiles.every((file) => collapsedPaths.has(file.path))
   const activeAdditions = activeFiles.reduce((sum, file) => sum + file.additions, 0)
   const activeDeletions = activeFiles.reduce((sum, file) => sum + file.deletions, 0)
+
+  const selectActiveRole = React.useCallback(
+    (role: TurnOutputFileRole): void => {
+      setRoleSelection({ key: roleSelectionKey, role })
+    },
+    [roleSelectionKey],
+  )
 
   React.useEffect(() => {
     setCollapsedPaths(new Set(activeRole === "process" ? activeFiles.map((file) => file.path) : []))
@@ -290,7 +201,9 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
       )}
     >
       <header className="oo-titlebar oo-artifacts-titlebar oo-border-divider flex h-[var(--app-titlebar-height)] shrink-0 items-center justify-between gap-3 border-b [-webkit-app-region:drag]">
-        <div className="oo-text-title min-w-0 truncate">{t("turnOutputs.panelTitle")}</div>
+        <div className="oo-text-title min-w-0 truncate">
+          {t(activeRole === "process" ? "turnOutputs.processDetails" : "turnOutputs.panelTitle")}
+        </div>
         <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
           <button
             type="button"
@@ -313,6 +226,45 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
           </button>
         </div>
       </header>
+
+      {hasRoleSwitch ? (
+        <div className="oo-border-divider border-b px-3 py-2">
+          <div
+            role="tablist"
+            aria-label={t("turnOutputs.sections")}
+            className="inline-flex max-w-full items-center gap-1 rounded-lg bg-muted p-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeRole === "project_change"}
+              className={cn(
+                "oo-text-control flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                activeRole === "project_change" && "bg-background font-medium text-foreground shadow-xs",
+              )}
+              onClick={() => selectActiveRole("project_change")}
+            >
+              <FileDiff className="size-3.5 shrink-0" />
+              <span className="truncate">{t("turnOutputs.changes")}</span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">{changeFiles.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeRole === "process"}
+              className={cn(
+                "oo-text-control flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                activeRole === "process" && "bg-background font-medium text-foreground shadow-xs",
+              )}
+              onClick={() => selectActiveRole("process")}
+            >
+              <FileCode2 className="size-3.5 shrink-0" />
+              <span className="truncate">{t("turnOutputs.processFiles")}</span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">{processFiles.length}</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="oo-turn-review-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         <section className="min-w-0 pb-3">

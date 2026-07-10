@@ -14,14 +14,17 @@ import type { ConnectionBusy } from "./connections-state.ts"
 
 import * as React from "react"
 import { useChatService } from "../components/AppContext.ts"
+import { connectionWorkspaceKey } from "../lib/connection-workspace.ts"
 import {
   connectProvider,
   disconnectAccount as disconnectAccountRequest,
   disconnectProvider as disconnectProviderRequest,
+  getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
   getConnectionExecutionLogs,
   getConnectionProviderDetail,
   getConnectionSummary,
+  isProviderConnectionActive,
   setDefaultAccount as setDefaultAccountRequest,
   startOAuthConnect,
   updateAlias as updateAliasRequest,
@@ -29,7 +32,6 @@ import {
 import { resolveConnectionError } from "../lib/connections-error.ts"
 import {
   clearOAuthPendingOperation,
-  connectionWorkspaceKey,
   createOAuthPendingOperation,
   createOAuthPendingKey,
   readOAuthPendingOperation,
@@ -37,6 +39,7 @@ import {
   rememberOAuthPendingOperation,
 } from "./connection-oauth-pending.ts"
 import { connectionsStateReducer, initialConnectionsState } from "./connections-state.ts"
+import { applyDefaultAccountUpdate } from "./connections-summary-update.ts"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 
 const POLL_INTERVAL_MS = 2000
@@ -44,6 +47,16 @@ const POLL_INTERVAL_MS = 2000
 interface PollOperation {
   controller: AbortController
   id: number
+}
+
+interface ConnectionActionContext {
+  actionId: number
+  currentWorkspace: ConnectionWorkspace
+  isCurrent: () => boolean
+}
+
+interface ConnectionRefreshOptions {
+  silent?: boolean
 }
 
 function wait(ms: number, signal: AbortSignal): Promise<void> {
@@ -78,8 +91,10 @@ function activeAppIdsForService(summary: ConnectionSummary | null, service: stri
   )
 }
 
-function isOAuthOperationConnected(next: ConnectionSummary, operation: OAuthPendingOperation): boolean {
-  const activeAppIds = activeAppIdsForService(next, operation.service)
+function isOAuthOperationConnectedFromActiveAppIds(
+  activeAppIds: readonly string[],
+  operation: OAuthPendingOperation,
+): boolean {
   if (operation.appId) {
     return activeAppIds.includes(operation.appId)
   }
@@ -99,7 +114,7 @@ export interface UseConnections {
   summaryError: UserFacingError | null
   scopeSyncError: UserFacingError | null
   clearActionError: () => void
-  refresh: (request?: ConnectionSummaryRequest) => Promise<ConnectionSummary | null>
+  refresh: (request?: ConnectionSummaryRequest, options?: ConnectionRefreshOptions) => Promise<ConnectionSummary | null>
   connect: (input: ConnectionConnectInput) => Promise<boolean>
   disconnect: (service: string) => Promise<boolean>
   disconnectAccount: (appId: string) => Promise<boolean>
@@ -107,6 +122,7 @@ export interface UseConnections {
   getProviderDetail: (service: string) => Promise<ConnectionProviderDetail>
   getAppDetail: (appId: string) => Promise<ConnectionAppDetail>
   getExecutionLogs: (request: ConnectionExecutionLogRequest) => Promise<ConnectionExecutionLogSummary>
+  isProviderActive: (service: string) => Promise<boolean>
   openExternal: (url: string) => Promise<void>
   setDefaultAccount: (service: string, appId: string) => Promise<boolean>
   setSummary: (summary: ConnectionSummary) => void
@@ -135,7 +151,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
   const effectiveWorkspace = React.useRef<ConnectionWorkspace | null>(workspace)
   const workspaceGeneration = React.useRef(0)
   const summaryRequestSequence = React.useRef(0)
+  const visibleSummaryRequestSequence = React.useRef(0)
+  const summaryRef = React.useRef<ConnectionSummary | null>(summary)
   effectiveWorkspace.current = workspace
+  summaryRef.current = summary
 
   const setCurrentSummary = React.useCallback((next: ConnectionSummary): void => {
     dispatch({ type: "summarySet", summary: next })
@@ -145,8 +164,39 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     return workspaceGeneration.current === generation && sameWorkspace(effectiveWorkspace.current, key)
   }, [])
 
+  const invalidateWorkspaceWork = React.useCallback((): void => {
+    workspaceGeneration.current += 1
+    summaryRequestSequence.current += 1
+    visibleSummaryRequestSequence.current += 1
+    actionSequence.current += 1
+    pollSequence.current += 1
+    pollAbort.current?.controller.abort()
+    oauthPending.current = null
+    pollAbort.current = null
+  }, [])
+
+  const beginAction = React.useCallback((): ConnectionActionContext | null => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      return null
+    }
+    const generation = workspaceGeneration.current
+    const key = connectionWorkspaceKey(currentWorkspace)
+    const actionId = actionSequence.current + 1
+    actionSequence.current = actionId
+    summaryRequestSequence.current += 1
+    return {
+      actionId,
+      currentWorkspace,
+      isCurrent: () => actionSequence.current === actionId && isCurrentWorkspace(generation, key),
+    }
+  }, [isCurrentWorkspace])
+
   const refresh = React.useCallback(
-    async (request?: ConnectionSummaryRequest): Promise<ConnectionSummary | null> => {
+    async (
+      request?: ConnectionSummaryRequest,
+      options: ConnectionRefreshOptions = {},
+    ): Promise<ConnectionSummary | null> => {
       const currentWorkspace = effectiveWorkspace.current
       if (!currentWorkspace) {
         dispatch({ type: "workspacePending" })
@@ -156,7 +206,11 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       summaryRequestSequence.current = requestId
       const generation = workspaceGeneration.current
       const key = connectionWorkspaceKey(currentWorkspace)
-      dispatch({ type: "refreshStarted" })
+      const visibleRefresh = !options.silent || summaryRef.current === null
+      if (visibleRefresh) {
+        visibleSummaryRequestSequence.current = requestId
+        dispatch({ type: "refreshStarted" })
+      }
       try {
         const next = await getConnectionSummary(currentWorkspace, request)
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
@@ -165,11 +219,17 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return next
       } catch (err) {
         if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
-          dispatch({ type: "refreshFailed", error: resolveConnectionError(err, "summary"), workspaceKey: key })
+          if (visibleRefresh) {
+            dispatch({ type: "refreshFailed", error: resolveConnectionError(err, "summary"), workspaceKey: key })
+          }
         }
         return null
       } finally {
-        if (summaryRequestSequence.current === requestId && isCurrentWorkspace(generation, key)) {
+        if (
+          visibleRefresh &&
+          visibleSummaryRequestSequence.current === requestId &&
+          isCurrentWorkspace(generation, key)
+        ) {
           dispatch({ type: "refreshFinished" })
         }
       }
@@ -223,11 +283,15 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           if (!isCurrentOAuth()) {
             return false
           }
-          const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+          const activeAppIds = await getActiveConnectionAppIdsForService(operation.service, currentWorkspace)
           if (!isCurrentOAuth()) {
             return false
           }
-          if (isOAuthOperationConnected(next, operation)) {
+          if (isOAuthOperationConnectedFromActiveAppIds(activeAppIds, operation)) {
+            const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+            if (!isCurrentOAuth()) {
+              return false
+            }
             setCurrentSummary(next)
             dispatch({ type: "actionErrorSet", error: null })
             clearActiveOAuthPending(operation)
@@ -274,13 +338,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         return
       }
       appliedWorkspaceKey.current = "pending"
-      workspaceGeneration.current += 1
-      summaryRequestSequence.current += 1
-      actionSequence.current += 1
-      pollSequence.current += 1
-      pollAbort.current?.controller.abort()
-      oauthPending.current = null
-      pollAbort.current = null
+      invalidateWorkspaceWork()
       dispatch({ type: "workspacePending" })
       return
     }
@@ -289,13 +347,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
       return
     }
     appliedWorkspaceKey.current = key
-    workspaceGeneration.current += 1
-    summaryRequestSequence.current += 1
-    actionSequence.current += 1
-    pollSequence.current += 1
-    pollAbort.current?.controller.abort()
-    oauthPending.current = null
-    pollAbort.current = null
+    invalidateWorkspaceWork()
     dispatch({ type: "workspaceSyncStarted" })
     const organizationName = workspace.type === "organization" ? workspace.organizationName : undefined
     const generation = workspaceGeneration.current
@@ -316,7 +368,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         dispatch({ type: "workspaceScopeSyncFailed", error: resolved })
       }
     })()
-  }, [chatService, isCurrentWorkspace, refresh, workspace])
+  }, [chatService, invalidateWorkspaceWork, isCurrentWorkspace, refresh, workspace])
 
   React.useEffect(
     () => () => {
@@ -364,14 +416,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
 
-      const actionId = actionSequence.current + 1
-      actionSequence.current = actionId
-      summaryRequestSequence.current += 1
-      const generation = workspaceGeneration.current
-      const key = connectionWorkspaceKey(currentWorkspace)
-      const isCurrentAction = (): boolean => {
-        return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
+      const action = beginAction()
+      if (!action) {
+        dispatch({ type: "actionErrorSet", error: resolveConnectionError("Workspace is still loading.", operation) })
+        return false
       }
+      const { actionId } = action
+      const isCurrentAction = action.isCurrent
       const applySummary = (next: ConnectionSummary): void => {
         if (isCurrentAction()) {
           setCurrentSummary(next)
@@ -409,7 +460,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
         applySummary(baselineSummary)
         const pending = createOAuthPendingOperation(
-          currentWorkspace,
+          action.currentWorkspace,
           input,
           actionId,
           Date.now(),
@@ -423,10 +474,10 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           return (
             oauthPending.current?.key === pending.key &&
             oauthPending.current.actionId === pending.actionId &&
-            isCurrentWorkspace(generation, key)
+            isCurrentAction()
           )
         }
-        const { authorizationUrl } = await startOAuthConnect(input, currentWorkspace)
+        const { authorizationUrl } = await startOAuthConnect(input, action.currentWorkspace)
         if (!isCurrentOAuthStart()) {
           return false
         }
@@ -435,7 +486,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           return false
         }
 
-        return await pollOAuthPending(pending, currentWorkspace, operation)
+        return await pollOAuthPending(pending, action.currentWorkspace, operation)
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           applyActionError(resolveConnectionError("WANTA_OAUTH_CANCELLED", operation))
@@ -455,39 +506,25 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         applyBusy(null)
       }
     },
-    [
-      activateOAuthPending,
-      chatService,
-      clearActiveOAuthPending,
-      isCurrentWorkspace,
-      pollOAuthPending,
-      setCurrentSummary,
-    ],
+    [activateOAuthPending, beginAction, chatService, clearActiveOAuthPending, pollOAuthPending, setCurrentSummary],
   )
 
   const disconnect = React.useCallback(
     async (svc: string): Promise<boolean> => {
-      const currentWorkspace = effectiveWorkspace.current
-      if (!currentWorkspace) {
+      const action = beginAction()
+      if (!action) {
         dispatch({
           type: "actionErrorSet",
           error: resolveConnectionError("Workspace is still loading.", "disconnect"),
         })
         return false
       }
-      const generation = workspaceGeneration.current
-      const key = connectionWorkspaceKey(currentWorkspace)
-      const actionId = actionSequence.current + 1
-      actionSequence.current = actionId
-      summaryRequestSequence.current += 1
-      const isCurrentAction = (): boolean => {
-        return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
-      }
+      const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
       dispatch({ type: "busySet", busy: "disconnect" })
       try {
-        await disconnectProviderRequest(svc, currentWorkspace)
-        const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+        await disconnectProviderRequest(svc, action.currentWorkspace)
+        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }
@@ -503,32 +540,25 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [isCurrentWorkspace, setCurrentSummary],
+    [beginAction, setCurrentSummary],
   )
 
   const disconnectAccount = React.useCallback(
     async (appId: string): Promise<boolean> => {
-      const currentWorkspace = effectiveWorkspace.current
-      if (!currentWorkspace) {
+      const action = beginAction()
+      if (!action) {
         dispatch({
           type: "actionErrorSet",
           error: resolveConnectionError("Workspace is still loading.", "disconnect"),
         })
         return false
       }
-      const generation = workspaceGeneration.current
-      const key = connectionWorkspaceKey(currentWorkspace)
-      const actionId = actionSequence.current + 1
-      actionSequence.current = actionId
-      summaryRequestSequence.current += 1
-      const isCurrentAction = (): boolean => {
-        return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
-      }
+      const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
       dispatch({ type: "busySet", busy: "disconnect" })
       try {
-        await disconnectAccountRequest(appId, currentWorkspace)
-        const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+        await disconnectAccountRequest(appId, action.currentWorkspace)
+        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }
@@ -544,33 +574,30 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
         }
       }
     },
-    [isCurrentWorkspace, setCurrentSummary],
+    [beginAction, setCurrentSummary],
   )
 
   const setDefaultAccount = React.useCallback(
     async (svc: string, appId: string): Promise<boolean> => {
-      const currentWorkspace = effectiveWorkspace.current
-      if (!currentWorkspace) {
+      const action = beginAction()
+      if (!action) {
         dispatch({
           type: "actionErrorSet",
           error: resolveConnectionError("Workspace is still loading.", "set_default"),
         })
         return false
       }
-      const generation = workspaceGeneration.current
-      const key = connectionWorkspaceKey(currentWorkspace)
-      const actionId = actionSequence.current + 1
-      actionSequence.current = actionId
-      summaryRequestSequence.current += 1
-      const isCurrentAction = (): boolean => {
-        return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
-      }
+      const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
+      dispatch({ type: "busySet", busy: "set_default" })
       try {
-        await setDefaultAccountRequest(svc, appId, currentWorkspace)
-        const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+        const updatedApp = await setDefaultAccountRequest(svc, appId, action.currentWorkspace)
+        if (isCurrentAction() && summaryRef.current) {
+          setCurrentSummary(applyDefaultAccountUpdate(summaryRef.current, svc, appId, updatedApp))
+        }
+        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
-          setCurrentSummary(next)
+          setCurrentSummary(applyDefaultAccountUpdate(next, svc, appId, updatedApp))
         }
         return isCurrentAction()
       } catch (err) {
@@ -578,33 +605,31 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "set_default") })
         }
         return false
+      } finally {
+        if (isCurrentAction()) {
+          dispatch({ type: "busySet", busy: null })
+        }
       }
     },
-    [isCurrentWorkspace, setCurrentSummary],
+    [beginAction, setCurrentSummary],
   )
 
   const updateAlias = React.useCallback(
     async (appId: string, alias: string): Promise<boolean> => {
-      const currentWorkspace = effectiveWorkspace.current
-      if (!currentWorkspace) {
+      const action = beginAction()
+      if (!action) {
         dispatch({
           type: "actionErrorSet",
           error: resolveConnectionError("Workspace is still loading.", "update_alias"),
         })
         return false
       }
-      const generation = workspaceGeneration.current
-      const key = connectionWorkspaceKey(currentWorkspace)
-      const actionId = actionSequence.current + 1
-      actionSequence.current = actionId
-      summaryRequestSequence.current += 1
-      const isCurrentAction = (): boolean => {
-        return actionSequence.current === actionId && isCurrentWorkspace(generation, key)
-      }
+      const isCurrentAction = action.isCurrent
       dispatch({ type: "actionErrorSet", error: null })
+      dispatch({ type: "busySet", busy: "update_alias" })
       try {
-        await updateAliasRequest(appId, alias, currentWorkspace)
-        const next = await getConnectionSummary(currentWorkspace, { forceRefresh: true })
+        await updateAliasRequest(appId, alias, action.currentWorkspace)
+        const next = await getConnectionSummary(action.currentWorkspace, { forceRefresh: true })
         if (isCurrentAction()) {
           setCurrentSummary(next)
         }
@@ -614,9 +639,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
           dispatch({ type: "actionErrorSet", error: resolveConnectionError(err, "update_alias") })
         }
         return false
+      } finally {
+        if (isCurrentAction()) {
+          dispatch({ type: "busySet", busy: null })
+        }
       }
     },
-    [isCurrentWorkspace, setCurrentSummary],
+    [beginAction, setCurrentSummary],
   )
 
   const cancelPolling = React.useCallback(() => {
@@ -654,6 +683,13 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     }
     return getConnectionExecutionLogs(request, currentWorkspace)
   }, [])
+  const isProviderActive = React.useCallback((service: string) => {
+    const currentWorkspace = effectiveWorkspace.current
+    if (!currentWorkspace) {
+      return Promise.resolve(false)
+    }
+    return isProviderConnectionActive(service, currentWorkspace)
+  }, [])
   const openExternal = React.useCallback((url: string) => chatService.invoke("openExternalUrl", { url }), [chatService])
 
   return {
@@ -674,6 +710,7 @@ export function useConnections(workspace: ConnectionWorkspace | null): UseConnec
     getProviderDetail,
     getAppDetail,
     getExecutionLogs,
+    isProviderActive,
     openExternal,
     setDefaultAccount,
     setSummary: setCurrentSummary,

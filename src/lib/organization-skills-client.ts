@@ -1,7 +1,5 @@
-import type { PublicSkillPackage } from "../../electron/skills/common.ts"
-
-import { orgControlBaseUrl, packageAssetsBaseUrl, registryBaseUrl, searchBaseUrl } from "@/lib/domain"
-import { OomolAuthRequiredError, OomolHttpError, oomolFetch, oomolFetchJson } from "@/lib/oomol-http"
+import { orgControlBaseUrl, registryBaseUrl } from "@/lib/domain"
+import { oomolFetchJson } from "@/lib/oomol-http"
 import { resolvePackageAssetIconSource } from "@/lib/skill-icon-assets.ts"
 
 export type OrganizationSkillVersionPolicy = "latest" | "pinned"
@@ -77,14 +75,6 @@ export interface ResolvedOrganizationSkills {
   updatedAt: string
 }
 
-interface RegistrySkillInfo {
-  description?: string
-  icon?: string
-  name?: string
-  path?: string
-  title?: string
-}
-
 interface OrganizationSkillPackageRawItem {
   description?: unknown
   displayName?: unknown
@@ -107,29 +97,7 @@ interface OrganizationSkillPackageResponse {
   data?: unknown
 }
 
-interface MySkillPackageRawItem {
-  description?: string
-  displayName?: string
-  downloadCount?: number
-  extra?: Record<string, string>
-  icon?: string
-  id?: string
-  maintainers?: Array<{ id?: string; name?: string; url?: string }>
-  name?: string
-  repositoryUrl?: string
-  skills?: RegistrySkillInfo[]
-  updateTime?: number
-  version?: string
-  visibility?: OrganizationSkillVisibility
-}
-
-interface MySkillPackagesResponse {
-  data?: MySkillPackageRawItem[]
-  next?: string | null
-}
-
 const organizationSkillRequestTimeoutMs = 15_000
-const mySkillsPageSize = 100
 const organizationSkillsApiFlag = "VITE_WANTA_ORGANIZATION_SKILLS_API"
 
 export function organizationSkillsApiEnabled(): boolean {
@@ -349,6 +317,7 @@ export async function addOrganizationSkill(
   orgId: string,
   input: AddOrganizationSkillInput,
 ): Promise<OrganizationSkillConfigItem> {
+  // 当前 registry 接口关联的是 package；skillName 用于本地乐观项，刷新后以后端 package-infos 为准。
   await oomolFetchJson<void>(organizationSkillPackageUrl(input.packageName, orgId), {
     method: "PUT",
     timeoutMs: organizationSkillRequestTimeoutMs,
@@ -377,8 +346,8 @@ export async function updateOrganizationSkill(
   return normalized
 }
 
-export async function removeOrganizationSkill(orgId: string, configId: string): Promise<void> {
-  await oomolFetchJson<void>(organizationSkillPackageUrl(configId, orgId), {
+export async function removeOrganizationSkill(orgId: string, packageName: string): Promise<void> {
+  await oomolFetchJson<void>(organizationSkillPackageUrl(packageName, orgId), {
     method: "DELETE",
     timeoutMs: organizationSkillRequestTimeoutMs,
   })
@@ -473,82 +442,4 @@ export async function listResolvedOrganizationSkills(orgId: string): Promise<Res
     { timeoutMs: organizationSkillRequestTimeoutMs },
   )
   return normalizeResolvedOrganizationSkills(response)
-}
-
-export async function listMyPublishedSkills(options: { lang?: "en" | "zh-CN"; next?: string } = {}): Promise<{
-  items: PublicSkillPackage[]
-  next: string | null
-  updatedAt: string
-}> {
-  const url = new URL("/v1/packages/-/my-skills", searchBaseUrl)
-  url.searchParams.set("size", String(mySkillsPageSize))
-  if (options.lang) {
-    url.searchParams.set("lang", options.lang)
-  }
-  if (options.next?.trim()) {
-    url.searchParams.set("next", options.next.trim())
-  }
-  const payload = await oomolFetchJson<MySkillPackagesResponse>(url, { timeoutMs: organizationSkillRequestTimeoutMs })
-  return {
-    items: (payload.data ?? [])
-      .map(normalizeMySkillPackage)
-      .filter((item): item is PublicSkillPackage => Boolean(item)),
-    next: payload.next ?? null,
-    updatedAt: new Date().toISOString(),
-  }
-}
-
-function normalizeMySkillPackage(raw: MySkillPackageRawItem): PublicSkillPackage | undefined {
-  const name = raw.name?.trim()
-  if (!name) {
-    return undefined
-  }
-  const version = raw.version || raw.extra?.latestVersion || "latest"
-  return {
-    description: raw.description,
-    displayName: raw.displayName || name,
-    downloadCount: raw.downloadCount,
-    icon: raw.icon,
-    id: raw.id || `${name}@${version}`,
-    isTemplate: false,
-    maintainers: (raw.maintainers ?? []).map((maintainer) => ({
-      ...(maintainer.id ? { id: maintainer.id } : {}),
-      name: maintainer.name || name,
-      ...(maintainer.url ? { url: maintainer.url } : {}),
-    })),
-    name,
-    skills: (raw.skills ?? [])
-      .map((skill) => {
-        const skillName = skill.name || skill.path
-        return skillName
-          ? {
-              ...(skill.description ? { description: skill.description } : {}),
-              name: skillName,
-              title: skill.title || skill.name || skillName,
-            }
-          : undefined
-      })
-      .filter((skill): skill is PublicSkillPackage["skills"][number] => Boolean(skill)),
-    updateTime: raw.updateTime,
-    version,
-    visibility: normalizeVisibility(raw.visibility),
-  }
-}
-
-export async function readSkillMarkdown(packageName: string, version: string, skillName: string): Promise<string> {
-  const url = new URL(
-    `/packages/${encodePath(packageName)}/${encodePath(version)}/files/package/skills/${encodePath(skillName)}/SKILL.md`,
-    packageAssetsBaseUrl,
-  )
-  const response = await oomolFetch(url, {
-    headers: { Accept: "text/plain, */*" },
-    timeoutMs: organizationSkillRequestTimeoutMs,
-  })
-  if (response.status === 401) {
-    throw new OomolAuthRequiredError()
-  }
-  if (!response.ok) {
-    throw new OomolHttpError(`Skill Markdown request failed with status ${response.status}.`, response.status)
-  }
-  return response.text()
 }

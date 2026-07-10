@@ -81,60 +81,51 @@ export function ArchivedRoute({
   const [error, setError] = React.useState<UserFacingError | null>(null)
   const [pendingSessionId, setPendingSessionId] = React.useState<string | null>(null)
   const [deletingAll, setDeletingAll] = React.useState(false)
+  const refreshRequestId = React.useRef(0)
   const visibleSessions = React.useMemo(
     () => visibleArchivedSessions(sessions, query, sortMode),
     [query, sessions, sortMode],
   )
   const canDeleteAll = sessions.length > 0 && !deletingAll
 
-  const refreshArchived = React.useCallback(async () => {
-    if (!ready) {
-      setLoaded(false)
-      return
-    }
-    try {
-      const nextSessions = await listArchived()
-      setSessions(nextSessions)
-      setError(null)
-    } catch (cause) {
-      console.error("[wanta] list archived sessions failed", cause)
-      reportRendererHandledError("archived.refresh", "Failed to refresh archived sessions", cause)
-      setError(resolveUserFacingError(cause, { area: "session" }))
-    } finally {
-      setLoaded(true)
-    }
-  }, [listArchived, ready])
-
-  React.useEffect(() => {
-    if (!ready) {
-      setLoaded(false)
-      return
-    }
-    let cancelled = false
-    setLoaded(false)
-    void listArchived()
-      .then((nextSessions) => {
-        if (!cancelled) {
+  const refreshArchived = React.useCallback(
+    async (options: { showLoading?: boolean } = {}) => {
+      const requestId = ++refreshRequestId.current
+      if (options.showLoading) {
+        setLoaded(false)
+        setError(null)
+      }
+      if (!ready) {
+        setLoaded(false)
+        return
+      }
+      try {
+        const nextSessions = await listArchived()
+        if (refreshRequestId.current === requestId) {
           setSessions(nextSessions)
           setError(null)
         }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          console.error("[wanta] list archived sessions failed", cause)
-          reportRendererHandledError("archived.initialLoad", "Failed to load archived sessions", cause)
+      } catch (cause) {
+        console.error("[wanta] list archived sessions failed", cause)
+        reportRendererHandledError("archived.refresh", "Failed to refresh archived sessions", cause)
+        if (refreshRequestId.current === requestId) {
           setError(resolveUserFacingError(cause, { area: "session" }))
         }
-      })
-      .finally(() => {
-        if (!cancelled) {
+      } finally {
+        if (refreshRequestId.current === requestId) {
           setLoaded(true)
         }
-      })
+      }
+    },
+    [listArchived, ready],
+  )
+
+  React.useEffect(() => {
+    void refreshArchived({ showLoading: true })
     return () => {
-      cancelled = true
+      refreshRequestId.current += 1
     }
-  }, [listArchived, ready])
+  }, [refreshArchived])
 
   const runSessionAction = async (sessionId: string, action: () => Promise<void>): Promise<boolean> => {
     setPendingSessionId(sessionId)
@@ -268,7 +259,7 @@ export function ArchivedRoute({
         {error ? (
           <ErrorNotice
             error={error}
-            action={{ label: t("archived.retry"), onClick: () => void refreshArchived() }}
+            action={{ label: t("archived.retry"), onClick: () => void refreshArchived({ showLoading: true }) }}
             className="m-3"
           />
         ) : !loaded ? (

@@ -3,6 +3,7 @@ import type {
   AgentMode,
   AgentPermissionMode,
   ChatAttachment,
+  ChatSessionSnapshot,
   ChatActiveRun,
   ChatContextMention,
   GenerationStoppedEvent,
@@ -33,6 +34,7 @@ import {
   coalesceTextDeltaEvent,
   ensureMessage,
   hasVisibleMessageDelta,
+  markAssistantMessageToolsInterrupted,
   markAssistantMessageToolsCancelled,
   markLatestAssistantToolsCancelled,
   markQuestionToolAnswered,
@@ -42,9 +44,9 @@ import {
   mergeFetchedMessages,
   removePart,
   setConnectionStatusPart,
+  setGenerationNoticePart,
   setAttachmentPart,
   setErrorPart,
-  setMessageArtifactRoot,
   setPart,
   setReasoningPart,
   setTextPart,
@@ -86,6 +88,7 @@ export interface UseChat {
   messagesLoaded: boolean
   error: string | null
   getSessionStatus: (sessionId: string) => ChatStatus
+  getSessionRunStartedAt: (sessionId: string) => number | null
   hasUnreadSession: (sessionId: string) => boolean
   send: (
     sessionId: string,
@@ -178,6 +181,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const [permissionModes, setPermissionModes] = React.useState<Record<string, AgentPermissionMode>>({})
   const [statuses, setStatuses] = React.useState<Record<string, ChatStatus>>({})
   const [activities, setActivities] = React.useState<Record<string, AssistantActivityEvent | undefined>>({})
+  const [activeRunStarts, setActiveRunStarts] = React.useState<Record<string, number | undefined>>({})
   const [unreadSessionIds, setUnreadSessionIds] = React.useState<Set<string>>(() => new Set())
   const [globalError, setGlobalError] = React.useState<string | null>(null)
   const [errorsBySession, setErrorsBySession] = React.useState<Record<string, string | undefined>>({})
@@ -189,10 +193,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   const pendingToolParts = React.useRef(new Map<string, PendingToolPart>())
   const pendingToolTimer = React.useRef<number | null>(null)
   const pendingToolDelayStartedAt = React.useRef<number | null>(null)
-  const pendingQuestionsFetchVersions = React.useRef(new Map<string, number>())
   const pendingQuestionsMutationVersions = React.useRef(new Map<string, number>())
-  const pendingPermissionsFetchVersions = React.useRef(new Map<string, number>())
   const pendingPermissionsMutationVersions = React.useRef(new Map<string, number>())
+  const activeRunMutationVersions = React.useRef(new Map<string, number>())
+  const messagesMutationVersions = React.useRef(new Map<string, number>())
   const pendingQuestionsMapRef = React.useRef(pendingQuestionsMap)
   const pendingPermissionsMapRef = React.useRef(pendingPermissionsMap)
   const permissionModesRef = React.useRef(permissionModes)
@@ -234,6 +238,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   }, [visibleSessionId])
 
   const patch = React.useCallback((sessionId: string, updater: (msgs: ChatMessage[]) => ChatMessage[]) => {
+    messagesMutationVersions.current.set(sessionId, (messagesMutationVersions.current.get(sessionId) ?? 0) + 1)
     setMessagesMap((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }))
   }, [])
 
@@ -273,6 +278,9 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         if (clearedActiveRunIdsRef.current.has(run.runId)) {
           return
         }
+        setActiveRunStarts((current) =>
+          current[run.sessionId] === run.startedAt ? current : { ...current, [run.sessionId]: run.startedAt },
+        )
         setStatus(run.sessionId, statusForActiveRun(run))
         setActivity(run.sessionId, activityForActiveRun(run))
         return
@@ -280,6 +288,14 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       if (endedRunId) {
         clearedActiveRunIdsRef.current.add(endedRunId)
       }
+      setActiveRunStarts((current) => {
+        if (!Object.hasOwn(current, sessionId)) {
+          return current
+        }
+        const next = { ...current }
+        delete next[sessionId]
+        return next
+      })
       setStatuses((current) => {
         const currentStatus = current[sessionId]
         if (currentStatus !== "submitted" && currentStatus !== "streaming") {
@@ -291,6 +307,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     },
     [setActivity, setStatus],
   )
+
+  const markActiveRunMutated = React.useCallback((sessionId: string): void => {
+    activeRunMutationVersions.current.set(sessionId, (activeRunMutationVersions.current.get(sessionId) ?? 0) + 1)
+  }, [])
 
   const flushPendingTextDeltas = React.useCallback(() => {
     if (pendingTextFrame.current !== null) {
@@ -322,6 +342,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const enqueueTextDelta = React.useCallback(
     (kind: TextDeltaKind, event: TextDeltaEvent) => {
+      messagesMutationVersions.current.set(
+        event.sessionId,
+        (messagesMutationVersions.current.get(event.sessionId) ?? 0) + 1,
+      )
       const key = textDeltaKey(kind, event)
       const pending = pendingTextDeltas.current.get(key)
       pendingTextDeltas.current.set(key, {
@@ -381,6 +405,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   const enqueueToolPart = React.useCallback(
     (sessionId: string, messageId: string, part: ChatMessagePart) => {
+      messagesMutationVersions.current.set(sessionId, (messagesMutationVersions.current.get(sessionId) ?? 0) + 1)
       pendingToolParts.current.set(`${sessionId}\0${messageId}\0${part.partId}`, { messageId, part, sessionId })
       schedulePendingToolFlush()
     },
@@ -531,6 +556,19 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [markPendingPermissionsMutated, updatePendingPermissionsMap],
   )
 
+  const clearPendingPermissions = React.useCallback(
+    (sessionId: string) => {
+      markPendingPermissionsMutated(sessionId)
+      updatePendingPermissionsMap((current) => {
+        if (!current[sessionId]?.length) {
+          return current
+        }
+        return { ...current, [sessionId]: [] }
+      })
+    },
+    [markPendingPermissionsMutated, updatePendingPermissionsMap],
+  )
+
   const replyPermissionRequest = React.useCallback(
     async (sessionId: string, requestId: string, reply: ChatPermissionReply): Promise<void> => {
       await chatService.invoke("answerPermission", { sessionId, requestId, reply })
@@ -539,12 +577,17 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [chatService, removePendingPermission],
   )
 
+  const setLocalPermissionMode = React.useCallback((sessionId: string, mode: AgentPermissionMode): number => {
+    const version = (permissionModeVersionsRef.current[sessionId] ?? 0) + 1
+    permissionModeVersionsRef.current = { ...permissionModeVersionsRef.current, [sessionId]: version }
+    setPermissionModes((current) => (current[sessionId] === mode ? current : { ...current, [sessionId]: mode }))
+    permissionModesRef.current = { ...permissionModesRef.current, [sessionId]: mode }
+    return version
+  }, [])
+
   const setPermissionMode = React.useCallback(
     (sessionId: string, mode: AgentPermissionMode): number => {
-      const version = (permissionModeVersionsRef.current[sessionId] ?? 0) + 1
-      permissionModeVersionsRef.current = { ...permissionModeVersionsRef.current, [sessionId]: version }
-      setPermissionModes((current) => (current[sessionId] === mode ? current : { ...current, [sessionId]: mode }))
-      permissionModesRef.current = { ...permissionModesRef.current, [sessionId]: mode }
+      const version = setLocalPermissionMode(sessionId, mode)
       void chatService
         .invoke("setPermissionMode", { sessionId, permissionMode: mode, version })
         .catch((err: unknown) => {
@@ -553,7 +596,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         })
       return version
     },
-    [chatService],
+    [chatService, setLocalPermissionMode],
   )
 
   React.useEffect(() => {
@@ -646,27 +689,63 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     [patch],
   )
 
+  const applyFetchedMessages = React.useCallback(
+    (sessionId: string, msgs: ChatMessage[]): void => {
+      setMessagesMap((prev) => {
+        const previousMessages = prev[sessionId] ?? []
+        const merged = applyCancelledToolParts(
+          mergeFetchedMessages(previousMessages, msgs),
+          cancelledToolParts.current.get(sessionId),
+        )
+        const nextMessages = (() => {
+          if (!isSessionUserStopped(sessionId)) {
+            return merged
+          }
+          const { messages, partIds } = markLatestAssistantToolsCancelled(merged)
+          rememberCancelledToolParts(sessionId, partIds)
+          return messages
+        })()
+        return nextMessages === previousMessages ? prev : { ...prev, [sessionId]: nextMessages }
+      })
+    },
+    [isSessionUserStopped, rememberCancelledToolParts],
+  )
+
+  const applyFetchedPendingQuestions = React.useCallback(
+    (sessionId: string, questions: ChatQuestionRequest[]): void => {
+      const fetchedIds = new Set(questions.map((request) => request.id))
+      for (const request of pendingQuestionsMapRef.current[sessionId] ?? []) {
+        if (!fetchedIds.has(request.id)) {
+          questionDraftSnapshots.current.delete(questionDraftKey(sessionId, request.id))
+        }
+      }
+      updatePendingQuestionsMap((prev) => ({
+        ...prev,
+        [sessionId]: questions,
+      }))
+    },
+    [updatePendingQuestionsMap],
+  )
+
+  const applyFetchedPendingPermissions = React.useCallback(
+    (sessionId: string, permissions: ChatPermissionRequest[]): void => {
+      updatePendingPermissionsMap((prev) => ({
+        ...prev,
+        [sessionId]: permissions,
+      }))
+    },
+    [updatePendingPermissionsMap],
+  )
+
   const reload = React.useCallback(
     async (sessionId: string): Promise<ChatMessage[] | null> => {
       flushPendingToolParts()
+      const messagesMutationVersion = messagesMutationVersions.current.get(sessionId) ?? 0
       try {
         const msgs = await chatService.invoke("getMessages", sessionId)
-        setMessagesMap((prev) => {
-          const previousMessages = prev[sessionId] ?? []
-          const merged = applyCancelledToolParts(
-            mergeFetchedMessages(previousMessages, msgs),
-            cancelledToolParts.current.get(sessionId),
-          )
-          const nextMessages = (() => {
-            if (!isSessionUserStopped(sessionId)) {
-              return merged
-            }
-            const { messages, partIds } = markLatestAssistantToolsCancelled(merged)
-            rememberCancelledToolParts(sessionId, partIds)
-            return messages
-          })()
-          return nextMessages === previousMessages ? prev : { ...prev, [sessionId]: nextMessages }
-        })
+        if ((messagesMutationVersions.current.get(sessionId) ?? 0) === messagesMutationVersion) {
+          applyFetchedMessages(sessionId, msgs)
+        }
         return msgs
       } catch (err) {
         console.error("[wanta] getMessages failed", err)
@@ -674,74 +753,42 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         return null
       }
     },
-    [chatService, flushPendingToolParts, isSessionUserStopped, rememberCancelledToolParts],
+    [applyFetchedMessages, chatService, flushPendingToolParts],
   )
 
-  const reloadPendingQuestions = React.useCallback(
-    async (sessionId: string) => {
-      const fetchVersion = (pendingQuestionsFetchVersions.current.get(sessionId) ?? 0) + 1
-      const mutationVersion = pendingQuestionsMutationVersions.current.get(sessionId) ?? 0
-      pendingQuestionsFetchVersions.current.set(sessionId, fetchVersion)
-      try {
-        const questions = await chatService.invoke("getPendingQuestions", sessionId)
-        if (pendingQuestionsFetchVersions.current.get(sessionId) !== fetchVersion) {
-          return
-        }
-        if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
-          return
-        }
-        const fetchedIds = new Set(questions.map((request) => request.id))
-        for (const request of pendingQuestionsMapRef.current[sessionId] ?? []) {
-          if (!fetchedIds.has(request.id)) {
-            questionDraftSnapshots.current.delete(questionDraftKey(sessionId, request.id))
-          }
-        }
-        updatePendingQuestionsMap((prev) => ({
-          ...prev,
-          [sessionId]: questions,
-        }))
-      } catch (err) {
-        if (pendingQuestionsFetchVersions.current.get(sessionId) !== fetchVersion) {
-          return
-        }
-        if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
-          return
-        }
-        console.error("[wanta] getPendingQuestions failed", err)
-        reportRendererHandledError("chat", "getPendingQuestions failed", err)
+  const applySessionSnapshot = React.useCallback(
+    (
+      snapshot: ChatSessionSnapshot,
+      versions: {
+        activeRunMutationVersion: number
+        messagesMutationVersion: number
+        pendingPermissionsMutationVersion: number
+        pendingQuestionsMutationVersion: number
+      },
+    ): void => {
+      const sessionId = snapshot.sessionId
+      if ((messagesMutationVersions.current.get(sessionId) ?? 0) === versions.messagesMutationVersion) {
+        applyFetchedMessages(sessionId, snapshot.messages)
+      }
+      if ((pendingQuestionsMutationVersions.current.get(sessionId) ?? 0) === versions.pendingQuestionsMutationVersion) {
+        applyFetchedPendingQuestions(sessionId, snapshot.pendingQuestions)
+      }
+      if (
+        (pendingPermissionsMutationVersions.current.get(sessionId) ?? 0) === versions.pendingPermissionsMutationVersion
+      ) {
+        applyFetchedPendingPermissions(sessionId, snapshot.pendingPermissions)
+      }
+      if ((activeRunMutationVersions.current.get(sessionId) ?? 0) === versions.activeRunMutationVersion) {
+        applyActiveRun(sessionId, snapshot.activeRun)
       }
     },
-    [chatService, updatePendingQuestionsMap],
-  )
-
-  const reloadPendingPermissions = React.useCallback(
-    async (sessionId: string) => {
-      const fetchVersion = (pendingPermissionsFetchVersions.current.get(sessionId) ?? 0) + 1
-      const mutationVersion = pendingPermissionsMutationVersions.current.get(sessionId) ?? 0
-      pendingPermissionsFetchVersions.current.set(sessionId, fetchVersion)
-      try {
-        const permissions = await chatService.invoke("getPendingPermissions", sessionId)
-        if (pendingPermissionsFetchVersions.current.get(sessionId) !== fetchVersion) {
-          return
-        }
-        if ((pendingPermissionsMutationVersions.current.get(sessionId) ?? 0) !== mutationVersion) {
-          return
-        }
-        updatePendingPermissionsMap((prev) => ({
-          ...prev,
-          [sessionId]: permissions,
-        }))
-      } catch (err) {
-        console.error("[wanta] getPendingPermissions failed", err)
-        reportRendererHandledError("chat", "getPendingPermissions failed", err)
-      }
-    },
-    [chatService, updatePendingPermissionsMap],
+    [applyActiveRun, applyFetchedMessages, applyFetchedPendingPermissions, applyFetchedPendingQuestions],
   )
 
   React.useEffect(() => {
     const offs = [
       chatService.serverEvents.on("activeRunUpdated", (e) => {
+        markActiveRunMutated(e.sessionId)
         applyActiveRun(e.sessionId, e.run, e.endedRunId)
       }),
       chatService.serverEvents.on("messageStarted", (e) => {
@@ -771,10 +818,6 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         removeAnsweredPendingQuestions(e.sessionId)
         flushPendingTextDeltas()
         patch(e.sessionId, (msgs) => setAttachmentPart(msgs, e))
-      }),
-      chatService.serverEvents.on("messageArtifacts", (e) => {
-        removeAnsweredPendingQuestions(e.sessionId)
-        patch(e.sessionId, (msgs) => setMessageArtifactRoot(msgs, e))
       }),
       chatService.serverEvents.on("toolCallStarted", (e) => {
         removeAnsweredPendingQuestions(e.sessionId)
@@ -883,6 +926,21 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         clearSessionError(e.sessionId)
         patch(e.sessionId, (msgs) => setErrorPart(msgs, e))
       }),
+      chatService.serverEvents.on("generationInterrupted", (e) => {
+        flushPendingToolParts()
+        setStatus(e.sessionId, "error")
+        setActivity(e.sessionId, undefined)
+        clearSessionError(e.sessionId)
+        patch(e.sessionId, (msgs) => markAssistantMessageToolsInterrupted(msgs, e))
+        clearPendingQuestions(e.sessionId)
+        clearPendingPermissions(e.sessionId)
+      }),
+      chatService.serverEvents.on("generationNotice", (e) => {
+        flushPendingToolParts()
+        setStatus(e.sessionId, "streaming")
+        setActivity(e.sessionId, undefined)
+        patch(e.sessionId, (msgs) => setGenerationNoticePart(msgs, e))
+      }),
       chatService.serverEvents.on("generationStopped", (e) => {
         flushPendingToolParts()
         setStatus(e.sessionId, "ready")
@@ -890,6 +948,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         clearSessionError(e.sessionId)
         markCurrentToolsCancelled(e.sessionId, e)
         clearPendingQuestions(e.sessionId)
+        clearPendingPermissions(e.sessionId)
         void reload(e.sessionId)
       }),
       chatService.serverEvents.on("agentError", (e) => {
@@ -912,6 +971,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
   }, [
     applyActiveRun,
     chatService,
+    clearPendingPermissions,
     clearSessionError,
     clearPendingQuestions,
     delayPendingToolFlushForText,
@@ -923,6 +983,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     forgetPendingToolPart,
     isSessionUserStopped,
     markCurrentToolsCancelled,
+    markActiveRunMutated,
     markPendingPermissionsMutated,
     markPendingQuestionsMutated,
     markPendingQuestionAnswered,
@@ -943,6 +1004,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   React.useEffect(() => {
     let cancelled = false
+    const activeRunVersionsAtRequest = new Map(activeRunMutationVersions.current)
     void chatService
       .invoke("getActiveRuns")
       .then((runs) => {
@@ -950,7 +1012,12 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
           return
         }
         for (const run of runs) {
-          applyActiveRun(run.sessionId, run)
+          if (
+            (activeRunMutationVersions.current.get(run.sessionId) ?? 0) ===
+            (activeRunVersionsAtRequest.get(run.sessionId) ?? 0)
+          ) {
+            applyActiveRun(run.sessionId, run)
+          }
         }
       })
       .catch((err: unknown) => {
@@ -964,24 +1031,33 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
 
   React.useEffect(() => {
     if (activeSessionId) {
-      void (async () => {
-        await reload(activeSessionId)
-        await reloadPendingQuestions(activeSessionId)
-      })()
-      void reloadPendingPermissions(activeSessionId)
+      let cancelled = false
+      const activeRunMutationVersion = activeRunMutationVersions.current.get(activeSessionId) ?? 0
+      const messagesMutationVersion = messagesMutationVersions.current.get(activeSessionId) ?? 0
+      const pendingQuestionsMutationVersion = pendingQuestionsMutationVersions.current.get(activeSessionId) ?? 0
+      const pendingPermissionsMutationVersion = pendingPermissionsMutationVersions.current.get(activeSessionId) ?? 0
       void chatService
-        .invoke("getActiveRun", activeSessionId)
-        .then((run) => {
-          if (run) {
-            applyActiveRun(activeSessionId, run)
+        .invoke("getSessionSnapshot", activeSessionId)
+        .then((snapshot) => {
+          if (cancelled || snapshot.sessionId !== activeSessionId) {
+            return
           }
+          applySessionSnapshot(snapshot, {
+            activeRunMutationVersion,
+            messagesMutationVersion,
+            pendingPermissionsMutationVersion,
+            pendingQuestionsMutationVersion,
+          })
         })
         .catch((err: unknown) => {
-          console.error("[wanta] getActiveRun failed", err)
-          reportRendererHandledError("chat", "getActiveRun failed", err)
+          console.error("[wanta] getSessionSnapshot failed", err)
+          reportRendererHandledError("chat", "getSessionSnapshot failed", err)
         })
+      return () => {
+        cancelled = true
+      }
     }
-  }, [activeSessionId, applyActiveRun, chatService, reload, reloadPendingPermissions, reloadPendingQuestions])
+  }, [activeSessionId, applySessionSnapshot, chatService])
 
   const send = React.useCallback(
     async (
@@ -1004,7 +1080,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       userStoppedSessions.current.delete(sessionId)
       cancelledToolParts.current.delete(sessionId)
       const selectedPermissionMode = options.permissionMode ?? sessionPermissionMode(sessionId)
-      const permissionModeVersion = setPermissionMode(sessionId, selectedPermissionMode)
+      const permissionModeVersion = setLocalPermissionMode(sessionId, selectedPermissionMode)
       setStatus(sessionId, "submitted")
       setActivity(sessionId, { sessionId, phase: "thinking" })
       patch(sessionId, (msgs) => appendOptimisticConversationTurn(msgs, text, attachments, options.contextMentions))
@@ -1038,7 +1114,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
         throw err
       }
     },
-    [chatService, clearSessionError, patch, sessionPermissionMode, setActivity, setPermissionMode, setStatus],
+    [chatService, clearSessionError, patch, sessionPermissionMode, setActivity, setLocalPermissionMode, setStatus],
   )
 
   const stop = React.useCallback(
@@ -1048,6 +1124,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
       markSessionUserStopped(sessionId)
       markCurrentToolsCancelled(sessionId)
       clearPendingQuestions(sessionId)
+      clearPendingPermissions(sessionId)
       try {
         await chatService.invoke("stopGeneration", sessionId)
         setStatus(sessionId, "ready")
@@ -1061,6 +1138,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     },
     [
       chatService,
+      clearPendingPermissions,
       clearSessionError,
       clearPendingQuestions,
       markCurrentToolsCancelled,
@@ -1161,6 +1239,10 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     (sessionId: string): ChatStatus => statuses[sessionId] ?? "ready",
     [statuses],
   )
+  const getSessionRunStartedAt = React.useCallback(
+    (sessionId: string): number | null => activeRunStarts[sessionId] ?? null,
+    [activeRunStarts],
+  )
   const hasUnreadSession = React.useCallback(
     (sessionId: string): boolean => unreadSessionIds.has(sessionId),
     [unreadSessionIds],
@@ -1190,6 +1272,7 @@ export function useChat(activeSessionId: string | null, visibleSessionId: string
     messagesLoaded,
     error,
     getSessionStatus,
+    getSessionRunStartedAt,
     hasUnreadSession,
     send,
     stop,

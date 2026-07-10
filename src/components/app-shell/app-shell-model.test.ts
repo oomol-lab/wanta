@@ -25,6 +25,7 @@ const readyInput = {
   connectionsRefreshing: false,
   currentScopeKey: "personal",
   loadedSessionScopeKey: "personal",
+  organizationSkillsError: null,
   organizationSkillsSettled: true,
   targetScopeKey: "personal",
   workspaceMetadataError: null,
@@ -174,6 +175,24 @@ describe("workspace activation state", () => {
     expect(workspaceActivationBlocksInput(state)).toBe(true)
   })
 
+  test("fails when organization skills cannot load for the active workspace", () => {
+    const state = resolveWorkspaceActivationState({
+      ...readyInput,
+      organizationSkillsError: activationError,
+      organizationSkillsSettled: false,
+    })
+
+    expect(state).toEqual({
+      error: activationError,
+      reason: "organization_skills",
+      status: "failed",
+      targetScopeKey: "personal",
+    })
+    expect(workspaceActivationIsPending(state)).toBe(false)
+    expect(workspaceActivationBlocksInput(state)).toBe(true)
+    expect(workspaceActivationHasFailed(state)).toBe(true)
+  })
+
   test("is idle once every target-scoped dependency settles", () => {
     const state = resolveWorkspaceActivationState(readyInput)
 
@@ -207,6 +226,7 @@ describe("recommended Skill empty state entry", () => {
       [{ packageName: "oo-posthog", skillName: "posthog" }],
       [
         { packageName: "oo-posthog", service: "posthog", skillId: "posthog" },
+        { packageName: "oo-posthog", service: "posthog-admin", skillId: "posthog-admin" },
         { packageName: "oo-gmail", service: "gmail", skillId: "gmail" },
       ],
     )

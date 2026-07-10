@@ -1,9 +1,11 @@
+import type { ArtifactBundleStore } from "./artifact-bundles.ts"
 import type { TurnFileDiffResult, TurnOutputFile, TurnOutputRecord, TurnOutputSummary } from "./common.ts"
 
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
+import { buildArtifactBundle } from "./artifact-bundles.ts"
 
 export interface StoredTurnOutputFile extends TurnOutputFile {
   diff: TurnFileDiffResult
@@ -31,7 +33,6 @@ function validNumber(value: unknown): value is number {
 function normalizeSummary(value: unknown): TurnOutputSummary {
   const source = value && typeof value === "object" ? (value as Partial<TurnOutputSummary>) : {}
   return {
-    artifactCount: validNumber(source.artifactCount) ? source.artifactCount : 0,
     processFileCount: validNumber(source.processFileCount) ? source.processFileCount : 0,
     changedFileCount: validNumber(source.changedFileCount) ? source.changedFileCount : 0,
     additions: validNumber(source.additions) ? source.additions : 0,
@@ -48,7 +49,7 @@ function normalizeFile(value: unknown): StoredTurnOutputFile | null {
     return null
   }
   const role = source.role
-  if (role !== "artifact" && role !== "process" && role !== "project_change") {
+  if (role !== "process" && role !== "project_change") {
     return null
   }
   const changeKind = source.changeKind
@@ -95,7 +96,6 @@ function normalizeRecord(value: unknown): StoredTurnOutputRecord | null {
   return {
     sessionId: source.sessionId,
     messageId: source.messageId,
-    ...(validString(source.artifactRoot) ? { artifactRoot: source.artifactRoot } : {}),
     ...(validString(source.processRoot) ? { processRoot: source.processRoot } : {}),
     ...(validString(source.projectRoot) ? { projectRoot: source.projectRoot } : {}),
     createdAt: validNumber(source.createdAt) ? source.createdAt : Date.now(),
@@ -129,6 +129,59 @@ function normalizeRecords(value: unknown): TurnOutputRecords {
   return records
 }
 
+async function migrateLegacyArtifactBundles(
+  value: unknown,
+  artifactBundleStore: ArtifactBundleStore | undefined,
+): Promise<{ complete: boolean; found: boolean }> {
+  const sessions = value && typeof value === "object" ? (value as PersistedTurnOutputs).sessions : undefined
+  if (!sessions || typeof sessions !== "object" || !artifactBundleStore) {
+    return { complete: false, found: false }
+  }
+  let complete = true
+  let found = false
+  for (const rawMessages of Object.values(sessions)) {
+    if (!rawMessages || typeof rawMessages !== "object") {
+      continue
+    }
+    for (const rawRecord of Object.values(rawMessages)) {
+      if (!rawRecord || typeof rawRecord !== "object") {
+        continue
+      }
+      const source = rawRecord as unknown as Record<string, unknown>
+      const artifactRoot = validString(source["artifactRoot"]) ? source["artifactRoot"] : undefined
+      const files = Array.isArray(source["files"]) ? source["files"] : []
+      const hasLegacyArtifacts = files.some(
+        (file) => file && typeof file === "object" && (file as { role?: unknown }).role === "artifact",
+      )
+      if (
+        !artifactRoot ||
+        !hasLegacyArtifacts ||
+        !validString(source["sessionId"]) ||
+        !validString(source["messageId"])
+      ) {
+        continue
+      }
+      found = true
+      const bundle = await buildArtifactBundle({
+        artifactRoot,
+        completedAt: validNumber(source["completedAt"]) ? source["completedAt"] : Date.now(),
+        createdAt: validNumber(source["createdAt"]) ? source["createdAt"] : Date.now(),
+        generatedPreviewCount: 0,
+        messageId: source["messageId"],
+        sessionId: source["sessionId"],
+      }).catch(() => null)
+      if (!bundle) {
+        complete = false
+        continue
+      }
+      await artifactBundleStore.record(bundle).catch(() => {
+        complete = false
+      })
+    }
+  }
+  return { complete, found }
+}
+
 function serializeRecords(records: TurnOutputRecords): PersistedTurnOutputs {
   const sessions: PersistedTurnOutputs["sessions"] = {}
   for (const [sessionId, messages] of records) {
@@ -160,23 +213,77 @@ export function removeTurnOutputsForSession(records: TurnOutputRecords, sessionI
   return records.delete(sessionId)
 }
 
-export class TurnOutputStore {
-  private readonly file: string
+function cloneTurnOutputRecords(records: TurnOutputRecords): TurnOutputRecords {
+  return new Map([...records].map(([sessionId, messages]) => [sessionId, new Map(messages)]))
+}
 
-  public constructor(dir: string) {
+export class TurnOutputStore {
+  private readonly artifactBundleStore: ArtifactBundleStore | undefined
+  private readonly file: string
+  private records: TurnOutputRecords | undefined
+  private mutationQueue: Promise<void> = Promise.resolve()
+
+  public constructor(dir: string, artifactBundleStore?: ArtifactBundleStore) {
+    this.artifactBundleStore = artifactBundleStore
     this.file = path.join(dir, "turn-outputs.json")
   }
 
   public async read(): Promise<TurnOutputRecords> {
+    await this.mutationQueue
+    return cloneTurnOutputRecords(await this.loadRecords())
+  }
+
+  private async loadRecords(): Promise<TurnOutputRecords> {
+    if (this.records) {
+      return this.records
+    }
+    let persisted: unknown
     try {
-      return normalizeRecords(JSON.parse(await readFile(this.file, "utf-8")))
+      persisted = JSON.parse(await readFile(this.file, "utf-8"))
     } catch (error) {
       logStoreReadFailure("turn outputs", this.file, error)
-      return new Map()
+      this.records = new Map()
+      return this.records
     }
+    this.records = normalizeRecords(persisted)
+    const migration = await migrateLegacyArtifactBundles(persisted, this.artifactBundleStore)
+    if (migration.found && migration.complete) {
+      await this.persist(this.records).catch((error: unknown) => {
+        console.warn("[wanta] failed to finalize legacy artifact migration", error)
+      })
+    }
+    return this.records
   }
 
   public async write(records: TurnOutputRecords): Promise<void> {
+    const snapshot = cloneTurnOutputRecords(records)
+    await this.enqueueMutation(async () => {
+      await this.persist(snapshot)
+      this.records = snapshot
+    })
+  }
+
+  public async record(record: StoredTurnOutputRecord): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = cloneTurnOutputRecords(await this.loadRecords())
+      recordTurnOutput(records, record)
+      await this.persist(records)
+      this.records = records
+    })
+  }
+
+  public async removeSession(sessionId: string): Promise<void> {
+    await this.enqueueMutation(async () => {
+      const records = cloneTurnOutputRecords(await this.loadRecords())
+      if (!removeTurnOutputsForSession(records, sessionId)) {
+        return
+      }
+      await this.persist(records)
+      this.records = records
+    })
+  }
+
+  private async persist(records: TurnOutputRecords): Promise<void> {
     await mkdir(path.dirname(this.file), { recursive: true })
     const tmp = `${this.file}.tmp-${process.pid}-${randomUUID()}`
     try {
@@ -188,11 +295,12 @@ export class TurnOutputStore {
     }
   }
 
-  public async removeSession(sessionId: string): Promise<void> {
-    const records = await this.read()
-    if (!removeTurnOutputsForSession(records, sessionId)) {
-      return
-    }
-    await this.write(records)
+  private async enqueueMutation(mutation: () => Promise<void>): Promise<void> {
+    const operation = this.mutationQueue.catch(() => undefined).then(mutation)
+    this.mutationQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    )
+    await operation
   }
 }

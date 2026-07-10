@@ -219,7 +219,7 @@ function WorkspaceMenuContent({
 
 export function SessionItem({
   session,
-  active,
+  selected,
   running,
   unread,
   now,
@@ -230,7 +230,7 @@ export function SessionItem({
   leadingSlot,
 }: {
   session: SessionInfo
-  active: boolean
+  selected: boolean
   running: boolean
   unread: boolean
   now: number
@@ -251,12 +251,18 @@ export function SessionItem({
       onRenameRequest()
     }
   }
+  const handleRowClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (event.target === event.currentTarget) {
+      onSelect()
+    }
+  }
 
   return (
     <div
+      onClick={handleRowClick}
       className={cn(
         "oo-sidebar-nav-item group oo-text-body flex h-8 items-center rounded-md px-3",
-        active && "bg-sidebar-accent text-sidebar-accent-foreground",
+        selected && "bg-sidebar-accent text-sidebar-accent-foreground",
       )}
     >
       <button
@@ -264,8 +270,9 @@ export function SessionItem({
         onClick={onSelect}
         onDoubleClick={onRenameRequest}
         onKeyDown={handleRenameKeyDown}
+        aria-current={selected ? "page" : undefined}
         title={session.title}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        className="flex h-full min-w-0 flex-1 items-center gap-2 text-left"
       >
         {leadingSlot}
         <span className="oo-sidebar-nav-label min-w-0 truncate">{session.title}</span>
@@ -294,14 +301,17 @@ export function SessionItem({
           </span>
         ) : null}
       </button>
-      <div className="ml-1 hidden shrink-0 items-center gap-0.5 group-focus-within:flex group-hover:flex">
+      <div className="pointer-events-none ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
         <button
           type="button"
           aria-label={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
           title={pinned ? t("aria.unpinSession") : t("aria.pinSession")}
-          onClick={onPinToggle}
+          onClick={(event) => {
+            event.stopPropagation()
+            onPinToggle()
+          }}
           className={cn(
-            "flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            "flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
             pinned && "text-sidebar-accent-foreground",
           )}
         >
@@ -311,9 +321,12 @@ export function SessionItem({
           type="button"
           aria-label={running ? t("aria.archiveRunningSession") : t("aria.archiveSession")}
           title={running ? t("aria.archiveRunningSession") : t("aria.archiveSession")}
-          onClick={onArchive}
+          onClick={(event) => {
+            event.stopPropagation()
+            onArchive()
+          }}
           disabled={running}
-          className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Archive className="size-3.5" />
         </button>
@@ -393,7 +406,6 @@ export function SidebarSegmentControl({
 }
 
 export function ProjectSidebarGroupItem({
-  activeSessionId,
   expanded,
   group,
   hasUnreadSession,
@@ -410,9 +422,9 @@ export function ProjectSidebarGroupItem({
   onPinSession,
   onRenameSession,
   onSelectSession,
+  selectedSessionId,
   onShowProjectInFolder,
 }: {
-  activeSessionId: string | null
   expanded: boolean
   group: ProjectSidebarGroup
   hasUnreadSession: (sessionId: string) => boolean
@@ -429,6 +441,7 @@ export function ProjectSidebarGroupItem({
   onPinSession: (session: SessionInfo) => void
   onRenameSession: (session: SessionInfo) => void
   onSelectSession: (session: SessionInfo) => void
+  selectedSessionId: string | null
   onShowProjectInFolder: (project: SessionProject) => void
 }) {
   const t = useT()
@@ -466,55 +479,61 @@ export function ProjectSidebarGroupItem({
         </button>
         <div className="ml-1 flex shrink-0 items-center gap-0.5">
           {showCollapsedRunning ? (
-            <LoaderCircle
-              className="size-3.5 animate-spin text-sidebar-foreground/70 opacity-100 transition-opacity group-focus-within:hidden group-hover:hidden"
-              aria-hidden="true"
-            />
-          ) : null}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+            <span
+              title={t("aria.sessionRunning")}
+              aria-label={t("aria.sessionRunning")}
+              className="flex size-5 items-center justify-center"
+            >
+              <LoaderCircle className="size-3.5 animate-spin text-sidebar-foreground/70" aria-hidden="true" />
+            </span>
+          ) : (
+            <>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    title={t("project.moreActions")}
+                    aria-label={t("project.moreActions")}
+                    className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground data-[state=open]:opacity-100"
+                  >
+                    <Ellipsis className="size-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-44">
+                  <DropdownMenuItem onSelect={() => onPinProject(group.project)}>
+                    {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                    <span>{pinned ? t("project.unpin") : t("project.pin")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onShowProjectInFolder(group.project)}>
+                    <FolderOpen className="size-4" />
+                    <span>{t("project.showInFinder")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onRenameProject(group.project)}>
+                    <Pencil className="size-4" />
+                    <span>{t("project.rename")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onArchiveProject(group.project)}>
+                    <Archive className="size-4" />
+                    <span>{t("project.archive")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => onRemoveProject(group.project)}>
+                    <Trash2 className="size-4" />
+                    <span>{t("project.remove")}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <button
                 type="button"
-                title={t("project.moreActions")}
-                aria-label={t("project.moreActions")}
-                className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground data-[state=open]:opacity-100"
+                title={projectTitle}
+                aria-label={projectTitle}
+                className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
+                onClick={() => onNewSession(group.project)}
               >
-                <Ellipsis className="size-3.5" />
+                <SquarePen className="size-3.5" />
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-44">
-              <DropdownMenuItem onSelect={() => onPinProject(group.project)}>
-                {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-                <span>{pinned ? t("project.unpin") : t("project.pin")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onShowProjectInFolder(group.project)}>
-                <FolderOpen className="size-4" />
-                <span>{t("project.showInFinder")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onRenameProject(group.project)}>
-                <Pencil className="size-4" />
-                <span>{t("project.rename")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onArchiveProject(group.project)}>
-                <Archive className="size-4" />
-                <span>{t("project.archive")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={() => onRemoveProject(group.project)}>
-                <Trash2 className="size-4" />
-                <span>{t("project.remove")}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <button
-            type="button"
-            title={projectTitle}
-            aria-label={projectTitle}
-            className="pointer-events-none flex size-5 items-center justify-center rounded opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:pointer-events-auto focus-visible:bg-sidebar-accent focus-visible:text-sidebar-accent-foreground focus-visible:opacity-100"
-            onClick={() => onNewSession(group.project)}
-          >
-            <SquarePen className="size-3.5" />
-          </button>
+            </>
+          )}
         </div>
       </div>
       {expanded ? (
@@ -524,7 +543,7 @@ export function ProjectSidebarGroupItem({
               <SessionItem
                 key={session.id}
                 session={session}
-                active={activeSessionId === session.id}
+                selected={selectedSessionId === session.id}
                 running={isSessionRunning(session.id)}
                 unread={hasUnreadSession(session.id)}
                 now={now}

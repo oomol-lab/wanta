@@ -29,7 +29,6 @@ import { cn } from "@/lib/utils"
 export function AppShellNavigationSidebar({
   accountName,
   activeRoute,
-  activeSessionId,
   avatarUrl,
   collapsed,
   collapsedProjectIds,
@@ -65,6 +64,7 @@ export function AppShellNavigationSidebar({
   projectRegularGroups,
   projectSessions,
   projectSidebarGroups,
+  selectedSessionId,
   sessionsError,
   sidebarSegment,
   sidebarSessionGroups,
@@ -75,7 +75,6 @@ export function AppShellNavigationSidebar({
 }: {
   accountName?: string
   activeRoute: Route
-  activeSessionId: string | null
   avatarUrl?: string
   collapsed: boolean
   collapsedProjectIds: ReadonlySet<string>
@@ -111,6 +110,7 @@ export function AppShellNavigationSidebar({
   projectRegularGroups: ProjectSidebarGroup[]
   projectSessions: SessionInfo[]
   projectSidebarGroups: ProjectSidebarGroup[]
+  selectedSessionId: string | null
   sessionsError: UserFacingError | null
   sidebarSegment: SidebarSegment
   sidebarSessionGroups: SidebarSessionGroups
@@ -120,6 +120,43 @@ export function AppShellNavigationSidebar({
   workspaceSwitching: boolean
 }) {
   const t = useT()
+  const renderProjectGroup = (group: ProjectSidebarGroup) => (
+    <ProjectSidebarGroupItem
+      key={group.project.id}
+      group={group}
+      selectedSessionId={activeRoute === "chat" ? selectedSessionId : null}
+      expanded={!collapsedProjectIds.has(group.project.id)}
+      hasUnreadSession={hasUnreadSession}
+      isSessionRunning={isSessionRunning}
+      now={now}
+      running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
+      onExpandedChange={(expanded) => onProjectExpandedChange(group.project.id, expanded)}
+      onNewSession={onSelectProjectDraft}
+      onPinProject={onPinProject}
+      onShowProjectInFolder={onShowProjectInFolder}
+      onRenameProject={onRenameProjectRequest}
+      onArchiveProject={onArchiveProjectRequest}
+      onRemoveProject={onRemoveProjectRequest}
+      onSelectSession={onSelectSession}
+      onRenameSession={onRenameSessionRequest}
+      onPinSession={onPinSession}
+      onArchiveSession={onArchiveSessionRequest}
+    />
+  )
+  const renderSession = (session: SessionInfo) => (
+    <SessionItem
+      key={session.id}
+      session={session}
+      selected={activeRoute === "chat" && selectedSessionId === session.id}
+      running={isSessionRunning(session.id)}
+      unread={hasUnreadSession(session.id)}
+      now={now}
+      onSelect={() => onSelectSession(session)}
+      onRenameRequest={() => onRenameSessionRequest(session)}
+      onPinToggle={() => onPinSession(session)}
+      onArchive={() => onArchiveSessionRequest(session)}
+    />
+  )
 
   return (
     <aside className="oo-sidebar oo-border-divider relative z-[80] flex min-h-0 flex-col overflow-visible border-r">
@@ -198,43 +235,8 @@ export function AppShellNavigationSidebar({
                       <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-1">
                         {t("sidebar.pinned")}
                       </div>
-                      {projectPinnedGroups.map((group) => (
-                        <ProjectSidebarGroupItem
-                          key={group.project.id}
-                          group={group}
-                          activeSessionId={activeRoute === "chat" ? activeSessionId : null}
-                          expanded={!collapsedProjectIds.has(group.project.id)}
-                          hasUnreadSession={hasUnreadSession}
-                          isSessionRunning={isSessionRunning}
-                          now={now}
-                          running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
-                          onExpandedChange={(expanded) => onProjectExpandedChange(group.project.id, expanded)}
-                          onNewSession={onSelectProjectDraft}
-                          onPinProject={onPinProject}
-                          onShowProjectInFolder={onShowProjectInFolder}
-                          onRenameProject={onRenameProjectRequest}
-                          onArchiveProject={onArchiveProjectRequest}
-                          onRemoveProject={onRemoveProjectRequest}
-                          onSelectSession={onSelectSession}
-                          onRenameSession={onRenameSessionRequest}
-                          onPinSession={onPinSession}
-                          onArchiveSession={onArchiveSessionRequest}
-                        />
-                      ))}
-                      {projectPinnedSessions.map((session) => (
-                        <SessionItem
-                          key={session.id}
-                          session={session}
-                          active={activeRoute === "chat" && activeSessionId === session.id}
-                          running={isSessionRunning(session.id)}
-                          unread={hasUnreadSession(session.id)}
-                          now={now}
-                          onSelect={() => onSelectSession(session)}
-                          onRenameRequest={() => onRenameSessionRequest(session)}
-                          onPinToggle={() => onPinSession(session)}
-                          onArchive={() => onArchiveSessionRequest(session)}
-                        />
-                      ))}
+                      {projectPinnedGroups.map(renderProjectGroup)}
+                      {projectPinnedSessions.map(renderSession)}
                     </div>
                   ) : null}
                   {projectRegularGroups.length > 0 ? (
@@ -254,29 +256,7 @@ export function AppShellNavigationSidebar({
                           <FolderPlus className="size-3.5" />
                         </button>
                       </div>
-                      {projectRegularGroups.map((group) => (
-                        <ProjectSidebarGroupItem
-                          key={group.project.id}
-                          group={group}
-                          activeSessionId={activeRoute === "chat" ? activeSessionId : null}
-                          expanded={!collapsedProjectIds.has(group.project.id)}
-                          hasUnreadSession={hasUnreadSession}
-                          isSessionRunning={isSessionRunning}
-                          now={now}
-                          running={projectHasRunningSession(group.project.id, projectSessions, isSessionRunning)}
-                          onExpandedChange={(expanded) => onProjectExpandedChange(group.project.id, expanded)}
-                          onNewSession={onSelectProjectDraft}
-                          onPinProject={onPinProject}
-                          onShowProjectInFolder={onShowProjectInFolder}
-                          onRenameProject={onRenameProjectRequest}
-                          onArchiveProject={onArchiveProjectRequest}
-                          onRemoveProject={onRemoveProjectRequest}
-                          onSelectSession={onSelectSession}
-                          onRenameSession={onRenameSessionRequest}
-                          onPinSession={onPinSession}
-                          onArchiveSession={onArchiveSessionRequest}
-                        />
-                      ))}
+                      {projectRegularGroups.map(renderProjectGroup)}
                     </div>
                   ) : null}
                 </div>
@@ -290,20 +270,7 @@ export function AppShellNavigationSidebar({
                     <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
                       {t("sidebar.pinned")}
                     </div>
-                    {sidebarSessionGroups.pinned.map((session) => (
-                      <SessionItem
-                        key={session.id}
-                        session={session}
-                        active={activeRoute === "chat" && activeSessionId === session.id}
-                        running={isSessionRunning(session.id)}
-                        unread={hasUnreadSession(session.id)}
-                        now={now}
-                        onSelect={() => onSelectSession(session)}
-                        onRenameRequest={() => onRenameSessionRequest(session)}
-                        onPinToggle={() => onPinSession(session)}
-                        onArchive={() => onArchiveSessionRequest(session)}
-                      />
-                    ))}
+                    {sidebarSessionGroups.pinned.map(renderSession)}
                   </div>
                 ) : null}
                 {sidebarSessionGroups.regular.length > 0 ? (
@@ -311,20 +278,7 @@ export function AppShellNavigationSidebar({
                     <div className="oo-sidebar-section-heading oo-text-caption px-3 pt-1 pb-2">
                       {t("sidebar.tasks")}
                     </div>
-                    {sidebarSessionGroups.regular.map((session) => (
-                      <SessionItem
-                        key={session.id}
-                        session={session}
-                        active={activeRoute === "chat" && activeSessionId === session.id}
-                        running={isSessionRunning(session.id)}
-                        unread={hasUnreadSession(session.id)}
-                        now={now}
-                        onSelect={() => onSelectSession(session)}
-                        onRenameRequest={() => onRenameSessionRequest(session)}
-                        onPinToggle={() => onPinSession(session)}
-                        onArchive={() => onArchiveSessionRequest(session)}
-                      />
-                    ))}
+                    {sidebarSessionGroups.regular.map(renderSession)}
                   </div>
                 ) : null}
               </div>

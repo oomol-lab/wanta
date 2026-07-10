@@ -343,11 +343,12 @@ const AUTH_BLOCKING = new Set([
 
 export default tool({
   description:
-    "Execute one selected OOMOL Link action. Use this only for a selected action that matches the user's task; do not probe unrelated services or actions. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. If the service is not authorized this returns a JSON object with status 'authorization_required' plus service/action/errorCode/authUrl; when you see that, stop trying this provider/action. If the authorization target cannot be derived, this returns status 'error' plus errorCode 'config_missing'. Wanta will render an inline Connect button from the authorization_required tool result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. Do NOT retry this provider/action or fabricate a result.",
+    "Execute one selected OOMOL Link action. Use this only for a selected action that matches the user's task; do not probe unrelated services or actions. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. Optional connectionName must come from list_apps and should only be used when the user selected a specific connected account. If the service is not authorized this returns a JSON object with status 'authorization_required' plus service/action/errorCode/authUrl; when you see that, stop trying this provider/action. If the authorization target cannot be derived, this returns status 'error' plus errorCode 'config_missing'. Wanta will render an inline Connect button from the authorization_required tool result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. If this returns status 'error' instead of 'authorization_required', do not claim the provider is unconnected and do not ask the user to reconnect; report the connector/backend error accurately. If the error mentions FAILED_PRECONDITION, report it as a connector/provider precondition failure, not a local connection or authorization problem. Do NOT retry this provider/action or fabricate a result.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),
     params: tool.schema.string().optional().describe("JSON string of the action input parameters built from inspect_action's inputSchema; omit or '{}' if the schema declares no required fields"),
+    connectionName: tool.schema.string().optional().describe("Optional connector app connectionName from list_apps, used only when the user selected a specific connected account and list_apps returned a non-empty connectionName."),
   },
   async execute(args, context) {
     let data = "{}"
@@ -358,8 +359,13 @@ export default tool({
         return JSON.stringify({ status: "error", message: "params is not valid JSON: " + args.params })
       }
     }
-    const argv = ["connector", "run", args.service, "--action", args.action, "--data", data, "--json"]
+    const argv = ["connector", "run", args.service, "--action", args.action, "--data", data]
+    const connectionName = String(args.connectionName || "").trim()
+    if (connectionName) {
+      argv.push("--connection-name", connectionName)
+    }
     await appendIdentityArgs(argv, null, context.sessionID)
+    argv.push("--json")
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
       return (result.stdout || "").trim() || "{}"

@@ -31,6 +31,7 @@ export interface ProviderSkillPackageLookup {
 const providerSkillPackageCache = new Map<string, ProviderSkillPackageCacheEntry>()
 const providerSkillPackagePendingRequests = new Map<string, Promise<PublicSkillPackage | null>>()
 const emptyProviderSkillPackages = new Map<string, PublicSkillPackage | null>()
+const providerSkillPackageLookupConcurrency = 4
 
 function providerSkillPackageCacheKey(candidate: ProviderSkillCandidate): string {
   return `${candidate.service}:${candidate.providerDisplayName.trim().toLowerCase()}`
@@ -45,6 +46,33 @@ function providerSkillPackageRequestKey(candidates: readonly ProviderSkillCandid
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
+}
+
+function cachedProviderSkillPackage(
+  candidate: ProviderSkillCandidate,
+  now = Date.now(),
+): PublicSkillPackage | null | undefined {
+  const cached = providerSkillPackageCache.get(providerSkillPackageCacheKey(candidate))
+  return cached && now < cached.expiresAt ? cached.package : undefined
+}
+
+async function mapProviderSkillCandidatesWithConcurrency(
+  candidates: readonly ProviderSkillCandidate[],
+  mapper: (candidate: ProviderSkillCandidate) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0
+  const workerCount = Math.min(providerSkillPackageLookupConcurrency, candidates.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < candidates.length) {
+        const candidate = candidates[nextIndex]
+        nextIndex += 1
+        if (candidate) {
+          await mapper(candidate)
+        }
+      }
+    }),
+  )
 }
 
 export function useProviderSkillPackageLookup(providers: readonly ConnectionProvider[]): ProviderSkillPackageLookup {
@@ -70,25 +98,41 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
       }
     }
 
-    setIsLoading(true)
+    const now = Date.now()
+    const initialPackagesByService = new Map<string, PublicSkillPackage | null>()
+    const pendingCandidates: ProviderSkillCandidate[] = []
+    for (const candidate of candidates) {
+      const cached = cachedProviderSkillPackage(candidate, now)
+      if (cached === undefined) {
+        pendingCandidates.push(candidate)
+      } else {
+        initialPackagesByService.set(candidate.service, cached)
+      }
+    }
+
+    setPackagesByService(initialPackagesByService)
+    setResolvedRequestKey(requestKey)
+    setIsLoading(pendingCandidates.length > 0)
     setError(null)
+    if (pendingCandidates.length === 0) {
+      return () => {
+        cancelled = true
+      }
+    }
 
     void (async () => {
-      const next = new Map<string, PublicSkillPackage | null>()
-      const now = Date.now()
       let firstFailure: unknown
 
-      for (const candidate of candidates) {
-        const cacheKey = providerSkillPackageCacheKey(candidate)
-        const cached = providerSkillPackageCache.get(cacheKey)
-        if (cached && now < cached.expiresAt) {
-          next.set(candidate.service, cached.package)
-          continue
-        }
-
+      await mapProviderSkillCandidatesWithConcurrency(pendingCandidates, async (candidate) => {
         try {
           const pkg = await readProviderSkillPackage(candidate)
-          next.set(candidate.service, pkg)
+          if (!cancelled) {
+            setPackagesByService((current) => {
+              const next = new Map(current)
+              next.set(candidate.service, pkg)
+              return next
+            })
+          }
         } catch (cause) {
           console.warn("[wanta] failed to read provider Skill recommendation:", cause)
           reportRendererHandledError(
@@ -97,13 +141,17 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
             cause,
           )
           firstFailure ??= cause
-          next.set(candidate.service, null)
+          if (!cancelled) {
+            setPackagesByService((current) => {
+              const next = new Map(current)
+              next.set(candidate.service, null)
+              return next
+            })
+          }
         }
-      }
+      })
 
       if (!cancelled) {
-        setPackagesByService(next)
-        setResolvedRequestKey(requestKey)
         setError(firstFailure ? errorMessage(firstFailure) : null)
       }
     })()

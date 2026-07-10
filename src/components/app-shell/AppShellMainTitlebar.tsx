@@ -1,4 +1,5 @@
 import type { SessionInfo } from "../../../electron/session/common.ts"
+import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { LucideIcon } from "lucide-react"
 
@@ -38,7 +39,7 @@ export function AppShellMainTitlebar({
   onOpenSearch: () => void
   onRenameSession: (sessionId: string, title: string) => void
   onToggleSidebar: () => void
-  onViewBilling: () => void
+  onViewBilling: (target?: BillingDetailsTarget) => void
   showArtifactsToggle: boolean
   sidebarCollapsed: boolean
   titlebarEditable: boolean

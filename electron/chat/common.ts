@@ -58,10 +58,9 @@ export interface MessageAttachmentEvent {
   partId: string
   attachment: ChatAttachment
 }
-export interface MessageArtifactsEvent {
+export interface ArtifactBundleUpdatedEvent {
   sessionId: string
   messageId: string
-  artifactRoot: string
 }
 export interface TurnOutputUpdatedEvent {
   sessionId: string
@@ -196,6 +195,31 @@ export interface GenerationStoppedEvent {
   partIds?: string[]
   stoppedAt?: number
 }
+export type GenerationInterruptedReason =
+  | "connection_failed"
+  | "generation_stale"
+  | "runtime_failed"
+  | "runtime_restarted"
+  | "runtime_error"
+  | "start_timeout"
+  | "submit_timeout"
+
+export interface GenerationInterruptedEvent {
+  sessionId: string
+  messageId?: string
+  partIds?: string[]
+  interruptedAt: number
+  reason: GenerationInterruptedReason
+  message: string
+}
+export type GenerationNoticeKind = "generation_stale" | "tool_running_without_output"
+export interface GenerationNoticeEvent {
+  sessionId: string
+  messageId?: string
+  partIds?: string[]
+  createdAt: number
+  kind: GenerationNoticeKind
+}
 export type ChatRunPhase =
   | "sending"
   | "submitted"
@@ -260,9 +284,11 @@ export interface ChatMessagePart {
     | "reconnecting"
     | "reconnected"
     | "connectionFailed"
+    | "generationStale"
     | "runtimeRestarting"
     | "runtimeRecovered"
     | "runtimeFailed"
+    | "toolRunningWithoutOutput"
   attempt?: number
   maxAttempts?: number
   errorText?: string
@@ -291,7 +317,6 @@ export interface ChatMessage {
   role: ChatRole
   parts: ChatMessagePart[]
   createdAt: number
-  artifactRoot?: string
   tokenUsage?: ChatTokenUsage
 }
 
@@ -469,6 +494,12 @@ export type LocalArtifactPackKind =
   | "mixed"
 
 export type LocalArtifactDisplayMode = "gallery" | "document" | "table" | "project" | "file_list" | "single"
+export type ArtifactBundleKind = LocalArtifactPackKind
+export type ArtifactBundleDisplay = LocalArtifactDisplayMode
+export type ArtifactBundleStatus = "ready" | "partial" | "failed"
+export type ArtifactBundleFailure = "generated_preview_not_persisted"
+export type ArtifactItemStatus = "ready" | "missing"
+export type ArtifactItemOrigin = "managed_output" | "assistant_attachment" | "assistant_preview" | "recovered_output"
 
 export type LocalArtifactEntryRole = "primary" | "supporting" | "summary" | "metadata"
 
@@ -491,12 +522,38 @@ export interface LocalArtifactPack {
   truncated: boolean
 }
 
-export type TurnOutputFileRole = "artifact" | "process" | "project_change"
+export interface ArtifactBundle {
+  id: string
+  sessionId: string
+  messageId: string
+  rootPath: string
+  status: ArtifactBundleStatus
+  kind: ArtifactBundleKind
+  display: ArtifactBundleDisplay
+  items: ArtifactItem[]
+  totalItems: number
+  truncated: boolean
+  createdAt: number
+  completedAt?: number
+  failure?: ArtifactBundleFailure
+}
+
+export interface ArtifactItem extends LocalArtifactItem {
+  id: string
+  status: ArtifactItemStatus
+  origin: ArtifactItemOrigin
+}
+
+export interface ArtifactBundlesRequest {
+  sessionId: string
+  messageIds: string[]
+}
+
+export type TurnOutputFileRole = "process" | "project_change"
 export type TurnOutputChangeKind = "added" | "modified" | "deleted"
 export type TurnOutputDiffKind = "text" | "binary" | "missing" | "too_large"
 
 export interface TurnOutputSummary {
-  artifactCount: number
   processFileCount: number
   changedFileCount: number
   additions: number
@@ -519,7 +576,6 @@ export interface TurnOutputFile {
 export interface TurnOutputRecord {
   sessionId: string
   messageId: string
-  artifactRoot?: string
   processRoot?: string
   projectRoot?: string
   createdAt: number
@@ -531,6 +587,11 @@ export interface TurnOutputRecord {
 export interface TurnOutputRequest {
   sessionId: string
   messageId: string
+}
+
+export interface TurnOutputsRequest {
+  sessionId: string
+  messageIds: string[]
 }
 
 export interface TurnFileDiffRequest extends TurnOutputRequest {
@@ -547,9 +608,16 @@ export interface TurnFileDiffResult {
   truncated?: boolean
 }
 
+export interface ChatSessionSnapshot {
+  activeRun: ChatActiveRun | null
+  messages: ChatMessage[]
+  pendingPermissions: ChatPermissionRequest[]
+  pendingQuestions: ChatQuestionRequest[]
+  sessionId: string
+}
+
 export interface ResolveLocalArtifactsRequest {
-  text?: string
-  artifactRoot?: string
+  artifactRoot: string
   maxDirectoryItems?: number
 }
 
@@ -574,19 +642,9 @@ export interface SetAgentOrganizationRequest {
   organizationName?: string
 }
 
-export type BillingPageTarget = "recharge" | "usage"
 export type RechargePrice = "5_USD" | "20_USD" | "100_USD"
 export type BillingPeriodDays = 7 | 30 | 90
-export type SubscriptionPlanTag = "ai_pro" | "ai_max"
 export type WantaSubscriptionPlan = "wanta_plus" | "wanta_pro"
-
-export interface OpenBillingPageRequest {
-  target: BillingPageTarget
-}
-
-export interface OpenTopUpCheckoutRequest {
-  price: RechargePrice
-}
 
 export interface CreditBalanceResult {
   balance: string | null
@@ -633,36 +691,12 @@ export interface BillingSpendStats {
   total: { totalCredit?: string; eventCount?: number; totalUsage?: string }
 }
 
-export interface BillingLogItem {
-  debitCredit: string
-  eventID: string
-  userID: string
-  source: string
-  subject: string
-  sourceType: string
-  serviceScope: string
-  traceID: string
-  payload: Record<string, unknown>
-  createdAt: number
-}
-
 export interface SubscriptionStatus {
   plans: string[]
   plan: string | null
   features: string[]
   platforms: Record<string, string[]>
   wanta?: WantaAdditionalSeatsData
-}
-
-export interface SubscriptionSchedule {
-  plan: string
-  scheduled: boolean
-  reason?: "cancel" | "update"
-  targetPlan?: string | null
-  targetAdditionalSeats?: number | null
-  cancelAt?: number
-  currentPeriodEnd?: number
-  scheduledEffectiveAt?: number | null
 }
 
 export interface WantaAdditionalSeatsData {
@@ -717,26 +751,15 @@ export interface WantaPendingPaymentResult {
   pendingUpdateExpiresAt: number | null
 }
 
-export interface BillingOverviewRequest {
-  days: BillingPeriodDays
-  forceRefresh?: boolean
-}
-
 export interface BillingOverviewResult {
   balance: CreditUsages | null
   spend: BillingSpendStats | null
   metering: BillingSpendStats | null
-  logs: BillingLogItem[]
   subscription: SubscriptionStatus | null
-  schedules: SubscriptionSchedule[]
   wantaPendingPayment: WantaPendingPaymentResult | null
 }
 
 export type BillingSummaryResult = BillingOverviewResult
-
-export interface OpenSubscriptionCheckoutRequest {
-  plan: SubscriptionPlanTag
-}
 
 export type ChatService = typeof ChatService
 export const ChatService = serviceName("chat-service") as ServiceName<{
@@ -745,7 +768,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messageDelta: MessageDeltaEvent
     messageReasoningDelta: MessageReasoningDeltaEvent
     messageAttachment: MessageAttachmentEvent
-    messageArtifacts: MessageArtifactsEvent
+    artifactBundleUpdated: ArtifactBundleUpdatedEvent
     turnOutputUpdated: TurnOutputUpdatedEvent
     assistantActivity: AssistantActivityEvent
     toolCallStarted: ToolCallStartedEvent
@@ -759,6 +782,8 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     messagePartRemoved: MessagePartRemovedEvent
     messageError: MessageErrorEvent
     generationStopped: GenerationStoppedEvent
+    generationInterrupted: GenerationInterruptedEvent
+    generationNotice: GenerationNoticeEvent
     activeRunUpdated: ActiveRunUpdatedEvent
     agentConnectionChanged: AgentConnectionChangedEvent
     agentError: AgentErrorEvent
@@ -768,9 +793,10 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
     getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
-    getTurnOutput(req: TurnOutputRequest): Promise<TurnOutputRecord | null>
+    getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]>
     getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>
+    getArtifactBundles(req: ArtifactBundlesRequest): Promise<ArtifactBundle[]>
     openLocalPath(req: OpenLocalPathRequest): Promise<void>
     showLocalPathInFolder(req: ShowLocalPathInFolderRequest): Promise<void>
     /** 用系统浏览器打开一个 http/https URL（额度中心等渲染层已自行解析好 URL 后调用；主进程仅校验+外开）。 */
@@ -780,6 +806,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     stopGeneration(sessionId: string): Promise<void>
     getActiveRuns(): Promise<ChatActiveRun[]>
     getActiveRun(sessionId: string): Promise<ChatActiveRun | null>
+    getSessionSnapshot(sessionId: string): Promise<ChatSessionSnapshot>
     getMessages(sessionId: string): Promise<ChatMessage[]>
     getPendingQuestions(sessionId: string): Promise<ChatQuestionRequest[]>
     answerQuestion(req: AnswerQuestionRequest): Promise<void>

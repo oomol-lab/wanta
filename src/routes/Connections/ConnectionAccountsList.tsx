@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
+import { isConnectionPollingTarget, isConnectionServicePollingTarget } from "@/hooks/connection-oauth-pending"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +32,7 @@ export function ConnectionAccountsList({
   onDisconnect,
   polling,
   provider,
+  reconnectBlocked,
 }: {
   busy: UseConnections["busy"]
   canSetDefault: boolean
@@ -44,6 +45,7 @@ export function ConnectionAccountsList({
   onDisconnect: (target: DisconnectTarget) => void
   polling: string | null
   provider: ConnectionProviderSummary
+  reconnectBlocked?: boolean
 }) {
   const t = useT()
   const servicePolling = isConnectionServicePollingTarget(polling, provider.service)
@@ -66,7 +68,9 @@ export function ConnectionAccountsList({
           index={index}
           onConnect={onConnect}
           onDisconnect={onDisconnect}
+          polling={polling}
           provider={provider}
+          reconnectBlocked={Boolean(reconnectBlocked)}
           servicePolling={servicePolling}
         />
       ))}
@@ -83,7 +87,9 @@ function ConnectionAccountItem({
   index,
   onConnect,
   onDisconnect,
+  polling,
   provider,
+  reconnectBlocked,
   servicePolling,
 }: {
   app: ConnectionAppSummary
@@ -98,13 +104,16 @@ function ConnectionAccountItem({
     appId?: string,
   ) => Promise<void>
   onDisconnect: (target: DisconnectTarget) => void
+  polling: string | null
   provider: ConnectionProviderSummary
+  reconnectBlocked: boolean
   servicePolling: boolean
 }) {
   const t = useT()
   const [aliasDraft, setAliasDraft] = React.useState(app.alias ?? "")
   const [aliasEditing, setAliasEditing] = React.useState(false)
   const [aliasBusy, setAliasBusy] = React.useState(false)
+  const [defaultBusy, setDefaultBusy] = React.useState(false)
   const reconnectAuthType =
     app.authType && app.authType !== "no_auth" && isConnectionAuthType(app.authType, provider.authTypes)
       ? app.authType
@@ -115,6 +124,10 @@ function ConnectionAccountItem({
   const aliasValue = aliasDraft.trim()
   const aliasDirty = aliasValue !== (app.alias?.trim() ?? "")
   const aliasDisabled = servicePolling || aliasBusy
+  const accountPolling = isConnectionPollingTarget(polling, provider.service, app.id)
+  const defaultDisabled = servicePolling || defaultBusy || busy === "set_default"
+  const reconnectDisabled =
+    accountPolling || servicePolling || reconnectBlocked || busy === "connect" || busy === "set_default"
   const secondaryItems = [
     connectedAccount && connectedAccount !== accountLabel ? connectedAccount : null,
     authLabel,
@@ -124,7 +137,8 @@ function ConnectionAccountItem({
     setAliasDraft(app.alias ?? "")
     setAliasEditing(false)
     setAliasBusy(false)
-  }, [app.id, app.alias])
+    setDefaultBusy(false)
+  }, [app.id, app.alias, app.isDefault])
 
   async function saveAlias() {
     if (!aliasDirty || aliasDisabled) return
@@ -142,6 +156,16 @@ function ConnectionAccountItem({
   function cancelAliasEditing() {
     setAliasDraft(app.alias ?? "")
     setAliasEditing(false)
+  }
+
+  async function setDefaultAccount() {
+    if (defaultDisabled) return
+    setDefaultBusy(true)
+    try {
+      await connections.setDefaultAccount(provider.service, app.id)
+    } finally {
+      setDefaultBusy(false)
+    }
   }
 
   return (
@@ -234,10 +258,10 @@ function ConnectionAccountItem({
             variant="outline"
             size="sm"
             className={accountActionButtonClassName}
-            disabled={servicePolling}
-            onClick={() => void connections.setDefaultAccount(provider.service, app.id)}
+            disabled={defaultDisabled}
+            onClick={() => void setDefaultAccount()}
           >
-            <Star className="size-3.5" />
+            {defaultBusy ? <Loader size={14} /> : <Star className="size-3.5" />}
             {t("connections.setDefaultConnection")}
           </Button>
         ) : null}
@@ -247,11 +271,15 @@ function ConnectionAccountItem({
             variant="outline"
             size="sm"
             className={accountActionButtonClassName}
-            disabled={servicePolling || busy === "connect"}
+            disabled={reconnectDisabled}
             onClick={() => void onConnect(provider, reconnectAuthType, app.id)}
           >
-            {servicePolling ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
-            {servicePolling ? t("connections.oauthWaiting") : t("connections.reconnect")}
+            {accountPolling || reconnectBlocked ? <Loader size={14} /> : <KeyRound className="size-3.5" />}
+            {accountPolling
+              ? t("connections.oauthWaiting")
+              : reconnectBlocked
+                ? t("connections.oauthInProgress")
+                : t("connections.reconnect")}
           </Button>
         ) : null}
         {provider.canDisconnect ? (
@@ -259,7 +287,7 @@ function ConnectionAccountItem({
             type="button"
             variant="outline"
             size="sm"
-            disabled={servicePolling || busy === "disconnect"}
+            disabled={servicePolling || busy === "disconnect" || busy === "set_default"}
             className={cn(
               accountActionButtonClassName,
               "border-[var(--oo-danger-border)] text-destructive hover:bg-[var(--oo-danger-surface)] hover:text-destructive",

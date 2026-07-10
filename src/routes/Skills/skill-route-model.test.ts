@@ -163,7 +163,6 @@ test("runtime status ignores modified external hosts", () => {
 
 test("getOrganizationSkillRuntimeStatus classifies installed and conflict states", () => {
   const orgSkill = {
-    enabled: true,
     packageName: "@alice/demo",
     skillName: "demo",
     version: "1.0.0",
@@ -229,10 +228,9 @@ test("getInstallableOrganizationSkills only returns runtime-missing skills", () 
     ["external", externalOnly],
   ])
   const skills = [
-    { enabled: true, packageName: "@alice/installed", skillName: "installed", version: "1.0.0" },
-    { enabled: true, packageName: "@alice/missing", skillName: "missing", version: "1.0.0" },
-    { enabled: true, packageName: "@alice/external", skillName: "external", version: "1.0.0" },
-    { enabled: false, packageName: "@alice/disabled", skillName: "disabled", version: "1.0.0" },
+    { packageName: "@alice/installed", skillName: "installed", version: "1.0.0" },
+    { packageName: "@alice/missing", skillName: "missing", version: "1.0.0" },
+    { packageName: "@alice/external", skillName: "external", version: "1.0.0" },
   ]
 
   assert.deepEqual(

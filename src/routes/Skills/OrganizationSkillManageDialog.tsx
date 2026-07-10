@@ -14,11 +14,13 @@ import {
   planProviderSkillRecommendationBulkLinks,
 } from "./organization-management-model.ts"
 import {
+  buildInstallableOrganizationRecommendationSkills,
   buildOrganizationSkillRecommendationItems,
   looksLikeSkillPackageName,
   mergeMarketPackages,
 } from "./organization-skill-manage-helpers.ts"
 import {
+  OrganizationInstallMissingButton,
   OrganizationRecommendationRemoveConfirmDialog,
   OrganizationSkillDialogEmpty,
   OrganizationSkillManageLoadingSkeleton,
@@ -43,8 +45,6 @@ import {
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 import {
-  canInstallPublicSkill,
-  getOrganizationSkillRuntimeStatus,
   initialPublicPackageCatalogState,
   isNearScrollBottom,
   publicPackageCatalogReducer,
@@ -154,23 +154,7 @@ export function OrganizationSkillManageDialog({
   )
   const recommendationSourceIncludesSystem = recommendationSourceFilter !== "configured"
   const installableRecommendedSkills = React.useMemo(
-    () =>
-      allRecommendationItems
-        .flatMap((item) => {
-          if (item.type === "configured") {
-            const state = getOrganizationSkillRuntimeStatus(groupById, item.skill).state
-            return item.skill.enabled && (state === "missing" || state === "external-only")
-              ? [{ packageName: item.skill.packageName, skillName: item.skill.skillName }]
-              : []
-          }
-          return canInstallPublicSkill(item.recommendation.installState)
-            ? [{ packageName: item.recommendation.packageName, skillName: item.recommendation.skillId }]
-            : []
-        })
-        .filter((skill, index, skills) => {
-          const key = `${skill.packageName}\u0000${skill.skillName}`
-          return skills.findIndex((item) => `${item.packageName}\u0000${item.skillName}` === key) === index
-        }),
+    () => buildInstallableOrganizationRecommendationSkills({ groupById, items: allRecommendationItems }),
     [allRecommendationItems, groupById],
   )
   const marketPackages = React.useMemo(
@@ -540,21 +524,12 @@ export function OrganizationSkillManageDialog({
                   !recommendationSourceIncludesSystem ||
                   recommendedOrganizationSkills.length <= 1) &&
                 installableRecommendedSkills.length > 1 ? (
-                <Button
-                  type="button"
-                  size="sm"
+                <OrganizationInstallMissingButton
+                  busy={busyAction === "installSkillBatch"}
+                  count={installableRecommendedSkills.length}
                   disabled={Boolean(busyAction)}
                   onClick={() => onInstallRuntimeSkills(installableRecommendedSkills)}
-                >
-                  {busyAction === "installSkillBatch" ? (
-                    <RefreshCwIcon className="size-3.5 animate-spin" />
-                  ) : (
-                    <PackageIcon className="size-3.5" />
-                  )}
-                  {t("organizations.skillManageInstallMissingAll", {
-                    count: installableRecommendedSkills.length,
-                  })}
-                </Button>
+                />
               ) : null}
             </div>
           </div>

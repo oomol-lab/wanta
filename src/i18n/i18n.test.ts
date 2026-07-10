@@ -22,6 +22,15 @@ test("translate interpolates OO-style {{var}}", () => {
   assert.equal(translate("zh-CN", "skills.installed"), "已安装")
 })
 
+test("full access permission mode is localized without implementation labels", () => {
+  assert.equal(translate("zh-CN", "chat.permissionModeFullAccess"), "完全访问")
+  assert.equal(translate("en", "chat.permissionModeFullAccess"), "Full access")
+  assert.doesNotMatch(translate("zh-CN", "chat.fullAccessDialogTitle"), /YOLO/)
+  assert.doesNotMatch(translate("en", "chat.fullAccessDialogTitle"), /YOLO/)
+  assert.doesNotMatch(translate("zh-CN", "chat.fullAccessDialogBody"), /YOLO/)
+  assert.doesNotMatch(translate("en", "chat.fullAccessDialogBody"), /YOLO/)
+})
+
 test("isLocale guards the supported locales", () => {
   assert.equal(isLocale("zh-CN"), true)
   assert.equal(isLocale("en"), true)

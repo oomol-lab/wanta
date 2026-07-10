@@ -49,6 +49,7 @@ export interface UseOrganizationSkills {
 }
 
 interface OrganizationSkillCacheEntry {
+  cacheKey: string
   fetchedAt: number
   organizationId: string
   skills: OrganizationSkillConfigItem[]
@@ -59,6 +60,11 @@ let organizationSkillCache: OrganizationSkillCacheEntry | null = null
 
 function organizationWorkspaceKey(workspace: WorkspaceSelection): string {
   return workspace.type === "organization" ? workspace.organizationId : "personal"
+}
+
+function organizationSkillCacheKey(workspace: WorkspaceSelection, accountId: string | undefined): string {
+  const accountKey = accountId?.trim() || "anonymous"
+  return `${accountKey}\u0000${organizationWorkspaceKey(workspace)}`
 }
 
 function organizationSkillError(cause: unknown): UserFacingError {
@@ -81,8 +87,9 @@ function toChatContextSkill(skill: OrganizationSkillConfigItem): OrganizationSki
   }
 }
 
-export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganizationSkills {
+export function useOrganizationSkills(workspace: WorkspaceSelection, accountId?: string): UseOrganizationSkills {
   const workspaceKey = organizationWorkspaceKey(workspace)
+  const cacheKey = organizationSkillCacheKey(workspace, accountId)
   const organizationId = workspace.type === "organization" ? workspace.organizationId : null
   const organizationName = workspace.type === "organization" ? (workspace.organization?.name ?? null) : null
   const remoteApiEnabled = organizationSkillsApiEnabled()
@@ -94,9 +101,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
   const [hasLoaded, setHasLoaded] = React.useState(false)
   const requestIdRef = React.useRef(0)
   const latestOrganizationIdRef = React.useRef<string | null>(organizationId)
+  const latestCacheKeyRef = React.useRef(cacheKey)
 
   React.useEffect(() => {
     latestOrganizationIdRef.current = organizationId
+    latestCacheKeyRef.current = cacheKey
     requestIdRef.current += 1
     setSkills([])
     setSkillsOrganizationId(null)
@@ -107,7 +116,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       setSkillsOrganizationId(organizationId)
       setHasLoaded(Boolean(organizationId && !remoteApiEnabled))
     }
-  }, [organizationId, remoteApiEnabled, workspaceKey])
+  }, [cacheKey, organizationId, remoteApiEnabled, workspaceKey])
 
   const refresh = React.useCallback(
     async (options: { forceRefresh?: boolean } = {}): Promise<void> => {
@@ -123,6 +132,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       const now = Date.now()
       if (
         !options.forceRefresh &&
+        organizationSkillCache?.cacheKey === cacheKey &&
         organizationSkillCache?.organizationId === organizationId &&
         now - organizationSkillCache.fetchedAt < organizationSkillCacheMs
       ) {
@@ -142,7 +152,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         if (requestIdRef.current !== requestId) {
           return
         }
-        organizationSkillCache = { fetchedAt: Date.now(), organizationId, skills: config.skills }
+        organizationSkillCache = { cacheKey, fetchedAt: Date.now(), organizationId, skills: config.skills }
         setSkills(config.skills)
         setSkillsOrganizationId(organizationId)
         setError(null)
@@ -150,7 +160,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       } catch (cause) {
         if (requestIdRef.current === requestId) {
           if (isOrganizationSkillsUnavailable(cause)) {
-            organizationSkillCache = { fetchedAt: Date.now(), organizationId, skills: [] }
+            organizationSkillCache = { cacheKey, fetchedAt: Date.now(), organizationId, skills: [] }
             setSkills([])
             setSkillsOrganizationId(organizationId)
             setError(null)
@@ -167,7 +177,7 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         }
       }
     },
-    [organizationId, remoteApiEnabled, workspaceKey],
+    [cacheKey, organizationId, remoteApiEnabled, workspaceKey],
   )
 
   React.useEffect(() => {
@@ -177,12 +187,12 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
   }, [refresh])
 
   const reloadAfterMutation = React.useCallback(
-    async (targetOrganizationId: string): Promise<void> => {
-      if (latestOrganizationIdRef.current !== targetOrganizationId) {
-        return
-      }
-      if (organizationSkillCache?.organizationId === targetOrganizationId) {
+    async (targetOrganizationId: string, targetCacheKey: string): Promise<void> => {
+      if (organizationSkillCache?.cacheKey === targetCacheKey) {
         organizationSkillCache = null
+      }
+      if (latestOrganizationIdRef.current !== targetOrganizationId || latestCacheKeyRef.current !== targetCacheKey) {
+        return
       }
       await refresh({ forceRefresh: true })
     },
@@ -198,10 +208,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         throw new Error("Organization Skill API is not enabled.")
       }
       const targetOrganizationId = organizationId
+      const targetCacheKey = cacheKey
       await addOrganizationSkill(targetOrganizationId, input)
-      await reloadAfterMutation(targetOrganizationId)
+      await reloadAfterMutation(targetOrganizationId, targetCacheKey)
     },
-    [organizationId, reloadAfterMutation, remoteApiEnabled],
+    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled],
   )
 
   const updateSkill = React.useCallback(
@@ -213,10 +224,11 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         throw new Error("Organization Skill API is not enabled.")
       }
       const targetOrganizationId = organizationId
+      const targetCacheKey = cacheKey
       await updateOrganizationSkill(targetOrganizationId, configId, input)
-      await reloadAfterMutation(targetOrganizationId)
+      await reloadAfterMutation(targetOrganizationId, targetCacheKey)
     },
-    [organizationId, reloadAfterMutation, remoteApiEnabled],
+    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled],
   )
 
   const removeSkill = React.useCallback(
@@ -228,11 +240,16 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
         throw new Error("Organization Skill API is not enabled.")
       }
       const targetOrganizationId = organizationId
+      const targetCacheKey = cacheKey
       const targetSkill = skills.find((skill) => skill.id === configId)
-      await removeOrganizationSkill(targetOrganizationId, targetSkill?.packageName ?? configId)
-      await reloadAfterMutation(targetOrganizationId)
+      if (!targetSkill?.packageName) {
+        await reloadAfterMutation(targetOrganizationId, targetCacheKey)
+        return
+      }
+      await removeOrganizationSkill(targetOrganizationId, targetSkill.packageName)
+      await reloadAfterMutation(targetOrganizationId, targetCacheKey)
     },
-    [organizationId, reloadAfterMutation, remoteApiEnabled, skills],
+    [cacheKey, organizationId, reloadAfterMutation, remoteApiEnabled, skills],
   )
 
   const reorder = React.useCallback(
@@ -246,17 +263,36 @@ export function useOrganizationSkills(workspace: WorkspaceSelection): UseOrganiz
       const targetOrganizationId = organizationId
       const requestId = requestIdRef.current + 1
       requestIdRef.current = requestId
-      const config = await reorderOrganizationSkills(targetOrganizationId, items)
-      if (requestIdRef.current !== requestId || latestOrganizationIdRef.current !== targetOrganizationId) {
-        return
+      try {
+        const config = await reorderOrganizationSkills(targetOrganizationId, items)
+        if (
+          requestIdRef.current !== requestId ||
+          latestOrganizationIdRef.current !== targetOrganizationId ||
+          latestCacheKeyRef.current !== cacheKey
+        ) {
+          return
+        }
+        organizationSkillCache = {
+          cacheKey,
+          fetchedAt: Date.now(),
+          organizationId: targetOrganizationId,
+          skills: config.skills,
+        }
+        setSkills(config.skills)
+        setSkillsOrganizationId(targetOrganizationId)
+        setError(null)
+        setHasLoaded(true)
+      } finally {
+        if (
+          requestIdRef.current === requestId &&
+          latestOrganizationIdRef.current === targetOrganizationId &&
+          latestCacheKeyRef.current === cacheKey
+        ) {
+          setLoading(false)
+        }
       }
-      organizationSkillCache = { fetchedAt: Date.now(), organizationId: targetOrganizationId, skills: config.skills }
-      setSkills(config.skills)
-      setSkillsOrganizationId(targetOrganizationId)
-      setError(null)
-      setHasLoaded(true)
     },
-    [organizationId, remoteApiEnabled],
+    [cacheKey, organizationId, remoteApiEnabled],
   )
 
   const skillsBelongToCurrentOrganization = skillsOrganizationId === organizationId

@@ -13,8 +13,10 @@ import {
   shellWords,
 } from "./shell-command.ts"
 
+const projectDependencyInstallGrantPattern = "project_dependency_install"
 const projectDevCommandGrantPattern = "project_dev_command"
 const packageManagers = new Set(["bun", "npm", "pnpm", "yarn"])
+const packageDependencyVerbs = new Set(["add", "ci", "i", "install", "remove", "rm", "uninstall", "update", "upgrade"])
 const packageManagerOptionsWithValue = new Set([
   "-C",
   "-w",
@@ -37,6 +39,25 @@ const deniedDevCommandArguments = new Set([
   "--watch",
   "--write",
 ])
+const deniedProjectDependencyOptions = new Set(["-g", "--global", "--global-folder", "--registry", "--userconfig"])
+
+function hasDeniedProjectDependencyOption(words: readonly string[]): boolean {
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index]
+    const option = optionName(word)
+    if (deniedProjectDependencyOptions.has(option)) {
+      return true
+    }
+    if (option !== "--location") {
+      continue
+    }
+    const location = word.includes("=") ? optionValue(word) : words[index + 1]
+    if (location?.toLowerCase() === "global") {
+      return true
+    }
+  }
+  return false
+}
 
 function splitLeadingAnd(command: string): { left: string; right: string } | undefined {
   let singleQuoted = false
@@ -185,6 +206,51 @@ function packageManagerCommandAllowed(words: readonly string[]): boolean {
   return supportedScriptName(verb)
 }
 
+function packageDependencyInstallAllowed(words: readonly string[]): boolean {
+  const manager = commandName(words[0])
+  if (!manager || !packageManagers.has(manager)) {
+    return false
+  }
+  const command = nextCommandWord(words, 1)
+  if (!command || !packageDependencyVerbs.has(command.value.toLowerCase())) {
+    return false
+  }
+  return !hasDeniedProjectDependencyOption(words)
+}
+
+function commandExplicitlyTargetsProject(command: string, projectRoot: string): boolean {
+  const split = splitLeadingAnd(command)
+  if (split) {
+    const words = shellWords(split.left)
+    const directory = words ? cdPath(words) : undefined
+    return Boolean(directory && projectPathAllowed(directory, projectRoot))
+  }
+  const words = shellWords(command)
+  if (!words) {
+    return false
+  }
+  for (let index = 1; index < words.length; index += 1) {
+    const word = words[index]
+    const option = optionName(word)
+    if (!["-C", "--cwd", "--dir", "--prefix"].includes(option)) {
+      continue
+    }
+    const directory = word.includes("=") ? optionValue(word) : words[index + 1]
+    return Boolean(directory && projectPathAllowed(directory, projectRoot))
+  }
+  return false
+}
+
+function commandLikelyTargetsAProject(command: string): boolean {
+  const split = splitLeadingAnd(command)
+  if (split) {
+    const words = shellWords(split.left)
+    return Boolean(words && cdPath(words))
+  }
+  const words = shellWords(command)
+  return Boolean(words?.some((word) => ["-C", "--cwd", "--dir", "--prefix"].includes(optionName(word))))
+}
+
 function directDevCommandAllowed(words: readonly string[]): boolean {
   const name = commandName(words[0])
   if (!name) {
@@ -263,6 +329,31 @@ export function isProjectDevCommandRequest(request: ChatPermissionRequest, proje
   return Boolean(words && wordsMatchProjectDevCommand(words))
 }
 
+/**
+ * 只识别显式指向当前项目的标准包管理器依赖变更。它用于一次当前任务授权，
+ * 不接受全局安装、自定义 registry 或 user config，避免扩大为任意包管理器权限。
+ */
+export function isProjectDependencyInstallRequest(request: ChatPermissionRequest, projectRoot: string): boolean {
+  if (permissionRequestKind(request) !== "command") {
+    return false
+  }
+  const command = permissionCommand(request)
+  const words = command ? parsedProjectDevCommandWords(command, projectRoot) : null
+  return Boolean(
+    command && words && commandExplicitlyTargetsProject(command, projectRoot) && packageDependencyInstallAllowed(words),
+  )
+}
+
+/** 渲染层只用于展示当前任务授权入口；主进程仍会复核真实项目根目录。 */
+export function isLikelyProjectDependencyInstallRequest(request: ChatPermissionRequest): boolean {
+  if (permissionRequestKind(request) !== "command") {
+    return false
+  }
+  const command = permissionCommand(request)
+  const words = command ? parsedLikelyProjectDevCommandWords(command) : null
+  return Boolean(command && words && commandLikelyTargetsAProject(command) && packageDependencyInstallAllowed(words))
+}
+
 export function createProjectDevCommandSessionGrant(
   request: ChatPermissionRequest,
   projectRoot: string,
@@ -271,6 +362,23 @@ export function createProjectDevCommandSessionGrant(
     return null
   }
   return { action: "command", kind: "project_dev_command", patterns: [projectDevCommandGrantPattern] }
+}
+
+export function createProjectDependencyInstallTaskGrant(
+  request: ChatPermissionRequest,
+  projectRoot: string,
+  generationId: string,
+): SessionPermissionGrant | null {
+  if (!isProjectDependencyInstallRequest(request, projectRoot)) {
+    return null
+  }
+  return {
+    action: request.action.trim().toLowerCase(),
+    generationId,
+    kind: "project_dependency_install",
+    patterns: [projectDependencyInstallGrantPattern],
+    projectRoot,
+  }
 }
 
 export function requestMatchesProjectDevCommandSessionGrant(
@@ -282,5 +390,22 @@ export function requestMatchesProjectDevCommandSessionGrant(
     grant.kind === "project_dev_command" &&
     grant.patterns.includes(projectDevCommandGrantPattern) &&
     isProjectDevCommandRequest(request, projectRoot)
+  )
+}
+
+export function requestMatchesProjectDependencyInstallTaskGrant(
+  request: ChatPermissionRequest,
+  grant: SessionPermissionGrant,
+  projectRoot: string,
+  generationId: string | undefined,
+): boolean {
+  return Boolean(
+    generationId &&
+    grant.kind === "project_dependency_install" &&
+    grant.action === request.action.trim().toLowerCase() &&
+    grant.generationId === generationId &&
+    grant.projectRoot === projectRoot &&
+    grant.patterns.includes(projectDependencyInstallGrantPattern) &&
+    isProjectDependencyInstallRequest(request, projectRoot),
   )
 }

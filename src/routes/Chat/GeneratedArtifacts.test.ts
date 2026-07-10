@@ -1,12 +1,17 @@
 import type { LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
-import type { ResolvedArtifactPayload } from "./artifact-filter.ts"
+import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
+import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { TranslateFn } from "@/i18n/i18n"
 
+import * as React from "react"
+import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { parseCsvPreview } from "./artifact-csv-preview.ts"
-import { dedupeArtifactPayloadsAcrossSources, filterArtifactPayloads } from "./artifact-filter.ts"
 import { htmlPreviewSrcDoc } from "./artifact-html-preview.ts"
 import { artifactGroupDisplayItem, artifactKindLabel } from "./artifact-metadata.ts"
+import { buildArtifactPaletteItems } from "./composer-palette-items.ts"
+import { GeneratedArtifactsShelf } from "./GeneratedArtifacts.tsx"
+import { I18nContext, translate } from "@/i18n/i18n"
 
 function artifactItem(name: string, mime: string): LocalArtifactItem {
   return {
@@ -28,6 +33,27 @@ function artifactFolder(name: string): LocalArtifactItem {
 }
 
 const testTranslate: TranslateFn = (key) => (key === "artifacts.kindFolder" ? "Folder" : key)
+
+function renderArtifactShelf(groups: ResolvedArtifactGroup[]): string {
+  return renderToStaticMarkup(
+    React.createElement(
+      I18nContext.Provider,
+      {
+        value: {
+          locale: "zh-CN",
+          setLocale: () => undefined,
+          t: (key, vars) => translate("zh-CN", key, vars),
+        },
+      },
+      React.createElement(GeneratedArtifactsShelf, {
+        groups,
+        selectionGroups: groups,
+        onContextMenu: () => undefined,
+        onOpen: () => undefined,
+      }),
+    ),
+  )
+}
 
 describe("htmlPreviewSrcDoc", () => {
   it("keeps an existing doctype first when injecting preview head content", () => {
@@ -71,152 +97,6 @@ describe("parseCsvPreview", () => {
 
   it("does not add an empty row for a trailing newline", () => {
     expect(parseCsvPreview("a,b\n", { maxRows: 10, maxColumns: 10 }).rows).toEqual([["a", "b"]])
-  })
-})
-
-describe("filterArtifactPayloads", () => {
-  it("keeps manifest-declared HTML deliverables for non-code requests", () => {
-    const item = artifactItem("report.html", "text/html")
-    const pack: LocalArtifactPack = {
-      root: {
-        path: "/tmp/wanta-artifacts",
-        name: "wanta-artifacts",
-        kind: "directory",
-        mime: "inode/directory",
-      },
-      title: "Report",
-      kind: "web_page",
-      display: "document",
-      items: [{ ...item, role: "primary", order: 1 }],
-      supporting: [],
-      totalItems: 1,
-      truncated: false,
-    }
-    const payloads: ResolvedArtifactPayload[] = [
-      {
-        group: {
-          root: pack.root,
-          items: [item],
-          totalItems: 1,
-          truncated: false,
-        },
-        pack,
-      },
-    ]
-
-    expect(
-      filterArtifactPayloads(payloads, {
-        messageId: "assistant-1",
-        requestText: "Analyze the PostHog data",
-        text: "Done",
-        artifactRoot: "/tmp/wanta-artifacts",
-        sourcePaths: [],
-      })[0]?.group.items.map((artifact) => artifact.name),
-    ).toEqual(["report.html"])
-  })
-
-  it("still filters unmanifested intermediate HTML from non-code requests", () => {
-    const item = artifactItem("scratch.html", "text/html")
-    const payloads: ResolvedArtifactPayload[] = [
-      {
-        group: {
-          items: [item],
-          totalItems: 1,
-          truncated: false,
-        },
-      },
-    ]
-
-    expect(
-      filterArtifactPayloads(payloads, {
-        messageId: "assistant-1",
-        requestText: "Analyze the data",
-        text: "Output: `/tmp/wanta-artifacts/scratch.html`",
-        sourcePaths: [],
-      }),
-    ).toEqual([])
-  })
-
-  it("keeps manifest-declared supporting artifacts with primary items", () => {
-    const primary = artifactItem("report.html", "text/html")
-    const supporting = artifactItem("summary.md", "text/markdown")
-    const pack: LocalArtifactPack = {
-      root: {
-        path: "/tmp/wanta-artifacts",
-        name: "wanta-artifacts",
-        kind: "directory",
-        mime: "inode/directory",
-      },
-      title: "Report",
-      kind: "web_page",
-      display: "document",
-      items: [{ ...primary, role: "primary", order: 1 }],
-      supporting: [{ ...supporting, role: "summary", order: 1 }],
-      totalItems: 2,
-      truncated: false,
-    }
-    const payloads: ResolvedArtifactPayload[] = [
-      {
-        group: {
-          root: pack.root,
-          items: [primary],
-          totalItems: 1,
-          truncated: false,
-        },
-        pack,
-      },
-    ]
-
-    const [result] = filterArtifactPayloads(payloads, {
-      messageId: "assistant-1",
-      requestText: "Analyze the PostHog data",
-      text: "Done",
-      artifactRoot: "/tmp/wanta-artifacts",
-      sourcePaths: [],
-    })
-
-    expect(result?.pack?.items.map((artifact) => artifact.name)).toEqual(["report.html"])
-    expect(result?.pack?.supporting.map((artifact) => artifact.name)).toEqual(["summary.md"])
-    expect(result?.pack?.totalItems).toBe(2)
-  })
-
-  it("dedupes the same artifact discovered from an artifact root and later text", () => {
-    const item = artifactItem("report.html", "text/html")
-    const pack: LocalArtifactPack = {
-      root: {
-        path: "/tmp/wanta-artifacts",
-        name: "wanta-artifacts",
-        kind: "directory",
-        mime: "inode/directory",
-      },
-      title: "Report",
-      kind: "web_page",
-      display: "document",
-      items: [{ ...item, role: "primary", order: 1 }],
-      supporting: [],
-      totalItems: 1,
-      truncated: false,
-    }
-    const payloads: ResolvedArtifactPayload[] = [
-      {
-        group: {
-          root: pack.root,
-          items: [item],
-          totalItems: 1,
-          truncated: false,
-        },
-        pack,
-      },
-      {
-        group: {
-          items: [item],
-          totalItems: 1,
-          truncated: false,
-        },
-      },
-    ]
-
-    expect(dedupeArtifactPayloadsAcrossSources(payloads)).toEqual([payloads[0]])
   })
 })
 
@@ -296,5 +176,186 @@ describe("artifact group display", () => {
         truncated: false,
       }),
     ).toBe(root)
+  })
+
+  it("uses the first image as the cover for a generated image set", () => {
+    const first = artifactItem("first.png", "image/png")
+    const second = artifactItem("second.png", "image/png")
+    const root = artifactFolder("generated-images")
+
+    expect(
+      artifactGroupDisplayItem({
+        root,
+        items: [first, second],
+        totalItems: 2,
+        truncated: false,
+      }),
+    ).toBe(first)
+  })
+})
+
+describe("GeneratedArtifactsShelf", () => {
+  it("renders one meaningful collection card without a duplicate view-all action", () => {
+    const internalFolderName = "1783659231256-c0b6cdb5-b417-4ffc-87d9-9b32e68fa1c1"
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: {
+          root: artifactFolder(internalFolderName),
+          items: [
+            artifactItem("项目任务清单.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            artifactItem("员工通讯录.pdf", "application/pdf"),
+            artifactItem("故障复盘报告.pdf", "application/pdf"),
+          ],
+          totalItems: 3,
+          truncated: false,
+        },
+        status: "ready",
+      },
+    ])
+
+    expect(html).toContain("3 个制成品")
+    expect(html).toContain("点击查看和预览全部文件")
+    expect(html).not.toContain("查看所有产物")
+    expect(html).not.toContain(internalFolderName)
+    expect(html.match(/<button/g)).toHaveLength(1)
+  })
+
+  it("renders a visible failure instead of silently omitting an unpersisted image", () => {
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: { items: [], totalItems: 0, truncated: false },
+        status: "failed",
+        failure: "generated_preview_not_persisted",
+      },
+    ])
+
+    expect(html).toContain("制成品保存失败")
+    expect(html).toContain("没有保存为可重新打开的本地文件")
+  })
+
+  it("keeps persisted items visible while warning about a partial image set", () => {
+    const image = artifactItem("001.png", "image/png")
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: { root: artifactFolder("generated-images"), items: [image], totalItems: 1, truncated: false },
+        status: "partial",
+        failure: "generated_preview_not_persisted",
+      },
+    ])
+
+    expect(html).toContain("部分制成品未保存")
+    expect(html).toContain("001")
+  })
+
+  it("falls back to the latest displayable group when a newer group is empty", () => {
+    const html = renderArtifactShelf([
+      {
+        messageId: "assistant-1",
+        group: {
+          items: [artifactItem("earlier-report.pdf", "application/pdf")],
+          totalItems: 1,
+          truncated: false,
+        },
+        status: "ready",
+      },
+      {
+        messageId: "assistant-2",
+        group: { items: [], totalItems: 0, truncated: false },
+        status: "ready",
+      },
+    ])
+
+    expect(html).toContain("earlier report")
+    expect(html).toContain("<button")
+  })
+})
+
+describe("artifact composer palette", () => {
+  it("includes the full artifact selection context", () => {
+    const earlier = artifactItem("earlier.png", "image/png")
+    const latest = artifactItem("latest.pdf", "application/pdf")
+    const selection: ArtifactSelection = {
+      messageId: "assistant-2",
+      group: {
+        items: [latest],
+        totalItems: 1,
+        truncated: false,
+      },
+      groups: [
+        {
+          messageId: "assistant-1",
+          group: {
+            items: [earlier],
+            totalItems: 1,
+            truncated: false,
+          },
+        },
+        {
+          messageId: "assistant-2",
+          group: {
+            items: [latest],
+            totalItems: 1,
+            truncated: false,
+          },
+        },
+      ],
+      selectedPath: latest.path,
+    }
+
+    expect(buildArtifactPaletteItems(selection, testTranslate).map((item) => item.title)).toEqual([
+      "latest.pdf",
+      "earlier.png",
+    ])
+  })
+
+  it("offers the root folder for multi-file artifact packs", () => {
+    const pdf = artifactItem("report.pdf", "application/pdf")
+    const spreadsheet = artifactItem("data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    const root = artifactFolder("analysis-output")
+    const pack: LocalArtifactPack = {
+      root,
+      title: "Analysis output",
+      kind: "mixed",
+      display: "file_list",
+      items: [
+        { ...pdf, role: "primary", order: 1 },
+        { ...spreadsheet, role: "primary", order: 2 },
+      ],
+      supporting: [],
+      totalItems: 2,
+      truncated: false,
+    }
+    const selection: ArtifactSelection = {
+      messageId: "assistant-1",
+      group: {
+        root,
+        items: [pdf, spreadsheet],
+        totalItems: 2,
+        truncated: false,
+      },
+      groups: [
+        {
+          messageId: "assistant-1",
+          group: {
+            root,
+            items: [pdf, spreadsheet],
+            totalItems: 2,
+            truncated: false,
+          },
+          pack,
+        },
+      ],
+      pack,
+      selectedPath: root.path,
+    }
+
+    const items = buildArtifactPaletteItems(selection, testTranslate)
+
+    expect(items.map((item) => item.title)).toEqual(["analysis-output", "data.xlsx", "report.pdf"])
+    expect(items[0]?.artifact.kind).toBe("directory")
+    expect(items[0]?.meta).toBe("folder")
   })
 })

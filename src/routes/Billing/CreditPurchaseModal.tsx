@@ -1,39 +1,26 @@
-import type { RechargePrice, SubscriptionPlanTag } from "../../../electron/chat/common.ts"
+import type { RechargePrice } from "../../../electron/chat/common.ts"
 
-import { CheckIcon, CreditCardIcon, ExternalLinkIcon, LogInIcon, RefreshCwIcon } from "lucide-react"
+import { CreditCardIcon, ExternalLinkIcon, LogInIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 import { toast } from "sonner"
-import { getSubscriptionMarkers, isWantaSubscriptionPlan } from "./plans.ts"
 import { formatCredit } from "./usage.ts"
 import { useChatService } from "@/components/AppContext"
 import { ErrorNotice } from "@/components/ErrorNotice"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { useAuth } from "@/hooks/useAuth"
 import { useBillingOverview } from "@/hooks/useBillingOverview"
 import { useT } from "@/i18n/i18n"
-import { subscriptionCheckoutUrl, subscriptionPortalUrl, topUpCheckoutUrl } from "@/lib/billing-client"
+import { topUpCheckoutUrl } from "@/lib/billing-client"
 import { cn } from "@/lib/utils"
 
 export interface CreditPurchaseModalProps {
-  billingContext?: CreditPurchaseBillingContext
   cacheScope: string
-  mode?: "usage"
   open: boolean
   onClose: () => void
   onCheckoutOpened?: () => void
   onViewDetails?: () => void
   showViewDetails?: boolean
-}
-
-export interface CreditPurchaseBillingContext {
-  canManage: boolean
-  connectedProviderCount?: number
-  memberCount: number
-  organizationId?: string
-  organizationName?: string
-  workspaceLabel: string
 }
 
 interface TopUpOption {
@@ -47,19 +34,6 @@ interface TopUpOption {
     | "billing.purchaseDialog.topupStarterDescription"
     | "billing.purchaseDialog.topupBoostDescription"
     | "billing.purchaseDialog.topupReserveDescription"
-}
-
-interface SubscriptionPlan {
-  plan: SubscriptionPlanTag
-  titleKey: "billing.subscriptions.aiProPlanTitle" | "billing.subscriptions.aiMaxPlanTitle"
-  priceKey: "billing.subscriptions.aiProPlanPrice" | "billing.subscriptions.aiMaxPlanPrice"
-  summaryKey: "billing.purchaseDialog.proSummary" | "billing.purchaseDialog.maxSummary"
-  featureKeys: Array<
-    | "billing.subscriptions.aiProPlanFeature1"
-    | "billing.subscriptions.aiProPlanFeature2"
-    | "billing.subscriptions.aiMaxPlanFeature1"
-    | "billing.subscriptions.aiMaxPlanFeature2"
-  >
 }
 
 const topUpOptions: TopUpOption[] = [
@@ -83,39 +57,6 @@ const topUpOptions: TopUpOption[] = [
   },
 ]
 
-const subscriptionPlans: SubscriptionPlan[] = [
-  {
-    plan: "ai_pro",
-    titleKey: "billing.subscriptions.aiProPlanTitle",
-    priceKey: "billing.subscriptions.aiProPlanPrice",
-    summaryKey: "billing.purchaseDialog.proSummary",
-    featureKeys: ["billing.subscriptions.aiProPlanFeature1", "billing.subscriptions.aiProPlanFeature2"],
-  },
-  {
-    plan: "ai_max",
-    titleKey: "billing.subscriptions.aiMaxPlanTitle",
-    priceKey: "billing.subscriptions.aiMaxPlanPrice",
-    summaryKey: "billing.purchaseDialog.maxSummary",
-    featureKeys: ["billing.subscriptions.aiMaxPlanFeature1", "billing.subscriptions.aiMaxPlanFeature2"],
-  },
-]
-
-function planLabel(plan: string | undefined, t: ReturnType<typeof useT>): string {
-  if (plan === "wanta_plus") {
-    return t("billing.wantaPlusPlanTitle")
-  }
-  if (plan === "wanta_pro") {
-    return t("billing.wantaProPlanTitle")
-  }
-  if (plan === "ai_pro") {
-    return t("billing.subscriptions.aiProPlanTitle")
-  }
-  if (plan === "ai_max") {
-    return t("billing.subscriptions.aiMaxPlanTitle")
-  }
-  return t("billing.noSubscription")
-}
-
 export function CreditPurchaseModal({
   cacheScope,
   onCheckoutOpened,
@@ -125,41 +66,16 @@ export function CreditPurchaseModal({
   showViewDetails = true,
 }: CreditPurchaseModalProps) {
   const t = useT()
-  const { login, state } = useAuth()
-  const userId = state?.account?.id
+  const { login } = useAuth()
   const chatService = useChatService()
   const overview = useBillingOverview(30, { cacheScope, enabled: open })
   const isSessionExpired = overview.error?.kind === "auth_required"
   const handleSignIn = React.useCallback(() => {
     void login().then(() => overview.refresh({ force: true }))
   }, [login, overview])
-  const [subscriptionLoading, setSubscriptionLoading] = React.useState<SubscriptionPlanTag | null>(null)
   const [topUpLoading, setTopUpLoading] = React.useState<RechargePrice | null>(null)
 
   const currentCredits = overview.data ? formatCredit(overview.data.balance?.total.currentCredit) : "--"
-  const currentPlans = React.useMemo(
-    () => getSubscriptionMarkers(overview.data?.subscription ?? null),
-    [overview.data?.subscription],
-  )
-  const currentWantaPlan = currentPlans.find(isWantaSubscriptionPlan)
-
-  const handleSubscription = React.useCallback(
-    async (plan: SubscriptionPlanTag, isCurrent: boolean) => {
-      setSubscriptionLoading(plan)
-      try {
-        // 渲染层解析结账/门户 URL，再交主进程 openExternalUrl 用系统浏览器打开（主进程只校验+外开）。
-        const url =
-          currentPlans.length > 0 && !isCurrent ? await subscriptionPortalUrl() : subscriptionCheckoutUrl(plan, userId)
-        await chatService.invoke("openExternalUrl", { url })
-        onCheckoutOpened?.()
-      } catch {
-        toast.error(t("billing.purchaseDialog.checkoutFailed"))
-      } finally {
-        setSubscriptionLoading(null)
-      }
-    },
-    [chatService, currentPlans.length, onCheckoutOpened, t, userId],
-  )
 
   const handleTopUp = React.useCallback(
     async (price: RechargePrice) => {
@@ -177,7 +93,6 @@ export function CreditPurchaseModal({
     [chatService, onCheckoutOpened, t],
   )
 
-  const currentPlan = currentWantaPlan ?? currentPlans.find((plan) => plan === "ai_pro" || plan === "ai_max")
   const titleKey = "billing.purchaseDialog.title"
   const descriptionKey = "billing.purchaseDialog.description"
 
@@ -223,67 +138,12 @@ export function CreditPurchaseModal({
         </div>
         {overview.error ? <ErrorNotice error={overview.error} compact showDiagnosticsCopy={false} /> : null}
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3">
           <SummaryCell
             label={t("billing.purchaseDialog.currentCredits")}
             value={overview.loading && !overview.data ? "..." : currentCredits}
           />
-          <SummaryCell
-            label={t("billing.purchaseDialog.currentPlan")}
-            value={overview.loading && !overview.data ? "..." : planLabel(currentPlan, t)}
-          />
         </div>
-
-        <section className="grid gap-3">
-          <SectionHeader
-            title={t("billing.purchaseDialog.subscriptionTitle")}
-            description={t("billing.purchaseDialog.subscriptionDescription")}
-          />
-          <div className="grid gap-3 md:grid-cols-2">
-            {subscriptionPlans.map((plan) => {
-              const isCurrent = currentPlans.includes(plan.plan)
-              const actionLoading = subscriptionLoading === plan.plan
-              return (
-                <article key={plan.plan} className="grid gap-4 rounded-lg border border-border p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="grid gap-1">
-                      <div className="oo-text-title text-foreground">{t(plan.titleKey)}</div>
-                      <p className="oo-text-body text-muted-foreground">{t(plan.summaryKey)}</p>
-                    </div>
-                    {isCurrent ? (
-                      <Badge variant="secondary">{t("billing.subscriptions.currentSubscriptionButton")}</Badge>
-                    ) : null}
-                  </div>
-                  <div className="flex items-end gap-1">
-                    <span className="text-4xl leading-none font-semibold text-foreground">{t(plan.priceKey)}</span>
-                    <span className="oo-text-body text-muted-foreground">{t("billing.subscriptions.priceUnit")}</span>
-                  </div>
-                  <div className="grid gap-2">
-                    {plan.featureKeys.map((key) => (
-                      <div key={key} className="oo-text-body flex items-center gap-2 text-foreground">
-                        <CheckIcon className="size-4 text-[var(--oo-success-foreground)]" />
-                        <span>{t(key)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <Button
-                    type="button"
-                    disabled={isCurrent || subscriptionLoading !== null}
-                    variant={isCurrent ? "outline" : "default"}
-                    onClick={() => void handleSubscription(plan.plan, isCurrent)}
-                  >
-                    {actionLoading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
-                    {isCurrent
-                      ? t("billing.subscriptions.currentSubscriptionButton")
-                      : currentPlans.length > 0
-                        ? t("billing.subscriptions.modifySubscriptionButton")
-                        : t("billing.subscriptions.subscribePlanButton", { plan: t(plan.titleKey) })}
-                  </Button>
-                </article>
-              )
-            })}
-          </div>
-        </section>
 
         <section className="grid gap-3">
           <SectionHeader
@@ -303,7 +163,7 @@ export function CreditPurchaseModal({
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={topUpLoading !== null}
+                    disabled={isSessionExpired || topUpLoading !== null}
                     onClick={() => void handleTopUp(option.price)}
                   >
                     {actionLoading ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}

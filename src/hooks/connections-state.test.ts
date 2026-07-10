@@ -38,7 +38,7 @@ function summary(workspace: ConnectionWorkspace): ConnectionSummary {
   }
 }
 
-test("connectionsStateReducer keeps old summary hidden while workspace sync starts", () => {
+test("connectionsStateReducer clears old summary while workspace sync starts", () => {
   const previousSummary = summary({ type: "personal" })
   const loadedState = connectionsStateReducer(initialConnectionsState, {
     summary: previousSummary,
@@ -55,7 +55,7 @@ test("connectionsStateReducer keeps old summary hidden while workspace sync star
     { type: "workspaceSyncStarted" },
   )
 
-  assert.equal(next.summary, previousSummary)
+  assert.equal(next.summary, null)
   assert.equal(next.summaryWorkspaceKey, null)
   assert.equal(next.agentScopeWorkspaceKey, null)
   assert.equal(next.busy, "refresh")
@@ -73,6 +73,10 @@ test("connectionsStateReducer clears only refresh busy when refresh completes", 
     connectionsStateReducer({ ...initialConnectionsState, busy: "connect" }, { type: "refreshFinished" }).busy,
     "connect",
   )
+  assert.equal(
+    connectionsStateReducer({ ...initialConnectionsState, busy: "set_default" }, { type: "refreshFinished" }).busy,
+    "set_default",
+  )
 })
 
 test("connectionsStateReducer starts refresh without replacing active actions", () => {
@@ -84,6 +88,10 @@ test("connectionsStateReducer starts refresh without replacing active actions", 
   assert.equal(
     connectionsStateReducer({ ...initialConnectionsState, busy: "disconnect" }, { type: "refreshStarted" }).busy,
     "disconnect",
+  )
+  assert.equal(
+    connectionsStateReducer({ ...initialConnectionsState, busy: "set_default" }, { type: "refreshStarted" }).busy,
+    "set_default",
   )
 })
 

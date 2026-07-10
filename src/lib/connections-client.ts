@@ -1,5 +1,6 @@
 import type {
   ConnectionConnectInput,
+  ConnectionAppSummary,
   ConnectionAppDetail,
   ConnectionExecutionLogRequest,
   ConnectionExecutionLogSummary,
@@ -21,6 +22,7 @@ import {
 } from "../../electron/connections/summary-model.ts"
 import {
   mergeConnectionSummary,
+  normalizeApp,
   normalizeConnectionAppDetail,
   normalizeApiKeyConfig,
   normalizeCustomCredentialConfig,
@@ -29,6 +31,7 @@ import {
   normalizeProvider,
 } from "../../electron/connections/summary.ts"
 import { normalizeUsageSummary } from "../../electron/connections/usage.ts"
+import { connectionWorkspaceKey } from "@/lib/connection-workspace"
 import { connectorBaseUrl, consoleBaseUrl } from "@/lib/domain"
 import { oomolFetch } from "@/lib/oomol-http"
 
@@ -62,11 +65,15 @@ interface ConnectorCacheEntry {
 
 const connectorGetCache = new Map<string, ConnectorCacheEntry>()
 const connectorGetInFlight = new Map<string, Promise<{ data: unknown; meta: unknown }>>()
+const connectorGetRequestVersions = new Map<string, number>()
 const oauthConnectInFlight = new Map<string, Promise<OAuthConnectStart>>()
+let connectorReadCacheGeneration = 0
 
 function clearConnectorReadCache(): void {
+  connectorReadCacheGeneration += 1
   connectorGetCache.clear()
   connectorGetInFlight.clear()
+  connectorGetRequestVersions.clear()
 }
 
 export function clearConnectorCache(): void {
@@ -82,10 +89,6 @@ function connectorOAuthReturnProtocol(): string {
   return typeof window !== "undefined" && window.location.protocol === "http:"
     ? branding.devProtocolScheme
     : branding.protocolScheme
-}
-
-function connectionWorkspaceKey(workspace: ConnectionWorkspace): string {
-  return workspace.type === "organization" ? `organization:${workspace.organizationName}` : "personal"
 }
 
 function workspaceHeaders(workspace: ConnectionWorkspace): Record<string, string> {
@@ -197,11 +200,20 @@ async function getConnector<T>(
     return inFlight as Promise<{ data: T; meta: unknown }>
   }
 
-  const request = fetchConnectorGet<T>(path, workspace, cacheKey, cached).finally(() => {
-    connectorGetInFlight.delete(cacheKey)
+  const requestGeneration = connectorReadCacheGeneration
+  const requestVersion = (connectorGetRequestVersions.get(cacheKey) ?? 0) + 1
+  connectorGetRequestVersions.set(cacheKey, requestVersion)
+  const request = fetchConnectorGet<T>(path, workspace, cacheKey, cached, requestGeneration, requestVersion)
+  const trackedRequest = request.finally(() => {
+    if (
+      connectorGetRequestVersions.get(cacheKey) === requestVersion &&
+      connectorGetInFlight.get(cacheKey) === trackedRequest
+    ) {
+      connectorGetInFlight.delete(cacheKey)
+    }
   })
-  connectorGetInFlight.set(cacheKey, request as Promise<{ data: unknown; meta: unknown }>)
-  return request
+  connectorGetInFlight.set(cacheKey, trackedRequest as Promise<{ data: unknown; meta: unknown }>)
+  return trackedRequest
 }
 
 async function fetchConnectorGet<T>(
@@ -209,6 +221,8 @@ async function fetchConnectorGet<T>(
   workspace: ConnectionWorkspace,
   cacheKey: string,
   cached: ConnectorCacheEntry | undefined,
+  generation: number,
+  requestVersion: number,
 ): Promise<{ data: T; meta: unknown }> {
   const response = await oomolFetch(`${connectorBaseUrl}${path}`, {
     headers: {
@@ -220,7 +234,9 @@ async function fetchConnectorGet<T>(
   })
 
   if (response.status === 304 && cached) {
-    cached.fetchedAt = Date.now()
+    if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
+      cached.fetchedAt = Date.now()
+    }
     return { data: cached.data as T, meta: cached.meta }
   }
 
@@ -230,13 +246,15 @@ async function fetchConnectorGet<T>(
   }
 
   const result = unwrapConnectorEnvelope<T>(payload)
-  connectorGetCache.set(cacheKey, {
-    data: result.data,
-    etag: asString(response.headers.get("etag")),
-    fetchedAt: Date.now(),
-    lastModified: asString(response.headers.get("last-modified")),
-    meta: result.meta,
-  })
+  if (connectorReadCacheGeneration === generation && connectorGetRequestVersions.get(cacheKey) === requestVersion) {
+    connectorGetCache.set(cacheKey, {
+      data: result.data,
+      etag: asString(response.headers.get("etag")),
+      fetchedAt: Date.now(),
+      lastModified: asString(response.headers.get("last-modified")),
+      meta: result.meta,
+    })
+  }
   return result
 }
 
@@ -276,9 +294,19 @@ export async function getConnectionSummary(
   })
 }
 
-export async function isProviderConnectionActive(service: string, workspace: ConnectionWorkspace): Promise<boolean> {
+export async function getActiveConnectionAppIdsForService(
+  service: string,
+  workspace: ConnectionWorkspace,
+): Promise<string[]> {
   const appsResult = await getConnector<RawApp[]>("/v1/apps", workspace, { forceRefresh: true })
-  return appsResult.data.some((app) => app.service === service && app.status === "active")
+  return appsResult.data
+    .filter((app) => app.service === service && app.status === "active")
+    .map((app) => asString(app.id))
+    .filter((appId): appId is string => Boolean(appId))
+}
+
+export async function isProviderConnectionActive(service: string, workspace: ConnectionWorkspace): Promise<boolean> {
+  return (await getActiveConnectionAppIdsForService(service, workspace)).length > 0
 }
 
 export async function getConnectionProviderDetail(
@@ -498,10 +526,15 @@ export async function updateAlias(appId: string, alias: string, workspace: Conne
   clearConnectorReadCache()
 }
 
-export async function setDefaultAccount(service: string, appId: string, workspace: ConnectionWorkspace): Promise<void> {
-  await requestConnector(`/v1/apps/services/${encodeURIComponent(service)}/default`, workspace, {
+export async function setDefaultAccount(
+  service: string,
+  appId: string,
+  workspace: ConnectionWorkspace,
+): Promise<ConnectionAppSummary | null> {
+  const result = await requestConnector<RawApp>(`/v1/apps/services/${encodeURIComponent(service)}/default`, workspace, {
     method: "PUT",
     body: JSON.stringify({ appId }),
   })
   clearConnectorReadCache()
+  return normalizeApp(result.data) ?? null
 }

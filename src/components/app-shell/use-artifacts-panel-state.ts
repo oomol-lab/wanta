@@ -1,4 +1,5 @@
 import type { AppShellRoute as Route } from "./app-shell-types.ts"
+import type { PanelSelection } from "./artifacts-panel-selection.ts"
 import type { ArtifactSelection } from "@/routes/Chat/GeneratedArtifacts"
 import type { TurnOutputSelection } from "@/routes/Chat/TurnOutputs"
 
@@ -10,6 +11,14 @@ import {
   clampArtifactsPanelWidthForLayout,
   readStoredArtifactsPanelWidth,
 } from "./app-shell-model.ts"
+import {
+  artifactPanelSelection,
+  EMPTY_PANEL_SELECTION,
+  nextArtifactPanelSelection,
+  nextTurnOutputPanelSelection,
+  releaseManualPanelSelection,
+  turnOutputPanelSelection,
+} from "./artifacts-panel-selection.ts"
 
 interface UseArtifactsPanelStateOptions {
   activeSessionId: string | null
@@ -38,6 +47,7 @@ interface UseArtifactsPanelStateResult {
   handleTurnOutputOpen: (selection: TurnOutputSelection) => void
   hasPanelSelection: boolean
   isArtifactsPanelResizing: boolean
+  latestArtifactSelection: ArtifactSelection | null
   setArtifactsPanelOpen: React.Dispatch<React.SetStateAction<boolean>>
   setArtifactsPanelMaximizedState: (maximized: boolean) => void
   turnOutputSelection: TurnOutputSelection | null
@@ -53,8 +63,9 @@ export function useArtifactsPanelState({
   sidebarCollapsed,
   sidebarWidth,
 }: UseArtifactsPanelStateOptions): UseArtifactsPanelStateResult {
-  const [artifactSelection, setArtifactSelection] = React.useState<ArtifactSelection | null>(null)
-  const [turnOutputSelection, setTurnOutputSelection] = React.useState<TurnOutputSelection | null>(null)
+  const [panelSelection, setPanelSelection] = React.useState<PanelSelection>(EMPTY_PANEL_SELECTION)
+  const [latestAutoPanelSelection, setLatestAutoPanelSelection] = React.useState<PanelSelection>(EMPTY_PANEL_SELECTION)
+  const [latestArtifactSelection, setLatestArtifactSelection] = React.useState<ArtifactSelection | null>(null)
   const [artifactsPanelOpen, setArtifactsPanelOpen] = React.useState(false)
   const [artifactsPanelMaximized, setArtifactsPanelMaximized] = React.useState(false)
   const [artifactsPanelWidth, setArtifactsPanelWidth] = React.useState(readStoredArtifactsPanelWidth)
@@ -65,12 +76,13 @@ export function useArtifactsPanelState({
   const artifactsPanelPendingWidth = React.useRef<number | null>(null)
   const artifactsPanelLayoutWidth = React.useRef<number | null>(null)
   const artifactsPanelSidebarRestore = React.useRef<boolean | null>(null)
-  const panelSelectionModeRef = React.useRef<"auto" | "manual">("auto")
   const sidebarCollapsedRef = React.useRef(sidebarCollapsed)
   const artifactsPanelShellRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelContentRef = React.useRef<HTMLDivElement | null>(null)
   const artifactsPanelMaxWidthValue = artifactsPanelMaxWidthState ?? Number.POSITIVE_INFINITY
-  const hasPanelSelection = artifactSelection !== null || turnOutputSelection !== null
+  const artifactSelection = panelSelection.kind === "artifact" ? panelSelection.selection : null
+  const turnOutputSelection = panelSelection.kind === "turnOutput" ? panelSelection.selection : null
+  const hasPanelSelection = panelSelection.kind !== "empty"
   const artifactsPanelVisible = route === "chat" && artifactsPanelOpen && hasPanelSelection
   const artifactsPanelIsMaximized = artifactsPanelVisible && artifactsPanelMaximized
   const visibleArtifactsPanelWidth = clampArtifactsPanelWidthForLayout(artifactsPanelWidth, artifactsPanelMaxWidthValue)
@@ -139,11 +151,25 @@ export function useArtifactsPanelState({
   )
 
   React.useEffect(() => {
-    setArtifactSelection(null)
-    setTurnOutputSelection(null)
+    setPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestAutoPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestArtifactSelection(null)
     setArtifactsPanelOpen(false)
     setArtifactsPanelMaximizedState(false)
   }, [activeSessionId, setArtifactsPanelMaximizedState])
+
+  React.useEffect(() => {
+    if (artifactsPanelOpen) {
+      return
+    }
+    setPanelSelection((current) => {
+      if (latestAutoPanelSelection.kind !== "empty") {
+        return latestAutoPanelSelection
+      }
+      const released = releaseManualPanelSelection(current)
+      return released === current ? current : released
+    })
+  }, [artifactsPanelOpen, latestAutoPanelSelection])
 
   React.useLayoutEffect(() => {
     const element = appChromeRef.current
@@ -161,7 +187,7 @@ export function useArtifactsPanelState({
         expandedBy > 0 &&
         route === "chat" &&
         artifactsPanelOpen &&
-        (artifactSelection !== null || turnOutputSelection !== null) &&
+        panelSelection.kind !== "empty" &&
         !isArtifactsPanelResizing
 
       setArtifactsPanelMaxWidthState(maxWidth)
@@ -176,13 +202,12 @@ export function useArtifactsPanelState({
     return () => observer.disconnect()
   }, [
     appChromeRef,
-    artifactSelection,
     artifactsPanelOpen,
     isArtifactsPanelResizing,
+    panelSelection.kind,
     route,
     sidebarCollapsed,
     sidebarWidth,
-    turnOutputSelection,
   ])
 
   React.useEffect(() => {
@@ -308,51 +333,45 @@ export function useArtifactsPanelState({
   )
 
   const handleArtifactsReset = React.useCallback(() => {
-    panelSelectionModeRef.current = "auto"
-    setArtifactSelection(null)
-    setTurnOutputSelection(null)
+    setPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestAutoPanelSelection(EMPTY_PANEL_SELECTION)
+    setLatestArtifactSelection(null)
     setArtifactsPanelOpen(false)
     setArtifactsPanelMaximizedState(false)
   }, [setArtifactsPanelMaximizedState])
 
   const handleArtifactsOpen = React.useCallback((selection: ArtifactSelection) => {
-    panelSelectionModeRef.current = "manual"
-    setArtifactSelection(selection)
-    setTurnOutputSelection(null)
+    setPanelSelection(artifactPanelSelection(selection, "manual"))
     setArtifactsPanelOpen(true)
   }, [])
 
-  const handleArtifactsAvailable = React.useCallback((selection: ArtifactSelection) => {
-    if (panelSelectionModeRef.current === "manual") {
-      return
-    }
-    setTurnOutputSelection(null)
-    setArtifactSelection((current) => {
-      return current?.messageId === selection.messageId ? current : selection
-    })
-  }, [])
+  const handleArtifactsAvailable = React.useCallback(
+    (selection: ArtifactSelection) => {
+      setLatestArtifactSelection(selection)
+      setLatestAutoPanelSelection(artifactPanelSelection(selection, "auto"))
+      setPanelSelection((current) => nextArtifactPanelSelection(current, selection, artifactsPanelOpen))
+    },
+    [artifactsPanelOpen],
+  )
 
   const handleTurnOutputOpen = React.useCallback((selection: TurnOutputSelection) => {
-    panelSelectionModeRef.current = "manual"
-    setTurnOutputSelection(selection)
-    setArtifactSelection(null)
+    setPanelSelection(turnOutputPanelSelection(selection, "manual"))
     setArtifactsPanelOpen(true)
   }, [])
 
   const handleTurnOutputAvailable = React.useCallback(
     (selection: TurnOutputSelection) => {
-      if (panelSelectionModeRef.current === "manual") {
-        return
-      }
-      setTurnOutputSelection((current) => {
-        if (artifactSelection) {
-          return current
-        }
-        return current?.record.messageId === selection.record.messageId ? current : selection
-      })
+      setLatestAutoPanelSelection((current) => nextTurnOutputPanelSelection(current, selection, false))
+      setPanelSelection((current) => nextTurnOutputPanelSelection(current, selection, artifactsPanelOpen))
     },
-    [artifactSelection],
+    [artifactsPanelOpen],
   )
+
+  const setArtifactsPanelOpenState = React.useCallback<React.Dispatch<React.SetStateAction<boolean>>>((value) => {
+    setArtifactsPanelOpen((current) => {
+      return typeof value === "function" ? value(current) : value
+    })
+  }, [])
 
   return {
     artifactSelection,
@@ -371,7 +390,8 @@ export function useArtifactsPanelState({
     handleTurnOutputOpen,
     hasPanelSelection,
     isArtifactsPanelResizing,
-    setArtifactsPanelOpen,
+    latestArtifactSelection,
+    setArtifactsPanelOpen: setArtifactsPanelOpenState,
     setArtifactsPanelMaximizedState,
     turnOutputSelection,
     visibleArtifactsPanelWidth,

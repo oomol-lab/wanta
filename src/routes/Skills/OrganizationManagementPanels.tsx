@@ -1,4 +1,4 @@
-import type { Organization, OrganizationOverview } from "../../../electron/organizations/common.ts"
+import type { Organization, OrganizationRole } from "../../../electron/organizations/common.ts"
 import type { ManagedSkillGroup, PublicSkillPackage } from "../../../electron/skills/common.ts"
 import type { BusyAction, MemberView } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
@@ -8,7 +8,6 @@ import type { RuntimeSkillRemoveTarget } from "@/routes/Skills/skill-route-model
 
 import { Building2Icon, CheckIcon, ChevronsUpDownIcon, PencilIcon, PlusIcon } from "lucide-react"
 import * as React from "react"
-import { organizationRole } from "./organization-management-model.ts"
 import {
   AccountWorkspaceAvatar,
   OrganizationAvatar,
@@ -41,6 +40,7 @@ export function OrganizationSwitcherPanel({
   canManage,
   members,
   membersLoading,
+  getOrganizationRole,
   onCreate,
   onEdit,
   onAddMember,
@@ -49,7 +49,6 @@ export function OrganizationSwitcherPanel({
   onSelect,
   onSelectPersonal,
   organizations,
-  overview,
   selectedOrganization,
   selectedOrganizationId,
 }: {
@@ -60,6 +59,7 @@ export function OrganizationSwitcherPanel({
   canManage: boolean
   members: MemberView[]
   membersLoading: boolean
+  getOrganizationRole: (organization: Organization) => OrganizationRole
   onCreate: () => void
   onEdit: (organization: Organization) => void
   onAddMember: () => void
@@ -68,7 +68,6 @@ export function OrganizationSwitcherPanel({
   onSelect: (organizationId: string) => void
   onSelectPersonal: () => void
   organizations: Organization[]
-  overview: OrganizationOverview | null
   selectedOrganization: Organization | null
   selectedOrganizationId: string | null
 }) {
@@ -196,7 +195,7 @@ export function OrganizationSwitcherPanel({
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {organizations.map((organization) => {
-                  const role = organizationRole(overview, organization)
+                  const role = getOrganizationRole(organization)
                   const selected = !personalSelected && organization.id === selectedOrganizationId
                   return (
                     <DropdownMenuItem
@@ -272,7 +271,7 @@ function organizationSkillGuideStatus(
   organizationSkills: UseOrganizationSkills,
   t: ReturnType<typeof useAppI18n>["t"],
 ): string {
-  const enabledCount = organizationSkills.skills.filter((skill) => skill.enabled).length
+  const skillCount = organizationSkills.skills.length
   if (!organizationSkills.apiEnabled) {
     return t("organizations.skillGuideUnavailableBadge")
   }
@@ -282,8 +281,8 @@ function organizationSkillGuideStatus(
   if (organizationSkills.error) {
     return t("organizations.skillGuideLoadFailed")
   }
-  return enabledCount > 0
-    ? t("organizations.skillGuideEnabledCount", { count: enabledCount })
+  return skillCount > 0
+    ? t("organizations.skillGuideEnabledCount", { count: skillCount })
     : t("organizations.skillGuideEmptyBadge")
 }
 
@@ -455,18 +454,18 @@ export function EmptyOrganizationsState({ onCreate }: { onCreate: () => void }) 
 
 export function PersonalWorkspaceState({
   avatarPreviewUrls,
+  getOrganizationRole,
   onCreate,
   onRemoteAvatarLoad,
   onSelectOrganization,
   organizations,
-  overview,
 }: {
   avatarPreviewUrls: Record<string, string>
+  getOrganizationRole: (organization: Organization) => OrganizationRole
   onCreate: () => void
   onRemoteAvatarLoad: (organizationId: string, file: File | null) => void
   onSelectOrganization: (organizationId: string) => void
   organizations: Organization[]
-  overview: OrganizationOverview | null
 }) {
   const { t } = useAppI18n()
 
@@ -498,7 +497,7 @@ export function PersonalWorkspaceState({
               <DropdownMenuLabel>{t("organizations.selectOrganization")}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {organizations.map((organization) => {
-                const role = organizationRole(overview, organization)
+                const role = getOrganizationRole(organization)
                 return (
                   <DropdownMenuItem
                     key={organization.id}

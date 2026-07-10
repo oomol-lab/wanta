@@ -161,10 +161,6 @@ export interface UpdateRegistrySkillRequest {
   skillId?: string
 }
 
-export interface SkillSearchRequest {
-  query: string
-}
-
 export interface SkillSearchResult {
   description?: string
   displayName: string
@@ -227,7 +223,6 @@ export const SkillService = serviceName("skill-service") as ServiceName<{
     openSkillFolder(request: OpenSkillPathRequest): Promise<void>
     publishSkill(request: PublishSkillRequest): Promise<PublishSkillResult>
     readSkillDocument(request: SkillDocumentRequest): Promise<SkillDocument>
-    searchRegistrySkills(request: SkillSearchRequest): Promise<SkillSearchResult[]>
     updateRegistrySkill(request: UpdateRegistrySkillRequest): Promise<SkillInventory>
   }
 }>

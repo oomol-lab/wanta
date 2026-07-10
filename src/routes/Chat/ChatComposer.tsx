@@ -1,15 +1,14 @@
 import type {
-  AgentMode,
   AgentPermissionMode,
   ChatContextMention,
   ChatMessage,
   ChatOrganizationSkillContext,
   ChatQuestionRequest,
-  ReasoningLevel,
 } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
 import type { ConnectionAccountPaletteItem } from "./composer-palette-items.ts"
 import type { ComposerState } from "./composer-state.ts"
+import type { PendingDefaultConnection } from "./DefaultConnectionConfirmDialog.tsx"
 import type { ArtifactSelection } from "./GeneratedArtifacts.tsx"
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input"
 import type { ChatSendRequest, ChatSendResult } from "@/components/app-shell/app-shell-model"
@@ -17,11 +16,7 @@ import type { QueuedChatMessage, QueuedMessageMovePlacement } from "@/components
 import type { UserFacingError } from "@/lib/user-facing-error"
 import type { ChatStatus } from "ai"
 
-import { File as FileIcon, Folder, LoaderCircle, Plus } from "lucide-react"
 import * as React from "react"
-import { createPortal } from "react-dom"
-import { WANTA_AGENT_MODES, WANTA_DEFAULT_AGENT_MODE } from "../../../electron/agent/mode.ts"
-import { WANTA_DEFAULT_REASONING_LEVEL, WANTA_REASONING_LEVELS } from "../../../electron/agent/reasoning.ts"
 import { AttachmentList } from "./ChatAttachments.tsx"
 import {
   buildArtifactPaletteItems,
@@ -31,16 +26,19 @@ import {
   slashCommandItems,
 } from "./composer-palette-items.ts"
 import { composerReducer, initialComposerState } from "./composer-state.ts"
+import { ComposerAttachmentMenu } from "./ComposerAttachmentMenu.tsx"
 import { ComposerPalette } from "./ComposerPalette.tsx"
 import { ComposerTrailingControls } from "./ComposerTrailingControls.tsx"
 import { buildContextUsageInfo } from "./context-usage.ts"
 import { ContextMentionChips } from "./ContextMentionChips.tsx"
+import { DefaultConnectionConfirmDialog } from "./DefaultConnectionConfirmDialog.tsx"
 import { AddCustomModelDialog } from "./ModelControls.tsx"
 import { answerSingleTextQuestion, isSingleTextQuestion } from "./question-answer.ts"
 import { QueuedMessagePanel } from "./QueuedMessagePanel.tsx"
 import { normalizeServiceSlug } from "./tool-display.ts"
 import { stripDraftAttachment, useComposerAttachments } from "./useComposerAttachments.ts"
 import { useComposerPalette } from "./useComposerPalette.ts"
+import { useComposerPreferences } from "./useComposerPreferences.ts"
 import { useModelCatalog } from "./useModelCatalog.ts"
 import { useVoiceComposerInput } from "./useVoiceComposerInput.ts"
 import { getVoiceErrorNotice } from "./voice-error-display.ts"
@@ -50,12 +48,9 @@ import {
   PromptInputBody,
   PromptInputTextarea,
   PromptInputToolbar,
-  PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { ErrorNotice } from "@/components/ErrorNotice"
-import { Button } from "@/components/ui/button"
-import { Dialog } from "@/components/ui/dialog"
 import { useT } from "@/i18n/i18n"
 import { resolveUserFacingError } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -94,54 +89,10 @@ interface ChatComposerProps {
   onViewBilling?: () => void
 }
 
-const reasoningLevelStorageKey = "wanta:chat:reasoning-level"
-const reasoningLevels = new Set<ReasoningLevel>(WANTA_REASONING_LEVELS)
-const agentModeStorageKey = "wanta:chat:agent-mode"
-const agentModes = new Set<AgentMode>(WANTA_AGENT_MODES)
-
-interface PendingDefaultConnection {
-  item: ConnectionAccountPaletteItem
-  selectConnection: () => void
-}
-
 interface VisibleComposerError {
   error: UserFacingError
   showDiagnosticsCopy: boolean
   onDismiss?: () => void
-}
-
-function readStoredReasoningLevel(): ReasoningLevel {
-  try {
-    const stored = globalThis.localStorage?.getItem(reasoningLevelStorageKey)
-    return reasoningLevels.has(stored as ReasoningLevel) ? (stored as ReasoningLevel) : WANTA_DEFAULT_REASONING_LEVEL
-  } catch {
-    return WANTA_DEFAULT_REASONING_LEVEL
-  }
-}
-
-function writeStoredReasoningLevel(level: ReasoningLevel): void {
-  try {
-    globalThis.localStorage?.setItem(reasoningLevelStorageKey, level)
-  } catch {
-    // localStorage 不可用时保持本次会话内状态即可。
-  }
-}
-
-function readStoredAgentMode(): AgentMode {
-  try {
-    const stored = globalThis.localStorage?.getItem(agentModeStorageKey)
-    return agentModes.has(stored as AgentMode) ? (stored as AgentMode) : WANTA_DEFAULT_AGENT_MODE
-  } catch {
-    return WANTA_DEFAULT_AGENT_MODE
-  }
-}
-
-function writeStoredAgentMode(mode: AgentMode): void {
-  try {
-    globalThis.localStorage?.setItem(agentModeStorageKey, mode)
-  } catch {
-    // localStorage 不可用时保持本次会话内状态即可。
-  }
 }
 
 function paletteLabels({
@@ -221,8 +172,6 @@ export function ChatComposer({
   const t = useT()
   const skillInventory = useSkillInventoryResource()
   const modelCatalogState = useModelCatalog()
-  const attachmentMenuRef = React.useRef<HTMLDivElement | null>(null)
-  const attachmentMenuPanelRef = React.useRef<HTMLDivElement | null>(null)
   const defaultConnectionConfirmButtonRef = React.useRef<HTMLButtonElement | null>(null)
   const [composer, dispatchComposer] = React.useReducer(
     composerReducer,
@@ -230,10 +179,7 @@ export function ChatComposer({
   )
   const [inputError, setInputError] = React.useState<string | null>(null)
   const [answeringQuestion, setAnsweringQuestion] = React.useState(false)
-  const [attachmentMenuOpen, setAttachmentMenuOpen] = React.useState(false)
-  const [attachmentMenuStyle, setAttachmentMenuStyle] = React.useState<React.CSSProperties | undefined>()
-  const [agentMode, setAgentModeState] = React.useState<AgentMode>(readStoredAgentMode)
-  const [reasoningLevel, setReasoningLevelState] = React.useState<ReasoningLevel>(readStoredReasoningLevel)
+  const { agentMode, reasoningLevel, setAgentMode, setReasoningLevel } = useComposerPreferences()
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const appendVoiceTranscription = React.useCallback((text: string) => {
     dispatchComposer({ type: "insert-transcription", text })
@@ -311,30 +257,6 @@ export function ChatComposer({
     () => new Map(providers.map((provider) => [normalizeServiceSlug(provider.service), provider])),
     [providers],
   )
-  const setReasoningLevel = React.useCallback((level: ReasoningLevel): void => {
-    setReasoningLevelState(level)
-    writeStoredReasoningLevel(level)
-  }, [])
-  const setAgentMode = React.useCallback((mode: AgentMode): void => {
-    setAgentModeState(mode)
-    writeStoredAgentMode(mode)
-  }, [])
-  const updateAttachmentMenuPlacement = React.useCallback((): void => {
-    const trigger = attachmentMenuRef.current
-    if (!trigger) {
-      return
-    }
-    const rect = trigger.getBoundingClientRect()
-    const menuWidth = 160
-    const viewportPadding = 8
-    const maxLeft = Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding)
-    setAttachmentMenuStyle({
-      bottom: Math.max(viewportPadding, window.innerHeight - rect.top + viewportPadding),
-      left: Math.min(Math.max(viewportPadding, rect.left), maxLeft),
-      minWidth: menuWidth,
-    })
-  }, [])
-
   React.useLayoutEffect(() => {
     if (focusRequest <= 0) {
       return
@@ -346,43 +268,6 @@ export function ChatComposer({
   React.useEffect(() => {
     onComposerStateChange?.(composer)
   }, [composer, onComposerStateChange])
-
-  React.useEffect(() => {
-    if (!attachmentMenuOpen) {
-      return
-    }
-    if (composerDisabled || composerAttachmentsDisabled) {
-      setAttachmentMenuOpen(false)
-      return
-    }
-    updateAttachmentMenuPlacement()
-    const handlePointerDown = (event: PointerEvent): void => {
-      const target = event.target
-      if (target instanceof Node && attachmentMenuRef.current?.contains(target)) {
-        return
-      }
-      if (target instanceof Node && attachmentMenuPanelRef.current?.contains(target)) {
-        return
-      }
-      setAttachmentMenuOpen(false)
-    }
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        setAttachmentMenuOpen(false)
-      }
-    }
-    const handleReposition = (): void => updateAttachmentMenuPlacement()
-    document.addEventListener("pointerdown", handlePointerDown)
-    document.addEventListener("keydown", handleKeyDown)
-    window.addEventListener("resize", handleReposition)
-    window.addEventListener("scroll", handleReposition, true)
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown)
-      document.removeEventListener("keydown", handleKeyDown)
-      window.removeEventListener("resize", handleReposition)
-      window.removeEventListener("scroll", handleReposition, true)
-    }
-  }, [attachmentMenuOpen, composerAttachmentsDisabled, composerDisabled, updateAttachmentMenuPlacement])
 
   React.useLayoutEffect(() => {
     const textarea = textareaRef.current
@@ -680,30 +565,13 @@ export function ChatComposer({
         />
       </PromptInputBody>
       <PromptInputToolbar className="oo-composer-toolbar min-w-0 flex-nowrap overflow-hidden">
-        <PromptInputTools className="shrink-0 justify-start">
-          <input
-            ref={composerAttachments.fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={composerAttachments.handleFileInputChange}
-          />
-          <div ref={attachmentMenuRef} className="relative">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              title={t("chat.attachFile")}
-              aria-label={t("chat.attachFile")}
-              aria-expanded={attachmentMenuOpen}
-              disabled={composerDisabled || composerAttachmentsDisabled}
-              className="size-8 rounded-full"
-              onClick={() => setAttachmentMenuOpen((open) => !open)}
-            >
-              <Plus className="size-4" />
-            </Button>
-          </div>
-        </PromptInputTools>
+        <ComposerAttachmentMenu
+          disabled={composerDisabled || composerAttachmentsDisabled}
+          fileInputRef={composerAttachments.fileInputRef}
+          onFileInputChange={composerAttachments.handleFileInputChange}
+          onSelectDirectory={() => composerAttachments.selectAttachments("directory")}
+          onSelectFile={() => composerAttachments.selectAttachments("file")}
+        />
         <ComposerTrailingControls
           canSubmit={canSubmit}
           composerDisabled={composerDisabled}
@@ -759,52 +627,15 @@ export function ChatComposer({
       onResume={onQueuedMessageResume}
     />
   )
-  const defaultConnectionDialog = pendingDefaultConnection ? (
-    <Dialog
-      open
-      title={t("chat.connectionSetDefaultDialogTitle", { name: pendingDefaultConnection.item.displayName })}
-      description={t("chat.connectionSetDefaultDialogDescription", {
-        account: pendingDefaultConnection.item.accountLabel ?? pendingDefaultConnection.item.title,
-      })}
-      closeLabel={t("common.close")}
-      initialFocus={() => defaultConnectionConfirmButtonRef.current}
+  const defaultConnectionDialog = (
+    <DefaultConnectionConfirmDialog
+      pending={pendingDefaultConnection}
+      submitting={defaultConnectionPending}
+      confirmButtonRef={defaultConnectionConfirmButtonRef}
       onClose={closeDefaultConnectionDialog}
-      footer={
-        <>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={defaultConnectionPending}
-            onClick={closeDefaultConnectionDialog}
-          >
-            {t("common.cancel")}
-          </Button>
-          <Button
-            ref={defaultConnectionConfirmButtonRef}
-            type="button"
-            aria-busy={defaultConnectionPending}
-            disabled={defaultConnectionPending}
-            onClick={() => void setPendingDefaultAndUse()}
-          >
-            {defaultConnectionPending ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
-            {t("common.confirm")}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex items-center gap-3 rounded-md border bg-muted/35 px-3 py-2">
-        <span className="flex size-8 shrink-0 items-center justify-center">{pendingDefaultConnection.item.icon}</span>
-        <div className="min-w-0">
-          <div className="oo-text-label truncate text-foreground">{pendingDefaultConnection.item.title}</div>
-          {pendingDefaultConnection.item.description ? (
-            <div className="oo-text-caption truncate text-muted-foreground">
-              {pendingDefaultConnection.item.description}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </Dialog>
-  ) : null
+      onConfirm={() => void setPendingDefaultAndUse()}
+    />
+  )
   const accountHeaderLabel =
     composerPalette.mode === "connection-accounts" &&
     (composerPalette.activeItem?.kind === "connection-account" ||
@@ -848,64 +679,6 @@ export function ChatComposer({
       </div>
       {modelDialog}
       {defaultConnectionDialog}
-      {attachmentMenuOpen
-        ? createPortal(
-            <div
-              ref={attachmentMenuPanelRef}
-              style={attachmentMenuStyle}
-              className="fixed z-[130] rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-            >
-              <AttachmentMenuButton
-                disabled={composerDisabled}
-                onClick={() => {
-                  if (composerDisabled) {
-                    return
-                  }
-                  setAttachmentMenuOpen(false)
-                  void composerAttachments.selectAttachments("file")
-                }}
-              >
-                <FileIcon className="size-4" />
-                {t("chat.attachFileAction")}
-              </AttachmentMenuButton>
-              <AttachmentMenuButton
-                disabled={composerDisabled}
-                onClick={() => {
-                  if (composerDisabled) {
-                    return
-                  }
-                  setAttachmentMenuOpen(false)
-                  void composerAttachments.selectAttachments("directory")
-                }}
-              >
-                <Folder className="size-4" />
-                {t("chat.attachFolderAction")}
-              </AttachmentMenuButton>
-            </div>,
-            document.body,
-          )
-        : null}
     </>
-  )
-}
-
-function AttachmentMenuButton({
-  children,
-  disabled = false,
-  onClick,
-}: {
-  children: React.ReactNode
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      className="relative flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-      onClick={onClick}
-    >
-      {children}
-    </button>
   )
 }

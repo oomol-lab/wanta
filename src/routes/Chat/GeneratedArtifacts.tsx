@@ -1,12 +1,6 @@
-import type {
-  LocalArtifactGroup,
-  LocalArtifactItem,
-  LocalArtifactPack,
-  ResolveLocalArtifactsResult,
-} from "../../../electron/chat/common.ts"
-import type { ResolvedArtifactPayload } from "./artifact-filter.ts"
+import type { LocalArtifactGroup, LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
-import type { GeneratedArtifactSource } from "./artifact-sources.ts"
+import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
 import type { ArtifactPreviewMode } from "./ArtifactPreviewPane.tsx"
 
 import {
@@ -20,47 +14,37 @@ import {
   Maximize2,
   Minimize2,
   PanelRightClose,
+  TriangleAlert,
 } from "lucide-react"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { toast } from "sonner"
-import { dedupeArtifactPayloadsAcrossSources, mergeArtifactGroups } from "./artifact-filter.ts"
 import {
-  artifactKindLabel,
   artifactGroupDisplayItem,
   artifactMetaLabel,
-  artifactSummary,
   isImageArtifact,
   readableArtifactTitle,
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
+import { resolveArtifactResultPayloads } from "./artifact-resolution.ts"
 import {
   ArtifactConsumablePreview,
   ArtifactInfo,
   ArtifactPreview,
   ArtifactsEmptyState,
 } from "./ArtifactPreviewPane.tsx"
-import { FileKindIcon, FileKindTile } from "./file-type-icons.tsx"
+import { FileKindTile } from "./file-type-icons.tsx"
 import { useChatService } from "@/components/AppContext"
-import { Badge } from "@/components/ui/badge"
 import { useT } from "@/i18n/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
 
-const previewLimit = 4
-const artifactResolveCacheLimit = 24
 const artifactListHeightStorageKey = "wanta:artifacts:list-height"
 const artifactListDefaultHeightPx = 168
 const artifactListMinHeightPx = 96
 const artifactPreviewMinHeightPx = 220
 const artifactListMaxHeightRatio = 0.55
-
-export interface ResolvedArtifactGroup {
-  messageId: string
-  group: LocalArtifactGroup
-  pack?: LocalArtifactPack
-}
 
 export interface ArtifactSelection {
   messageId: string
@@ -71,10 +55,10 @@ export interface ArtifactSelection {
 }
 
 interface GeneratedArtifactsProps {
-  layout?: "stack" | "shelf"
-  sources: GeneratedArtifactSource[]
+  groups: ResolvedArtifactGroup[]
   onOpen: (selection: ArtifactSelection) => void
   onAvailable: (selection: ArtifactSelection) => void
+  selectionGroups?: ResolvedArtifactGroup[]
 }
 
 interface ArtifactsPanelProps {
@@ -102,30 +86,6 @@ interface ArtifactContextMenuState {
   item: LocalArtifactItem
   x: number
   y: number
-}
-
-function artifactSourceCacheKey(source: GeneratedArtifactSource): string {
-  return JSON.stringify({
-    artifactRoot: source.artifactRoot ?? "",
-    requestText: source.requestText,
-    sourcePaths: source.sourcePaths,
-    text: source.text,
-  })
-}
-
-function rememberArtifactGroups(
-  cache: Map<string, ResolvedArtifactPayload[]>,
-  key: string,
-  groups: ResolvedArtifactPayload[],
-): void {
-  cache.set(key, groups)
-  while (cache.size > artifactResolveCacheLimit) {
-    const oldest = cache.keys().next().value
-    if (!oldest) {
-      return
-    }
-    cache.delete(oldest)
-  }
 }
 
 function useArtifactFileActions(): {
@@ -266,40 +226,6 @@ function ArtifactContextMenu({
   )
 }
 
-function itemCount(group: LocalArtifactGroup): number {
-  return group.root?.kind === "directory" ? group.totalItems : group.items.length
-}
-
-function ArtifactIcon({
-  item,
-  className,
-  pack,
-}: {
-  item: LocalArtifactItem
-  className?: string
-  pack?: LocalArtifactPack | null
-}) {
-  return <FileKindIcon source={item} pack={pack} className={cn("size-4 shrink-0", className)} />
-}
-
-function artifactPackGroup(pack: LocalArtifactPack): LocalArtifactGroup {
-  const visibleSupporting = pack.supporting.filter((item) => item.role !== "metadata")
-  const items = pack.items.length > 0 ? pack.items : visibleSupporting
-  return {
-    root: pack.root,
-    items,
-    totalItems: pack.totalItems || items.length,
-    truncated: pack.truncated,
-  }
-}
-
-function resolveResultPayloads(result: ResolveLocalArtifactsResult): ResolvedArtifactPayload[] {
-  if (result.pack) {
-    return [{ group: artifactPackGroup(result.pack), pack: result.pack }]
-  }
-  return result.groups.map((group) => ({ group }))
-}
-
 function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {
   if (pack.display === "gallery") {
     return pack.items
@@ -328,6 +254,17 @@ function firstPanelEntryPath(groups: ResolvedArtifactGroup[]): string | null {
 
 function rootArtifactItem(groups: ResolvedArtifactGroup[]): LocalArtifactItem | null {
   return groups.find(({ group }) => group.root)?.group.root ?? null
+}
+
+function artifactBrowserHasMultipleRoots(groups: ResolvedArtifactGroup[]): boolean {
+  const roots = new Set<string>()
+  for (const { group, messageId } of groups) {
+    roots.add(group.root?.path ?? `${messageId}:${group.items[0]?.path ?? ""}`)
+    if (roots.size > 1) {
+      return true
+    }
+  }
+  return false
 }
 
 function readArtifactListHeight(): number {
@@ -363,115 +300,102 @@ function selectionWithContext(
   return { messageId, group, groups, ...(pack ? { pack } : {}), selectedPath }
 }
 
-function GeneratedArtifactsGroup({
-  group,
-  groups,
-  messageId,
-  onContextMenu,
-  onOpen,
-  pack,
-}: {
-  group: LocalArtifactGroup
-  groups: ResolvedArtifactGroup[]
-  messageId: string
-  onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
-  onOpen: (selection: ArtifactSelection) => void
-  pack?: LocalArtifactPack
-}) {
+function ArtifactPersistenceWarning({ partial = false }: { partial?: boolean }) {
   const t = useT()
-  const visibleItems = group.items.slice(0, previewLimit)
-  const displayItem = artifactGroupDisplayItem(group, pack)
-  const total = itemCount(group)
-  const remaining = Math.max(0, total - visibleItems.length)
-
-  if (!displayItem) {
-    return null
-  }
-
   return (
-    <button
-      type="button"
-      title={group.root?.path ?? displayItem.path}
-      className="oo-border-divider flex min-w-0 flex-col gap-2 rounded-lg border bg-background/70 p-2 text-left shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-      onClick={() => onOpen(selectionWithContext(group, messageId, groups, displayItem.path, pack))}
-      onContextMenu={(event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        onContextMenu(displayItem, event.clientX, event.clientY)
-      }}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <FileKindTile source={displayItem} pack={pack} className="size-8" iconClassName="size-4" />
-        <div className="min-w-0 flex-1">
-          <div className="oo-text-label truncate">{pack?.title ?? readableArtifactTitle(displayItem)}</div>
-          <div className="oo-text-caption-compact truncate text-muted-foreground">
-            {artifactMetaLabel(t, displayItem, pack)}
-            {total > 1 ? ` · ${artifactSummary(t, group)}` : ""}
-          </div>
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5">
+      <div className="flex min-w-0 items-start gap-2.5">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div className="min-w-0">
+          <p className="oo-text-label text-foreground">
+            {t(partial ? "artifacts.persistencePartialTitle" : "artifacts.persistenceFailedTitle")}
+          </p>
+          <p className="oo-text-caption mt-0.5 text-muted-foreground">
+            {t(partial ? "artifacts.persistencePartialDescription" : "artifacts.persistenceFailedDescription")}
+          </p>
         </div>
-        <Badge variant="outline" className="oo-text-micro rounded-md px-1.5 py-0">
-          {artifactKindLabel(t, displayItem, pack)}
-        </Badge>
       </div>
-
-      {visibleItems.length > 1 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {visibleItems.map((item) => (
-            <span
-              key={item.path}
-              className="oo-border-divider oo-text-caption-compact flex h-7 max-w-40 min-w-0 items-center gap-1.5 rounded-md border bg-background/70 px-2"
-              onContextMenu={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                onContextMenu(item, event.clientX, event.clientY)
-              }}
-            >
-              <ArtifactIcon item={item} className="size-3.5 text-muted-foreground" pack={pack} />
-              <span className="min-w-0 truncate">{item.name}</span>
-            </span>
-          ))}
-          {remaining > 0 ? (
-            <span className="oo-text-caption-compact flex h-7 items-center rounded-md px-2 text-primary">
-              {t("artifacts.viewAll", { count: total })}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-    </button>
+    </div>
   )
 }
 
-function GeneratedArtifactsShelf({
+function lastDisplayableArtifactGroup(
+  groups: readonly ResolvedArtifactGroup[],
+): { displayItem: LocalArtifactItem; resolved: ResolvedArtifactGroup } | null {
+  for (let index = groups.length - 1; index >= 0; index -= 1) {
+    const resolved = groups[index]
+    if (!resolved || resolved.status === "failed") {
+      continue
+    }
+    const displayItem = artifactGroupDisplayItem(resolved.group, resolved.pack)
+    if (displayItem) {
+      return { displayItem, resolved }
+    }
+  }
+  return null
+}
+
+export function GeneratedArtifactsShelf({
   groups,
   onContextMenu,
   onOpen,
+  selectionGroups,
 }: {
   groups: ResolvedArtifactGroup[]
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
   onOpen: (selection: ArtifactSelection) => void
+  selectionGroups: ResolvedArtifactGroup[]
 }) {
   const t = useT()
   const entries = flattenPanelEntries(groups)
-  const primary = groups.at(-1)
-  const primaryDisplayItem = primary ? artifactGroupDisplayItem(primary.group, primary.pack) : null
+  const newest = groups.at(-1)
+  const displayable = lastDisplayableArtifactGroup(groups)
+  const primary = displayable?.resolved
+  const primaryDisplayItem = displayable?.displayItem
+  const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
   if (!primary || !primaryDisplayItem || entries.length === 0) {
-    return null
+    if (newest?.status !== "failed") {
+      return null
+    }
+    return (
+      <section className="not-prose mt-2">
+        <ArtifactPersistenceWarning />
+      </section>
+    )
   }
 
   const selection = selectionWithContext(
     primary.group,
     primary.messageId,
-    groups,
+    panelGroups,
     primaryDisplayItem.path,
     primary.pack,
   )
+  const allImages = entries.every((entry) => isImageArtifact(entry.item))
+  const itemCount = Math.max(entries.length, primary.group.totalItems)
+  const isCollection = itemCount > 1
+  const title =
+    primary.pack?.title ??
+    (allImages && isCollection
+      ? t("artifacts.imageCount", { count: itemCount })
+      : isCollection
+        ? t("artifacts.outputCount", { count: itemCount })
+        : readableArtifactTitle(primaryDisplayItem))
+  const meta = isCollection
+    ? t("artifacts.collectionDescription")
+    : artifactMetaLabel(t, primaryDisplayItem, primary.pack)
 
   return (
     <section className="not-prose mt-2 grid gap-1.5">
+      {newest?.status === "failed" ? (
+        <ArtifactPersistenceWarning />
+      ) : primary.status === "partial" ? (
+        <ArtifactPersistenceWarning partial />
+      ) : null}
       <button
         type="button"
-        title={primary.group.root?.path ?? primaryDisplayItem.path}
+        title={title}
         className="oo-border-divider flex min-h-16 min-w-0 items-center gap-3 rounded-lg border bg-muted/55 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         onClick={() => onOpen(selection)}
         onContextMenu={(event) => {
@@ -482,146 +406,49 @@ function GeneratedArtifactsShelf({
       >
         <FileKindTile source={primaryDisplayItem} pack={primary.pack} className="size-9" iconClassName="size-4" />
         <span className="min-w-0 flex-1">
-          <span className="oo-text-label block truncate text-foreground">
-            {primary.pack?.title ?? readableArtifactTitle(primaryDisplayItem)}
-          </span>
-          <span className="oo-text-caption-compact block truncate text-muted-foreground">
-            {artifactMetaLabel(t, primaryDisplayItem, primary.pack)}
-          </span>
+          <span className="oo-text-label block truncate text-foreground">{title}</span>
+          <span className="oo-text-caption-compact block truncate text-muted-foreground">{meta}</span>
         </span>
-        <ExternalLink className="size-4 shrink-0 text-muted-foreground" />
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
       </button>
-      {entries.length > 1 ? (
-        <button
-          type="button"
-          className="oo-text-caption flex h-8 w-fit min-w-0 items-center gap-1 rounded-md px-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
-          onClick={() => onOpen(selection)}
-        >
-          <span>{t("artifacts.viewAllOutputs", { count: entries.length })}</span>
-          <ChevronRight className="size-4 shrink-0" />
-        </button>
-      ) : null}
     </section>
   )
 }
 
-export function GeneratedArtifacts({ layout = "stack", sources, onOpen, onAvailable }: GeneratedArtifactsProps) {
-  const t = useT()
-  const chatService = useChatService()
+export function GeneratedArtifacts({ groups, onOpen, onAvailable, selectionGroups = groups }: GeneratedArtifactsProps) {
   const { openPath, showInFolder } = useArtifactFileActions()
   const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
-  const [groups, setGroups] = React.useState<ResolvedArtifactGroup[]>([])
-  const resolvedGroupsCache = React.useRef(new Map<string, ResolvedArtifactPayload[]>())
+  const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
   React.useEffect(() => {
-    if (sources.length === 0) {
-      setGroups([])
-      return
+    const displayable = lastDisplayableArtifactGroup(groups)
+    if (displayable) {
+      const { displayItem, resolved } = displayable
+      onAvailable(
+        selectionWithContext(resolved.group, resolved.messageId, panelGroups, displayItem.path, resolved.pack),
+      )
     }
-    let cancelled = false
-    const sourceRequests = sources.map(async (source): Promise<ResolvedArtifactGroup[]> => {
-      const cacheKey = artifactSourceCacheKey(source)
-      const cached = resolvedGroupsCache.current.get(cacheKey)
-      if (cached) {
-        return cached.map((payload) => ({ messageId: source.messageId, ...payload }))
-      }
-      const trimmed = source.text.trim()
-      if (!source.artifactRoot && !trimmed) {
-        rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, [])
-        return []
-      }
-      const requests: Array<Promise<ResolvedArtifactPayload[]>> = []
-      if (source.artifactRoot) {
-        requests.push(
-          chatService
-            .invoke("resolveLocalArtifacts", { artifactRoot: source.artifactRoot })
-            .then(resolveResultPayloads),
-        )
-      }
-      if (trimmed) {
-        requests.push(chatService.invoke("resolveLocalArtifacts", { text: trimmed }).then(resolveResultPayloads))
-      }
-      const resultGroups = await Promise.all(requests)
-      const mergedGroups = mergeArtifactGroups(resultGroups, source)
-      rememberArtifactGroups(resolvedGroupsCache.current, cacheKey, mergedGroups)
-      return mergedGroups.map((group) => ({
-        messageId: source.messageId,
-        ...group,
-      }))
-    })
-    void Promise.all(sourceRequests)
-      .then((resultGroups) => {
-        if (!cancelled) {
-          setGroups(dedupeArtifactPayloadsAcrossSources(resultGroups.flat()))
-        }
-      })
-      .catch((error: unknown) => {
-        console.warn("[wanta] failed to resolve generated artifacts", { error })
-        reportRendererHandledError("generatedArtifacts.resolve", "Failed to resolve generated artifacts", error)
-        if (!cancelled) {
-          setGroups([])
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [chatService, sources])
-
-  React.useEffect(() => {
-    const resolved = groups.at(-1)
-    const selectedPath = resolved ? artifactGroupDisplayItem(resolved.group, resolved.pack)?.path : undefined
-    if (resolved && selectedPath) {
-      onAvailable(selectionWithContext(resolved.group, resolved.messageId, groups, selectedPath, resolved.pack))
-    }
-  }, [groups, onAvailable])
+  }, [groups, onAvailable, panelGroups])
 
   if (groups.length === 0) {
     return null
   }
 
-  if (layout === "shelf") {
-    return (
-      <>
-        <GeneratedArtifactsShelf
-          groups={groups}
-          onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
-          onOpen={onOpen}
-        />
-        <ArtifactContextMenu
-          menu={contextMenu}
-          onClose={() => setContextMenu(null)}
-          onOpenPath={openPath}
-          onShowInFolder={showInFolder}
-        />
-      </>
-    )
-  }
-
   return (
-    <section className="not-prose -mt-1 grid gap-1.5">
-      <div className="oo-text-caption-compact font-medium text-muted-foreground">
-        {t("artifacts.generatedSummary", { count: flattenPanelEntries(groups).length })}
-      </div>
-      <div className="grid gap-1.5">
-        {groups.map(({ messageId, group, pack }) => (
-          <GeneratedArtifactsGroup
-            key={group.root?.path ?? group.items.map((item) => item.path).join("\n")}
-            group={group}
-            groups={groups}
-            messageId={messageId}
-            onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
-            onOpen={onOpen}
-            pack={pack}
-          />
-        ))}
-      </div>
+    <>
+      <GeneratedArtifactsShelf
+        groups={groups}
+        selectionGroups={panelGroups}
+        onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
+        onOpen={onOpen}
+      />
       <ArtifactContextMenu
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
         onOpenPath={openPath}
         onShowInFolder={showInFolder}
       />
-    </section>
+    </>
   )
 }
 
@@ -676,14 +503,16 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
   const selectedItem = selectedEntry?.item ?? null
   const selectedPack = selectedEntry ? (selectedEntry.pack ?? null) : (selection?.pack ?? null)
   const MaximizeIcon = maximized ? Minimize2 : Maximize2
+  const activeMultipleRoots = artifactBrowserHasMultipleRoots(activeGroups)
   const showImageGallery =
-    selectedPack?.display === "gallery"
+    selectedPack?.display === "gallery" && !activeMultipleRoots
       ? entries.length > 0
       : entries.length > 1 && entries.every((entry) => isImageArtifact(entry.item))
   const baseRoot = rootArtifactItem(groups)
+  const multipleRoots = artifactBrowserHasMultipleRoots(groups)
   const baseCrumb = {
-    label: selection?.pack?.title ?? baseRoot?.name ?? t("artifacts.title"),
-    path: baseRoot?.path ?? selection?.messageId ?? "artifacts-root",
+    label: multipleRoots ? t("artifacts.title") : (selection?.pack?.title ?? baseRoot?.name ?? t("artifacts.title")),
+    path: multipleRoots ? "artifacts-root" : (baseRoot?.path ?? selection?.messageId ?? "artifacts-root"),
   }
 
   const showParent = (filePath: string | undefined): void => {
@@ -723,7 +552,7 @@ export function ArtifactsPanel({ maximized, selection, onCollapse, onToggleMaxim
       }
       try {
         const result = await chatService.invoke("resolveLocalArtifacts", { artifactRoot: entry.item.path })
-        const nextGroups = resolveResultPayloads(result).map((payload) => ({
+        const nextGroups = resolveArtifactResultPayloads(result).map((payload) => ({
           messageId: entry.messageId,
           ...payload,
         }))

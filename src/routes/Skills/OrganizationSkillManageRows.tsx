@@ -15,7 +15,12 @@ import {
   RefreshCwIcon,
 } from "lucide-react"
 import { runtimeSkillRemoveBusyKey } from "./organization-management-model.ts"
-import { organizationRuntimeStatusLabel, organizationRuntimeStatusTone } from "./organization-skill-manage-helpers.ts"
+import {
+  canInstallProviderRecommendationRuntime,
+  organizationRuntimeStatusLabel,
+  organizationRuntimeStatusTone,
+  providerRecommendationSkillDescription,
+} from "./organization-skill-manage-helpers.ts"
 import { normalizeSkillIconSource } from "@/components/skill-icon-source"
 import { SkillIcon } from "@/components/SkillIcon"
 import { Badge } from "@/components/ui/badge"
@@ -56,6 +61,29 @@ import {
 
 const skillManageMenuLabelClassName = "oo-text-caption-compact px-2 py-1 text-muted-foreground"
 const skillManageMenuIconClassName = "text-muted-foreground"
+
+export function OrganizationInstallMissingButton({
+  busy,
+  className,
+  count,
+  disabled,
+  onClick,
+}: {
+  busy: boolean
+  className?: string
+  count: number
+  disabled?: boolean
+  onClick: () => void
+}) {
+  const { t } = useAppI18n()
+
+  return (
+    <Button type="button" size="sm" className={className} disabled={disabled} onClick={onClick}>
+      {busy ? <RefreshCwIcon className="size-3.5 animate-spin" /> : <PackageIcon className="size-3.5" />}
+      <span className="truncate">{t("organizations.skillManageInstallMissingAll", { count })}</span>
+    </Button>
+  )
+}
 
 export function OrganizationSkillManageLoadingSkeleton({ inline }: { inline: boolean }) {
   const listClassName = inline
@@ -666,16 +694,13 @@ export function OrganizationSkillRecommendationRow({
   recommendation: ProviderSkillRecommendation
 }) {
   const { t } = useAppI18n()
-  const canInstallRuntime =
-    recommendation.installState === "installable" || recommendation.installState === "partially-installed"
+  const canInstallRuntime = canInstallProviderRecommendationRuntime(recommendation)
   const addBusyKey = `addSkill:${recommendation.packageName}:${recommendation.skillId}`
   const installBusyKey = `installSkill:${recommendation.packageName}:${recommendation.skillId}`
   const addBusy = busyAction === addBusyKey || busyAction === "addSkillBatch"
   const installBusy = busyAction === installBusyKey || busyAction === "installSkillBatch"
   const disabled = Boolean(busyAction && !addBusy && !installBusy)
-  const skillDescription =
-    recommendation.package.skills.find((skill) => skill.name === recommendation.skillId)?.description ??
-    recommendation.package.description
+  const skillDescription = providerRecommendationSkillDescription(recommendation)
   const runtimeRemoveTarget = getRuntimeSkillRemoveTarget(
     groupById,
     {

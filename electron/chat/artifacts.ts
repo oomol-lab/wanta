@@ -144,32 +144,6 @@ function isRootOnlyCandidate(value: string): boolean {
   )
 }
 
-function pushCandidate(candidates: string[], value: string): void {
-  const candidate = stripCandidate(value)
-  if (!candidate || isRootOnlyCandidate(candidate) || candidates.includes(candidate)) {
-    return
-  }
-  candidates.push(candidate)
-}
-
-export function extractLocalPathCandidates(text: string): string[] {
-  const candidates: string[] = []
-  const codePattern = /`([^`]+)`/g
-  for (const match of text.matchAll(codePattern)) {
-    const value = match[1]?.trim()
-    if (value && (/^(?:file:\/\/|~?\/)/.test(value) || /^[A-Za-z]:[\\/]/.test(value))) {
-      pushCandidate(candidates, value)
-    }
-  }
-
-  const plainPattern =
-    /(?<![A-Za-z0-9_:/\\.-])(?:file:\/\/[^\s<>"'`，。；：、]+|[A-Za-z]:[\\/][^<>"'`，。；：、\r\n]*\.[A-Za-z0-9]{1,16}(?=$|[\s<>"'`，。；：、,;:!?.)])|[A-Za-z]:[\\/][^\s<>"'`，。；：、]+|~?\/[^\s<>"'`，。；：、]+)/g
-  for (const match of text.matchAll(plainPattern)) {
-    pushCandidate(candidates, match[0])
-  }
-  return candidates
-}
-
 function isRootLocalPath(filePath: string): boolean {
   if (/^[A-Za-z]:[\\/]*$/.test(filePath)) {
     return true
@@ -201,43 +175,4 @@ export function normalizeLocalPathCandidate(candidate: string, homeDir: string):
     return isRootLocalPath(candidate) ? null : candidate
   }
   return null
-}
-
-function withoutTrailingPathSeparators(filePath: string): string {
-  const resolved = path.resolve(filePath)
-  const root = path.parse(resolved).root
-  if (resolved === root) {
-    return resolved
-  }
-  return resolved.replace(/[\\/]+$/, "")
-}
-
-const broadPosixArtifactPaths = new Set([
-  "/Applications",
-  "/Library",
-  "/System",
-  "/Users",
-  "/Volumes",
-  "/bin",
-  "/cores",
-  "/dev",
-  "/etc",
-  "/home",
-  "/opt",
-  "/private",
-  "/sbin",
-  "/tmp",
-  "/usr",
-  "/var",
-])
-
-export function isBroadLocalArtifactPath(filePath: string, homeDir: string): boolean {
-  if (isRootLocalPath(filePath)) {
-    return true
-  }
-  const normalized = withoutTrailingPathSeparators(filePath)
-  if (broadPosixArtifactPaths.has(normalized)) {
-    return true
-  }
-  return normalized.toLowerCase() === withoutTrailingPathSeparators(homeDir).toLowerCase()
 }

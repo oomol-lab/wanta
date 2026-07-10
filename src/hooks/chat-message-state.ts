@@ -4,10 +4,11 @@ import type {
   AgentConnectionChangedEvent,
   ChatMessage,
   ChatMessagePart,
+  GenerationInterruptedEvent,
+  GenerationNoticeEvent,
   ChatQuestionRequest,
   ChatRole,
   MessageAttachmentEvent,
-  MessageArtifactsEvent,
   MessageDeltaEvent,
   MessageErrorEvent,
   MessagePartRemovedEvent,
@@ -115,7 +116,6 @@ function sameMessageValue(left: ChatMessage, right: ChatMessage): boolean {
     left.clientId === right.clientId &&
     left.role === right.role &&
     left.createdAt === right.createdAt &&
-    left.artifactRoot === right.artifactRoot &&
     left.parts === right.parts &&
     jsonLikeEqual(left.contextMentions, right.contextMentions) &&
     jsonLikeEqual(left.tokenUsage, right.tokenUsage)
@@ -257,8 +257,26 @@ export function setConnectionStatusPart(msgs: ChatMessage[], event: AgentConnect
   )
 }
 
+export function setGenerationNoticePart(msgs: ChatMessage[], event: GenerationNoticeEvent): ChatMessage[] {
+  const statusType = event.kind === "tool_running_without_output" ? "toolRunningWithoutOutput" : "generationStale"
+  const messageId = event.messageId ?? latestAssistantMessageId(msgs) ?? `local-assistant-status-${event.createdAt}`
+  const part: ChatMessagePart = {
+    kind: "status",
+    partId: `generation-notice-${event.kind}`,
+    statusType,
+  }
+  const ensured = ensureMessage(msgs, messageId, "assistant")
+  return ensured.map((message) =>
+    message.id === messageId ? { ...message, parts: upsertPart(message.parts, part) } : message,
+  )
+}
+
 function shouldCancelToolPart(part: ChatMessagePart): boolean {
   return part.kind === "tool" && (part.status === "pending" || part.status === "running" || part.status === "error")
+}
+
+function shouldInterruptToolPart(part: ChatMessagePart): boolean {
+  return part.kind === "tool" && (part.status === "pending" || part.status === "running")
 }
 
 function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessagePart {
@@ -268,6 +286,17 @@ function cancelledToolPart(part: ChatMessagePart, stoppedAt: number): ChatMessag
     ...part,
     cancelled: true,
     ...(shouldFreezeTiming ? { timing: { ...part.timing, end: stoppedAt } } : {}),
+  }
+}
+
+function interruptedToolPart(part: ChatMessagePart, event: GenerationInterruptedEvent): ChatMessagePart {
+  const shouldFreezeTiming = typeof part.timing?.end !== "number"
+  return {
+    ...part,
+    status: "error",
+    error: part.error ?? event.message,
+    cancelled: false,
+    ...(shouldFreezeTiming ? { timing: { ...part.timing, end: event.interruptedAt } } : {}),
   }
 }
 
@@ -424,6 +453,33 @@ export function markAssistantMessageToolsCancelled(
   return { messages: changed ? messages : msgs, partIds: cancelledPartIds }
 }
 
+export function markAssistantMessageToolsInterrupted(
+  msgs: ChatMessage[],
+  event: GenerationInterruptedEvent,
+): ChatMessage[] {
+  if (!event.messageId) {
+    return msgs
+  }
+  const targetPartIdSet = event.partIds ? new Set(event.partIds) : null
+  let changed = false
+  const messages = msgs.map((message) => {
+    if (message.id !== event.messageId || message.role !== "assistant") {
+      return message
+    }
+    let partsChanged = false
+    const parts = message.parts.map((part) => {
+      if (!shouldInterruptToolPart(part) || (targetPartIdSet && !targetPartIdSet.has(part.partId))) {
+        return part
+      }
+      changed = true
+      partsChanged = true
+      return interruptedToolPart(part, event)
+    })
+    return partsChanged ? { ...message, parts } : message
+  })
+  return changed ? messages : msgs
+}
+
 export function applyCancelledToolParts(
   msgs: ChatMessage[],
   partIds: Set<string> | undefined,
@@ -505,13 +561,6 @@ export function setAttachmentPart(msgs: ChatMessage[], event: MessageAttachmentE
           ),
         }
       : message,
-  )
-}
-
-export function setMessageArtifactRoot(msgs: ChatMessage[], event: MessageArtifactsEvent): ChatMessage[] {
-  const ensured = ensureMessage(msgs, event.messageId, "assistant")
-  return ensured.map((message) =>
-    message.id === event.messageId ? { ...message, artifactRoot: event.artifactRoot } : message,
   )
 }
 
@@ -658,14 +707,10 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
   const missingLocalUsers = missingLocalUserMessages(current, fetched)
   const localUserByContent = localUsersByContent(current)
   const currentById = new Map(current.map((message) => [message.id, message]))
-  const artifactRootByMessageId = new Map(
-    current.flatMap((message) => (message.artifactRoot ? [[message.id, message.artifactRoot] as const] : [])),
-  )
   const fetchedWithLocalState = fetched.map((message) => {
     const matchedLocalUser =
       message.role === "user" ? localUserByContent.get(userMessageContentKey(message))?.shift() : undefined
     const currentMessage = currentById.get(message.id) ?? matchedLocalUser
-    const artifactRoot = artifactRootByMessageId.get(message.id)
     return reuseStableFetchedMessage(currentMessage, {
       ...message,
       clientId: currentMessage?.clientId ?? message.clientId ?? serverClientId(message.id),
@@ -673,7 +718,6 @@ export function mergeFetchedMessages(current: ChatMessage[], fetched: ChatMessag
         ? { contextMentions: currentMessage.contextMentions }
         : {}),
       parts: preserveLocalErrorParts(message.parts, currentErrorPartsById.get(message.id)),
-      ...(artifactRoot && !message.artifactRoot ? { artifactRoot } : {}),
     })
   })
   const merged = insertMessagesByCreatedAt(fetchedWithLocalState, missingLocalUsers)

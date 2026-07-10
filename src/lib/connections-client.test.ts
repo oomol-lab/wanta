@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   clearConnectorCache,
   connectProvider,
+  getActiveConnectionAppIdsForService,
   getConnectionAppDetail,
+  getConnectionSummary,
   isProviderConnectionActive,
   startOAuthConnect,
 } from "./connections-client.ts"
@@ -18,7 +20,8 @@ describe("connections-client", () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       Response.json({
         data: [
-          { service: "gmail", status: "active" },
+          { id: "app-1", service: "gmail", status: "active" },
+          { id: "app-2", service: "gmail", status: "active" },
           { service: "slack", status: "reauth_required" },
         ],
       }),
@@ -27,8 +30,12 @@ describe("connections-client", () => {
 
     await expect(isProviderConnectionActive("gmail", { type: "personal" })).resolves.toBe(true)
     await expect(isProviderConnectionActive("slack", { type: "personal" })).resolves.toBe(false)
+    await expect(getActiveConnectionAppIdsForService("gmail", { type: "personal" })).resolves.toEqual([
+      "app-1",
+      "app-2",
+    ])
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps")
   })
 
@@ -149,5 +156,37 @@ describe("connections-client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/v1/apps/by-id/app-1/connect")
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/v1/apps/by-id/app-2/connect")
+  })
+
+  it("keeps the newest force-refresh response in the per-path cache", async () => {
+    let resolveFirstApps: (response: Response) => void = () => undefined
+    let resolveSecondApps: (response: Response) => void = () => undefined
+    let appsRequestCount = 0
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/v1/apps")) {
+        appsRequestCount += 1
+        return new Promise<Response>((resolve) => {
+          if (appsRequestCount === 1) {
+            resolveFirstApps = resolve
+          } else {
+            resolveSecondApps = resolve
+          }
+        })
+      }
+      return Response.json({ data: [] })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const first = getActiveConnectionAppIdsForService("gmail", { type: "personal" })
+    const second = getActiveConnectionAppIdsForService("gmail", { type: "personal" })
+    resolveSecondApps(Response.json({ data: [{ id: "new-app", service: "gmail", status: "active" }] }))
+    await expect(second).resolves.toEqual(["new-app"])
+    resolveFirstApps(Response.json({ data: [{ id: "old-app", service: "gmail", status: "active" }] }))
+    await expect(first).resolves.toEqual(["old-app"])
+
+    const summary = await getConnectionSummary({ type: "personal" })
+    expect(summary.apps.map((app) => app.id)).toEqual(["new-app"])
+    expect(appsRequestCount).toBe(2)
   })
 })

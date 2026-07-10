@@ -4,7 +4,6 @@ import type { AttachmentPickerKind } from "./attachment-picker.ts"
 
 export type { AttachmentPickerKind } from "./attachment-picker.ts"
 
-import { electronAPI } from "@electron-toolkit/preload"
 import { setupConnectionPreload } from "@oomol/connection-electron-adapter/preload"
 import { contextBridge, ipcRenderer, webUtils } from "electron"
 import { APP_COMMAND_CHANNEL, isAppCommand } from "./app-command.ts"
@@ -38,11 +37,11 @@ export interface RendererErrorReport {
 
 export interface WantaBridge {
   appCommit: string
-  getPathForFile(file: File): string
   onAppCommand(callback: (command: AppCommand) => void): () => void
   platform: NodeJS.Platform
   reportRendererError(input: RendererErrorReport): void
   saveClipboardAttachment(input: SaveClipboardAttachmentInput): Promise<SelectedAttachmentPath>
+  selectedAttachmentPathForFile(file: File): Promise<SelectedAttachmentPath | null>
   selectAttachmentPaths(kind: AttachmentPickerKind): Promise<SelectedAttachmentPath[]>
   selectProjectDirectory(): Promise<SelectedAttachmentPath | null>
   setAppLocale(locale: AppLocale): void
@@ -50,7 +49,6 @@ export interface WantaBridge {
 }
 
 declare global {
-  var electron: typeof electronAPI
   // 全局 bridge 名与 branding.windowBridge 一致（值固定为 "wanta"）。
   var wanta: WantaBridge
 }
@@ -60,7 +58,6 @@ setupConnectionPreload()
 
 const wanta: WantaBridge = {
   appCommit: typeof __APP_COMMIT__ === "string" ? __APP_COMMIT__ : "unknown",
-  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   onAppCommand: (callback: (command: AppCommand) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, command: unknown): void => {
       if (isAppCommand(command)) {
@@ -73,18 +70,31 @@ const wanta: WantaBridge = {
   platform: process.platform,
   reportRendererError: (input: RendererErrorReport) => ipcRenderer.send("wanta:renderer-error", input),
   saveClipboardAttachment: (input: SaveClipboardAttachmentInput) =>
-    electronAPI.ipcRenderer.invoke("wanta:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
+    ipcRenderer.invoke("wanta:save-clipboard-attachment", input) as Promise<SelectedAttachmentPath>,
+  selectedAttachmentPathForFile: (file: File) => {
+    let filePath = ""
+    try {
+      filePath = webUtils.getPathForFile(file)
+    } catch {
+      return Promise.resolve(null)
+    }
+    return filePath
+      ? (ipcRenderer.invoke(
+          "wanta:selected-attachment-path-for-file",
+          filePath,
+        ) as Promise<SelectedAttachmentPath | null>)
+      : Promise.resolve(null)
+  },
   selectAttachmentPaths: (kind: AttachmentPickerKind) =>
-    electronAPI.ipcRenderer.invoke("wanta:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
+    ipcRenderer.invoke("wanta:select-attachment-paths", kind) as Promise<SelectedAttachmentPath[]>,
   selectProjectDirectory: () =>
-    electronAPI.ipcRenderer.invoke("wanta:select-project-directory") as Promise<SelectedAttachmentPath | null>,
+    ipcRenderer.invoke("wanta:select-project-directory") as Promise<SelectedAttachmentPath | null>,
   setAppLocale: (locale: AppLocale) => ipcRenderer.send(APP_LOCALE_CHANNEL, locale),
   version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
 }
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld("electron", electronAPI)
     contextBridge.exposeInMainWorld(branding.windowBridge, wanta)
   } catch (error) {
     console.error("[wanta] failed to expose preload bridge:", error)
@@ -96,6 +106,5 @@ if (process.contextIsolated) {
     } satisfies RendererErrorReport)
   }
 } else {
-  window.electron = electronAPI
   window.wanta = wanta
 }

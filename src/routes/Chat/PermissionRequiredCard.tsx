@@ -4,8 +4,11 @@ import type { PermissionRequestKind } from "./permission-request.ts"
 import { FolderLock, ShieldAlert, Terminal, X } from "lucide-react"
 import {
   isHighRiskPermissionRequest,
+  isLikelyProjectDependencyInstallRequest,
   isLikelyProjectDevCommandRequest,
+  managedPythonDependencyInstall,
   permissionCommand,
+  permissionRequestHasSensitiveResource,
   permissionPrimaryResource,
   permissionRequestKind,
 } from "./permission-request.ts"
@@ -32,8 +35,16 @@ export function PermissionRequiredCard({
   const highRisk = isHighRiskPermissionRequest(request)
   const resource = kind === "command" ? permissionCommand(request) : permissionPrimaryResource(request)
   const projectDevCommand = kind === "command" && isLikelyProjectDevCommandRequest(request)
+  const projectDependencyInstall = isLikelyProjectDependencyInstallRequest(request)
+  const pythonDependencyInstall = managedPythonDependencyInstall(request)
+  const sensitiveResource = permissionRequestHasSensitiveResource(request)
+  const taskScopedDependencyInstall = Boolean(
+    (pythonDependencyInstall || projectDependencyInstall) && !sensitiveResource,
+  )
   const canAllowForSession = Boolean(
-    !highRisk && (request.save?.length || request.resources.length || (kind === "command" && resource)),
+    (!highRisk || taskScopedDependencyInstall) &&
+    !sensitiveResource &&
+    (request.save?.length || request.resources.length || (kind === "command" && resource)),
   )
   const Icon = kind === "command" ? Terminal : kind === "path" || kind === "edit" ? FolderLock : ShieldAlert
   const copyByKind: Record<
@@ -68,13 +79,35 @@ export function PermissionRequiredCard({
       title: t("chat.permissionPathTitle"),
     },
   }
-  const copy = highRisk
+  const copy = sensitiveResource
     ? {
         ...copyByKind[kind],
-        description: t("chat.permissionHighRiskDescription", { command: resource ?? request.action }),
-        title: t("chat.permissionHighRiskTitle"),
+        description: t("chat.permissionSensitiveDataDescription", { resource: resource ?? request.action }),
+        title: t("chat.permissionSensitiveDataTitle"),
       }
-    : copyByKind[kind]
+    : pythonDependencyInstall
+      ? {
+          ...copyByKind.command,
+          allowForSessionLabel: t("chat.permissionRequiredAllowPythonDependenciesTask"),
+          description: t("chat.permissionPythonDependencyDescription", {
+            packages: pythonDependencyInstall.packages.join(", "),
+          }),
+          title: t("chat.permissionPythonDependencyTitle"),
+        }
+      : projectDependencyInstall
+        ? {
+            ...copyByKind.command,
+            allowForSessionLabel: t("chat.permissionRequiredAllowProjectDependenciesTask"),
+            description: t("chat.permissionProjectDependencyDescription", { command: resource ?? request.action }),
+            title: t("chat.permissionProjectDependencyTitle"),
+          }
+        : highRisk
+          ? {
+              ...copyByKind[kind],
+              description: t("chat.permissionHighRiskDescription", { command: resource ?? request.action }),
+              title: t("chat.permissionHighRiskTitle"),
+            }
+          : copyByKind[kind]
   return (
     <section className="rounded-lg border border-border bg-background p-3 shadow-sm">
       <div className="flex items-start gap-3">
@@ -87,16 +120,31 @@ export function PermissionRequiredCard({
             <p className="oo-text-caption break-words whitespace-pre-line text-muted-foreground">{copy.description}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => onAllowOnce(request.id)} disabled={busy}>
-              <ShieldAlert className="size-4" />
-              {t("chat.permissionRequiredAllowOnce")}
-            </Button>
-            {canAllowForSession ? (
-              <Button size="sm" variant="outline" onClick={() => onAllowForSession(request.id)} disabled={busy}>
-                <Icon className="size-4" />
-                {copy.allowForSessionLabel}
-              </Button>
-            ) : null}
+            {taskScopedDependencyInstall ? (
+              <>
+                <Button size="sm" onClick={() => onAllowForSession(request.id)} disabled={busy}>
+                  <Terminal className="size-4" />
+                  {copy.allowForSessionLabel}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => onAllowOnce(request.id)} disabled={busy}>
+                  <ShieldAlert className="size-4" />
+                  {t("chat.permissionRequiredAllowOnce")}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" onClick={() => onAllowOnce(request.id)} disabled={busy}>
+                  <ShieldAlert className="size-4" />
+                  {t("chat.permissionRequiredAllowOnce")}
+                </Button>
+                {canAllowForSession ? (
+                  <Button size="sm" variant="outline" onClick={() => onAllowForSession(request.id)} disabled={busy}>
+                    <Icon className="size-4" />
+                    {copy.allowForSessionLabel}
+                  </Button>
+                ) : null}
+              </>
+            )}
             <Button size="sm" variant="outline" onClick={() => onReject(request.id)} disabled={busy}>
               <X className="size-4" />
               {t("chat.permissionRequiredReject")}

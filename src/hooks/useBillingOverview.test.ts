@@ -11,9 +11,7 @@ afterEach(() => {
 function emptyBillingOverview(): BillingOverviewResult {
   return {
     balance: null,
-    logs: [],
     metering: null,
-    schedules: [],
     spend: null,
     subscription: null,
     wantaPendingPayment: null,

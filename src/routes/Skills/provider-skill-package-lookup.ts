@@ -6,6 +6,7 @@ import * as React from "react"
 import {
   getConventionalProviderSkillPackageName,
   getConnectedProviderSkillCandidates,
+  isHighConfidenceProviderSkillPackage,
   getProviderSkillSearchQueries,
   scoreProviderSkillPackage,
   selectProviderSkillPackage,
@@ -26,6 +27,9 @@ export interface ProviderSkillPackageLookup {
   isLoading: boolean
   isStale: boolean
   packagesByService: ReadonlyMap<string, PublicSkillPackage | null>
+  pendingCount: number
+  resolvedCount: number
+  totalCount: number
 }
 
 const providerSkillPackageCache = new Map<string, ProviderSkillPackageCacheEntry>()
@@ -172,11 +176,16 @@ export function useProviderSkillPackageLookup(providers: readonly ConnectionProv
   }, [candidates, requestKey])
 
   const isStale = resolvedRequestKey !== requestKey
+  const visiblePackagesByService = isStale ? emptyProviderSkillPackages : packagesByService
+  const resolvedCount = candidates.filter((candidate) => visiblePackagesByService.has(candidate.service)).length
   return {
     error,
     isLoading: isLoading || isStale,
     isStale,
-    packagesByService: isStale ? emptyProviderSkillPackages : packagesByService,
+    packagesByService: visiblePackagesByService,
+    pendingCount: candidates.length - resolvedCount,
+    resolvedCount,
+    totalCount: candidates.length,
   }
 }
 
@@ -242,6 +251,11 @@ async function searchProviderSkillPackage(candidate: ProviderSkillCandidate): Pr
       }
       seen.add(key)
       packages.push(pkg)
+    }
+
+    const selected = selectProviderSkillPackage(candidate, packages)
+    if (selected && isHighConfidenceProviderSkillPackage(candidate, selected)) {
+      return selected
     }
   }
 

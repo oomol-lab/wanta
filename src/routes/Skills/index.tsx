@@ -714,7 +714,9 @@ export function SkillsRoute({
             organizationQuery={organizationQuery}
             organizationSkills={organizationSkills}
             providerRecommendationsLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
+            providerRecommendationsPendingCount={providerSkillRecommendationsState.pendingCount}
             providerRecommendations={providerSkillRecommendations}
+            providerRecommendationsTotalCount={providerSkillRecommendationsState.totalCount}
             workspace={workspace}
             onAddRecommendation={addOrganizationSkillFromRecommendation}
             onInstallRuntimeSkill={installOrganizationRuntimeSkill}

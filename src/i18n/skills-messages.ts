@@ -285,6 +285,7 @@ export const skillsMessages = {
     "skills.organizationRuntimePackageConflict": "包冲突",
     "skills.organizationRuntimeLocalConflict": "同名冲突",
     "skills.organizationRuntimeMissing": "未安装",
+    "skills.organizationRecommendationsResolving": "正在匹配 {{resolved}} / {{total}} 个连接器的推荐 Skill",
     "skills.providerRecommendationsTitle": "推荐安装",
     "skills.providerRecommendationsDescription":
       "这些 Skill 与当前已连接的连接器匹配，安装后 Agent 可以获得更稳定的使用指引。",
@@ -763,6 +764,8 @@ export const skillsMessages = {
     "skills.organizationRuntimePackageConflict": "Package conflict",
     "skills.organizationRuntimeLocalConflict": "Name conflict",
     "skills.organizationRuntimeMissing": "Not installed",
+    "skills.organizationRecommendationsResolving":
+      "Matching Skill recommendations for {{resolved}} / {{total}} connections",
     "skills.providerRecommendationsTitle": "Recommended installs",
     "skills.providerRecommendationsDescription":
       "These Skills match connected providers and give the Agent steadier provider-specific guidance.",

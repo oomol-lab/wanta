@@ -116,6 +116,29 @@ export function selectProviderSkillPackage(
   return best?.pkg ?? null
 }
 
+/**
+ * 精确命中 service 的包无需继续做其他关键词搜索。这里刻意只接受名称级别的强匹配，
+ * 不以普通 score 阈值提前结束，避免把描述中偶然出现 provider 名的包误判为推荐。
+ */
+export function isHighConfidenceProviderSkillPackage(
+  candidate: ProviderSkillCandidate,
+  pkg: PublicSkillPackage,
+): boolean {
+  const service = compactSearchText(candidate.service)
+  if (!service) {
+    return false
+  }
+
+  const packageName = compactSearchText(pkg.name)
+  if (packageName === service || packageName === `oo${service}`) {
+    return true
+  }
+
+  return pkg.skills.some((skill) => {
+    return compactSearchText(skill.name) === service || compactSearchText(skill.title) === service
+  })
+}
+
 export function getConnectedProviderSkillCandidates(
   providers: readonly ConnectionProvider[],
 ): ProviderSkillCandidate[] {

@@ -9,6 +9,7 @@ import {
   getConnectedProviderSkillCandidates,
   getInstallableProviderSkillRecommendations,
   getProviderSkillSearchQueries,
+  isHighConfidenceProviderSkillPackage,
   scoreProviderSkillPackage,
   selectProviderSkillPackage,
 } from "./provider-skill-recommendations.ts"
@@ -67,6 +68,26 @@ test("selectProviderSkillPackage ranks registry search results without a provide
 
   assert.equal(selected?.name, "oo-posthog")
   assert.equal(scoreProviderSkillPackage(candidate, publicPackage("unrelated")), 0)
+})
+
+test("isHighConfidenceProviderSkillPackage only accepts exact provider/package matches", () => {
+  const candidate = providerCandidate("posthog", "PostHog")
+
+  assert.equal(isHighConfidenceProviderSkillPackage(candidate, publicPackage("oo-posthog")), true)
+  assert.equal(
+    isHighConfidenceProviderSkillPackage(
+      candidate,
+      publicPackageWithOptions("analytics-helper", { skills: [{ name: "posthog", title: "PostHog" }] }),
+    ),
+    true,
+  )
+  assert.equal(
+    isHighConfidenceProviderSkillPackage(
+      candidate,
+      publicPackageWithOptions("analytics-helper", { description: "PostHog workflows" }),
+    ),
+    false,
+  )
 })
 
 test("buildProviderSkillRecommendations reads packages by provider service and classifies install state", () => {

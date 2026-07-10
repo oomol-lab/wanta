@@ -71,6 +71,8 @@ export function OrganizationSkillManageDialog({
   open = true,
   organizationSkills,
   providerRecommendationsLoading = false,
+  providerRecommendationsResolvedCount = 0,
+  providerRecommendationsTotalCount = 0,
   providerRecommendations,
   variant = "dialog",
 }: {
@@ -96,6 +98,8 @@ export function OrganizationSkillManageDialog({
   open?: boolean
   organizationSkills: UseOrganizationSkills
   providerRecommendationsLoading?: boolean
+  providerRecommendationsResolvedCount?: number
+  providerRecommendationsTotalCount?: number
   providerRecommendations: ProviderSkillRecommendation[]
   variant?: "dialog" | "inline"
 }) {
@@ -166,6 +170,11 @@ export function OrganizationSkillManageDialog({
   const marketLoadingMore = marketCatalog.status === "loading-more"
   const canLoadMoreMarket = Boolean(marketCatalog.next) && !marketLoading && !marketLoadingMore
   const shouldInstallRecommendedBatch = installableRecommendedSkills.length > 1
+  const hasRecommendationItems = allRecommendationItems.length > 0
+  const showInitialRecommendationSkeleton =
+    providerRecommendationsLoading && recommendationSourceIncludesSystem && !hasRecommendationItems
+  const showRecommendationProgress =
+    providerRecommendationsLoading && recommendationSourceIncludesSystem && providerRecommendationsTotalCount > 0
 
   React.useEffect(() => {
     if (!marketLoadingMore) {
@@ -538,7 +547,7 @@ export function OrganizationSkillManageDialog({
             </div>
           </div>
           {activeTab === "recommendations" ? (
-            providerRecommendationsLoading && recommendationSourceIncludesSystem ? (
+            showInitialRecommendationSkeleton ? (
               <div className={skillListClassName}>
                 <OrganizationSkillPackageListSkeleton />
               </div>
@@ -612,6 +621,14 @@ export function OrganizationSkillManageDialog({
                     />
                   ),
                 )}
+                {showRecommendationProgress ? (
+                  <div className="oo-text-caption border-t border-[var(--oo-divider)] px-3 py-2 text-muted-foreground">
+                    {t("skills.organizationRecommendationsResolving", {
+                      resolved: providerRecommendationsResolvedCount,
+                      total: providerRecommendationsTotalCount,
+                    })}
+                  </div>
+                ) : null}
               </div>
             )
           ) : (

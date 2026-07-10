@@ -928,6 +928,8 @@ export function OrganizationManagementRoute({
                         providerRecommendationsLoading={
                           connectedProvidersLoading || providerSkillPackageLookup.isLoading
                         }
+                        providerRecommendationsResolvedCount={providerSkillPackageLookup.resolvedCount}
+                        providerRecommendationsTotalCount={providerSkillPackageLookup.totalCount}
                         providerRecommendations={providerSkillRecommendations}
                         onAddRecommendation={addOrganizationSkillFromRecommendation}
                         onAddRecommendationBatch={addOrganizationSkillBatch}

@@ -56,7 +56,9 @@ interface OrganizationSkillsPaneProps {
   organizationQuery: string
   organizationSkills: UseOrganizationSkills
   providerRecommendationsLoading: boolean
+  providerRecommendationsPendingCount: number
   providerRecommendations: ProviderSkillRecommendation[]
+  providerRecommendationsTotalCount: number
   workspace: UseOrganizationWorkspace
 }
 
@@ -70,7 +72,9 @@ export function OrganizationSkillsPane({
   organizationQuery,
   organizationSkills,
   providerRecommendationsLoading,
+  providerRecommendationsPendingCount,
   providerRecommendations,
+  providerRecommendationsTotalCount,
   workspace,
 }: OrganizationSkillsPaneProps) {
   const { t } = useAppI18n()
@@ -239,7 +243,12 @@ export function OrganizationSkillsPane({
                   />
                 ),
               )}
-              {recommendationLookupLoading ? <OrganizationSkillLookupLoadingRows /> : null}
+              {recommendationLookupLoading ? (
+                <OrganizationSkillLookupLoadingRows
+                  resolvedCount={Math.max(0, providerRecommendationsTotalCount - providerRecommendationsPendingCount)}
+                  totalCount={providerRecommendationsTotalCount}
+                />
+              ) : null}
             </div>
           )}
         </div>
@@ -284,7 +293,14 @@ export function OrganizationSkillsPane({
   )
 }
 
-function OrganizationSkillLookupLoadingRows() {
+function OrganizationSkillLookupLoadingRows({
+  resolvedCount,
+  totalCount,
+}: {
+  resolvedCount: number
+  totalCount: number
+}) {
+  const { t } = useAppI18n()
   return (
     <>
       {Array.from({ length: 2 }).map((_, index) => (
@@ -306,6 +322,11 @@ function OrganizationSkillLookupLoadingRows() {
           <Skeleton className="h-[var(--oo-control-height-compact)] w-24 rounded-md" />
         </div>
       ))}
+      {totalCount > 0 ? (
+        <div className="oo-text-caption border-b px-3 py-2 text-muted-foreground">
+          {t("skills.organizationRecommendationsResolving", { resolved: resolvedCount, total: totalCount })}
+        </div>
+      ) : null}
     </>
   )
 }

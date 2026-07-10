@@ -291,6 +291,8 @@ export function OrganizationSkillGuidePanel({
   groupById,
   organizationSkills,
   providerRecommendationsLoading,
+  providerRecommendationsResolvedCount,
+  providerRecommendationsTotalCount,
   providerRecommendations,
   onAddRecommendation,
   onAddRecommendationBatch,
@@ -303,6 +305,8 @@ export function OrganizationSkillGuidePanel({
   groupById: ReadonlyMap<string, ManagedSkillGroup>
   organizationSkills: UseOrganizationSkills
   providerRecommendationsLoading: boolean
+  providerRecommendationsResolvedCount: number
+  providerRecommendationsTotalCount: number
   providerRecommendations: ProviderSkillRecommendation[]
   onAddRecommendation: (
     recommendation: ProviderSkillRecommendation,
@@ -344,6 +348,8 @@ export function OrganizationSkillGuidePanel({
           groupById={groupById}
           organizationSkills={organizationSkills}
           providerRecommendationsLoading={providerRecommendationsLoading}
+          providerRecommendationsResolvedCount={providerRecommendationsResolvedCount}
+          providerRecommendationsTotalCount={providerRecommendationsTotalCount}
           providerRecommendations={providerRecommendations}
           variant="inline"
           onAddRecommendation={onAddRecommendation}

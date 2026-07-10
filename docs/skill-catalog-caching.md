@@ -44,6 +44,17 @@ src/lib/skills-catalog-client.ts
 | 组织 Skill 配置            | `accountId + organizationId`                 | 30 秒新鲜期 / 24 小时本地保留 | 见 `useOrganizationSkills.ts`             |
 | 本机已安装 Skill inventory | 全局 resource                                |                         60 秒 | 本地扫描，不是市场 catalog                |
 
+## Provider 推荐解析
+
+组织推荐不是单独的远端列表：它由当前已连接的 Provider、package 解析结果、组织配置和本机 inventory 共同计算。
+
+- 每个 Provider 先尝试约定包名 `oo-{service}`。
+- 约定包不匹配时才进入市场搜索 fallback；搜索每得到一个与 service 或 Skill 名精确匹配的 package 就立即结束，不再无条件执行剩余关键词搜索。
+- Provider 解析最多同时处理 4 个候选，避免组织切换时放大 registry 请求峰值。
+- UI 不等待所有 Provider 解析完毕：已有的组织配置和已解析推荐立即显示，未完成项只显示进度与轻量 loading row。
+
+当服务端提供批量 Provider → package resolver 后，应优先使用该接口替代客户端启发式 fallback；客户端解析逻辑保留为兼容降级路径。
+
 ## 失效规则
 
 - 发布 Skill 成功：失效当前账号的“我发布的”列表和私有 package detail，以及公共市场 / 搜索缓存。

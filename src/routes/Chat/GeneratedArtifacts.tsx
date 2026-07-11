@@ -1130,10 +1130,31 @@ function ImageThumbnail({
   onContextMenu: (x: number, y: number) => void
   onDoubleClick: () => void
 }) {
-  const { preview } = useLocalArtifactPreview(item, previewCache)
+  const thumbnailRef = React.useRef<HTMLButtonElement | null>(null)
+  const [nearViewport, setNearViewport] = React.useState(false)
+  const { preview } = useLocalArtifactPreview(nearViewport ? item : null, previewCache)
+
+  React.useEffect(() => {
+    const element = thumbnailRef.current
+    if (!element) {
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setNearViewport(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: "160px" },
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <button
+      ref={thumbnailRef}
       type="button"
       title={item.name}
       className={cn(

@@ -4,14 +4,71 @@ import * as React from "react"
 import { useChatService } from "@/components/AppContext"
 
 export interface LocalArtifactPreviewCacheEntry {
+  estimatedBytes?: number
   promise?: Promise<LocalArtifactPreviewResult>
   result?: LocalArtifactPreviewResult
 }
 
 export type LocalArtifactPreviewCache = Map<string, LocalArtifactPreviewCacheEntry>
 
-function artifactPreviewCacheKey(item: LocalArtifactItem): string {
-  return JSON.stringify([item.path, item.mime, item.size ?? null])
+export function artifactPreviewCacheKey(item: LocalArtifactItem): string {
+  return JSON.stringify([item.path, item.mime, item.size ?? null, item.modifiedAt ?? null])
+}
+
+const previewCacheMaxEntries = 48
+const previewCacheMaxEstimatedBytes = 64 * 1024 * 1024
+
+export function artifactPreviewEstimatedBytes(result: LocalArtifactPreviewResult): number {
+  if (result.dataUrl) {
+    return result.dataUrl.length
+  }
+  if (result.text) {
+    return result.text.length * 2
+  }
+  if (result.spreadsheet) {
+    const sheets = result.spreadsheet.workbook ?? [
+      {
+        name: result.spreadsheet.activeSheet,
+        columnCount: result.spreadsheet.columnCount,
+        rowCount: result.spreadsheet.rowCount,
+        rows: result.spreadsheet.rows,
+      },
+    ]
+    return sheets.reduce(
+      (total, sheet) =>
+        total +
+        sheet.name.length * 2 +
+        sheet.rows.reduce(
+          (sheetTotal, row) => sheetTotal + row.reduce((rowTotal, cell) => rowTotal + cell.length * 2, 0),
+          0,
+        ),
+      0,
+    )
+  }
+  if (result.archive) {
+    return result.archive.entries.reduce((total, entry) => total + entry.path.length * 2 + 64, 0)
+  }
+  return 256
+}
+
+function previewCacheEstimatedBytes(cache: LocalArtifactPreviewCache): number {
+  let total = 0
+  cache.forEach((entry) => {
+    total += entry.estimatedBytes ?? 0
+  })
+  return total
+}
+
+export function trimArtifactPreviewCache(cache: LocalArtifactPreviewCache): void {
+  let estimatedBytes = previewCacheEstimatedBytes(cache)
+  while (cache.size > previewCacheMaxEntries || estimatedBytes > previewCacheMaxEstimatedBytes) {
+    const oldest = cache.keys().next().value
+    if (!oldest) {
+      return
+    }
+    estimatedBytes -= cache.get(oldest)?.estimatedBytes ?? 0
+    cache.delete(oldest)
+  }
 }
 
 function rememberArtifactPreview(
@@ -23,13 +80,7 @@ function rememberArtifactPreview(
     cache.delete(key)
   }
   cache.set(key, entry)
-  while (cache.size > 48) {
-    const oldest = cache.keys().next().value
-    if (!oldest) {
-      return
-    }
-    cache.delete(oldest)
-  }
+  trimArtifactPreviewCache(cache)
 }
 
 function fallbackArtifactPreview(item: LocalArtifactItem): LocalArtifactPreviewResult {
@@ -66,7 +117,7 @@ function loadCachedArtifactPreview(
   }
   const promise = load()
     .then((result) => {
-      rememberArtifactPreview(cache, key, { result })
+      rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
       return result
     })
     .catch(() => {

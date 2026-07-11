@@ -109,7 +109,7 @@
   }
 }
 
-/* Univer 使用未分层的全局规则重置 scrollbar，Wanta 的滚动条基线也放到未分层规则中兜底。 */
+/* 原生控件与第三方预览可能使用未分层规则，滚动条基线也放在未分层规则中兜底。 */
 * {
   scrollbar-color: var(--scrollbar-color-rest);
   scrollbar-width: var(--scrollbar-width-rest);

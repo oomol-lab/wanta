@@ -47,8 +47,6 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@typescript/native-preview": "7.0.0-dev.20260611.2",
-    "@univerjs/core": "0.25.1",
-    "@univerjs/preset-sheets-core": "0.25.1",
     "@vitejs/plugin-react": "6.0.2",
     "ai": "6.0.202",
     "class-variance-authority": "0.7.1",

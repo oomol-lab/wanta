@@ -362,6 +362,12 @@ describe("composer draft keys", () => {
       "__new_session__:organization:org-b:project-1",
     )
   })
+
+  test("separates drafts for projects in the same workspace", () => {
+    const scope = { type: "organization" as const, organizationId: "org-a", organizationName: "A" }
+
+    expect(newSessionComposerDraftKey(scope, "project-a")).not.toBe(newSessionComposerDraftKey(scope, "project-b"))
+  })
 })
 
 describe("composer draft scope keys", () => {

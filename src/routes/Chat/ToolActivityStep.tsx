@@ -71,12 +71,12 @@ function ToolInlineDetail({ line }: { line: ToolDisplayLine }) {
   }
   if (line.detailKind === "code") {
     return (
-      <code className="min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] font-medium text-muted-foreground">
+      <code className="w-0 max-w-full min-w-0 flex-1 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] font-medium text-muted-foreground">
         {line.detail}
       </code>
     )
   }
-  return <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">{line.detail}</span>
+  return <span className="w-0 max-w-full min-w-0 flex-1 truncate font-medium text-muted-foreground">{line.detail}</span>
 }
 
 function formatToolOutput(output: string | undefined): string {
@@ -272,16 +272,16 @@ export function ToolActivityStep({
   const completedMeta = part.status === "completed" && !auth
 
   const row = (
-    <div className="group/tool-step flex min-h-6 min-w-0 flex-1 items-center gap-2">
+    <div className="group/tool-step flex min-h-6 w-full max-w-full min-w-0 flex-1 items-center gap-2 overflow-hidden">
       <span
         className="flex size-5 shrink-0 items-center justify-center"
         title={provider ? `${provider.displayName} · ${statusText}` : statusText}
       >
         <ToolStepIcon part={part} provider={provider} stopped={stopped} />
       </span>
-      <div className="min-w-0 flex-1 overflow-hidden">
+      <div className="w-0 max-w-full min-w-0 flex-1 overflow-hidden">
         {showShimmer ? (
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden">
             <LoadingShimmerText className="min-w-0 shrink-0 truncate font-medium">
               {displayLine.title}
             </LoadingShimmerText>
@@ -297,7 +297,7 @@ export function ToolActivityStep({
             </span>
           </div>
         ) : (
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex w-full max-w-full min-w-0 items-center gap-2 overflow-hidden">
             <span
               className={cn("min-w-0 truncate font-medium text-foreground", displayLine.detail ? "shrink-0" : "flex-1")}
             >
@@ -337,10 +337,10 @@ export function ToolActivityStep({
     ) : null
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="rounded-md">
+    <Collapsible className="w-full max-w-full min-w-0 overflow-hidden" open={open} onOpenChange={setOpen}>
+      <div className="w-full max-w-full min-w-0 overflow-hidden rounded-md">
         {details ? (
-          <CollapsibleTrigger className="group/tool-step flex w-full items-center justify-between gap-2 text-left">
+          <CollapsibleTrigger className="group/tool-step flex w-full max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden text-left">
             {row}
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[opacity,transform] group-hover/tool-step:opacity-100 group-focus-visible/tool-step:opacity-100 group-data-[state=open]/tool-step:rotate-90 group-data-[state=open]/tool-step:opacity-100" />
           </CollapsibleTrigger>

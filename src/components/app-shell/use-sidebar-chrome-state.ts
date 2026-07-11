@@ -22,7 +22,9 @@ interface UseSidebarChromeStateResult {
   sidebarWidth: number
 }
 
-export function useSidebarChromeState(): UseSidebarChromeStateResult {
+export function useSidebarChromeState(
+  appChromeRef: React.RefObject<HTMLDivElement | null>,
+): UseSidebarChromeStateResult {
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() =>
     readStoredSidebarCollapsed(globalThis.localStorage),
   )
@@ -30,6 +32,8 @@ export function useSidebarChromeState(): UseSidebarChromeStateResult {
   const [sidebarWidth, setSidebarWidth] = React.useState(readStoredSidebarWidth)
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false)
   const sidebarResizeStart = React.useRef<{ pointerX: number; width: number } | null>(null)
+  const sidebarResizeFrame = React.useRef<number | null>(null)
+  const sidebarPendingWidth = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     if (!isSidebarRestoring) {
@@ -66,14 +70,34 @@ export function useSidebarChromeState(): UseSidebarChromeStateResult {
       return
     }
 
+    const applyPendingWidth = (): void => {
+      sidebarResizeFrame.current = null
+      const width = sidebarPendingWidth.current
+      if (width !== null) {
+        appChromeRef.current?.style.setProperty("--sidebar-width", `${width}px`)
+      }
+    }
     const handlePointerMove = (event: PointerEvent): void => {
       const start = sidebarResizeStart.current
       if (!start) {
         return
       }
-      setSidebarWidth(clampSidebarWidth(start.width + event.clientX - start.pointerX))
+      sidebarPendingWidth.current = clampSidebarWidth(start.width + event.clientX - start.pointerX)
+      if (sidebarResizeFrame.current === null) {
+        sidebarResizeFrame.current = window.requestAnimationFrame(applyPendingWidth)
+      }
     }
     const handlePointerUp = (): void => {
+      if (sidebarResizeFrame.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrame.current)
+        sidebarResizeFrame.current = null
+      }
+      const width = sidebarPendingWidth.current
+      sidebarPendingWidth.current = null
+      if (width !== null) {
+        appChromeRef.current?.style.setProperty("--sidebar-width", `${width}px`)
+        setSidebarWidth(width)
+      }
       sidebarResizeStart.current = null
       setIsSidebarResizing(false)
     }
@@ -82,11 +106,16 @@ export function useSidebarChromeState(): UseSidebarChromeStateResult {
     window.addEventListener("pointerup", handlePointerUp, { once: true })
     window.addEventListener("pointercancel", handlePointerUp, { once: true })
     return () => {
+      if (sidebarResizeFrame.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrame.current)
+        sidebarResizeFrame.current = null
+      }
+      sidebarPendingWidth.current = null
       window.removeEventListener("pointermove", handlePointerMove)
       window.removeEventListener("pointerup", handlePointerUp)
       window.removeEventListener("pointercancel", handlePointerUp)
     }
-  }, [isSidebarResizing])
+  }, [appChromeRef, isSidebarResizing])
 
   const handleToggleSidebar = React.useCallback((): void => {
     setSidebarCollapsed((collapsed) => {

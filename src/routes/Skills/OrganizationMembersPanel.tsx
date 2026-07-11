@@ -497,7 +497,7 @@ function MembersTable({
               <div
                 key={member.user_id}
                 className={cn(
-                  "grid min-w-0 items-center gap-x-3 px-3 py-2.5",
+                  "oo-list-render-boundary grid min-w-0 items-center gap-x-3 px-3 py-2.5",
                   canBulkManage ? "grid-cols-[auto_auto_minmax(0,1fr)_auto]" : "grid-cols-[auto_minmax(0,1fr)_auto]",
                 )}
               >
@@ -637,7 +637,11 @@ function MembersTable({
               const canRemove = canManage && member.role !== "creator"
               const selectable = isBulkEditableMember(member)
               return (
-                <div key={member.user_id} className="grid items-center gap-3 px-3 py-3" style={{ gridTemplateColumns }}>
+                <div
+                  key={member.user_id}
+                  className="oo-list-render-boundary grid items-center gap-3 px-3 py-3"
+                  style={{ gridTemplateColumns }}
+                >
                   {canBulkManage ? (
                     <MemberStatusCheckbox
                       ariaLabel={t("organizations.selectMember", { name: member.displayName })}

@@ -27,6 +27,7 @@ import {
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { resolveArtifactResultPayloads } from "./artifact-resolution.ts"
+import { useLocalArtifactThumbnail } from "./artifact-thumbnail-cache.ts"
 import {
   ArtifactConsumablePreview,
   ArtifactInfo,
@@ -1078,7 +1079,6 @@ function ImageGalleryPanel({
                 key={entry.key}
                 index={index + 1}
                 item={entry.item}
-                previewCache={previewCache}
                 selected={entry.item.path === selectedItem?.path}
                 onClick={() => onSelect(entry.item.path)}
                 onContextMenu={(x, y) => onContextMenu(entry.item, x, y)}
@@ -1116,7 +1116,6 @@ function ImageGalleryPanel({
 function ImageThumbnail({
   index,
   item,
-  previewCache,
   selected,
   onClick,
   onContextMenu,
@@ -1124,16 +1123,36 @@ function ImageThumbnail({
 }: {
   index: number
   item: LocalArtifactItem
-  previewCache: LocalArtifactPreviewCache
   selected: boolean
   onClick: () => void
   onContextMenu: (x: number, y: number) => void
   onDoubleClick: () => void
 }) {
-  const { preview } = useLocalArtifactPreview(item, previewCache)
+  const thumbnailRef = React.useRef<HTMLButtonElement | null>(null)
+  const [nearViewport, setNearViewport] = React.useState(false)
+  const thumbnail = useLocalArtifactThumbnail(nearViewport ? item : null)
+
+  React.useEffect(() => {
+    const element = thumbnailRef.current
+    if (!element) {
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          setNearViewport(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: "160px" },
+    )
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <button
+      ref={thumbnailRef}
       type="button"
       title={item.name}
       className={cn(
@@ -1148,14 +1167,8 @@ function ImageThumbnail({
       }}
       onDoubleClick={onDoubleClick}
     >
-      {preview?.kind === "image" && preview.dataUrl ? (
-        <img
-          src={preview.dataUrl}
-          alt={item.name}
-          className="size-full object-cover"
-          draggable={false}
-          loading="lazy"
-        />
+      {thumbnail ? (
+        <img src={thumbnail} alt={item.name} className="size-full object-cover" draggable={false} loading="lazy" />
       ) : (
         <span className="flex size-full items-center justify-center">
           <Image className="size-4" />
@@ -1186,7 +1199,7 @@ function ImageGalleryPreview({
   onOpen: () => void
 }) {
   const t = useT()
-  const { loading, preview } = useLocalArtifactPreview(item, previewCache)
+  const { loading, preview, reload } = useLocalArtifactPreview(item, previewCache)
 
   React.useEffect(() => {
     if (mode === "source") {
@@ -1217,19 +1230,20 @@ function ImageGalleryPreview({
           <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
             {t("artifacts.previewLoading")}
           </div>
-        ) : preview?.kind === "image" && preview.dataUrl ? (
+        ) : preview?.kind === "image" && (preview.resourceUrl || preview.dataUrl) ? (
           <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
             <img
-              src={preview.dataUrl}
+              src={preview.resourceUrl ?? preview.dataUrl}
               alt={item.name}
               className="max-h-full max-w-full object-contain drop-shadow-sm"
               draggable={false}
               decoding="async"
+              onError={reload}
               onDoubleClick={onOpen}
             />
           </div>
         ) : (
-          <ArtifactConsumablePreview item={item} preview={preview} onOpen={onOpen} />
+          <ArtifactConsumablePreview item={item} preview={preview} onOpen={onOpen} onResourceError={reload} />
         )}
       </div>
     </section>

@@ -17,7 +17,9 @@ export interface UseAuth {
   logout: () => Promise<void>
 }
 
-export function useAuth(): UseAuth {
+const AuthContext = React.createContext<UseAuth | null>(null)
+
+function useAuthController(): UseAuth {
   const service = useAuthService()
   const [state, setState] = React.useState<AuthState | null>(null)
   const [loggingIn, setLoggingIn] = React.useState(false)
@@ -122,4 +124,17 @@ export function useAuth(): UseAuth {
   }, [service])
 
   return { state, loggingIn, loggingOut, error, login, logout }
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const auth = useAuthController()
+  return React.createElement(AuthContext.Provider, { value: auth }, children)
+}
+
+export function useAuth(): UseAuth {
+  const auth = React.useContext(AuthContext)
+  if (!auth) {
+    throw new Error("useAuth must be used within AuthProvider")
+  }
+  return auth
 }

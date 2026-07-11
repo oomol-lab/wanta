@@ -36,7 +36,6 @@ export function AppShellNavigationSidebar({
   isSessionRunning,
   loggingOut,
   newChatLabel,
-  now,
   onArchiveProjectRequest,
   onArchiveSessionRequest,
   onLogout,
@@ -82,7 +81,6 @@ export function AppShellNavigationSidebar({
   isSessionRunning: (sessionId: string) => boolean
   loggingOut: boolean
   newChatLabel: string
-  now: number
   onArchiveProjectRequest: (project: SessionProject) => void
   onArchiveSessionRequest: (session: SessionInfo) => void
   onLogout: () => void
@@ -120,6 +118,11 @@ export function AppShellNavigationSidebar({
   workspaceSwitching: boolean
 }) {
   const t = useT()
+  const [now, setNow] = React.useState(() => Date.now())
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
   const renderProjectGroup = (group: ProjectSidebarGroup) => (
     <ProjectSidebarGroupItem
       key={group.project.id}

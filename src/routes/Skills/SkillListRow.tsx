@@ -27,7 +27,7 @@ export function SkillListRow({
   return (
     <div
       className={cn(
-        "grid min-w-0 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 transition-colors last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center",
+        "oo-list-render-boundary grid min-w-0 gap-2 border-b border-[var(--oo-divider)] px-3 py-2.5 transition-colors last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center",
         "hover:bg-[var(--oo-row-hover)]",
         selected && "bg-[var(--oo-row-selected)] hover:bg-[var(--oo-row-selected)]",
       )}

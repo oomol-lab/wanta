@@ -146,6 +146,10 @@ export function SkillsRoute({
   const [organizationQuery, setOrganizationQuery] = React.useState("")
   const [discoveryQuery, setDiscoveryQuery] = React.useState("")
   const [recommendedQuery, setRecommendedQuery] = React.useState("")
+  const deferredInstalledQuery = React.useDeferredValue(query)
+  const deferredOrganizationQuery = React.useDeferredValue(organizationQuery)
+  const deferredDiscoveryQuery = React.useDeferredValue(discoveryQuery)
+  const deferredRecommendedQuery = React.useDeferredValue(recommendedQuery)
   const [publicPackageCatalog, dispatchPublicPackageCatalog] = React.useReducer(
     publicPackageCatalogReducer,
     initialPublicPackageCatalogState,
@@ -182,7 +186,7 @@ export function SkillsRoute({
 
   const searchedGroups = React.useMemo(() => {
     const groups = inventory?.groups ?? []
-    const normalizedQuery = query.trim().toLowerCase()
+    const normalizedQuery = deferredInstalledQuery.trim().toLowerCase()
 
     if (!normalizedQuery) {
       return groups
@@ -195,7 +199,7 @@ export function SkillsRoute({
         Boolean(group.packageName?.toLowerCase().includes(normalizedQuery))
       )
     })
-  }, [inventory?.groups, query])
+  }, [deferredInstalledQuery, inventory?.groups])
 
   const installedGroups = React.useMemo(() => searchedGroups.filter(isInstalledSkillGroup), [searchedGroups])
   const filteredInstalledGroups = React.useMemo(() => {
@@ -365,9 +369,9 @@ export function SkillsRoute({
   const activePackageDispatcher =
     discoveryFilter === "mine" ? dispatchMyPublishedPackageCatalog : dispatchPublicPackageCatalog
   const filteredPublicPackages = React.useMemo(() => {
-    const normalizedQuery = discoveryQuery.trim().toLowerCase()
+    const normalizedQuery = deferredDiscoveryQuery.trim().toLowerCase()
     return activePackageCatalog.items.filter((pkg) => matchesPublicPackageQuery(pkg, normalizedQuery))
-  }, [activePackageCatalog.items, discoveryQuery])
+  }, [activePackageCatalog.items, deferredDiscoveryQuery])
 
   const selectedPublicPackage = React.useMemo(() => {
     return activePackageCatalog.selectedId
@@ -702,7 +706,7 @@ export function SkillsRoute({
           <PersonalSkillRecommendationsPane
             busyAction={organizationSkillBusyAction}
             isLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
-            query={recommendedQuery}
+            query={deferredRecommendedQuery}
             recommendations={installableProviderSkillRecommendations}
             onInstallRuntimeSkill={installOrganizationRuntimeSkill}
           />
@@ -711,7 +715,7 @@ export function SkillsRoute({
             busyAction={organizationSkillBusyAction}
             groupById={installedSkillGroupById}
             organizationFilter={organizationFilter}
-            organizationQuery={organizationQuery}
+            organizationQuery={deferredOrganizationQuery}
             organizationSkills={organizationSkills}
             providerRecommendationsLoading={connectedProvidersLoading || providerSkillRecommendationsState.isLoading}
             providerRecommendationsPendingCount={providerSkillRecommendationsState.pendingCount}

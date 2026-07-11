@@ -1,17 +1,84 @@
 import type { LocalArtifactItem, LocalArtifactPreviewResult } from "../../../electron/chat/common.ts"
+import type { ArtifactPreviewLoadPriority } from "./artifact-preview-scheduler.ts"
 
 import * as React from "react"
+import { scheduleArtifactPreviewLoad } from "./artifact-preview-scheduler.ts"
 import { useChatService } from "@/components/AppContext"
 
 export interface LocalArtifactPreviewCacheEntry {
+  estimatedBytes?: number
   promise?: Promise<LocalArtifactPreviewResult>
   result?: LocalArtifactPreviewResult
 }
 
 export type LocalArtifactPreviewCache = Map<string, LocalArtifactPreviewCacheEntry>
 
-function artifactPreviewCacheKey(item: LocalArtifactItem): string {
-  return JSON.stringify([item.path, item.mime, item.size ?? null])
+export function artifactPreviewCacheKey(item: LocalArtifactItem): string {
+  return JSON.stringify([item.path, item.mime, item.size ?? null, item.modifiedAt ?? null])
+}
+
+const previewCacheMaxEntries = 48
+const previewCacheMaxEstimatedBytes = 64 * 1024 * 1024
+const resourceRefreshMarginMs = 60_000
+
+export function artifactPreviewResourceIsFresh(result: LocalArtifactPreviewResult, now = Date.now()): boolean {
+  return !result.resourceUrl || !result.resourceExpiresAt || result.resourceExpiresAt > now + resourceRefreshMarginMs
+}
+
+export function artifactPreviewEstimatedBytes(result: LocalArtifactPreviewResult): number {
+  if (result.resourceUrl) {
+    return result.resourceUrl.length * 2 + 256
+  }
+  if (result.dataUrl) {
+    return result.dataUrl.length
+  }
+  if (result.text) {
+    return result.text.length * 2
+  }
+  if (result.spreadsheet) {
+    const sheets = result.spreadsheet.workbook ?? [
+      {
+        name: result.spreadsheet.activeSheet,
+        columnCount: result.spreadsheet.columnCount,
+        rowCount: result.spreadsheet.rowCount,
+        rows: result.spreadsheet.rows,
+      },
+    ]
+    return sheets.reduce(
+      (total, sheet) =>
+        total +
+        sheet.name.length * 2 +
+        sheet.rows.reduce(
+          (sheetTotal, row) => sheetTotal + row.reduce((rowTotal, cell) => rowTotal + cell.length * 2, 0),
+          0,
+        ),
+      0,
+    )
+  }
+  if (result.archive) {
+    return result.archive.entries.reduce((total, entry) => total + entry.path.length * 2 + 64, 0)
+  }
+  return 256
+}
+
+function previewCacheEstimatedBytes(cache: LocalArtifactPreviewCache): number {
+  let total = 0
+  cache.forEach((entry) => {
+    total += entry.estimatedBytes ?? 0
+  })
+  return total
+}
+
+export function trimArtifactPreviewCache(cache: LocalArtifactPreviewCache): void {
+  let estimatedBytes = previewCacheEstimatedBytes(cache)
+  while (cache.size > previewCacheMaxEntries || estimatedBytes > previewCacheMaxEstimatedBytes) {
+    const oldest = cache.keys().next().value
+    if (!oldest) {
+      return
+    }
+    estimatedBytes -= cache.get(oldest)?.estimatedBytes ?? 0
+    cache.delete(oldest)
+  }
 }
 
 function rememberArtifactPreview(
@@ -23,13 +90,7 @@ function rememberArtifactPreview(
     cache.delete(key)
   }
   cache.set(key, entry)
-  while (cache.size > 48) {
-    const oldest = cache.keys().next().value
-    if (!oldest) {
-      return
-    }
-    cache.delete(oldest)
-  }
+  trimArtifactPreviewCache(cache)
 }
 
 function fallbackArtifactPreview(item: LocalArtifactItem): LocalArtifactPreviewResult {
@@ -45,6 +106,10 @@ function cachedArtifactPreviewResult(
   if (!entry?.result) {
     return null
   }
+  if (!artifactPreviewResourceIsFresh(entry.result)) {
+    cache.delete(key)
+    return null
+  }
   rememberArtifactPreview(cache, key, entry)
   return entry.result
 }
@@ -53,6 +118,7 @@ function loadCachedArtifactPreview(
   cache: LocalArtifactPreviewCache,
   item: LocalArtifactItem,
   load: () => Promise<LocalArtifactPreviewResult>,
+  priority: ArtifactPreviewLoadPriority,
 ): Promise<LocalArtifactPreviewResult> {
   const key = artifactPreviewCacheKey(item)
   const cached = cache.get(key)
@@ -64,9 +130,9 @@ function loadCachedArtifactPreview(
     rememberArtifactPreview(cache, key, cached)
     return cached.promise
   }
-  const promise = load()
+  const promise = scheduleArtifactPreviewLoad(load, priority)
     .then((result) => {
-      rememberArtifactPreview(cache, key, { result })
+      rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
       return result
     })
     .catch(() => {
@@ -80,13 +146,32 @@ function loadCachedArtifactPreview(
 export function useLocalArtifactPreview(
   item: LocalArtifactItem | null,
   previewCache: LocalArtifactPreviewCache,
+  priority: ArtifactPreviewLoadPriority = "interactive",
 ): {
   loading: boolean
   preview: LocalArtifactPreviewResult | null
+  reload: () => void
 } {
   const chatService = useChatService()
   const [preview, setPreview] = React.useState<LocalArtifactPreviewResult | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [reloadVersion, setReloadVersion] = React.useState(0)
+  const reloadAttemptRef = React.useRef<{ count: number; key: string | null }>({ count: 0, key: null })
+  const previewKey = item ? artifactPreviewCacheKey(item) : null
+  const reload = React.useCallback(() => {
+    if (reloadAttemptRef.current.key !== previewKey) {
+      reloadAttemptRef.current = { count: 0, key: previewKey }
+    }
+    if (reloadAttemptRef.current.count >= 1) {
+      return
+    }
+    reloadAttemptRef.current.count += 1
+    if (previewKey) {
+      previewCache.delete(previewKey)
+    }
+    setPreview(null)
+    setReloadVersion((value) => value + 1)
+  }, [previewCache, previewKey])
 
   React.useEffect(() => {
     if (!item || item.kind !== "file") {
@@ -102,8 +187,11 @@ export function useLocalArtifactPreview(
     }
     let cancelled = false
     setLoading(true)
-    void loadCachedArtifactPreview(previewCache, item, () =>
-      chatService.invoke("getLocalArtifactPreview", { path: item.path }),
+    void loadCachedArtifactPreview(
+      previewCache,
+      item,
+      () => chatService.invoke("getLocalArtifactPreview", { path: item.path }),
+      priority,
     )
       .then((result) => {
         if (!cancelled) {
@@ -118,7 +206,7 @@ export function useLocalArtifactPreview(
     return () => {
       cancelled = true
     }
-  }, [chatService, item, previewCache])
+  }, [chatService, item, previewCache, priority, reloadVersion])
 
-  return { loading, preview }
+  return { loading, preview, reload }
 }

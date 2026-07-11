@@ -6,6 +6,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import {
   attachmentExtension,
+  deleteAttachmentPreviewUrl,
   fileSizeLabel,
   isImageAttachment,
   readAttachmentPreviewUrl,
@@ -65,13 +66,14 @@ function AttachmentImageCard({
 }) {
   const chatService = useChatService()
   const [previewUrl, setPreviewUrl] = React.useState(attachment.previewUrl ?? null)
+  const [previewRetry, setPreviewRetry] = React.useState(0)
   const attachmentPath = attachment.path
   const attachmentMime = attachment.mime
   const initialPreviewUrl = attachment.previewUrl ?? null
   const imageAttachment = isImageAttachment(attachment)
 
   React.useEffect(() => {
-    const cached = readAttachmentPreviewUrl(attachmentPath) ?? initialPreviewUrl
+    const cached = readAttachmentPreviewUrl(attachmentPath) ?? (previewRetry === 0 ? initialPreviewUrl : null)
     setPreviewUrl(cached)
     if (cached || !imageAttachment) {
       return
@@ -80,11 +82,12 @@ function AttachmentImageCard({
     void chatService
       .invoke("getAttachmentPreview", { path: attachmentPath, mime: attachmentMime })
       .then((result) => {
-        if (cancelled || !result.dataUrl) {
+        const source = result.resourceUrl ?? result.dataUrl
+        if (cancelled || !source) {
           return
         }
-        setAttachmentPreviewUrl(attachmentPath, result.dataUrl)
-        setPreviewUrl(result.dataUrl)
+        setAttachmentPreviewUrl(attachmentPath, source, result.resourceExpiresAt)
+        setPreviewUrl(source)
       })
       .catch((error: unknown) => {
         reportRendererHandledError("chat", "attachment preview load failed", error)
@@ -92,7 +95,7 @@ function AttachmentImageCard({
     return () => {
       cancelled = true
     }
-  }, [attachmentMime, attachmentPath, chatService, imageAttachment, initialPreviewUrl])
+  }, [attachmentMime, attachmentPath, chatService, imageAttachment, initialPreviewUrl, previewRetry])
 
   return (
     <div className="group relative size-20 shrink-0">
@@ -109,6 +112,13 @@ function AttachmentImageCard({
             className="size-full object-cover object-center"
             draggable={false}
             decoding="async"
+            onError={() => {
+              deleteAttachmentPreviewUrl(attachmentPath)
+              setPreviewUrl(null)
+              if (previewRetry < 1) {
+                setPreviewRetry((value) => value + 1)
+              }
+            }}
           />
         ) : (
           <span className="flex size-full items-center justify-center text-muted-foreground/65">
@@ -182,15 +192,16 @@ export function AttachmentList({
         if (cancelled) {
           return
         }
-        if (!result.dataUrl) {
+        const source = result.resourceUrl ?? result.dataUrl
+        if (!source) {
           toast.error(t("artifacts.previewReadFailed"))
           setImageViewer(null)
           return
         }
-        setAttachmentPreviewUrl(imageViewer.attachment.path, result.dataUrl)
+        setAttachmentPreviewUrl(imageViewer.attachment.path, source, result.resourceExpiresAt)
         setImageViewer((current) =>
           current?.attachment.path === imageViewer.attachment.path
-            ? { attachment: current.attachment, src: result.dataUrl as string }
+            ? { attachment: current.attachment, src: source }
             : current,
         )
       })

@@ -172,6 +172,20 @@ export function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values))
 }
 
+export function filterOrganizationProviderOptions(
+  options: readonly OrganizationProviderOption[],
+  query: string,
+): OrganizationProviderOption[] {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) {
+    return [...options]
+  }
+  return options.filter(
+    (option) =>
+      option.label.toLowerCase().includes(normalizedQuery) || option.service.toLowerCase().includes(normalizedQuery),
+  )
+}
+
 export function organizationSkillPackageKey(packageName: string): string {
   return packageName.trim().toLowerCase()
 }

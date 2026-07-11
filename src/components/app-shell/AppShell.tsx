@@ -18,6 +18,7 @@ import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { ChatConnectionDrawerState } from "./use-chat-connection-retry.ts"
 import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
+import type { UseAuth } from "@/hooks/useAuth"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ChatStatus } from "ai"
@@ -73,7 +74,6 @@ import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
-import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
@@ -124,10 +124,9 @@ function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
 }
 
-export function AppShell() {
+export function AppShell({ auth }: { auth: UseAuth }) {
   const t = useT()
   const chatService = useChatService()
-  const auth = useAuth()
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
@@ -301,6 +300,7 @@ export function AppShell() {
     readStoredSidebarSegment(globalThis.localStorage),
   )
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
+  const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const {
     handleSidebarResizeKeyDown,
     handleSidebarResizeStart,
@@ -311,7 +311,7 @@ export function AppShell() {
     setSidebarCollapsed,
     sidebarCollapsed,
     sidebarWidth,
-  } = useSidebarChromeState()
+  } = useSidebarChromeState(appChromeRef)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [composerFocusRequest, setComposerFocusRequest] = React.useState(0)
   const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
@@ -322,7 +322,6 @@ export function AppShell() {
   const [removeProjectId, setRemoveProjectId] = React.useState<string | null>(null)
   const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
   const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
-  const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const selectedSession = selectedSessionId
     ? (visibleSessions.find((session) => session.id === selectedSessionId) ?? null)
     : null
@@ -360,9 +359,13 @@ export function AppShell() {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
+  const providerSkillRecommendationsEnabled = route === "chat" || route === "skills" || route === "organizations"
   const providerSkillRecommendations = useProviderSkillRecommendations({
     groupById: organizationSkillGroupById,
-    providers: organizationSkills.organizationId ? activeProviders : EMPTY_CONNECTION_PROVIDERS,
+    providers:
+      organizationSkills.organizationId && providerSkillRecommendationsEnabled
+        ? activeProviders
+        : EMPTY_CONNECTION_PROVIDERS,
   })
   const installableProviderSkillRecommendations = React.useMemo(
     () => getUnlinkedProviderSkillRecommendations(organizationSkills.skills, providerSkillRecommendations.installable),
@@ -410,7 +413,6 @@ export function AppShell() {
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
   )
-  const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
   const lastModeBySession = React.useRef<Map<string, AgentMode | undefined>>(new Map())
@@ -489,11 +491,6 @@ export function AppShell() {
       void refreshSessions()
     }
   }, [ready, refreshSessions, sessionsEnabled])
-
-  React.useEffect(() => {
-    const id = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
-    return () => window.clearInterval(id)
-  }, [])
 
   // dev/smoke：VITE_WANTA_SMOKE 设置时，就绪后自动发送一条消息用于可视化验证（生产无此 env，无害）。
   const smokeSent = React.useRef(false)
@@ -1552,6 +1549,7 @@ export function AppShell() {
     setBillingInitialTarget(target ?? null)
     setRoute("billing")
   }, [])
+  const handleOpenOrganizations = React.useCallback(() => setRoute("organizations"), [])
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
@@ -1564,6 +1562,40 @@ export function AppShell() {
   const newChatLabel = labelWithShortcut(
     activeProject ? t("project.newTask") : t("sidebar.newSession"),
     newChatShortcut,
+  )
+  const composerProjectContext = React.useMemo(
+    () =>
+      showComposerProjectContext ? (
+        <ProjectContextBar
+          activeProject={activeProject}
+          disabled={!ready || Boolean(activeChatSessionId && isSessionRunning(activeChatSessionId))}
+          gitError={projectGit.error}
+          gitLoading={projectGit.loading}
+          gitState={projectGit.state}
+          projects={visibleProjects}
+          onCheckoutBranch={projectGit.checkoutBranch}
+          onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
+          onCreateProject={() => void handleSelectComposerProjectFolder()}
+          onRefreshGit={projectGit.refresh}
+          onSelectProject={handleSelectComposerProject}
+        />
+      ) : null,
+    [
+      activeChatSessionId,
+      activeProject,
+      handleSelectComposerProject,
+      handleSelectComposerProjectFolder,
+      isSessionRunning,
+      projectGit.checkoutBranch,
+      projectGit.createAndCheckoutBranch,
+      projectGit.error,
+      projectGit.loading,
+      projectGit.refresh,
+      projectGit.state,
+      ready,
+      showComposerProjectContext,
+      visibleProjects,
+    ],
   )
 
   if (route === "settings") {
@@ -1633,7 +1665,6 @@ export function AppShell() {
         isSessionRunning={isSessionRunning}
         loggingOut={auth.loggingOut}
         newChatLabel={newChatLabel}
-        now={relativeTimeNow}
         projectPinnedGroups={projectPinnedGroups}
         projectPinnedSessions={projectPinnedSessions}
         projectRegularGroups={projectRegularGroups}
@@ -1752,23 +1783,7 @@ export function AppShell() {
                       providers={activeProviders}
                       queueHeld={activeQueueHeld}
                       queuedMessages={activeQueuedMessages}
-                      contextBar={
-                        showComposerProjectContext ? (
-                          <ProjectContextBar
-                            activeProject={activeProject}
-                            disabled={!ready || Boolean(activeChatSessionId && isSessionRunning(activeChatSessionId))}
-                            gitError={projectGit.error}
-                            gitLoading={projectGit.loading}
-                            gitState={projectGit.state}
-                            projects={visibleProjects}
-                            onCheckoutBranch={projectGit.checkoutBranch}
-                            onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
-                            onCreateProject={() => void handleSelectComposerProjectFolder()}
-                            onRefreshGit={projectGit.refresh}
-                            onSelectProject={handleSelectComposerProject}
-                          />
-                        ) : null
-                      }
+                      contextBar={composerProjectContext}
                       placeholder={
                         startupError
                           ? t("error.agent.title")
@@ -1795,7 +1810,7 @@ export function AppShell() {
                       onTurnOutputAvailable={handleTurnOutputAvailable}
                       onOpenConnections={handleOpenConnections}
                       onOpenConnectionProvider={handleOpenChatConnectionProvider}
-                      onOpenOrganizations={() => setRoute("organizations")}
+                      onOpenOrganizations={handleOpenOrganizations}
                       onViewBilling={handleViewBilling}
                     />
                   </div>

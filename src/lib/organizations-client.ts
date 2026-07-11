@@ -52,6 +52,8 @@ interface RequestOptions extends RequestInit {
 }
 
 const organizationRequestTimeoutMs = 20_000
+const userSummaryBatchSize = 100
+const userSummaryBatchConcurrency = 4
 const organizationMemberLimitPatterns = [
   "organization member limit exceeded",
   "member limit exceeded",
@@ -423,15 +425,39 @@ export async function listOrganizationMembers(orgId: string): Promise<Organizati
 }
 
 export async function listUserSummaries(userIds: string[]): Promise<Record<string, OrganizationUserSummary>> {
-  const searchParams = new URLSearchParams()
   const normalizedIds = Array.from(new Set(userIds.map((userId) => userId.trim()).filter(Boolean))).sort()
-  for (const userId of normalizedIds) {
-    searchParams.append("user_ids", userId)
-  }
-  if (!searchParams.toString()) {
+  if (normalizedIds.length === 0) {
     return {}
   }
-  return normalizeUserSummaryMap(await requestApiJson(`/v1/users/summaries?${searchParams.toString()}`))
+
+  const batches: string[][] = []
+  for (let index = 0; index < normalizedIds.length; index += userSummaryBatchSize) {
+    batches.push(normalizedIds.slice(index, index + userSummaryBatchSize))
+  }
+
+  const summaries: Record<string, OrganizationUserSummary> = {}
+  let nextBatchIndex = 0
+  const workerCount = Math.min(userSummaryBatchConcurrency, batches.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextBatchIndex < batches.length) {
+        const batch = batches[nextBatchIndex]
+        nextBatchIndex += 1
+        if (!batch) {
+          continue
+        }
+        const searchParams = new URLSearchParams()
+        for (const userId of batch) {
+          searchParams.append("user_ids", userId)
+        }
+        Object.assign(
+          summaries,
+          normalizeUserSummaryMap(await requestApiJson(`/v1/users/summaries?${searchParams.toString()}`)),
+        )
+      }
+    }),
+  )
+  return summaries
 }
 
 export async function searchUsers(

@@ -1,4 +1,16 @@
 @layer components {
+  /* 长列表保留完整 DOM 与键盘/复制语义，只跳过视口外子树的布局和绘制。 */
+  .oo-list-render-boundary {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 3.5rem;
+  }
+
+  /* 对话 turn 高度差异较大，使用浏览器记忆实际高度前的保守占位。 */
+  .oo-chat-turn-render-boundary {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 18rem;
+  }
+
   .oo-input-surface {
     background: var(--oo-input-surface);
   }

@@ -1,3 +1,4 @@
+import type { AttachmentPreviewResult } from "../../../electron/chat/common.ts"
 import type {
   ComponentProps,
   Dispatch,
@@ -19,12 +20,22 @@ type MarkdownImageProps = ComponentProps<"img"> & {
   node?: unknown
 }
 
-const localImagePreviewUrlByPath = new Map<string, string | null>()
+interface LocalImagePreviewCacheEntry {
+  expiresAt?: number
+  url: string | null
+}
+
+const localImagePreviewUrlByPath = new Map<string, LocalImagePreviewCacheEntry>()
+const localImagePreviewRefreshMarginMs = 60_000
 const imageViewerMinScale = 0.1
 const imageViewerMaxScale = 4
 const imageViewerScaleStep = 0.1
 const imageViewerMargin = 64
 const mouseWheelZoomDelta = 0.12
+
+export function attachmentPreviewSource(result: AttachmentPreviewResult): string | null {
+  return result.resourceUrl ?? result.dataUrl
+}
 
 interface ImageViewerSize {
   height: number
@@ -208,9 +219,16 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   const chatService = useChatService()
   const localPath = typeof src === "string" ? localImagePathFromSrc(src) : null
   const originalSrc = typeof src === "string" ? src : undefined
-  const [previewUrl, setPreviewUrl] = useState<string | null>(() =>
-    localPath ? (localImagePreviewUrlByPath.get(localPath) ?? null) : null,
-  )
+  const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
+    if (!localPath) {
+      return null
+    }
+    const cached = localImagePreviewUrlByPath.get(localPath)
+    return cached && (!cached.expiresAt || cached.expiresAt > Date.now() + localImagePreviewRefreshMarginMs)
+      ? cached.url
+      : null
+  })
+  const [previewRetry, setPreviewRetry] = useState(0)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
   const [stageSize, setStageSize] = useState<ImageViewerSize | null>(null)
   const [imageSize, setImageSize] = useState<ImageViewerSize | null>(null)
@@ -225,10 +243,11 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
       return
     }
     const cached = localImagePreviewUrlByPath.get(localPath)
-    if (cached !== undefined) {
-      setPreviewUrl(cached)
+    if (cached && (!cached.expiresAt || cached.expiresAt > Date.now() + localImagePreviewRefreshMarginMs)) {
+      setPreviewUrl(cached.url)
       return
     }
+    localImagePreviewUrlByPath.delete(localPath)
     setPreviewUrl(null)
     let cancelled = false
     void chatService
@@ -237,19 +256,20 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
         if (cancelled) {
           return
         }
-        localImagePreviewUrlByPath.set(localPath, result.dataUrl)
-        setPreviewUrl(result.dataUrl)
+        const nextUrl = attachmentPreviewSource(result)
+        localImagePreviewUrlByPath.set(localPath, { expiresAt: result.resourceExpiresAt, url: nextUrl })
+        setPreviewUrl(nextUrl)
       })
       .catch(() => {
         if (!cancelled) {
-          localImagePreviewUrlByPath.set(localPath, null)
+          localImagePreviewUrlByPath.set(localPath, { url: null })
           setPreviewUrl(null)
         }
       })
     return () => {
       cancelled = true
     }
-  }, [chatService, localPath])
+  }, [chatService, localPath, previewRetry])
 
   useEffect(() => {
     viewerStateRef.current = viewerState
@@ -258,6 +278,15 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
   const visibleSrc = localPath ? previewUrl : originalSrc
   const downloadName = imageFileName(localPath ?? originalSrc)
   const previewTitle = alt || downloadName
+  const handlePreviewError: MarkdownImageProps["onError"] = (event) => {
+    props.onError?.(event)
+    if (!localPath || previewRetry >= 1) {
+      return
+    }
+    localImagePreviewUrlByPath.delete(localPath)
+    setPreviewUrl(null)
+    setPreviewRetry((value) => value + 1)
+  }
 
   if (!visibleSrc) {
     if (localPath) {
@@ -274,7 +303,15 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
         aria-label={t("chat.imagePreview.open", { name: previewTitle })}
         onClick={() => setIsViewerOpen(true)}
       >
-        <img src={visibleSrc} alt={alt ?? ""} className={className} draggable={false} decoding="async" {...props} />
+        <img
+          src={visibleSrc}
+          alt={alt ?? ""}
+          className={className}
+          draggable={false}
+          decoding="async"
+          {...props}
+          onError={handlePreviewError}
+        />
       </button>
       <div className="oo-markdown-image-actions">
         <a

@@ -76,6 +76,7 @@ import {
 import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message"
+import { MarkdownImage } from "@/components/ai-elements/message-image"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -456,6 +457,10 @@ function AssistantBlock({
         />
       ) : block.kind === "status" ? (
         <div className="text-sm leading-6 font-medium text-muted-foreground/80">{statusPartText(t, block.part)}</div>
+      ) : block.kind === "attachment" ? (
+        block.part.attachment ? (
+          <AssistantAttachment attachment={block.part.attachment} />
+        ) : null
       ) : (
         <div className="space-y-0.5">
           {block.parts.map((part) => {
@@ -477,6 +482,10 @@ function AssistantBlock({
       )}
     </div>
   )
+}
+
+function AssistantAttachment({ attachment }: { attachment: ChatAttachment }) {
+  return <MarkdownImage src={attachment.path} alt={attachment.name} />
 }
 
 function MessageBubble({

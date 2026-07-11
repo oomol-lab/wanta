@@ -4,6 +4,7 @@ import { branding } from "../branding.ts"
 
 export interface ApplicationMenuLabels {
   about: string
+  checkForUpdates: string
   closeWindow: string
   copy: string
   cut: string
@@ -46,6 +47,7 @@ export interface ApplicationMenuLabels {
 export const applicationMenuMessages: Record<AppLocale, ApplicationMenuLabels> = {
   "zh-CN": {
     about: `关于 ${branding.appName}`,
+    checkForUpdates: "检查更新…",
     closeWindow: "关闭窗口",
     copy: "复制",
     cut: "剪切",
@@ -86,6 +88,7 @@ export const applicationMenuMessages: Record<AppLocale, ApplicationMenuLabels> =
   },
   en: {
     about: `About ${branding.appName}`,
+    checkForUpdates: "Check for Updates…",
     closeWindow: "Close Window",
     copy: "Copy",
     cut: "Cut",

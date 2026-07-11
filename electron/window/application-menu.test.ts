@@ -13,6 +13,7 @@ function menuTemplate(input: Partial<Parameters<typeof buildApplicationMenuTempl
   return buildApplicationMenuTemplate({
     developmentMode: false,
     locale: "en",
+    onCheckForUpdates: () => undefined,
     onCommand: () => undefined,
     platform: "darwin",
     ...input,
@@ -108,5 +109,29 @@ describe("buildApplicationMenuTemplate", () => {
     ;(newChatItem.click as MenuClick)()
 
     expect(onCommand).toHaveBeenCalledExactlyOnceWith(APP_COMMANDS.newChat)
+  })
+
+  it("places a localized update check in the macOS application menu", () => {
+    const onCheckForUpdates = vi.fn()
+    const template = menuTemplate({ locale: "zh-CN", onCheckForUpdates, platform: "darwin" })
+    const applicationMenu = findItem(template, branding.appName)
+    const submenu = Array.isArray(applicationMenu.submenu) ? applicationMenu.submenu : []
+    const updateItem = findItem(submenu, "检查更新…")
+
+    expect(
+      submenu
+        .map((item) => item.label)
+        .filter(Boolean)
+        .slice(0, 3),
+    ).toEqual([`关于 ${branding.appName}`, "检查更新…", "设置…"])
+    expect(updateItem.click).toBeTypeOf("function")
+    ;(updateItem.click as MenuClick)()
+    expect(onCheckForUpdates).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the update check out of non-macOS menus", () => {
+    const template = menuTemplate({ locale: "en", platform: "win32" })
+
+    expect(collectLabels(template)).not.toContain("Check for Updates…")
   })
 })

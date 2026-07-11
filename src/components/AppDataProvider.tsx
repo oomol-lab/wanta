@@ -48,7 +48,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }),
       skillInventory: createResource<SkillInventory>({
         isEqualData: isRefreshDataEqual,
-        staleTimeMs: 60_000,
+        // 主进程 watcher 会在技能变化时主动失效；较长 TTL 仅兜底发现启动时尚不存在的技能目录。
+        staleTimeMs: 5 * 60_000,
         load: () => skillService.invoke("getSkillInventory"),
       }),
       skillVersions: createResource({

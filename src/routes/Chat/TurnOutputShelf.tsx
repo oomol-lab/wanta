@@ -3,6 +3,7 @@ import type { TurnOutputSelection } from "./TurnOutputs.tsx"
 
 import { ChevronDown, ChevronRight, FileCode2, FileDiff } from "lucide-react"
 import * as React from "react"
+import { OutputShelfCard } from "./OutputShelfCard.tsx"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { FileKindTile } from "@/routes/Chat/file-type-icons"
@@ -117,29 +118,23 @@ export function TurnOutputShelf({
 
   if (!hasProjectChanges) {
     return (
-      <section className="not-prose mt-2 min-w-0">
-        <button
-          type="button"
-          className="flex min-h-16 w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          onClick={() => onOpen({ record, initialRole: "process" })}
-        >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            <FileCode2 className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="oo-text-label block truncate text-foreground">{t("turnOutputs.processDetails")}</span>
-            <span className="oo-text-caption-compact block truncate">
-              {t("turnOutputs.processNotArtifact", { count: intermediateFiles.length })}
+      <section className="not-prose mt-0 min-w-0">
+        <OutputShelfCard
+          title={t("turnOutputs.processDetails")}
+          icon={
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <FileCode2 className="size-4" />
             </span>
-          </span>
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-        </button>
+          }
+          description={t("turnOutputs.processNotArtifact", { count: intermediateFiles.length })}
+          onClick={() => onOpen({ record, initialRole: "process" })}
+        />
       </section>
     )
   }
 
   return (
-    <div className="not-prose mt-2 w-full min-w-0 rounded-lg border border-border bg-background">
+    <div className="not-prose mt-0 w-full min-w-0 rounded-lg border border-border bg-background">
       <button
         type="button"
         className="flex w-full min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-3 text-left transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"

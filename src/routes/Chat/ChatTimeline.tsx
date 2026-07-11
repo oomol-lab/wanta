@@ -845,18 +845,22 @@ const ChatTurnView = React.memo(function ChatTurnView({
           ))}
         </>
       )}
-      {artifactGroups.length > 0 ? (
-        <React.Suspense fallback={null}>
-          <GeneratedArtifacts
-            groups={artifactGroups}
-            selectionGroups={artifactSelectionGroups}
-            onOpen={onArtifactsOpen}
-            onAvailable={onArtifactsAvailable}
-          />
-        </React.Suspense>
-      ) : null}
-      {activeSessionId && turnOutputRecord ? (
-        <TurnOutputShelf record={turnOutputRecord} onOpen={onTurnOutputOpen} />
+      {artifactGroups.length > 0 || (activeSessionId && turnOutputRecord) ? (
+        <div className="mt-2 grid gap-2">
+          {artifactGroups.length > 0 ? (
+            <React.Suspense fallback={null}>
+              <GeneratedArtifacts
+                groups={artifactGroups}
+                selectionGroups={artifactSelectionGroups}
+                onOpen={onArtifactsOpen}
+                onAvailable={onArtifactsAvailable}
+              />
+            </React.Suspense>
+          ) : null}
+          {activeSessionId && turnOutputRecord ? (
+            <TurnOutputShelf record={turnOutputRecord} onOpen={onTurnOutputOpen} />
+          ) : null}
+        </div>
       ) : null}
     </React.Fragment>
   )

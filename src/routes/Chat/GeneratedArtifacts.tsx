@@ -35,6 +35,7 @@ import {
   ArtifactsEmptyState,
 } from "./ArtifactPreviewPane.tsx"
 import { FileKindTile } from "./file-type-icons.tsx"
+import { OutputShelfCard } from "./OutputShelfCard.tsx"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -360,7 +361,7 @@ export function GeneratedArtifactsShelf({
       return null
     }
     return (
-      <section className="not-prose mt-2">
+      <section className="not-prose mt-0">
         <ArtifactPersistenceWarning />
       </section>
     )
@@ -388,30 +389,25 @@ export function GeneratedArtifactsShelf({
     : artifactMetaLabel(t, primaryDisplayItem, primary.pack)
 
   return (
-    <section className="not-prose mt-2 grid gap-1.5">
+    <section className="not-prose mt-0 grid gap-1.5">
       {newest?.status === "failed" ? (
         <ArtifactPersistenceWarning />
       ) : primary.status === "partial" ? (
         <ArtifactPersistenceWarning partial />
       ) : null}
-      <button
-        type="button"
+      <OutputShelfCard
         title={title}
-        className="oo-border-divider flex min-h-16 min-w-0 items-center gap-3 rounded-lg border bg-muted/55 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        icon={
+          <FileKindTile source={primaryDisplayItem} pack={primary.pack} className="size-9" iconClassName="size-4" />
+        }
+        description={meta}
         onClick={() => onOpen(selection)}
         onContextMenu={(event) => {
           event.preventDefault()
           event.stopPropagation()
           onContextMenu(primaryDisplayItem, event.clientX, event.clientY)
         }}
-      >
-        <FileKindTile source={primaryDisplayItem} pack={primary.pack} className="size-9" iconClassName="size-4" />
-        <span className="min-w-0 flex-1">
-          <span className="oo-text-label block truncate text-foreground">{title}</span>
-          <span className="oo-text-caption-compact block truncate text-muted-foreground">{meta}</span>
-        </span>
-        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-      </button>
+      />
     </section>
   )
 }

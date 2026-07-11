@@ -53,6 +53,7 @@ export function appCommandShortcutLabel(
 ): string {
   const modifier = isMacPlatform(platform) ? "⌘" : "Ctrl+"
   switch (command) {
+    case APP_COMMANDS.checkForUpdates:
     case APP_COMMANDS.openConnections:
       return ""
     case APP_COMMANDS.focusComposer:
@@ -76,6 +77,7 @@ export function appCommandAriaShortcut(
 ): string {
   const modifier = isMacPlatform(platform) ? "Meta" : "Control"
   switch (command) {
+    case APP_COMMANDS.checkForUpdates:
     case APP_COMMANDS.openConnections:
       return ""
     case APP_COMMANDS.focusComposer:

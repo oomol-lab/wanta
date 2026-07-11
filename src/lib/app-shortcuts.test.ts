@@ -31,5 +31,7 @@ describe("app shortcuts", () => {
     expect(appCommandAriaShortcut(APP_COMMANDS.openSearch, "win32")).toBe("Control+K")
     expect(appCommandShortcutLabel(APP_COMMANDS.openConnections, "darwin")).toBe("")
     expect(appCommandAriaShortcut(APP_COMMANDS.openConnections, "win32")).toBe("")
+    expect(appCommandShortcutLabel(APP_COMMANDS.checkForUpdates, "darwin")).toBe("")
+    expect(appCommandAriaShortcut(APP_COMMANDS.checkForUpdates, "win32")).toBe("")
   })
 })

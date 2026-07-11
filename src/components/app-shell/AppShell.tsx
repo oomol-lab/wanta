@@ -74,6 +74,7 @@ import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
+import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
@@ -83,6 +84,7 @@ import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecomme
 import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
 import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
+import { resolveManualUpdateCheckAction, shouldStartManualUpdateCheck } from "@/lib/manual-update-check"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -127,6 +129,7 @@ function RouteLoadingFallback({ className }: { className?: string }) {
 export function AppShell({ auth }: { auth: UseAuth }) {
   const t = useT()
   const chatService = useChatService()
+  const appUpdate = useAppUpdate()
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
@@ -1484,6 +1487,49 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       await stop(activeChatSessionId)
     }
   }, [activeChatSessionId, stop])
+  const showManualUpdateCheckResult = React.useCallback(
+    (state: Parameters<typeof resolveManualUpdateCheckAction>[0]): void => {
+      const action = resolveManualUpdateCheckAction(state)
+      const options = { id: "manual-update-check" }
+      switch (action.type) {
+        case "check":
+        case "checking":
+          toast.loading(t("nav.updateChecking"), options)
+          return
+        case "available":
+          toast.info(t("nav.updateAvailable", { version: action.version }), options)
+          return
+        case "downloading":
+          toast.info(t("nav.updateDownloading", { percent: action.percent }), options)
+          return
+        case "downloaded":
+          toast.info(t("nav.updateReady", { version: action.version }), options)
+          return
+        case "not-available":
+          toast.success(t("nav.updateUpToDate", { version: action.version }), options)
+          return
+        case "error":
+          toast.error(t("nav.updateCheckFailed"), options)
+          return
+        case "unavailable":
+          toast.info(t("nav.updateDevUnavailable"), options)
+      }
+    },
+    [t],
+  )
+  const handleManualUpdateCheck = React.useCallback(async (): Promise<void> => {
+    if (!shouldStartManualUpdateCheck(appUpdate.state)) {
+      showManualUpdateCheckResult(appUpdate.state)
+      return
+    }
+    showManualUpdateCheckResult({
+      channel: appUpdate.state?.channel ?? "stable",
+      currentVersion: appUpdate.state?.currentVersion ?? globalThis.wanta?.version ?? "—",
+      isPackaged: true,
+      status: { status: "checking" },
+    })
+    showManualUpdateCheckResult(await appUpdate.check())
+  }, [appUpdate, showManualUpdateCheckResult])
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
       if (activeChatSessionId) {
@@ -1497,6 +1543,9 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const runAppCommand = React.useCallback(
     (command: AppCommand): void => {
       switch (command) {
+        case APP_COMMANDS.checkForUpdates:
+          void handleManualUpdateCheck()
+          return
         case APP_COMMANDS.openConnections:
           handleReturnToConnections()
           void connections.refresh({ forceRefresh: true })
@@ -1525,6 +1574,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     [
       connections.refresh,
       handleChatStop,
+      handleManualUpdateCheck,
       handleNewSession,
       handleOpenSearch,
       handleReturnToConnections,
@@ -1701,6 +1751,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         >
           <AppShellMainTitlebar
             activeSession={activeSession ?? null}
+            appUpdate={appUpdate}
             artifactsPanelOpen={artifactsPanelOpen}
             artifactsToggleIcon={ArtifactsToggleIcon}
             artifactsToggleLabel={artifactsToggleLabel}

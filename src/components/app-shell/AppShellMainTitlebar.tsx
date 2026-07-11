@@ -1,5 +1,6 @@
 import type { SessionInfo } from "../../../electron/session/common.ts"
 import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
+import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 import type { LucideIcon } from "lucide-react"
 
@@ -11,6 +12,7 @@ import { cn } from "@/lib/utils"
 
 export function AppShellMainTitlebar({
   activeSession,
+  appUpdate,
   artifactsPanelOpen,
   artifactsToggleIcon: ArtifactsToggleIcon,
   artifactsToggleLabel,
@@ -29,6 +31,7 @@ export function AppShellMainTitlebar({
   workspace,
 }: {
   activeSession: SessionInfo | null
+  appUpdate: UseAppUpdate
   artifactsPanelOpen: boolean
   artifactsToggleIcon: LucideIcon
   artifactsToggleLabel: string
@@ -73,7 +76,7 @@ export function AppShellMainTitlebar({
         />
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
-        <AppUpdateTitlebarEntry />
+        <AppUpdateTitlebarEntry update={appUpdate} />
         <BillingUsagePopover
           cacheScope={billingCacheScope}
           sharedConnectorCount={sharedConnectorCount}

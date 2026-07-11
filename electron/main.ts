@@ -806,13 +806,6 @@ function installApplicationMenu(): void {
       buildApplicationMenuTemplate({
         developmentMode: shouldShowDevelopmentMenu(),
         locale: activeLocale(),
-        onCheckForUpdates: () => {
-          sendAppCommand(APP_COMMANDS.openSettings)
-          void updateService.checkForAppUpdate().catch((error: unknown) => {
-            console.warn("[wanta] manual update check from application menu failed:", error)
-            logMainError("manual update check from application menu failed", error)
-          })
-        },
         onCommand: sendAppCommand,
         platform: process.platform,
       }),

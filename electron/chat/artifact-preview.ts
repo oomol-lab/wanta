@@ -9,6 +9,7 @@ import JSZip from "jszip"
 import { readFile } from "node:fs/promises"
 import readXlsxFile from "read-excel-file/universal"
 import { list as listTar } from "tar"
+import { zipArchiveStats } from "./zip-central-directory.ts"
 
 export const richPreviewMaxBytes = 16 * 1024 * 1024
 export const spreadsheetPreviewMaxBytes = 8 * 1024 * 1024
@@ -16,6 +17,10 @@ export const archivePreviewMaxEntries = 300
 export const spreadsheetPreviewMaxRows = 200
 export const spreadsheetPreviewMaxColumns = 50
 export const spreadsheetPreviewMaxSheets = 12
+export const spreadsheetArchiveMaxEntries = 2_048
+export const spreadsheetArchiveMaxUncompressedBytes = 128 * 1024 * 1024
+export const spreadsheetArchiveMaxEntryBytes = 64 * 1024 * 1024
+export const spreadsheetArchiveMaxCompressionRatio = 200
 
 function fileNameFromPath(filePath: string): string {
   return filePath.split(/[\\/]/).pop() ?? filePath
@@ -161,6 +166,19 @@ export async function spreadsheetPreview(
     return { kind: "unsupported", mime, size, reason: "too_large" }
   }
   const bytes = await readFile(filePath)
+  const archive = zipArchiveStats(bytes)
+  if (!archive) {
+    throw new Error("Invalid XLSX ZIP central directory")
+  }
+  const compressionRatio = archive.totalUncompressedSize / Math.max(archive.totalCompressedSize, 1)
+  if (
+    archive.entryCount > spreadsheetArchiveMaxEntries ||
+    archive.totalUncompressedSize > spreadsheetArchiveMaxUncompressedBytes ||
+    archive.maxEntryUncompressedSize > spreadsheetArchiveMaxEntryBytes ||
+    compressionRatio > spreadsheetArchiveMaxCompressionRatio
+  ) {
+    return { kind: "unsupported", mime, size, reason: "too_large" }
+  }
   const parsedSheets = await readXlsxFile(bufferArrayBuffer(bytes), { trim: false })
   const { preview, truncated } = spreadsheetWorkbookPreview(parsedSheets)
   return {

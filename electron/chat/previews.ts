@@ -57,7 +57,10 @@ function attachmentPreviewMime(req: AttachmentPreviewRequest): string | null {
   return imageMimeFromPath(req.path)
 }
 
-export async function attachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
+export async function attachmentPreview(
+  req: AttachmentPreviewRequest,
+  createResourceUrl?: CreateArtifactResourceUrl,
+): Promise<AttachmentPreviewResult> {
   const mime = attachmentPreviewMime(req)
   if (!mime) {
     return { dataUrl: null }
@@ -66,6 +69,12 @@ export async function attachmentPreview(req: AttachmentPreviewRequest): Promise<
     const info = await stat(req.path)
     if (!info.isFile() || info.size > attachmentPreviewMaxBytes) {
       return { dataUrl: null }
+    }
+    if (createResourceUrl) {
+      return {
+        dataUrl: null,
+        resourceUrl: createResourceUrl({ mime, modifiedAt: info.mtimeMs, path: req.path, size: info.size }),
+      }
     }
     const bytes = await readFile(req.path)
     return { dataUrl: `data:${mime};base64,${bytes.toString("base64")}` }

@@ -2125,7 +2125,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
     await this.assertTrustedLocalPath(req.path)
-    return attachmentPreview(req)
+    return attachmentPreview(req, this.deps.createArtifactResourceUrl)
   }
 
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {

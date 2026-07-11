@@ -405,6 +405,7 @@ export interface AttachmentPreviewRequest {
 
 export interface AttachmentPreviewResult {
   dataUrl: string | null
+  resourceUrl?: string
 }
 
 export type LocalArtifactPreviewKind =

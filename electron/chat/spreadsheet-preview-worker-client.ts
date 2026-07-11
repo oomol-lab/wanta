@@ -17,6 +17,11 @@ interface QueuedSpreadsheetPreview {
 
 const spreadsheetPreviewTimeoutMs = 15_000
 
+export function spreadsheetPreviewWorkerUrl(moduleUrl = import.meta.url): URL {
+  // 不使用 new Worker(new URL(...)) 的静态形式，避免 Vite 把独立 Electron 入口误写成渲染资源绝对路径。
+  return new URL("./spreadsheet-preview-worker.js", moduleUrl)
+}
+
 export class SpreadsheetPreviewWorkerClient {
   private active: QueuedSpreadsheetPreview | null = null
   private activeId: string | null = null
@@ -59,7 +64,7 @@ export class SpreadsheetPreviewWorkerClient {
   }
 
   private createWorker(): Worker {
-    const worker = new Worker(new URL("./spreadsheet-preview-worker.js", import.meta.url), {
+    const worker = new Worker(spreadsheetPreviewWorkerUrl(), {
       resourceLimits: { maxOldGenerationSizeMb: 192, maxYoungGenerationSizeMb: 32 },
     })
     worker.on("message", (response: SpreadsheetPreviewWorkerResponse) => this.handleResponse(response))

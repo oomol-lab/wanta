@@ -7,12 +7,14 @@ import {
   buildFederatedCredentialDisplayValues,
   connectionDetailCacheKey,
   getConnectionAppNote,
+  getFittingCategoryFilterCount,
   getProviderAccountValue,
   getProviderMeta,
   isConnectionDetailCacheKeyForService,
   isConnected,
   isNoAuthReadyProvider,
   normalizeConnectionAliasInput,
+  selectVisibleCategoryFilters,
   shouldLoadProviderDetail,
 } from "./connection-route-model.ts"
 import { translate } from "@/i18n/i18n"
@@ -134,4 +136,56 @@ test("connection detail cache keys separate workspaces for the same provider", (
   assert.equal(isConnectionDetailCacheKeyForService(personalKey, "canva"), true)
   assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "canva"), true)
   assert.equal(isConnectionDetailCacheKeyForService(organizationKey, "gmail"), false)
+})
+
+test("selectVisibleCategoryFilters keeps an active overflow category visible", () => {
+  const filters = [
+    { count: 12, displayLabel: "Data & Analytics", label: "Data & Analytics" },
+    { count: 8, displayLabel: "Productivity", label: "Productivity" },
+    { count: 5, displayLabel: "Developer Tools", label: "Developer Tools" },
+  ]
+
+  assert.deepEqual(selectVisibleCategoryFilters(filters, null, 2), filters.slice(0, 2))
+  assert.deepEqual(selectVisibleCategoryFilters(filters, "Developer Tools", 2), [filters[0], filters[2]])
+  assert.deepEqual(selectVisibleCategoryFilters(filters, "Developer Tools", 0), [])
+})
+
+test("getFittingCategoryFilterCount reserves space for More categories", () => {
+  const filters = [
+    { count: 411, displayLabel: "Data & Analytics", label: "Data & Analytics" },
+    { count: 356, displayLabel: "Productivity", label: "Productivity" },
+    { count: 132, displayLabel: "Developer Tools", label: "Developer Tools" },
+    { count: 96, displayLabel: "Communication", label: "Communication" },
+  ]
+  const categoryFilterWidths = new Map([
+    ["Data & Analytics", 266],
+    ["Productivity", 220],
+    ["Developer Tools", 200],
+    ["Communication", 230],
+  ])
+
+  assert.equal(
+    getFittingCategoryFilterCount({
+      availableWidth: 1475,
+      baseFilterWidths: [120, 183, 240],
+      categoryFilterWidths,
+      filters,
+      gap: 4,
+      moreCategoriesWidth: 260,
+      selectedCategory: null,
+    }),
+    2,
+  )
+  assert.equal(
+    getFittingCategoryFilterCount({
+      availableWidth: 1475,
+      baseFilterWidths: [120, 183, 240],
+      categoryFilterWidths,
+      filters,
+      gap: 4,
+      moreCategoriesWidth: 260,
+      selectedCategory: "Developer Tools",
+    }),
+    2,
+  )
 })

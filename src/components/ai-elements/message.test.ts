@@ -4,6 +4,7 @@ import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import {
+  attachmentPreviewSource,
   clampImageViewerOffset,
   imageViewerFitScale,
   imageViewerWheelAction,
@@ -15,6 +16,7 @@ import {
 import {
   compactLocalPath,
   MarkdownTable,
+  messageClassName,
   messageResponseControls,
   nextSmoothedText,
   normalizeSingleLocalPathCodeFences,
@@ -39,6 +41,12 @@ const appContext = {
   skillService: mockService,
   updateService: mockService,
 } as AppContextValue
+
+describe("Message", () => {
+  it("allows message rows to shrink when a side panel reduces the chat width", () => {
+    expect(messageClassName("assistant")).toContain("min-w-0")
+  })
+})
 
 describe("messageResponseControls", () => {
   it("keeps code blocks copyable but disables text downloads by default", () => {
@@ -132,6 +140,17 @@ describe("MarkdownTable", () => {
 })
 
 describe("MarkdownImage", () => {
+  it("prefers streamed resource URLs for local image previews", () => {
+    expect(
+      attachmentPreviewSource({
+        dataUrl: null,
+        resourceExpiresAt: Date.now() + 60_000,
+        resourceUrl: "wanta-artifact://resource/image",
+      }),
+    ).toBe("wanta-artifact://resource/image")
+    expect(attachmentPreviewSource({ dataUrl: "data:image/png;base64,AAAA" })).toBe("data:image/png;base64,AAAA")
+  })
+
   it("decodes percent-encoded local paths from markdown image URLs", () => {
     expect(localImagePathFromSrc("/Users/me/Library/Application%20Support/wanta/agent/artifacts/turn/001.png")).toBe(
       "/Users/me/Library/Application Support/wanta/agent/artifacts/turn/001.png",

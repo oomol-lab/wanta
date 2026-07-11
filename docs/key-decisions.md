@@ -22,6 +22,7 @@
 - **决策**：electron-builder `extraResources` 内置平台二进制；只经 `OO_*` 环境变量控制（R3）；授权信号走结构化工具结果（R5）：`call_action` 解析 stderr 的 `errorCode: <code>` token，命中授权阻断码时返回 `{status:"authorization_required", authUrl}`，**不解析模型自由文本**。
 - **理由（连接器暴露策略，调研结论）**：把约 600 个 provider 全量注册成工具是死路——工具数超过 30–50 个时模型选择准确率显著下降；故选"只注入已授权存在性提示（R4，默认不列具体 provider 名）+ list/search/inspect/call 元工具渐进披露"的混合方案，**不要重新提议按 provider 生成工具或全量注册**。
 - **后果**：oo-cli 1.2.0 须先实现全套 `OO_*` 变量（曾是未声明硬前置，后上游发版补齐——此行为系 oo-cli 1.2.0 实测 + 上游发版记录，oo 是黑盒二进制、本仓库无法复核，升级 oo 时需重新验证）；`OO_SKILLS_SYNC_DISABLED=1` 必须设置否则 oo 每次运行写用户家目录（`~/.claude`、`~/.agents` 等，1.2.0 实测）。
+- **可靠性补充**：Link action 不能把模型自由填写的展示名当连接定位符；显式 `connectionName` 必须先由当前 workspace 的连接清单验证。批量同目标 action 在 `call_action` 内先 canary、再有限并发，命中授权阻断后短期熔断排队调用。聊天层按连接问题聚合 CTA；若同一连接目标本轮先成功、后返回授权错误，产品语义是“连接变为不可用或 connector 状态不一致”，不能直接断言用户从未授权。
 
 ## 4. 登录流修正：OO_API_KEY env → 浏览器登录
 

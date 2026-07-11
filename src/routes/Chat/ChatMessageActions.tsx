@@ -1,8 +1,10 @@
 import type { AuthorizationInfo } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ConnectorAuthorizationIssue } from "./chat-turns.ts"
 
 import { CheckIcon, CopyIcon, PlugZap, ThumbsDown, ThumbsUp } from "lucide-react"
 import * as React from "react"
+import { connectionAuthorizationIssueDecision } from "./connection-authorization-issue.ts"
 import { MessageAction, MessageActions } from "@/components/ai-elements/message"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
@@ -169,6 +171,40 @@ export function ConnectionSuggestionAction({
       <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5" onClick={() => onAuthorize(authorization)}>
         <PlugZap className="size-3.5" />
         {t("chat.authorizeConnection")}
+      </Button>
+    </div>
+  )
+}
+
+export function ConnectionAuthorizationIssueAction({
+  issue,
+  provider,
+  onAuthorize,
+}: {
+  issue: ConnectorAuthorizationIssue
+  provider?: ConnectionProvider
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
+  const t = useT()
+  const decision = connectionAuthorizationIssueDecision(issue, provider)
+  const message = t(decision.messageKey, { name: decision.displayName })
+
+  return (
+    <div className="not-prose mt-3 rounded-md border bg-muted/30 px-3 py-2.5">
+      <div className="oo-text-caption text-muted-foreground">{message}</div>
+      {issue.count > 1 ? (
+        <div className="oo-text-micro mt-1 text-muted-foreground">
+          {t("chat.connectionIssueDuplicateCount", { count: issue.count })}
+        </div>
+      ) : null}
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-2 h-8 gap-1.5 px-2.5"
+        onClick={() => onAuthorize(issue.authorization)}
+      >
+        <PlugZap className="size-3.5" />
+        {t(decision.actionKey)}
       </Button>
     </div>
   )

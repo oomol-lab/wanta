@@ -521,15 +521,23 @@ export function resolveNewSessionTarget({
   explicitProjectId,
   lastProjectId,
   preferLastProject = false,
+  sidebarSegment,
 }: {
   activeSession?: Pick<SessionInfo, "projectId"> | null
   draftProjectId: string | null
   explicitProjectId?: string | null
   lastProjectId?: string | null
   preferLastProject?: boolean
+  sidebarSegment?: "projects" | "tasks"
 }): NewSessionTarget {
+  const explicitProject = validProjectId(explicitProjectId)
+  if (explicitProject) {
+    return { projectId: explicitProject, sidebarSegment: "projects" }
+  }
+  if (sidebarSegment === "tasks") {
+    return { sidebarSegment: "tasks" }
+  }
   const projectId =
-    validProjectId(explicitProjectId) ??
     validProjectId(activeSession?.projectId) ??
     validProjectId(draftProjectId) ??
     (preferLastProject ? validProjectId(lastProjectId) : undefined)

@@ -30,6 +30,20 @@ function statusPart(partId: string): ChatMessagePart {
   return { kind: "status", partId, statusType: "reconnecting", attempt: 2, maxAttempts: 5 }
 }
 
+function attachmentPart(partId: string): ChatMessagePart {
+  return {
+    kind: "attachment",
+    partId,
+    attachment: {
+      id: partId,
+      name: "generated.png",
+      mime: "image/png",
+      path: "/tmp/generated.png",
+      size: 1024,
+    },
+  }
+}
+
 describe("renderBlocks", () => {
   it("ignores whitespace-only text parts so adjacent tools stay grouped", () => {
     const firstTool = toolPart("tool-1")
@@ -89,6 +103,40 @@ describe("renderBlocks", () => {
       { kind: "status", part: status },
       { kind: "tools", key: "tool-2", parts: [secondTool] },
     ])
+  })
+
+  it("keeps assistant attachments as standalone separators", () => {
+    const firstTool = toolPart("tool-1")
+    const attachment = attachmentPart("attachment-1")
+    const answer = textPart("text-1", "Done")
+
+    const blocks = renderBlocks([firstTool, attachment, answer])
+
+    expect(blocks).toEqual([
+      { kind: "tools", key: "tool-1", parts: [firstTool] },
+      { kind: "attachment", part: attachment },
+      { kind: "text", part: answer },
+    ])
+  })
+
+  it("does not duplicate an attachment already previewed by assistant text", () => {
+    const attachment = attachmentPart("attachment-1")
+    const answer = textPart("text-1", "Generated image:\n\n![Preview](</tmp/generated.png>)")
+
+    expect(renderBlocks([answer, attachment])).toEqual([{ kind: "text", part: answer }])
+  })
+
+  it("keeps attachments for plain path mentions and ordinary links", () => {
+    const attachment = attachmentPart("attachment-1")
+    expect(renderBlocks([textPart("text-1", "Saved at /tmp/generated.png"), attachment])).toHaveLength(2)
+    expect(renderBlocks([textPart("text-2", "[Download](/tmp/generated.png)"), attachment])).toHaveLength(2)
+  })
+
+  it("leaves non-image assistant attachments to the artifact shelf", () => {
+    const attachment = attachmentPart("attachment-1")
+    attachment.attachment = { ...attachment.attachment!, mime: "application/pdf", name: "report.pdf" }
+
+    expect(renderBlocks([attachment])).toEqual([])
   })
 
   it("keeps reasoning out of the default message blocks", () => {

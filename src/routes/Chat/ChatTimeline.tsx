@@ -46,6 +46,7 @@ import { AttachmentList } from "./ChatAttachments.tsx"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import {
   AssistantMessageActions,
+  ConnectionAuthorizationIssueAction,
   ConnectionSuggestionAction,
   CopyMessageAction,
   MessageTimestamp,
@@ -75,6 +76,7 @@ import {
 import { TurnOutputShelf } from "./TurnOutputShelf.tsx"
 import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation"
 import { Message, MessageActions, MessageContent, MessageResponse } from "@/components/ai-elements/message"
+import { MarkdownImage } from "@/components/ai-elements/message-image"
 import { Task, TaskContent, TaskTrigger } from "@/components/ai-elements/task"
 import { useT } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
@@ -278,7 +280,7 @@ function TurnProcessActivity({
               providerByService={providerByService}
               settlingToolPartId={settlingToolPartId}
               liveTools={live}
-              showAuthorizationPrompt={!live}
+              showAuthorizationPrompt={false}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
             />
@@ -455,6 +457,10 @@ function AssistantBlock({
         />
       ) : block.kind === "status" ? (
         <div className="text-sm leading-6 font-medium text-muted-foreground/80">{statusPartText(t, block.part)}</div>
+      ) : block.kind === "attachment" ? (
+        block.part.attachment ? (
+          <AssistantAttachment attachment={block.part.attachment} />
+        ) : null
       ) : (
         <div className="space-y-0.5">
           {block.parts.map((part) => {
@@ -476,6 +482,10 @@ function AssistantBlock({
       )}
     </div>
   )
+}
+
+function AssistantAttachment({ attachment }: { attachment: ChatAttachment }) {
+  return <MarkdownImage src={attachment.path} alt={attachment.name} />
 }
 
 function MessageBubble({
@@ -680,7 +690,6 @@ function PlainAssistantActivity() {
 interface ChatTurnViewProps {
   activeSessionId: string | null
   artifactGroups: ResolvedArtifactGroup[]
-  artifactSelectionGroups: ResolvedArtifactGroup[]
   billingCacheScope: string
   turnOutputRecord: TurnOutputRecord | null
   turn: ChatTurn
@@ -699,7 +708,6 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
   return (
     previous.activeSessionId === next.activeSessionId &&
     previous.artifactGroups === next.artifactGroups &&
-    previous.artifactSelectionGroups === next.artifactSelectionGroups &&
     previous.billingCacheScope === next.billingCacheScope &&
     previous.turnOutputRecord === next.turnOutputRecord &&
     previous.turn === next.turn &&
@@ -718,7 +726,6 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
 const ChatTurnView = React.memo(function ChatTurnView({
   activeSessionId,
   artifactGroups,
-  artifactSelectionGroups,
   billingCacheScope,
   turnOutputRecord,
   turn,
@@ -806,6 +813,16 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}
               />
+              {!processLive
+                ? process.authorizationIssues.map((issue) => (
+                    <ConnectionAuthorizationIssueAction
+                      key={issue.key}
+                      issue={issue}
+                      provider={providerByService.get(issue.service)}
+                      onAuthorize={handleAuthorize}
+                    />
+                  ))
+                : null}
               {processSuggestedAuthorization ? (
                 <ConnectionSuggestionAction
                   authorization={processSuggestedAuthorization}
@@ -856,12 +873,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
         <div className="mt-2 grid gap-2">
           {hasRenderableArtifacts ? (
             <React.Suspense fallback={null}>
-              <GeneratedArtifacts
-                groups={artifactGroups}
-                selectionGroups={artifactSelectionGroups}
-                onOpen={onArtifactsOpen}
-                onAvailable={onArtifactsAvailable}
-              />
+              <GeneratedArtifacts groups={artifactGroups} onOpen={onArtifactsOpen} onAvailable={onArtifactsAvailable} />
             </React.Suspense>
           ) : null}
           {hasRenderableTurnOutputs && turnOutputRecord ? (
@@ -1054,11 +1066,10 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             ? smoothAssistantMessageId
             : undefined
           return (
-            <div key={turn.id} className="oo-chat-turn-render-boundary grid gap-4">
+            <div key={turn.id} className="oo-chat-turn-render-boundary grid min-w-0 gap-4">
               <ChatTurnView
                 activeSessionId={activeSessionId}
                 artifactGroups={turnArtifactGroups}
-                artifactSelectionGroups={visibleArtifactGroups}
                 turn={turn}
                 billingCacheScope={billingCacheScope}
                 turnOutputRecord={turnOutputRecordsByTurn.get(turn.id) ?? null}

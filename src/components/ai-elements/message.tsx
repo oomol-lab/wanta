@@ -31,15 +31,16 @@ export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"]
 }
 
+export function messageClassName(from: UIMessage["role"], className?: string): string {
+  return cn(
+    "group group/message relative flex w-full min-w-0 flex-col gap-2",
+    from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
+    className,
+  )
+}
+
 export const Message = ({ className, from, ...props }: MessageProps) => (
-  <div
-    className={cn(
-      "group group/message relative flex w-full flex-col gap-2",
-      from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
-      className,
-    )}
-    {...props}
-  />
+  <div className={messageClassName(from, className)} {...props} />
 )
 
 export type MessageContentProps = HTMLAttributes<HTMLDivElement>

@@ -827,9 +827,11 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [])
 
   const startNewSessionDraft = React.useCallback(
-    (target: ReturnType<typeof resolveNewSessionTarget>): void => {
+    (target: ReturnType<typeof resolveNewSessionTarget>, clearTargetDraft = true): void => {
       const targetDraftKey = newSessionComposerDraftKey(sessionScope, target.projectId)
-      clearComposerDraft(targetDraftKey)
+      if (clearTargetDraft) {
+        clearComposerDraft(targetDraftKey)
+      }
       setSelectedSessionId(null)
       setIsDraftSession(true)
       setDraftPermissionMode("default")
@@ -850,13 +852,15 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         draftProjectId,
         lastProjectId: lastChatProjectId.current,
         preferLastProject: route !== "chat",
+        sidebarSegment,
       }),
     )
-  }, [activeSession, draftProjectId, route, startNewSessionDraft])
+  }, [activeSession, draftProjectId, route, sidebarSegment, startNewSessionDraft])
 
   const handleOpenProjectDraft = React.useCallback(
     (project: SessionProject): void => {
-      startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }))
+      // 项目入口用于切换当前草稿；仅“新建会话”操作才会显式清空该项目已有草稿。
+      startNewSessionDraft(resolveNewSessionTarget({ draftProjectId, explicitProjectId: project.id }), false)
     },
     [draftProjectId, startNewSessionDraft],
   )
@@ -873,26 +877,12 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         }
         return
       }
-      const currentDraft = composerDraftsByKey.current.get(activeComposerDraftKey)
-      const nextDraftKey = newSessionComposerDraftKey(sessionScope, projectId)
-      if (currentDraft && nextDraftKey !== activeComposerDraftKey) {
-        composerDraftsByKey.current.set(nextDraftKey, currentDraft)
-        clearComposerDraft(activeComposerDraftKey)
-      }
       setDraftProjectId(projectId ?? NO_DRAFT_PROJECT_ID)
       setIsDraftSession(true)
       setRoute("chat")
       setSidebarSegment(projectId ? "projects" : "tasks")
     },
-    [
-      activeComposerDraftKey,
-      activeChatSessionId,
-      assignSessionProject,
-      clearComposerDraft,
-      isDraftSession,
-      sessionScope,
-      t,
-    ],
+    [activeChatSessionId, assignSessionProject, isDraftSession, t],
   )
 
   const handleCreatedProject = React.useCallback(
@@ -1560,7 +1550,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const billingCacheScope = `${auth.state?.account?.id ?? "authenticated"}:${billingWorkspaceCacheScope}`
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
   const newChatLabel = labelWithShortcut(
-    activeProject ? t("project.newTask") : t("sidebar.newSession"),
+    sidebarSegment === "projects" && activeProject ? t("project.newTask") : t("sidebar.newSession"),
     newChatShortcut,
   )
   const composerProjectContext = React.useMemo(
@@ -1751,7 +1741,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 />
               ) : (
                 <div className="flex h-full min-h-0 overflow-hidden">
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <ChatArea
                       activeSessionId={activeChatSessionId}
                       billingCacheScope={billingCacheScope}

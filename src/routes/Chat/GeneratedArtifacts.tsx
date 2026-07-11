@@ -61,7 +61,6 @@ interface GeneratedArtifactsProps {
   groups: ResolvedArtifactGroup[]
   onOpen: (selection: ArtifactSelection) => void
   onAvailable: (selection: ArtifactSelection) => void
-  selectionGroups?: ResolvedArtifactGroup[]
 }
 
 interface ArtifactsPanelProps {
@@ -342,12 +341,10 @@ export function GeneratedArtifactsShelf({
   groups,
   onContextMenu,
   onOpen,
-  selectionGroups,
 }: {
   groups: ResolvedArtifactGroup[]
   onContextMenu: (item: LocalArtifactItem, x: number, y: number) => void
   onOpen: (selection: ArtifactSelection) => void
-  selectionGroups: ResolvedArtifactGroup[]
 }) {
   const t = useT()
   const entries = flattenPanelEntries(groups)
@@ -355,7 +352,6 @@ export function GeneratedArtifactsShelf({
   const displayable = lastDisplayableArtifactGroup(groups)
   const primary = displayable?.resolved
   const primaryDisplayItem = displayable?.displayItem
-  const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
   if (!shouldRenderGeneratedArtifactsShelf(groups)) {
     return null
@@ -375,7 +371,7 @@ export function GeneratedArtifactsShelf({
   const selection = selectionWithContext(
     primary.group,
     primary.messageId,
-    panelGroups,
+    groups,
     primaryDisplayItem.path,
     primary.pack,
   )
@@ -417,20 +413,17 @@ export function GeneratedArtifactsShelf({
   )
 }
 
-export function GeneratedArtifacts({ groups, onOpen, onAvailable, selectionGroups = groups }: GeneratedArtifactsProps) {
+export function GeneratedArtifacts({ groups, onOpen, onAvailable }: GeneratedArtifactsProps) {
   const { openPath, showInFolder } = useArtifactFileActions()
   const [contextMenu, setContextMenu] = React.useState<ArtifactContextMenuState | null>(null)
-  const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
 
   React.useEffect(() => {
     const displayable = lastDisplayableArtifactGroup(groups)
     if (displayable) {
       const { displayItem, resolved } = displayable
-      onAvailable(
-        selectionWithContext(resolved.group, resolved.messageId, panelGroups, displayItem.path, resolved.pack),
-      )
+      onAvailable(selectionWithContext(resolved.group, resolved.messageId, groups, displayItem.path, resolved.pack))
     }
-  }, [groups, onAvailable, panelGroups])
+  }, [groups, onAvailable])
 
   if (groups.length === 0) {
     return null
@@ -440,7 +433,6 @@ export function GeneratedArtifacts({ groups, onOpen, onAvailable, selectionGroup
     <>
       <GeneratedArtifactsShelf
         groups={groups}
-        selectionGroups={panelGroups}
         onContextMenu={(item, x, y) => setContextMenu({ item, x, y })}
         onOpen={onOpen}
       />

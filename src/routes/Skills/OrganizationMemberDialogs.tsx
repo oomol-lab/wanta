@@ -4,6 +4,7 @@ import type { MemberSearchState, MemberView, ProviderAccessForm } from "./organi
 import { CheckIcon, LoaderCircleIcon, PlusIcon, SearchIcon, UploadIcon, XIcon } from "lucide-react"
 import * as React from "react"
 import {
+  filterOrganizationProviderOptions,
   maxOrganizationNameLength,
   minimumMemberSearchLength,
   organizationNameValidation,
@@ -624,17 +625,28 @@ function ProviderSelect({
   selectLabel: string
   selectedProviders: string[]
 }) {
+  const { t } = useAppI18n()
   const [open, setOpen] = React.useState(false)
+  const [query, setQuery] = React.useState("")
   const labelsByService = React.useMemo(
     () => new Map(options.map((option) => [option.service, option.label])),
     [options],
   )
+  const filteredOptions = React.useMemo(() => filterOrganizationProviderOptions(options, query), [options, query])
   const label = allProviders
     ? allProvidersLabel
     : selectedProviders.map((service) => labelsByService.get(service) ?? service).join(", ")
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (!nextOpen) {
+          setQuery("")
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" className="w-full justify-between">
           <span className="min-w-0 truncate text-left">{label || selectLabel}</span>
@@ -654,17 +666,35 @@ function ProviderSelect({
           {allProviders ? <CheckIcon className="size-4" /> : null}
         </button>
         <div className="my-1 h-px bg-border" />
+        {options.length > 0 ? (
+          <InputGroup className="mb-1">
+            <InputGroupAddon>
+              <SearchIcon className="size-4" />
+            </InputGroupAddon>
+            <InputGroupInput
+              value={query}
+              aria-label={t("organizations.searchProviders")}
+              placeholder={t("organizations.searchProviders")}
+              autoFocus
+              onChange={(event) => setQuery(event.currentTarget.value)}
+            />
+          </InputGroup>
+        ) : null}
         {options.length === 0 ? (
           <div className="oo-text-body px-2 py-6 text-center text-muted-foreground">{emptyLabel}</div>
+        ) : filteredOptions.length === 0 ? (
+          <div className="oo-text-body px-2 py-6 text-center text-muted-foreground">
+            {t("organizations.noProviderMatches")}
+          </div>
         ) : (
           <div className="max-h-64 overflow-y-auto">
-            {options.map((provider) => {
+            {filteredOptions.map((provider) => {
               const selected = !allProviders && selectedProviders.includes(provider.service)
               return (
                 <button
                   type="button"
                   key={provider.service}
-                  className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground"
+                  className="oo-list-render-boundary flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground"
                   onClick={() => {
                     onToggleProvider(provider.service)
                     setOpen(false)

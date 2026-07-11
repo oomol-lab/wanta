@@ -13,6 +13,7 @@ import {
   buildMemberViews,
   buildOrganizationMemberViews,
   createOrganizationSkillPackageSet,
+  filterOrganizationProviderOptions,
   maxOrganizationNameLength,
   organizationCanManage,
   organizationNameValidation,
@@ -181,6 +182,18 @@ test("providerOptionsWithSelected keeps selected unknown providers visible", () 
     { label: "gmail", service: "gmail" },
     { label: "Slack", service: "slack" },
   ])
+})
+
+test("filterOrganizationProviderOptions matches labels and service ids", () => {
+  const options = [
+    { label: "Google Mail", service: "gmail" },
+    { label: "Microsoft Teams", service: "microsoft-teams" },
+  ]
+
+  assert.deepEqual(filterOrganizationProviderOptions(options, " mail "), [options[0]])
+  assert.deepEqual(filterOrganizationProviderOptions(options, "MICROSOFT-TEAMS"), [options[1]])
+  assert.deepEqual(filterOrganizationProviderOptions(options, ""), options)
+  assert.deepEqual(filterOrganizationProviderOptions(options, "slack"), [])
 })
 
 test("organization skill package set normalizes package names", () => {

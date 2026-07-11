@@ -108,6 +108,16 @@ export function latestAssistantMessage(messages: ChatMessage[]): ChatMessage | u
   return undefined
 }
 
+export function assistantMessageIdsKey(messages: ChatMessage[]): string {
+  const messageIds: string[] = []
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      messageIds.push(message.id)
+    }
+  }
+  return messageIds.join("\n")
+}
+
 export function userMessageText(message: Pick<ChatMessage, "parts">): string {
   return message.parts
     .filter((part) => part.kind === "text")

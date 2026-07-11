@@ -6,6 +6,7 @@ import {
   enableOrganizationMembers,
   isOrganizationMemberLimitError,
   listOrganizationMembers,
+  listUserSummaries,
   OrganizationRequestError,
   searchUsers,
   updateOrganization,
@@ -116,6 +117,25 @@ describe("organizations-client", () => {
       { disable: true, role: "member", user_id: "member-1" },
       { role: "member", user_id: "member-2" },
     ])
+  })
+
+  it("loads large user summary sets in bounded URL batches", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const ids = new URL(String(input)).searchParams.getAll("user_ids")
+      return Response.json(Object.fromEntries(ids.map((id) => [id, { nickname: id, username: id }])))
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    const ids = Array.from({ length: 205 }, (_, index) => `user-${String(index).padStart(3, "0")}`)
+
+    const summaries = await listUserSummaries([...ids, ids[0]!, " "])
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams.getAll("user_ids").length)).toEqual([
+      100, 100, 5,
+    ])
+    expect(Object.keys(summaries)).toHaveLength(205)
+    expect(summaries[ids[0]!]?.username).toBe(ids[0])
+    expect(summaries[ids.at(-1)!]?.username).toBe(ids.at(-1))
   })
 
   it("forwards the member-search abort signal to the request", async () => {

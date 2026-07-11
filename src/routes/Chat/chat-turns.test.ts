@@ -3,6 +3,7 @@ import type { ChatMessage, ChatMessagePart } from "../../../electron/chat/common
 import { describe, expect, it } from "vitest"
 import {
   activityForChatTurn,
+  assistantMessageIdsKey,
   assistantTextParts,
   chatTurnProcessStatus,
   chatTurnInputKey,
@@ -124,6 +125,19 @@ describe("groupChatTurns", () => {
       sessionId: "s1",
       phase: "thinking",
     })
+  })
+})
+
+describe("assistantMessageIdsKey", () => {
+  it("keeps only assistant message ids in render order", () => {
+    expect(
+      assistantMessageIdsKey([
+        message("u1", "user"),
+        message("a1", "assistant"),
+        message("a2", "assistant"),
+        message("u2", "user"),
+      ]),
+    ).toBe("a1\na2")
   })
 })
 

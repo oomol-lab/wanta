@@ -1,17 +1,12 @@
-import type { ArtifactBundle, ChatMessage } from "../../../electron/chat/common.ts"
+import type { ArtifactBundle } from "../../../electron/chat/common.ts"
 
 import * as React from "react"
 import { useChatService } from "@/components/AppContext"
 
-function assistantMessageIds(messages: ChatMessage[]): string[] {
-  return messages.filter((message) => message.role === "assistant").map((message) => message.id)
-}
-
-export function useArtifactBundles(sessionId: string | null, messages: ChatMessage[]): ArtifactBundle[] {
+export function useArtifactBundles(sessionId: string | null, messageIdsKey: string): ArtifactBundle[] {
   const chatService = useChatService()
   const [bundles, setBundles] = React.useState<ArtifactBundle[]>([])
   const [refreshToken, setRefreshToken] = React.useState(0)
-  const messageIdsKey = React.useMemo(() => assistantMessageIds(messages).join("\n"), [messages])
 
   React.useEffect(
     () =>

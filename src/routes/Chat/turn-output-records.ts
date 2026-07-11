@@ -1,12 +1,8 @@
-import type { ChatMessage, TurnOutputRecord, TurnOutputFileRole } from "../../../electron/chat/common.ts"
+import type { TurnOutputRecord, TurnOutputFileRole } from "../../../electron/chat/common.ts"
 import type { ChatTurn } from "./chat-turns.ts"
 
 import * as React from "react"
 import { useChatService } from "@/components/AppContext"
-
-function assistantMessageIds(messages: ChatMessage[]): string[] {
-  return messages.filter((message) => message.role === "assistant").map((message) => message.id)
-}
 
 function visibleTurnOutputRecords(records: TurnOutputRecord[]): TurnOutputRecord[] {
   return records.filter((record) => record.summary.changedFileCount > 0 || record.summary.processFileCount > 0)
@@ -46,11 +42,10 @@ export function turnOutputRecordsByTurnId(
   return byTurnId
 }
 
-export function useTurnOutputRecords(sessionId: string | null, messages: ChatMessage[]): TurnOutputRecord[] {
+export function useTurnOutputRecords(sessionId: string | null, messageIdsKey: string): TurnOutputRecord[] {
   const chatService = useChatService()
   const [records, setRecords] = React.useState<TurnOutputRecord[]>([])
   const [refreshToken, setRefreshToken] = React.useState(0)
-  const messageIdsKey = React.useMemo(() => assistantMessageIds(messages).join("\n"), [messages])
 
   React.useEffect(() => {
     return chatService.serverEvents.on("turnOutputUpdated", (event) => {

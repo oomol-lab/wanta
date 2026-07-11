@@ -301,6 +301,7 @@ export function AppShell() {
     readStoredSidebarSegment(globalThis.localStorage),
   )
   const [pendingChatTransition, setPendingChatTransition] = React.useState<PendingChatTransition | null>(null)
+  const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const {
     handleSidebarResizeKeyDown,
     handleSidebarResizeStart,
@@ -311,7 +312,7 @@ export function AppShell() {
     setSidebarCollapsed,
     sidebarCollapsed,
     sidebarWidth,
-  } = useSidebarChromeState()
+  } = useSidebarChromeState(appChromeRef)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [composerFocusRequest, setComposerFocusRequest] = React.useState(0)
   const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
@@ -322,7 +323,6 @@ export function AppShell() {
   const [removeProjectId, setRemoveProjectId] = React.useState<string | null>(null)
   const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
   const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
-  const [relativeTimeNow, setRelativeTimeNow] = React.useState(() => Date.now())
   const selectedSession = selectedSessionId
     ? (visibleSessions.find((session) => session.id === selectedSessionId) ?? null)
     : null
@@ -360,9 +360,13 @@ export function AppShell() {
   const activeProviders = connectionSummaryMatchesWorkspace
     ? (connections.summary?.providers ?? EMPTY_CONNECTION_PROVIDERS)
     : EMPTY_CONNECTION_PROVIDERS
+  const providerSkillRecommendationsEnabled = route === "chat" || route === "skills" || route === "organizations"
   const providerSkillRecommendations = useProviderSkillRecommendations({
     groupById: organizationSkillGroupById,
-    providers: organizationSkills.organizationId ? activeProviders : EMPTY_CONNECTION_PROVIDERS,
+    providers:
+      organizationSkills.organizationId && providerSkillRecommendationsEnabled
+        ? activeProviders
+        : EMPTY_CONNECTION_PROVIDERS,
   })
   const installableProviderSkillRecommendations = React.useMemo(
     () => getUnlinkedProviderSkillRecommendations(organizationSkills.skills, providerSkillRecommendations.installable),
@@ -410,7 +414,6 @@ export function AppShell() {
   const [chatConnectionDrawers, setChatConnectionDrawers] = React.useState<Record<string, ChatConnectionDrawerState>>(
     {},
   )
-  const appChromeRef = React.useRef<HTMLDivElement | null>(null)
   const lastModelBySession = React.useRef<Map<string, ModelChoice | undefined>>(new Map())
   const lastReasoningLevelBySession = React.useRef<Map<string, ReasoningLevel | undefined>>(new Map())
   const lastModeBySession = React.useRef<Map<string, AgentMode | undefined>>(new Map())
@@ -489,11 +492,6 @@ export function AppShell() {
       void refreshSessions()
     }
   }, [ready, refreshSessions, sessionsEnabled])
-
-  React.useEffect(() => {
-    const id = window.setInterval(() => setRelativeTimeNow(Date.now()), 60_000)
-    return () => window.clearInterval(id)
-  }, [])
 
   // dev/smoke：VITE_WANTA_SMOKE 设置时，就绪后自动发送一条消息用于可视化验证（生产无此 env，无害）。
   const smokeSent = React.useRef(false)
@@ -1633,7 +1631,6 @@ export function AppShell() {
         isSessionRunning={isSessionRunning}
         loggingOut={auth.loggingOut}
         newChatLabel={newChatLabel}
-        now={relativeTimeNow}
         projectPinnedGroups={projectPinnedGroups}
         projectPinnedSessions={projectPinnedSessions}
         projectRegularGroups={projectRegularGroups}

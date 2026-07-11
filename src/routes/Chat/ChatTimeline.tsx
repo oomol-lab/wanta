@@ -29,6 +29,7 @@ import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistan
 import { attachmentWithPreview } from "./chat-attachment-utils.ts"
 import {
   activityForChatTurn,
+  assistantMessageIdsKey,
   chatTurnProcessStatus,
   groupChatTurns,
   isLiveTurnProcess,
@@ -934,8 +935,9 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     stableTurnsRef.current = stableTurns
     return stableTurns
   }, [groupedTurns])
-  const artifactBundles = useArtifactBundles(activeSessionId, messages)
-  const turnOutputRecords = useTurnOutputRecords(activeSessionId, messages)
+  const messageIdsKey = React.useMemo(() => assistantMessageIdsKey(messages), [messages])
+  const artifactBundles = useArtifactBundles(activeSessionId, messageIdsKey)
+  const turnOutputRecords = useTurnOutputRecords(activeSessionId, messageIdsKey)
   const turnOutputRecordsByMessage = React.useMemo(
     () => turnOutputRecordsByMessageId(turnOutputRecords),
     [turnOutputRecords],
@@ -1061,25 +1063,26 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             ? smoothAssistantMessageId
             : undefined
           return (
-            <ChatTurnView
-              key={turn.id}
-              activeSessionId={activeSessionId}
-              artifactGroups={turnArtifactGroups}
-              artifactSelectionGroups={visibleArtifactGroups}
-              turn={turn}
-              billingCacheScope={billingCacheScope}
-              turnOutputRecord={turnOutputRecordsByTurn.get(turn.id) ?? null}
-              activity={activityForChatTurn(turn, activity, activeAssistantMessageId, index === turns.length - 1)}
-              activeAssistantMessageId={turnActiveAssistantMessageId}
-              smoothAssistantMessageId={turnSmoothAssistantMessageId}
-              providerByService={providerByService}
-              onAuthorize={onAuthorize}
-              onArtifactsOpen={onArtifactsOpen}
-              onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
-              onTurnOutputOpen={onTurnOutputOpen}
-              onViewBilling={onViewBilling}
-              assistantActionTextByMessageId={assistantActionTextByMessageId}
-            />
+            <div key={turn.id} className="oo-chat-turn-render-boundary grid gap-4">
+              <ChatTurnView
+                activeSessionId={activeSessionId}
+                artifactGroups={turnArtifactGroups}
+                artifactSelectionGroups={visibleArtifactGroups}
+                turn={turn}
+                billingCacheScope={billingCacheScope}
+                turnOutputRecord={turnOutputRecordsByTurn.get(turn.id) ?? null}
+                activity={activityForChatTurn(turn, activity, activeAssistantMessageId, index === turns.length - 1)}
+                activeAssistantMessageId={turnActiveAssistantMessageId}
+                smoothAssistantMessageId={turnSmoothAssistantMessageId}
+                providerByService={providerByService}
+                onAuthorize={onAuthorize}
+                onArtifactsOpen={onArtifactsOpen}
+                onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
+                onTurnOutputOpen={onTurnOutputOpen}
+                onViewBilling={onViewBilling}
+                assistantActionTextByMessageId={assistantActionTextByMessageId}
+              />
+            </div>
           )
         })}
         {pendingQuestions.map((request) => (

@@ -9,6 +9,7 @@ import { applicationMenuLabels } from "./application-menu-messages.ts"
 interface ApplicationMenuOptions {
   developmentMode: boolean
   locale?: string
+  onCheckForUpdates: () => void
   onCommand: (command: AppCommand) => void
   platform: NodeJS.Platform
 }
@@ -39,6 +40,10 @@ export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): Men
       label: branding.appName,
       submenu: [
         roleMenuItem("about", label.about),
+        {
+          click: input.onCheckForUpdates,
+          label: label.checkForUpdates,
+        },
         { type: "separator" },
         settingsMenuItem(input, label.settings),
         { type: "separator" },

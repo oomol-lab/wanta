@@ -18,6 +18,7 @@ import type { PendingChatTransition } from "./pending-chat.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
 import type { ChatConnectionDrawerState } from "./use-chat-connection-retry.ts"
 import type { BillingDetailsTarget } from "@/components/app-shell/BillingUsagePopover"
+import type { UseAuth } from "@/hooks/useAuth"
 import type { ChatTurnRetrySource } from "@/routes/Chat/chat-turns"
 import type { ComposerState } from "@/routes/Chat/composer-state"
 import type { ChatStatus } from "ai"
@@ -73,7 +74,6 @@ import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
 import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
-import { useAuth } from "@/hooks/useAuth"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
 import { useOrganizationSkills } from "@/hooks/useOrganizationSkills"
@@ -124,10 +124,9 @@ function RouteLoadingFallback({ className }: { className?: string }) {
   return <div className={cn("h-full min-h-0 bg-background", className)} />
 }
 
-export function AppShell() {
+export function AppShell({ auth }: { auth: UseAuth }) {
   const t = useT()
   const chatService = useChatService()
-  const auth = useAuth()
   const [ready, setReady] = React.useState(false)
   const [billingInitialTarget, setBillingInitialTarget] = React.useState<BillingDetailsTarget | null>(null)
   const [agentStatus, setAgentStatus] = React.useState<AgentRuntimeStatus>({ status: "starting" })
@@ -1550,6 +1549,7 @@ export function AppShell() {
     setBillingInitialTarget(target ?? null)
     setRoute("billing")
   }, [])
+  const handleOpenOrganizations = React.useCallback(() => setRoute("organizations"), [])
   const showArtifactsToggle = route === "chat" && hasPanelSelection && !artifactsPanelVisible
   const ArtifactsToggleIcon = artifactsPanelOpen ? PanelRightClose : PanelRightOpen
   const artifactsToggleLabel = artifactsPanelOpen ? t("artifacts.collapse") : t("artifacts.expand")
@@ -1562,6 +1562,40 @@ export function AppShell() {
   const newChatLabel = labelWithShortcut(
     activeProject ? t("project.newTask") : t("sidebar.newSession"),
     newChatShortcut,
+  )
+  const composerProjectContext = React.useMemo(
+    () =>
+      showComposerProjectContext ? (
+        <ProjectContextBar
+          activeProject={activeProject}
+          disabled={!ready || Boolean(activeChatSessionId && isSessionRunning(activeChatSessionId))}
+          gitError={projectGit.error}
+          gitLoading={projectGit.loading}
+          gitState={projectGit.state}
+          projects={visibleProjects}
+          onCheckoutBranch={projectGit.checkoutBranch}
+          onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
+          onCreateProject={() => void handleSelectComposerProjectFolder()}
+          onRefreshGit={projectGit.refresh}
+          onSelectProject={handleSelectComposerProject}
+        />
+      ) : null,
+    [
+      activeChatSessionId,
+      activeProject,
+      handleSelectComposerProject,
+      handleSelectComposerProjectFolder,
+      isSessionRunning,
+      projectGit.checkoutBranch,
+      projectGit.createAndCheckoutBranch,
+      projectGit.error,
+      projectGit.loading,
+      projectGit.refresh,
+      projectGit.state,
+      ready,
+      showComposerProjectContext,
+      visibleProjects,
+    ],
   )
 
   if (route === "settings") {
@@ -1749,23 +1783,7 @@ export function AppShell() {
                       providers={activeProviders}
                       queueHeld={activeQueueHeld}
                       queuedMessages={activeQueuedMessages}
-                      contextBar={
-                        showComposerProjectContext ? (
-                          <ProjectContextBar
-                            activeProject={activeProject}
-                            disabled={!ready || Boolean(activeChatSessionId && isSessionRunning(activeChatSessionId))}
-                            gitError={projectGit.error}
-                            gitLoading={projectGit.loading}
-                            gitState={projectGit.state}
-                            projects={visibleProjects}
-                            onCheckoutBranch={projectGit.checkoutBranch}
-                            onCreateAndCheckoutBranch={projectGit.createAndCheckoutBranch}
-                            onCreateProject={() => void handleSelectComposerProjectFolder()}
-                            onRefreshGit={projectGit.refresh}
-                            onSelectProject={handleSelectComposerProject}
-                          />
-                        ) : null
-                      }
+                      contextBar={composerProjectContext}
                       placeholder={
                         startupError
                           ? t("error.agent.title")
@@ -1792,7 +1810,7 @@ export function AppShell() {
                       onTurnOutputAvailable={handleTurnOutputAvailable}
                       onOpenConnections={handleOpenConnections}
                       onOpenConnectionProvider={handleOpenChatConnectionProvider}
-                      onOpenOrganizations={() => setRoute("organizations")}
+                      onOpenOrganizations={handleOpenOrganizations}
                       onViewBilling={handleViewBilling}
                     />
                   </div>

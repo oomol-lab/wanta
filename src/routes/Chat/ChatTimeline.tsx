@@ -54,7 +54,6 @@ import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import {
   assistantResponseActionTextByMessageId,
   copyableMessageText,
-  reuseStableTextMap,
   shouldCollapseUserMessageText,
   visibleUserText,
 } from "./message-text.ts"
@@ -693,20 +692,6 @@ interface ChatTurnViewProps {
   onArtifactsOpen: (selection: ArtifactSelection) => void
   onTurnOutputOpen: (selection: TurnOutputSelection) => void
   onViewBilling?: () => void
-  assistantActionTextByMessageId: Map<string, string>
-}
-
-function assistantActionTextsEqual(previous: ChatTurnViewProps, next: ChatTurnViewProps): boolean {
-  const messageIds = new Set([
-    ...previous.turn.assistants.map((message) => message.id),
-    ...next.turn.assistants.map((message) => message.id),
-  ])
-  for (const messageId of messageIds) {
-    if (previous.assistantActionTextByMessageId.get(messageId) !== next.assistantActionTextByMessageId.get(messageId)) {
-      return false
-    }
-  }
-  return true
 }
 
 function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewProps): boolean {
@@ -725,8 +710,7 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
     previous.onArtifactsAvailable === next.onArtifactsAvailable &&
     previous.onArtifactsOpen === next.onArtifactsOpen &&
     previous.onTurnOutputOpen === next.onTurnOutputOpen &&
-    previous.onViewBilling === next.onViewBilling &&
-    assistantActionTextsEqual(previous, next)
+    previous.onViewBilling === next.onViewBilling
   )
 }
 
@@ -746,7 +730,6 @@ const ChatTurnView = React.memo(function ChatTurnView({
   onArtifactsOpen,
   onTurnOutputOpen,
   onViewBilling,
-  assistantActionTextByMessageId,
 }: ChatTurnViewProps) {
   const process = summarizeTurnProcess(turn, activity, activeAssistantMessageId)
   const { processBlocks, responseBlocks } = splitAssistantTimelineBlocks(turn.assistants)
@@ -764,6 +747,10 @@ const ChatTurnView = React.memo(function ChatTurnView({
   const responseRenderBlocks = showTurnProcess && processBlocks.length === 0 ? [] : responseBlocks
   const processLive = showTurnProcess && turnIsActive
   const lastAssistant = turn.assistants.at(-1)
+  const assistantActionTextByMessageId = React.useMemo(
+    () => assistantResponseActionTextByMessageId(turn.assistants, activeAssistantMessageId),
+    [activeAssistantMessageId, turn.assistants],
+  )
   const assistantActionsText = lastAssistant ? assistantActionTextByMessageId.get(lastAssistant.id) : null
   const assistantCancelled = turn.assistants.some((message) => hasStoppedTool(message.parts))
   const responseActionsText =
@@ -925,7 +912,6 @@ export const ChatTimeline = React.memo(function ChatTimeline({
   const conversationRef = React.useRef<StickToBottomContext | null>(null)
   const lastAutoScrolledUserMessageIdRef = React.useRef<string | null>(null)
   const stableTurnsRef = React.useRef<ChatTurn[]>([])
-  const assistantActionTextByMessageIdRef = React.useRef<Map<string, string>>(new Map())
   const artifactGroupsByMessageIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const artifactGroupsByTurnIdRef = React.useRef<Map<string, ResolvedArtifactGroup[]>>(new Map())
   const latestAssistant = React.useMemo(() => latestAssistantMessage(messages), [messages])
@@ -969,12 +955,6 @@ export const ChatTimeline = React.memo(function ChatTimeline({
     const ageMs = Date.now() - latestAssistant.createdAt
     return ageMs >= 0 && ageMs <= ASSISTANT_TEXT_SMOOTH_WINDOW_MS ? latestAssistant.id : undefined
   }, [activeAssistantMessageId, latestAssistant])
-  const assistantActionTextByMessageId = React.useMemo(() => {
-    const next = assistantResponseActionTextByMessageId(messages, activeAssistantMessageId)
-    const stable = reuseStableTextMap(assistantActionTextByMessageIdRef.current, next)
-    assistantActionTextByMessageIdRef.current = stable
-    return stable
-  }, [activeAssistantMessageId, messages])
   const visibleArtifactGroups = React.useMemo<ResolvedArtifactGroup[]>(
     () =>
       artifactBundles.map((bundle) => ({
@@ -1080,7 +1060,6 @@ export const ChatTimeline = React.memo(function ChatTimeline({
                 onArtifactsAvailable={publishArtifactAvailability ? onArtifactsAvailable : noopArtifactsAvailable}
                 onTurnOutputOpen={onTurnOutputOpen}
                 onViewBilling={onViewBilling}
-                assistantActionTextByMessageId={assistantActionTextByMessageId}
               />
             </div>
           )

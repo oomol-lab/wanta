@@ -126,7 +126,8 @@ export function ConnectionsPanel({
   const listPaneRef = React.useRef<HTMLDivElement | null>(null)
 
   const providers = summary?.providers ?? []
-  const normalizedQuery = query.trim().toLowerCase()
+  const deferredQuery = React.useDeferredValue(query)
+  const normalizedQuery = deferredQuery.trim().toLowerCase()
   const categoryFilters = React.useMemo(() => buildCategoryFilters(providers, t), [providers, t])
   const connectedCount = React.useMemo(() => providers.filter(isConnected).length, [providers])
   const attentionCount = React.useMemo(

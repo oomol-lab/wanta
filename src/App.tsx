@@ -5,7 +5,7 @@ import { ThemeProvider } from "@/components/ThemeProvider"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { useAuth } from "@/hooks/useAuth"
+import { AuthProvider, useAuth } from "@/hooks/useAuth"
 import { useGlobalScrollbars } from "@/hooks/useGlobalScrollbars"
 import { useT } from "@/i18n"
 import { detectInitialLocale, translate } from "@/i18n/i18n"
@@ -37,7 +37,7 @@ function AuthGate() {
       <Suspense fallback={<div className="h-full bg-background" />}>
         <AppDataProvider>
           <TooltipProvider>
-            <AppShell key={account?.id} />
+            <AppShell key={account?.id} auth={auth} />
             <Toaster />
           </TooltipProvider>
         </AppDataProvider>
@@ -66,7 +66,9 @@ export function App() {
     <ErrorBoundary fallback={<RootFallback />}>
       <I18nProvider>
         <ThemeProvider>
-          <AuthGate />
+          <AuthProvider>
+            <AuthGate />
+          </AuthProvider>
         </ThemeProvider>
       </I18nProvider>
     </ErrorBoundary>

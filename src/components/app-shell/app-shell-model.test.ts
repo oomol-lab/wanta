@@ -291,11 +291,24 @@ describe("new session target resolution", () => {
     expect(resolveNewSessionTarget({ draftProjectId: null })).toEqual({ sidebarSegment: "tasks" })
   })
 
-  test("keeps a new chat inside the active project session", () => {
-    expect(resolveNewSessionTarget({ activeSession: { projectId: "project-a" }, draftProjectId: null })).toEqual({
-      projectId: "project-a",
-      sidebarSegment: "projects",
-    })
+  test("keeps a new chat inside the active project session from the Projects tab", () => {
+    expect(
+      resolveNewSessionTarget({
+        activeSession: { projectId: "project-a" },
+        draftProjectId: null,
+        sidebarSegment: "projects",
+      }),
+    ).toEqual({ projectId: "project-a", sidebarSegment: "projects" })
+  })
+
+  test("opens a root task from the Tasks tab even when the active session belongs to a project", () => {
+    expect(
+      resolveNewSessionTarget({
+        activeSession: { projectId: "project-a" },
+        draftProjectId: null,
+        sidebarSegment: "tasks",
+      }),
+    ).toEqual({ sidebarSegment: "tasks" })
   })
 
   test("keeps a new chat inside the active project draft", () => {
@@ -315,6 +328,7 @@ describe("new session target resolution", () => {
         activeSession: {},
         draftProjectId: NO_DRAFT_PROJECT_ID,
         explicitProjectId: "project-c",
+        sidebarSegment: "tasks",
       }),
     ).toEqual({
       projectId: "project-c",

@@ -850,9 +850,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         draftProjectId,
         lastProjectId: lastChatProjectId.current,
         preferLastProject: route !== "chat",
+        sidebarSegment,
       }),
     )
-  }, [activeSession, draftProjectId, route, startNewSessionDraft])
+  }, [activeSession, draftProjectId, route, sidebarSegment, startNewSessionDraft])
 
   const handleOpenProjectDraft = React.useCallback(
     (project: SessionProject): void => {
@@ -1560,7 +1561,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const billingCacheScope = `${auth.state?.account?.id ?? "authenticated"}:${billingWorkspaceCacheScope}`
   const newChatShortcut = appCommandShortcutLabel(APP_COMMANDS.newChat)
   const newChatLabel = labelWithShortcut(
-    activeProject ? t("project.newTask") : t("sidebar.newSession"),
+    sidebarSegment === "projects" && activeProject ? t("project.newTask") : t("sidebar.newSession"),
     newChatShortcut,
   )
   const composerProjectContext = React.useMemo(

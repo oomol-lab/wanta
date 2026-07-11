@@ -239,7 +239,10 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 }
 
 interface ChatServiceDeps {
-  createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => string
+  createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => {
+    expiresAt: number
+    url: string
+  }
   createSpreadsheetPreview?: (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
   createArtifactThumbnail?: (path: string) => Promise<LocalArtifactThumbnailResult>
   artifactBundleStore?: ArtifactBundleStore

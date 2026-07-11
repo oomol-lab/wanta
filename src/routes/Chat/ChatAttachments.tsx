@@ -6,6 +6,7 @@ import * as React from "react"
 import { toast } from "sonner"
 import {
   attachmentExtension,
+  deleteAttachmentPreviewUrl,
   fileSizeLabel,
   isImageAttachment,
   readAttachmentPreviewUrl,
@@ -65,13 +66,14 @@ function AttachmentImageCard({
 }) {
   const chatService = useChatService()
   const [previewUrl, setPreviewUrl] = React.useState(attachment.previewUrl ?? null)
+  const [previewRetry, setPreviewRetry] = React.useState(0)
   const attachmentPath = attachment.path
   const attachmentMime = attachment.mime
   const initialPreviewUrl = attachment.previewUrl ?? null
   const imageAttachment = isImageAttachment(attachment)
 
   React.useEffect(() => {
-    const cached = readAttachmentPreviewUrl(attachmentPath) ?? initialPreviewUrl
+    const cached = readAttachmentPreviewUrl(attachmentPath) ?? (previewRetry === 0 ? initialPreviewUrl : null)
     setPreviewUrl(cached)
     if (cached || !imageAttachment) {
       return
@@ -84,7 +86,7 @@ function AttachmentImageCard({
         if (cancelled || !source) {
           return
         }
-        setAttachmentPreviewUrl(attachmentPath, source)
+        setAttachmentPreviewUrl(attachmentPath, source, result.resourceExpiresAt)
         setPreviewUrl(source)
       })
       .catch((error: unknown) => {
@@ -93,7 +95,7 @@ function AttachmentImageCard({
     return () => {
       cancelled = true
     }
-  }, [attachmentMime, attachmentPath, chatService, imageAttachment, initialPreviewUrl])
+  }, [attachmentMime, attachmentPath, chatService, imageAttachment, initialPreviewUrl, previewRetry])
 
   return (
     <div className="group relative size-20 shrink-0">
@@ -110,6 +112,14 @@ function AttachmentImageCard({
             className="size-full object-cover object-center"
             draggable={false}
             decoding="async"
+            onError={() => {
+              if (previewRetry >= 1) {
+                return
+              }
+              deleteAttachmentPreviewUrl(attachmentPath)
+              setPreviewUrl(null)
+              setPreviewRetry((value) => value + 1)
+            }}
           />
         ) : (
           <span className="flex size-full items-center justify-center text-muted-foreground/65">
@@ -189,7 +199,7 @@ export function AttachmentList({
           setImageViewer(null)
           return
         }
-        setAttachmentPreviewUrl(imageViewer.attachment.path, source)
+        setAttachmentPreviewUrl(imageViewer.attachment.path, source, result.resourceExpiresAt)
         setImageViewer((current) =>
           current?.attachment.path === imageViewer.attachment.path
             ? { attachment: current.attachment, src: source }

@@ -2,7 +2,12 @@ import type { ChatAttachment } from "../../../electron/chat/common.ts"
 import type { DraftAttachment } from "./composer-state.ts"
 
 const ATTACHMENT_PREVIEW_CACHE_LIMIT = 80
-const attachmentPreviewUrlByPath = new Map<string, string>()
+const attachmentResourceRefreshMarginMs = 60_000
+interface AttachmentPreviewCacheEntry {
+  expiresAt?: number
+  url: string
+}
+const attachmentPreviewUrlByPath = new Map<string, AttachmentPreviewCacheEntry>()
 
 function revokePreviewUrl(url: string | undefined): void {
   if (url?.startsWith("blob:")) {
@@ -11,22 +16,33 @@ function revokePreviewUrl(url: string | undefined): void {
 }
 
 export function readAttachmentPreviewUrl(path: string): string | undefined {
-  return attachmentPreviewUrlByPath.get(path)
+  const entry = attachmentPreviewUrlByPath.get(path)
+  if (entry?.expiresAt && entry.expiresAt <= Date.now() + attachmentResourceRefreshMarginMs) {
+    attachmentPreviewUrlByPath.delete(path)
+    return undefined
+  }
+  return entry?.url
 }
 
-export function setAttachmentPreviewUrl(path: string, url: string): void {
+export function setAttachmentPreviewUrl(path: string, url: string, expiresAt?: number): void {
   const current = attachmentPreviewUrlByPath.get(path)
-  if (current && current !== url) {
-    revokePreviewUrl(current)
+  if (current && current.url !== url) {
+    revokePreviewUrl(current.url)
   }
   if (!current && attachmentPreviewUrlByPath.size >= ATTACHMENT_PREVIEW_CACHE_LIMIT) {
     const oldestPath = attachmentPreviewUrlByPath.keys().next().value as string | undefined
     if (oldestPath) {
-      revokePreviewUrl(attachmentPreviewUrlByPath.get(oldestPath))
+      revokePreviewUrl(attachmentPreviewUrlByPath.get(oldestPath)?.url)
       attachmentPreviewUrlByPath.delete(oldestPath)
     }
   }
-  attachmentPreviewUrlByPath.set(path, url)
+  attachmentPreviewUrlByPath.set(path, { expiresAt, url })
+}
+
+export function deleteAttachmentPreviewUrl(path: string): void {
+  const entry = attachmentPreviewUrlByPath.get(path)
+  revokePreviewUrl(entry?.url)
+  attachmentPreviewUrlByPath.delete(path)
 }
 
 export function fileSizeLabel(size: number): string {
@@ -65,8 +81,8 @@ export function isImageAttachment(attachment: ChatAttachment): boolean {
 export function revokeAttachmentPreviewUrls(attachments: DraftAttachment[]): void {
   for (const attachment of attachments) {
     const cached = attachmentPreviewUrlByPath.get(attachment.path)
-    if (cached && (!attachment.previewUrl || cached === attachment.previewUrl)) {
-      revokePreviewUrl(cached)
+    if (cached && (!attachment.previewUrl || cached.url === attachment.previewUrl)) {
+      revokePreviewUrl(cached.url)
       attachmentPreviewUrlByPath.delete(attachment.path)
     } else {
       revokePreviewUrl(attachment.previewUrl)
@@ -80,7 +96,7 @@ export function attachmentWithPreview(attachment: ChatAttachment): DraftAttachme
   }
   return {
     ...attachment,
-    previewUrl: attachmentPreviewUrlByPath.get(attachment.path),
+    previewUrl: readAttachmentPreviewUrl(attachment.path),
   }
 }
 

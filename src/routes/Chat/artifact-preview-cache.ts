@@ -19,6 +19,11 @@ export function artifactPreviewCacheKey(item: LocalArtifactItem): string {
 
 const previewCacheMaxEntries = 48
 const previewCacheMaxEstimatedBytes = 64 * 1024 * 1024
+const resourceRefreshMarginMs = 60_000
+
+export function artifactPreviewResourceIsFresh(result: LocalArtifactPreviewResult, now = Date.now()): boolean {
+  return !result.resourceUrl || !result.resourceExpiresAt || result.resourceExpiresAt > now + resourceRefreshMarginMs
+}
 
 export function artifactPreviewEstimatedBytes(result: LocalArtifactPreviewResult): number {
   if (result.resourceUrl) {
@@ -101,6 +106,10 @@ function cachedArtifactPreviewResult(
   if (!entry?.result) {
     return null
   }
+  if (!artifactPreviewResourceIsFresh(entry.result)) {
+    cache.delete(key)
+    return null
+  }
   rememberArtifactPreview(cache, key, entry)
   return entry.result
 }
@@ -141,10 +150,28 @@ export function useLocalArtifactPreview(
 ): {
   loading: boolean
   preview: LocalArtifactPreviewResult | null
+  reload: () => void
 } {
   const chatService = useChatService()
   const [preview, setPreview] = React.useState<LocalArtifactPreviewResult | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [reloadVersion, setReloadVersion] = React.useState(0)
+  const reloadAttemptRef = React.useRef<{ count: number; key: string | null }>({ count: 0, key: null })
+  const reload = React.useCallback(() => {
+    const key = item ? artifactPreviewCacheKey(item) : null
+    if (reloadAttemptRef.current.key !== key) {
+      reloadAttemptRef.current = { count: 0, key }
+    }
+    if (reloadAttemptRef.current.count >= 1) {
+      return
+    }
+    reloadAttemptRef.current.count += 1
+    if (key) {
+      previewCache.delete(key)
+    }
+    setPreview(null)
+    setReloadVersion((value) => value + 1)
+  }, [item, previewCache])
 
   React.useEffect(() => {
     if (!item || item.kind !== "file") {
@@ -179,7 +206,7 @@ export function useLocalArtifactPreview(
     return () => {
       cancelled = true
     }
-  }, [chatService, item, previewCache, priority])
+  }, [chatService, item, previewCache, priority, reloadVersion])
 
-  return { loading, preview }
+  return { loading, preview, reload }
 }

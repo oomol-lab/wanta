@@ -1,7 +1,15 @@
 import * as React from "react"
 import { useT } from "@/i18n/i18n"
 
-export default function ArtifactDocxPreview({ source, name }: { source: string; name: string }) {
+export default function ArtifactDocxPreview({
+  source,
+  name,
+  onResourceError,
+}: {
+  source: string
+  name: string
+  onResourceError?: () => void
+}) {
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const styleContainerRef = React.useRef<HTMLDivElement | null>(null)
@@ -55,6 +63,7 @@ export default function ArtifactDocxPreview({ source, name }: { source: string; 
         !(cause instanceof DOMException && cause.name === "AbortError")
       ) {
         setError(cause instanceof Error ? cause.message : String(cause))
+        onResourceError?.()
       }
     })
     return () => {
@@ -63,7 +72,7 @@ export default function ArtifactDocxPreview({ source, name }: { source: string; 
       container.replaceChildren()
       styleContainer.replaceChildren()
     }
-  }, [source])
+  }, [onResourceError, source])
 
   return (
     <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">

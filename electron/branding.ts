@@ -19,6 +19,8 @@ export const branding = {
   protocolScheme: "wanta",
   /** 本地开发 deep-link scheme。 */
   devProtocolScheme: "wanta-local",
+  /** 应用内部本地 Artifact 流式资源协议，不注册为系统 deep-link。 */
+  artifactResourceProtocolScheme: "wanta-resource",
   /** @oomol/connection ServiceName 的命名空间前缀（产品内部约定）。 */
   servicePrefix: "wanta",
   /** preload 暴露到 renderer 的全局 bridge 名（window.<windowBridge>）。 */

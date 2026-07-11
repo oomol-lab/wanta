@@ -40,7 +40,10 @@ export function useLocalArtifactThumbnail(item: LocalArtifactItem | null): strin
       promise = scheduleArtifactPreviewLoad(
         () => chatService.invoke("getLocalArtifactThumbnail", { path: item.path }).then((result) => result.dataUrl),
         "background",
-      ).catch(() => null)
+      ).catch(() => {
+        thumbnailCache.delete(key)
+        return null
+      })
       rememberThumbnail(key, promise)
     }
     let cancelled = false

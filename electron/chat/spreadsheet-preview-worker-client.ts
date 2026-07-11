@@ -30,6 +30,12 @@ export class SpreadsheetPreviewWorkerClient {
       return Promise.reject(new Error("Spreadsheet preview worker is disposed"))
     }
     return new Promise((resolve, reject) => {
+      if (this.active) {
+        const superseded = new Error("Spreadsheet preview was superseded by a newer request")
+        for (const task of this.queue.splice(0)) {
+          task.reject(superseded)
+        }
+      }
       this.queue.push({ mime, path, reject, resolve, size })
       this.drain()
     })

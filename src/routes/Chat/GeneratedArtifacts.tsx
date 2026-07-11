@@ -1199,7 +1199,7 @@ function ImageGalleryPreview({
   onOpen: () => void
 }) {
   const t = useT()
-  const { loading, preview } = useLocalArtifactPreview(item, previewCache)
+  const { loading, preview, reload } = useLocalArtifactPreview(item, previewCache)
 
   React.useEffect(() => {
     if (mode === "source") {
@@ -1238,11 +1238,12 @@ function ImageGalleryPreview({
               className="max-h-full max-w-full object-contain drop-shadow-sm"
               draggable={false}
               decoding="async"
+              onError={reload}
               onDoubleClick={onOpen}
             />
           </div>
         ) : (
-          <ArtifactConsumablePreview item={item} preview={preview} onOpen={onOpen} />
+          <ArtifactConsumablePreview item={item} preview={preview} onOpen={onOpen} onResourceError={reload} />
         )}
       </div>
     </section>

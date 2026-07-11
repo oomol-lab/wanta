@@ -154,7 +154,10 @@ const chatService = new ChatServiceImpl(null, {
     const image = await nativeImage.createThumbnailFromPath(filePath, { height: 160, width: 160 })
     return { dataUrl: image.isEmpty() ? null : image.toDataURL() }
   },
-  createArtifactResourceUrl: (item) => artifactResourceUrl(artifactResourceLeaseStore.grant(item).token),
+  createArtifactResourceUrl: (item) => {
+    const lease = artifactResourceLeaseStore.grant(item)
+    return { expiresAt: lease.expiresAt, url: artifactResourceUrl(lease.token) }
+  },
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
   artifactBundleStore,
   authorizationOverlayStore,

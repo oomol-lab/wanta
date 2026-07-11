@@ -35,7 +35,15 @@ interface RenderedPageMetrics {
   width: number
 }
 
-export default function ArtifactPdfPreview({ source, name }: { source: string; name: string }) {
+export default function ArtifactPdfPreview({
+  source,
+  name,
+  onResourceError,
+}: {
+  source: string
+  name: string
+  onResourceError?: () => void
+}) {
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRefs = React.useRef<[HTMLCanvasElement | null, HTMLCanvasElement | null]>([null, null])
@@ -173,6 +181,7 @@ export default function ArtifactPdfPreview({ source, name }: { source: string; n
       .catch((error: unknown) => {
         if (renderGenerationRef.current === generation && !isCancellation(error)) {
           setLoadFailed(true)
+          onResourceError?.()
         }
       })
 
@@ -182,7 +191,7 @@ export default function ArtifactPdfPreview({ source, name }: { source: string; n
       }
       void task.destroy()
     }
-  }, [clearPendingRenderedWidth, source])
+  }, [clearPendingRenderedWidth, onResourceError, source])
 
   React.useEffect(() => {
     if (!document || renderedPageWidth === null) {

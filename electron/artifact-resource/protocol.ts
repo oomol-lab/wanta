@@ -4,8 +4,9 @@ import { protocol } from "electron"
 import { createReadStream } from "node:fs"
 import { stat } from "node:fs/promises"
 import { Readable } from "node:stream"
+import { branding } from "../branding.ts"
 
-export const artifactResourceScheme = "wanta-resource"
+export const artifactResourceScheme = branding.artifactResourceProtocolScheme
 
 export function registerArtifactResourceScheme(): void {
   protocol.registerSchemesAsPrivileged([

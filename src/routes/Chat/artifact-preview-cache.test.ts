@@ -5,6 +5,7 @@ import { test } from "vitest"
 import {
   artifactPreviewCacheKey,
   artifactPreviewEstimatedBytes,
+  artifactPreviewResourceIsFresh,
   trimArtifactPreviewCache,
 } from "./artifact-preview-cache.ts"
 
@@ -13,6 +14,23 @@ test("artifact preview cache key changes when a file is replaced in place", () =
   assert.notEqual(
     artifactPreviewCacheKey({ ...base, modifiedAt: 1 }),
     artifactPreviewCacheKey({ ...base, modifiedAt: 2 }),
+  )
+})
+
+test("artifact resource previews refresh before their lease expires", () => {
+  assert.equal(
+    artifactPreviewResourceIsFresh(
+      { kind: "image", mime: "image/png", resourceExpiresAt: 70_001, resourceUrl: "x" },
+      10_000,
+    ),
+    true,
+  )
+  assert.equal(
+    artifactPreviewResourceIsFresh(
+      { kind: "image", mime: "image/png", resourceExpiresAt: 70_000, resourceUrl: "x" },
+      10_000,
+    ),
+    false,
   )
 })
 

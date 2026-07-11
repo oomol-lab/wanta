@@ -103,7 +103,7 @@ export function ArtifactPreview({
   onOpen: () => void
 }) {
   const t = useT()
-  const { loading, preview } = useLocalArtifactPreview(item, previewCache)
+  const { loading, preview, reload } = useLocalArtifactPreview(item, previewCache)
   const [internalMode, setInternalMode] = React.useState<ArtifactPreviewMode>("preview")
   const activeMode = mode ?? internalMode
   const canShowSource = preview?.kind === "text"
@@ -198,7 +198,13 @@ export function ArtifactPreview({
         ) : activeMode === "source" && canShowSource ? (
           <ArtifactSourcePreview item={item} preview={preview} />
         ) : (
-          <ArtifactConsumablePreview item={item} pack={pack} preview={preview} onOpen={onOpen} />
+          <ArtifactConsumablePreview
+            item={item}
+            pack={pack}
+            preview={preview}
+            onOpen={onOpen}
+            onResourceError={reload}
+          />
         )}
       </div>
     </section>
@@ -453,11 +459,13 @@ export function ArtifactConsumablePreview({
   preview,
   onOpen,
   pack,
+  onResourceError,
 }: {
   item: LocalArtifactItem
   preview: LocalArtifactPreviewResult | null
   onOpen: () => void
   pack?: LocalArtifactPack | null
+  onResourceError?: () => void
 }) {
   const t = useT()
   const lazyPreviewFallback = (
@@ -476,6 +484,7 @@ export function ArtifactConsumablePreview({
           className="max-h-full max-w-full rounded-md border border-border bg-background object-contain shadow-sm"
           draggable={false}
           decoding="async"
+          onError={onResourceError}
         />
       </div>
     )
@@ -489,6 +498,7 @@ export function ArtifactConsumablePreview({
           controls
           preload="metadata"
           className="max-h-full max-w-full rounded-md bg-black shadow-sm"
+          onError={onResourceError}
         />
       </div>
     )
@@ -501,7 +511,7 @@ export function ArtifactConsumablePreview({
           <Music className="size-6" />
         </div>
         <div className="w-full max-w-sm">
-          <audio src={resourceSource} controls preload="metadata" className="w-full" />
+          <audio src={resourceSource} controls preload="metadata" className="w-full" onError={onResourceError} />
         </div>
       </div>
     )
@@ -517,7 +527,7 @@ export function ArtifactConsumablePreview({
             </div>
           }
         >
-          <ArtifactPdfPreview source={resourceSource} name={item.name} />
+          <ArtifactPdfPreview source={resourceSource} name={item.name} onResourceError={onResourceError} />
         </React.Suspense>
       </ErrorBoundary>
     )
@@ -533,7 +543,7 @@ export function ArtifactConsumablePreview({
             </div>
           }
         >
-          <ArtifactDocxPreview source={resourceSource} name={item.name} />
+          <ArtifactDocxPreview source={resourceSource} name={item.name} onResourceError={onResourceError} />
         </React.Suspense>
       </ErrorBoundary>
     )

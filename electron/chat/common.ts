@@ -405,6 +405,7 @@ export interface AttachmentPreviewRequest {
 
 export interface AttachmentPreviewResult {
   dataUrl: string | null
+  resourceExpiresAt?: number
   resourceUrl?: string
 }
 
@@ -470,6 +471,7 @@ export interface LocalArtifactPreviewResult {
   documentFormat?: "docx"
   reason?: LocalArtifactPreviewUnavailableReason
   resourceUrl?: string
+  resourceExpiresAt?: number
   spreadsheet?: LocalArtifactSpreadsheetPreview
   text?: string
   truncated?: boolean

@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { ActivityMetrics } from "./activity-metrics.ts"
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe("ActivityMetrics", () => {
   it("aggregates counts into one bounded snapshot", () => {
@@ -33,7 +37,5 @@ describe("ActivityMetrics", () => {
     expect(onFlush).not.toHaveBeenCalled()
     vi.advanceTimersByTime(1)
     expect(onFlush).toHaveBeenCalledOnce()
-
-    vi.useRealTimers()
   })
 })

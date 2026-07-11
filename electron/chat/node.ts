@@ -767,7 +767,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     context: { messageId?: string; sessionId?: string } = {},
   ): void {
     if (event !== "messageDelta" && event !== "messageReasoningDelta") {
-      this.streamEventBuffer?.flush()
+      this.streamEventBuffer?.flush(context.sessionId)
     }
     this.eventMetrics.record(`ipc:${event}`)
     void emit(event, data).catch((error: unknown) => {

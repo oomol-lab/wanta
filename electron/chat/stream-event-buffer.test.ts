@@ -18,6 +18,13 @@ function delta(text: string, increment?: string) {
   }
 }
 
+function sessionDelta(sessionId: string, text: string) {
+  return {
+    ...delta(text),
+    data: { ...delta(text).data, sessionId },
+  }
+}
+
 describe("coalesceBufferedStreamEvent", () => {
   it("keeps only the latest cumulative text snapshot", () => {
     expect(coalesceBufferedStreamEvent(delta("Hello"), delta("Hello world", " world"))).toEqual(
@@ -59,5 +66,21 @@ describe("ChatStreamEventBuffer", () => {
     buffer.clear()
     vi.runAllTimers()
     expect(emit).toHaveBeenCalledTimes(1)
+  })
+
+  it("flushes only the selected session and preserves the shared timer", () => {
+    vi.useFakeTimers()
+    const emit = vi.fn()
+    const buffer = new ChatStreamEventBuffer(emit, { delayMs: 32 })
+
+    buffer.enqueue(sessionDelta("parent", "parent text"))
+    buffer.enqueue(sessionDelta("child", "child text"))
+    buffer.flush("parent")
+
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(emit).toHaveBeenLastCalledWith(sessionDelta("parent", "parent text"))
+    vi.advanceTimersByTime(32)
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit).toHaveBeenLastCalledWith(sessionDelta("child", "child text"))
   })
 })

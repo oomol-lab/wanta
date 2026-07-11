@@ -1,5 +1,5 @@
 import type { Config, OpencodeClient } from "@opencode-ai/sdk/v2/client"
-import type { ChildProcessWithoutNullStreams } from "node:child_process"
+import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process"
 import type { Readable } from "node:stream"
 
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
@@ -37,6 +37,18 @@ export interface SidecarExitInfo {
   signal?: NodeJS.Signals | null
 }
 
+export interface SidecarRuntimeDependencies {
+  createDirectory: (directory: string) => Promise<void>
+  spawnProcess: (command: string, args: string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams
+}
+
+const defaultSidecarRuntimeDependencies: SidecarRuntimeDependencies = {
+  createDirectory: async (directory) => {
+    await mkdir(directory, { recursive: true })
+  },
+  spawnProcess: (command, args, options) => spawn(command, args, options),
+}
+
 const startupOutputMaxBytes = 64 * 1024
 const runtimeLineMaxLength = 8 * 1024
 /** SIGTERM 后给整棵进程树自行退出的宽限期，超时再 SIGKILL 兜底。 */
@@ -47,18 +59,27 @@ const processReapPollMs = 100
 const opencodeDisposeTimeoutMs = 2_000
 const runtimeOutputFlushMs = 1_000
 
+export function boundRuntimeOutputLine(line: string): { text: string; truncated: boolean } {
+  const truncated = line.length > runtimeLineMaxLength
+  return { text: truncated ? line.slice(0, runtimeLineMaxLength) : line, truncated }
+}
+
 /** OpenCode 本地 sidecar：spawn `opencode serve`、解析 URL、提供 SDK client、随 app 退出回收。 */
 export class OpencodeSidecar {
+  private readonly dependencies: SidecarRuntimeDependencies
   private readonly options: SidecarOptions
   private proc: ChildProcessWithoutNullStreams | null = null
   private opencodeClient: OpencodeClient | null = null
   private serverUrl = ""
   private disposed = false
   private disposePromise: Promise<void> | null = null
+  private processReapPromise: Promise<void> | null = null
+  private startPromise: Promise<void> | null = null
   private streamLogCleanup: (() => void) | null = null
 
-  public constructor(options: SidecarOptions) {
+  public constructor(options: SidecarOptions, dependencies: Partial<SidecarRuntimeDependencies> = {}) {
     this.options = options
+    this.dependencies = { ...defaultSidecarRuntimeDependencies, ...dependencies }
   }
 
   public get client(): OpencodeClient {
@@ -72,8 +93,17 @@ export class OpencodeSidecar {
     return this.serverUrl
   }
 
-  public async start(): Promise<void> {
-    this.disposed = false
+  public start(): Promise<void> {
+    if (this.disposed) {
+      return Promise.reject(new Error("OpencodeSidecar already disposed"))
+    }
+    if (!this.startPromise) {
+      this.startPromise = this.startOnce()
+    }
+    return this.startPromise
+  }
+
+  private async startOnce(): Promise<void> {
     const { opencodeBinPath, workspaceDir, config, env, isolationDir, serverPassword } = this.options
     const hostname = this.options.hostname ?? "127.0.0.1"
     const timeoutMs = this.options.startupTimeoutMs ?? 30_000
@@ -83,7 +113,11 @@ export class OpencodeSidecar {
     const xdgDataHome = path.join(isolationDir, "xdg-data")
     // 这些隔离目录必须存在：opencode 会向 XDG_DATA_HOME 写会话/状态，缺失会导致服务端 500。
     for (const dir of [opencodeConfigDir, xdgConfigHome, xdgDataHome]) {
-      await mkdir(dir, { recursive: true })
+      await this.dependencies.createDirectory(dir)
+    }
+    // dispose 可能在异步建目录期间发生；已处置实例绝不能再创建新进程。
+    if (this.disposed) {
+      throw new Error("OpencodeSidecar disposed during startup")
     }
 
     const childEnv: NodeJS.ProcessEnv = {
@@ -101,7 +135,7 @@ export class OpencodeSidecar {
       childEnv.OPENCODE_SERVER_USERNAME = "opencode"
     }
 
-    const proc = spawn(opencodeBinPath, ["serve", `--hostname=${hostname}`, "--port=0"], {
+    const proc = this.dependencies.spawnProcess(opencodeBinPath, ["serve", `--hostname=${hostname}`, "--port=0"], {
       cwd: workspaceDir,
       env: childEnv,
       // unix：让 opencode 自成 session/进程组，dev 下与终端信号隔离（Ctrl-C 不直达 opencode），
@@ -112,11 +146,16 @@ export class OpencodeSidecar {
     })
     this.proc = proc
 
-    const url = await this.awaitServerUrl(proc, timeoutMs).catch((error: unknown) => {
+    const url = await this.awaitServerUrl(proc, timeoutMs).catch(async (error: unknown) => {
       // 启动失败（超时/提前退出/spawn 出错）时一定要回收已 spawn 的 opencode 及其后代，
-      // 否则会成为孤儿；recoverRuntime 的重试更会不断叠加。后台回收即可，不阻塞抛错。
+      // 否则会成为孤儿；recoverRuntime 的重试更会不断叠加。
       // 此刻 client 尚未建立（awaitServerUrl 失败），传 null 走 OS 进程树兜底回收。
-      void this.reap(proc, null)
+      // dispose 已经摘走 proc 时，它持有的同一回收 Promise 是唯一责任方，避免重复发信号。
+      if (this.proc === proc) {
+        this.proc = null
+        this.processReapPromise ??= this.reap(proc, null)
+        await this.processReapPromise
+      }
       throw error
     })
 
@@ -240,7 +279,10 @@ export class OpencodeSidecar {
     this.proc = null
     this.opencodeClient = null
     this.serverUrl = ""
-    this.disposePromise = proc ? this.reap(proc, client) : Promise.resolve()
+    if (proc) {
+      this.processReapPromise ??= this.reap(proc, client)
+    }
+    this.disposePromise = this.processReapPromise ?? Promise.resolve()
     return this.disposePromise
   }
 }
@@ -480,14 +522,16 @@ function attachStreamDiagnostics(stream: Readable, source: "stdout" | "stderr"):
       pending = ""
     }
     for (const line of lines) {
-      queue(line, false)
+      const bounded = boundRuntimeOutputLine(line)
+      queue(bounded.text, bounded.truncated)
     }
   }
   stream.on("data", onData)
   return () => {
     stream.off("data", onData)
     if (pending.trim()) {
-      queue(pending, false)
+      const bounded = boundRuntimeOutputLine(pending)
+      queue(bounded.text, bounded.truncated)
     }
     pending = ""
     flush()

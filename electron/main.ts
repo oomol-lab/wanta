@@ -81,6 +81,7 @@ const macTrafficLightPosition = { x: 15, y: 17 }
 const skillRuntimeRefreshDelayMs = 1_500
 const skillRuntimeRefreshBusyRetryMs = 2_000
 const skillRuntimeRefreshMaxBusyRetries = 10
+const shutdownCleanupTimeoutMs = 5_000
 
 interface SelectedAttachmentPath {
   name: string
@@ -353,18 +354,38 @@ function reapAgentForShutdown(): Promise<void> {
     windowsTrayLifecycle = null
     const activeAgent = agent
     agent = null
+    chatService.setAgent(null)
+    sessionService.setAgent(null)
     if (activeAgent) {
-      await agentRetirementPool.retire(activeAgent)
+      await runBoundedShutdownStep("retire active agent", () => agentRetirementPool.retire(activeAgent))
     }
-    await agentRetirementPool.drain()
-    await spreadsheetPreviewWorker.dispose()
+    await runBoundedShutdownStep("drain agent retirements", () => agentRetirementPool.drain())
+    await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     server.dispose()
     artifactResourceLeaseStore.clear()
-    await flushDiagnosticsLog().catch((error: unknown) => {
-      console.warn("[wanta] failed to flush diagnostics log", error)
-    })
+    await runBoundedShutdownStep("flush diagnostics log", flushDiagnosticsLog)
   })()
   return shutdownReap
+}
+
+async function runBoundedShutdownStep(label: string, task: () => Promise<void>): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${shutdownCleanupTimeoutMs}ms`)),
+      shutdownCleanupTimeoutMs,
+    )
+  })
+  try {
+    await Promise.race([Promise.resolve().then(task), timeout])
+  } catch (error) {
+    console.warn(`[wanta] shutdown cleanup failed: ${label}`, error)
+    logDiagnostic("app-lifecycle", "shutdown cleanup failed", { error, label }, "warn")
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  }
 }
 
 function armAppQuit(intent: Exclude<AppQuitIntent, "none">): void {
@@ -582,7 +603,18 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   sessionService.setAgent(null)
 
   if (previousAgent) {
-    await agentRetirementPool.retire(previousAgent)
+    try {
+      await agentRetirementPool.retire(previousAgent)
+    } catch (error) {
+      // 旧运行时未确认退出时不冒险启动第二个 sidecar；保持 appliedAccount 为空，允许后续重试。
+      console.warn("[wanta] failed to retire previous agent runtime:", error)
+      logMainError("failed to retire previous agent runtime", error)
+      chatService.setAgentStatus({
+        status: "error",
+        message: `Failed to stop the previous OpenCode runtime: ${runtimeErrorMessage(error)}`,
+      })
+      return
+    }
   }
 
   if (!account || isQuitting) {

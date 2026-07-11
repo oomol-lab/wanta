@@ -57,16 +57,25 @@ export class ChatStreamEventBuffer {
     this.timer.unref?.()
   }
 
-  public flush(): void {
-    if (this.timer) {
+  public flush(sessionId?: string): void {
+    if (sessionId === undefined && this.timer) {
       clearTimeout(this.timer)
       this.timer = undefined
     }
     if (this.pending.size === 0) {
       return
     }
-    const events = [...this.pending.values()]
-    this.pending.clear()
+    const events: BufferedStreamEvent[] = []
+    for (const [key, event] of this.pending) {
+      if (sessionId === undefined || event.data.sessionId === sessionId) {
+        events.push(event)
+        this.pending.delete(key)
+      }
+    }
+    if (sessionId && this.pending.size === 0 && this.timer) {
+      clearTimeout(this.timer)
+      this.timer = undefined
+    }
     for (const event of events) {
       this.emit(event)
     }

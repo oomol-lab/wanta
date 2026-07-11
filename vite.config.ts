@@ -131,6 +131,10 @@ export default defineConfig(({ command, mode }) => {
             define: buildDefines,
             build: {
               rollupOptions: {
+                input: {
+                  main: path.join(dirname, "electron/main.ts"),
+                  "spreadsheet-preview-worker": path.join(dirname, "electron/chat/spreadsheet-preview-worker.ts"),
+                },
                 // @opencode-ai/sdk 依赖 cross-spawn（CJS require("child_process")）、electron-updater 走
                 // CJS 动态 require，都不能打进 ESM 主进程包；外部化后由 Node 运行时解析（electron-builder
                 // 随 dependencies 打包）。正则覆盖子路径导入（如 @opencode-ai/sdk/v2/client）——精确字符串

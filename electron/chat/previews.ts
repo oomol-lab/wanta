@@ -31,6 +31,7 @@ export type CreateArtifactResourceUrl = (item: {
   path: string
   size: number
 }) => string
+export type CreateSpreadsheetPreview = (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -77,6 +78,7 @@ export async function attachmentPreview(req: AttachmentPreviewRequest): Promise<
 export async function localArtifactPreview(
   req: LocalArtifactPreviewRequest,
   createResourceUrl?: CreateArtifactResourceUrl,
+  createSpreadsheetPreview: CreateSpreadsheetPreview = spreadsheetPreview,
 ): Promise<LocalArtifactPreviewResult> {
   const item = await localArtifactItem(req.path)
   if (!item || item.kind !== "file") {
@@ -131,7 +133,7 @@ export async function localArtifactPreview(
 
   if (isXlsxArtifact(item.path, item.mime)) {
     try {
-      return await spreadsheetPreview(item.path, item.mime, size)
+      return await createSpreadsheetPreview(item.path, item.mime, size)
     } catch (error) {
       logPreviewFailure("getLocalArtifactPreview spreadsheet", item.path, error, item.mime)
       return { kind: "unsupported", mime: item.mime, size, reason: "read_failed" }

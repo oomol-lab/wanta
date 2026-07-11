@@ -238,6 +238,7 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 
 interface ChatServiceDeps {
   createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => string
+  createSpreadsheetPreview?: (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
   artifactBundleStore?: ArtifactBundleStore
   authorizationOverlayStore?: AuthorizationOverlayStore
   projectStore?: Pick<SessionProjectStore, "read">
@@ -2129,7 +2130,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
     await this.assertTrustedLocalPath(req.path)
-    return localArtifactPreview(req, this.deps.createArtifactResourceUrl)
+    return localArtifactPreview(req, this.deps.createArtifactResourceUrl, this.deps.createSpreadsheetPreview)
   }
 
   public async getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]> {

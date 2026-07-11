@@ -36,6 +36,7 @@ import { mimeFromPath } from "./chat/artifacts.ts"
 import { AuthorizationOverlayStore } from "./chat/authorization.ts"
 import { saveClipboardAttachment } from "./chat/clipboard-attachment.ts"
 import { ChatServiceImpl } from "./chat/node.ts"
+import { SpreadsheetPreviewWorkerClient } from "./chat/spreadsheet-preview-worker-client.ts"
 import { StoppedGenerationStore } from "./chat/stopped-generations.ts"
 import { TurnOutputStore } from "./chat/turn-outputs.ts"
 import { parseConnectionOAuthCallback } from "./connections/domain.ts"
@@ -145,10 +146,12 @@ const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"), artifactBundleStore)
 const trustedAttachmentPaths = new Set<string>()
 const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
+const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
 // 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
   createArtifactResourceUrl: (item) => artifactResourceUrl(artifactResourceLeaseStore.grant(item).token),
+  createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
   artifactBundleStore,
   authorizationOverlayStore,
   projectStore: sessionProjectStore,
@@ -340,6 +343,7 @@ function reapAgentForShutdown(): Promise<void> {
     windowsTrayLifecycle?.dispose()
     windowsTrayLifecycle = null
     await agent?.dispose()
+    await spreadsheetPreviewWorker.dispose()
     server.dispose()
     artifactResourceLeaseStore.clear()
     await flushDiagnosticsLog().catch((error: unknown) => {

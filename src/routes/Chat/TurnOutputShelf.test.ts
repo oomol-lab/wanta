@@ -76,8 +76,11 @@ describe("TurnOutputShelf", () => {
 
     const html = renderTurnOutputShelf(record)
 
-    expect(html).toContain("not-prose mt-2 w-full min-w-0")
+    expect(html).toContain("not-prose mt-0 w-full min-w-0")
     expect(html).not.toContain("max-w-[46rem]")
+    expect(html).toContain(
+      '<button type="button" class="flex w-full min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-3 text-left',
+    )
     expect(html).toContain("已编辑 5 个文件")
     expect(html).toContain("审核")
     expect(html).toContain("+23")
@@ -106,10 +109,12 @@ describe("TurnOutputShelf", () => {
 
     const html = renderTurnOutputShelf(record)
 
-    expect(html).toContain('class="flex min-w-0 items-center gap-2 rounded-md')
+    expect(html).toContain('class="not-prose mt-0 min-w-0"')
+    expect(html).toContain(
+      'class="oo-border-divider flex min-h-16 w-full min-w-0 items-center gap-3 rounded-lg border bg-muted/55',
+    )
     expect(html).toContain("执行详情")
     expect(html).toContain("1 个过程文件 · 不属于最终制成品")
     expect(html).not.toContain("审核")
-    expect(html).not.toContain("rounded-lg border border-border")
   })
 })

@@ -81,5 +81,8 @@ describe("TurnOutputsPanel", () => {
     expect(html).toContain("执行详情")
     expect(html).toContain("1 个过程文件")
     expect(html).toContain("不属于最终制成品；仅在需要检查执行细节时查看")
+    expect(html).not.toContain("分栏")
+    expect(html).not.toContain("统一")
+    expect(html).toContain("全部折叠")
   })
 })

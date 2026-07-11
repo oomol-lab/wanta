@@ -24,6 +24,7 @@ import { Diff as ReactDiff, Hunk, parseDiff } from "react-diff-view"
 import "react-diff-view/style/index.css"
 
 import { toast } from "sonner"
+import { turnOutputInitialCollapsedPaths } from "./turn-output-collapse.ts"
 import { availableTurnOutputRole } from "./turn-output-role.ts"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
@@ -143,7 +144,6 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   const MaximizeIcon = maximized ? Minimize2 : Maximize2
   const initialRole = selection?.initialRole ?? "project_change"
   const [viewType, setViewType] = React.useState<ViewType>("split")
-  const [collapsedPaths, setCollapsedPaths] = React.useState<Set<string>>(() => new Set())
   const processFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "process") : []), [selection])
   const changeFiles = React.useMemo(() => (selection ? roleFiles(selection.record, "project_change") : []), [selection])
   const requestedRole = availableTurnOutputRole(initialRole, processFiles.length, changeFiles.length)
@@ -157,9 +157,13 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
       ? availableTurnOutputRole(roleSelection.role, processFiles.length, changeFiles.length)
       : requestedRole
   const activeFiles = activeRole === "project_change" ? changeFiles : processFiles
+  const activeViewType: ViewType = activeRole === "process" ? "unified" : viewType
+  const [collapsedPaths, setCollapsedPaths] = React.useState<Set<string>>(() =>
+    turnOutputInitialCollapsedPaths(activeRole, activeFiles),
+  )
   const hasRoleSwitch = changeFiles.length > 0 && processFiles.length > 0
   const { openPath, showInFolder } = useTurnFileActions()
-  const allCollapsed = activeFiles.length > 0 && activeFiles.every((file) => collapsedPaths.has(file.path))
+  const allExpanded = activeFiles.length > 0 && activeFiles.every((file) => !collapsedPaths.has(file.path))
   const activeAdditions = activeFiles.reduce((sum, file) => sum + file.additions, 0)
   const activeDeletions = activeFiles.reduce((sum, file) => sum + file.deletions, 0)
 
@@ -171,7 +175,7 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
   )
 
   React.useEffect(() => {
-    setCollapsedPaths(new Set(activeRole === "process" ? activeFiles.map((file) => file.path) : []))
+    setCollapsedPaths(turnOutputInitialCollapsedPaths(activeRole, activeFiles))
   }, [activeFiles, activeRole, selection?.record.messageId])
 
   const togglePath = React.useCallback((path: string) => {
@@ -279,17 +283,19 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
                 <ChangeCountLabel additions={activeAdditions} className="shrink-0" deletions={activeDeletions} />
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <DiffViewModeToggle value={viewType} onChange={setViewType} />
+                {activeRole === "project_change" ? (
+                  <DiffViewModeToggle value={viewType} onChange={setViewType} />
+                ) : null}
                 <CopyAllPatchesButton files={activeFiles} selection={selection} />
                 <button
                   type="button"
-                  title={allCollapsed ? t("turnOutputs.expandAll") : t("turnOutputs.collapseAll")}
-                  aria-label={allCollapsed ? t("turnOutputs.expandAll") : t("turnOutputs.collapseAll")}
+                  title={allExpanded ? t("turnOutputs.collapseAll") : t("turnOutputs.expandAll")}
+                  aria-label={allExpanded ? t("turnOutputs.collapseAll") : t("turnOutputs.expandAll")}
                   className="oo-toolbar-button flex h-7 shrink-0 items-center rounded-md px-2 hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-                  onClick={() => setAllCollapsed(!allCollapsed)}
+                  onClick={() => setAllCollapsed(allExpanded)}
                 >
                   <span className="oo-text-caption-compact">
-                    {allCollapsed ? t("turnOutputs.expandAll") : t("turnOutputs.collapseAll")}
+                    {allExpanded ? t("turnOutputs.collapseAll") : t("turnOutputs.expandAll")}
                   </span>
                 </button>
               </div>
@@ -311,7 +317,7 @@ export function TurnOutputsPanel({ maximized, onCollapse, onToggleMaximized, sel
                   openPath={openPath}
                   selection={selection}
                   showInFolder={showInFolder}
-                  viewType={viewType}
+                  viewType={activeViewType}
                 />
               ))}
             </div>

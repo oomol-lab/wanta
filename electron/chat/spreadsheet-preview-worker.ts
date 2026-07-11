@@ -4,7 +4,7 @@ import type {
 } from "./spreadsheet-preview-worker-protocol.ts"
 
 import { parentPort } from "node:worker_threads"
-import { spreadsheetPreview } from "./artifact-preview.ts"
+import { spreadsheetPreview } from "./spreadsheet-preview.ts"
 
 const workerPort = parentPort
 if (!workerPort) {

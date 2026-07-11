@@ -1,0 +1,154 @@
+import { afterEach, describe, expect, it } from "vitest"
+import { AGENT_TOOL_FILES } from "./tool-sources.ts"
+
+interface LoadedTool {
+  execute: (
+    args: { action: string; connectionName?: string; params?: string; service: string },
+    context: { sessionID: string },
+  ) => Promise<string>
+}
+
+function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>): LoadedTool {
+  const raw = AGENT_TOOL_FILES["call_action.ts"] ?? ""
+  const source = raw
+    .replace(/^import .*$/gm, "")
+    .replace("export default tool(", "const exportedTool = tool(")
+    .concat("\nreturn exportedTool")
+  const schema = {
+    describe() {
+      return this
+    },
+    optional() {
+      return this
+    },
+  }
+  const tool = Object.assign((value: unknown) => value, { schema: { string: () => schema } })
+  const factory = new Function("tool", "execFile", "readFile", "promisify", source) as (
+    toolValue: typeof tool,
+    execFileValue: typeof execFile,
+    readFileValue: () => Promise<string>,
+    promisifyValue: (value: typeof execFile) => typeof execFile,
+  ) => LoadedTool
+  return factory(
+    tool,
+    execFile,
+    async () => {
+      throw new Error("scope file unavailable")
+    },
+    (value) => value,
+  )
+}
+
+afterEach(() => {
+  delete process.env.WANTA_CONSOLE_URL
+})
+
+describe("call_action embedded runtime", () => {
+  it("runs one canary and skips matching queued calls after an authorization block", async () => {
+    process.env.WANTA_CONSOLE_URL = "https://console.example.test"
+    let calls = 0
+    const runtime = loadCallActionTool(async () => {
+      calls += 1
+      const error = new Error("connector failed") as Error & { stderr: string }
+      error.stderr = "Request failed (errorCode: app_not_found): app not found"
+      throw error
+    })
+
+    const outputs = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        runtime.execute({ service: "posthog", action: "run_query", params: "{}" }, { sessionID: "session-1" }),
+      ),
+    )
+    const parsed = outputs.map((output) => JSON.parse(output) as { reason?: string; status?: string })
+
+    expect(calls).toBe(1)
+    expect(parsed.filter((output) => output.status === "authorization_required")).toHaveLength(1)
+    expect(
+      parsed.filter((output) => output.status === "skipped" && output.reason === "connection_blocked"),
+    ).toHaveLength(5)
+  })
+
+  it("keeps short-lived connector blocks isolated between chat sessions", async () => {
+    process.env.WANTA_CONSOLE_URL = "https://console.example.test"
+    let calls = 0
+    const runtime = loadCallActionTool(async () => {
+      calls += 1
+      const error = new Error("connector failed") as Error & { stderr: string }
+      error.stderr = "Request failed (errorCode: app_not_found): app not found"
+      throw error
+    })
+
+    const first = JSON.parse(
+      await runtime.execute({ service: "posthog", action: "run_query" }, { sessionID: "session-1" }),
+    ) as { status?: string }
+    const second = JSON.parse(
+      await runtime.execute({ service: "posthog", action: "run_query" }, { sessionID: "session-2" }),
+    ) as { status?: string }
+
+    expect(calls).toBe(2)
+    expect(first.status).toBe("authorization_required")
+    expect(second.status).toBe("authorization_required")
+  })
+
+  it("limits matching fan-out calls after the canary succeeds", async () => {
+    let active = 0
+    let maxActive = 0
+    let calls = 0
+    const runtime = loadCallActionTool(async () => {
+      calls += 1
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      active -= 1
+      return { stdout: JSON.stringify({ data: { ok: true } }) }
+    })
+
+    const outputs = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        runtime.execute(
+          { service: "posthog", action: "run_query", params: JSON.stringify({ projectId: index }) },
+          { sessionID: "session-1" },
+        ),
+      ),
+    )
+
+    expect(calls).toBe(6)
+    expect(maxActive).toBe(2)
+    expect(outputs.map((output) => JSON.parse(output))).toHaveLength(6)
+  })
+
+  it("rejects a guessed connection name before executing the action", async () => {
+    const commands: string[][] = []
+    const runtime = loadCallActionTool(async (...args) => {
+      const argv = args[1] as string[]
+      commands.push(argv)
+      return { stdout: JSON.stringify([{ connectionName: "work", service: "gmail", status: "active" }]) }
+    })
+
+    const output = JSON.parse(
+      await runtime.execute(
+        { service: "gmail", action: "fetch_emails", connectionName: "Gmail" },
+        { sessionID: "session-1" },
+      ),
+    ) as { errorCode?: string; status?: string }
+
+    expect(output).toMatchObject({ status: "error", errorCode: "invalid_connection_name" })
+    expect(commands).toHaveLength(1)
+    expect(commands[0]?.slice(0, 3)).toEqual(["connector", "apps", "gmail"])
+  })
+
+  it("does not silently switch accounts when connection inventory is unavailable", async () => {
+    const runtime = loadCallActionTool(async () => {
+      throw new Error("HTTP 403")
+    })
+
+    const output = JSON.parse(
+      await runtime.execute(
+        { service: "gmail", action: "fetch_emails", connectionName: "work" },
+        { sessionID: "session-1" },
+      ),
+    ) as { errorCode?: string; status?: string }
+
+    expect(output).toMatchObject({ status: "error", errorCode: "connection_inventory_unavailable" })
+  })
+})

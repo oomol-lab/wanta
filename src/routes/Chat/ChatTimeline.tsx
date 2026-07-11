@@ -46,6 +46,7 @@ import { AttachmentList } from "./ChatAttachments.tsx"
 import { ChatErrorNotice } from "./ChatErrorNotice.tsx"
 import {
   AssistantMessageActions,
+  ConnectionAuthorizationIssueAction,
   ConnectionSuggestionAction,
   CopyMessageAction,
   MessageTimestamp,
@@ -278,7 +279,7 @@ function TurnProcessActivity({
               providerByService={providerByService}
               settlingToolPartId={settlingToolPartId}
               liveTools={live}
-              showAuthorizationPrompt={!live}
+              showAuthorizationPrompt={false}
               onAuthorize={onAuthorize}
               onViewBilling={onViewBilling}
             />
@@ -806,6 +807,16 @@ const ChatTurnView = React.memo(function ChatTurnView({
                 onAuthorize={handleAuthorize}
                 onViewBilling={onViewBilling}
               />
+              {!processLive
+                ? process.authorizationIssues.map((issue) => (
+                    <ConnectionAuthorizationIssueAction
+                      key={issue.key}
+                      issue={issue}
+                      provider={providerByService.get(issue.service)}
+                      onAuthorize={handleAuthorize}
+                    />
+                  ))
+                : null}
               {processSuggestedAuthorization ? (
                 <ConnectionSuggestionAction
                   authorization={processSuggestedAuthorization}

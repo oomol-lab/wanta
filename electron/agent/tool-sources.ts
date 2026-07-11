@@ -341,14 +341,179 @@ const AUTH_BLOCKING = new Set([
   "scope_missing",
 ])
 
+const CONNECTION_NAME_CACHE_MS = 5 * 1000
+const ACTION_PROBE_CACHE_MS = 5 * 1000
+const CONNECTION_BLOCK_MS = 10 * 1000
+const MAX_PARALLEL_ACTION_CALLS = 2
+const connectionNameLookups = new Map()
+const actionProbeStates = new Map()
+const connectionBlocks = new Map()
+
+function parseApps(stdout) {
+  const parsed = JSON.parse((stdout || "").trim() || "[]")
+  if (Array.isArray(parsed)) {
+    return parsed
+  }
+  if (Array.isArray(parsed && parsed.data)) {
+    return parsed.data
+  }
+  if (Array.isArray(parsed && parsed.apps)) {
+    return parsed.apps
+  }
+  return Array.isArray(parsed && parsed.items) ? parsed.items : []
+}
+
+function appConnectionName(app) {
+  return app && typeof app === "object" && typeof app.connectionName === "string"
+    ? app.connectionName.trim()
+    : ""
+}
+
+async function knownConnectionNames(service, identity) {
+  const key = identity.cacheKey + ":" + service
+  const now = Date.now()
+  const cached = connectionNameLookups.get(key)
+  if (cached && now - cached.createdAt < CONNECTION_NAME_CACHE_MS) {
+    return await cached.promise
+  }
+  const promise = (async () => {
+    const argv = ["connector", "apps", service]
+    await appendIdentityArgs(argv, identity)
+    argv.push("--json")
+    try {
+      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
+      const apps = parseApps(result.stdout)
+      return {
+        names: new Set(
+          apps
+            .filter((app) => !app || typeof app !== "object" || app.status !== "disconnected")
+            .map(appConnectionName)
+            .filter(Boolean),
+        ),
+      }
+    } catch (error) {
+      const e = error || {}
+      return { names: null, message: String(e.stderr || e.message || "connection inventory lookup failed").trim() }
+    }
+  })()
+  connectionNameLookups.set(key, { createdAt: now, promise: promise })
+  return await promise
+}
+
+function authorizationResult(output) {
+  try {
+    const parsed = JSON.parse(output || "{}")
+    return parsed && parsed.status === "authorization_required" ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function currentConnectionBlock(key) {
+  const block = connectionBlocks.get(key)
+  if (!block) {
+    return null
+  }
+  if (Date.now() >= block.expiresAt) {
+    connectionBlocks.delete(key)
+    return null
+  }
+  return block
+}
+
+function skippedForConnectionBlock(args, block) {
+  return JSON.stringify({
+    status: "skipped",
+    reason: "connection_blocked",
+    service: args.service,
+    action: args.action,
+    errorCode: block.authorization && block.authorization.errorCode,
+    message: "A matching Link call already reported an authorization block; this call was skipped to avoid duplicate connector requests.",
+  })
+}
+
+function markConnectionBlock(key, output) {
+  const authorization = authorizationResult(output)
+  if (authorization) {
+    connectionBlocks.set(key, { authorization: authorization, expiresAt: Date.now() + CONNECTION_BLOCK_MS })
+  }
+}
+
+async function acquireActionSlot(state) {
+  if (state.active < MAX_PARALLEL_ACTION_CALLS) {
+    state.active += 1
+    return
+  }
+  await new Promise((resolve) => state.waiters.push(resolve))
+  state.active += 1
+}
+
+function releaseActionSlot(state) {
+  state.active -= 1
+  const next = state.waiters.shift()
+  if (next) {
+    next()
+  }
+}
+
+async function runLimitedAction(state, connectionKey, args, call) {
+  await acquireActionSlot(state)
+  try {
+    const blocked = currentConnectionBlock(connectionKey)
+    if (blocked) {
+      return skippedForConnectionBlock(args, blocked)
+    }
+    const output = await call()
+    markConnectionBlock(connectionKey, output)
+    return output
+  } finally {
+    releaseActionSlot(state)
+  }
+}
+
+async function runCoordinatedAction(sessionID, identity, connectionName, args, call) {
+  const target = connectionName || "default"
+  const connectionKey = sessionID + ":" + identity.cacheKey + ":" + args.service + ":" + target
+  const blocked = currentConnectionBlock(connectionKey)
+  if (blocked) {
+    return skippedForConnectionBlock(args, blocked)
+  }
+
+  const actionKey = connectionKey + ":" + args.action
+  const now = Date.now()
+  let state = actionProbeStates.get(actionKey)
+  if (!state || now - state.createdAt >= ACTION_PROBE_CACHE_MS) {
+    state = { active: 0, createdAt: now, probePromise: null, waiters: [] }
+    actionProbeStates.set(actionKey, state)
+    const probePromise = call()
+    state.probePromise = probePromise
+    try {
+      const output = await probePromise
+      markConnectionBlock(connectionKey, output)
+      return output
+    } finally {
+      state.probePromise = null
+    }
+  }
+
+  if (state.probePromise) {
+    const probeOutput = await state.probePromise
+    const probeAuthorization = authorizationResult(probeOutput)
+    if (probeAuthorization) {
+      return skippedForConnectionBlock(args, { authorization: probeAuthorization })
+    }
+  }
+  return await runLimitedAction(state, connectionKey, args, call)
+}
+
 export default tool({
   description:
-    "Execute one selected OOMOL Link action. Use this only for a selected action that matches the user's task; do not probe unrelated services or actions. params is a JSON string of the action's input object and MUST match the inputSchema returned by inspect_action — call inspect_action before this so the field names and types are real, not guessed; unknown or misnamed fields are rejected. Optional connectionName must come from list_apps and should only be used when the user selected a specific connected account. If the service is not authorized this returns a JSON object with status 'authorization_required' plus service/action/errorCode/authUrl; when you see that, stop trying this provider/action. If the authorization target cannot be derived, this returns status 'error' plus errorCode 'config_missing'. Wanta will render an inline Connect button from the authorization_required tool result, so tell the user briefly that authorization is needed and do not write manual Settings or Connections navigation steps. If this returns status 'error' instead of 'authorization_required', do not claim the provider is unconnected and do not ask the user to reconnect; report the connector/backend error accurately. If the error mentions FAILED_PRECONDITION, report it as a connector/provider precondition failure, not a local connection or authorization problem. Do NOT retry this provider/action or fabricate a result.",
+    "Execute one selected OOMOL Link action using the inspected contract. params is the action input JSON described by inspect_action. For an explicitly selected account, connectionName is the exact active-workspace value returned by list_apps; omit it to use the default connection. The runtime validates account identity, probes repeated same-target calls, and limits their concurrency. Structured outcomes are authoritative: authorization_required means the target is blocked pending access; skipped with reason connection_blocked belongs to that same incident; other errors describe action or runtime failures. Wanta groups matching authorization outcomes into one inline connection prompt.",
   args: {
     service: tool.schema.string().describe("Service slug, e.g. 'hackernews'"),
     action: tool.schema.string().describe("Action name, e.g. 'get_top_stories'"),
     params: tool.schema.string().optional().describe("JSON string of the action input parameters built from inspect_action's inputSchema; omit or '{}' if the schema declares no required fields"),
-    connectionName: tool.schema.string().optional().describe("Optional connector app connectionName from list_apps, used only when the user selected a specific connected account and list_apps returned a non-empty connectionName."),
+    connectionName: tool.schema.string().optional().describe("Exact connector app connectionName returned by list_apps for an explicitly selected active-workspace account; omit for the default connection."),
   },
   async execute(args, context) {
     let data = "{}"
@@ -359,44 +524,68 @@ export default tool({
         return JSON.stringify({ status: "error", message: "params is not valid JSON: " + args.params })
       }
     }
-    const argv = ["connector", "run", args.service, "--action", args.action, "--data", data]
+    const identity = await currentIdentity(context.sessionID)
     const connectionName = String(args.connectionName || "").trim()
+    if (connectionName) {
+      const inventory = await knownConnectionNames(args.service, identity)
+      if (!inventory.names) {
+        return JSON.stringify({
+          status: "error",
+          service: args.service,
+          action: args.action,
+          errorCode: "connection_inventory_unavailable",
+          message: "The selected connectionName could not be verified because the active workspace connection inventory is unavailable. Do not guess a replacement connection name or silently switch accounts.",
+        })
+      }
+      if (!inventory.names.has(connectionName)) {
+        return JSON.stringify({
+          status: "error",
+          service: args.service,
+          action: args.action,
+          errorCode: "invalid_connection_name",
+          message: "connectionName must exactly match a value returned by list_apps for the active workspace. Do not guess provider display names or silently switch accounts.",
+        })
+      }
+    }
+    const argv = ["connector", "run", args.service, "--action", args.action, "--data", data]
     if (connectionName) {
       argv.push("--connection-name", connectionName)
     }
-    await appendIdentityArgs(argv, null, context.sessionID)
+    await appendIdentityArgs(argv, identity, context.sessionID)
     argv.push("--json")
-    try {
-      const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
-      return (result.stdout || "").trim() || "{}"
-    } catch (error) {
-      const e = error || {}
-      const stderr = String(e.stderr || e.message || "")
-      const match = stderr.match(/errorCode:\s*([^\s)）]+)/)
-      const code = match ? match[1] : null
-      if (code && AUTH_BLOCKING.has(code)) {
-        const authUrl = authorizationUrl(args.service)
-        if (!authUrl) {
+    return await runCoordinatedAction(context.sessionID, identity, connectionName, args, async () => {
+      try {
+        const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
+        return (result.stdout || "").trim() || "{}"
+      } catch (error) {
+        const e = error || {}
+        const stderr = String(e.stderr || e.message || "")
+        const match = stderr.match(/errorCode:\s*([^\s)）]+)/)
+        const code = match ? match[1] : null
+        if (code && AUTH_BLOCKING.has(code)) {
+          const authUrl = authorizationUrl(args.service)
+          if (!authUrl) {
+            return JSON.stringify({
+              status: "error",
+              service: args.service,
+              action: args.action,
+              errorCode: "config_missing",
+              message: "WANTA_CONSOLE_URL is required to build the connector authorization URL.",
+            })
+          }
           return JSON.stringify({
-            status: "error",
+            status: "authorization_required",
             service: args.service,
             action: args.action,
-            errorCode: "config_missing",
-            message: "WANTA_CONSOLE_URL is required to build the connector authorization URL.",
+            displayName: args.service,
+            authUrl: authUrl,
+            errorCode: code,
+            message: stderr.trim(),
           })
         }
-        return JSON.stringify({
-          status: "authorization_required",
-          service: args.service,
-          action: args.action,
-          displayName: args.service,
-          authUrl: authUrl,
-          errorCode: code,
-          message: stderr.trim(),
-        })
+        return JSON.stringify({ status: "error", errorCode: code, message: stderr.trim() })
       }
-      return JSON.stringify({ status: "error", errorCode: code, message: stderr.trim() })
-    }
+    })
   },
 })
 `

@@ -23,6 +23,15 @@ export interface ChatTurnRetrySource {
   userClientId?: string
 }
 
+export interface ConnectorAuthorizationIssue {
+  authorization: AuthorizationInfo
+  count: number
+  /** 同一连接目标在本轮先成功、后返回授权阻断，不能直接断言用户未连接。 */
+  inconsistent: boolean
+  key: string
+  service: string
+}
+
 export interface ChatTurnProcess {
   tools: ChatMessagePart[]
   errors: ChatMessagePart[]
@@ -33,6 +42,7 @@ export interface ChatTurnProcess {
   hasStoppedTool: boolean
   hasAuthorization: boolean
   hasSuccessfulConnectorCall: boolean
+  authorizationIssues: ConnectorAuthorizationIssue[]
   suggestedAuthorization?: AuthorizationInfo
   activity: AssistantActivityEvent | null
   startedAt?: number
@@ -189,23 +199,64 @@ export function assistantErrorParts(message: ChatMessage): ChatMessagePart[] {
   return message.parts.filter((part) => part.kind === "error")
 }
 
-function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
-  const services = new Set<string>()
+function connectionTargetKey(part: ChatMessagePart): string {
+  const service = typeof part.input?.service === "string" ? normalizeServiceSlug(part.input.service) : ""
+  const connectionName = typeof part.input?.connectionName === "string" ? part.input.connectionName.trim() : ""
+  return `${service}\0${connectionName || "default"}`
+}
+
+function successfulCallActionTargets(tools: ChatMessagePart[]): Set<string> {
+  const targets = new Set<string>()
   for (const part of tools) {
     if (part.tool !== "call_action" || part.status !== "completed" || typeof part.input?.service !== "string") {
       continue
     }
     try {
       const parsed = JSON.parse(part.output ?? "{}") as { status?: unknown }
-      if (parsed.status === "error" || parsed.status === "authorization_required") {
+      if (parsed.status === "error" || parsed.status === "authorization_required" || parsed.status === "skipped") {
         continue
       }
-      services.add(normalizeServiceSlug(part.input.service))
+      targets.add(connectionTargetKey(part))
     } catch {
       // Unknown output shape is not enough evidence that authorization is valid.
     }
   }
+  return targets
+}
+
+function successfulCallActionServices(tools: ChatMessagePart[]): Set<string> {
+  const services = new Set<string>()
+  for (const target of successfulCallActionTargets(tools)) {
+    services.add(target.split("\0", 1)[0] ?? "")
+  }
   return services
+}
+
+function connectorAuthorizationIssues(tools: ChatMessagePart[]): ConnectorAuthorizationIssue[] {
+  const successfulTargets = successfulCallActionTargets(tools)
+  const issues = new Map<string, ConnectorAuthorizationIssue>()
+  for (const part of tools) {
+    const authorization = parseToolAuthorization(part)
+    if (!authorization) {
+      continue
+    }
+    const targetKey = connectionTargetKey(part)
+    const service = normalizeServiceSlug(authorization.service)
+    const key = targetKey
+    const existing = issues.get(key)
+    if (existing) {
+      existing.count += 1
+      continue
+    }
+    issues.set(key, {
+      authorization,
+      count: 1,
+      inconsistent: successfulTargets.has(targetKey),
+      key,
+      service,
+    })
+  }
+  return [...issues.values()]
 }
 
 function suggestedAuthorizationFromTools(tools: ChatMessagePart[]): AuthorizationInfo | undefined {
@@ -315,7 +366,8 @@ export function summarizeTurnProcess(
   const endedAt = timingEnds.length > 0 ? Math.max(...timingEnds) : undefined
 
   const hasToolError = hasBlockingToolError(tools)
-  const hasAuthorization = tools.some((part) => Boolean(parseToolAuthorization(part)))
+  const authorizationIssues = connectorAuthorizationIssues(tools)
+  const hasAuthorization = authorizationIssues.length > 0
   const hasSuccessfulConnectorCall = successfulCallActionServices(tools).size > 0
   const userText = turn.user ? userMessageText(turn.user) : ""
 
@@ -329,6 +381,7 @@ export function summarizeTurnProcess(
     hasStoppedTool: hasStoppedTool(tools),
     hasAuthorization,
     hasSuccessfulConnectorCall,
+    authorizationIssues,
     ...(hasAuthorization
       ? {}
       : {

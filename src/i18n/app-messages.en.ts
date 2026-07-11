@@ -631,6 +631,11 @@ export const enMessages = {
   "chat.authNeeded": "{name} needs authorization to continue",
   "chat.authorize": "Authorize",
   "chat.authorizeConnection": "Connect in Wanta",
+  "chat.connectionIssueInconsistent":
+    "{name} worked earlier in this task, but the connector later reported a connection problem.",
+  "chat.connectionIssueConnected": "{name} is shown as connected, but the connector returned an authorization problem.",
+  "chat.connectionIssueDuplicateCount": "The same connection problem affected {count} calls.",
+  "chat.reviewConnection": "Review connection",
   "chat.toolListApps": "Listing connected apps: {detail}",
   "chat.toolListAppsGeneric": "Listing connected apps",
   "chat.toolSearch": "Searching connectors: {detail}",

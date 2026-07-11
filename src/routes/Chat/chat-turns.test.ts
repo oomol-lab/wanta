@@ -160,6 +160,85 @@ describe("summarizeTurnProcess", () => {
     expect(process.startedAt).toBe(1000)
   })
 
+  it("groups repeated authorization failures for the same connector target", () => {
+    const authOutput = JSON.stringify({
+      status: "authorization_required",
+      service: "posthog",
+      displayName: "PostHog",
+      errorCode: "app_not_found",
+    })
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "analyze every project")]),
+      message(
+        "a1",
+        "assistant",
+        Array.from({ length: 6 }, (_, index) =>
+          tool(`tool-${index}`, {
+            input: { service: "posthog", action: "run_query" },
+            output: authOutput,
+          }),
+        ),
+      ),
+    ])[0]
+
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.authorizationIssues).toHaveLength(1)
+    expect(process.authorizationIssues[0]).toMatchObject({ count: 6, inconsistent: false, service: "posthog" })
+  })
+
+  it("marks authorization as inconsistent after the same connection target succeeded", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "analyze PostHog")]),
+      message("a1", "assistant", [
+        tool("tool-success", {
+          input: { service: "posthog", action: "run_query" },
+          output: JSON.stringify({ data: { results: [] } }),
+        }),
+        tool("tool-auth", {
+          input: { service: "posthog", action: "run_query" },
+          output: JSON.stringify({
+            status: "authorization_required",
+            service: "posthog",
+            displayName: "PostHog",
+            errorCode: "app_not_found",
+          }),
+        }),
+      ]),
+    ])[0]
+
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.authorizationIssues).toHaveLength(1)
+    expect(process.authorizationIssues[0]?.inconsistent).toBe(true)
+  })
+
+  it("keeps authorization issues for different selected accounts separate", () => {
+    const authOutput = JSON.stringify({
+      status: "authorization_required",
+      service: "gmail",
+      displayName: "Gmail",
+      errorCode: "credential_expired",
+    })
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "read both inboxes")]),
+      message("a1", "assistant", [
+        tool("tool-work", {
+          input: { service: "gmail", action: "fetch_emails", connectionName: "work" },
+          output: authOutput,
+        }),
+        tool("tool-personal", {
+          input: { service: "gmail", action: "fetch_emails", connectionName: "personal" },
+          output: authOutput,
+        }),
+      ]),
+    ])[0]
+
+    const process = summarizeTurnProcess(turn!, null)
+
+    expect(process.authorizationIssues).toHaveLength(2)
+  })
+
   it("keeps completed tool history running while the turn is still active", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "create a page")]),

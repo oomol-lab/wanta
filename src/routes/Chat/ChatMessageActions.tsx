@@ -1,5 +1,6 @@
 import type { AuthorizationInfo } from "../../../electron/chat/common.ts"
 import type { ConnectionProvider } from "../../../electron/connections/common.ts"
+import type { ConnectorAuthorizationIssue } from "./chat-turns.ts"
 
 import { CheckIcon, CopyIcon, PlugZap, ThumbsDown, ThumbsUp } from "lucide-react"
 import * as React from "react"
@@ -169,6 +170,46 @@ export function ConnectionSuggestionAction({
       <Button size="sm" variant="outline" className="h-8 gap-1.5 px-2.5" onClick={() => onAuthorize(authorization)}>
         <PlugZap className="size-3.5" />
         {t("chat.authorizeConnection")}
+      </Button>
+    </div>
+  )
+}
+
+export function ConnectionAuthorizationIssueAction({
+  issue,
+  provider,
+  onAuthorize,
+}: {
+  issue: ConnectorAuthorizationIssue
+  provider?: ConnectionProvider
+  onAuthorize: (auth: AuthorizationInfo) => void
+}) {
+  const t = useT()
+  const providerConnected = provider?.status === "connected" && provider.appStatus === "active"
+  const uncertain = issue.inconsistent || providerConnected
+  const displayName = provider?.displayName ?? issue.authorization.displayName
+  const message = issue.inconsistent
+    ? t("chat.connectionIssueInconsistent", { name: displayName })
+    : providerConnected
+      ? t("chat.connectionIssueConnected", { name: displayName })
+      : t("chat.authNeeded", { name: displayName })
+
+  return (
+    <div className="not-prose mt-3 rounded-md border bg-muted/30 px-3 py-2.5">
+      <div className="oo-text-caption text-muted-foreground">{message}</div>
+      {issue.count > 1 ? (
+        <div className="oo-text-micro mt-1 text-muted-foreground">
+          {t("chat.connectionIssueDuplicateCount", { count: issue.count })}
+        </div>
+      ) : null}
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-2 h-8 gap-1.5 px-2.5"
+        onClick={() => onAuthorize(issue.authorization)}
+      >
+        <PlugZap className="size-3.5" />
+        {uncertain ? t("chat.reviewConnection") : t("chat.authorizeConnection")}
       </Button>
     </div>
   )

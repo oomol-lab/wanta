@@ -1132,7 +1132,7 @@ function ImageThumbnail({
 }) {
   const thumbnailRef = React.useRef<HTMLButtonElement | null>(null)
   const [nearViewport, setNearViewport] = React.useState(false)
-  const { preview } = useLocalArtifactPreview(nearViewport ? item : null, previewCache)
+  const { preview } = useLocalArtifactPreview(nearViewport ? item : null, previewCache, "background")
 
   React.useEffect(() => {
     const element = thumbnailRef.current

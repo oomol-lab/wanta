@@ -1,6 +1,8 @@
 import type { LocalArtifactItem, LocalArtifactPreviewResult } from "../../../electron/chat/common.ts"
+import type { ArtifactPreviewLoadPriority } from "./artifact-preview-scheduler.ts"
 
 import * as React from "react"
+import { scheduleArtifactPreviewLoad } from "./artifact-preview-scheduler.ts"
 import { useChatService } from "@/components/AppContext"
 
 export interface LocalArtifactPreviewCacheEntry {
@@ -104,6 +106,7 @@ function loadCachedArtifactPreview(
   cache: LocalArtifactPreviewCache,
   item: LocalArtifactItem,
   load: () => Promise<LocalArtifactPreviewResult>,
+  priority: ArtifactPreviewLoadPriority,
 ): Promise<LocalArtifactPreviewResult> {
   const key = artifactPreviewCacheKey(item)
   const cached = cache.get(key)
@@ -115,7 +118,7 @@ function loadCachedArtifactPreview(
     rememberArtifactPreview(cache, key, cached)
     return cached.promise
   }
-  const promise = load()
+  const promise = scheduleArtifactPreviewLoad(load, priority)
     .then((result) => {
       rememberArtifactPreview(cache, key, { estimatedBytes: artifactPreviewEstimatedBytes(result), result })
       return result
@@ -131,6 +134,7 @@ function loadCachedArtifactPreview(
 export function useLocalArtifactPreview(
   item: LocalArtifactItem | null,
   previewCache: LocalArtifactPreviewCache,
+  priority: ArtifactPreviewLoadPriority = "interactive",
 ): {
   loading: boolean
   preview: LocalArtifactPreviewResult | null
@@ -153,8 +157,11 @@ export function useLocalArtifactPreview(
     }
     let cancelled = false
     setLoading(true)
-    void loadCachedArtifactPreview(previewCache, item, () =>
-      chatService.invoke("getLocalArtifactPreview", { path: item.path }),
+    void loadCachedArtifactPreview(
+      previewCache,
+      item,
+      () => chatService.invoke("getLocalArtifactPreview", { path: item.path }),
+      priority,
     )
       .then((result) => {
         if (!cancelled) {
@@ -169,7 +176,7 @@ export function useLocalArtifactPreview(
     return () => {
       cancelled = true
     }
-  }, [chatService, item, previewCache])
+  }, [chatService, item, previewCache, priority])
 
   return { loading, preview }
 }

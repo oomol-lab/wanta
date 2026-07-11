@@ -27,6 +27,7 @@ import {
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { resolveArtifactResultPayloads } from "./artifact-resolution.ts"
+import { shouldRenderGeneratedArtifactsShelf } from "./artifact-shelf-visibility.ts"
 import { useLocalArtifactThumbnail } from "./artifact-thumbnail-cache.ts"
 import {
   ArtifactConsumablePreview,
@@ -355,6 +356,10 @@ export function GeneratedArtifactsShelf({
   const primary = displayable?.resolved
   const primaryDisplayItem = displayable?.displayItem
   const panelGroups = selectionGroups.length > 0 ? selectionGroups : groups
+
+  if (!shouldRenderGeneratedArtifactsShelf(groups)) {
+    return null
+  }
 
   if (!primary || !primaryDisplayItem || entries.length === 0) {
     if (newest?.status !== "failed") {

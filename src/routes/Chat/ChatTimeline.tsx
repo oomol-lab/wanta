@@ -25,6 +25,7 @@ import { ChevronDown, ChevronRight, ChevronUp } from "lucide-react"
 import * as React from "react"
 import { isConnectionlessNoAuthProvider } from "../../../electron/connections/summary.ts"
 import { useArtifactBundles } from "./artifact-bundle-records.ts"
+import { shouldRenderGeneratedArtifactsShelf } from "./artifact-shelf-visibility.ts"
 import { splitAssistantTimelineBlocks, textFromTimelineBlocks } from "./assistant-timeline.ts"
 import { attachmentWithPreview } from "./chat-attachment-utils.ts"
 import {
@@ -756,6 +757,12 @@ const ChatTurnView = React.memo(function ChatTurnView({
   const responseActionsText =
     lastAssistant?.id === activeAssistantMessageId ? null : textFromTimelineBlocks(responseRenderBlocks) || null
   const processActionsText = responseRenderBlocks.length > 0 ? null : assistantActionsText
+  const hasRenderableArtifacts = shouldRenderGeneratedArtifactsShelf(artifactGroups)
+  const hasRenderableTurnOutputs = Boolean(
+    activeSessionId &&
+    turnOutputRecord &&
+    turnOutputRecord.files.some((file) => file.role === "process" || file.role === "project_change"),
+  )
   const showSuggestedAuthorization = shouldShowSuggestedAuthorization(process, turnIsActive)
   const suggestedAuthorization = shouldRenderConnectionSuggestion(
     showSuggestedAuthorization ? process.suggestedAuthorization : undefined,
@@ -845,9 +852,9 @@ const ChatTurnView = React.memo(function ChatTurnView({
           ))}
         </>
       )}
-      {artifactGroups.length > 0 || (activeSessionId && turnOutputRecord) ? (
+      {hasRenderableArtifacts || hasRenderableTurnOutputs ? (
         <div className="mt-2 grid gap-2">
-          {artifactGroups.length > 0 ? (
+          {hasRenderableArtifacts ? (
             <React.Suspense fallback={null}>
               <GeneratedArtifacts
                 groups={artifactGroups}
@@ -857,7 +864,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
               />
             </React.Suspense>
           ) : null}
-          {activeSessionId && turnOutputRecord ? (
+          {hasRenderableTurnOutputs && turnOutputRecord ? (
             <TurnOutputShelf record={turnOutputRecord} onOpen={onTurnOutputOpen} />
           ) : null}
         </div>

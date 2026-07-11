@@ -28,6 +28,8 @@ import type {
   GenerationNoticeKind,
   LocalArtifactPreviewRequest,
   LocalArtifactPreviewResult,
+  LocalArtifactThumbnailRequest,
+  LocalArtifactThumbnailResult,
   LocalArtifactGroup,
   LocalArtifactPack,
   MessageErrorEvent,
@@ -239,6 +241,7 @@ function taskChildSessionId(data: ToolCallStartedEvent | ToolCallResultEvent): s
 interface ChatServiceDeps {
   createArtifactResourceUrl?: (item: { mime: string; modifiedAt: number; path: string; size: number }) => string
   createSpreadsheetPreview?: (path: string, mime: string, size: number) => Promise<LocalArtifactPreviewResult>
+  createArtifactThumbnail?: (path: string) => Promise<LocalArtifactThumbnailResult>
   artifactBundleStore?: ArtifactBundleStore
   authorizationOverlayStore?: AuthorizationOverlayStore
   projectStore?: Pick<SessionProjectStore, "read">
@@ -2131,6 +2134,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public async getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
     await this.assertTrustedLocalPath(req.path)
     return localArtifactPreview(req, this.deps.createArtifactResourceUrl, this.deps.createSpreadsheetPreview)
+  }
+
+  public async getLocalArtifactThumbnail(req: LocalArtifactThumbnailRequest): Promise<LocalArtifactThumbnailResult> {
+    await this.assertTrustedLocalPath(req.path)
+    if (!this.deps.createArtifactThumbnail) {
+      return { dataUrl: null }
+    }
+    return this.deps.createArtifactThumbnail(req.path)
   }
 
   public async getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]> {

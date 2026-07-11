@@ -5,7 +5,7 @@ import type { AuthRuntimeAccount } from "./auth/store.ts"
 
 import { ConnectionServer } from "@oomol/connection"
 import { ElectronServerAdapter } from "@oomol/connection-electron-adapter/server"
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, session, shell } from "electron"
 import { stat } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -150,6 +150,10 @@ const spreadsheetPreviewWorker = new SpreadsheetPreviewWorkerClient()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
 // 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
+  createArtifactThumbnail: async (filePath) => {
+    const image = await nativeImage.createThumbnailFromPath(filePath, { height: 160, width: 160 })
+    return { dataUrl: image.isEmpty() ? null : image.toDataURL() }
+  },
   createArtifactResourceUrl: (item) => artifactResourceUrl(artifactResourceLeaseStore.grant(item).token),
   createSpreadsheetPreview: (filePath, mime, size) => spreadsheetPreviewWorker.preview(filePath, mime, size),
   artifactBundleStore,

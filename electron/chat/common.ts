@@ -408,6 +408,14 @@ export interface AttachmentPreviewResult {
   resourceUrl?: string
 }
 
+export interface LocalArtifactThumbnailRequest {
+  path: string
+}
+
+export interface LocalArtifactThumbnailResult {
+  dataUrl: string | null
+}
+
 export type LocalArtifactPreviewKind =
   | "archive"
   | "document"
@@ -800,6 +808,7 @@ export const ChatService = serviceName("chat-service") as ServiceName<{
     sendMessage(req: SendMessageRequest): Promise<void>
     getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult>
     getLocalArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult>
+    getLocalArtifactThumbnail(req: LocalArtifactThumbnailRequest): Promise<LocalArtifactThumbnailResult>
     getTurnOutputs(req: TurnOutputsRequest): Promise<TurnOutputRecord[]>
     getTurnFileDiff(req: TurnFileDiffRequest): Promise<TurnFileDiffResult>
     resolveLocalArtifacts(req: ResolveLocalArtifactsRequest): Promise<ResolveLocalArtifactsResult>

@@ -27,6 +27,7 @@ import {
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { resolveArtifactResultPayloads } from "./artifact-resolution.ts"
+import { useLocalArtifactThumbnail } from "./artifact-thumbnail-cache.ts"
 import {
   ArtifactConsumablePreview,
   ArtifactInfo,
@@ -1078,7 +1079,6 @@ function ImageGalleryPanel({
                 key={entry.key}
                 index={index + 1}
                 item={entry.item}
-                previewCache={previewCache}
                 selected={entry.item.path === selectedItem?.path}
                 onClick={() => onSelect(entry.item.path)}
                 onContextMenu={(x, y) => onContextMenu(entry.item, x, y)}
@@ -1116,7 +1116,6 @@ function ImageGalleryPanel({
 function ImageThumbnail({
   index,
   item,
-  previewCache,
   selected,
   onClick,
   onContextMenu,
@@ -1124,7 +1123,6 @@ function ImageThumbnail({
 }: {
   index: number
   item: LocalArtifactItem
-  previewCache: LocalArtifactPreviewCache
   selected: boolean
   onClick: () => void
   onContextMenu: (x: number, y: number) => void
@@ -1132,7 +1130,7 @@ function ImageThumbnail({
 }) {
   const thumbnailRef = React.useRef<HTMLButtonElement | null>(null)
   const [nearViewport, setNearViewport] = React.useState(false)
-  const { preview } = useLocalArtifactPreview(nearViewport ? item : null, previewCache, "background")
+  const thumbnail = useLocalArtifactThumbnail(nearViewport ? item : null)
 
   React.useEffect(() => {
     const element = thumbnailRef.current
@@ -1169,14 +1167,8 @@ function ImageThumbnail({
       }}
       onDoubleClick={onDoubleClick}
     >
-      {preview?.kind === "image" && (preview.resourceUrl || preview.dataUrl) ? (
-        <img
-          src={preview.resourceUrl ?? preview.dataUrl}
-          alt={item.name}
-          className="size-full object-cover"
-          draggable={false}
-          loading="lazy"
-        />
+      {thumbnail ? (
+        <img src={thumbnail} alt={item.name} className="size-full object-cover" draggable={false} loading="lazy" />
       ) : (
         <span className="flex size-full items-center justify-center">
           <Image className="size-4" />

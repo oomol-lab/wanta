@@ -1815,15 +1815,16 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         return
       }
+      const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
+      const artifactProjectRoot = req.mode === "plan" ? undefined : trustedProjectRoot
       ;[artifactDir, processDir] = await Promise.all([
-        this.agent.createArtifactDir(req.sessionId),
+        this.agent.createArtifactDir(req.sessionId, artifactProjectRoot),
         this.agent.createProcessDir(req.sessionId),
       ])
       if (!this.isCurrentGeneration(req.sessionId, activeGeneration.id) || activeGeneration.controller.signal.aborted) {
         this.clearSessionGeneration(req.sessionId, activeGeneration.id)
         return
       }
-      const trustedProjectRoot = await this.resolveTrustedProjectRoot(req.projectContext)
       if (trustedProjectRoot) {
         this.trustedProjectRoots.set(req.sessionId, trustedProjectRoot)
       } else {
@@ -1832,7 +1833,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       this.invalidateTrustedLocalPathRoots()
       const project = await this.projectBaseline(req.projectContext)
       const artifactBaseline = await captureArtifactSessionBaseline(
-        this.agent.artifactSessionDir(req.sessionId),
+        this.agent.artifactSessionDir(req.sessionId, artifactProjectRoot),
         artifactDir,
       ).catch((error: unknown) => {
         console.warn("[wanta] failed to capture artifact session baseline", error)

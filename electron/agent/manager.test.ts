@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -62,6 +62,59 @@ describe("AgentManager", () => {
       expect(path.isAbsolute(relative)).toBe(false)
     } finally {
       await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("stores project artifacts under the selected project", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "wanta-project-"))
+    try {
+      const manager = new AgentManager({
+        authToken: "test",
+        opencodeBinPath: "/tmp/opencode",
+        ooBinPath: "/tmp/oo",
+        rootDir,
+      })
+
+      const dir = await manager.createArtifactDir("session/one", projectRoot)
+      const resolvedProjectRoot = await realpath(projectRoot)
+      const sessionRoot = path.join(resolvedProjectRoot, ".wanta", "artifacts", "session_one")
+      const relative = path.relative(sessionRoot, dir)
+
+      expect(relative).not.toBe("..")
+      expect(relative.startsWith(`..${path.sep}`)).toBe(false)
+      expect(path.isAbsolute(relative)).toBe(false)
+      await expect(realpath(manager.artifactSessionDir("session/one", projectRoot))).resolves.toBe(sessionRoot)
+    } finally {
+      await Promise.all([
+        rm(rootDir, { force: true, recursive: true }),
+        rm(projectRoot, { force: true, recursive: true }),
+      ])
+    }
+  })
+
+  it.skipIf(process.platform === "win32")("rejects symbolic links in the project artifact path", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "wanta-project-"))
+    const outsideRoot = await mkdtemp(path.join(tmpdir(), "wanta-outside-"))
+    try {
+      const manager = new AgentManager({
+        authToken: "test",
+        opencodeBinPath: "/tmp/opencode",
+        ooBinPath: "/tmp/oo",
+        rootDir,
+      })
+      await symlink(outsideRoot, path.join(projectRoot, ".wanta"), "dir")
+
+      await expect(manager.createArtifactDir("session", projectRoot)).rejects.toThrow(
+        "Project artifact path contains a non-directory or symbolic link.",
+      )
+    } finally {
+      await Promise.all([
+        rm(rootDir, { force: true, recursive: true }),
+        rm(projectRoot, { force: true, recursive: true }),
+        rm(outsideRoot, { force: true, recursive: true }),
+      ])
     }
   })
 

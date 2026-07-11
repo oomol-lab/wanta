@@ -478,7 +478,10 @@ export class AgentManager {
           break
         }
         this.eventLoopRestartFailures = 0
-        this.eventMetrics.record(event.type)
+        // OpenCode 每十秒发送一次保活；它不承载业务状态，不应触发周期性诊断写盘。
+        if (event.type !== "server.heartbeat") {
+          this.eventMetrics.record(event.type)
+        }
         try {
           subscriber.onEvent(event)
         } catch (error) {

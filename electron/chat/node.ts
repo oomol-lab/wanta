@@ -2448,6 +2448,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async setPermissionMode(req: SetChatPermissionModeRequest): Promise<void> {
+    const changed = this.sessionPermissionMode(req.sessionId) !== req.permissionMode
     if (!this.setSessionPermissionModeValue(req.sessionId, req.permissionMode, req.version)) {
       return
     }
@@ -2460,6 +2461,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (req.permissionMode === "full_access") {
       await Promise.all(affectedSessionIds.map((sessionId) => this.autoAnswerPendingPermissions(sessionId)))
     }
-    this.emitSessionActivity(req.sessionId)
+    if (changed) {
+      this.emitSessionActivity(req.sessionId)
+    }
   }
 }

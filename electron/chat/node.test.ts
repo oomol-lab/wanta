@@ -2247,6 +2247,20 @@ test("stale permission mode updates do not override newer modes", async () => {
   assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
 })
 
+test("unchanged permission mode updates do not emit session activity", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const activities: Array<{ sessionId: string; usedAt: number }> = []
+  service.sessionActivity.on((activity) => activities.push(activity))
+
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "default", version: 1 })
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 2 })
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 3 })
+
+  assert.equal(activities.length, 1)
+  assert.equal(activities[0]?.sessionId, "session-1")
+})
+
 test("automatic permission replies are deduplicated across pending reload and events", async () => {
   const bridge = createBridgeAgent()
   const service = new ChatServiceImpl(bridge.agent)

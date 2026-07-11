@@ -712,6 +712,7 @@ export const zhCNMessages = {
   "chat.userCancelled": "用户已取消",
   "chat.toolParams": "参数",
   "chat.toolResult": "结果",
+  "chat.toolResultPreviewTruncated": "为保证展开流畅，仅显示前 {limit} 个字符的预览。",
   "chat.toolError": "错误",
   "chat.toolMetadata": "元数据",
   "chat.toolAttachments": "{count} 个附件",

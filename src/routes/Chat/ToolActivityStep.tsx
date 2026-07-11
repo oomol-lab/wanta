@@ -29,6 +29,7 @@ import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { shouldShowRunningNoOutput } from "./tool-activity.ts"
 import { parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
+import { formatToolOutputPreview, toolOutputPreviewLimitChars } from "./tool-output-preview.ts"
 import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -77,17 +78,6 @@ function ToolInlineDetail({ line }: { line: ToolDisplayLine }) {
     )
   }
   return <span className="w-0 max-w-full min-w-0 flex-1 truncate font-medium text-muted-foreground">{line.detail}</span>
-}
-
-function formatToolOutput(output: string | undefined): string {
-  if (!output) {
-    return ""
-  }
-  try {
-    return JSON.stringify(JSON.parse(output), null, 2)
-  } catch {
-    return output
-  }
 }
 
 function formatJson(value: Record<string, unknown>): string {
@@ -263,6 +253,8 @@ export function ToolActivityStep({
   const answerSummary = questionAnswerSummary(part)
   const details = hasToolDetails(part, auth, answerSummary, stopped)
   const [open, setOpen] = React.useState(false)
+  const [detailsVisible, setDetailsVisible] = React.useState(false)
+  const outputPreviewRef = React.useRef<{ output: string; text: string; truncated: boolean } | null>(null)
   const statusText =
     settling && part.status === "completed" ? t("chat.toolStatusFinalizing") : toolPartStatusLabel(t, part, stopped)
   const active = live && activePart
@@ -270,6 +262,35 @@ export function ToolActivityStep({
   const displayLine = toolDisplayLine(t, part)
   const metaItems = [provider?.displayName, statusText].filter(Boolean)
   const completedMeta = part.status === "completed" && !auth
+  const outputPreview = React.useMemo(() => {
+    if (!detailsVisible || !part.output || auth) {
+      return null
+    }
+    const cached = outputPreviewRef.current
+    if (cached?.output === part.output) {
+      return cached
+    }
+    const preview = formatToolOutputPreview(part.output)
+    const next = { output: part.output, ...preview }
+    outputPreviewRef.current = next
+    return next
+  }, [auth, detailsVisible, part.output])
+
+  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+    if (nextOpen) {
+      setDetailsVisible(true)
+    }
+    setOpen(nextOpen)
+  }, [])
+
+  const handleContentAnimationEnd = React.useCallback(
+    (event: React.AnimationEvent<HTMLDivElement>) => {
+      if (event.target === event.currentTarget && !open) {
+        setDetailsVisible(false)
+      }
+    },
+    [open],
+  )
 
   const row = (
     <div className="group/tool-step flex min-h-6 w-full max-w-full min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -337,7 +358,7 @@ export function ToolActivityStep({
     ) : null
 
   return (
-    <Collapsible className="w-full max-w-full min-w-0 overflow-hidden" open={open} onOpenChange={setOpen}>
+    <Collapsible className="w-full max-w-full min-w-0 overflow-hidden" open={open} onOpenChange={handleOpenChange}>
       <div className="w-full max-w-full min-w-0 overflow-hidden rounded-md">
         {details ? (
           <CollapsibleTrigger className="group/tool-step flex w-full max-w-full min-w-0 items-center justify-between gap-2 overflow-hidden text-left">
@@ -350,45 +371,53 @@ export function ToolActivityStep({
         {authPrompt}
       </div>
       {details && (
-        <CollapsibleContent className="data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
+        <CollapsibleContent
+          className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=closed]:fade-out-0 data-[state=open]:animate-collapsible-down data-[state=open]:fade-in-0 motion-reduce:animate-none"
+          onAnimationEnd={handleContentAnimationEnd}
+        >
           <div className="ml-6 space-y-2.5 pt-1.5 pb-1">
-            {open && part.tool === "question" && answerSummary ? (
+            {detailsVisible && part.tool === "question" && answerSummary ? (
               <ToolDetailSection label={t("chat.questionAnswered")}>
                 <ToolPre>{answerSummary}</ToolPre>
               </ToolDetailSection>
             ) : null}
-            {open && part.tool !== "question" && hasKeys(part.input) && (
+            {detailsVisible && part.tool !== "question" && hasKeys(part.input) && (
               <ToolDetailSection label={t("chat.toolParams")}>
                 <ToolPre>{formatJson(part.input ?? {})}</ToolPre>
               </ToolDetailSection>
             )}
-            {open && !stopped && shouldShowRunningNoOutput(part) && (
+            {detailsVisible && !stopped && shouldShowRunningNoOutput(part) && (
               <div className="oo-text-caption text-muted-foreground">{t("chat.toolRunningNoOutput")}</div>
             )}
-            {open && part.error && !stopped && (
+            {detailsVisible && part.error && !stopped && (
               <div className="oo-text-caption text-muted-foreground">{t("chat.toolRecoverableIssue")}</div>
             )}
-            {open && part.output && !auth && (
+            {outputPreview ? (
               <ToolDetailSection label={t("chat.toolResult")}>
-                <ToolPre>{formatToolOutput(part.output)}</ToolPre>
+                <ToolPre>{outputPreview.text}</ToolPre>
+                {outputPreview.truncated ? (
+                  <div className="oo-text-caption text-muted-foreground">
+                    {t("chat.toolResultPreviewTruncated", { limit: toolOutputPreviewLimitChars })}
+                  </div>
+                ) : null}
               </ToolDetailSection>
-            )}
-            {open && part.error && !stopped && (
+            ) : null}
+            {detailsVisible && part.error && !stopped && (
               <ToolDetailSection label={t("chat.toolError")}>
                 <ToolPre>{part.error}</ToolPre>
               </ToolDetailSection>
             )}
-            {open && auth?.message && (
+            {detailsVisible && auth?.message && (
               <ToolDetailSection label={t("chat.toolError")}>
                 <ToolPre tone="error">{auth.message}</ToolPre>
               </ToolDetailSection>
             )}
-            {open && hasKeys(part.metadata) && (
+            {detailsVisible && hasKeys(part.metadata) && (
               <ToolDetailSection label={t("chat.toolMetadata")}>
                 <ToolPre>{formatJson(part.metadata ?? {})}</ToolPre>
               </ToolDetailSection>
             )}
-            {open && part.attachmentsCount ? (
+            {detailsVisible && part.attachmentsCount ? (
               <div className="oo-text-caption text-muted-foreground">
                 {t("chat.toolAttachments", { count: part.attachmentsCount })}
               </div>

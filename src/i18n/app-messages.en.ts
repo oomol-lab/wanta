@@ -744,6 +744,7 @@ export const enMessages = {
   "chat.userCancelled": "Cancelled by user",
   "chat.toolParams": "Parameters",
   "chat.toolResult": "Result",
+  "chat.toolResultPreviewTruncated": "Preview shortened to the first {limit} characters for performance.",
   "chat.toolError": "Error",
   "chat.toolMetadata": "Metadata",
   "chat.toolAttachments": "{count} attachments",

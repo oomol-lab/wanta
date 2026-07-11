@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
+import { connectionInventoryError, linkWorkspaceArgs } from "./link-workspace.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 interface LoadedTool {
@@ -72,10 +73,28 @@ function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>):
 
 afterEach(() => {
   delete process.env.WANTA_CONSOLE_URL
+  delete process.env.WANTA_ORGANIZATION_NAME
   delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
 })
 
 describe("list_apps embedded runtime", () => {
+  it("converts trusted identities and inventory errors without runtime dependencies", () => {
+    expect(linkWorkspaceArgs({ scope: "organization", organizationName: "org-a" })).toEqual(["--organization", "org-a"])
+    expect(linkWorkspaceArgs({ scope: "personal", organizationName: "" })).toEqual(["--personal"])
+    expect(
+      connectionInventoryError(
+        { scope: "organization", organizationName: "org-a" },
+        "The connector apps request returned HTTP 403.",
+      ),
+    ).toEqual({
+      status: "error",
+      errorCode: "connection_inventory_unavailable",
+      operation: "list_connected_apps",
+      workspace: { scope: "organization", organizationName: "org-a" },
+      message: "The connector apps request returned HTTP 403.",
+    })
+  })
+
   it("keeps organization identity in structured inventory errors", async () => {
     process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/organization-scope.json"
     const commands: string[][] = []
@@ -103,6 +122,28 @@ describe("list_apps embedded runtime", () => {
       errorCode: "connection_inventory_unavailable",
       workspace: { organizationName: "org-a", scope: "organization" },
     })
+  })
+
+  it("fails closed when the session workspace file is unreadable", async () => {
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/organization-scope.json"
+    process.env.WANTA_ORGANIZATION_NAME = "stale-default"
+    let calls = 0
+    const runtime = loadListAppsTool(
+      async () => {
+        calls += 1
+        return { stdout: "[]" }
+      },
+      async () => {
+        throw new Error("partial scope file")
+      },
+    )
+
+    const output = JSON.parse(await runtime.execute({ service: "posthog" }, { sessionID: "session-1" })) as {
+      errorCode?: string
+    }
+
+    expect(calls).toBe(0)
+    expect(output.errorCode).toBe("workspace_identity_unavailable")
   })
 })
 

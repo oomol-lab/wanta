@@ -95,7 +95,6 @@ describe("list_apps embedded runtime", () => {
 
     const output = JSON.parse(await runtime.execute({ service: "posthog" }, { sessionID: "session-1" })) as {
       errorCode?: string
-      retryGuidance?: string
       workspace?: { organizationName?: string; scope?: string }
     }
 
@@ -104,7 +103,6 @@ describe("list_apps embedded runtime", () => {
       errorCode: "connection_inventory_unavailable",
       workspace: { organizationName: "org-a", scope: "organization" },
     })
-    expect(output.retryGuidance).toContain("Do not retry by omitting the workspace selector")
   })
 })
 

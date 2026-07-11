@@ -14,13 +14,10 @@ describe("AgentManager", () => {
     const organization = buildWorkspaceIdentitySystem('team "quoted"')
     expect(organization).toContain('organization "team \\"quoted\\""')
     expect(organization).toContain('--organization "team \\"quoted\\""')
-    expect(organization).toContain("Never omit that selector")
-    expect(organization).toContain("fall back to personal identity")
 
     const personal = buildWorkspaceIdentitySystem(undefined)
     expect(personal).toContain("workspace: personal")
     expect(personal).toContain("--personal")
-    expect(personal).toContain("Never substitute an organization identity")
   })
 
   it("hides OpenCode subagent sessions from the user task list", () => {

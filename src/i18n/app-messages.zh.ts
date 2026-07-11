@@ -1125,7 +1125,7 @@ export const zhCNMessages = {
   "settings.updateRestart": "重启并安装",
   "settings.updateError": "更新失败：{error}",
   "settings.updateDevUnavailable": "开发模式下自动更新不可用",
-  "settings.updateIdle": "手动检查是否有可用更新。",
+  "settings.updateIdle": "Wanta 会在后台定期检查并下载更新。",
   "settings.updateChannel": "更新渠道",
   "settings.channelStable": "正式版",
   "settings.channelBeta": "测试版 (Beta)",

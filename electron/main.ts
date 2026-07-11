@@ -264,11 +264,9 @@ if (isLocked) {
       installOomolCorsShim(session.defaultSession)
       installApplicationMenu()
       createMainWindow()
-      // 启动静默检查（autoDownload=false，下载/安装由设置页 UI 显式触发）；dev 内部短路。
-      void updateService.checkForAppUpdate().catch((error: unknown) => {
-        console.warn("[wanta] startup update check failed:", error)
-        logMainError("startup update check failed", error)
-      })
+      // 打包态启动跨平台后台更新：延迟首查、周期检查、系统唤醒后补查；发现后后台下载，
+      // 安装仍由用户点击重启或正常退出触发，避免打断 Agent 任务。
+      updateService.startBackgroundChecks()
 
       // 启动时一次性抹除磁盘上残留的旧长期 api-key（迁移到纯会话 token 后不再落盘任何凭证）。
       authStore.purgeLegacy()

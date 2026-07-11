@@ -4,10 +4,28 @@ import { describe, expect, it } from "vitest"
 import {
   collectDescendantTree,
   distinctProcessGroups,
+  OpencodeSidecar,
   parsePsSnapshot,
   reapProcessTree,
   reapWindowsProcessTree,
 } from "./sidecar.ts"
+
+describe("OpencodeSidecar", () => {
+  it("returns the same disposal promise to every caller", () => {
+    const sidecar = new OpencodeSidecar({
+      config: {},
+      env: {},
+      isolationDir: "/tmp/wanta-sidecar-test-isolation",
+      opencodeBinPath: "/tmp/wanta-sidecar-test-opencode",
+      workspaceDir: "/tmp/wanta-sidecar-test-workspace",
+    })
+
+    const first = sidecar.dispose()
+    const second = sidecar.dispose()
+
+    expect(second).toBe(first)
+  })
+})
 
 // opencode(100) -> bash 工具子进程(200，自成 session/组) -> 其子(300，与 bash 同组)；
 // 另有无关进程 999。opencode 的工具子进程 setsid 逃逸出 opencode 的进程组，是"正在后台运行"孤儿的根源。

@@ -52,6 +52,7 @@ export class OpencodeSidecar {
   private opencodeClient: OpencodeClient | null = null
   private serverUrl = ""
   private disposed = false
+  private disposePromise: Promise<void> | null = null
   private streamLogCleanup: (() => void) | null = null
 
   public constructor(options: SidecarOptions) {
@@ -226,6 +227,9 @@ export class OpencodeSidecar {
    * 重启路径可 fire-and-forget（回收在后台自完成，不拖慢重启）。
    */
   public dispose(): Promise<void> {
+    if (this.disposePromise) {
+      return this.disposePromise
+    }
     this.disposed = true
     this.streamLogCleanup?.()
     this.streamLogCleanup = null
@@ -234,7 +238,8 @@ export class OpencodeSidecar {
     this.proc = null
     this.opencodeClient = null
     this.serverUrl = ""
-    return proc ? this.reap(proc, client) : Promise.resolve()
+    this.disposePromise = proc ? this.reap(proc, client) : Promise.resolve()
+    return this.disposePromise
   }
 }
 

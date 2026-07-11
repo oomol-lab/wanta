@@ -28,6 +28,7 @@ import {
 import * as React from "react"
 import { LoadingShimmerText } from "./LoadingShimmerText.tsx"
 import { shouldShowRunningNoOutput } from "./tool-activity.ts"
+import { shouldHideToolDetailsImmediately } from "./tool-details-visibility.ts"
 import { parseToolAuthorization, toolDisplayLine } from "./tool-display.ts"
 import { formatToolOutputPreview, toolOutputPreviewLimitChars } from "./tool-output-preview.ts"
 import { isActiveToolPart, isToolCancellation } from "./tool-state.ts"
@@ -279,6 +280,13 @@ export function ToolActivityStep({
   const handleOpenChange = React.useCallback((nextOpen: boolean) => {
     if (nextOpen) {
       setDetailsVisible(true)
+    } else if (
+      shouldHideToolDetailsImmediately(
+        nextOpen,
+        typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      )
+    ) {
+      setDetailsVisible(false)
     }
     setOpen(nextOpen)
   }, [])

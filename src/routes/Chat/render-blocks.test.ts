@@ -126,6 +126,12 @@ describe("renderBlocks", () => {
     expect(renderBlocks([answer, attachment])).toEqual([{ kind: "text", part: answer }])
   })
 
+  it("keeps attachments for plain path mentions and ordinary links", () => {
+    const attachment = attachmentPart("attachment-1")
+    expect(renderBlocks([textPart("text-1", "Saved at /tmp/generated.png"), attachment])).toHaveLength(2)
+    expect(renderBlocks([textPart("text-2", "[Download](/tmp/generated.png)"), attachment])).toHaveLength(2)
+  })
+
   it("leaves non-image assistant attachments to the artifact shelf", () => {
     const attachment = attachmentPart("attachment-1")
     attachment.attachment = { ...attachment.attachment!, mime: "application/pdf", name: "report.pdf" }

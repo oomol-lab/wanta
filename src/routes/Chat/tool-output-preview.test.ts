@@ -24,4 +24,11 @@ describe("formatToolOutputPreview", () => {
       truncated: true,
     })
   })
+
+  it("bounds JSON whose indentation expands beyond the preview limit", () => {
+    const output = JSON.stringify(Array.from({ length: 4_000 }, () => ({ x: 1 })))
+    const preview = formatToolOutputPreview(output)
+    expect(preview.truncated).toBe(true)
+    expect(preview.text).toHaveLength(toolOutputPreviewLimitChars + 2)
+  })
 })

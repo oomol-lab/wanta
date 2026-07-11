@@ -39,7 +39,10 @@ export function parseAuthorizationSignal(output: string | undefined): Authorizat
   }
   try {
     const parsed = JSON.parse(output) as Record<string, unknown>
-    if (parsed.status !== "authorization_required" || typeof parsed.service !== "string" || !validId(parsed.service)) {
+    const authorizationBlocked =
+      parsed.status === "authorization_required" ||
+      (parsed.status === "skipped" && parsed.reason === "connection_blocked")
+    if (!authorizationBlocked || typeof parsed.service !== "string" || !validId(parsed.service)) {
       return null
     }
     return {

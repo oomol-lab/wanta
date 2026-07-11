@@ -199,8 +199,11 @@ export function assistantErrorParts(message: ChatMessage): ChatMessagePart[] {
   return message.parts.filter((part) => part.kind === "error")
 }
 
-function connectionTargetKey(part: ChatMessagePart): string {
-  const service = typeof part.input?.service === "string" ? normalizeServiceSlug(part.input.service) : ""
+function connectionTargetKey(part: ChatMessagePart, fallbackService = ""): string {
+  const service =
+    typeof part.input?.service === "string"
+      ? normalizeServiceSlug(part.input.service)
+      : normalizeServiceSlug(fallbackService)
   const connectionName = typeof part.input?.connectionName === "string" ? part.input.connectionName.trim() : ""
   return `${service}\0${connectionName || "default"}`
 }
@@ -240,8 +243,8 @@ function connectorAuthorizationIssues(tools: ChatMessagePart[]): ConnectorAuthor
     if (!authorization) {
       continue
     }
-    const targetKey = connectionTargetKey(part)
     const service = normalizeServiceSlug(authorization.service)
+    const targetKey = connectionTargetKey(part, service)
     const key = targetKey
     const existing = issues.get(key)
     if (existing) {

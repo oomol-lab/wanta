@@ -349,6 +349,20 @@ const connectionNameLookups = new Map()
 const actionProbeStates = new Map()
 const connectionBlocks = new Map()
 
+function pruneExpiredRuntimeState(now = Date.now()) {
+  for (const [key, cached] of connectionNameLookups) {
+    if (now - cached.createdAt >= CONNECTION_NAME_CACHE_MS) connectionNameLookups.delete(key)
+  }
+  for (const [key, state] of actionProbeStates) {
+    if (!state.probePromise && state.active === 0 && now - state.createdAt >= ACTION_PROBE_CACHE_MS) {
+      actionProbeStates.delete(key)
+    }
+  }
+  for (const [key, block] of connectionBlocks) {
+    if (now >= block.expiresAt) connectionBlocks.delete(key)
+  }
+}
+
 function parseApps(stdout) {
   const parsed = JSON.parse((stdout || "").trim() || "[]")
   if (Array.isArray(parsed)) {
@@ -372,6 +386,7 @@ function appConnectionName(app) {
 async function knownConnectionNames(service, identity) {
   const key = identity.cacheKey + ":" + service
   const now = Date.now()
+  pruneExpiredRuntimeState(now)
   const cached = connectionNameLookups.get(key)
   if (cached && now - cached.createdAt < CONNECTION_NAME_CACHE_MS) {
     return await cached.promise
@@ -472,6 +487,7 @@ async function runLimitedAction(state, connectionKey, args, call) {
 }
 
 async function runCoordinatedAction(sessionID, identity, connectionName, args, call) {
+  pruneExpiredRuntimeState()
   const target = connectionName || "default"
   const connectionKey = sessionID + ":" + identity.cacheKey + ":" + args.service + ":" + target
   const blocked = currentConnectionBlock(connectionKey)

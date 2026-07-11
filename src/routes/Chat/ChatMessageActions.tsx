@@ -4,6 +4,7 @@ import type { ConnectorAuthorizationIssue } from "./chat-turns.ts"
 
 import { CheckIcon, CopyIcon, PlugZap, ThumbsDown, ThumbsUp } from "lucide-react"
 import * as React from "react"
+import { connectionAuthorizationIssueDecision } from "./connection-authorization-issue.ts"
 import { MessageAction, MessageActions } from "@/components/ai-elements/message"
 import { Button } from "@/components/ui/button"
 import { useT } from "@/i18n/i18n"
@@ -185,14 +186,8 @@ export function ConnectionAuthorizationIssueAction({
   onAuthorize: (auth: AuthorizationInfo) => void
 }) {
   const t = useT()
-  const providerConnected = provider?.status === "connected" && provider.appStatus === "active"
-  const uncertain = issue.inconsistent || providerConnected
-  const displayName = provider?.displayName ?? issue.authorization.displayName
-  const message = issue.inconsistent
-    ? t("chat.connectionIssueInconsistent", { name: displayName })
-    : providerConnected
-      ? t("chat.connectionIssueConnected", { name: displayName })
-      : t("chat.authNeeded", { name: displayName })
+  const decision = connectionAuthorizationIssueDecision(issue, provider)
+  const message = t(decision.messageKey, { name: decision.displayName })
 
   return (
     <div className="not-prose mt-3 rounded-md border bg-muted/30 px-3 py-2.5">
@@ -209,7 +204,7 @@ export function ConnectionAuthorizationIssueAction({
         onClick={() => onAuthorize(issue.authorization)}
       >
         <PlugZap className="size-3.5" />
-        {uncertain ? t("chat.reviewConnection") : t("chat.authorizeConnection")}
+        {t(decision.actionKey)}
       </Button>
     </div>
   )

@@ -187,6 +187,45 @@ describe("summarizeTurnProcess", () => {
     expect(process.authorizationIssues[0]).toMatchObject({ count: 6, inconsistent: false, service: "posthog" })
   })
 
+  it("keeps a cached connection block visible as an authorization issue", () => {
+    const turn = groupChatTurns([
+      message("u1", "user", [text("u1-text", "continue PostHog analysis")]),
+      message("a1", "assistant", [
+        tool("tool-skipped", {
+          input: { action: "run_query" },
+          output: JSON.stringify({
+            status: "skipped",
+            reason: "connection_blocked",
+            service: "posthog",
+            action: "run_query",
+            errorCode: "app_not_found",
+          }),
+        }),
+      ]),
+    ])[0]
+
+    const process = summarizeTurnProcess(turn!, null)
+    expect(process.hasAuthorization).toBe(true)
+    expect(process.authorizationIssues).toMatchObject([{ count: 1, service: "posthog" }])
+  })
+
+  it("uses authorization services to keep missing-input targets separate", () => {
+    const blocked = (service: string) =>
+      JSON.stringify({ status: "authorization_required", service, displayName: service })
+    const turn = groupChatTurns([
+      message("u1", "user"),
+      message("a1", "assistant", [
+        tool("tool-gmail", { output: blocked("gmail") }),
+        tool("tool-slack", { output: blocked("slack") }),
+      ]),
+    ])[0]
+
+    expect(summarizeTurnProcess(turn!, null).authorizationIssues.map((issue) => issue.service)).toEqual([
+      "gmail",
+      "slack",
+    ])
+  })
+
   it("marks authorization as inconsistent after the same connection target succeeded", () => {
     const turn = groupChatTurns([
       message("u1", "user", [text("u1-text", "analyze PostHog")]),

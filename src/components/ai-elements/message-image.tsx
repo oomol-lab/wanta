@@ -262,8 +262,11 @@ export function MarkdownImage({ src, alt, className, node: _, ...props }: Markdo
       })
       .catch(() => {
         if (!cancelled) {
-          localImagePreviewUrlByPath.set(localPath, { url: null })
+          localImagePreviewUrlByPath.delete(localPath)
           setPreviewUrl(null)
+          if (previewRetry < 1) {
+            setPreviewRetry((value) => value + 1)
+          }
         }
       })
     return () => {

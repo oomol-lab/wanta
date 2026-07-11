@@ -21,12 +21,16 @@ function textRendersAttachment(parts: ChatMessagePart[], attachmentPath: string)
   if (!attachmentPath.trim()) {
     return false
   }
-  const localImagePath = /^(?:file:\/\/|~?[\\/]|[A-Za-z]:[\\/])/i.test(attachmentPath)
+  const escapedPath = attachmentPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const imagePattern = new RegExp(
+    String.raw`!\[[^\]]*\]\(\s*(?:<${escapedPath}>|${escapedPath})(?:\s+["'][^"']*["'])?\s*\)`,
+    "u",
+  )
   return parts.some((part) => {
     if (part.kind !== "text" || !part.text?.includes(attachmentPath)) {
       return false
     }
-    return localImagePath || part.text.includes(`](${attachmentPath})`) || part.text.includes(`](<${attachmentPath}>)`)
+    return imagePattern.test(part.text)
   })
 }
 

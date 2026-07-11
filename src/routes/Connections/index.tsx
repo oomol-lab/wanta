@@ -770,7 +770,7 @@ function ConnectionListToolbar({
     const observer = new ResizeObserver(updateVisibleCategoryCount)
     observer.observe(filterRow)
     return () => observer.disconnect()
-  }, [categoryFilters, selectedCategory])
+  }, [attentionCount, categoryFilters, connectedCount, loading, selectedCategory, totalCount])
 
   return (
     <div className="grid w-full min-w-0 gap-2">
@@ -848,13 +848,21 @@ function ConnectionListToolbar({
       <div ref={filterMeasurementRef} aria-hidden="true" className="pointer-events-none invisible absolute -z-10">
         <ToggleGroup type="single" variant="default" size="sm" spacing={1} className="flex w-max flex-nowrap gap-1">
           <span data-filter-measure="all">
-            <FilterToggleItem count={totalCount} label={t("connections.filterAll")} value="all" />
+            <FilterToggleItem count={loading ? null : totalCount} label={t("connections.filterAll")} value="all" />
           </span>
           <span data-filter-measure="connected">
-            <FilterToggleItem count={connectedCount} label={t("connections.filterConnected")} value="connected" />
+            <FilterToggleItem
+              count={loading ? null : connectedCount}
+              label={t("connections.filterConnected")}
+              value="connected"
+            />
           </span>
           <span data-filter-measure="attention">
-            <FilterToggleItem count={attentionCount} label={t("connections.needsAttention")} value="attention" />
+            <FilterToggleItem
+              count={loading ? null : attentionCount}
+              label={t("connections.needsAttention")}
+              value="attention"
+            />
           </span>
           {categoryFilters.map((filter, index) => (
             <span key={filter.label} data-filter-measure={`category-${index}`}>

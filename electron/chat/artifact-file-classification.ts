@@ -30,6 +30,33 @@ function hasMeaningfulValue(record: Record<string, unknown>, keys: ReadonlySet<s
   })
 }
 
+export interface ArtifactFileClassificationInput {
+  content: string
+  filePath: string
+  origin?: ArtifactItemOrigin
+  size: number
+}
+
+export function isOperationalStateArtifactContent(input: ArtifactFileClassificationInput): boolean {
+  if (
+    input.origin === "assistant_attachment" ||
+    input.origin === "assistant_preview" ||
+    !hasOperationalStateFileName(input.filePath) ||
+    input.size <= 0 ||
+    input.size > maxOperationalStateBytes
+  ) {
+    return false
+  }
+  try {
+    const parsed = JSON.parse(input.content) as unknown
+    return (
+      isRecord(parsed) && hasMeaningfulValue(parsed, identifierKeys) && hasMeaningfulValue(parsed, runtimeStateKeys)
+    )
+  } catch {
+    return false
+  }
+}
+
 export function hasOperationalStateFileName(filePath: string): boolean {
   return operationalStateNamePattern.test(path.basename(filePath))
 }
@@ -50,10 +77,12 @@ export async function isOperationalStateArtifact(
     if (!info.isFile() || info.size <= 0 || info.size > maxOperationalStateBytes) {
       return false
     }
-    const parsed = JSON.parse(await readFile(filePath, "utf-8")) as unknown
-    return (
-      isRecord(parsed) && hasMeaningfulValue(parsed, identifierKeys) && hasMeaningfulValue(parsed, runtimeStateKeys)
-    )
+    return isOperationalStateArtifactContent({
+      content: await readFile(filePath, "utf-8"),
+      filePath,
+      origin,
+      size: info.size,
+    })
   } catch {
     return false
   }

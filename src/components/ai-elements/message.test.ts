@@ -16,7 +16,7 @@ import {
 import {
   compactLocalPath,
   MarkdownTable,
-  Message,
+  messageClassName,
   messageResponseControls,
   nextSmoothedText,
   normalizeSingleLocalPathCodeFences,
@@ -44,9 +44,7 @@ const appContext = {
 
 describe("Message", () => {
   it("allows message rows to shrink when a side panel reduces the chat width", () => {
-    const html = renderToStaticMarkup(React.createElement(Message, { from: "assistant" }, "content"))
-
-    expect(html).toContain("min-w-0")
+    expect(messageClassName("assistant")).toContain("min-w-0")
   })
 })
 

@@ -17,7 +17,11 @@ export function formatToolOutputPreview(output: string): ToolOutputPreview {
     }
   }
   try {
-    return { text: JSON.stringify(JSON.parse(output), null, 2), truncated: false }
+    const formatted = JSON.stringify(JSON.parse(output), null, 2)
+    if (formatted.length > toolOutputPreviewLimitChars) {
+      return { text: `${formatted.slice(0, toolOutputPreviewLimitChars)}\n…`, truncated: true }
+    }
+    return { text: formatted, truncated: false }
   } catch {
     return { text: output, truncated: false }
   }

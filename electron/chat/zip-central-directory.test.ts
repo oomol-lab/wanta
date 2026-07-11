@@ -39,3 +39,21 @@ test("zipArchiveStats reads entry sizes without inflating file content", () => {
 test("zipArchiveStats rejects malformed archives", () => {
   assert.equal(zipArchiveStats(new Uint8Array(22)), null)
 })
+
+test("zipArchiveStats ignores a false end record inside the archive comment", () => {
+  const base = syntheticZip([{ compressed: 10, name: "a.xml", uncompressed: 100 }])
+  const commentLength = 30
+  const bytes = new Uint8Array(base.length + commentLength)
+  bytes.set(base)
+  const view = new DataView(bytes.buffer)
+  const realEndOffset = base.length - 22
+  view.setUint16(realEndOffset + 20, commentLength, true)
+  view.setUint32(realEndOffset + 22, 0x06054b50, true)
+
+  assert.deepEqual(zipArchiveStats(bytes), {
+    entryCount: 1,
+    maxEntryUncompressedSize: 100,
+    totalCompressedSize: 10,
+    totalUncompressedSize: 100,
+  })
+})

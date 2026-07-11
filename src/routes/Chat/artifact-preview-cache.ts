@@ -157,21 +157,21 @@ export function useLocalArtifactPreview(
   const [loading, setLoading] = React.useState(false)
   const [reloadVersion, setReloadVersion] = React.useState(0)
   const reloadAttemptRef = React.useRef<{ count: number; key: string | null }>({ count: 0, key: null })
+  const previewKey = item ? artifactPreviewCacheKey(item) : null
   const reload = React.useCallback(() => {
-    const key = item ? artifactPreviewCacheKey(item) : null
-    if (reloadAttemptRef.current.key !== key) {
-      reloadAttemptRef.current = { count: 0, key }
+    if (reloadAttemptRef.current.key !== previewKey) {
+      reloadAttemptRef.current = { count: 0, key: previewKey }
     }
     if (reloadAttemptRef.current.count >= 1) {
       return
     }
     reloadAttemptRef.current.count += 1
-    if (key) {
-      previewCache.delete(key)
+    if (previewKey) {
+      previewCache.delete(previewKey)
     }
     setPreview(null)
     setReloadVersion((value) => value + 1)
-  }, [item, previewCache])
+  }, [previewCache, previewKey])
 
   React.useEffect(() => {
     if (!item || item.kind !== "file") {

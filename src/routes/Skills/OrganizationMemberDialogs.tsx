@@ -628,6 +628,10 @@ function ProviderSelect({
   const { t } = useAppI18n()
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
+  const closePopover = React.useCallback(() => {
+    setOpen(false)
+    setQuery("")
+  }, [])
   const labelsByService = React.useMemo(
     () => new Map(options.map((option) => [option.service, option.label])),
     [options],
@@ -641,9 +645,10 @@ function ProviderSelect({
     <Popover
       open={open}
       onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (!nextOpen) {
-          setQuery("")
+        if (nextOpen) {
+          setOpen(true)
+        } else {
+          closePopover()
         }
       }}
     >
@@ -659,7 +664,7 @@ function ProviderSelect({
           className="oo-text-body flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground"
           onClick={() => {
             onAllProvidersChange(true)
-            setOpen(false)
+            closePopover()
           }}
         >
           <span className="truncate">{allProvidersLabel}</span>
@@ -697,7 +702,7 @@ function ProviderSelect({
                   className="oo-list-render-boundary flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-accent hover:text-accent-foreground"
                   onClick={() => {
                     onToggleProvider(provider.service)
-                    setOpen(false)
+                    closePopover()
                   }}
                 >
                   <span className="min-w-0">

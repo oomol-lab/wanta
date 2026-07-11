@@ -12,6 +12,7 @@ export interface ArtifactResourceLease {
 const defaultLeaseTtlMs = 15 * 60 * 1_000
 const defaultMaxLeases = 256
 
+// 管理本地制成品的短期访问租约，避免向渲染进程暴露原始文件路径。
 export class ArtifactResourceLeaseStore {
   private readonly leases = new Map<string, ArtifactResourceLease>()
 
@@ -20,6 +21,7 @@ export class ArtifactResourceLeaseStore {
     private readonly maxLeases = defaultMaxLeases,
   ) {}
 
+  // 创建短期资源租约；先清理过期项，超出容量时按插入顺序淘汰最旧租约。
   grant(input: Omit<ArtifactResourceLease, "expiresAt" | "token">, now = Date.now()): ArtifactResourceLease {
     this.removeExpired(now)
     const token = crypto.randomUUID()
@@ -35,6 +37,7 @@ export class ArtifactResourceLeaseStore {
     return lease
   }
 
+  // 解析有效租约并续期；过期租约会立即删除，访问成功会刷新淘汰顺序。
   resolve(token: string, now = Date.now()): ArtifactResourceLease | null {
     const lease = this.leases.get(token)
     if (!lease) {
@@ -50,6 +53,7 @@ export class ArtifactResourceLeaseStore {
     return refreshed
   }
 
+  // 清空所有租约，供应用退出时统一释放资源访问能力。
   clear(): void {
     this.leases.clear()
   }

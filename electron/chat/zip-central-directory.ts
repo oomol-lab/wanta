@@ -13,7 +13,10 @@ function findEndOfCentralDirectory(view: DataView): number {
   const minimumOffset = Math.max(0, view.byteLength - maxEndRecordSearchBytes)
   for (let offset = view.byteLength - 22; offset >= minimumOffset; offset -= 1) {
     if (view.getUint32(offset, true) === endOfCentralDirectorySignature) {
-      return offset
+      const commentLength = view.getUint16(offset + 20, true)
+      if (offset + 22 + commentLength === view.byteLength) {
+        return offset
+      }
     }
   }
   return -1

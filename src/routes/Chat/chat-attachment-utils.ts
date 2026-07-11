@@ -21,6 +21,10 @@ export function readAttachmentPreviewUrl(path: string): string | undefined {
     attachmentPreviewUrlByPath.delete(path)
     return undefined
   }
+  if (entry) {
+    attachmentPreviewUrlByPath.delete(path)
+    attachmentPreviewUrlByPath.set(path, entry)
+  }
   return entry?.url
 }
 

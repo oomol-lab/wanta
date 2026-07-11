@@ -105,17 +105,15 @@ export async function localArtifactPreview(
   }
 
   const size = item.size ?? 0
-  const resource = createResourceUrl
-    ? createResourceUrl({ mime: item.mime, modifiedAt: item.modifiedAt ?? 0, path: item.path, size })
-    : undefined
-  const resourceUrl = resource?.url
-  const resourceExpiresAt = resource?.expiresAt
+  const requestResource = (): ArtifactResourceGrant | undefined =>
+    createResourceUrl?.({ mime: item.mime, modifiedAt: item.modifiedAt ?? 0, path: item.path, size })
   if (item.mime.toLowerCase().startsWith("image/")) {
     if (size > attachmentPreviewMaxBytes) {
       return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
     }
-    if (resourceUrl) {
-      return { kind: "image", mime: item.mime, size, resourceExpiresAt, resourceUrl }
+    const resource = requestResource()
+    if (resource) {
+      return { kind: "image", mime: item.mime, size, ...resourceResult(resource) }
     }
     try {
       const bytes = await readFile(item.path)
@@ -135,8 +133,9 @@ export async function localArtifactPreview(
     if (size > attachmentPreviewMaxBytes) {
       return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
     }
-    if (resourceUrl) {
-      return { kind: "media", mime: item.mime, size, resourceExpiresAt, resourceUrl }
+    const resource = requestResource()
+    if (resource) {
+      return { kind: "media", mime: item.mime, size, ...resourceResult(resource) }
     }
     try {
       const bytes = await readFile(item.path)
@@ -189,12 +188,13 @@ export async function localArtifactPreview(
   }
 
   if (isBinaryDataPreviewArtifact(item.path, item.mime) && size <= richPreviewMaxBytes) {
-    if (resourceUrl) {
-      if (isPdfArtifact(item.path, item.mime)) {
-        return { kind: "pdf", mime: item.mime, size, resourceExpiresAt, resourceUrl }
+    if (isPdfArtifact(item.path, item.mime) || isDocxArtifact(item.path, item.mime)) {
+      const resource = requestResource()
+      if (resource && isPdfArtifact(item.path, item.mime)) {
+        return { kind: "pdf", mime: item.mime, size, ...resourceResult(resource) }
       }
-      if (isDocxArtifact(item.path, item.mime)) {
-        return { kind: "document", mime: item.mime, size, documentFormat: "docx", resourceExpiresAt, resourceUrl }
+      if (resource && isDocxArtifact(item.path, item.mime)) {
+        return { kind: "document", mime: item.mime, size, documentFormat: "docx", ...resourceResult(resource) }
       }
     }
     try {

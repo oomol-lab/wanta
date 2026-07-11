@@ -113,12 +113,11 @@ function AttachmentImageCard({
             draggable={false}
             decoding="async"
             onError={() => {
-              if (previewRetry >= 1) {
-                return
-              }
               deleteAttachmentPreviewUrl(attachmentPath)
               setPreviewUrl(null)
-              setPreviewRetry((value) => value + 1)
+              if (previewRetry < 1) {
+                setPreviewRetry((value) => value + 1)
+              }
             }}
           />
         ) : (

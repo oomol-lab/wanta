@@ -1741,7 +1741,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
                 />
               ) : (
                 <div className="flex h-full min-h-0 overflow-hidden">
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <ChatArea
                       activeSessionId={activeChatSessionId}
                       billingCacheScope={billingCacheScope}

@@ -1065,7 +1065,7 @@ export const ChatTimeline = React.memo(function ChatTimeline({
             ? smoothAssistantMessageId
             : undefined
           return (
-            <div key={turn.id} className="oo-chat-turn-render-boundary grid gap-4">
+            <div key={turn.id} className="oo-chat-turn-render-boundary grid min-w-0 gap-4">
               <ChatTurnView
                 activeSessionId={activeSessionId}
                 artifactGroups={turnArtifactGroups}

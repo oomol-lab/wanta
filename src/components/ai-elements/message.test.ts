@@ -15,6 +15,7 @@ import {
 import {
   compactLocalPath,
   MarkdownTable,
+  Message,
   messageResponseControls,
   nextSmoothedText,
   normalizeSingleLocalPathCodeFences,
@@ -39,6 +40,14 @@ const appContext = {
   skillService: mockService,
   updateService: mockService,
 } as AppContextValue
+
+describe("Message", () => {
+  it("allows message rows to shrink when a side panel reduces the chat width", () => {
+    const html = renderToStaticMarkup(React.createElement(Message, { from: "assistant" }, "content"))
+
+    expect(html).toContain("min-w-0")
+  })
+})
 
 describe("messageResponseControls", () => {
   it("keeps code blocks copyable but disables text downloads by default", () => {

@@ -555,6 +555,36 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   assert.equal(events.at(-1)?.event, "messageStarted")
 })
 
+test("event bridge deduplicates message starts and coalesces text updates", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  const started = {
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  }
+  bridge.emit(started)
+  bridge.emit(started)
+  for (const text of ["H", "Hello", "Hello world"]) {
+    bridge.emit({
+      type: "message.part.updated",
+      properties: {
+        delta: text === "H" ? "H" : undefined,
+        part: { id: "text-1", sessionID: "session-1", messageID: "assistant-1", type: "text", text },
+      },
+    })
+  }
+
+  await waitForCondition(() => events.some((event) => event.event === "messageDelta"))
+
+  assert.equal(events.filter((event) => event.event === "messageStarted").length, 1)
+  const deltas = events.filter((event) => event.event === "messageDelta")
+  assert.equal(deltas.length, 1)
+  assert.equal((deltas[0]?.data as { text?: string } | undefined)?.text, "Hello world")
+})
+
 test("stopGeneration finalizes process files produced before cancellation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-stop-turn-output-"))
   try {
@@ -2215,6 +2245,20 @@ test("stale permission mode updates do not override newer modes", async () => {
   await waitForCondition(() => bridge.answerPermission.mock.calls.length === 1)
 
   assert.deepEqual(bridge.answerPermission.mock.calls, [["session-1", "permission-1", "once"]])
+})
+
+test("unchanged permission mode updates do not emit session activity", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const activities: Array<{ sessionId: string; usedAt: number }> = []
+  service.sessionActivity.on((activity) => activities.push(activity))
+
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "default", version: 1 })
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 2 })
+  await service.setPermissionMode({ sessionId: "session-1", permissionMode: "full_access", version: 3 })
+
+  assert.equal(activities.length, 1)
+  assert.equal(activities[0]?.sessionId, "session-1")
 })
 
 test("automatic permission replies are deduplicated across pending reload and events", async () => {

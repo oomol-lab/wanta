@@ -42,7 +42,7 @@ src/lib/skills-catalog-client.ts
 | 我的发布 package detail    | `account:{accountId}:package:{name,version}` |                       10 分钟 | 绝不复用到其他账号                        |
 | Provider → package 解析    | `service + provider displayName`             |                       10 分钟 | 找不到 package 仍保留 24 小时负缓存       |
 | 组织 Skill 配置            | `accountId + organizationId`                 | 30 秒新鲜期 / 24 小时本地保留 | 见 `useOrganizationSkills.ts`             |
-| 本机已安装 Skill inventory | 全局 resource                                |                         60 秒 | 本地扫描，不是市场 catalog                |
+| 本机已安装 Skill inventory | 全局 resource + 主进程扫描缓存               |                        5 分钟 | watcher 变化时主动失效；TTL 兜底缺失目录  |
 
 ## Provider 推荐解析
 
@@ -60,6 +60,7 @@ src/lib/skills-catalog-client.ts
 - 发布 Skill 成功：失效当前账号的“我发布的”列表和私有 package detail，以及公共市场 / 搜索缓存。
 - 登录、登出或切换账号：清空整个会话级 catalog cache，避免任何可能受权限影响的 package 响应展示给另一账号。
 - 安装、更新、删除本机 Skill：只更新 `skillInventory`，不失效市场 catalog。
+- 外部 Agent 或 Wanta runtime Skill 文件变化：主进程 watcher 立即失效 inventory 扫描缓存并广播变更；无变化时不重复递归读取和 hash 全部 Skill。
 - 组织配置增删改：失效当前组织配置缓存；不失效公共 market 数据。
 - 连接器集合变化：Provider 推荐层按候选 provider key 重新计算；公共 package detail 继续复用。
 - 用户显式刷新：调用方传 `forceRefresh`，客户端重新请求该 key。

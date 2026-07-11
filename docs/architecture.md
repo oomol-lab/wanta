@@ -63,11 +63,11 @@ src/routes/Chat (PromptInput)
       （body.system 尾部注入已授权 Link 存在性提示，默认不列 provider 名，R4）
   → OpenCode sidecar 跑 agent loop（LLM ↔ 工具）
   → 全局 SSE: AgentManager.subscribe → event-translator.translateOpencodeEvent
-  → ChatServiceImpl this.send(...) 广播 ServerEvents
+  → ChatServiceImpl 主进程按 32ms 窗口合并同一文本 part，再广播 ServerEvents
   → useChat 状态机（renderer）
 ```
 
-ServerEvents（`electron/chat/common.ts`）：`messageStarted` / `messageDelta`（**累计全文非增量**，渲染层按 `partId` 替换）/ `toolCallStarted` / `toolCallResult` / `authorizationRequired` / `messageCompleted` / `agentError`。`useChat.ts`：按 sessionId→messages map、`upsertPart` 按 partId 原地更新（稳定 React key，不重挂载无闪烁）、发送时插入乐观 user 气泡 `local-user-*`（真实 user 消息到达时清除）、`messageCompleted` 后 reload 全量校正。事件桥由 `ChatServiceImpl.startEventBridge()` 在 agent 装配后启动。
+ServerEvents（`electron/chat/common.ts`）：`messageStarted` / `messageDelta`（**累计全文非增量**，渲染层按 `partId` 替换）/ `toolCallStarted` / `toolCallResult` / `authorizationRequired` / `messageCompleted` / `agentError`。`ChatServiceImpl` 在主进程对同一 session/message/part 的 text/reasoning 事件做有界合并，控制事件到达时立即 flush；重复 `message.updated` 不再重复广播 `messageStarted`。`useChat.ts`：按 sessionId→messages map、`upsertPart` 按 partId 原地更新（稳定 React key，不重挂载无闪烁）、发送时插入乐观 user 气泡 `local-user-*`（真实 user 消息到达时清除）、`messageCompleted` 后 reload 全量校正。事件桥由 `ChatServiceImpl.startEventBridge()` 在 agent 装配后启动。
 
 渲染用 vendored ai-elements（`src/components/ai-elements/`）：Conversation/Message/PromptInput/Task 等；Markdown 走 streamdown（MessageResponse 内置）；工具 part 映射为聊天内的 `Task` 折叠摘要。
 

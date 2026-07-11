@@ -66,6 +66,7 @@ import {
   removeSkillDirectoryIfSafe,
   replaceDirectory,
 } from "./file-operations.ts"
+import { SkillInventoryCache } from "./inventory-cache.ts"
 import { mergeInstalledSkillSnapshots, readSkillCoverageAgents } from "./inventory-snapshot.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
 import {
@@ -107,7 +108,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private versionReportCache: { generation: number; key: string; report: SkillVersionReport; time: number } | undefined
   private versionReportInFlight: { generation: number; key: string; promise: Promise<SkillVersionReport> } | undefined
   private versionReportCacheGeneration = 0
-  private inventoryInFlight: { promise: Promise<SkillInventory>; writeManifest: boolean } | undefined
+  private readonly inventoryCache = new SkillInventoryCache()
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
   private externalRuntimeSkillSyncTail: Promise<void> = Promise.resolve()
   private inventoryChangeTimer: NodeJS.Timeout | undefined
@@ -210,7 +211,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   public async checkSkillInventory(): Promise<SkillInventory> {
-    const inventory = await this.readSharedSkillInventory({ writeManifest: true })
+    const inventory = await this.refreshSharedSkillInventory({ writeManifest: true })
     await this.emitInventoryChanged()
     return inventory
   }
@@ -353,7 +354,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
 
     const skillId = normalizeSkillId(request.skillId)
-    const inventory = await this.readSkillInventory({ writeManifest: false })
+    const inventory = await this.readSharedSkillInventory({ writeManifest: false })
     const group = inventory.groups.find((item) => item.id === skillId)
 
     if (!group) {
@@ -390,7 +391,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   }
 
   public async checkSkillVersions(request: CheckSkillVersionsRequest = {}): Promise<SkillVersionReport> {
-    const inventory = await this.readSkillInventory({ writeManifest: false })
+    const inventory = await this.readSharedSkillInventory({ writeManifest: false })
     const authSnapshot = await this.readAuthSnapshot()
     const cacheKey = `${authSnapshot.cacheKey}:${createVersionReportCacheKey(inventory)}`
     const cacheGeneration = this.versionReportCacheGeneration
@@ -485,6 +486,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       try {
         this.watchers.push(
           watch(pathname, { persistent: false, recursive }, () => {
+            this.inventoryCache.invalidate()
             this.scheduleInventoryChanged()
             if (affectsRuntimeSkills) {
               this.notifyRuntimeSkillsChanged("skill-files-changed")
@@ -556,6 +558,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return
     }
 
+    this.inventoryCache.invalidate()
     this.notifyRuntimeSkillsChanged(reason)
     await this.emitInventoryChanged()
   }
@@ -909,7 +912,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private async syncUpdatedCachedSkillsToSharedAgentRoot(request: UpdateRegistrySkillRequest): Promise<void> {
     const skillId = request.skillId?.trim()
     if (skillId) {
-      const inventory = await this.readSkillInventory({ writeManifest: false })
+      const inventory = await this.readSharedSkillInventory({ writeManifest: false })
       const group = inventory.groups.find((item) => item.id === skillId)
       if (group?.kind !== "registry" || !group.packageName?.trim()) {
         return
@@ -921,7 +924,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       return
     }
 
-    const inventory = await this.readSkillInventory({ writeManifest: false })
+    const inventory = await this.readSharedSkillInventory({ writeManifest: false })
     const registrySkillIds = inventory.groups
       .filter((group) => group.kind === "registry" && Boolean(group.packageName?.trim()))
       .map((group) => group.id)
@@ -1104,29 +1107,17 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
 
   private async readAndPublishSkillInventory(): Promise<SkillInventory> {
     this.invalidateVersionReport()
-    const inventory = await this.readSkillInventory({ writeManifest: true })
+    const inventory = await this.refreshSharedSkillInventory({ writeManifest: true })
     await this.emitInventoryChanged()
     return inventory
   }
 
   private async readSharedSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
-    if (this.inventoryInFlight && (!options.writeManifest || this.inventoryInFlight.writeManifest)) {
-      return this.inventoryInFlight.promise
-    }
+    return this.inventoryCache.get(options, (request) => this.readSkillInventory(request))
+  }
 
-    const promise = this.readSkillInventory(options)
-    this.inventoryInFlight = {
-      promise,
-      writeManifest: options.writeManifest,
-    }
-
-    try {
-      return await promise
-    } finally {
-      if (this.inventoryInFlight?.promise === promise) {
-        this.inventoryInFlight = undefined
-      }
-    }
+  private async refreshSharedSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
+    return this.inventoryCache.refresh(options, (request) => this.readSkillInventory(request))
   }
 
   private async readSkillInventory(options: { writeManifest: boolean }): Promise<SkillInventory> {
@@ -1185,13 +1176,14 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         registrySkillCount: diagnosticFields.registrySkillCount,
       },
     )
+    logDiagnostic("performance", "skill inventory scan", diagnosticFields, "trace")
     return inventory
   }
 
   private async resolveAllowedSkillPath(requestPath: string): Promise<string> {
     const resolvedRequestPath = path.resolve(requestPath)
     const canonicalRequestPath = await realpath(resolvedRequestPath)
-    const inventory = await this.readSkillInventory({ writeManifest: false })
+    const inventory = await this.readSharedSkillInventory({ writeManifest: false })
     const allowedPaths = inventory.groups.flatMap((group) =>
       group.hosts.flatMap((host) => [host.path, host.sourcePath]),
     )

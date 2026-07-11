@@ -58,6 +58,7 @@ import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
 import { realpath, rm } from "node:fs/promises"
 import os from "node:os"
+import { ActivityMetrics } from "../activity-metrics.ts"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { managedPythonEnvironmentPath } from "../agent/python-environment.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
@@ -86,6 +87,7 @@ import { evaluateLocalAccessRequest, localAccessGrantForRequest } from "./local-
 import { directoryArtifacts, fileArtifact, localArtifactItem, readArtifactPack } from "./local-artifacts.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
+import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
 import {
   generationNoticeKindForInactivity,
   inactivityWatchdogActionForEvent,
@@ -110,6 +112,7 @@ const generationInactivityTimeoutMs = 2 * 60_000
 const generationActiveToolInactivityTimeoutMs = 10 * 60_000
 const questionRejectTimeoutMs = 5_000
 const defaultMaxDirectoryItems = 80
+const startedMessageLimit = 5_000
 
 function permissionReplyKey(sessionId: string, requestId: string): string {
   return `${sessionId}\n${requestId}`
@@ -332,6 +335,11 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private transientTurnOutputs: TurnOutputRecords = new Map()
   private scopeMutationQueue: Promise<void> = Promise.resolve()
   private desiredWorkspaceOrganizationName: string | undefined
+  private streamEventBuffer: ChatStreamEventBuffer | null = null
+  private startedMessages = new Set<string>()
+  private readonly eventMetrics = new ActivityMetrics((snapshot) => {
+    logDiagnostic("performance", "chat event activity", { ...snapshot }, "trace")
+  })
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -339,8 +347,17 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.deps = deps
   }
 
+  public override dispose(): void {
+    this.streamEventBuffer?.clear()
+    this.streamEventBuffer = null
+    this.eventMetrics.dispose()
+    super.dispose()
+  }
+
   /** 登录 / 登出时由 main 重新装配 agent（旧 agent 的事件流随其 dispose 终止）。 */
   public setAgent(agent: AgentManager | null): void {
+    this.streamEventBuffer?.clear()
+    this.streamEventBuffer = null
     this.agent = agent
     this.bridged = false
     this.userStoppedSessions.clear()
@@ -381,6 +398,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.stoppedGenerationsLoadPromise = null
     this.transientTurnOutputs.clear()
     this.desiredWorkspaceOrganizationName = undefined
+    this.startedMessages.clear()
     this.scopeMutationQueue = Promise.resolve()
   }
 
@@ -408,6 +426,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
     this.bridged = true
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
+    this.streamEventBuffer = new ChatStreamEventBuffer((buffered) => {
+      this.sendBestEffort(emit, buffered.event, buffered.data, { sessionId: buffered.data.sessionId })
+    })
     const handleConnectionStatus = (status: AgentEventConnectionStatus): void => {
       this.handleAgentConnectionStatus(emit, status)
     }
@@ -463,6 +484,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         }
         if (translated.event === "messageStarted") {
           this.emitSessionActivity(generationSessionId ?? translated.data.sessionId)
+          if (!this.rememberMessageStarted(translated)) {
+            continue
+          }
         }
         if (translated.event === "permissionAsked" && this.answerLocalAccessPermission(emit, translated.data.request)) {
           if (generationSessionId) {
@@ -575,7 +599,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             this.scheduleGenerationInactivityWatchdog(generationSessionId)
           }
         }
-        this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
+        if (displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") {
+          this.eventMetrics.record(`stream-input:${displayed.event}`)
+          this.streamEventBuffer?.enqueue(displayed)
+        } else {
+          this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
+        }
       }
     }, handleConnectionStatus)
   }
@@ -737,6 +766,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     data: unknown,
     context: { messageId?: string; sessionId?: string } = {},
   ): void {
+    if (event !== "messageDelta" && event !== "messageReasoningDelta") {
+      this.streamEventBuffer?.flush(context.sessionId)
+    }
+    this.eventMetrics.record(`ipc:${event}`)
     void emit(event, data).catch((error: unknown) => {
       console.warn("[wanta] failed to emit chat server event:", { event, error, ...context })
       logDiagnostic(
@@ -750,6 +783,22 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         "warn",
       )
     })
+  }
+
+  private rememberMessageStarted(event: Extract<ChatEmit, { event: "messageStarted" }>): boolean {
+    const key = `${event.data.sessionId}\0${event.data.messageId}\0${event.data.role}`
+    if (this.startedMessages.has(key)) {
+      return false
+    }
+    while (this.startedMessages.size >= startedMessageLimit) {
+      const oldest = this.startedMessages.values().next().value
+      if (typeof oldest !== "string") {
+        break
+      }
+      this.startedMessages.delete(oldest)
+    }
+    this.startedMessages.add(key)
+    return true
   }
 
   private emitActiveRunUpdated(
@@ -2399,6 +2448,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public async setPermissionMode(req: SetChatPermissionModeRequest): Promise<void> {
+    const changed = this.sessionPermissionMode(req.sessionId) !== req.permissionMode
     if (!this.setSessionPermissionModeValue(req.sessionId, req.permissionMode, req.version)) {
       return
     }
@@ -2411,6 +2461,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (req.permissionMode === "full_access") {
       await Promise.all(affectedSessionIds.map((sessionId) => this.autoAnswerPendingPermissions(sessionId)))
     }
-    this.emitSessionActivity(req.sessionId)
+    if (changed) {
+      this.emitSessionActivity(req.sessionId)
+    }
   }
 }

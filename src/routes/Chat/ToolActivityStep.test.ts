@@ -56,7 +56,27 @@ describe("ToolActivityStep", () => {
     expect(shimmerClassFor(html, "运行命令")).toContain("shrink-0")
     expect(shimmerClassFor(html, "运行命令")).not.toContain("flex-1")
     expect(html).toMatch(/<code class="[^"]*"[^>]*>curl -s -L -o \/tmp\/1688_page\.html<\/code>/)
+    expect(html).toMatch(/<code class="[^"]*w-0[^"]*max-w-full[^"]*truncate[^"]*"/)
+    expect(html).toContain("w-full max-w-full min-w-0 flex-1 items-center gap-2 overflow-hidden")
     expect(html).not.toMatch(/class="[^"]*text-transparent[^"]*"[^>]*>[^<]*curl/)
+  })
+
+  it("keeps a long completed command within the tool row width", () => {
+    const html = renderToolActivityStep({
+      kind: "tool",
+      partId: "tool-long-command",
+      callId: "call-long-command",
+      tool: "bash",
+      status: "completed",
+      input: {
+        command:
+          'python3 -m venv "/Users/example/Library/Application Support/wanta/agent/process/session/.wanta-python" && "/Users/example/Library/Application Support/wanta/agent/process/session/.wanta-python/bin/python" -m pip install openpyxl reportlab',
+      },
+    })
+
+    expect(html).toMatch(/<code class="[^"]*w-0[^"]*max-w-full[^"]*truncate[^"]*"/)
+    expect(html).toContain("group/tool-step flex min-h-6 w-full max-w-full min-w-0 flex-1")
+    expect(html).toContain("w-full max-w-full min-w-0 overflow-hidden rounded-md")
   })
 
   it("shimmers only the active web fetch title when the URL is shown inline", () => {

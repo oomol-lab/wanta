@@ -507,7 +507,7 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       return
     }
     setChatPermissionMode(activeChatSessionId, activeSession.permissionMode ?? "default")
-  }, [activeChatSessionId, activeSession, setChatPermissionMode])
+  }, [activeChatSessionId, activeSession?.permissionMode, setChatPermissionMode])
 
   const persistPermissionMode = React.useCallback(
     (sessionId: string, mode: AgentPermissionMode): void => {

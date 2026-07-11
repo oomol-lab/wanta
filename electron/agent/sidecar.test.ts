@@ -1,13 +1,143 @@
 import type { ProcessSnapshotEntry } from "./sidecar.ts"
+import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
+import type { ChildProcessWithoutNullStreams } from "node:child_process"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import {
   collectDescendantTree,
+  boundRuntimeOutputLine,
   distinctProcessGroups,
+  OpencodeSidecar,
   parsePsSnapshot,
   reapProcessTree,
   reapWindowsProcessTree,
 } from "./sidecar.ts"
+
+describe("OpencodeSidecar", () => {
+  it("returns the same disposal promise to every caller", () => {
+    const sidecar = new OpencodeSidecar({
+      config: {},
+      env: {},
+      isolationDir: "/tmp/wanta-sidecar-test-isolation",
+      opencodeBinPath: "/tmp/wanta-sidecar-test-opencode",
+      workspaceDir: "/tmp/wanta-sidecar-test-workspace",
+    })
+
+    const first = sidecar.dispose()
+    const second = sidecar.dispose()
+
+    expect(second).toBe(first)
+  })
+
+  it("reaps an existing process once and shares the in-flight disposal", async () => {
+    let finishReap: (() => void) | undefined
+    const reapPromise = new Promise<void>((resolve) => {
+      finishReap = resolve
+    })
+    const reap = vi.fn(() => reapPromise)
+    const sidecar = new OpencodeSidecar({
+      config: {},
+      env: {},
+      isolationDir: "/tmp/wanta-sidecar-test-isolation",
+      opencodeBinPath: "/tmp/wanta-sidecar-test-opencode",
+      workspaceDir: "/tmp/wanta-sidecar-test-workspace",
+    })
+    const internals = sidecar as unknown as {
+      proc: ChildProcessWithoutNullStreams | null
+      reap: (proc: ChildProcessWithoutNullStreams, client: OpencodeClient | null) => Promise<void>
+    }
+    const proc = { pid: 1234 } as ChildProcessWithoutNullStreams
+    internals.proc = proc
+    internals.reap = reap
+
+    const first = sidecar.dispose()
+    const second = sidecar.dispose()
+
+    expect(second).toBe(first)
+    expect(reap).toHaveBeenCalledOnce()
+    expect(reap).toHaveBeenCalledWith(proc, null)
+    finishReap?.()
+    await first
+  })
+
+  it("waits for process cleanup already started by a startup failure", async () => {
+    let finishReap: (() => void) | undefined
+    const reapPromise = new Promise<void>((resolve) => {
+      finishReap = resolve
+    })
+    const sidecar = new OpencodeSidecar({
+      config: {},
+      env: {},
+      isolationDir: "/tmp/wanta-sidecar-test-isolation",
+      opencodeBinPath: "/tmp/wanta-sidecar-test-opencode",
+      workspaceDir: "/tmp/wanta-sidecar-test-workspace",
+    })
+    const internals = sidecar as unknown as { processReapPromise: Promise<void> | null }
+    internals.processReapPromise = reapPromise
+
+    const disposal = sidecar.dispose()
+
+    expect(disposal).toBe(reapPromise)
+    finishReap?.()
+    await disposal
+  })
+
+  it("cannot restart after disposal", async () => {
+    const sidecar = new OpencodeSidecar({
+      config: {},
+      env: {},
+      isolationDir: "/tmp/wanta-sidecar-test-isolation",
+      opencodeBinPath: "/tmp/wanta-sidecar-test-opencode",
+      workspaceDir: "/tmp/wanta-sidecar-test-workspace",
+    })
+
+    await sidecar.dispose()
+
+    await expect(sidecar.start()).rejects.toThrow("already disposed")
+  })
+
+  it("does not spawn when disposed during asynchronous startup preparation", async () => {
+    let finishPreparation: (() => void) | undefined
+    const preparation = new Promise<void>((resolve) => {
+      finishPreparation = resolve
+    })
+    const spawnProcess = vi.fn()
+    const sidecar = new OpencodeSidecar(
+      {
+        config: {},
+        env: {},
+        isolationDir: "/tmp/wanta-sidecar-test-isolation",
+        opencodeBinPath: "/tmp/wanta-sidecar-test-opencode",
+        workspaceDir: "/tmp/wanta-sidecar-test-workspace",
+      },
+      {
+        createDirectory: () => preparation,
+        spawnProcess,
+      },
+    )
+
+    const start = sidecar.start()
+    expect(sidecar.start()).toBe(start)
+    await sidecar.dispose()
+    finishPreparation?.()
+
+    await expect(start).rejects.toThrow("disposed during startup")
+    expect(spawnProcess).not.toHaveBeenCalled()
+  })
+})
+
+describe("boundRuntimeOutputLine", () => {
+  it("truncates complete oversized lines", () => {
+    const bounded = boundRuntimeOutputLine("x".repeat(9 * 1024))
+
+    expect(bounded.text).toHaveLength(8 * 1024)
+    expect(bounded.truncated).toBe(true)
+  })
+
+  it("preserves lines within the limit", () => {
+    expect(boundRuntimeOutputLine("ready")).toEqual({ text: "ready", truncated: false })
+  })
+})
 
 // opencode(100) -> bash 工具子进程(200，自成 session/组) -> 其子(300，与 bash 同组)；
 // 另有无关进程 999。opencode 的工具子进程 setsid 逃逸出 opencode 的进程组，是"正在后台运行"孤儿的根源。

@@ -19,6 +19,7 @@ import {
   resolveDevOpencodeBin,
 } from "./agent/binaries.ts"
 import { AgentManager } from "./agent/manager.ts"
+import { AgentRetirementPool } from "./agent/retirement.ts"
 import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
 import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
 import { ArtifactResourceLeaseStore } from "./artifact-resource/lease-store.ts"
@@ -80,6 +81,7 @@ const macTrafficLightPosition = { x: 15, y: 17 }
 const skillRuntimeRefreshDelayMs = 1_500
 const skillRuntimeRefreshBusyRetryMs = 2_000
 const skillRuntimeRefreshMaxBusyRetries = 10
+const shutdownCleanupTimeoutMs = 5_000
 
 interface SelectedAttachmentPath {
   name: string
@@ -105,6 +107,7 @@ type AppQuitIntent = "none" | "user-quit" | "update-install" | "termination-sign
 let appQuitIntent: AppQuitIntent = "none"
 // 退出回收只跑一次：记忆化 Promise，多条退出路径（before-quit / 信号 / 更新安装）复用同一次回收。
 let shutdownReap: Promise<void> | null = null
+const agentRetirementPool = new AgentRetirementPool()
 let windowsTrayLifecycle: {
   dispose: () => void
   setLocale: (locale: string) => void
@@ -349,15 +352,40 @@ function reapAgentForShutdown(): Promise<void> {
     mainWindow?.hide()
     windowsTrayLifecycle?.dispose()
     windowsTrayLifecycle = null
-    await agent?.dispose()
-    await spreadsheetPreviewWorker.dispose()
+    const activeAgent = agent
+    agent = null
+    chatService.setAgent(null)
+    sessionService.setAgent(null)
+    if (activeAgent) {
+      await runBoundedShutdownStep("retire active agent", () => agentRetirementPool.retire(activeAgent))
+    }
+    await runBoundedShutdownStep("drain agent retirements", () => agentRetirementPool.drain())
+    await runBoundedShutdownStep("dispose spreadsheet preview worker", () => spreadsheetPreviewWorker.dispose())
     server.dispose()
     artifactResourceLeaseStore.clear()
-    await flushDiagnosticsLog().catch((error: unknown) => {
-      console.warn("[wanta] failed to flush diagnostics log", error)
-    })
+    await runBoundedShutdownStep("flush diagnostics log", flushDiagnosticsLog)
   })()
   return shutdownReap
+}
+
+async function runBoundedShutdownStep(label: string, task: () => Promise<void>): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${shutdownCleanupTimeoutMs}ms`)),
+      shutdownCleanupTimeoutMs,
+    )
+  })
+  try {
+    await Promise.race([Promise.resolve().then(task), timeout])
+  } catch (error) {
+    console.warn(`[wanta] shutdown cleanup failed: ${label}`, error)
+    logDiagnostic("app-lifecycle", "shutdown cleanup failed", { error, label }, "warn")
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  }
 }
 
 function armAppQuit(intent: Exclude<AppQuitIntent, "none">): void {
@@ -534,6 +562,9 @@ function runtimeErrorMessage(error: unknown): string {
 
 /** 凭证 → 运行时装配：替换 agent（重启 sidecar）并同步 connector 凭证。经 applyChain 串行执行。 */
 function applyAuthAccount(account: AuthRuntimeAccount | null): Promise<void> {
+  if (isQuitting) {
+    return Promise.resolve()
+  }
   const next = applyChain.then(() => applyAuthAccountNow(account))
   applyChain = next.catch((error: unknown) => {
     logMainError("auth account application failed", error)
@@ -547,6 +578,9 @@ let appliedAccount: AuthRuntimeAccount | null = null
 let activeAgentOrganizationName: string | undefined
 
 async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<void> {
+  if (isQuitting) {
+    return
+  }
   // account 恒带会话 token（来自 activeRuntimeAccount / adoptAccount）；token 缺失即为 null = 登出态。
   // 幂等短路：冷启动 deep-link 与 whenReady 双路径会用同一账号 apply 两次。
   if (
@@ -561,14 +595,29 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   }
   const previousAccountId = appliedAccount?.id
   appliedAccount = null
-  // 后台回收旧 agent（含 opencode 工具子进程树）；重启不等回收完成，回收在后台自完成。
-  void agent?.dispose()
+  // 旧 sidecar 必须在新 sidecar 启动前完成回收，避免共享 workspace/isolation 的两个运行时短暂并存。
+  const previousAgent = agent
   agent = null
   chatService.setAgent(null)
   chatService.setAgentStatus(account ? { status: "starting" } : { status: "signed_out" })
   sessionService.setAgent(null)
 
-  if (!account) {
+  if (previousAgent) {
+    try {
+      await agentRetirementPool.retire(previousAgent)
+    } catch (error) {
+      // 旧运行时未确认退出时不冒险启动第二个 sidecar；保持 appliedAccount 为空，允许后续重试。
+      console.warn("[wanta] failed to retire previous agent runtime:", error)
+      logMainError("failed to retire previous agent runtime", error)
+      chatService.setAgentStatus({
+        status: "error",
+        message: `Failed to stop the previous OpenCode runtime: ${runtimeErrorMessage(error)}`,
+      })
+      return
+    }
+  }
+
+  if (!account || isQuitting) {
     activeAgentOrganizationName = undefined
     return
   }
@@ -576,6 +625,10 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     activeAgentOrganizationName = undefined
   }
 
+  const customModels = await modelsStore.runtimeCustomModels()
+  if (isQuitting) {
+    return
+  }
   const nextAgent = new AgentManager({
     authToken: account.sessionToken,
     opencodeBinPath,
@@ -583,7 +636,7 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
     bundledSkillsDir,
     organizationName: activeAgentOrganizationName,
     rootDir: path.join(app.getPath("userData"), "agent"),
-    customModels: await modelsStore.runtimeCustomModels(),
+    customModels,
   })
   agent = nextAgent
   chatService.setAgent(nextAgent)
@@ -591,13 +644,22 @@ async function applyAuthAccountNow(account: AuthRuntimeAccount | null): Promise<
   try {
     await nextAgent.start()
   } catch (error) {
-    // 启动失败不留僵尸 agent：清空引用，下次登录可重试。后台回收，不阻塞错误上报。
-    void nextAgent.dispose()
+    // 启动失败不留僵尸 agent：清空引用并完成回收，下次登录可重试。
+    await agentRetirementPool.retire(nextAgent)
     agent = null
     chatService.setAgent(null)
     chatService.setAgentStatus({ status: "error", message: runtimeErrorMessage(error) })
     sessionService.setAgent(null)
     throw error
+  }
+  if (isQuitting) {
+    await agentRetirementPool.retire(nextAgent)
+    if (agent === nextAgent) {
+      agent = null
+      chatService.setAgent(null)
+      sessionService.setAgent(null)
+    }
+    return
   }
   appliedAccount = account
   appliedAgentRuntimeVersion = agentRuntimeVersion
@@ -623,6 +685,9 @@ async function handleAgentOrganizationChanged(organizationName: string | undefin
 }
 
 function restartAgentForModelConfig(): void {
+  if (isQuitting) {
+    return
+  }
   agentRuntimeVersion += 1
   void authManager
     .activeRuntimeAccount()
@@ -643,6 +708,9 @@ function scheduleAgentRefreshForSkillChange(
   delayMs = skillRuntimeRefreshDelayMs,
   busyRetryCount = 0,
 ): void {
+  if (isQuitting) {
+    return
+  }
   if (pendingSkillRuntimeRefresh) {
     clearTimeout(pendingSkillRuntimeRefresh)
   }
@@ -655,6 +723,9 @@ function scheduleAgentRefreshForSkillChange(
 }
 
 function refreshAgentForSkillChange(reason: string, busyRetryCount = 0): void {
+  if (isQuitting) {
+    return
+  }
   if (!authManager.activeAccount() || !agent?.isReady()) {
     return
   }

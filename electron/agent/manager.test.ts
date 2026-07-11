@@ -118,6 +118,31 @@ describe("AgentManager", () => {
     }
   })
 
+  it.skipIf(process.platform === "win32")("rejects a symbolic link used as the project root", async () => {
+    const rootDir = await mkdtemp(path.join(tmpdir(), "wanta-agent-"))
+    const projectRoot = await mkdtemp(path.join(tmpdir(), "wanta-project-"))
+    const linkedProjectRoot = path.join(tmpdir(), `wanta-project-link-${Date.now()}`)
+    try {
+      const manager = new AgentManager({
+        authToken: "test",
+        opencodeBinPath: "/tmp/opencode",
+        ooBinPath: "/tmp/oo",
+        rootDir,
+      })
+      await symlink(projectRoot, linkedProjectRoot, "dir")
+
+      await expect(manager.createArtifactDir("session", linkedProjectRoot)).rejects.toThrow(
+        "Project artifact root is not a directory.",
+      )
+    } finally {
+      await Promise.all([
+        rm(rootDir, { force: true, recursive: true }),
+        rm(projectRoot, { force: true, recursive: true }),
+        rm(linkedProjectRoot, { force: true, recursive: true }),
+      ])
+    }
+  })
+
   it("keeps image previews visible independently from artifact persistence", () => {
     const system = buildArtifactSystem("/tmp/wanta-artifacts/turn")
 

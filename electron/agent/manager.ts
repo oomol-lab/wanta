@@ -860,9 +860,14 @@ export class AgentManager {
   }
 
   private async createProjectArtifactDir(sessionId: string, projectRoot: string): Promise<string> {
-    const resolvedProjectRoot = await realpath(path.resolve(projectRoot))
-    const projectStat = await lstat(resolvedProjectRoot)
-    if (!projectStat.isDirectory() || projectStat.isSymbolicLink()) {
+    const requestedProjectRoot = path.resolve(projectRoot)
+    const requestedProjectStat = await lstat(requestedProjectRoot)
+    if (!requestedProjectStat.isDirectory() || requestedProjectStat.isSymbolicLink()) {
+      throw new Error("Project artifact root is not a directory.")
+    }
+    const resolvedProjectRoot = await realpath(requestedProjectRoot)
+    const resolvedProjectStat = await lstat(resolvedProjectRoot)
+    if (!resolvedProjectStat.isDirectory() || resolvedProjectStat.isSymbolicLink()) {
       throw new Error("Project artifact root is not a directory.")
     }
     const sessionRoot = await ensureProjectArtifactSessionRoot(resolvedProjectRoot, sessionId)

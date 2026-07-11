@@ -14,23 +14,20 @@ const OO_EXEC_OPTIONS = { maxBuffer: 16 * 1024 * 1024, timeout: 10 * 1000 }
 async function currentOrganizationName(sessionID) {
   const scopePath = process.env.WANTA_ORGANIZATION_SCOPE_PATH || ""
   if (scopePath) {
-    try {
-      const parsed = JSON.parse(await readFile(scopePath, "utf8"))
-      const sessionOrganizations = parsed && parsed.sessionOrganizations
-      if (
-        sessionID &&
-        sessionOrganizations &&
-        typeof sessionOrganizations === "object" &&
-        typeof sessionOrganizations[sessionID] === "string"
-      ) {
-        return sessionOrganizations[sessionID]
-      }
-      if (parsed && typeof parsed.organizationName === "string") {
-        return parsed.organizationName
-      }
-    } catch {
-      // 启动期或文件损坏时回退到进程启动时的组织名。
+    const parsed = JSON.parse(await readFile(scopePath, "utf8"))
+    const sessionOrganizations = parsed && parsed.sessionOrganizations
+    if (
+      sessionID &&
+      sessionOrganizations &&
+      typeof sessionOrganizations === "object" &&
+      typeof sessionOrganizations[sessionID] === "string"
+    ) {
+      return sessionOrganizations[sessionID]
     }
+    if (parsed && typeof parsed.organizationName === "string") {
+      return parsed.organizationName
+    }
+    throw new Error("workspace identity is unavailable")
   }
   return process.env.WANTA_ORGANIZATION_NAME || ""
 }
@@ -44,13 +41,27 @@ async function currentIdentity(sessionID) {
 
 async function appendIdentityArgs(argv, identity, sessionID) {
   const current = identity || (await currentIdentity(sessionID))
-  const organizationName = current.organizationName
-  if (organizationName) {
-    argv.push("--organization", organizationName)
-  } else {
-    argv.push("--personal")
-  }
+  argv.push(...linkWorkspaceArgs(current))
   return current.scope
+}
+
+function linkWorkspaceArgs(identity) {
+  return identity.scope === "organization"
+    ? ["--organization", identity.organizationName]
+    : ["--personal"]
+}
+
+function connectionInventoryError(identity, message) {
+  return {
+    status: "error",
+    errorCode: "connection_inventory_unavailable",
+    operation: "list_connected_apps",
+    workspace: {
+      scope: identity.scope,
+      organizationName: identity.organizationName,
+    },
+    message: message,
+  }
 }
 `
 
@@ -257,17 +268,30 @@ import { promisify } from "node:util"
 
 export default tool({
   description:
-    "List connected OOMOL Link provider apps for the active Wanta workspace. Use this when the user asks which providers, connectors, apps, or accounts are connected, authorized, authenticated, or available in the current workspace, including organization workspaces. This uses oo connector apps --json with an explicit active workspace identity. It returns only connected app records, not the full provider/action catalog. For finding runnable actions, use search_actions.",
+    "List connected OOMOL Link provider apps/accounts in the active workspace. Use only for connection inventory or explicit account validation, not as a health check before normal reads or actions. For runnable actions, use search_actions.",
   args: {
     service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
   },
   async execute(args, context) {
     const service = String(args.service || "").trim()
+    let identity
+    try {
+      identity = await currentIdentity(context.sessionID)
+    } catch (error) {
+      const e = error || {}
+      const message = String(e.stderr || e.message || "workspace identity is unavailable").trim()
+      return JSON.stringify({
+        status: "error",
+        errorCode: "workspace_identity_unavailable",
+        operation: "list_connected_apps",
+        message: message,
+      })
+    }
     const argv = ["connector", "apps"]
     if (service) {
       argv.push(service)
     }
-    await appendIdentityArgs(argv, null, context.sessionID)
+    await appendIdentityArgs(argv, identity, context.sessionID)
     argv.push("--json")
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
@@ -275,7 +299,7 @@ export default tool({
     } catch (error) {
       const e = error || {}
       const message = String(e.stderr || e.message || "list connected apps failed").trim()
-      return JSON.stringify({ status: "error", message: message })
+      return JSON.stringify(connectionInventoryError(identity, message))
     }
   },
 })

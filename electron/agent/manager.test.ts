@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { AgentManager, buildArtifactSystem, isUserVisibleSession } from "./manager.ts"
+import { AgentManager, buildArtifactSystem, buildWorkspaceIdentitySystem, isUserVisibleSession } from "./manager.ts"
 
 afterEach(() => {
   vi.useRealTimers()
@@ -10,6 +10,16 @@ afterEach(() => {
 })
 
 describe("AgentManager", () => {
+  it("pins raw connector CLI guidance to the current turn workspace", () => {
+    const organization = buildWorkspaceIdentitySystem('team "quoted"')
+    expect(organization).toContain('organization "team \\"quoted\\""')
+    expect(organization).toContain('--organization "team \\"quoted\\""')
+
+    const personal = buildWorkspaceIdentitySystem(undefined)
+    expect(personal).toContain("workspace: personal")
+    expect(personal).toContain("--personal")
+  })
+
   it("hides OpenCode subagent sessions from the user task list", () => {
     expect(isUserVisibleSession({ id: "root", title: "Root" })).toBe(true)
     expect(isUserVisibleSession({ id: "child", parentID: "root", title: "Child" })).toBe(false)

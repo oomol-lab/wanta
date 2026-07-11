@@ -305,6 +305,9 @@ test("system prompt treats Link as a contextual capability, not the default path
   assert.match(WANTA_SYSTEM_PROMPT, /header is only the step name/)
   assert.match(WANTA_SYSTEM_PROMPT, /If the user rejects or cancels a question, do not ask the same question again/)
   assert.match(WANTA_SYSTEM_PROMPT, /do not simulate continuation by replaying the old question/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Do not use it as a health check/)
+  assert.match(WANTA_SYSTEM_PROMPT, /Workspace identity is invariant for a turn/)
+  assert.match(WANTA_SYSTEM_PROMPT, /never omit or change it to recover from an error/)
 })
 
 test("buildOoEnv injects the required OO_* control vars (R3)", () => {

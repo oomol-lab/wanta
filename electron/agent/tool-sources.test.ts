@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest"
+import { connectionInventoryError, linkWorkspaceArgs } from "./link-workspace.ts"
 import { AGENT_TOOL_FILES } from "./tool-sources.ts"
 
 interface LoadedTool {
@@ -6,6 +7,37 @@ interface LoadedTool {
     args: { action: string; connectionName?: string; params?: string; service: string },
     context: { sessionID: string },
   ) => Promise<string>
+}
+
+interface LoadedListAppsTool {
+  execute: (args: { service?: string }, context: { sessionID: string }) => Promise<string>
+}
+
+function loadListAppsTool(
+  execFile: (...args: unknown[]) => Promise<unknown>,
+  readFile: () => Promise<string>,
+): LoadedListAppsTool {
+  const raw = AGENT_TOOL_FILES["list_apps.ts"] ?? ""
+  const source = raw
+    .replace(/^import .*$/gm, "")
+    .replace("export default tool(", "const exportedTool = tool(")
+    .concat("\nreturn exportedTool")
+  const schema = {
+    describe() {
+      return this
+    },
+    optional() {
+      return this
+    },
+  }
+  const tool = Object.assign((value: unknown) => value, { schema: { string: () => schema } })
+  const factory = new Function("tool", "execFile", "readFile", "promisify", source) as (
+    toolValue: typeof tool,
+    execFileValue: typeof execFile,
+    readFileValue: typeof readFile,
+    promisifyValue: (value: typeof execFile) => typeof execFile,
+  ) => LoadedListAppsTool
+  return factory(tool, execFile, readFile, (value) => value)
 }
 
 function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>): LoadedTool {
@@ -41,6 +73,78 @@ function loadCallActionTool(execFile: (...args: unknown[]) => Promise<unknown>):
 
 afterEach(() => {
   delete process.env.WANTA_CONSOLE_URL
+  delete process.env.WANTA_ORGANIZATION_NAME
+  delete process.env.WANTA_ORGANIZATION_SCOPE_PATH
+})
+
+describe("list_apps embedded runtime", () => {
+  it("converts trusted identities and inventory errors without runtime dependencies", () => {
+    expect(linkWorkspaceArgs({ scope: "organization", organizationName: "org-a" })).toEqual(["--organization", "org-a"])
+    expect(linkWorkspaceArgs({ scope: "personal", organizationName: "" })).toEqual(["--personal"])
+    expect(
+      connectionInventoryError(
+        { scope: "organization", organizationName: "org-a" },
+        "The connector apps request returned HTTP 403.",
+      ),
+    ).toEqual({
+      status: "error",
+      errorCode: "connection_inventory_unavailable",
+      operation: "list_connected_apps",
+      workspace: { scope: "organization", organizationName: "org-a" },
+      message: "The connector apps request returned HTTP 403.",
+    })
+  })
+
+  it("keeps organization identity in structured inventory errors", async () => {
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/organization-scope.json"
+    const commands: string[][] = []
+    const runtime = loadListAppsTool(
+      async (...args) => {
+        commands.push(args[1] as string[])
+        const error = new Error("connector apps failed") as Error & { stderr: string }
+        error.stderr = "The connector apps request returned HTTP 403."
+        throw error
+      },
+      async () =>
+        JSON.stringify({
+          organizationName: "workspace-default",
+          sessionOrganizations: { "session-1": "org-a" },
+        }),
+    )
+
+    const output = JSON.parse(await runtime.execute({ service: "posthog" }, { sessionID: "session-1" })) as {
+      errorCode?: string
+      workspace?: { organizationName?: string; scope?: string }
+    }
+
+    expect(commands).toEqual([["connector", "apps", "posthog", "--organization", "org-a", "--json"]])
+    expect(output).toMatchObject({
+      errorCode: "connection_inventory_unavailable",
+      workspace: { organizationName: "org-a", scope: "organization" },
+    })
+  })
+
+  it("fails closed when the session workspace file is unreadable", async () => {
+    process.env.WANTA_ORGANIZATION_SCOPE_PATH = "/tmp/organization-scope.json"
+    process.env.WANTA_ORGANIZATION_NAME = "stale-default"
+    let calls = 0
+    const runtime = loadListAppsTool(
+      async () => {
+        calls += 1
+        return { stdout: "[]" }
+      },
+      async () => {
+        throw new Error("partial scope file")
+      },
+    )
+
+    const output = JSON.parse(await runtime.execute({ service: "posthog" }, { sessionID: "session-1" })) as {
+      errorCode?: string
+    }
+
+    expect(calls).toBe(0)
+    expect(output.errorCode).toBe("workspace_identity_unavailable")
+  })
 })
 
 describe("call_action embedded runtime", () => {

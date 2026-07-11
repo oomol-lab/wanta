@@ -21,6 +21,9 @@ const previewCacheMaxEntries = 48
 const previewCacheMaxEstimatedBytes = 64 * 1024 * 1024
 
 export function artifactPreviewEstimatedBytes(result: LocalArtifactPreviewResult): number {
+  if (result.resourceUrl) {
+    return result.resourceUrl.length * 2 + 256
+  }
   if (result.dataUrl) {
     return result.dataUrl.length
   }

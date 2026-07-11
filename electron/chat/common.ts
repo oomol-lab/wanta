@@ -460,6 +460,7 @@ export interface LocalArtifactPreviewResult {
   dataUrl?: string
   documentFormat?: "docx"
   reason?: LocalArtifactPreviewUnavailableReason
+  resourceUrl?: string
   spreadsheet?: LocalArtifactSpreadsheetPreview
   text?: string
   truncated?: boolean

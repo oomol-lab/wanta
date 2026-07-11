@@ -1169,9 +1169,9 @@ function ImageThumbnail({
       }}
       onDoubleClick={onDoubleClick}
     >
-      {preview?.kind === "image" && preview.dataUrl ? (
+      {preview?.kind === "image" && (preview.resourceUrl || preview.dataUrl) ? (
         <img
-          src={preview.dataUrl}
+          src={preview.resourceUrl ?? preview.dataUrl}
           alt={item.name}
           className="size-full object-cover"
           draggable={false}
@@ -1238,10 +1238,10 @@ function ImageGalleryPreview({
           <div className="oo-text-body flex min-h-full items-center justify-center px-4 py-8 text-muted-foreground">
             {t("artifacts.previewLoading")}
           </div>
-        ) : preview?.kind === "image" && preview.dataUrl ? (
+        ) : preview?.kind === "image" && (preview.resourceUrl || preview.dataUrl) ? (
           <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
             <img
-              src={preview.dataUrl}
+              src={preview.resourceUrl ?? preview.dataUrl}
               alt={item.name}
               className="max-h-full max-w-full object-contain drop-shadow-sm"
               draggable={false}

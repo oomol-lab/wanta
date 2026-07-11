@@ -11,6 +11,8 @@ import {
   archivePreview,
   binaryDataPreview,
   isBinaryDataPreviewArtifact,
+  isDocxArtifact,
+  isPdfArtifact,
   isRtfArtifact,
   isXlsxArtifact,
   richPreviewMaxBytes,
@@ -22,6 +24,13 @@ import { localArtifactItem } from "./local-artifacts.ts"
 import { isTextArtifactMime, readTextPreview } from "./turn-output-files.ts"
 
 const attachmentPreviewMaxBytes = 16 * 1024 * 1024
+
+export type CreateArtifactResourceUrl = (item: {
+  mime: string
+  modifiedAt: number
+  path: string
+  size: number
+}) => string
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -65,16 +74,25 @@ export async function attachmentPreview(req: AttachmentPreviewRequest): Promise<
   }
 }
 
-export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Promise<LocalArtifactPreviewResult> {
+export async function localArtifactPreview(
+  req: LocalArtifactPreviewRequest,
+  createResourceUrl?: CreateArtifactResourceUrl,
+): Promise<LocalArtifactPreviewResult> {
   const item = await localArtifactItem(req.path)
   if (!item || item.kind !== "file") {
     return { kind: "unsupported", mime: "application/octet-stream", reason: "missing" }
   }
 
   const size = item.size ?? 0
+  const resourceUrl = createResourceUrl
+    ? createResourceUrl({ mime: item.mime, modifiedAt: item.modifiedAt ?? 0, path: item.path, size })
+    : undefined
   if (item.mime.toLowerCase().startsWith("image/")) {
     if (size > attachmentPreviewMaxBytes) {
       return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
+    }
+    if (resourceUrl) {
+      return { kind: "image", mime: item.mime, size, resourceUrl }
     }
     try {
       const bytes = await readFile(item.path)
@@ -93,6 +111,9 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
   if (item.mime.toLowerCase().startsWith("audio/") || item.mime.toLowerCase().startsWith("video/")) {
     if (size > attachmentPreviewMaxBytes) {
       return { kind: "unsupported", mime: item.mime, size, reason: "too_large" }
+    }
+    if (resourceUrl) {
+      return { kind: "media", mime: item.mime, size, resourceUrl }
     }
     try {
       const bytes = await readFile(item.path)
@@ -145,6 +166,14 @@ export async function localArtifactPreview(req: LocalArtifactPreviewRequest): Pr
   }
 
   if (isBinaryDataPreviewArtifact(item.path, item.mime) && size <= richPreviewMaxBytes) {
+    if (resourceUrl) {
+      if (isPdfArtifact(item.path, item.mime)) {
+        return { kind: "pdf", mime: item.mime, size, resourceUrl }
+      }
+      if (isDocxArtifact(item.path, item.mime)) {
+        return { kind: "document", mime: item.mime, size, documentFormat: "docx", resourceUrl }
+      }
+    }
     try {
       const bytes = await readFile(item.path)
       const richPreview = binaryDataPreview(item.path, item.mime, size, bytes)

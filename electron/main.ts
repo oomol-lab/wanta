@@ -21,6 +21,12 @@ import {
 import { AgentManager } from "./agent/manager.ts"
 import { APP_COMMAND_CHANNEL, APP_COMMANDS } from "./app-command.ts"
 import { APP_LOCALE_CHANNEL, isAppLocale, normalizeAppLocale } from "./app-locale.ts"
+import { ArtifactResourceLeaseStore } from "./artifact-resource/lease-store.ts"
+import {
+  artifactResourceUrl,
+  installArtifactResourceProtocol,
+  registerArtifactResourceScheme,
+} from "./artifact-resource/protocol.ts"
 import { isAttachmentPickerKind } from "./attachment-picker.ts"
 import { AuthManager, AuthServiceImpl } from "./auth/node.ts"
 import { AuthStore } from "./auth/store.ts"
@@ -64,6 +70,7 @@ const appRoot = path.join(dirname, "..")
 process.env.APP_ROOT = appRoot
 configureDiagnosticsLog(path.join(app.getPath("userData"), "logs", "diagnostics.jsonl"))
 installMainProcessErrorHandlers()
+registerArtifactResourceScheme()
 
 const viteDevServerUrl = process.env["VITE_DEV_SERVER_URL"]
 const rendererDist = path.join(appRoot, "dist")
@@ -137,9 +144,11 @@ const authorizationOverlayStore = new AuthorizationOverlayStore(app.getPath("use
 const stoppedGenerationStore = new StoppedGenerationStore(app.getPath("userData"))
 const turnOutputStore = new TurnOutputStore(app.getPath("userData"), artifactBundleStore)
 const trustedAttachmentPaths = new Set<string>()
+const artifactResourceLeaseStore = new ArtifactResourceLeaseStore()
 // Connections 请求已整体搬到渲染层（src/lib/connections-client.ts）；主进程只保留 agent 组织作用域同步，
 // 经 ChatService.setAgentOrganization → onSetAgentOrganization 回调（渲染层切 workspace 时调用）。
 const chatService = new ChatServiceImpl(null, {
+  createArtifactResourceUrl: (item) => artifactResourceUrl(artifactResourceLeaseStore.grant(item).token),
   artifactBundleStore,
   authorizationOverlayStore,
   projectStore: sessionProjectStore,
@@ -237,6 +246,7 @@ if (isLocked) {
   app
     .whenReady()
     .then(() => {
+      installArtifactResourceProtocol(artifactResourceLeaseStore)
       // 放行渲染进程对 *.<endpoint> 的已鉴权直连请求（凭证经会话 cookie 自动附带，token 不进渲染层）。
       installOomolCorsShim(session.defaultSession)
       installApplicationMenu()
@@ -331,6 +341,7 @@ function reapAgentForShutdown(): Promise<void> {
     windowsTrayLifecycle = null
     await agent?.dispose()
     server.dispose()
+    artifactResourceLeaseStore.clear()
     await flushDiagnosticsLog().catch((error: unknown) => {
       console.warn("[wanta] failed to flush diagnostics log", error)
     })

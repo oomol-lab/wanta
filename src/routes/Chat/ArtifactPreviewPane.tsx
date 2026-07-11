@@ -465,12 +465,13 @@ export function ArtifactConsumablePreview({
       {t("artifacts.previewReadFailed")}
     </div>
   )
+  const resourceSource = preview?.resourceUrl ?? preview?.dataUrl
 
-  if (preview?.kind === "image" && preview.dataUrl) {
+  if (preview?.kind === "image" && resourceSource) {
     return (
       <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
         <img
-          src={preview.dataUrl}
+          src={resourceSource}
           alt={item.name}
           className="max-h-full max-w-full rounded-md border border-border bg-background object-contain shadow-sm"
           draggable={false}
@@ -480,28 +481,33 @@ export function ArtifactConsumablePreview({
     )
   }
 
-  if (preview?.kind === "media" && preview.dataUrl && isVideoArtifact(item)) {
+  if (preview?.kind === "media" && resourceSource && isVideoArtifact(item)) {
     return (
       <div className="flex min-h-full items-center justify-center bg-[var(--oo-artifact-preview-canvas)] p-4">
-        <video src={preview.dataUrl} controls className="max-h-full max-w-full rounded-md bg-black shadow-sm" />
+        <video
+          src={resourceSource}
+          controls
+          preload="metadata"
+          className="max-h-full max-w-full rounded-md bg-black shadow-sm"
+        />
       </div>
     )
   }
 
-  if (preview?.kind === "media" && preview.dataUrl && isAudioArtifact(item)) {
+  if (preview?.kind === "media" && resourceSource && isAudioArtifact(item)) {
     return (
       <div className="flex min-h-full flex-col items-center justify-center gap-4 px-6 py-12 text-center">
         <div className="flex size-14 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground shadow-sm">
           <Music className="size-6" />
         </div>
         <div className="w-full max-w-sm">
-          <audio src={preview.dataUrl} controls className="w-full" />
+          <audio src={resourceSource} controls preload="metadata" className="w-full" />
         </div>
       </div>
     )
   }
 
-  if (preview?.kind === "pdf" && preview.dataUrl) {
+  if (preview?.kind === "pdf" && resourceSource) {
     return (
       <ErrorBoundary key={`${item.path}:pdf`} fallback={lazyPreviewFallback}>
         <React.Suspense
@@ -511,13 +517,13 @@ export function ArtifactConsumablePreview({
             </div>
           }
         >
-          <ArtifactPdfPreview dataUrl={preview.dataUrl} name={item.name} />
+          <ArtifactPdfPreview source={resourceSource} name={item.name} />
         </React.Suspense>
       </ErrorBoundary>
     )
   }
 
-  if (preview?.kind === "document" && preview.documentFormat === "docx" && preview.dataUrl) {
+  if (preview?.kind === "document" && preview.documentFormat === "docx" && resourceSource) {
     return (
       <ErrorBoundary key={`${item.path}:docx`} fallback={lazyPreviewFallback}>
         <React.Suspense
@@ -527,7 +533,7 @@ export function ArtifactConsumablePreview({
             </div>
           }
         >
-          <ArtifactDocxPreview dataUrl={preview.dataUrl} name={item.name} />
+          <ArtifactDocxPreview source={resourceSource} name={item.name} />
         </React.Suspense>
       </ErrorBoundary>
     )

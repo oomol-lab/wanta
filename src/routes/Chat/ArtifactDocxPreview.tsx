@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useT } from "@/i18n/i18n"
 
-export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string; name: string }) {
+export default function ArtifactDocxPreview({ source, name }: { source: string; name: string }) {
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const styleContainerRef = React.useRef<HTMLDivElement | null>(null)
@@ -23,7 +23,7 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
     void (async () => {
       const [{ renderAsync }, response] = await Promise.all([
         import("docx-preview"),
-        fetch(dataUrl, { signal: controller.signal }),
+        fetch(source, { signal: controller.signal }),
       ])
       const buffer = await response.arrayBuffer()
       if (cancelled) {
@@ -63,7 +63,7 @@ export default function ArtifactDocxPreview({ dataUrl, name }: { dataUrl: string
       container.replaceChildren()
       styleContainer.replaceChildren()
     }
-  }, [dataUrl])
+  }, [source])
 
   return (
     <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)]">

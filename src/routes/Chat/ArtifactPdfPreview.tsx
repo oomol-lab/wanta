@@ -35,7 +35,7 @@ interface RenderedPageMetrics {
   width: number
 }
 
-export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string; name: string }) {
+export default function ArtifactPdfPreview({ source, name }: { source: string; name: string }) {
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const canvasRefs = React.useRef<[HTMLCanvasElement | null, HTMLCanvasElement | null]>([null, null])
@@ -152,7 +152,7 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
     renderedPageWidthRef.current = nextWidth
     setRenderedPageWidth(nextWidth)
 
-    const task = pdfjs.getDocument(dataUrl)
+    const task = pdfjs.getDocument(source)
     documentTaskRef.current = task
     void task.promise
       .then((nextDocument) => {
@@ -182,7 +182,7 @@ export default function ArtifactPdfPreview({ dataUrl, name }: { dataUrl: string;
       }
       void task.destroy()
     }
-  }, [clearPendingRenderedWidth, dataUrl])
+  }, [clearPendingRenderedWidth, source])
 
   React.useEffect(() => {
     if (!document || renderedPageWidth === null) {

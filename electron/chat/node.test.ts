@@ -555,6 +555,36 @@ test("stopGeneration suppresses delayed streaming events until the next send", a
   assert.equal(events.at(-1)?.event, "messageStarted")
 })
 
+test("event bridge deduplicates message starts and coalesces text updates", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+  const events = captureServiceEvents(service)
+  service.startEventBridge()
+
+  const started = {
+    type: "message.updated",
+    properties: { info: { id: "assistant-1", sessionID: "session-1", role: "assistant" } },
+  }
+  bridge.emit(started)
+  bridge.emit(started)
+  for (const text of ["H", "Hello", "Hello world"]) {
+    bridge.emit({
+      type: "message.part.updated",
+      properties: {
+        delta: text === "H" ? "H" : undefined,
+        part: { id: "text-1", sessionID: "session-1", messageID: "assistant-1", type: "text", text },
+      },
+    })
+  }
+
+  await waitForCondition(() => events.some((event) => event.event === "messageDelta"))
+
+  assert.equal(events.filter((event) => event.event === "messageStarted").length, 1)
+  const deltas = events.filter((event) => event.event === "messageDelta")
+  assert.equal(deltas.length, 1)
+  assert.equal((deltas[0]?.data as { text?: string } | undefined)?.text, "Hello world")
+})
+
 test("stopGeneration finalizes process files produced before cancellation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-chat-stop-turn-output-"))
   try {

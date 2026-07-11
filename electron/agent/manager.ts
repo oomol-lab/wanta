@@ -15,7 +15,7 @@ import type { FilePartInput, SessionPromptAsyncData, TextPartInput } from "@open
 import type { OpencodeClient } from "@opencode-ai/sdk/v2/client"
 
 import { randomBytes, randomUUID } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { lstat, mkdir, realpath, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import { ActivityMetrics } from "../activity-metrics.ts"
@@ -835,11 +835,17 @@ export class AgentManager {
     await this.client.session.abort({ sessionID: sessionId })
   }
 
-  public async createArtifactDir(sessionId: string): Promise<string> {
+  public async createArtifactDir(sessionId: string, projectRoot?: string): Promise<string> {
+    if (projectRoot) {
+      return this.createProjectArtifactDir(sessionId, projectRoot)
+    }
     return this.createTurnDir("artifacts", sessionId)
   }
 
-  public artifactSessionDir(sessionId: string): string {
+  public artifactSessionDir(sessionId: string, projectRoot?: string): string {
+    if (projectRoot) {
+      return path.resolve(projectRoot, ".wanta", "artifacts", sanitizeArtifactPathSegment(sessionId))
+    }
     return this.sessionTurnRoot("artifacts", sessionId)
   }
 
@@ -849,19 +855,29 @@ export class AgentManager {
 
   private async createTurnDir(kind: "artifacts" | "process", sessionId: string): Promise<string> {
     const root = this.sessionTurnRoot(kind, sessionId)
-    const dir = path.join(root, `${Date.now()}-${randomUUID()}`)
-    const resolvedDir = path.resolve(dir)
-    if (!resolvedDir.startsWith(`${root}${path.sep}`)) {
-      throw new Error("Invalid turn directory segment.")
+    await mkdir(root, { recursive: true })
+    return createUniqueTurnDir(root)
+  }
+
+  private async createProjectArtifactDir(sessionId: string, projectRoot: string): Promise<string> {
+    const requestedProjectRoot = path.resolve(projectRoot)
+    const requestedProjectStat = await lstat(requestedProjectRoot)
+    if (!requestedProjectStat.isDirectory() || requestedProjectStat.isSymbolicLink()) {
+      throw new Error("Project artifact root is not a directory.")
     }
-    await mkdir(resolvedDir, { recursive: true })
-    return resolvedDir
+    const resolvedProjectRoot = await realpath(requestedProjectRoot)
+    const resolvedProjectStat = await lstat(resolvedProjectRoot)
+    if (!resolvedProjectStat.isDirectory() || resolvedProjectStat.isSymbolicLink()) {
+      throw new Error("Project artifact root is not a directory.")
+    }
+    const sessionRoot = await ensureProjectArtifactSessionRoot(resolvedProjectRoot, sessionId)
+    return createUniqueTurnDir(sessionRoot)
   }
 
   private sessionTurnRoot(kind: "artifacts" | "process", sessionId: string): string {
     const root = path.resolve(this.options.rootDir, kind)
     const dir = path.resolve(root, sanitizeArtifactPathSegment(sessionId))
-    if (!dir.startsWith(`${root}${path.sep}`)) {
+    if (!pathInside(root, dir)) {
       throw new Error("Invalid session directory segment.")
     }
     return dir
@@ -1035,7 +1051,7 @@ export function buildArtifactSystem(artifactDir: string | undefined): string | u
     "Artifact output contract for this turn:",
     `- Use this exact directory for files you create, convert, export, download, or modify as user-facing deliverables: ${artifactDir}`,
     "- Do not create files just because this artifact directory is provided.",
-    "- For edits to an existing local project, modify the requested project files in place; use the artifact directory only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
+    "- For edits to an existing local project, modify the requested project files in place; even when this artifact directory is inside the project, use it only for exported deliverables, generated assets, converted files, reports, or packaged outputs.",
     "- Wanta indexes the directory recursively and determines the artifact type from the actual files. Do not create a manifest or describe files that do not exist.",
     "- Treat HTML reports, images, PDFs, charts, spreadsheets, presentations, archives, and documents as user-facing deliverables.",
     "- For image sets, save every final image in display order with stable padded names such as 001.jpg and 002.jpg.",
@@ -1098,4 +1114,45 @@ function pathToFileUrl(filePath: string): string {
 function sanitizeArtifactPathSegment(value: string): string {
   const cleaned = value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120)
   return cleaned || "session"
+}
+
+async function createUniqueTurnDir(root: string): Promise<string> {
+  const resolvedDir = path.resolve(root, `${Date.now()}-${randomUUID()}`)
+  if (!pathInside(root, resolvedDir)) {
+    throw new Error("Invalid turn directory segment.")
+  }
+  await mkdir(resolvedDir)
+  return resolvedDir
+}
+
+async function ensurePlainDirectory(parent: string, name: string): Promise<string> {
+  const directory = path.join(parent, name)
+  try {
+    await mkdir(directory)
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
+      throw error
+    }
+  }
+  const directoryStat = await lstat(directory)
+  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+    throw new Error("Project artifact path contains a non-directory or symbolic link.")
+  }
+  return directory
+}
+
+async function ensureProjectArtifactSessionRoot(projectRoot: string, sessionId: string): Promise<string> {
+  const wantaRoot = await ensurePlainDirectory(projectRoot, ".wanta")
+  const artifactsRoot = await ensurePlainDirectory(wantaRoot, "artifacts")
+  const sessionRoot = await ensurePlainDirectory(artifactsRoot, sanitizeArtifactPathSegment(sessionId))
+  const resolvedSessionRoot = await realpath(sessionRoot)
+  if (!pathInside(projectRoot, resolvedSessionRoot)) {
+    throw new Error("Project artifact directory resolves outside the project.")
+  }
+  return resolvedSessionRoot
+}
+
+function pathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate)
+  return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }

@@ -1608,6 +1608,46 @@ test("sendMessage passes selected context, organization skills, and project as p
   assert.match(options?.system ?? "", /\/Users\/example\/code\/wanta/)
   assert.match(options?.system ?? "", /use this project directory as an absolute path/)
   assert.match(options?.system ?? "", /Do not mention the full project directory/)
+  assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
+})
+
+test("build mode stores artifacts under the registered project", async () => {
+  const bridge = createBridgeAgent()
+  const projectPath = "/Users/example/code/wanta"
+  const service = new ChatServiceImpl(bridge.agent, {
+    projectStore: projectStore([
+      {
+        id: "project-1",
+        name: "wanta",
+        path: projectPath,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]),
+  })
+
+  await service.sendMessage({
+    projectContext: { id: "project-1", name: "wanta", path: projectPath },
+    sessionId: "session-1",
+    text: "Create a report",
+  })
+
+  assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", projectPath]])
+  assert.deepEqual(bridge.artifactSessionDir.mock.calls, [["session-1", projectPath]])
+})
+
+test("unregistered project context keeps artifacts in managed storage", async () => {
+  const bridge = createBridgeAgent()
+  const service = new ChatServiceImpl(bridge.agent)
+
+  await service.sendMessage({
+    projectContext: { id: "project-1", name: "wanta", path: "/Users/example/code/wanta" },
+    sessionId: "session-1",
+    text: "Create a report",
+  })
+
+  assert.deepEqual(bridge.createArtifactDir.mock.calls, [["session-1", undefined]])
+  assert.deepEqual(bridge.artifactSessionDir.mock.calls, [["session-1", undefined]])
 })
 
 test("trusted project permissions are approved without showing a permission card", async () => {

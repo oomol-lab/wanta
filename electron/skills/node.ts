@@ -1176,6 +1176,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         registrySkillCount: diagnosticFields.registrySkillCount,
       },
     )
+    logDiagnostic("performance", "skill inventory scan", diagnosticFields, "trace")
     return inventory
   }
 

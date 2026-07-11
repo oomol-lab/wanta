@@ -8,6 +8,7 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { promisify } from "node:util"
 import { logDiagnostic } from "../diagnostics-log.ts"
+import { RuntimeOutputBatch } from "./runtime-output-batch.ts"
 
 const execFileAsync = promisify(execFile)
 
@@ -44,6 +45,7 @@ const processReapGraceMs = 2_000
 const processReapPollMs = 100
 /** 请求 opencode 自行 dispose 的超时：卡死时不拖累退出，交由 OS 进程树兜底回收。 */
 const opencodeDisposeTimeoutMs = 2_000
+const runtimeOutputFlushMs = 1_000
 
 /** OpenCode 本地 sidecar：spawn `opencode serve`、解析 URL、提供 SDK client、随 app 退出回收。 */
 export class OpencodeSidecar {
@@ -441,43 +443,53 @@ function attachRuntimeStreamDiagnostics(proc: ChildProcessWithoutNullStreams): (
 
 function attachStreamDiagnostics(stream: Readable, source: "stdout" | "stderr"): () => void {
   let pending = ""
+  let flushTimer: NodeJS.Timeout | undefined
+  const batch = new RuntimeOutputBatch()
+  const flush = (): void => {
+    if (flushTimer) {
+      clearTimeout(flushTimer)
+      flushTimer = undefined
+    }
+    const snapshot = batch.take()
+    if (!snapshot) {
+      return
+    }
+    if (source === "stderr") {
+      console.warn("[wanta] opencode stderr batch:", snapshot)
+    }
+    logDiagnostic("opencode-sidecar", `opencode ${source}`, { ...snapshot }, source === "stderr" ? "warn" : "trace")
+  }
+  const queue = (line: string, truncated: boolean): void => {
+    const text = line.trim()
+    if (!text) {
+      return
+    }
+    batch.add(text, truncated)
+    if (flushTimer) {
+      return
+    }
+    flushTimer = setTimeout(flush, runtimeOutputFlushMs)
+    flushTimer.unref?.()
+  }
   const onData = (chunk: Buffer): void => {
     pending += chunk.toString()
     const lines = pending.split(/\r?\n/)
     pending = lines.pop() ?? ""
     if (pending.length > runtimeLineMaxLength) {
-      emitRuntimeLine(source, pending.slice(0, runtimeLineMaxLength), true)
+      queue(pending.slice(0, runtimeLineMaxLength), true)
       pending = ""
     }
     for (const line of lines) {
-      emitRuntimeLine(source, line, false)
+      queue(line, false)
     }
   }
   stream.on("data", onData)
   return () => {
     stream.off("data", onData)
     if (pending.trim()) {
-      emitRuntimeLine(source, pending, false)
+      queue(pending, false)
     }
     pending = ""
+    flush()
   }
-}
-
-function emitRuntimeLine(source: "stdout" | "stderr", line: string, truncated: boolean): void {
-  const text = line.trim()
-  if (!text) {
-    return
-  }
-  if (source === "stderr") {
-    console.warn("[wanta] opencode stderr:", text)
-  }
-  logDiagnostic(
-    "opencode-sidecar",
-    `opencode ${source}`,
-    {
-      line: text,
-      ...(truncated ? { truncated: true } : {}),
-    },
-    source === "stderr" ? "warn" : "trace",
-  )
 }

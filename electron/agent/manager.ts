@@ -18,6 +18,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
+import { ActivityMetrics } from "../activity-metrics.ts"
 import { branding } from "../branding.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { connectorBaseUrl, llmBaseUrl } from "../domain.ts"
@@ -189,6 +190,9 @@ export class AgentManager {
   private organizationScopePath: string | undefined
   private organizationUpdateChain: Promise<void> = Promise.resolve()
   private sessionOrganizationNames = new Map<string, string>()
+  private readonly eventMetrics = new ActivityMetrics((snapshot) => {
+    logDiagnostic("performance", "opencode event activity", { ...snapshot }, "trace")
+  })
 
   public constructor(options: AgentManagerOptions) {
     this.options = options
@@ -474,6 +478,7 @@ export class AgentManager {
           break
         }
         this.eventLoopRestartFailures = 0
+        this.eventMetrics.record(event.type)
         try {
           subscriber.onEvent(event)
         } catch (error) {
@@ -925,6 +930,7 @@ export class AgentManager {
     this.eventStreamAbort = null
     this.eventSubscriber = null
     this.started = false
+    this.eventMetrics.dispose()
     // 同时回收"启动中"的实例：退出/重启可能正卡在 startSidecar 的 await 上，此时 this.sidecar 仍为
     // null，但 startingSidecar 已 spawn opencode，必须一并连根回收，否则它会成为漏网孤儿。
     const sidecar = this.sidecar ?? this.startingSidecar

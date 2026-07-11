@@ -58,6 +58,7 @@ import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
 import { realpath, rm } from "node:fs/promises"
 import os from "node:os"
+import { ActivityMetrics } from "../activity-metrics.ts"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
 import { managedPythonEnvironmentPath } from "../agent/python-environment.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
@@ -336,6 +337,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private desiredWorkspaceOrganizationName: string | undefined
   private streamEventBuffer: ChatStreamEventBuffer | null = null
   private startedMessages = new Set<string>()
+  private readonly eventMetrics = new ActivityMetrics((snapshot) => {
+    logDiagnostic("performance", "chat event activity", { ...snapshot }, "trace")
+  })
 
   public constructor(agent: AgentManager | null = null, deps: ChatServiceDeps = {}) {
     super(ChatServiceName)
@@ -346,6 +350,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   public override dispose(): void {
     this.streamEventBuffer?.clear()
     this.streamEventBuffer = null
+    this.eventMetrics.dispose()
     super.dispose()
   }
 
@@ -595,6 +600,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         }
         if (displayed.event === "messageDelta" || displayed.event === "messageReasoningDelta") {
+          this.eventMetrics.record(`stream-input:${displayed.event}`)
           this.streamEventBuffer?.enqueue(displayed)
         } else {
           this.sendBestEffort(emit, displayed.event, displayed.data, { sessionId: displayedSessionId })
@@ -763,6 +769,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (event !== "messageDelta" && event !== "messageReasoningDelta") {
       this.streamEventBuffer?.flush()
     }
+    this.eventMetrics.record(`ipc:${event}`)
     void emit(event, data).catch((error: unknown) => {
       console.warn("[wanta] failed to emit chat server event:", { event, error, ...context })
       logDiagnostic(

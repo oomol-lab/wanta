@@ -61,15 +61,16 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
-function patchUpdateError(error: unknown): AppUpdateState | null {
+function patchUpdateError(error: unknown): AppUpdateState {
   const current = appUpdateStore.snapshot.state
-  if (!current) {
-    return null
-  }
-  const next: AppUpdateState = {
-    ...current,
-    status: { status: "error", error: errorMessage(error) },
-  }
+  const next: AppUpdateState = current
+    ? { ...current, status: { status: "error", error: errorMessage(error) } }
+    : {
+        channel: "stable",
+        currentVersion: globalThis.wanta?.version ?? "—",
+        isPackaged: true,
+        status: { status: "error", error: errorMessage(error) },
+      }
   appUpdateStore.patch({
     state: next,
   })

@@ -1168,7 +1168,7 @@ export const enMessages = {
   "settings.updateRestart": "Restart and install",
   "settings.updateError": "Update failed: {error}",
   "settings.updateDevUnavailable": "Auto-update is unavailable in development mode",
-  "settings.updateIdle": "Check manually for available updates.",
+  "settings.updateIdle": "Wanta periodically checks for and downloads updates in the background.",
   "settings.updateChannel": "Update channel",
   "settings.channelStable": "Stable",
   "settings.channelBeta": "Beta",

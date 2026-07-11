@@ -33,7 +33,7 @@ export const UpdateService = serviceName("update-service") as ServiceName<{
   ClientInvokes: {
     getAppUpdateState(): Promise<AppUpdateState>
     checkForAppUpdate(): Promise<AppUpdateState>
-    /** 下载已发现的更新（autoDownload=false，下载始终由 UI 显式触发）。 */
+    /** 下载已发现的更新（后台调度会自动调用，UI 仍可显式重试）。 */
     downloadAppUpdate(): Promise<void>
     /** 退出并安装已下载的更新。 */
     installDownloadedAppUpdate(): Promise<void>

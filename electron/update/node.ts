@@ -5,13 +5,20 @@ import type { IConnectionService } from "@oomol/connection"
 import type { UpdateCheckResult } from "electron-updater"
 
 import { ConnectionService } from "@oomol/connection"
-import { app } from "electron"
+import { app, powerMonitor } from "electron"
 import updaterPkg from "electron-updater"
 import { branding } from "../branding.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { staticBaseUrl } from "../domain.ts"
 import { resolveUpdateChannel, updaterChannelName } from "./channel.ts"
 import { UpdateService as UpdateServiceName } from "./common.ts"
+import {
+  jitteredUpdateCheckIntervalMs,
+  randomDelayMs,
+  resumeUpdateCheckDelayRangeMs,
+  shouldCheckAfterResume,
+  startupUpdateCheckDelayRangeMs,
+} from "./policy.ts"
 
 // 结构移植自 oo-desktop electron/update/node.ts（状态机 / in-flight 去重 / 404 容忍重试），
 // 裁去 telemetry 与 apply-outcome 跟踪（Wanta 无 telemetry 基建），加渠道管理。
@@ -54,6 +61,16 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
   private missingAssetRetryAttempt = 0
   private missingAssetRetryGeneration = 0
   private missingAssetRetryTimer: NodeJS.Timeout | undefined
+  private backgroundCheckTimer: NodeJS.Timeout | undefined
+  private backgroundChecksStarted = false
+  private readonly handleSystemResume = (): void => {
+    if (!shouldCheckAfterResume(this.state.checkedAt, Date.now(), this.channel)) {
+      return
+    }
+    this.scheduleBackgroundCheck(
+      randomDelayMs(resumeUpdateCheckDelayRangeMs.min, resumeUpdateCheckDelayRangeMs.max, Math.random()),
+    )
+  }
   private state: AppUpdateState
   private readonly deps: UpdateServiceDeps
 
@@ -66,6 +83,18 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
 
   public getAppUpdateState(): Promise<AppUpdateState> {
     return Promise.resolve(this.state)
+  }
+
+  /** 启动跨平台后台更新调度：延迟首查、周期检查，并在 Windows/macOS/Linux 唤醒后按 TTL 补查。 */
+  public startBackgroundChecks(): void {
+    if (this.backgroundChecksStarted || !app.isPackaged) {
+      return
+    }
+    this.backgroundChecksStarted = true
+    powerMonitor.on("resume", this.handleSystemResume)
+    this.scheduleBackgroundCheck(
+      randomDelayMs(startupUpdateCheckDelayRangeMs.min, startupUpdateCheckDelayRangeMs.max, Math.random()),
+    )
   }
 
   public async checkForAppUpdate(): Promise<AppUpdateState> {
@@ -152,14 +181,20 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     // feed 重配延迟到下次 getAutoUpdater()（configuredChannel 失配触发 setFeedURL）。
     this.state = { ...this.snapshotBase(), status: { status: "idle" } }
     this.sendStateChanged("set update channel")
-    // 切渠道后立即后台检查一次（dev 下 runCheck 内部短路为 not-available）。
-    void this.checkForAppUpdate().catch((error: unknown) => {
-      this.logFailure("background update check failed after channel change", error, "warn")
-    })
+    // 切渠道后立即按后台策略检查并准备更新（dev 下 runCheck 内部短路为 not-available）。
+    void this.runBackgroundCheck()
     return Promise.resolve(this.state)
   }
 
   public override dispose(): void {
+    if (this.backgroundChecksStarted) {
+      powerMonitor.off("resume", this.handleSystemResume)
+      this.backgroundChecksStarted = false
+    }
+    if (this.backgroundCheckTimer) {
+      clearTimeout(this.backgroundCheckTimer)
+      this.backgroundCheckTimer = undefined
+    }
     this.resetMissingAssetRetryState()
     this.cancellationToken?.cancel()
     // autoUpdater 是进程级单例，必须解绑本服务挂上去的监听。
@@ -170,6 +205,38 @@ export class UpdateServiceImpl extends ConnectionService<UpdateService> implemen
     }
     this.boundListeners = []
     super.dispose()
+  }
+
+  private scheduleBackgroundCheck(delayMs: number): void {
+    if (!this.backgroundChecksStarted) {
+      return
+    }
+    if (this.backgroundCheckTimer) {
+      clearTimeout(this.backgroundCheckTimer)
+    }
+    this.backgroundCheckTimer = setTimeout(() => {
+      this.backgroundCheckTimer = undefined
+      void this.runBackgroundCheck().finally(() => {
+        this.scheduleBackgroundCheck(jitteredUpdateCheckIntervalMs(this.channel, Math.random()))
+      })
+    }, delayMs)
+    this.backgroundCheckTimer.unref()
+  }
+
+  private async runBackgroundCheck(): Promise<void> {
+    // 已下载的安装包必须保持 ready 状态；周期检查不能把它覆盖回 checking/available。
+    if (this.state.status.status === "downloading" || this.state.status.status === "downloaded") {
+      return
+    }
+    try {
+      const state = await this.checkForAppUpdate()
+      // 普通桌面应用的默认路径：后台准备更新，只把“何时重启”留给用户决定。
+      if (state.status.status === "available") {
+        await this.downloadAppUpdate()
+      }
+    } catch (error) {
+      this.logFailure("background update check failed", error, "warn")
+    }
   }
 
   private snapshotBase(): Pick<AppUpdateState, "currentVersion" | "isPackaged" | "channel"> {

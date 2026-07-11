@@ -690,7 +690,6 @@ function PlainAssistantActivity() {
 interface ChatTurnViewProps {
   activeSessionId: string | null
   artifactGroups: ResolvedArtifactGroup[]
-  artifactSelectionGroups: ResolvedArtifactGroup[]
   billingCacheScope: string
   turnOutputRecord: TurnOutputRecord | null
   turn: ChatTurn
@@ -709,7 +708,6 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
   return (
     previous.activeSessionId === next.activeSessionId &&
     previous.artifactGroups === next.artifactGroups &&
-    previous.artifactSelectionGroups === next.artifactSelectionGroups &&
     previous.billingCacheScope === next.billingCacheScope &&
     previous.turnOutputRecord === next.turnOutputRecord &&
     previous.turn === next.turn &&
@@ -728,7 +726,6 @@ function chatTurnViewPropsEqual(previous: ChatTurnViewProps, next: ChatTurnViewP
 const ChatTurnView = React.memo(function ChatTurnView({
   activeSessionId,
   artifactGroups,
-  artifactSelectionGroups,
   billingCacheScope,
   turnOutputRecord,
   turn,
@@ -876,12 +873,7 @@ const ChatTurnView = React.memo(function ChatTurnView({
         <div className="mt-2 grid gap-2">
           {hasRenderableArtifacts ? (
             <React.Suspense fallback={null}>
-              <GeneratedArtifacts
-                groups={artifactGroups}
-                selectionGroups={artifactSelectionGroups}
-                onOpen={onArtifactsOpen}
-                onAvailable={onArtifactsAvailable}
-              />
+              <GeneratedArtifacts groups={artifactGroups} onOpen={onArtifactsOpen} onAvailable={onArtifactsAvailable} />
             </React.Suspense>
           ) : null}
           {hasRenderableTurnOutputs && turnOutputRecord ? (
@@ -1078,7 +1070,6 @@ export const ChatTimeline = React.memo(function ChatTimeline({
               <ChatTurnView
                 activeSessionId={activeSessionId}
                 artifactGroups={turnArtifactGroups}
-                artifactSelectionGroups={visibleArtifactGroups}
                 turn={turn}
                 billingCacheScope={billingCacheScope}
                 turnOutputRecord={turnOutputRecordsByTurn.get(turn.id) ?? null}

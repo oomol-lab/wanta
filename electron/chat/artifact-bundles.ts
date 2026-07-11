@@ -17,6 +17,7 @@ import os from "node:os"
 import path from "node:path"
 import { Readable } from "node:stream"
 import { logStoreReadFailure } from "../store-diagnostics.ts"
+import { isOperationalStateArtifact } from "./artifact-file-classification.ts"
 import { mimeFromPath, normalizeLocalPathCandidate } from "./artifacts.ts"
 import { localArtifactItem } from "./local-artifacts.ts"
 
@@ -118,13 +119,28 @@ function serializeArtifactBundles(records: ArtifactBundles): PersistedArtifactBu
   return { version: 1, sessions }
 }
 
-async function managedArtifactGroup(rootPath: string, maxItems = 200): Promise<LocalArtifactGroup | null> {
+async function managedArtifactGroup(
+  rootPath: string,
+  materializedOrigins: ReadonlyMap<string, ArtifactItemOrigin>,
+  maxItems = 200,
+): Promise<LocalArtifactGroup | null> {
   const root = await localArtifactItem(rootPath)
   if (!root || root.kind !== "directory") {
     return null
   }
   const files: NonNullable<LocalArtifactGroup["items"]> = []
+  const deferredOperationalStateFiles: string[] = []
   let totalItems = 0
+  const appendVisibleFile = async (absolutePath: string): Promise<void> => {
+    totalItems += 1
+    if (files.length >= maxItems) {
+      return
+    }
+    const item = await localArtifactItem(absolutePath)
+    if (item) {
+      files.push(item)
+    }
+  }
   const visit = async (directory: string): Promise<void> => {
     let entries
     try {
@@ -146,17 +162,21 @@ async function managedArtifactGroup(rootPath: string, maxItems = 200): Promise<L
       if (!entry.isFile()) {
         continue
       }
-      totalItems += 1
-      if (files.length >= maxItems) {
-        continue
-      }
-      const item = await localArtifactItem(absolutePath)
-      if (item) {
-        files.push(item)
+      const relativePath = path.relative(rootPath, absolutePath)
+      if (await isOperationalStateArtifact(absolutePath, materializedOrigins.get(relativePath))) {
+        deferredOperationalStateFiles.push(absolutePath)
+      } else {
+        await appendVisibleFile(absolutePath)
       }
     }
   }
   await visit(rootPath)
+  // 唯一输出永不因启发式判断而消失；只有同时存在明确成果时才收起运行状态 sidecar。
+  if (totalItems === 0) {
+    for (const filePath of deferredOperationalStateFiles) {
+      await appendVisibleFile(filePath)
+    }
+  }
   return { root, items: files, totalItems, truncated: totalItems > files.length }
 }
 
@@ -834,7 +854,7 @@ export async function buildArtifactBundle(input: {
     messageId,
     sessionId,
   } = input
-  const group = await managedArtifactGroup(artifactRoot)
+  const group = await managedArtifactGroup(artifactRoot, materializedOrigins)
   if (!group) {
     return null
   }

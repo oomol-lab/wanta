@@ -42,6 +42,127 @@ test("buildArtifactBundle infers an image gallery without a model-authored manif
   }
 })
 
+test("buildArtifactBundle omits resumable task state beside final image outputs", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-session-state-"))
+  try {
+    await writeFile(path.join(root, "summer.png"), "image")
+    await writeFile(
+      path.join(root, "summer.session.json"),
+      JSON.stringify({
+        session_id: "image-session-1",
+        mode: "generate",
+        result_action: "image_async_result",
+        out_dir: root,
+        output_format: "png",
+        submitted_at: "2026-07-11T00:00:00.000Z",
+        payload: { prompt: "summer" },
+      }),
+    )
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 1,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.status, "ready")
+    assert.equal(bundle?.kind, "image_set")
+    assert.equal(bundle?.display, "gallery")
+    assert.equal(bundle?.totalItems, 1)
+    assert.deepEqual(
+      bundle?.items.map((item) => item.name),
+      ["summer.png"],
+    )
+    assert.match(await readFile(path.join(root, "summer.session.json"), "utf8"), /image-session-1/u)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("buildArtifactBundle keeps legitimate and uncertain JSON deliverables", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-json-deliverables-"))
+  try {
+    await writeFile(path.join(root, "report.pdf"), "report")
+    await writeFile(path.join(root, "report.json"), JSON.stringify({ session_id: "business-session", result: "ok" }))
+    await writeFile(path.join(root, "auth.session.json"), JSON.stringify({ session_id: "business-session", user: "1" }))
+    await writeFile(path.join(root, "broken.session.json"), "not-json")
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.totalItems, 4)
+    assert.deepEqual(
+      bundle?.items.map((item) => item.name),
+      ["auth.session.json", "broken.session.json", "report.json", "report.pdf"],
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("buildArtifactBundle keeps a lone operational state file as the only output", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-only-state-"))
+  try {
+    await writeFile(
+      path.join(root, "task.resume.json"),
+      JSON.stringify({ task_id: "task-1", poll_count: 2, result_action: "get_result" }),
+    )
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.totalItems, 1)
+    assert.equal(bundle?.items[0]?.name, "task.resume.json")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("buildArtifactBundle keeps explicitly materialized state-shaped attachments", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-explicit-state-"))
+  try {
+    await writeFile(path.join(root, "result.png"), "image")
+    await writeFile(
+      path.join(root, "requested.session.json"),
+      JSON.stringify({ session_id: "requested", result_action: "get_result" }),
+    )
+
+    const bundle = await buildArtifactBundle({
+      artifactRoot: root,
+      completedAt: 2,
+      createdAt: 1,
+      generatedPreviewCount: 0,
+      materializedOrigins: new Map([["requested.session.json", "assistant_attachment"]]),
+      messageId: "assistant-1",
+      sessionId: "session-1",
+    })
+
+    assert.equal(bundle?.totalItems, 2)
+    assert.deepEqual(
+      bundle?.items.map((item) => item.name),
+      ["requested.session.json", "result.png"],
+    )
+    assert.equal(bundle?.items[0]?.origin, "assistant_attachment")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("buildArtifactBundle records a visible generated image that was not persisted", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wanta-artifact-bundle-failed-"))
   try {

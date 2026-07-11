@@ -47,7 +47,6 @@ function renderArtifactShelf(groups: ResolvedArtifactGroup[]): string {
       },
       React.createElement(GeneratedArtifactsShelf, {
         groups,
-        selectionGroups: groups,
         onContextMenu: () => undefined,
         onOpen: () => undefined,
       }),

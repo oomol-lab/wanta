@@ -18,6 +18,7 @@ import { authTypeLabel } from "./shared.ts"
 
 export const executionLogLimit = 12
 export const detailPaneAnimationMs = 150
+/** 首次渲染前的保守展示数量；实际数量由工具栏可用宽度决定。 */
 export const categoryFilterLimit = 4
 export const accountActionButtonClassName = "h-7 gap-1.5 px-2"
 export const categoryFilterPrefix = "category:"
@@ -369,6 +370,59 @@ export function buildCategoryFilters(
   return [...countByCategory.entries()]
     .map(([label, count]) => ({ count, displayLabel: getCategoryDisplayLabel(label, t), label }))
     .sort((left, right) => right.count - left.count || left.displayLabel.localeCompare(right.displayLabel))
+}
+
+export function selectVisibleCategoryFilters(
+  filters: ConnectionCategoryFilter[],
+  selectedCategory: string | null,
+  limit: number,
+): ConnectionCategoryFilter[] {
+  const visibleFilters = filters.slice(0, Math.max(0, limit))
+  if (
+    !selectedCategory ||
+    visibleFilters.some((filter) => filter.label === selectedCategory) ||
+    !visibleFilters.length
+  ) {
+    return visibleFilters
+  }
+
+  const selectedFilter = filters.find((filter) => filter.label === selectedCategory)
+  return selectedFilter ? [...visibleFilters.slice(0, -1), selectedFilter] : visibleFilters
+}
+
+export function getFittingCategoryFilterCount({
+  availableWidth,
+  baseFilterWidths,
+  categoryFilterWidths,
+  filters,
+  gap,
+  moreCategoriesWidth,
+  selectedCategory,
+}: {
+  availableWidth: number
+  baseFilterWidths: readonly number[]
+  categoryFilterWidths: ReadonlyMap<string, number>
+  filters: ConnectionCategoryFilter[]
+  gap: number
+  moreCategoriesWidth: number
+  selectedCategory: string | null
+}): number {
+  let fittingCount = 0
+
+  for (let count = 0; count <= filters.length; count += 1) {
+    const visibleFilters = selectVisibleCategoryFilters(filters, selectedCategory, count)
+    const visibleWidths = visibleFilters.map((filter) => categoryFilterWidths.get(filter.label) ?? Infinity)
+    const hasOverflow = visibleFilters.length < filters.length
+    const widths = hasOverflow
+      ? [...baseFilterWidths, ...visibleWidths, moreCategoriesWidth]
+      : [...baseFilterWidths, ...visibleWidths]
+    const requiredWidth = widths.reduce((total, width) => total + width, 0) + gap * Math.max(0, widths.length - 1)
+    if (requiredWidth <= availableWidth) {
+      fittingCount = count
+    }
+  }
+
+  return fittingCount
 }
 
 export function matchesProviderFilter(provider: ConnectionProviderSummary, filter: ConnectionCatalogFilter): boolean {

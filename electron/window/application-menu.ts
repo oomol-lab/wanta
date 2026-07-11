@@ -9,7 +9,6 @@ import { applicationMenuLabels } from "./application-menu-messages.ts"
 interface ApplicationMenuOptions {
   developmentMode: boolean
   locale?: string
-  onCheckForUpdates: () => void
   onCommand: (command: AppCommand) => void
   platform: NodeJS.Platform
 }
@@ -41,7 +40,7 @@ export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): Men
       submenu: [
         roleMenuItem("about", label.about),
         {
-          click: input.onCheckForUpdates,
+          click: () => input.onCommand(APP_COMMANDS.checkForUpdates),
           label: label.checkForUpdates,
         },
         { type: "separator" },
@@ -147,7 +146,18 @@ export function buildApplicationMenuTemplate(input: ApplicationMenuOptions): Men
     {
       role: "help",
       label: label.help,
-      submenu: [roleMenuItem("about", label.about)],
+      submenu: [
+        ...(!isMac && input.platform === "win32"
+          ? [
+              {
+                click: () => input.onCommand(APP_COMMANDS.checkForUpdates),
+                label: label.checkForUpdates,
+              },
+              { type: "separator" as const },
+            ]
+          : []),
+        roleMenuItem("about", label.about),
+      ],
     },
   )
 

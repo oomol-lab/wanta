@@ -13,7 +13,6 @@ function menuTemplate(input: Partial<Parameters<typeof buildApplicationMenuTempl
   return buildApplicationMenuTemplate({
     developmentMode: false,
     locale: "en",
-    onCheckForUpdates: () => undefined,
     onCommand: () => undefined,
     platform: "darwin",
     ...input,
@@ -112,8 +111,8 @@ describe("buildApplicationMenuTemplate", () => {
   })
 
   it("places a localized update check in the macOS application menu", () => {
-    const onCheckForUpdates = vi.fn()
-    const template = menuTemplate({ locale: "zh-CN", onCheckForUpdates, platform: "darwin" })
+    const onCommand = vi.fn()
+    const template = menuTemplate({ locale: "zh-CN", onCommand, platform: "darwin" })
     const applicationMenu = findItem(template, branding.appName)
     const submenu = Array.isArray(applicationMenu.submenu) ? applicationMenu.submenu : []
     const updateItem = findItem(submenu, "检查更新…")
@@ -126,12 +125,26 @@ describe("buildApplicationMenuTemplate", () => {
     ).toEqual([`关于 ${branding.appName}`, "检查更新…", "设置…"])
     expect(updateItem.click).toBeTypeOf("function")
     ;(updateItem.click as MenuClick)()
-    expect(onCheckForUpdates).toHaveBeenCalledOnce()
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(APP_COMMANDS.checkForUpdates)
   })
 
-  it("keeps the update check out of non-macOS menus", () => {
-    const template = menuTemplate({ locale: "en", platform: "win32" })
+  it("places the update check in the Windows Help menu", () => {
+    const onCommand = vi.fn()
+    const template = menuTemplate({ locale: "en", onCommand, platform: "win32" })
+    const helpMenu = findItem(template, "Help")
+    const submenu = Array.isArray(helpMenu.submenu) ? helpMenu.submenu : []
+    const updateItem = findItem(submenu, "Check for Updates…")
 
-    expect(collectLabels(template)).not.toContain("Check for Updates…")
+    expect(submenu.map((item) => item.label).filter(Boolean)).toEqual([
+      "Check for Updates…",
+      `About ${branding.appName}`,
+    ])
+    expect(updateItem.click).toBeTypeOf("function")
+    ;(updateItem.click as MenuClick)()
+    expect(onCommand).toHaveBeenCalledExactlyOnceWith(APP_COMMANDS.checkForUpdates)
+  })
+
+  it("keeps the update check out of Linux menus", () => {
+    expect(collectLabels(menuTemplate({ locale: "en", platform: "linux" }))).not.toContain("Check for Updates…")
   })
 })

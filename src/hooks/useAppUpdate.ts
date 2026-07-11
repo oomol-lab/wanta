@@ -9,7 +9,7 @@ export interface UseAppUpdate {
   state: AppUpdateState | null
   isDownloadInFlight: boolean
   isInstallTriggered: boolean
-  check: () => Promise<void>
+  check: () => Promise<AppUpdateState | null>
   checkAndDownload: () => Promise<void>
   download: () => Promise<void>
   install: () => Promise<void>
@@ -61,17 +61,20 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
-function patchUpdateError(error: unknown): void {
+function patchUpdateError(error: unknown): AppUpdateState {
   const current = appUpdateStore.snapshot.state
-  if (!current) {
-    return
-  }
+  const next: AppUpdateState = current
+    ? { ...current, status: { status: "error", error: errorMessage(error) } }
+    : {
+        channel: "stable",
+        currentVersion: globalThis.wanta?.version ?? "—",
+        isPackaged: true,
+        status: { status: "error", error: errorMessage(error) },
+      }
   appUpdateStore.patch({
-    state: {
-      ...current,
-      status: { status: "error", error: errorMessage(error) },
-    },
+    state: next,
   })
+  return next
 }
 
 export function useAppUpdate(): UseAppUpdate {
@@ -105,13 +108,15 @@ export function useAppUpdate(): UseAppUpdate {
     return state
   }, [service])
 
-  const check = React.useCallback(async (): Promise<void> => {
+  const check = React.useCallback(async (): Promise<AppUpdateState | null> => {
     try {
-      appUpdateStore.patch({ state: await service.invoke("checkForAppUpdate") })
+      const next = await service.invoke("checkForAppUpdate")
+      appUpdateStore.patch({ state: next })
+      return next
     } catch (error) {
       console.error("[wanta] checkForAppUpdate failed:", error)
       reportRendererHandledError("update", "update check failed", error)
-      patchUpdateError(error)
+      return patchUpdateError(error)
     }
   }, [service])
 

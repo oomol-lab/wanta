@@ -2,6 +2,7 @@ import type { SessionInfo, SessionProject } from "../../../electron/session/comm
 import type { AppShellRoute } from "./app-shell-types.ts"
 import type { ProjectSidebarGroup } from "./app-sidebar-model.ts"
 import type { SidebarSegment } from "./sidebar-persistence.ts"
+import type { UseAppUpdate } from "@/hooks/useAppUpdate"
 import type { UseOrganizationWorkspace, WorkspaceSelection } from "@/hooks/useOrganizationWorkspace"
 
 import {
@@ -47,7 +48,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { organizationAvatarStyle, organizationInitials } from "@/hooks/useOrganizationWorkspace"
 import { useI18n, useT } from "@/i18n/i18n"
 import { appCommandAriaShortcut, appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
@@ -867,9 +867,8 @@ function AccountAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }
   )
 }
 
-export function AppUpdateTitlebarEntry() {
+export function AppUpdateTitlebarEntry({ update }: { update: UseAppUpdate }) {
   const t = useT()
-  const update = useAppUpdate()
   const state = update.state
 
   if (!state?.isPackaged) {

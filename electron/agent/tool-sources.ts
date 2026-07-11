@@ -257,17 +257,18 @@ import { promisify } from "node:util"
 
 export default tool({
   description:
-    "List connected OOMOL Link provider apps for the active Wanta workspace. Use this when the user asks which providers, connectors, apps, or accounts are connected, authorized, authenticated, or available in the current workspace, including organization workspaces. This uses oo connector apps --json with an explicit active workspace identity. It returns only connected app records, not the full provider/action catalog. For finding runnable actions, use search_actions.",
+    "List connected OOMOL Link provider apps for the active Wanta workspace. Use this only when the user asks which providers, connectors, apps, or accounts are connected, authorized, authenticated, or available, or when an explicit account target must be validated. Do not use it as a health check before normal reads or actions. This uses oo connector apps --json with an explicit active workspace identity. It returns only connected app records, not the full provider/action catalog. For finding runnable actions, use search_actions.",
   args: {
     service: tool.schema.string().optional().describe("Optional service slug to filter, e.g. 'gmail'. Omit to list every connected provider app in the active workspace."),
   },
   async execute(args, context) {
     const service = String(args.service || "").trim()
+    const identity = await currentIdentity(context.sessionID)
     const argv = ["connector", "apps"]
     if (service) {
       argv.push(service)
     }
-    await appendIdentityArgs(argv, null, context.sessionID)
+    await appendIdentityArgs(argv, identity, context.sessionID)
     argv.push("--json")
     try {
       const result = await execFileAsync(OO_BIN, argv, OO_EXEC_OPTIONS)
@@ -275,7 +276,18 @@ export default tool({
     } catch (error) {
       const e = error || {}
       const message = String(e.stderr || e.message || "list connected apps failed").trim()
-      return JSON.stringify({ status: "error", message: message })
+      return JSON.stringify({
+        status: "error",
+        errorCode: "connection_inventory_unavailable",
+        operation: "list_connected_apps",
+        workspace: {
+          scope: identity.scope,
+          organizationName: identity.organizationName || undefined,
+        },
+        message: message,
+        retryGuidance:
+          "Do not retry by omitting the workspace selector or switching workspace identity. If the task is an ordinary read or action and no explicit account target is required, inspect and call that action in the same workspace instead.",
+      })
     }
   },
 })

@@ -734,6 +734,7 @@ export class AgentManager {
       return
     }
     const tail = mergeSystemPrompts(
+      buildWorkspaceIdentitySystem(options.organizationName),
       await this.buildAuthorizedSystem(options.organizationName, options.signal),
       options.system,
       buildArtifactSystem(options.artifactDir),
@@ -986,6 +987,22 @@ export class AgentManager {
     const model = resolveBuiltinModel(modelID)
     return model.capabilities.reasoningVariants?.includes(variant) ? variant : undefined
   }
+}
+
+export function buildWorkspaceIdentitySystem(organizationName?: string): string {
+  const normalizedOrganizationName = normalizeOrganizationName(organizationName)
+  if (normalizedOrganizationName) {
+    return (
+      `Current-turn Link workspace: organization ${JSON.stringify(normalizedOrganizationName)}. ` +
+      `The Link tools apply this organization automatically. If a raw oo connector CLI command is unavoidable, pass ` +
+      `--organization ${JSON.stringify(normalizedOrganizationName)} explicitly. Never omit that selector after an error, ` +
+      `fall back to personal identity, or treat data returned under another identity as a successful retry.`
+    )
+  }
+  return (
+    `Current-turn Link workspace: personal. The Link tools apply personal identity automatically. ` +
+    `If a raw oo connector CLI command is unavoidable, pass --personal explicitly. Never substitute an organization identity.`
+  )
 }
 
 function buildPromptParts(

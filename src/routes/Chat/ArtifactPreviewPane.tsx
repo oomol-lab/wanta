@@ -24,6 +24,7 @@ import {
 } from "./artifact-metadata.ts"
 import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { FileKindIcon } from "./file-type-icons.tsx"
+import { fileVisualKind } from "./file-type-kind.ts"
 import {
   CodeBlock,
   CodeBlockActions,
@@ -41,7 +42,14 @@ import { cn } from "@/lib/utils"
 
 const ArtifactPdfPreview = React.lazy(() => import("./ArtifactPdfPreview.tsx"))
 const ArtifactDocxPreview = React.lazy(() => import("./ArtifactDocxPreview.tsx"))
-const ArtifactSpreadsheetPreview = React.lazy(() => import("./ArtifactSpreadsheetPreview.tsx"))
+function loadArtifactUniverSpreadsheetPreview(): Promise<{
+  default: typeof import("./ArtifactUniverSpreadsheetPreview.tsx").ArtifactUniverSpreadsheetPreview
+}> {
+  return import("./ArtifactUniverSpreadsheetPreview.tsx").then((module) => ({
+    default: module.ArtifactUniverSpreadsheetPreview,
+  }))
+}
+const ArtifactUniverSpreadsheetPreview = React.lazy(loadArtifactUniverSpreadsheetPreview)
 
 export type ArtifactPreviewMode = "preview" | "source" | "info"
 
@@ -124,6 +132,12 @@ export function ArtifactPreview({
       setInternalMode("preview")
     }
   }, [item?.path, onModeChange])
+
+  React.useEffect(() => {
+    if (fileVisualKind(item ?? undefined, pack) === "spreadsheet") {
+      void loadArtifactUniverSpreadsheetPreview()
+    }
+  }, [item, pack])
 
   if (!item) {
     return <ArtifactsEmptyState />
@@ -388,7 +402,7 @@ function ArtifactSpreadsheetLoadingPreview() {
 
   return (
     <div className="flex min-h-full min-w-0 flex-col bg-[var(--oo-artifact-preview-canvas)] p-3">
-      <div className="oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
+      <div className="oo-univer-spreadsheet-preview oo-border-divider relative min-h-[420px] flex-1 overflow-hidden rounded-md border bg-background">
         <div className="oo-text-body absolute inset-0 flex items-center justify-center px-4 py-8 text-muted-foreground">
           {t("artifacts.previewLoading")}
         </div>
@@ -553,7 +567,7 @@ export function ArtifactConsumablePreview({
     return (
       <ErrorBoundary key={`${item.path}:spreadsheet`} fallback={lazyPreviewFallback}>
         <React.Suspense fallback={<ArtifactSpreadsheetLoadingPreview />}>
-          <ArtifactSpreadsheetPreview preview={preview} />
+          <ArtifactUniverSpreadsheetPreview preview={preview} />
         </React.Suspense>
       </ErrorBoundary>
     )

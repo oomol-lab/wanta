@@ -6,7 +6,7 @@ import type {
   OrganizationProviderOption,
   OrganizationUserSummary,
 } from "../../../electron/organizations/common.ts"
-import type { BusyAction, LoadState, ProviderAccessForm, ProviderGrantView } from "./organization-management-model.ts"
+import type { BusyAction, LoadState, ProviderAccessForm } from "./organization-management-model.ts"
 import type { UseOrganizationSkills } from "@/hooks/useOrganizationSkills"
 import type { UseOrganizationWorkspace } from "@/hooks/useOrganizationWorkspace"
 
@@ -30,7 +30,6 @@ import {
   runtimeSkillRemoveBusyKey,
   uniqueStrings,
 } from "./organization-management-model.ts"
-import { parseProviderGrants, removeProviderGrant, setProviderGrant } from "./organization-provider-access.ts"
 import {
   EmptyOrganizationsState,
   OrganizationManagementSkeleton,
@@ -57,23 +56,12 @@ import {
   getOrganizationMembersResource,
   getOrganizationProviderOptionsResource,
   getOrganizationUserSummariesResource,
-  invalidateOrganizationDetailsResource,
 } from "@/lib/organization-details-resource"
-import {
-  addOrganizationMember,
-  createOrganization,
-  disableOrganizationMembers,
-  enableOrganizationMembers,
-  getOrganizationAppAccess,
-  isOrganizationMemberLimitError,
-  removeOrganizationMember,
-  updateOrganizationAppAccess,
-  updateOrganization,
-  uploadOrganizationAvatar,
-} from "@/lib/organizations-client"
+import { createOrganization, updateOrganization, uploadOrganizationAvatar } from "@/lib/organizations-client"
 import { userFacingErrorDescription } from "@/lib/user-facing-error"
 import { useProviderSkillPackageLookup } from "@/routes/Skills/provider-skill-package-lookup"
 import { buildProviderSkillRecommendations } from "@/routes/Skills/provider-skill-recommendations"
+import { useOrganizationMemberActions } from "@/routes/Skills/use-organization-member-actions"
 import { useOrganizationMemberSearch } from "@/routes/Skills/use-organization-member-search"
 import { useOrganizationSkillActions } from "@/routes/Skills/use-organization-skill-actions"
 
@@ -675,236 +663,25 @@ export function OrganizationManagementRoute({
     [selectOrganizationWorkspace],
   )
 
-  const handleAddMember = React.useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault()
-      if (!selectedOrganization || !canManage) {
-        return
-      }
-
-      const currentSearchUserId = selectedSearchUserId ?? activeSearchUserId
-      if (memberSearch.items.length > 0 && !currentSearchUserId) {
-        setAddMemberError(t("organizations.addMemberSelectRequired"))
-        return
-      }
-
-      const userId = memberSearch.items.length > 0 ? currentSearchUserId : memberInput.trim()
-      if (!userId) {
-        setAddMemberError(t("organizations.userIdRequired"))
-        return
-      }
-
-      setBusyAction("add")
-      setAddMemberError(null)
-      try {
-        await addOrganizationMember({ orgId: selectedOrganization.id, userId })
-        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
-        toast.success(t("organizations.addMemberSuccess"))
-        resetMemberSearch()
-        setAddMemberOpen(false)
-        await reloadMembersAndAccess()
-      } catch (error) {
-        const message = errorMessage(error)
-        setAddMemberError(
-          isOrganizationMemberLimitError(error)
-            ? t("organizations.addMemberLimitExceeded")
-            : message.toLowerCase().includes("user does not exist")
-              ? t("organizations.addMemberUserNotFound")
-              : message,
-        )
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [
-      activeSearchUserId,
-      activeAccountId,
-      canManage,
-      memberInput,
-      memberSearch.items.length,
-      reloadMembersAndAccess,
-      resetMemberSearch,
-      selectedOrganization,
-      selectedSearchUserId,
-      t,
-    ],
-  )
-
-  const handleRemoveMember = React.useCallback(
-    async (member: OrganizationMember) => {
-      if (!selectedOrganization || !canManage) {
-        return
-      }
-
-      setBusyAction(`remove:${member.user_id}`)
-      try {
-        await removeOrganizationMember({
-          orgId: selectedOrganization.id,
-          userId: member.user_id,
-        })
-        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
-        toast.success(t("organizations.removeMemberSuccess"))
-        await reloadMembersAndAccess()
-      } catch (error) {
-        toast.error(errorMessage(error))
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [activeAccountId, canManage, reloadMembersAndAccess, selectedOrganization, t],
-  )
-
-  const updateMembersStatus = React.useCallback(
-    async (userIds: string[], disabled: boolean) => {
-      if (!selectedOrganization || !canManage) {
-        return
-      }
-
-      const normalizedUserIds = uniqueStrings(userIds.map((userId) => userId.trim()).filter(Boolean))
-      if (normalizedUserIds.length === 0) {
-        return
-      }
-
-      setBusyAction(disabled ? "disableMembers" : "enableMembers")
-      try {
-        if (disabled) {
-          await disableOrganizationMembers({ orgId: selectedOrganization.id, userIds: normalizedUserIds })
-        } else {
-          await enableOrganizationMembers({ orgId: selectedOrganization.id, userIds: normalizedUserIds })
-        }
-        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
-        toast.success(disabled ? t("organizations.disableMembersSuccess") : t("organizations.enableMembersSuccess"))
-        await reloadMembersAndAccess()
-      } catch (error) {
-        toast.error(errorMessage(error))
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [activeAccountId, canManage, reloadMembersAndAccess, selectedOrganization, t],
-  )
-
-  const handleEnableMembers = React.useCallback(
-    async (userIds: string[]) => {
-      await updateMembersStatus(userIds, false)
-    },
-    [updateMembersStatus],
-  )
-
-  const handleDisableMembers = React.useCallback(
-    async (userIds: string[]) => {
-      await updateMembersStatus(userIds, true)
-    },
-    [updateMembersStatus],
-  )
-
-  const openGrantProviderAccess = React.useCallback((userId?: string) => {
-    setProviderAccessForm({
-      allProviders: false,
-      mode: "create",
-      open: true,
-      providers: [],
-      userId: userId ?? "",
-    })
-  }, [])
-
-  const openEditProviderAccess = React.useCallback((grant: ProviderGrantView) => {
-    setProviderAccessForm({
-      allProviders: grant.allProviders,
-      mode: "edit",
-      open: true,
-      providers: grant.providers.map((provider) => provider.service),
-      userId: grant.userId,
-    })
-  }, [])
-
-  const closeProviderAccess = React.useCallback(() => {
-    if (busyAction === "saveProviderAccess") {
-      return
-    }
-    setProviderAccessForm(initialProviderAccessForm)
-  }, [busyAction])
-
-  const handleSaveProviderAccess = React.useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault()
-      if (!selectedOrganization || !canManage || providerAccessError) {
-        return
-      }
-
-      const userId = providerAccessForm.userId.trim()
-      if (!userId) {
-        toast.error(t("organizations.memberRequired"))
-        return
-      }
-      if (!providerAccessForm.allProviders && providerAccessForm.providers.length === 0) {
-        toast.error(t("organizations.providerRequired"))
-        return
-      }
-
-      setBusyAction("saveProviderAccess")
-      try {
-        const latest = await getOrganizationAppAccess(selectedOrganization.id)
-        const parsed = parseProviderGrants(latest)
-        if (!parsed.ok) {
-          toast.error(t("organizations.providerAccessLoadFailed"))
-          return
-        }
-
-        const existingGrant = parsed.grants.find((grant) => grant.userId === userId)
-        const allProviders =
-          providerAccessForm.mode === "create"
-            ? providerAccessForm.allProviders || Boolean(existingGrant?.allProviders)
-            : providerAccessForm.allProviders
-        const providers =
-          providerAccessForm.mode === "create" && existingGrant && !allProviders
-            ? uniqueStrings([...existingGrant.providers, ...providerAccessForm.providers]).sort()
-            : providerAccessForm.providers
-        const nextAccess = setProviderGrant(parsed.access, userId, providers, allProviders)
-        const updated = await updateOrganizationAppAccess(selectedOrganization.id, nextAccess)
-        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
-        setAppAccessState(readyState(updated))
-        setProviderAccessForm(initialProviderAccessForm)
-        toast.success(t("organizations.providerAccessSaveSuccess"))
-      } catch (error) {
-        toast.error(errorMessage(error))
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [activeAccountId, canManage, providerAccessError, providerAccessForm, selectedOrganization, t],
-  )
-
-  const handleRevokeProviderAccess = React.useCallback(
-    async (grant: ProviderGrantView) => {
-      if (!selectedOrganization || !canManage || providerAccessError) {
-        return
-      }
-
-      setBusyAction(`revokeProviderAccess:${grant.userId}`)
-      try {
-        const latest = await getOrganizationAppAccess(selectedOrganization.id)
-        const parsed = parseProviderGrants(latest)
-        if (!parsed.ok) {
-          toast.error(t("organizations.providerAccessLoadFailed"))
-          return
-        }
-        const updated = await updateOrganizationAppAccess(
-          selectedOrganization.id,
-          removeProviderGrant(parsed.access, grant.userId),
-        )
-        invalidateOrganizationDetailsResource(activeAccountId, selectedOrganization.id)
-        setAppAccessState(readyState(updated))
-        toast.success(t("organizations.providerAccessRevokeSuccess"))
-      } catch (error) {
-        toast.error(errorMessage(error))
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [activeAccountId, canManage, providerAccessError, selectedOrganization, t],
-  )
-
+  const memberActions = useOrganizationMemberActions({
+    activeAccountId,
+    activeSearchUserId,
+    busyAction,
+    canManage,
+    memberInput,
+    memberSearch,
+    providerAccessError,
+    providerAccessForm,
+    reloadDetails: reloadMembersAndAccess,
+    resetMemberSearch,
+    selectedOrganization,
+    selectedSearchUserId,
+    setAddMemberError,
+    setAddMemberOpen,
+    setAppAccessState,
+    setBusyAction,
+    setProviderAccessForm,
+  })
   return (
     <>
       <div className="h-full min-h-0 overflow-hidden px-3 py-3">
@@ -1000,12 +777,12 @@ export function OrganizationManagementRoute({
                       organization={selectedOrganization}
                       providerAccessError={providerAccessError}
                       onAddMember={() => setAddMemberOpen(true)}
-                      onDisableMembers={handleDisableMembers}
-                      onEditProviderAccess={openEditProviderAccess}
-                      onEnableMembers={handleEnableMembers}
-                      onGrantProviderAccess={openGrantProviderAccess}
-                      onRemoveMember={handleRemoveMember}
-                      onRevokeProviderAccess={handleRevokeProviderAccess}
+                      onDisableMembers={memberActions.disableMembers}
+                      onEditProviderAccess={memberActions.openEditProviderAccess}
+                      onEnableMembers={memberActions.enableMembers}
+                      onGrantProviderAccess={memberActions.openGrantProviderAccess}
+                      onRemoveMember={memberActions.removeMember}
+                      onRevokeProviderAccess={memberActions.revokeProviderAccess}
                     />
                   </OrganizationMembersSheet>
                 ) : null}
@@ -1079,16 +856,16 @@ export function OrganizationManagementRoute({
           setSelectedSearchUserId(user.userId)
           setAddMemberError(null)
         }}
-        onSubmit={handleAddMember}
+        onSubmit={memberActions.addMember}
       />
       <ProviderAccessDialog
         busy={busyAction === "saveProviderAccess"}
         form={providerAccessForm}
         memberOptions={memberViews.filter((member) => member.role !== "creator")}
         providerOptions={providerOptionsWithSelected(providerOptionsState.data, providerAccessForm.providers)}
-        onClose={closeProviderAccess}
+        onClose={memberActions.closeProviderAccess}
         onFormChange={setProviderAccessForm}
-        onSubmit={handleSaveProviderAccess}
+        onSubmit={memberActions.saveProviderAccess}
       />
       <RuntimeSkillRemoveConfirmDialog
         busy={runtimeSkillRemoveTarget ? busyAction === runtimeSkillRemoveBusyKey(runtimeSkillRemoveTarget) : false}

@@ -1,4 +1,3 @@
-import type { AppCommand } from "../../../electron/app-command.ts"
 import type {
   AgentMode,
   AgentPermissionMode,
@@ -43,17 +42,12 @@ import {
   projectContextFromProject,
   rememberTurnRetryOptions,
   resolveNewSessionTarget,
-  resolveWorkspaceActivationState,
   sessionRecordScopeKey,
   sessionScopeFromWorkspace,
   sessionScopeKey,
-  shouldClearWorkspaceSwitchTarget,
   shouldShowRecommendedSkillEntry,
-  workspaceActivationBlocksInput,
   workspaceActivationHasFailed,
-  workspaceActivationIsPending,
   workspaceSelectionSwitchKey,
-  WORKSPACE_SWITCH_TIMEOUT_MS,
 } from "./app-shell-model.ts"
 import { buildProjectSidebarGroups, projectSidebarSessionsInRenderOrder } from "./app-sidebar-model.ts"
 import { AppShellArtifactsPanel } from "./AppShellArtifactsPanel.tsx"
@@ -64,16 +58,17 @@ import { AppShellSessionProjectDialogs } from "./AppShellSessionProjectDialogs.t
 import { isPendingChatCaughtUp } from "./pending-chat.ts"
 import { readStoredSidebarSegment, writeStoredSidebarSegment } from "./sidebar-persistence.ts"
 import { compareRunningSessions, groupSidebarSessions, nextActiveSessionIdAfterArchive } from "./sidebar-sessions.ts"
+import { useAppShellCommands } from "./use-app-shell-commands.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
 import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
 import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
+import { useWorkspaceActivation } from "./use-workspace-activation.ts"
 import { ProjectContextBar } from "@/components/app-shell/ProjectContextBar"
 import { useChatService } from "@/components/AppContext"
 import { useSkillInventoryResource } from "@/components/AppDataHooks"
-import { useAppCommandEvents, useAppCommandShortcuts } from "@/hooks/useAppCommandShortcuts"
 import { useAppUpdate } from "@/hooks/useAppUpdate"
 import { useChat } from "@/hooks/useChat"
 import { useConnections } from "@/hooks/useConnections"
@@ -84,7 +79,6 @@ import { useProviderSkillRecommendations } from "@/hooks/useProviderSkillRecomme
 import { useSessions } from "@/hooks/useSessions"
 import { useT } from "@/i18n/i18n"
 import { appCommandShortcutLabel, labelWithShortcut } from "@/lib/app-shortcuts"
-import { resolveManualUpdateCheckAction, shouldStartManualUpdateCheck } from "@/lib/manual-update-check"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
 import { resolveUserFacingError, userFacingErrorDescription } from "@/lib/user-facing-error"
 import { cn } from "@/lib/utils"
@@ -177,10 +171,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     remove: removeSession,
     refresh: refreshSessions,
   } = useSessions({ enabled: sessionsEnabled, scope: sessionScope ?? undefined })
-  const [workspaceSwitchTargetKey, setWorkspaceSwitchTargetKey] = React.useState<string | null>(null)
-  const [workspaceSwitchTimedOutKey, setWorkspaceSwitchTimedOutKey] = React.useState<string | null>(null)
-  const workspaceSwitchStartedAt = React.useRef<number | null>(null)
-  const observedWorkspaceKeyRef = React.useRef<string | null>(null)
   const currentScopeKey = sessionScopeKey(sessionScope)
   const currentConnectionWorkspaceKey = organizationWorkspace.connectionWorkspace
     ? connectionWorkspaceSwitchKey(organizationWorkspace.connectionWorkspace)
@@ -198,25 +188,29 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const organizationSkillsSettled =
     !activeOrganizationId ||
     (activeOrganizationSkillsMatched && !organizationSkills.loading && organizationSkills.hasLoaded)
-  const workspaceActivationState = resolveWorkspaceActivationState({
-    agentScopeSyncError: connections.scopeSyncError,
-    agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
-    connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
-    connectionWorkspaceKey: currentConnectionWorkspaceKey,
-    connectionsRefreshing: connections.busy === "refresh",
-    currentScopeKey,
-    loadedSessionScopeKey: sessionsLoadedScopeKey,
-    organizationSkillsError,
-    organizationSkillsSettled,
-    targetScopeKey: workspaceSwitchTargetKey,
-    workspaceMetadataError: organizationWorkspace.error,
+  const {
+    activationBlocked: workspaceActivationBlocked,
+    activationState: workspaceActivationState,
+    handleSwitchStart: handleWorkspaceSwitchStart,
+    navigationSwitching: workspaceNavigationSwitching,
+  } = useWorkspaceActivation({
+    activationInput: {
+      agentScopeSyncError: connections.scopeSyncError,
+      agentScopeWorkspaceKey: connections.agentScopeWorkspaceKey,
+      connectionSettledWorkspaceKey: connections.summaryWorkspaceKey,
+      connectionWorkspaceKey: currentConnectionWorkspaceKey,
+      connectionsRefreshing: connections.busy === "refresh",
+      currentScopeKey,
+      loadedSessionScopeKey: sessionsLoadedScopeKey,
+      organizationSkillsError,
+      organizationSkillsSettled,
+      workspaceMetadataError: organizationWorkspace.error,
+    },
+    activeWorkspaceKey,
+    hasLoadedOrganizations: organizationWorkspace.hasLoaded,
+    loadingOrganizations: organizationWorkspace.loading,
+    organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
   })
-  const workspaceSwitching = workspaceActivationIsPending(workspaceActivationState)
-  const workspaceSwitchTimedOut = Boolean(
-    workspaceSwitchTargetKey && workspaceSwitchTimedOutKey === workspaceSwitchTargetKey,
-  )
-  const workspaceNavigationSwitching = workspaceSwitching && !workspaceSwitchTimedOut
-  const workspaceActivationBlocked = workspaceActivationBlocksInput(workspaceActivationState)
   const sessionsSettledForCurrentScope = sessionsLoaded && sessionsLoadedScopeKey === currentScopeKey
   const visibleSessions = React.useMemo(
     () => (sessionsSettledForCurrentScope ? sessions : []),
@@ -234,66 +228,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     () => (sessionsSettledForCurrentScope ? projects : []),
     [projects, sessionsSettledForCurrentScope],
   )
-  const handleWorkspaceSwitchStart = React.useCallback((targetScopeKey: string): void => {
-    workspaceSwitchStartedAt.current = Date.now()
-    setWorkspaceSwitchTimedOutKey(null)
-    setWorkspaceSwitchTargetKey(targetScopeKey)
-  }, [])
-  React.useLayoutEffect(() => {
-    if (observedWorkspaceKeyRef.current === null) {
-      observedWorkspaceKeyRef.current = activeWorkspaceKey
-      return
-    }
-    if (observedWorkspaceKeyRef.current === activeWorkspaceKey) {
-      return
-    }
-    observedWorkspaceKeyRef.current = activeWorkspaceKey
-    // 组织管理页也能切 workspace，这里把非侧边栏入口并入同一套 activation 流。
-    handleWorkspaceSwitchStart(activeWorkspaceKey)
-  }, [activeWorkspaceKey, handleWorkspaceSwitchStart])
-  React.useEffect(() => {
-    if (!workspaceSwitchTargetKey) {
-      workspaceSwitchStartedAt.current = null
-      return
-    }
-    const shouldClearTarget = shouldClearWorkspaceSwitchTarget({
-      activeWorkspaceKey,
-      hasLoadedOrganizations: organizationWorkspace.hasLoaded,
-      loadingOrganizations: organizationWorkspace.loading,
-      organizationIds: organizationWorkspace.organizations.map((organization) => organization.id),
-      targetScopeKey: workspaceSwitchTargetKey,
-      workspaceSwitching,
-    })
-    if (shouldClearTarget) {
-      setWorkspaceSwitchTimedOutKey(null)
-      setWorkspaceSwitchTargetKey(null)
-    }
-  }, [
-    activeWorkspaceKey,
-    organizationWorkspace.hasLoaded,
-    organizationWorkspace.loading,
-    organizationWorkspace.organizations,
-    workspaceSwitchTargetKey,
-    workspaceSwitching,
-  ])
-  React.useEffect(() => {
-    if (!workspaceSwitchTargetKey) {
-      setWorkspaceSwitchTimedOutKey(null)
-      return
-    }
-    const startedAt = workspaceSwitchStartedAt.current ?? Date.now()
-    workspaceSwitchStartedAt.current = startedAt
-    const remainingMs = WORKSPACE_SWITCH_TIMEOUT_MS - (Date.now() - startedAt)
-    if (remainingMs <= 0) {
-      setWorkspaceSwitchTimedOutKey(workspaceSwitchTargetKey)
-      return
-    }
-    // 超时只释放 workspace 选择器，不把真实切换状态伪装成完成。
-    const timeoutId = window.setTimeout(() => {
-      setWorkspaceSwitchTimedOutKey((current) => current ?? workspaceSwitchTargetKey)
-    }, remainingMs)
-    return () => window.clearTimeout(timeoutId)
-  }, [workspaceSwitchTargetKey])
   const [route, setRoute] = React.useState<Route>(initialRoute)
   const [selectedSessionId, setSelectedSessionId] = React.useState<string | null>(null)
   const [isDraftSession, setIsDraftSession] = React.useState(false)
@@ -1487,49 +1421,27 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       await stop(activeChatSessionId)
     }
   }, [activeChatSessionId, stop])
-  const showManualUpdateCheckResult = React.useCallback(
-    (state: Parameters<typeof resolveManualUpdateCheckAction>[0]): void => {
-      const action = resolveManualUpdateCheckAction(state)
-      const options = { id: "manual-update-check" }
-      switch (action.type) {
-        case "check":
-        case "checking":
-          toast.loading(t("nav.updateChecking"), options)
-          return
-        case "available":
-          toast.info(t("nav.updateAvailable", { version: action.version }), options)
-          return
-        case "downloading":
-          toast.info(t("nav.updateDownloading", { percent: action.percent }), options)
-          return
-        case "downloaded":
-          toast.info(t("nav.updateReady", { version: action.version }), options)
-          return
-        case "not-available":
-          toast.success(t("nav.updateUpToDate", { version: action.version }), options)
-          return
-        case "error":
-          toast.error(t("nav.updateCheckFailed"), options)
-          return
-        case "unavailable":
-          toast.info(t("nav.updateDevUnavailable"), options)
-      }
-    },
-    [t],
-  )
-  const handleManualUpdateCheck = React.useCallback(async (): Promise<void> => {
-    if (!shouldStartManualUpdateCheck(appUpdate.state)) {
-      showManualUpdateCheckResult(appUpdate.state)
-      return
-    }
-    showManualUpdateCheckResult({
-      channel: appUpdate.state?.channel ?? "stable",
-      currentVersion: appUpdate.state?.currentVersion ?? globalThis.wanta?.version ?? "—",
-      isPackaged: true,
-      status: { status: "checking" },
-    })
-    showManualUpdateCheckResult(await appUpdate.check())
-  }, [appUpdate, showManualUpdateCheckResult])
+  const handleOpenConnectionsCommand = React.useCallback((): void => {
+    handleReturnToConnections()
+    void connections.refresh({ forceRefresh: true })
+  }, [connections.refresh, handleReturnToConnections])
+  const handleOpenSettingsCommand = React.useCallback((): void => {
+    setSearchOpen(false)
+    setRoute("settings")
+  }, [])
+  const handleStopGenerationCommand = React.useCallback((): void => {
+    void handleChatStop()
+  }, [handleChatStop])
+  useAppShellCommands({
+    appUpdate,
+    onFocusComposer: requestComposerFocus,
+    onNewChat: handleNewSession,
+    onOpenConnections: handleOpenConnectionsCommand,
+    onOpenSearch: handleOpenSearch,
+    onOpenSettings: handleOpenSettingsCommand,
+    onStopGeneration: handleStopGenerationCommand,
+    onToggleSidebar: handleToggleSidebar,
+  })
   const handlePermissionModeChange = React.useCallback(
     (mode: AgentPermissionMode): void => {
       if (activeChatSessionId) {
@@ -1540,50 +1452,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     },
     [activeChatSessionId, setAndPersistPermissionMode],
   )
-  const runAppCommand = React.useCallback(
-    (command: AppCommand): void => {
-      switch (command) {
-        case APP_COMMANDS.checkForUpdates:
-          void handleManualUpdateCheck()
-          return
-        case APP_COMMANDS.openConnections:
-          handleReturnToConnections()
-          void connections.refresh({ forceRefresh: true })
-          return
-        case APP_COMMANDS.focusComposer:
-          requestComposerFocus()
-          return
-        case APP_COMMANDS.newChat:
-          handleNewSession()
-          return
-        case APP_COMMANDS.openSearch:
-          handleOpenSearch()
-          return
-        case APP_COMMANDS.openSettings:
-          setSearchOpen(false)
-          setRoute("settings")
-          return
-        case APP_COMMANDS.stopGeneration:
-          void handleChatStop()
-          return
-        case APP_COMMANDS.toggleSidebar:
-          handleToggleSidebar()
-          return
-      }
-    },
-    [
-      connections.refresh,
-      handleChatStop,
-      handleManualUpdateCheck,
-      handleNewSession,
-      handleOpenSearch,
-      handleReturnToConnections,
-      handleToggleSidebar,
-      requestComposerFocus,
-    ],
-  )
-  useAppCommandEvents(runAppCommand)
-  useAppCommandShortcuts(runAppCommand)
 
   const handleViewBilling = React.useCallback((target?: BillingDetailsTarget) => {
     setBillingInitialTarget(target ?? null)

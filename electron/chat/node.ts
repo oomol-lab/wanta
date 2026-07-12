@@ -90,6 +90,7 @@ import { PermissionState } from "./permission-state.ts"
 import { attachmentPreview, localArtifactPreview } from "./previews.ts"
 import { applyStoppedGenerations, recordStoppedGeneration } from "./stopped-generations.ts"
 import { ChatStreamEventBuffer } from "./stream-event-buffer.ts"
+import { SubagentSessions } from "./subagent-sessions.ts"
 import { TrustedLocalAccess } from "./trusted-local-access.ts"
 import {
   generationNoticeKindForInactivity,
@@ -264,10 +265,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private connectionFailedSessions = new Set<string>()
-  private childSessionsByParent = new Map<string, Set<string>>()
-  private parentSessionByChild = new Map<string, string>()
-  private trustedSubagentSessionsByParent = new Map<string, Set<string>>()
   private readonly trustedAccess: TrustedLocalAccess
+  private readonly subagentSessions: SubagentSessions
   private readonly permissions = new PermissionState()
   private readonly deps: ChatServiceDeps
   private agentStatus: AgentRuntimeStatus = { status: "signed_out" }
@@ -296,6 +295,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       loadAdditionalRoots: () => this.loadAdditionalTrustedRoots(),
       ...(deps.trustedAttachmentPaths ? { trustedAttachmentPaths: deps.trustedAttachmentPaths } : {}),
     })
+    this.subagentSessions = new SubagentSessions(this.permissions, this.trustedAccess)
   }
 
   public override dispose(): void {
@@ -321,10 +321,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
     this.connectionFailedSessions.clear()
-    this.childSessionsByParent.clear()
-    this.parentSessionByChild.clear()
     this.trustedAccess.clear()
-    this.trustedSubagentSessionsByParent.clear()
+    this.subagentSessions.clear()
     this.permissions.clear()
     this.transientArtifactBundles.clear()
     this.authorizationOverlays.clear()
@@ -431,7 +429,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
           continue
         }
-        const displayed = this.translatedForDisplay(translated)
+        const displayed = this.subagentSessions.forDisplay(translated)
         const displayedSessionId = displayed.data.sessionId
         if (
           sourceSessionId &&
@@ -470,8 +468,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           })
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
-            this.rememberChildSession(translated.data.sessionId, childSessionId)
-            this.rememberTrustedSubagentSession(translated.data.sessionId, childSessionId)
+            this.subagentSessions.remember(translated.data.sessionId, childSessionId)
           }
         }
         if (translated.event === "toolCallResult") {
@@ -487,8 +484,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           })
           const childSessionId = taskChildSessionId(translated.data)
           if (childSessionId) {
-            this.forgetChildSession(translated.data.sessionId, childSessionId)
-            this.forgetTrustedSubagentSession(translated.data.sessionId, childSessionId)
+            this.subagentSessions.forget(translated.data.sessionId, childSessionId)
           }
           if (translated.data.authorization) {
             void this.rememberAuthorizationOverlay(
@@ -802,7 +798,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent || decision.type !== "allow") {
       return false
     }
-    const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+    const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
     const displayRequest =
       displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
     if (!this.permissions.beginAutomaticReply(request.sessionId, request.id)) {
@@ -866,114 +862,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     for (const request of permissions) {
       this.answerLocalAccessPermission(emit, request)
     }
-  }
-
-  private rememberChildSession(parentSessionId: string, childSessionId: string): void {
-    const childSessionIds = this.childSessionsByParent.get(parentSessionId) ?? new Set<string>()
-    childSessionIds.add(childSessionId)
-    this.childSessionsByParent.set(parentSessionId, childSessionIds)
-    this.parentSessionByChild.set(childSessionId, parentSessionId)
-  }
-
-  private forgetChildSession(parentSessionId: string, childSessionId: string): void {
-    const childSessionIds = this.childSessionsByParent.get(parentSessionId)
-    if (childSessionIds) {
-      childSessionIds.delete(childSessionId)
-      if (childSessionIds.size === 0) {
-        this.childSessionsByParent.delete(parentSessionId)
-      }
-    }
-    if (this.parentSessionByChild.get(childSessionId) === parentSessionId) {
-      this.parentSessionByChild.delete(childSessionId)
-    }
-  }
-
-  private forgetChildSessions(parentSessionId: string): void {
-    const childSessionIds = this.childSessionsByParent.get(parentSessionId)
-    if (!childSessionIds) {
-      return
-    }
-    for (const childSessionId of childSessionIds) {
-      if (this.parentSessionByChild.get(childSessionId) === parentSessionId) {
-        this.parentSessionByChild.delete(childSessionId)
-      }
-    }
-    this.childSessionsByParent.delete(parentSessionId)
-  }
-
-  private displaySessionIdForEvent(sessionId: string): string {
-    return this.parentSessionByChild.get(sessionId) ?? sessionId
-  }
-
-  private translatedForDisplay(translated: ChatEmit): ChatEmit {
-    const sessionId = translated.data.sessionId
-    if (!sessionId) {
-      return translated
-    }
-    const displaySessionId = this.displaySessionIdForEvent(sessionId)
-    if (displaySessionId === sessionId) {
-      return translated
-    }
-    switch (translated.event) {
-      case "permissionAsked":
-        return {
-          ...translated,
-          data: {
-            sessionId: displaySessionId,
-            request: { ...translated.data.request, sessionId: displaySessionId },
-          },
-        }
-      case "questionAsked":
-        return {
-          ...translated,
-          data: {
-            sessionId: displaySessionId,
-            request: { ...translated.data.request, sessionId: displaySessionId },
-          },
-        }
-      case "permissionReplied":
-      case "questionRejected":
-      case "questionReplied":
-        return { ...translated, data: { ...translated.data, sessionId: displaySessionId } }
-      default:
-        return translated
-    }
-  }
-
-  private rememberTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
-    const copiedPermissionState = this.permissions.copySession(parentSessionId, childSessionId)
-    const copiedLocalAccess = this.trustedAccess.copySession(parentSessionId, childSessionId)
-    if (!copiedPermissionState && !copiedLocalAccess) {
-      return
-    }
-    const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId) ?? new Set<string>()
-    childSessionIds.add(childSessionId)
-    this.trustedSubagentSessionsByParent.set(parentSessionId, childSessionIds)
-  }
-
-  private forgetTrustedSubagentSession(parentSessionId: string, childSessionId: string): void {
-    const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId)
-    if (!childSessionIds?.has(childSessionId)) {
-      return
-    }
-    childSessionIds.delete(childSessionId)
-    this.permissions.deleteSession(childSessionId)
-    this.trustedAccess.deleteSession(childSessionId)
-    if (childSessionIds.size === 0) {
-      this.trustedSubagentSessionsByParent.delete(parentSessionId)
-    }
-  }
-
-  private forgetTrustedSubagentSessions(parentSessionId: string): void {
-    const childSessionIds = this.trustedSubagentSessionsByParent.get(parentSessionId)
-    if (!childSessionIds) {
-      return
-    }
-    for (const childSessionId of childSessionIds) {
-      this.permissions.deleteSession(childSessionId)
-      this.trustedAccess.deleteSession(childSessionId)
-    }
-    this.trustedSubagentSessionsByParent.delete(parentSessionId)
   }
 
   private rememberTrustedAttachments(sessionId: string, attachments: readonly ChatAttachment[] | undefined): void {
@@ -1059,8 +947,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     this.generations.clear(sessionId, generationId)
-    this.forgetChildSessions(sessionId)
-    this.forgetTrustedSubagentSessions(sessionId)
+    this.subagentSessions.forgetAll(sessionId)
     this.forgetSessionPendingPermissionRequests(sessionId)
     this.removeGenerationPermissionGrants(sessionId, generation?.id)
     this.activeRuns.delete(sessionId, generationId)
@@ -1192,7 +1079,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (this.generations.has(sessionId)) {
       return sessionId
     }
-    const parentSessionId = this.parentSessionByChild.get(sessionId)
+    const parentSessionId = this.subagentSessions.parentSessionId(sessionId)
     if (parentSessionId && this.generations.has(parentSessionId)) {
       return parentSessionId
     }
@@ -1863,12 +1750,12 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return []
     }
-    const sessionIds = [sessionId, ...(this.childSessionsByParent.get(sessionId) ?? [])]
+    const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const questions: ChatQuestionRequest[] = []
     for (const currentSessionId of sessionIds) {
       const sessionQuestions = await this.agent.getPendingQuestions(currentSessionId)
       for (const request of sessionQuestions) {
-        const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+        const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
         questions.push(displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId })
       }
     }
@@ -1903,14 +1790,14 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return []
     }
-    const sessionIds = [sessionId, ...(this.childSessionsByParent.get(sessionId) ?? [])]
+    const sessionIds = [sessionId, ...this.subagentSessions.childSessionIds(sessionId)]
     const pendingPermissions: ChatPermissionRequest[] = []
     const emit = this.send.bind(this) as (event: string, data: unknown) => Promise<void>
     for (const currentSessionId of sessionIds) {
       const permissions = await this.agent.getPendingPermissions(currentSessionId)
       for (const request of permissions) {
         if (!this.answerLocalAccessPermission(emit, request)) {
-          const displaySessionId = this.displaySessionIdForEvent(request.sessionId)
+          const displaySessionId = this.subagentSessions.displaySessionId(request.sessionId)
           const displayRequest =
             displaySessionId === request.sessionId ? request : { ...request, sessionId: displaySessionId }
           this.rememberPendingPermissionRequest(displayRequest)
@@ -1961,7 +1848,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       return
     }
     const affectedSessionIds = [req.sessionId]
-    for (const childSessionId of this.trustedSubagentSessionsByParent.get(req.sessionId) ?? []) {
+    for (const childSessionId of this.subagentSessions.trustedChildSessionIds(req.sessionId)) {
       if (this.setSessionPermissionModeValue(childSessionId, req.permissionMode, req.version)) {
         affectedSessionIds.push(childSessionId)
       }

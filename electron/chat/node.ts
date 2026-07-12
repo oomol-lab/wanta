@@ -2,7 +2,7 @@ import type { ChatEmit } from "../agent/event-translator.ts"
 import type { AgentEventConnectionStatus, AgentManager } from "../agent/manager.ts"
 import type { GitTurnBaseline } from "../git/turn-diff.ts"
 import type { SessionProjectStore } from "../session/project-store.ts"
-import type { ArtifactBundleStore, ArtifactBundles, ArtifactSessionBaseline } from "./artifact-bundles.ts"
+import type { ArtifactBundleStore, ArtifactBundles } from "./artifact-bundles.ts"
 import type { AuthorizationOverlayStore, AuthorizationOverlays } from "./authorization.ts"
 import type {
   AgentRuntimeStatus,
@@ -105,6 +105,7 @@ import {
   projectOutputFiles,
   summarizeTurnFiles,
 } from "./turn-output-files.ts"
+import { TurnOutputRegistry } from "./turn-output-registry.ts"
 import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 import { UserStopTracker } from "./user-stop-tracker.ts"
 
@@ -118,18 +119,6 @@ const generationActiveToolInactivityTimeoutMs = 10 * 60_000
 const questionRejectTimeoutMs = 5_000
 const defaultMaxDirectoryItems = 80
 const startedMessageLimit = 5_000
-
-interface ActiveTurnOutput {
-  artifactBaseline?: ArtifactSessionBaseline
-  artifactRoot: string
-  createdAt: number
-  generationId: string
-  messageId?: string
-  processRoot: string
-  projectBaseline?: GitTurnBaseline
-  projectRoot?: string
-  requestText: string
-}
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -258,10 +247,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       sessionId,
     })
   })
-  private pendingArtifactDirs = new Map<string, string[]>()
-  private pendingProcessDirs = new Map<string, string[]>()
-  // 按 generation id 索引，避免旧 generation 的 late cleanup 误删同 session 的新 turn output。
-  private activeTurnOutputs = new Map<string, ActiveTurnOutput>()
+  private readonly turnOutputs: TurnOutputRegistry
   private activeAssistantMessages = new Map<string, string>()
   private activeToolParts = new Map<string, Set<string>>()
   private connectionFailedSessions = new Set<string>()
@@ -296,6 +282,10 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       ...(deps.trustedAttachmentPaths ? { trustedAttachmentPaths: deps.trustedAttachmentPaths } : {}),
     })
     this.subagentSessions = new SubagentSessions(this.permissions, this.trustedAccess)
+    this.turnOutputs = new TurnOutputRegistry({
+      generationIdForSession: (sessionId) => this.generations.get(sessionId)?.id,
+      onRootsChanged: () => this.invalidateTrustedLocalPathRoots(),
+    })
   }
 
   public override dispose(): void {
@@ -315,9 +305,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.emittedMessageErrors.clear()
     this.activeRuns.clear()
     this.generations.reset()
-    this.pendingArtifactDirs.clear()
-    this.pendingProcessDirs.clear()
-    this.activeTurnOutputs.clear()
+    this.turnOutputs.clear()
     this.activeAssistantMessages.clear()
     this.activeToolParts.clear()
     this.connectionFailedSessions.clear()
@@ -346,12 +334,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   }
 
   public hasActiveGeneration(): boolean {
-    return (
-      this.activeAssistantMessages.size > 0 ||
-      this.pendingArtifactDirs.size > 0 ||
-      this.pendingProcessDirs.size > 0 ||
-      this.generations.size > 0
-    )
+    return this.activeAssistantMessages.size > 0 || this.turnOutputs.size > 0 || this.generations.size > 0
   }
 
   /** agent 就绪后调用：订阅 OpenCode SSE，转译为 ServerEvents 广播给渲染层。 */
@@ -447,10 +430,9 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         if (translated.event === "messageStarted" && translated.data.role === "assistant") {
           this.activeAssistantMessages.set(translated.data.sessionId, translated.data.messageId)
           this.activeToolParts.set(translated.data.sessionId, new Set())
-          const artifactRoot = this.consumePendingArtifactDir(translated.data.sessionId)
-          const processRoot = this.consumePendingProcessDir(translated.data.sessionId)
+          const { artifactRoot, processRoot } = this.turnOutputs.consume(translated.data.sessionId)
           if (artifactRoot && processRoot) {
-            const activeTurn = this.activeTurnOutputForSession(translated.data.sessionId)
+            const activeTurn = this.turnOutputs.forSession(translated.data.sessionId)
             if (activeTurn?.artifactRoot === artifactRoot && activeTurn.processRoot === processRoot) {
               activeTurn.messageId = translated.data.messageId
             }
@@ -556,8 +538,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const sessionIds = new Set<string>([
       ...this.generations.keys(),
       ...this.activeAssistantMessages.keys(),
-      ...this.pendingArtifactDirs.keys(),
-      ...this.pendingProcessDirs.keys(),
+      ...this.turnOutputs.pendingSessionIds(),
     ])
     if (sessionIds.size === 0) {
       return
@@ -587,80 +568,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         abortAgent: false,
       })
     }
-  }
-
-  private enqueuePendingArtifactDir(sessionId: string, artifactDir: string): void {
-    const queue = this.pendingArtifactDirs.get(sessionId) ?? []
-    queue.push(artifactDir)
-    this.pendingArtifactDirs.set(sessionId, queue)
-  }
-
-  private enqueuePendingProcessDir(sessionId: string, processDir: string): void {
-    const queue = this.pendingProcessDirs.get(sessionId) ?? []
-    queue.push(processDir)
-    this.pendingProcessDirs.set(sessionId, queue)
-  }
-
-  private consumePendingArtifactDir(sessionId: string): string | undefined {
-    const queue = this.pendingArtifactDirs.get(sessionId)
-    const artifactDir = queue?.shift()
-    if (!queue || queue.length === 0) {
-      this.pendingArtifactDirs.delete(sessionId)
-    }
-    return artifactDir
-  }
-
-  private consumePendingProcessDir(sessionId: string): string | undefined {
-    const queue = this.pendingProcessDirs.get(sessionId)
-    const processDir = queue?.shift()
-    if (!queue || queue.length === 0) {
-      this.pendingProcessDirs.delete(sessionId)
-    }
-    return processDir
-  }
-
-  private removePendingArtifactDir(sessionId: string, artifactDir: string): void {
-    const queue = this.pendingArtifactDirs.get(sessionId)
-    if (!queue) {
-      return
-    }
-    const next = queue.filter((item) => item !== artifactDir)
-    if (next.length === 0) {
-      this.pendingArtifactDirs.delete(sessionId)
-      return
-    }
-    this.pendingArtifactDirs.set(sessionId, next)
-  }
-
-  private removePendingProcessDir(sessionId: string, processDir: string): void {
-    const queue = this.pendingProcessDirs.get(sessionId)
-    if (!queue) {
-      return
-    }
-    const next = queue.filter((item) => item !== processDir)
-    if (next.length === 0) {
-      this.pendingProcessDirs.delete(sessionId)
-      return
-    }
-    this.pendingProcessDirs.set(sessionId, next)
-  }
-
-  private deleteActiveTurnOutput(sessionId: string, generationId?: string): void {
-    const activeGenerationId = generationId ?? this.generations.get(sessionId)?.id
-    if (!activeGenerationId) {
-      return
-    }
-    if (this.activeTurnOutputs.delete(activeGenerationId)) {
-      this.invalidateTrustedLocalPathRoots()
-    }
-  }
-
-  private activeTurnOutputForSession(sessionId: string): ActiveTurnOutput | undefined {
-    const generationId = this.generations.get(sessionId)?.id
-    if (!generationId) {
-      return
-    }
-    return this.activeTurnOutputs.get(generationId)
   }
 
   private clearMessageErrorSignatures(sessionId: string): void {
@@ -749,7 +656,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
   private addSessionPermissionGrant(sessionId: string, request: ChatPermissionRequest): void {
     const trustedProjectRoot = this.trustedAccess.projectRoot(sessionId)
     const generationId = this.generations.get(sessionId)?.id
-    const managedPythonProcessRoot = generationId ? this.activeTurnOutputs.get(generationId)?.processRoot : undefined
+    const managedPythonProcessRoot = generationId ? this.turnOutputs.get(generationId)?.processRoot : undefined
     const candidate = localAccessGrantForRequest(request, {
       ...(trustedProjectRoot ? { trustedProjectRoot } : {}),
       ...(managedPythonProcessRoot ? { managedPythonProcessRoot } : {}),
@@ -886,7 +793,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private async loadAdditionalTrustedRoots(): Promise<Iterable<string>> {
     const roots = new Set<string>()
-    for (const active of this.activeTurnOutputs.values()) {
+    for (const active of this.turnOutputs.activeValues()) {
       roots.add(active.artifactRoot)
       roots.add(active.processRoot)
       if (active.projectRoot) {
@@ -1140,9 +1047,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       console.warn("[wanta] failed to finalize stopped turn output", error)
     })
     this.clearSessionGeneration(sessionId, generation?.id)
-    this.pendingArtifactDirs.delete(sessionId)
-    this.pendingProcessDirs.delete(sessionId)
-    this.deleteActiveTurnOutput(sessionId, generation?.id)
+    this.turnOutputs.clearPending(sessionId)
+    this.turnOutputs.delete(sessionId, generation?.id)
     this.activeAssistantMessages.delete(sessionId)
     this.activeToolParts.delete(sessionId)
     if (options.reason === "user") {
@@ -1239,9 +1145,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         )
         return null
       })
-      this.enqueuePendingArtifactDir(req.sessionId, artifactDir)
-      this.enqueuePendingProcessDir(req.sessionId, processDir)
-      this.activeTurnOutputs.set(activeGeneration.id, {
+      this.turnOutputs.enqueue(req.sessionId, artifactDir, processDir)
+      this.turnOutputs.set(activeGeneration.id, {
         artifactRoot: artifactDir,
         processRoot: processDir,
         createdAt: Date.now(),
@@ -1251,7 +1156,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         ...(project.baseline ? { projectBaseline: project.baseline } : {}),
         ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
       })
-      this.invalidateTrustedLocalPathRoots()
       const promptGeneration = activeGeneration
       // promptStreaming 的结果经 SSE 推送；RPC 只确认主进程已接收本轮发送，避免首条消息 UI 等到流式内容已累积后才切换。
       this.activeRuns.update(req.sessionId, { phase: "submitted" })
@@ -1283,13 +1187,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           }
         })
         .catch((error: unknown) => {
-          if (artifactDir) {
-            this.removePendingArtifactDir(req.sessionId, artifactDir)
-          }
-          if (processDir) {
-            this.removePendingProcessDir(req.sessionId, processDir)
-          }
-          this.deleteActiveTurnOutput(req.sessionId, promptGeneration.id)
+          this.turnOutputs.removePending(req.sessionId, artifactDir, processDir)
+          this.turnOutputs.delete(req.sessionId, promptGeneration.id)
           if (
             !this.isCurrentGeneration(req.sessionId, promptGeneration.id) ||
             promptGeneration.controller.signal.aborted
@@ -1481,12 +1380,8 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
 
   private async finalizeTurnOutput(sessionId: string, messageId: string | undefined): Promise<void> {
     const generationId = this.generations.get(sessionId)?.id
-    const active = generationId ? this.activeTurnOutputs.get(generationId) : undefined
-    if (generationId) {
-      if (this.activeTurnOutputs.delete(generationId)) {
-        this.invalidateTrustedLocalPathRoots()
-      }
-    }
+    const active = generationId ? this.turnOutputs.get(generationId) : undefined
+    if (generationId) this.turnOutputs.delete(sessionId, generationId)
     const resolvedMessageId = messageId ?? active?.messageId
     if (!active) {
       return

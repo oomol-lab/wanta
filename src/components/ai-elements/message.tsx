@@ -109,10 +109,6 @@ export type MessageResponseProps = StreamdownProps & {
   smooth?: boolean
 }
 
-type MarkdownTableProps = ComponentProps<"table"> & {
-  node?: unknown
-}
-
 type MarkdownInlineCodeProps = ComponentProps<"code"> & {
   node?: unknown
 }
@@ -190,19 +186,6 @@ export function compactLocalPath(value: string, maxLength = 72): string {
   const head = Math.ceil(keep * 0.45)
   const tail = keep - head
   return `${normalized.slice(0, head)}${ellipsis}${normalized.slice(-tail)}`
-}
-
-export function MarkdownTable({ children, className, node: _, ...props }: MarkdownTableProps) {
-  return (
-    <div className="my-3 max-w-full min-w-0 overflow-hidden">
-      <table
-        className={cn("oo-text-body w-full table-fixed border-collapse border border-border", className)}
-        {...props}
-      >
-        {children}
-      </table>
-    </div>
-  )
 }
 
 function MarkdownLocalPath({ className, value, ...props }: MarkdownLocalPathProps) {
@@ -312,7 +295,6 @@ export function MarkdownCodeBlock({ children, className, node: _, ref: _ref }: M
 const messageResponseComponents = {
   code: MarkdownCodeBlock,
   img: MarkdownImage,
-  table: MarkdownTable,
 } satisfies MessageResponseProps["components"]
 
 interface LocalImagePreview {

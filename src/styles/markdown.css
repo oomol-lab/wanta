@@ -22,13 +22,11 @@
   .oo-markdown ol,
   .oo-markdown pre,
   .oo-markdown blockquote,
-  .oo-markdown table,
   .oo-message-response p,
   .oo-message-response ul,
   .oo-message-response ol,
   .oo-message-response pre,
-  .oo-message-response blockquote,
-  .oo-message-response table {
+  .oo-message-response blockquote {
     margin: 0.5rem 0;
   }
 
@@ -251,6 +249,16 @@
     color: var(--oo-feedback-active-foreground);
   }
 
+  /* 保留 Streamdown 原生表格，只移除聊天中多余的外层卡片。 */
+  .oo-message-response [data-streamdown="table-wrapper"] {
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
   .oo-message-response [data-language] pre {
     margin: 0;
     border: 0;
@@ -309,28 +317,6 @@
     margin: 1rem 0;
     border: 0;
     border-top: 1px solid var(--oo-divider);
-  }
-
-  .oo-markdown table {
-    display: table;
-    table-layout: fixed;
-    width: 100%;
-    max-width: 100%;
-    border-collapse: collapse;
-  }
-
-  .oo-markdown th,
-  .oo-markdown td {
-    border: 1px solid var(--oo-divider);
-    padding: 0.35rem 0.6rem;
-    text-align: left;
-    overflow-wrap: anywhere;
-    word-break: normal;
-  }
-
-  .oo-markdown th {
-    background: var(--muted);
-    font-weight: 600;
   }
 
   /* Markdown 图片专用渲染器样式：不要挂到 .oo-markdown 或通用 img，避免影响表格/其它 Markdown。 */

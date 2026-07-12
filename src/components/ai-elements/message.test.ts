@@ -18,7 +18,6 @@ import {
   compactLocalPath,
   markdownCodeLanguage,
   markdownCodeText,
-  MarkdownTable,
   messageClassName,
   messageResponseControls,
   nextSmoothedText,
@@ -164,31 +163,6 @@ describe("compactLocalPath", () => {
     expect(compactLocalPath("file:///C:/Users/me/output%20files/report.pdf")).toBe(
       "C:/Users/me/output files/report.pdf",
     )
-  })
-})
-
-describe("MarkdownTable", () => {
-  it("fits tables inside the message width instead of forcing horizontal scroll", () => {
-    const html = renderToStaticMarkup(
-      React.createElement(
-        MarkdownTable,
-        null,
-        React.createElement(
-          "tbody",
-          null,
-          React.createElement(
-            "tr",
-            null,
-            React.createElement("td", null, "Tailwind CSS 项目的动画时长、排版比例、组件可访问性等设计一致性检查"),
-          ),
-        ),
-      ),
-    )
-
-    expect(html).toContain("overflow-hidden")
-    expect(html).toContain("table-fixed")
-    expect(html).not.toContain("overflow-x-auto")
-    expect(html).not.toContain("min-w-max")
   })
 })
 

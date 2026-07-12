@@ -1,23 +1,21 @@
 import type { LocalArtifactGroup, LocalArtifactItem, LocalArtifactPack } from "../../../electron/chat/common.ts"
 import type { LocalArtifactPreviewCache } from "./artifact-preview-cache.ts"
 import type { ResolvedArtifactGroup } from "./artifact-resolution.ts"
+import type { ArtifactContextMenuState } from "./ArtifactContextMenu.tsx"
 import type { ArtifactPreviewMode } from "./ArtifactPreviewPane.tsx"
 
 import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
-  Eye,
   FolderOpen,
   Image,
-  Info,
   Maximize2,
   Minimize2,
   PanelRightClose,
   TriangleAlert,
 } from "lucide-react"
 import * as React from "react"
-import { createPortal } from "react-dom"
 import { toast } from "sonner"
 import {
   artifactGroupDisplayItem,
@@ -29,6 +27,7 @@ import { useLocalArtifactPreview } from "./artifact-preview-cache.ts"
 import { resolveArtifactResultPayloads } from "./artifact-resolution.ts"
 import { shouldRenderGeneratedArtifactsShelf } from "./artifact-shelf-visibility.ts"
 import { useLocalArtifactThumbnail } from "./artifact-thumbnail-cache.ts"
+import { ArtifactContextMenu } from "./ArtifactContextMenu.tsx"
 import {
   ArtifactConsumablePreview,
   ArtifactInfo,
@@ -37,6 +36,7 @@ import {
 } from "./ArtifactPreviewPane.tsx"
 import { FileKindTile } from "./file-type-icons.tsx"
 import { OutputShelfCard } from "./OutputShelfCard.tsx"
+import { useArtifactFileActions } from "./use-artifact-file-actions.ts"
 import { useChatService } from "@/components/AppContext"
 import { useT } from "@/i18n/i18n"
 import { reportRendererHandledError } from "@/lib/renderer-diagnostics"
@@ -82,150 +82,6 @@ interface ArtifactBrowseLevel {
   groups: ResolvedArtifactGroup[]
   label: string
   path: string
-}
-
-interface ArtifactContextMenuState {
-  item: LocalArtifactItem
-  x: number
-  y: number
-}
-
-function useArtifactFileActions(): {
-  openPath: (filePath: string | undefined) => void
-  showInFolder: (filePath: string | undefined) => void
-} {
-  const t = useT()
-  const chatService = useChatService()
-
-  const openPath = React.useCallback(
-    (filePath: string | undefined): void => {
-      if (!filePath) {
-        return
-      }
-      void chatService.invoke("openLocalPath", { path: filePath }).catch((cause: unknown) => {
-        reportRendererHandledError("generatedArtifacts.openPath", "Failed to open artifact file", cause)
-        const error = resolveUserFacingError(cause, { area: "artifact" })
-        toast.error(userFacingErrorDescription(error, t))
-      })
-    },
-    [chatService, t],
-  )
-
-  const showInFolder = React.useCallback(
-    (filePath: string | undefined): void => {
-      if (!filePath) {
-        return
-      }
-      void chatService.invoke("showLocalPathInFolder", { path: filePath }).catch((cause: unknown) => {
-        reportRendererHandledError("generatedArtifacts.showInFolder", "Failed to reveal artifact file", cause)
-        const error = resolveUserFacingError(cause, { area: "artifact" })
-        toast.error(userFacingErrorDescription(error, t))
-      })
-    },
-    [chatService, t],
-  )
-
-  return { openPath, showInFolder }
-}
-
-function ArtifactContextMenu({
-  activeInfoPath,
-  menu,
-  onClose,
-  onOpenPath,
-  onShowInFolder,
-  onToggleInfo,
-}: {
-  activeInfoPath?: string | null
-  menu: ArtifactContextMenuState | null
-  onClose: () => void
-  onOpenPath: (filePath: string | undefined) => void
-  onShowInFolder: (filePath: string | undefined) => void
-  onToggleInfo?: (item: LocalArtifactItem) => void
-}) {
-  const t = useT()
-
-  React.useEffect(() => {
-    if (!menu) {
-      return
-    }
-    const close = (): void => onClose()
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        onClose()
-      }
-    }
-    window.addEventListener("pointerdown", close)
-    window.addEventListener("resize", close)
-    window.addEventListener("scroll", close, true)
-    window.addEventListener("keydown", handleKeyDown)
-    return () => {
-      window.removeEventListener("pointerdown", close)
-      window.removeEventListener("resize", close)
-      window.removeEventListener("scroll", close, true)
-      window.removeEventListener("keydown", handleKeyDown)
-    }
-  }, [menu, onClose])
-
-  if (!menu) {
-    return null
-  }
-
-  const left = Math.max(8, Math.min(menu.x, window.innerWidth - 220))
-  const hasInfoAction = Boolean(onToggleInfo)
-  const infoActive = activeInfoPath === menu.item.path
-  const top = Math.max(8, Math.min(menu.y, window.innerHeight - (hasInfoAction ? 128 : 92)))
-
-  return createPortal(
-    <div
-      role="menu"
-      aria-label={menu.item.name}
-      className="fixed z-[140] min-w-52 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg outline-hidden"
-      style={{ left, top }}
-      onContextMenu={(event) => event.preventDefault()}
-      onPointerDown={(event) => event.stopPropagation()}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
-        onClick={() => {
-          onOpenPath(menu.item.path)
-          onClose()
-        }}
-      >
-        <ExternalLink className="size-3.5 shrink-0" />
-        <span>{t("artifacts.openInSystem")}</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
-        onClick={() => {
-          onShowInFolder(menu.item.path)
-          onClose()
-        }}
-      >
-        <FolderOpen className="size-3.5 shrink-0" />
-        <span>{t("artifacts.openInSystemFolder")}</span>
-      </button>
-      {onToggleInfo ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:outline-none"
-          onClick={() => {
-            onToggleInfo(menu.item)
-            onClose()
-          }}
-        >
-          {infoActive ? <Eye className="size-3.5 shrink-0" /> : <Info className="size-3.5 shrink-0" />}
-          <span>{infoActive ? t("artifacts.previewTab") : t("artifacts.infoTab")}</span>
-        </button>
-      ) : null}
-    </div>,
-    document.body,
-  )
 }
 
 function packDisplayItems(pack: LocalArtifactPack): LocalArtifactItem[] {

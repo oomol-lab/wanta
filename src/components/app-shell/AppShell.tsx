@@ -62,6 +62,7 @@ import { useAppShellCommands } from "./use-app-shell-commands.ts"
 import { useArtifactsPanelState } from "./use-artifacts-panel-state.ts"
 import { useChatConnectionRetry } from "./use-chat-connection-retry.ts"
 import { useChatQueueState } from "./use-chat-queue-state.ts"
+import { useProjectActions } from "./use-project-actions.ts"
 import { useProjectSidebarCollapseState } from "./use-project-sidebar-collapse-state.ts"
 import { useSessionTitleGeneration } from "./use-session-title-generation.ts"
 import { useSidebarChromeState } from "./use-sidebar-chrome-state.ts"
@@ -254,11 +255,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   const [renameSessionId, setRenameSessionId] = React.useState<string | null>(null)
   const [archiveSessionId, setArchiveSessionId] = React.useState<string | null>(null)
   const [archiveConfirming, setArchiveConfirming] = React.useState(false)
-  const [renameProjectId, setRenameProjectId] = React.useState<string | null>(null)
-  const [archiveProjectId, setArchiveProjectId] = React.useState<string | null>(null)
-  const [removeProjectId, setRemoveProjectId] = React.useState<string | null>(null)
-  const [archiveProjectConfirming, setArchiveProjectConfirming] = React.useState(false)
-  const [removeProjectConfirming, setRemoveProjectConfirming] = React.useState(false)
   const selectedSession = selectedSessionId
     ? (visibleSessions.find((session) => session.id === selectedSessionId) ?? null)
     : null
@@ -485,6 +481,32 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     }
     return visibleProjects.find((project) => project.id === activeProjectId)
   }, [activeProjectId, visibleProjects])
+  const handleProjectUnavailable = React.useCallback(
+    (projectId: string): void => {
+      if (lastChatProjectId.current === projectId) {
+        lastChatProjectId.current = null
+      }
+      if (activeProjectId !== projectId) {
+        return
+      }
+      if (activeChatSessionId) {
+        setSelectedSessionId(null)
+      }
+      setIsDraftSession(true)
+      setDraftProjectId(NO_DRAFT_PROJECT_ID)
+      setPendingChatTransition(null)
+      setRoute("chat")
+    },
+    [activeChatSessionId, activeProjectId],
+  )
+  const projectActions = useProjectActions({
+    archiveProject: archiveProjectAction,
+    onProjectUnavailable: handleProjectUnavailable,
+    pinProject: pinProjectAction,
+    projects: visibleProjects,
+    removeProject: removeProjectAction,
+    renameProject: renameProjectAction,
+  })
   const projectGit = useProjectGit(activeProject)
   const activeProjectContext = React.useMemo(
     () => projectContextFromProject(activeProject, projectGit.state),
@@ -511,9 +533,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   currentScopeKeyRef.current = currentScopeKey
   const initialComposerState = composerDraftsByKey.current.get(activeComposerDraftKey)
   const renameSession = visibleSessions.find((s) => s.id === renameSessionId) ?? null
-  const renameProjectTarget = visibleProjects.find((project) => project.id === renameProjectId) ?? null
-  const archiveProjectTarget = visibleProjects.find((project) => project.id === archiveProjectId) ?? null
-  const removeProjectTarget = visibleProjects.find((project) => project.id === removeProjectId) ?? null
   const archiveSession = visibleSessions.find((s) => s.id === archiveSessionId) ?? null
   const activeChatConnectionDrawer = chatConnectionDrawers[activeComposerDraftKey] ?? null
   const chatConnectionAuthIntent = activeChatConnectionDrawer?.authIntent ?? null
@@ -693,28 +712,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
   }, [renameSession, renameSessionId])
 
   React.useEffect(() => {
-    if (renameProjectId && !renameProjectTarget) {
-      setRenameProjectId(null)
-    }
-  }, [renameProjectId, renameProjectTarget])
-
-  React.useEffect(() => {
     if (archiveSessionId && !archiveSession) {
       setArchiveSessionId(null)
     }
   }, [archiveSession, archiveSessionId])
-
-  React.useEffect(() => {
-    if (archiveProjectId && !archiveProjectTarget) {
-      setArchiveProjectId(null)
-    }
-  }, [archiveProjectId, archiveProjectTarget])
-
-  React.useEffect(() => {
-    if (removeProjectId && !removeProjectTarget) {
-      setRemoveProjectId(null)
-    }
-  }, [removeProjectId, removeProjectTarget])
 
   React.useEffect(() => {
     if (
@@ -1135,12 +1136,10 @@ export function AppShell({ auth }: { auth: UseAuth }) {
     setPendingChatTransition(null)
     setRenameSessionId(null)
     setArchiveSessionId(null)
-    setRenameProjectId(null)
-    setArchiveProjectId(null)
-    setRemoveProjectId(null)
+    projectActions.resetDialogs()
     handleArtifactsReset()
     releaseTransientFocus()
-  }, [activeWorkspaceKey, clearRetries, handleArtifactsReset, holdQueuedSessionIfQueued])
+  }, [activeWorkspaceKey, clearRetries, handleArtifactsReset, holdQueuedSessionIfQueued, projectActions.resetDialogs])
 
   React.useEffect(() => {
     if (!sessionsSettledForCurrentScope || !activeChatSessionId) {
@@ -1274,81 +1273,6 @@ export function AppShell({ auth }: { auth: UseAuth }) {
       setRoute("chat")
     }
     setArchiveSessionId(null)
-  }
-
-  const handlePinProject = async (project: SessionProject): Promise<void> => {
-    try {
-      await pinProjectAction(project.id, !project.pinnedAt)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-    }
-  }
-
-  const handleRenameProject = async (projectId: string, name: string): Promise<void> => {
-    try {
-      await renameProjectAction(projectId, name)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-    }
-  }
-
-  const handleShowProjectInFolder = (project: SessionProject): void => {
-    void chatService.invoke("showLocalPathInFolder", { path: project.path }).catch((cause: unknown) => {
-      reportRendererHandledError("appShell.showProjectInFolder", "Failed to reveal project folder", cause)
-      const notice = resolveUserFacingError(cause, { area: "artifact" })
-      toast.error(userFacingErrorDescription(notice, t))
-    })
-  }
-
-  const clearActiveProjectIfNeeded = React.useCallback(
-    (projectId: string): void => {
-      if (lastChatProjectId.current === projectId) {
-        lastChatProjectId.current = null
-      }
-      if (activeProjectId !== projectId) {
-        return
-      }
-      if (activeChatSessionId) {
-        setSelectedSessionId(null)
-      }
-      setIsDraftSession(true)
-      setDraftProjectId(NO_DRAFT_PROJECT_ID)
-      setPendingChatTransition(null)
-      setRoute("chat")
-    },
-    [activeProjectId, activeChatSessionId],
-  )
-
-  const handleArchiveProject = async (project: SessionProject): Promise<void> => {
-    setArchiveProjectConfirming(true)
-    try {
-      await archiveProjectAction(project.id)
-      clearActiveProjectIfNeeded(project.id)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-      return
-    } finally {
-      setArchiveProjectConfirming(false)
-    }
-    setArchiveProjectId(null)
-  }
-
-  const handleRemoveProject = async (project: SessionProject): Promise<void> => {
-    setRemoveProjectConfirming(true)
-    try {
-      await removeProjectAction(project.id)
-      clearActiveProjectIfNeeded(project.id)
-    } catch (cause) {
-      const notice = resolveUserFacingError(cause, { area: "session" })
-      toast.error(userFacingErrorDescription(notice, t))
-      return
-    } finally {
-      setRemoveProjectConfirming(false)
-    }
-    setRemoveProjectId(null)
   }
 
   const handleAuthorize = React.useCallback(
@@ -1585,25 +1509,25 @@ export function AppShell({ auth }: { auth: UseAuth }) {
         width={sidebarWidth}
         workspace={organizationWorkspace}
         workspaceSwitching={workspaceNavigationSwitching}
-        onArchiveProjectRequest={(project) => setArchiveProjectId(project.id)}
+        onArchiveProjectRequest={projectActions.requestArchive}
         onArchiveSessionRequest={handleArchiveSessionRequest}
         onLogout={() => void auth.logout()}
         onNavigate={setRoute}
         onNewSession={handleNewSession}
         onOpenConnections={handleOpenConnections}
         onOpenSearch={handleOpenSearch}
-        onPinProject={(project) => void handlePinProject(project)}
+        onPinProject={(project) => void projectActions.handlePin(project)}
         onPinSession={(session) => void handlePinSession(session)}
         onProjectExpandedChange={handleProjectSidebarExpandedChange}
-        onRemoveProjectRequest={(project) => setRemoveProjectId(project.id)}
-        onRenameProjectRequest={(project) => setRenameProjectId(project.id)}
+        onRemoveProjectRequest={projectActions.requestRemove}
+        onRenameProjectRequest={projectActions.requestRename}
         onWorkspaceSwitchStart={handleWorkspaceSwitchStart}
         onRenameSessionRequest={(session) => setRenameSessionId(session.id)}
         onSelectProjectDraft={handleOpenProjectDraft}
         onSelectProjectFolder={() => void handleSelectProjectFolder()}
         onSelectSession={handleSelectSession}
         onSetSidebarSegment={setSidebarSegment}
-        onShowProjectInFolder={handleShowProjectInFolder}
+        onShowProjectInFolder={projectActions.handleShowInFolder}
         onSidebarResizeKeyDown={handleSidebarResizeKeyDown}
         onSidebarResizeStart={handleSidebarResizeStart}
         onToggleSidebar={handleToggleSidebar}
@@ -1755,25 +1679,25 @@ export function AppShell({ auth }: { auth: UseAuth }) {
 
       <AppShellSessionProjectDialogs
         archiveConfirming={archiveConfirming}
-        archiveProjectConfirming={archiveProjectConfirming}
-        archiveProjectTarget={archiveProjectTarget}
+        archiveProjectConfirming={projectActions.archiveConfirming}
+        archiveProjectTarget={projectActions.archiveTarget}
         archiveSession={archiveSession}
         openSearch={searchOpen}
-        removeProjectConfirming={removeProjectConfirming}
-        removeProjectTarget={removeProjectTarget}
-        renameProjectTarget={renameProjectTarget}
+        removeProjectConfirming={projectActions.removeConfirming}
+        removeProjectTarget={projectActions.removeTarget}
+        renameProjectTarget={projectActions.renameTarget}
         renameSession={renameSession}
         sessions={visibleSessions}
-        onArchiveProject={(project) => void handleArchiveProject(project)}
+        onArchiveProject={(project) => void projectActions.handleArchive(project)}
         onArchiveSession={(session) => void handleArchiveSession(session)}
-        onCloseArchiveProject={() => setArchiveProjectId(null)}
+        onCloseArchiveProject={projectActions.closeArchive}
         onCloseArchiveSession={() => setArchiveSessionId(null)}
-        onCloseRemoveProject={() => setRemoveProjectId(null)}
-        onCloseRenameProject={() => setRenameProjectId(null)}
+        onCloseRemoveProject={projectActions.closeRemove}
+        onCloseRenameProject={projectActions.closeRename}
         onCloseRenameSession={() => setRenameSessionId(null)}
         onCloseSearch={() => setSearchOpen(false)}
-        onRemoveProject={(project) => void handleRemoveProject(project)}
-        onRenameProject={(projectId, name) => void handleRenameProject(projectId, name)}
+        onRemoveProject={(project) => void projectActions.handleRemove(project)}
+        onRenameProject={(projectId, name) => void projectActions.handleRename(projectId, name)}
         onRenameSession={handleRenameSession}
         onSearchSelect={(session) => {
           handleSelectSession(session)

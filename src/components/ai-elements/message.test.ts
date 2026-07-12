@@ -3,6 +3,7 @@ import type { AppContextValue } from "@/components/AppContext"
 import * as React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
+import { normalizeLocalImageMarkdown } from "../../../electron/chat/markdown-images.ts"
 import {
   attachmentPreviewSource,
   clampImageViewerOffset,
@@ -92,6 +93,42 @@ describe("normalizeSingleLocalPathCodeFences", () => {
   })
 })
 
+describe("normalizeLocalImageMarkdown", () => {
+  it("wraps a local image destination containing spaces in angle brackets", () => {
+    const path =
+      "/Users/me/Library/Application Support/wanta/agent/artifacts/ses_example/1783833651476-turn/mucha-corgi.png"
+
+    expect(normalizeLocalImageMarkdown(`![穆夏风柯基](${path})`)).toBe(`![穆夏风柯基](<${path}>)`)
+  })
+
+  it("keeps valid local image destinations unchanged", () => {
+    expect(normalizeLocalImageMarkdown("![image](</Users/me/output files/image.png>)")).toBe(
+      "![image](</Users/me/output files/image.png>)",
+    )
+    expect(normalizeLocalImageMarkdown("![image](/tmp/output.png)")).toBe("![image](/tmp/output.png)")
+  })
+
+  it("supports Windows local image destinations containing spaces", () => {
+    expect(normalizeLocalImageMarkdown(String.raw`![image](C:\Users\me\output files\image.png)`)).toBe(
+      String.raw`![image](<C:\Users\me\output files\image.png>)`,
+    )
+  })
+
+  it("does not rewrite image examples inside code", () => {
+    const inline = "Use `![image](/Users/me/output files/image.png)` in the response."
+    const fenced = ["```md", "![image](/Users/me/output files/image.png)", "```"].join("\n")
+
+    expect(normalizeLocalImageMarkdown(inline)).toBe(inline)
+    expect(normalizeLocalImageMarkdown(fenced)).toBe(fenced)
+  })
+
+  it("leaves remote image destinations unchanged", () => {
+    expect(normalizeLocalImageMarkdown("![image](https://example.com/output image.png)")).toBe(
+      "![image](https://example.com/output image.png)",
+    )
+  })
+})
+
 describe("compactLocalPath", () => {
   it("keeps short paths readable", () => {
     expect(compactLocalPath("/tmp/image.png")).toBe("/tmp/image.png")
@@ -159,6 +196,14 @@ describe("MarkdownImage", () => {
 
   it("keeps malformed percent escapes readable instead of rejecting local paths", () => {
     expect(localImagePathFromSrc("/tmp/100% legit/image.png")).toBe("/tmp/100% legit/image.png")
+  })
+
+  it("accepts case-insensitive file URL schemes", () => {
+    expect(localImagePathFromSrc("FILE:///Users/me/output%20files/image.png")).toBe("/Users/me/output files/image.png")
+  })
+
+  it("does not treat home-relative image paths as absolute local paths", () => {
+    expect(localImagePathFromSrc("~/output/image.png")).toBeNull()
   })
 
   it("does not decode escaped path separators inside local path segments", () => {

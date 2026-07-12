@@ -124,12 +124,13 @@ async function waitForEventCount(events: Array<{ event: string; data: unknown }>
 }
 
 async function waitForCondition(condition: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     if (condition()) {
       return
     }
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
+  assert.fail("Timed out waiting for condition")
 }
 
 async function waitForMessageErrorCount(events: Array<{ event: string; data: unknown }>, count: number): Promise<void> {

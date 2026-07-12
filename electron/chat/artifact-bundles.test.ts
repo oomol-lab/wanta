@@ -206,6 +206,34 @@ test("markdownImageCount counts final assistant image previews", () => {
   )
 })
 
+test("markdownImageCount repairs spaced local paths and ignores code examples", () => {
+  assert.equal(
+    markdownImageCount(
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          createdAt: 1,
+          parts: [
+            {
+              kind: "text",
+              partId: "text-1",
+              text: [
+                "![result](/Users/me/Application Support/wanta/result.png)",
+                "```md",
+                "![example](https://example.com/example.png)",
+                "```",
+              ].join("\n"),
+            },
+          ],
+        },
+      ],
+      "assistant-1",
+    ),
+    1,
+  )
+})
+
 test("generatedImagePreviewCount includes assistant image attachments without double-counting previews", () => {
   assert.equal(
     generatedImagePreviewCount(

@@ -16,6 +16,7 @@ const rendererElectronAllowlist = new Set([
   "electron/branding.ts",
   "electron/chat/authorization-signal.ts",
   "electron/chat/error.ts",
+  "electron/chat/markdown-images.ts",
   "electron/chat/permission-request.ts",
   "electron/connections/domain.ts",
   "electron/connections/executions.ts",

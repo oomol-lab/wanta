@@ -21,7 +21,6 @@ import type {
 import type { DefaultRegistrySkillSpec } from "./default-registry-skills.ts"
 import type { SkillDeleteStoreTarget } from "./delete-plan.ts"
 import type { EnsureSkillPublishMetadataResult } from "./publish-metadata.ts"
-import type { InstalledSkill, SkillManifestRecord } from "./types.ts"
 import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
@@ -62,6 +61,7 @@ import {
 } from "./default-registry-install.ts"
 import { defaultRegistrySkills } from "./default-registry-skills.ts"
 import { buildLocalMachineSkillDeletePlan } from "./delete-plan.ts"
+import { ExternalSkillRuntimeSynchronizer } from "./external-runtime-sync.ts"
 import {
   assertCanReplaceSharedSkillTarget,
   normalizeSkillId,
@@ -87,7 +87,6 @@ import {
   upsertRemovedSkillRecord,
 } from "./removed-store.ts"
 import { assertSafeResetPaths } from "./reset.ts"
-import { isExternalRuntimeMirrorRecord, reconcileExternalRuntimeSkillMirrors } from "./runtime-mirrors.ts"
 import { scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
 import { resolveUsableRegistrySkillSourcePath } from "./source.ts"
 import { createVersionReportCacheKey } from "./version-report-cache.ts"
@@ -101,10 +100,6 @@ interface SkillServiceOptions {
   onRuntimeSkillsChanged?: (reason: string) => void
 }
 
-function normalizeAgentSortIndex(index: number): number {
-  return index === -1 ? Number.MAX_SAFE_INTEGER : index
-}
-
 export class SkillServiceImpl extends ConnectionService<SkillService> implements IConnectionService<SkillService> {
   private readonly authService: AuthManager
   private readonly fileWatcher: SkillFileWatcher
@@ -113,7 +108,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private versionReportCacheGeneration = 0
   private readonly inventoryCache = new SkillInventoryCache()
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
-  private externalRuntimeSkillSyncTail: Promise<void> = Promise.resolve()
+  private readonly externalRuntimeSynchronizer: ExternalSkillRuntimeSynchronizer
   private removedSkillStore: RemovedSkillStore | undefined
   private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
@@ -133,6 +128,11 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
         await this.emitInventoryChanged()
       },
       onRuntimeSkillsChanged: () => this.notifyRuntimeSkillsChanged("skill-files-changed"),
+    })
+    this.externalRuntimeSynchronizer = new ExternalSkillRuntimeSynchronizer({
+      bundledSkillRoot: this.getBundledAgentSkillRoot(),
+      manifestPath: this.getManifestPath(),
+      sharedSkillRoot: this.getSharedAgentSkillRoot(),
     })
     this.unsubscribeAuthStateChanged = this.authService.stateChanged.on(() => {
       this.invalidateVersionReport()
@@ -629,159 +629,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  private async pathExists(pathname: string): Promise<boolean> {
-    try {
-      await access(pathname)
-      return true
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return false
-      }
-      throw error
-    }
-  }
-
   private async syncExternalAgentSkillsToRuntimeRoot(
     removedStore: Awaited<ReturnType<RemovedSkillStore["read"]>>,
   ): Promise<boolean> {
-    let synced = false
-    const operation = this.externalRuntimeSkillSyncTail
-      .catch(() => undefined)
-      .then(async () => {
-        synced = await this.syncExternalAgentSkillsToRuntimeRootNow(removedStore)
-      })
-    this.externalRuntimeSkillSyncTail = operation.then(
-      () => undefined,
-      () => undefined,
-    )
-    await operation
-    return synced
-  }
-
-  private async syncExternalAgentSkillsToRuntimeRootNow(
-    removedStore: Awaited<ReturnType<RemovedSkillStore["read"]>>,
-  ): Promise<boolean> {
-    const externalSkills = await scanInstalledSkills()
-    const manifestStore = await readManifestStore(this.getManifestPath())
-    const externalSkillRoots = supportedAgents.map((agent) => resolveAgentSkillRoot(agent))
-    const sortedSkills = [...externalSkills].sort((left, right) => {
-      const leftAgentIndex = supportedAgents.findIndex((agent) => agent.id === left.agent.id)
-      const rightAgentIndex = supportedAgents.findIndex((agent) => agent.id === right.agent.id)
-      return (
-        normalizeAgentSortIndex(leftAgentIndex) - normalizeAgentSortIndex(rightAgentIndex) ||
-        left.name.localeCompare(right.name) ||
-        left.path.localeCompare(right.path)
-      )
-    })
-    const mirroredSkillIds = new Set<string>()
-    const activeMirrorTargets = new Set<string>()
-    let synced = false
-
-    for (const skill of sortedSkills) {
-      let skillId: string
-      try {
-        skillId = normalizeSkillId(skill.name)
-      } catch {
-        continue
-      }
-      if (
-        mirroredSkillIds.has(skillId) ||
-        isSkillRemovedByUser(removedStore, { packageName: skill.metadata.packageName, skillId }) ||
-        (await this.pathExists(path.join(this.getBundledAgentSkillRoot(), skillId)))
-      ) {
-        continue
-      }
-      mirroredSkillIds.add(skillId)
-      const targetPath = this.resolveSharedSkillTargetPath(skillId)
-      const mirrorRecord = this.readRuntimeMirrorManifestRecord(manifestStore, targetPath)
-      const managedMirrorRecord =
-        mirrorRecord && isExternalRuntimeMirrorRecord(mirrorRecord, this.getSharedAgentSkillRoot(), externalSkillRoots)
-          ? mirrorRecord
-          : undefined
-      const targetExists = await this.runtimeSkillTargetExists(skillId)
-      if (targetExists && !managedMirrorRecord) {
-        continue
-      }
-      activeMirrorTargets.add(targetPath)
-      if (targetExists && managedMirrorRecord?.sourcePath === skill.path && managedMirrorRecord.hash === skill.hash) {
-        continue
-      }
-      try {
-        await this.syncExternalSkillToRuntimeRoot(skill, skillId, { force: targetExists })
-        synced = true
-      } catch (error) {
-        console.warn("[wanta] failed to sync external skill to runtime:", {
-          agentId: skill.agent.id,
-          error: error instanceof Error ? error.message : String(error),
-          skillId,
-        })
-        logDiagnostic(
-          "skills",
-          "failed to sync external skill to runtime",
-          { agentId: skill.agent.id, error, skillId },
-          "warn",
-        )
-      }
-    }
-
-    const reconciliation = await reconcileExternalRuntimeSkillMirrors({
-      activeTargetPaths: activeMirrorTargets,
-      externalSkillRoots,
-      manifestPath: this.getManifestPath(),
-      sharedSkillRoot: this.getSharedAgentSkillRoot(),
-    })
-    for (const result of reconciliation.skipped) {
-      console.warn("[wanta] skipped stale external runtime skill cleanup:", result)
-      logDiagnostic(
-        "skills",
-        "skipped stale external runtime skill cleanup",
-        { path: result.path, reason: result.reason, status: result.status },
-        "warn",
-      )
-    }
-
-    return synced || reconciliation.changed
-  }
-
-  private readRuntimeMirrorManifestRecord(
-    manifestStore: Awaited<ReturnType<typeof readManifestStore>>,
-    targetPath: string,
-  ): SkillManifestRecord | undefined {
-    return manifestStore.records.find((record) => record.agentId === "wanta" && record.installedPath === targetPath)
-  }
-
-  private async syncExternalSkillToRuntimeRoot(
-    skill: InstalledSkill,
-    skillId: string,
-    options: { force: boolean },
-  ): Promise<void> {
-    const targetPath = this.resolveSharedSkillTargetPath(skillId)
-    assertSafeResetPaths(skill.path, targetPath)
-    await assertCanReplaceSharedSkillTarget(targetPath, options)
-    await replaceDirectory(skill.path, targetPath)
-    await this.writeRuntimeMirrorManifestRecord(skill, targetPath)
-  }
-
-  private async writeRuntimeMirrorManifestRecord(skill: InstalledSkill, targetPath: string): Promise<void> {
-    const manifestPath = this.getManifestPath()
-    const manifestStore = await readManifestStore(manifestPath)
-    const records = manifestStore.records.filter(
-      (record) => !(record.agentId === "wanta" && record.installedPath === targetPath),
-    )
-    records.push({
-      agentId: "wanta",
-      hash: skill.hash,
-      installedPath: targetPath,
-      packageName: skill.metadata.packageName,
-      scannedAt: new Date().toISOString(),
-      skillName: skill.name,
-      sourcePath: skill.path,
-      version: skill.metadata.version,
-    })
-    await writeManifestStore(manifestPath, {
-      schemaVersion: manifestStore.schemaVersion,
-      records,
-    })
+    return this.externalRuntimeSynchronizer.sync(removedStore)
   }
 
   private async rememberDefaultRegistrySkillRemovedByUser(skillId: string): Promise<void> {

@@ -55,23 +55,14 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { shell } from "electron"
-import { rm } from "node:fs/promises"
 import os from "node:os"
 import { ActivityMetrics } from "../activity-metrics.ts"
 import { translateOpencodeEvent } from "../agent/event-translator.ts"
-import { managedPythonEnvironmentPath } from "../agent/python-environment.ts"
 import { logDiagnostic } from "../diagnostics-log.ts"
 import { captureGitTurnBaseline } from "../git/turn-diff.ts"
 import { ServiceEvent } from "../service-events.ts"
 import { ActiveRunRegistry } from "./active-run-registry.ts"
-import {
-  buildArtifactBundle,
-  captureArtifactSessionBaseline,
-  generatedImagePreviewCount,
-  materializeAssistantArtifacts,
-  recordArtifactBundle,
-  recoverMisplacedTurnArtifacts,
-} from "./artifact-bundles.ts"
+import { captureArtifactSessionBaseline, recordArtifactBundle } from "./artifact-bundles.ts"
 import { normalizeLocalPathCandidate } from "./artifacts.ts"
 import { applyAuthorizationOverlays, recordAuthorizationOverlay } from "./authorization.ts"
 import { ChatService as ChatServiceName } from "./common.ts"
@@ -97,14 +88,8 @@ import {
   inactivityWatchdogActionForEvent,
   terminalConnectionInterruption,
 } from "./turn-lifecycle.ts"
-import {
-  intermediateArtifactProcessFiles,
-  isPathInside,
-  normalizeProjectPath,
-  processOutputFiles,
-  projectOutputFiles,
-  summarizeTurnFiles,
-} from "./turn-output-files.ts"
+import { isPathInside, normalizeProjectPath } from "./turn-output-files.ts"
+import { finalizeTurnOutput as finalizeTurnOutputArtifacts } from "./turn-output-finalizer.ts"
 import { TurnOutputRegistry } from "./turn-output-registry.ts"
 import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
 import { UserStopTracker } from "./user-stop-tracker.ts"
@@ -1383,91 +1368,28 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     const active = generationId ? this.turnOutputs.get(generationId) : undefined
     if (generationId) this.turnOutputs.delete(sessionId, generationId)
     const resolvedMessageId = messageId ?? active?.messageId
-    if (!active) {
-      return
-    }
-    try {
-      if (!resolvedMessageId) {
-        return
-      }
-      const messages = await this.agent?.getMessages(sessionId).catch(() => [])
-      const materializedOrigins = await materializeAssistantArtifacts(
-        messages ?? [],
-        resolvedMessageId,
-        active.artifactRoot,
-      ).catch((error: unknown) => {
-        console.warn("[wanta] failed to materialize assistant artifacts", error)
-        logDiagnostic(
-          "chat-service",
-          "failed to materialize assistant artifacts",
-          { error, messageId: resolvedMessageId, sessionId },
-          "warn",
-        )
-        return new Map()
-      })
-      const recoveredOrigins = await recoverMisplacedTurnArtifacts(active.artifactBaseline, active.artifactRoot).catch(
-        (error: unknown) => {
-          console.warn("[wanta] failed to recover misplaced turn artifacts", error)
+    if (!active || !resolvedMessageId) return
+
+    await finalizeTurnOutputArtifacts({
+      active,
+      getMessages: () => this.agent?.getMessages(sessionId) ?? Promise.resolve([]),
+      messageId: resolvedMessageId,
+      publishArtifactBundle: (bundle) => this.publishArtifactBundle(bundle),
+      publishTurnOutput: async (record) => {
+        await this.rememberTurnOutput(record)
+        await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
+          console.warn("[wanta] failed to emit turn output update:", error)
           logDiagnostic(
             "chat-service",
-            "failed to recover misplaced turn artifacts",
+            "failed to emit turn output update",
             { error, messageId: resolvedMessageId, sessionId },
             "warn",
           )
-          return new Map()
-        },
-      )
-      for (const [relativePath, origin] of recoveredOrigins) {
-        materializedOrigins.set(relativePath, origin)
-      }
-      const [artifactBundle, processFiles, intermediateArtifactFiles, projectFiles] = await Promise.all([
-        buildArtifactBundle({
-          artifactRoot: active.artifactRoot,
-          completedAt: Date.now(),
-          createdAt: active.createdAt,
-          generatedPreviewCount: generatedImagePreviewCount(messages ?? [], resolvedMessageId),
-          materializedOrigins,
-          messageId: resolvedMessageId,
-          sessionId,
-        }),
-        processOutputFiles(active.processRoot),
-        intermediateArtifactProcessFiles(active.artifactRoot, active.requestText),
-        projectOutputFiles(active.projectBaseline, active.projectRoot),
-      ])
-      if (artifactBundle) {
-        await this.publishArtifactBundle(artifactBundle)
-      }
-      const files = [...processFiles, ...intermediateArtifactFiles, ...projectFiles]
-      if (files.length === 0) {
-        return
-      }
-      const record: StoredTurnOutputRecord = {
-        sessionId,
-        messageId: resolvedMessageId,
-        processRoot: active.processRoot,
-        ...(active.projectRoot ? { projectRoot: active.projectRoot } : {}),
-        createdAt: active.createdAt,
-        completedAt: Date.now(),
-        files,
-        summary: summarizeTurnFiles(files),
-      }
-      await this.rememberTurnOutput(record)
-      await this.send("turnOutputUpdated", { sessionId, messageId: resolvedMessageId }).catch((error: unknown) => {
-        console.warn("[wanta] failed to emit turn output update:", error)
-        logDiagnostic(
-          "chat-service",
-          "failed to emit turn output update",
-          { error, messageId: resolvedMessageId, sessionId },
-          "warn",
-        )
-      })
-    } finally {
-      await rm(managedPythonEnvironmentPath(active.processRoot), { force: true, recursive: true }).catch(
-        () => undefined,
-      )
-    }
+        })
+      },
+      sessionId,
+    })
   }
-
   public async getAttachmentPreview(req: AttachmentPreviewRequest): Promise<AttachmentPreviewResult> {
     await this.assertTrustedLocalPath(req.path)
     return attachmentPreview(req, this.deps.createArtifactResourceUrl)

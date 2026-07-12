@@ -102,10 +102,11 @@ import {
   summarizeTurnFiles,
 } from "./turn-output-files.ts"
 import { publicTurnOutputRecord, recordTurnOutput } from "./turn-outputs.ts"
+import { UserStopTracker } from "./user-stop-tracker.ts"
 
 export { buildContextMentionsSystem } from "./context-system.ts"
+export { isAbortErrorMessage } from "./user-stop-tracker.ts"
 
-const userStopAbortWindowMs = 30_000
 const generationSubmitTimeoutMs = 45_000
 const generationStartAckTimeoutMs = 45_000
 const generationInactivityTimeoutMs = 2 * 60_000
@@ -271,28 +272,12 @@ interface StopSessionGenerationOptions {
   throwOnAbortFailure: boolean
 }
 
-export function isAbortErrorMessage(message: string): boolean {
-  const normalized = message
-    .trim()
-    .replace(/[.!。]+$/, "")
-    .toLowerCase()
-  return (
-    normalized === "aborted" ||
-    normalized === "aborterror" ||
-    normalized.startsWith("aborterror:") ||
-    normalized === "abort error" ||
-    normalized === "the operation was aborted" ||
-    normalized === "this operation was aborted" ||
-    normalized.includes("operation was aborted")
-  )
-}
-
 export class ChatServiceImpl extends ConnectionService<ChatService> implements IConnectionService<ChatService> {
   public readonly sessionActivity = new ServiceEvent<{ sessionId: string; usedAt: number }>()
 
   private agent: AgentManager | null
   private bridged = false
-  private userStoppedSessions = new Map<string, number>()
+  private readonly userStops = new UserStopTracker()
   private emittedMessageErrors = new Map<string, Set<string>>()
   private sessionGenerations = new Map<string, SessionGeneration>()
   private activeRuns = new Map<string, ChatActiveRun>()
@@ -360,7 +345,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     this.streamEventBuffer = null
     this.agent = agent
     this.bridged = false
-    this.userStoppedSessions.clear()
+    this.userStops.clear()
     this.emittedMessageErrors.clear()
     for (const sessionId of this.activeRuns.keys()) {
       this.deleteActiveRun(sessionId)
@@ -444,7 +429,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
           translated.event === "agentError" && sourceSessionId
             ? [sourceSessionId, generationSessionId]
                 .filter((sessionId): sessionId is string => Boolean(sessionId))
-                .find((sessionId) => this.consumeUserStopAbort(sessionId, translated.data.message))
+                .find((sessionId) => this.userStops.consumeAbort(sessionId, translated.data.message))
             : undefined
         if (translated.event === "agentError" && userStoppedSessionId) {
           const sessionId = generationSessionId ?? userStoppedSessionId
@@ -475,7 +460,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
             })
           continue
         }
-        if (this.shouldSuppressUserStoppedEvent(translated)) {
+        if (this.userStops.shouldSuppressEvent(translated)) {
           continue
         }
         const activitySessionId = generationSessionId ?? sourceSessionId
@@ -1664,54 +1649,6 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     }
   }
 
-  private markUserStopped(sessionId: string): void {
-    const expiresAt = Date.now() + userStopAbortWindowMs
-    this.userStoppedSessions.set(sessionId, expiresAt)
-    const timer = setTimeout(() => {
-      if (this.userStoppedSessions.get(sessionId) === expiresAt) {
-        this.userStoppedSessions.delete(sessionId)
-      }
-    }, userStopAbortWindowMs)
-    timer.unref?.()
-  }
-
-  private consumeUserStopAbort(sessionId: string, message: string): boolean {
-    const expiresAt = this.userStoppedSessions.get(sessionId)
-    if (!expiresAt) {
-      return false
-    }
-    if (Date.now() > expiresAt) {
-      this.userStoppedSessions.delete(sessionId)
-      return false
-    }
-    if (!isAbortErrorMessage(message)) {
-      return false
-    }
-    return true
-  }
-
-  private hasActiveUserStop(sessionId: string | undefined): boolean {
-    if (!sessionId) {
-      return false
-    }
-    const expiresAt = this.userStoppedSessions.get(sessionId)
-    if (!expiresAt) {
-      return false
-    }
-    if (Date.now() <= expiresAt) {
-      return true
-    }
-    this.userStoppedSessions.delete(sessionId)
-    return false
-  }
-
-  private shouldSuppressUserStoppedEvent(translated: ChatEmit): boolean {
-    if (!this.hasActiveUserStop(translated.data.sessionId)) {
-      return false
-    }
-    return translated.event !== "messageCompleted"
-  }
-
   private async stopSessionGeneration(sessionId: string, options: StopSessionGenerationOptions): Promise<void> {
     if (!this.agent) {
       return
@@ -1726,7 +1663,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
         await this.agent.abort(sessionId)
       } catch (error) {
         if (options.throwOnAbortFailure && (messageId || !generation)) {
-          this.userStoppedSessions.delete(sessionId)
+          this.userStops.delete(sessionId)
           throw error
         }
         console.warn("[wanta] generation abort failed:", error)
@@ -1806,7 +1743,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
       generation = this.beginSessionGeneration(req.sessionId)
       this.createActiveRun(req, generation)
       const activeGeneration = generation
-      this.userStoppedSessions.delete(req.sessionId)
+      this.userStops.delete(req.sessionId)
       this.connectionFailedSessions.delete(req.sessionId)
       this.clearMessageErrorSignatures(req.sessionId)
       this.emitSessionActivity(req.sessionId)
@@ -2333,7 +2270,7 @@ export class ChatServiceImpl extends ConnectionService<ChatService> implements I
     if (!this.agent) {
       return
     }
-    this.markUserStopped(sessionId)
+    this.userStops.mark(sessionId)
     await this.stopSessionGeneration(sessionId, { abortAgent: true, reason: "user", throwOnAbortFailure: true })
   }
 

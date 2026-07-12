@@ -1,9 +1,9 @@
 import type { UIMessage } from "ai"
-import type { ComponentProps, HTMLAttributes } from "react"
-import type { CustomRendererProps, StreamdownProps } from "streamdown"
+import type { ComponentProps, HTMLAttributes, ReactNode } from "react"
+import type { StreamdownProps } from "streamdown"
 
 import { CheckIcon, CopyIcon } from "lucide-react"
-import { lazy, memo, Suspense, useEffect, useRef, useState } from "react"
+import { isValidElement, lazy, memo, Suspense, useEffect, useRef, useState } from "react"
 import { extractLocalImagePaths, normalizeLocalImageMarkdown } from "../../../electron/chat/markdown-images.ts"
 import {
   CodeBlock,
@@ -115,6 +115,11 @@ type MarkdownTableProps = ComponentProps<"table"> & {
 
 type MarkdownInlineCodeProps = ComponentProps<"code"> & {
   node?: unknown
+}
+
+type MarkdownCodeBlockProps = ComponentProps<"code"> & {
+  node?: unknown
+  "data-block"?: string
 }
 
 type MarkdownLocalPathProps = Omit<ComponentProps<"button">, "value"> & {
@@ -263,86 +268,38 @@ function MarkdownInlineCode({ children, className, node: _, ref: _ref, ...props 
   )
 }
 
-const messageResponseComponents = {
-  img: MarkdownImage,
-  table: MarkdownTable,
-} satisfies MessageResponseProps["components"]
-
-const messageCodeBlockLanguages: string[] = [
-  "bash",
-  "c",
-  "cpp",
-  "cs",
-  "css",
-  "diff",
-  "go",
-  "html",
-  "java",
-  "js",
-  "javascript",
-  "json",
-  "jsx",
-  "markdown",
-  "md",
-  "php",
-  "plain",
-  "plaintext",
-  "py",
-  "python",
-  "rb",
-  "rs",
-  "ruby",
-  "rust",
-  "scss",
-  "sh",
-  "shell",
-  "sql",
-  "text",
-  "ts",
-  "tsx",
-  "txt",
-  "typescript",
-  "xml",
-  "yaml",
-  "yml",
-  "zsh",
-]
-
-function codeBlockLanguageLabel(language: string): string {
-  const normalized = language.trim().toLowerCase()
-  switch (normalized) {
-    case "js":
-      return "javascript"
-    case "md":
-      return "markdown"
-    case "py":
-      return "python"
-    case "rb":
-      return "ruby"
-    case "rs":
-      return "rust"
-    case "sh":
-    case "shell":
-    case "zsh":
-      return "bash"
-    case "ts":
-      return "typescript"
-    case "txt":
-      return "text"
-    default:
-      return normalized || "text"
+export function markdownCodeText(children: ReactNode): string {
+  if (typeof children === "string" || typeof children === "number") {
+    return String(children)
   }
+  if (Array.isArray(children)) {
+    return children.map(markdownCodeText).join("")
+  }
+  if (isValidElement<{ children?: ReactNode }>(children)) {
+    return markdownCodeText(children.props.children)
+  }
+  return ""
 }
 
-function MarkdownCodeBlock({ code, language }: CustomRendererProps) {
+export function markdownCodeLanguage(className: string | undefined): string {
+  return (
+    className
+      ?.match(/(?:^|\s)language-([^\s]+)/)?.[1]
+      ?.trim()
+      .toLowerCase() || "text"
+  )
+}
+
+export function MarkdownCodeBlock({ children, className, node: _, ref: _ref }: MarkdownCodeBlockProps) {
   const t = useT()
-  const label = codeBlockLanguageLabel(language)
+  const code = markdownCodeText(children)
+  const language = markdownCodeLanguage(className)
 
   return (
     <CodeBlock className="my-3 w-full" code={code} language={language}>
       <CodeBlockHeader>
         <CodeBlockTitle>
-          <CodeBlockFilename>{label}</CodeBlockFilename>
+          <CodeBlockFilename>{language}</CodeBlockFilename>
         </CodeBlockTitle>
         <CodeBlockActions>
           <CodeBlockCopyButton aria-label={t("chat.copyCode")} />
@@ -352,26 +309,11 @@ function MarkdownCodeBlock({ code, language }: CustomRendererProps) {
   )
 }
 
-const defaultMessageCodeRenderers = [
-  {
-    component: MarkdownCodeBlock,
-    language: messageCodeBlockLanguages,
-  },
-] satisfies NonNullable<MessageResponseProps["plugins"]>["renderers"]
-
-const defaultMessageResponsePlugins = {
-  renderers: defaultMessageCodeRenderers,
-} satisfies NonNullable<MessageResponseProps["plugins"]>
-
-function messageResponsePlugins(plugins: MessageResponseProps["plugins"]): MessageResponseProps["plugins"] {
-  if (!plugins) {
-    return defaultMessageResponsePlugins
-  }
-  return {
-    ...plugins,
-    renderers: [...(plugins.renderers ?? []), ...defaultMessageCodeRenderers],
-  }
-}
+const messageResponseComponents = {
+  code: MarkdownCodeBlock,
+  img: MarkdownImage,
+  table: MarkdownTable,
+} satisfies MessageResponseProps["components"]
 
 interface LocalImagePreview {
   path: string
@@ -547,7 +489,7 @@ export const MessageResponse = memo(
             }}
             controls={messageResponseControls(controls)}
             lineNumbers={lineNumbers ?? false}
-            plugins={messageResponsePlugins(plugins)}
+            plugins={plugins}
             {...props}
           >
             {responseChildren}

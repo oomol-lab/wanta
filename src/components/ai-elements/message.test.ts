@@ -16,6 +16,8 @@ import {
 } from "./message-image.tsx"
 import {
   compactLocalPath,
+  markdownCodeLanguage,
+  markdownCodeText,
   MarkdownTable,
   messageClassName,
   messageResponseControls,
@@ -46,6 +48,20 @@ const appContext = {
 describe("Message", () => {
   it("allows message rows to shrink when a side panel reduces the chat width", () => {
     expect(messageClassName("assistant")).toContain("min-w-0")
+  })
+})
+
+describe("MarkdownCodeBlock", () => {
+  it("normalizes fenced code languages and falls back to text", () => {
+    expect(markdownCodeLanguage("language-ts")).toBe("ts")
+    expect(markdownCodeLanguage("foo language-JSON bar")).toBe("json")
+    expect(markdownCodeLanguage(undefined)).toBe("text")
+  })
+
+  it("preserves line breaks across highlighted child fragments", () => {
+    expect(markdownCodeText(["first\n", React.createElement("span", { key: "second" }, "second"), "\nthird"])).toBe(
+      "first\nsecond\nthird",
+    )
   })
 })
 

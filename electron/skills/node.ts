@@ -25,7 +25,7 @@ import type { IConnectionService } from "@oomol/connection"
 
 import { ConnectionService } from "@oomol/connection"
 import { app, shell } from "electron"
-import { access, readFile, readdir } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { buildOoEnv, buildOoMaintenanceEnv } from "../agent/oo.ts"
 import { resolveAgentSkillRoot, supportedAgents } from "../agents/catalog.ts"
@@ -62,33 +62,21 @@ import {
 import { defaultRegistrySkills } from "./default-registry-skills.ts"
 import { buildLocalMachineSkillDeletePlan } from "./delete-plan.ts"
 import { ExternalSkillRuntimeSynchronizer } from "./external-runtime-sync.ts"
-import {
-  assertCanReplaceSharedSkillTarget,
-  normalizeSkillId,
-  removeSkillDirectoryIfSafe,
-  replaceDirectory,
-} from "./file-operations.ts"
+import { normalizeSkillId, removeSkillDirectoryIfSafe } from "./file-operations.ts"
 import { SkillFileWatcher } from "./file-watcher.ts"
 import { SkillInventoryCache } from "./inventory-cache.ts"
 import { mergeInstalledSkillSnapshots, readSkillCoverageAgents } from "./inventory-snapshot.ts"
 import { buildSummary, groupInstalledSkills } from "./inventory.ts"
-import {
-  areManifestStoresEqual,
-  readManifestStore,
-  replaceManifestRecords,
-  upsertManifestRecords,
-  writeManifestStore,
-} from "./manifest.ts"
+import { areManifestStoresEqual, readManifestStore, upsertManifestRecords, writeManifestStore } from "./manifest.ts"
 import { ensureSkillPublishMetadata } from "./publish-metadata.ts"
+import { RegistrySkillRuntimeSynchronizer } from "./registry-runtime-sync.ts"
 import {
   isSkillRemovedByUser,
   removeRemovedSkillRecord,
   RemovedSkillStore,
   upsertRemovedSkillRecord,
 } from "./removed-store.ts"
-import { assertSafeResetPaths } from "./reset.ts"
 import { scanInstalledSkills, scanWantaInstalledSkills } from "./scan.ts"
-import { resolveUsableRegistrySkillSourcePath } from "./source.ts"
 import { createVersionReportCacheKey } from "./version-report-cache.ts"
 import { readSkillVersionReport } from "./version-report.ts"
 
@@ -109,6 +97,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
   private readonly inventoryCache = new SkillInventoryCache()
   private defaultRegistrySkillInstallInFlight: Promise<void> | undefined
   private readonly externalRuntimeSynchronizer: ExternalSkillRuntimeSynchronizer
+  private readonly registryRuntimeSynchronizer: RegistrySkillRuntimeSynchronizer
   private removedSkillStore: RemovedSkillStore | undefined
   private readonly options: SkillServiceOptions
   private readonly unsubscribeAuthStateChanged: () => void
@@ -132,6 +121,14 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     this.externalRuntimeSynchronizer = new ExternalSkillRuntimeSynchronizer({
       bundledSkillRoot: this.getBundledAgentSkillRoot(),
       manifestPath: this.getManifestPath(),
+      sharedSkillRoot: this.getSharedAgentSkillRoot(),
+    })
+    this.registryRuntimeSynchronizer = new RegistrySkillRuntimeSynchronizer({
+      cacheSkillStoreRoot: this.getWantaSkillStoreRoot(),
+      loadInventory: () => this.readSharedSkillInventory({ writeManifest: false }),
+      manifestPath: this.getManifestPath(),
+      repairSource: (request) => this.repairCachedRegistrySkillSource(request),
+      registrySkillRoot: this.getWantaRegistrySkillRoot(),
       sharedSkillRoot: this.getSharedAgentSkillRoot(),
     })
     this.unsubscribeAuthStateChanged = this.authService.stateChanged.on(() => {
@@ -256,7 +253,10 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     })
     assertOoSkillOperationResult(result, "skills.install")
     await this.forgetRemovedSkill(request)
-    await this.syncCachedSkillToSharedAgentRoot(request.skillId, { force: false, packageName: request.packageName })
+    await this.registryRuntimeSynchronizer.syncSkill(request.skillId, {
+      force: false,
+      packageName: request.packageName,
+    })
     this.notifyRuntimeSkillsChanged("install-registry-skill")
 
     return this.readAndPublishSkillInventory()
@@ -268,7 +268,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.update")
-    await this.syncUpdatedCachedSkillsToSharedAgentRoot(request)
+    await this.registryRuntimeSynchronizer.syncUpdated(request)
     this.notifyRuntimeSkillsChanged("update-registry-skill")
 
     return this.readAndPublishSkillInventory()
@@ -514,7 +514,7 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     const store = this.getDefaultSkillInstallStore()
     let installStore = await store.read()
     const removedStore = await this.getRemovedSkillStore().read()
-    const syncedCachedRuntimeSkills = await this.syncCachedRegistrySkillsToRuntimeRoot(removedStore)
+    const syncedCachedRuntimeSkills = await this.registryRuntimeSynchronizer.syncMissing(removedStore)
     let inventory = await this.readSharedSkillInventory({ writeManifest: true })
     if (syncedCachedRuntimeSkills) {
       this.notifyRuntimeSkillsChanged("sync-cached-registry-skills")
@@ -576,59 +576,6 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     }
   }
 
-  private async syncCachedRegistrySkillsToRuntimeRoot(
-    removedStore: Awaited<ReturnType<RemovedSkillStore["read"]>>,
-  ): Promise<boolean> {
-    let entries
-    try {
-      entries = await readdir(this.getWantaRegistrySkillRoot(), { withFileTypes: true })
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return false
-      }
-      throw error
-    }
-
-    let synced = false
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue
-      }
-      let skillId: string
-      try {
-        skillId = normalizeSkillId(entry.name)
-      } catch {
-        continue
-      }
-      if (isSkillRemovedByUser(removedStore, { skillId }) || (await this.runtimeSkillTargetExists(skillId))) {
-        continue
-      }
-      try {
-        await this.syncCachedSkillToSharedAgentRoot(skillId, { force: false })
-        synced = true
-      } catch (error) {
-        console.warn("[wanta] failed to sync cached registry skill to runtime:", {
-          error: error instanceof Error ? error.message : String(error),
-          skillId,
-        })
-        logDiagnostic("skills", "failed to sync cached registry skill to runtime", { error, skillId }, "warn")
-      }
-    }
-    return synced
-  }
-
-  private async runtimeSkillTargetExists(skillId: string): Promise<boolean> {
-    try {
-      await access(this.resolveSharedSkillTargetPath(skillId))
-      return true
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return false
-      }
-      throw error
-    }
-  }
-
   private async syncExternalAgentSkillsToRuntimeRoot(
     removedStore: Awaited<ReturnType<RemovedSkillStore["read"]>>,
   ): Promise<boolean> {
@@ -673,100 +620,12 @@ export class SkillServiceImpl extends ConnectionService<SkillService> implements
     await store.update((current) => removeRemovedSkillRecord(current, skill))
   }
 
-  private async refreshManifestRecordsForTargets(targetPaths: string[]): Promise<void> {
-    const manifestPath = this.getManifestPath()
-    const [installedSkills, manifestStore] = await Promise.all([
-      scanWantaInstalledSkills({
-        cacheSkillStoreRoot: this.getWantaSkillStoreRoot(),
-        sharedSkillRoot: this.getSharedAgentSkillRoot(),
-      }),
-      readManifestStore(manifestPath),
-    ])
-    const targetPathSet = new Set(targetPaths)
-    const targetSkills = installedSkills.filter((skill) => targetPathSet.has(skill.path))
-    await writeManifestStore(manifestPath, replaceManifestRecords(manifestStore, targetSkills))
-  }
-
-  private async syncUpdatedCachedSkillsToSharedAgentRoot(request: UpdateRegistrySkillRequest): Promise<void> {
-    const skillId = request.skillId?.trim()
-    if (skillId) {
-      const inventory = await this.readSharedSkillInventory({ writeManifest: false })
-      const group = inventory.groups.find((item) => item.id === skillId)
-      if (group?.kind !== "registry" || !group.packageName?.trim()) {
-        return
-      }
-      await this.syncCachedSkillToSharedAgentRoot(skillId, {
-        force: true,
-        packageName: request.packageName?.trim() || group.packageName,
-      })
-      return
-    }
-
-    const inventory = await this.readSharedSkillInventory({ writeManifest: false })
-    const registrySkillIds = inventory.groups
-      .filter((group) => group.kind === "registry" && Boolean(group.packageName?.trim()))
-      .map((group) => group.id)
-
-    for (const registrySkillId of registrySkillIds) {
-      const packageName = inventory.groups.find((group) => group.id === registrySkillId)?.packageName
-      await this.syncCachedSkillToSharedAgentRoot(registrySkillId, { force: true, packageName })
-    }
-  }
-
-  private async syncCachedSkillToSharedAgentRoot(
-    skillId: string,
-    options: { force: boolean; packageName?: string },
-  ): Promise<void> {
-    const normalizedSkillId = normalizeSkillId(skillId)
-    let sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId, {
-      packageName: options.packageName,
-    })
-
-    if (!sourcePath && options.packageName) {
-      await this.repairCachedRegistrySkillSource({
-        packageName: options.packageName,
-        skillId: normalizedSkillId,
-      })
-      sourcePath = await this.resolveCachedSkillSourcePath(normalizedSkillId, {
-        packageName: options.packageName,
-      })
-    }
-
-    if (!sourcePath) {
-      throw new Error(`Cached Skill source not found: ${normalizedSkillId}`)
-    }
-
-    const targetPath = this.resolveSharedSkillTargetPath(normalizedSkillId)
-    assertSafeResetPaths(sourcePath, targetPath)
-    await assertCanReplaceSharedSkillTarget(targetPath, options)
-    await replaceDirectory(sourcePath, targetPath)
-    await this.refreshManifestRecordsForTargets([targetPath])
-  }
-
-  private async resolveCachedSkillSourcePath(
-    skillId: string,
-    options: { includeCanonicalStore?: boolean; packageName?: string } = {},
-  ): Promise<string | undefined> {
-    const normalizedSkillId = normalizeSkillId(skillId)
-
-    return resolveUsableRegistrySkillSourcePath({
-      cacheSkillStoreRoot: this.getWantaSkillStoreRoot(),
-      includeCanonicalStore: options.includeCanonicalStore,
-      packageName: options.packageName,
-      skillId: normalizedSkillId,
-    })
-  }
-
   private async repairCachedRegistrySkillSource(request: { packageName: string; skillId: string }): Promise<void> {
     const result = await this.runOoCommand(createInstallRegistrySkillArgs({ ...request, force: true }), {
       owner: "skill-service",
       rejectOnFailure: false,
     })
     assertOoSkillOperationResult(result, "skills.install")
-  }
-
-  private resolveSharedSkillTargetPath(skillId: string): string {
-    return path.join(this.getSharedAgentSkillRoot(), normalizeSkillId(skillId))
   }
 
   private async uninstallRegistrySkillFromStores(targets: SkillDeleteStoreTarget[]): Promise<unknown[]> {
